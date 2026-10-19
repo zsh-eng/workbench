@@ -5,27 +5,25 @@ meant to be a working roadmap, not a promise that every idea below should ship.
 
 ## Current Direction
 
-The near-term mobile strategy should be:
+Reader stays a web app. The Expo mobile shell is shelved. The current goal is
+to find how far the look and feel of a web app can go, on phones (installed
+PWA) and on desktop:
 
-1. Make the current PWA feel better on phones.
-2. Extract the sync and storage contracts that a native client would need.
-3. Create an Expo app as a native shell around the current web reader.
-4. Replace shell screens with native screens gradually.
-5. Decide later whether the reader itself remains WebView-based or becomes a
-   native reader surface.
+1. Make the PWA feel native on phones: gestures, sheets, safe areas and
+   motion.
+2. Finish Reader paper cuts and Reader Experience Work (search, selection,
+   jump history).
+3. Keep the sync and storage contracts clean, so that a native port stays
+   possible later if it becomes necessary.
 
-Slapping the current PWA into an Expo app is a good first mobile spike because
-it proves packaging, auth, routing, safe areas, file import, and store-style
-constraints quickly. It should not be treated as the final architecture. The
-reader depends heavily on browser APIs, DOM layout, CSS, selection behavior,
-IndexedDB, and web workers, so a full native reader is a larger project.
+The Reader depends on browser APIs, DOM layout, CSS, selection behavior,
+IndexedDB, and web workers. A native port, as a WebView shell or as a native
+reader, is a separate project. Start it only if the web app reaches a limit
+that the evidence shows it cannot pass.
 
-## Should Sync Come Before Mobile?
+## If A Native Port Comes Back
 
-Build the new sync data model/package before serious native app work, but do
-not let it block a small Expo WebView spike.
-
-Recommended sequencing:
+This sequence is kept for reference. It is not current work.
 
 1. **Expo shell spike**
    Prove that the existing app can run inside an Expo wrapper, authenticate,
@@ -94,7 +92,9 @@ boundary and a completion gate; it does not authorize an unmeasured rewrite.
 
 ## Mobile App Work
 
-These milestones require one iOS and one Android device for acceptance. The
+Shelved. Reader stays a web app, and phone work happens in the PWA (see PWA
+Product Work). The milestones below apply only if a native port starts
+later. They require one iOS and one Android device for acceptance. The
 WebView shell can start before the native storage adapter is complete.
 
 - [ ] Build an Expo WebView shell: authenticate, open Library/book, route a deep
@@ -361,8 +361,7 @@ Notetaking flow
 ### Next
 
 - [ ] Ship Reader search end to end.
-      `src/lib/book-search.ts` already extracts and caches chapter text and
-      returns match context. Reader tools still show a placeholder. First
+      Reader tools still show a placeholder. First
       connect literal-text search to a cancellable query and result list, then
       map each result to a canonical content anchor. Keep result state per
       book; invalidate cached text when the source EPUB changes. Include
@@ -446,7 +445,8 @@ that an unprovided problem EPUB is fixed.
 Research must produce a fixture, comparison or runnable proof that informs a
 specific implementation decision. These groups cover the original topic list.
 
-- [ ] **Expo/React Native, Router, native SDKs and WebView bridge:** deliver the
+- [ ] **Expo/React Native, Router, native SDKs and WebView bridge** (shelved
+      with the Expo shell; keep for a later native port): deliver the
       first mobile shell above and a versioned request/reply bridge for auth,
       file references, deep links and Reader commands. Include picker/sharing,
       secure store, lifecycle/background tasks, haptics, orientation, brightness

@@ -1,9 +1,12 @@
+import type { ColumnSlice } from "./shared/layout-column";
 import type {
   FontConfig,
   LayoutTheme,
   PageSlice,
   TextCursorOffset,
 } from "./shared/types";
+
+export type { ColumnSlice } from "./shared/layout-column";
 
 // Re-export types that are unchanged from pagination v1
 export { areFontConfigsEqual } from "./shared/types";
@@ -108,8 +111,9 @@ export type SpreadIntent =
         | "scrubber";
     }
   | {
+      /** Shows a place without moving the reading position or history. */
       kind: "preview";
-      source: "scrubber";
+      source: "scrubber" | "search";
     }
   | {
       kind: "restore";
@@ -162,6 +166,29 @@ export interface ResolvedSpreadWindow {
   previous: ResolvedSpread | null;
   current: ResolvedSpread;
   next: ResolvedSpread | null;
+  /**
+   * The engine's reading anchor for `current`: a jump's exact target, or the
+   * anchor that a page turn chose. Scroll mode places its column by it.
+   */
+  anchor?: ContentAnchor;
 }
 
 export type PaginationStatus = "idle" | "partial" | "recalculating" | "ready";
+
+/**
+ * One chapter laid out as a single scroll column (prototype, Debug mode).
+ * Built from the chapter's pages, so `pageStarts` and `pageAnchors` map any
+ * scroll offset to an exact page boundary and back.
+ */
+export interface ChapterColumnLayout {
+  chapterIndex: number;
+  /** The page width and height that the column and its pages were built for. */
+  width: number;
+  pageHeight: number;
+  height: number;
+  slices: ColumnSlice[];
+  /** Column offset of the top of each chapter-local page. */
+  pageStarts: number[];
+  /** A content anchor for each page; it resolves back to that page. */
+  pageAnchors: ContentAnchor[];
+}

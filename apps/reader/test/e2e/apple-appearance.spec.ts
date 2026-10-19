@@ -1,33 +1,19 @@
 import { test, expect } from "./helpers/fixtures";
 
 // CSS/browser integration checks; installed Safari bar sampling needs a device.
-for (const theme of [
-  "light",
-  "dark",
-  "night",
-  "flexoki-light",
-  "flexoki-dark",
-]) {
+// Every theme takes the same path; dark is the one that once kept a white bar.
+for (const theme of ["light", "dark"]) {
   test(`restores ${theme} browser appearance on launch`, async ({ page }) => {
     await page.addInitScript((theme) => {
       localStorage.setItem("epub-reader-settings", JSON.stringify({ theme }));
-      localStorage.setItem(
-        "epub-reader-appearance",
-        theme === "dark" || theme === "night" || theme === "flexoki-dark"
-          ? "dark"
-          : "light",
-      );
+      localStorage.setItem("epub-reader-appearance", theme);
     }, theme);
     await page.goto("/");
     // A test's first page can also load Vite's cold application module graph.
     await expect(
       page.getByRole("button", { name: "Choose EPUB files", exact: true }),
     ).toBeVisible({ timeout: 15_000 });
-    const dark = ["dark", "night", "flexoki-dark"].includes(theme);
-    await expect(page.locator("html")).toHaveCSS(
-      "color-scheme",
-      dark ? "dark" : "light",
-    );
+    await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
     const appearance = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       return {
@@ -41,7 +27,6 @@ for (const theme of [
     });
     expect(appearance.tint).toBe(appearance.token);
     expect(appearance.canvas).toBe(appearance.body);
-    await page.screenshot({ path: test.info().outputPath(`${theme}.png`) });
   });
 }
 

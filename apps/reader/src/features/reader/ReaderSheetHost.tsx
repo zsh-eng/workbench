@@ -4,7 +4,6 @@ import type { ReaderSettings } from "@/types/reader.types";
 import { ReaderContentsPanel } from "./ReaderContentsSheet";
 import { ReaderBookActionsSheet } from "./ReaderBookActionsSheet";
 import {
-  ReaderSettingsList,
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
 } from "./ReaderSettingsSheet";
@@ -29,6 +28,10 @@ interface ReaderSheetHostProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   notesPanel?: ReactNode;
+  /** Book search, for the sidebar or a phone sheet page. */
+  searchPanel?: ReactNode;
+  /** Pages or Scroll (Debug mode), for Appearance's Layout tab. */
+  layoutControl?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The desktop header control that opens the tools sidebar. */
   toolsTriggerRef: RefObject<HTMLButtonElement | null>;
@@ -56,10 +59,12 @@ export function ReaderSheetHost({
   onNavigateToHref,
   onCopyDebugDump,
   notesPanel,
+  searchPanel,
+  layoutControl,
   toolsTriggerRef,
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
-    useState<ReaderSettingsPanelTab>("theme");
+    useState<ReaderSettingsPanelTab>("type");
   const detentSheets = useDetentSheetsEnabled();
   if (!isMobile) {
     return (
@@ -75,6 +80,8 @@ export function ReaderSheetHost({
         currentChapterHref={currentChapterHref}
         onNavigateToHref={onNavigateToHref}
         notesPanel={notesPanel}
+        searchPanel={searchPanel}
+        layoutControl={layoutControl}
         onCopyDebugDump={onCopyDebugDump}
         triggerRef={toolsTriggerRef}
       />
@@ -89,6 +96,7 @@ export function ReaderSheetHost({
           onOpenBookActions={() => onOpenSheet("book-actions")}
           onOpenSettings={() => onOpenSheet("settings")}
           onOpenNotes={() => onOpenSheet("notes")}
+          onOpenSearch={searchPanel ? () => onOpenSheet("search") : undefined}
           onCopyDebugDump={onCopyDebugDump}
         />
       )}
@@ -112,23 +120,19 @@ export function ReaderSheetHost({
           className={detents ? "min-h-0 flex-1" : "h-full"}
         />
       )}
-      {page === "settings" &&
-        (detents ? (
-          <ReaderSettingsList
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            className="min-h-0 flex-1"
-          />
-        ) : (
-          <ReaderSettingsPanel
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            activeTab={settingsTab}
-            onActiveTabChange={setSettingsTab}
-            className="mt-0 h-full"
-          />
-        ))}
+      {page === "settings" && (
+        <ReaderSettingsPanel
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          activeTab={settingsTab}
+          onActiveTabChange={setSettingsTab}
+          layoutControl={layoutControl}
+          // A detent sheet fits the tab; the shared sheet has a fixed height.
+          className={detents ? "mt-0 h-auto" : "mt-0 h-full"}
+        />
+      )}
       {page === "notes" && notesPanel}
+      {page === "search" && searchPanel}
     </>
   );
 
@@ -147,9 +151,10 @@ export function ReaderSheetHost({
   const titles: Record<string, string> = {
     tools: "Reader tools",
     contents: "Contents",
-    settings: "Reading settings",
+    settings: "Appearance",
     "book-actions": "Reading status",
     notes: "Notebook",
+    search: "Search book",
   };
   return (
     <SlidingSheet
@@ -159,6 +164,7 @@ export function ReaderSheetHost({
       rootPage="tools"
       title={titles[page] ?? "Reader tools"}
       onBack={() => onOpenSheet("tools")}
+      safeAreaBottom={page !== "settings"}
     >
       {renderPage(page, false)}
     </SlidingSheet>

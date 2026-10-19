@@ -76,11 +76,32 @@ export interface BookChapterSourceCache {
   updatedAt: number;
 }
 
+/**
+ * The archive paths a book file may be stored under. EPUB hrefs are URLs, so
+ * a manifest or chapter can name "Donna%20Tartt.html" for the archive's
+ * "Donna Tartt.html".
+ */
+function getStoredPathCandidates(path: string): string[] {
+  try {
+    const decoded = decodeURIComponent(path);
+    return decoded === path ? [path] : [path, decoded];
+  } catch {
+    return [path];
+  }
+}
+
 export async function getBookFile(
   bookId: string,
   path: string,
 ): Promise<BookFile | undefined> {
-  return db.bookFiles.where("[bookId+path]").equals([bookId, path]).first();
+  for (const candidate of getStoredPathCandidates(path)) {
+    const file = await db.bookFiles
+      .where("[bookId+path]")
+      .equals([bookId, candidate])
+      .first();
+    if (file) return file;
+  }
+  return undefined;
 }
 
 export async function getBookMaterialization(
@@ -141,12 +162,22 @@ export async function getBookFilesByPaths(
   }
 
   const uniquePaths = [...new Set(paths)];
+  const candidates = uniquePaths.map(getStoredPathCandidates);
   const files = await db.bookFiles
     .where("[bookId+path]")
-    .anyOf(uniquePaths.map((path) => [bookId, path]))
+    .anyOf(candidates.flat().map((path) => [bookId, path]))
     .toArray();
+  const filesByStoredPath = new Map(files.map((file) => [file.path, file]));
 
-  return new Map(files.map((file) => [file.path, file]));
+  // Key each file by the path it was asked for.
+  const filesByPath = new Map<string, BookFile>();
+  uniquePaths.forEach((path, index) => {
+    const file = candidates[index]!.map((candidate) =>
+      filesByStoredPath.get(candidate),
+    ).find(Boolean);
+    if (file) filesByPath.set(path, file);
+  });
+  return filesByPath;
 }
 
 export async function getBookChapterSourceCache(

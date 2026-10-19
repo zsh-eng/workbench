@@ -20,6 +20,7 @@ import {
   type NavDirection,
 } from "./AnimatedSpread";
 import { useSpreadSwipeNavigation } from "./hooks/use-spread-swipe-navigation";
+import { getSpreadContentKey } from "./spread-identity";
 
 interface SpreadStageProps {
   spread: ResolvedSpread | null;
@@ -187,9 +188,11 @@ export function SpreadStage({
           }}
         >
           <AnimatePresence custom={direction} initial={false} mode="sync">
+            {/* Keyed by what the spread shows, so renumbering it as earlier
+                chapters are laid out keeps its DOM and any selection. */}
             {spread && (
               <AnimatedSpread
-                key={spread.currentSpread}
+                key={getSpreadContentKey(spread)}
                 spread={spread}
                 {...spreadViewProps}
                 disableAnimations={disableAnimations || isInteractionActive}

@@ -18,6 +18,12 @@ export const SWIPE_DIRECTION_LOCK_PX = 10;
 export const SYSTEM_NAVIGATION_EDGE_PX = 24;
 export const SWIPE_DECELERATION_RATE = 0.99;
 export const SWIPE_COMMIT_DISTANCE_RATIO = 0.25;
+/** The settle spring for page turns; scroll mode's page snap uses it too. */
+export const SWIPE_SETTLE_SPRING = {
+  type: "spring",
+  duration: 0.4,
+  bounce: 0,
+} as const;
 
 type SwipePhase = "idle" | "dragging" | "settling" | "awaiting-navigation";
 type SwipeDirection = "previous" | "next";
@@ -302,9 +308,7 @@ export function useSpreadSwipeNavigation(
 
       const generation = animationGenerationRef.current;
       const controls = animate(dragOffset, targetOffset, {
-        type: "spring",
-        duration: 0.4,
-        bounce: 0,
+        ...SWIPE_SETTLE_SPRING,
         velocity,
       });
       animationRef.current = controls;

@@ -1,9 +1,10 @@
 import { READING_SESSION_IDLE_TIMEOUT_MS } from "@/lib/db";
-import type {
-  ResolvedLeafPage,
-  ResolvedSpread,
-  SpreadIntent,
-} from "@/lib/pagination-v2";
+import type { ResolvedSpread, SpreadIntent } from "@/lib/pagination-v2";
+import {
+  readerLocationFromSpread,
+  toChapterProgressPercent,
+  type ReaderLocation,
+} from "../../reader-location";
 
 export const READING_SESSION_FLUSH_INTERVAL_MS = 5000;
 export { READING_SESSION_IDLE_TIMEOUT_MS };
@@ -45,53 +46,26 @@ interface MutableReadingSession extends ReaderReadingSessionSnapshot {
   accountedThroughAt: number;
 }
 
-type ResolvedPageSlot = Extract<
-  ResolvedSpread["slots"][number],
-  { kind: "page" }
->;
-
-function getLeadingVisiblePage(
-  spread: ResolvedSpread | null,
-): ResolvedLeafPage | null {
-  return (
-    spread?.slots.find((slot): slot is ResolvedPageSlot => slot.kind === "page")
-      ?.page ?? null
-  );
-}
-
-function clampPercentage(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-}
-
-function toChapterScrollProgress(
-  localPageIndex: number,
-  totalPagesInChapter: number,
-): number {
-  if (totalPagesInChapter <= 1) return 0;
-  return clampPercentage((localPageIndex / (totalPagesInChapter - 1)) * 100);
+export function createReaderReadingSessionPositionFromLocation(
+  bookId: string | undefined,
+  location: ReaderLocation | null,
+): ReaderReadingSessionPosition | null {
+  if (!bookId || !location) return null;
+  return {
+    bookId,
+    currentSpineIndex: location.chapterIndex,
+    scrollProgress: toChapterProgressPercent(location),
+  };
 }
 
 export function createReaderReadingSessionPosition(
   bookId: string | undefined,
   spread: ResolvedSpread | null,
 ): ReaderReadingSessionPosition | null {
-  if (!bookId) return null;
-
-  const leadingPage = getLeadingVisiblePage(spread);
-  if (!leadingPage) return null;
-
-  const localPageIndex = Math.max(0, leadingPage.currentPageInChapter - 1);
-  const totalPagesInChapter = Math.max(1, leadingPage.totalPagesInChapter);
-
-  return {
+  return createReaderReadingSessionPositionFromLocation(
     bookId,
-    currentSpineIndex: leadingPage.chapterIndex,
-    scrollProgress: toChapterScrollProgress(
-      localPageIndex,
-      totalPagesInChapter,
-    ),
-  };
+    readerLocationFromSpread(spread),
+  );
 }
 
 export function shouldTrackReadingSessionIntent(intent: SpreadIntent): boolean {

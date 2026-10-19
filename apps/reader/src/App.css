@@ -295,16 +295,21 @@
     outline 0.15s ease;
 }
 
+/* The caps reach past the first and last glyph without moving any text:
+   lines are laid out from measured glyph widths, so padding that took space
+   would push the rest of the line along. */
 .epub-highlight[data-highlight-start="true"] {
   border-top-left-radius: 0.18em;
   border-bottom-left-radius: 0.18em;
   padding-left: 0.08em;
+  margin-left: -0.08em;
 }
 
 .epub-highlight[data-highlight-end="true"] {
   border-top-right-radius: 0.18em;
   border-bottom-right-radius: 0.18em;
   padding-right: 0.08em;
+  margin-right: -0.08em;
 }
 
 @media (hover: hover) {
@@ -346,6 +351,34 @@
 
 mark {
   color: inherit;
+}
+
+/* Search matches on the page, painted by the CSS Custom Highlight API so
+   the text is never re-rendered. They use the text colour, not a hue, so a
+   match reads apart from the reader's own highlights. */
+::highlight(reader-search) {
+  background-color: color-mix(in srgb, var(--foreground) 13%, transparent);
+}
+
+/* Ideas for Design ideas: underlines alone, or only the current match. */
+[data-search-marks="underline"] ::highlight(reader-search) {
+  background-color: transparent;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--foreground) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+[data-search-marks="current"] ::highlight(reader-search) {
+  background-color: transparent;
+}
+
+::highlight(reader-search-active) {
+  background-color: color-mix(in srgb, var(--foreground) 24%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--foreground);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 
 .reader-inline-link:focus-visible,

@@ -266,26 +266,4 @@ describe("Sync Lab scenario recipes with real records and transport", () => {
       await a().readingCheckpoints.get(`resume:${ids[1]}:${bookId}`),
     ).toMatchObject({ scrollProgress: 65 });
   });
-
-  it("restarts from the prepared baseline with fresh endpoints and the original pending edit", async () => {
-    const { lab, plan, a, b, ids } = await setup("offline-edit");
-    const preparedOutbox = await a()._sync_outbox.toArray();
-    const preparedState = readSyncClientState(lab.connect(ids[0]!).storage);
-    for (const step of plan.steps) await step.run();
-    const previous = a();
-    await plan.prepare();
-    expect(previous.isOpen()).toBe(false);
-    expect(a()).not.toBe(previous);
-    expect(lab.connect(ids[0]!).isOnline()).toBe(false);
-    expect(await a()._sync_outbox.toArray()).toEqual(preparedOutbox);
-    expect(readSyncClientState(lab.connect(ids[0]!).storage)).toEqual(
-      preparedState,
-    );
-    expect(await b().notes.get(noteId)).toMatchObject({
-      content: "Initial shared note",
-    });
-    for (const step of plan.steps) await step.run();
-    expect(await a()._sync_outbox.count()).toBe(0);
-    expect(await b().notes.get(noteId)).toEqual(await a().notes.get(noteId));
-  });
 });

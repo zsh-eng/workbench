@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Build with VITE_BETTER_AUTH_URL=http://127.0.0.1:5196 bun run build first.
+// Build with VITE_BETTER_AUTH_URL=http://127.0.0.1:5196
+// VITE_SHARED_API_URL=http://127.0.0.1:5196 bun run build first.
 // Run: bunx playwright test --config playwright.network.config.ts
 // Faults occur at the server, below the production SW.
 export default defineConfig({

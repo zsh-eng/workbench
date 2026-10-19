@@ -11,7 +11,7 @@ import {
 import type { ReaderSettings } from "@/types/reader.types";
 import { cn } from "@/lib/utils";
 import { AlignLeft, ChevronLeft, Palette, Type } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ReaderSheet } from "./shared/ReaderSheet";
 
 export type ReaderSettingsPanelTab = "type" | "layout" | "theme";
@@ -21,12 +21,16 @@ interface ReaderSettingsPanelProps {
   onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
   activeTab: ReaderSettingsPanelTab;
   onActiveTabChange: (tab: ReaderSettingsPanelTab) => void;
+  /** Pages or Scroll (Debug mode); shown first in the Layout tab. */
+  layoutControl?: ReactNode;
   className?: string;
 }
 
 interface ReaderSettingsListProps {
   settings: ReaderSettings;
   onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
+  /** Pages or Scroll (Debug mode); shown first in the layout section. */
+  layoutControl?: ReactNode;
   className?: string;
 }
 
@@ -57,7 +61,7 @@ export function ReaderSettingsSheet({
 
         onClose();
       }}
-      title="Reading settings"
+      title="Appearance"
       panelClassName="max-w-md"
       bodyClassName="w-full max-w-full overflow-hidden"
       header={
@@ -89,6 +93,7 @@ export function ReaderSettingsPanel({
   onUpdateSettings,
   activeTab,
   onActiveTabChange,
+  layoutControl,
   className,
 }: ReaderSettingsPanelProps) {
   return (
@@ -102,7 +107,7 @@ export function ReaderSettingsPanel({
         className,
       )}
     >
-      <SegmentedTabsList className="mx-4 mb-3 grid h-auto grid-cols-3 rounded-full bg-secondary/50 p-1 self-center">
+      <SegmentedTabsList className="mx-4 mt-1 mb-4 grid h-auto w-auto shrink-0 grid-cols-3 rounded-full bg-secondary/50 p-1">
         <SegmentedTabsTrigger
           value="type"
           className="h-10 gap-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[state=active]:text-foreground"
@@ -128,11 +133,13 @@ export function ReaderSettingsPanel({
 
       {/* This region stays content-sized until the sheet reaches its viewport
           cap, then becomes the scroll container instead of truncating the
-          active settings panel at a fixed intermediate height. */}
+          active settings panel at a fixed intermediate height. Controls run
+          to the sheet's edge: no fade and no home indicator inset, which
+          made the sheet look cramped. */}
       <ScrollArea
-        className="min-h-0 w-full max-w-full flex-1 px-4 pb-3"
-        viewportClassName="overflow-x-hidden"
-        contentClassName="min-w-0 max-w-full overflow-x-hidden"
+        className="min-h-0 w-full max-w-full flex-1 px-4"
+        viewportClassName="overflow-x-hidden [mask-image:none] [-webkit-mask-image:none]"
+        contentClassName="min-w-0 max-w-full overflow-x-hidden pb-4"
       >
         <SegmentedTabsContent value="type" className="mt-0">
           <TypographyPanel
@@ -142,7 +149,8 @@ export function ReaderSettingsPanel({
             showContentWidthControl={false}
           />
         </SegmentedTabsContent>
-        <SegmentedTabsContent value="layout" className="mt-0">
+        <SegmentedTabsContent value="layout" className="mt-0 space-y-6">
+          {layoutControl}
           <TypographyPanel
             settings={settings}
             onUpdateSettings={onUpdateSettings}
@@ -162,6 +170,7 @@ export function ReaderSettingsPanel({
 export function ReaderSettingsList({
   settings,
   onUpdateSettings,
+  layoutControl,
   className,
 }: ReaderSettingsListProps) {
   return (
@@ -184,6 +193,7 @@ export function ReaderSettingsList({
             showContentWidthControl={false}
           />
           <div className="h-px bg-border/60" aria-hidden="true" />
+          {layoutControl}
           <TypographyPanel
             settings={settings}
             onUpdateSettings={onUpdateSettings}

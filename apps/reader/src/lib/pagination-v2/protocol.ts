@@ -1,6 +1,7 @@
 import type { PaginationChapterDiagnostics } from "./shared/types";
 import type {
   Block,
+  ChapterColumnLayout,
   ContentAnchor,
   PaginationConfig,
   ResolvedSpread,
@@ -87,6 +88,19 @@ export interface GoToTargetCommand {
   intent: SpreadIntent;
 }
 
+/**
+ * Opens the page that holds a canonical text offset, the coordinates search
+ * and highlights use. The engine resolves the offset against the chapter's
+ * current runs, so it lands right after any relayout.
+ */
+export interface GoToTextOffsetCommand {
+  type: "goToTextOffset";
+  chapterIndex: number;
+  blockStarts: [string, number][];
+  offset: number;
+  intent: SpreadIntent;
+}
+
 export interface LocateAnchorsCommand {
   type: "locateAnchors";
   scope: string;
@@ -94,8 +108,45 @@ export interface LocateAnchorsCommand {
   requestId: number;
 }
 
+/**
+ * Places canonical text offsets, the coordinates highlights and search use,
+ * on pages. Each chapter sends its block starts, since the engine has the
+ * blocks but not the canonical text.
+ */
+export interface LocateTextOffsetsCommand {
+  type: "locateTextOffsets";
+  scope: string;
+  requestId: number;
+  chapters: {
+    chapterIndex: number;
+    blockStarts: [string, number][];
+    offsets: { id: string; offset: number }[];
+  }[];
+}
+
+/** Where a text offset sits: its anchor and global page, once laid out. */
+export interface TextOffsetLocation {
+  anchor: ContentAnchor;
+  /** The page in the book; it counts only the chapters laid out so far. */
+  page: number | null;
+  /** The page in its chapter, from 1, which earlier chapters do not move. */
+  pageInChapter: number | null;
+}
+
+/**
+ * Keeps one chapter's scroll column published (prototype scroll mode). The
+ * worker sends the column now and again after each relayout of that chapter.
+ * A null chapter stops the updates.
+ */
+export interface SetScrollChapterCommand {
+  type: "setScrollChapter";
+  chapterIndex: number | null;
+}
+
 export type PaginationCommand =
   | LocateAnchorsCommand
+  | LocateTextOffsetsCommand
+  | SetScrollChapterCommand
   | InitCommand
   | AddChapterCommand
   | UpdateChapterCommand
@@ -106,7 +157,8 @@ export type PaginationCommand =
   | GoToPageCommand
   | GoToAnchorCommand
   | GoToChapterCommand
-  | GoToTargetCommand;
+  | GoToTargetCommand
+  | GoToTextOffsetCommand;
 
 interface PaginationEventMetadata {
   intent: SpreadIntent;
@@ -181,6 +233,12 @@ export interface ChapterUnavailableEvent extends PaginationEventMetadata {
   chapterIndex: number;
 }
 
+export interface ChapterColumnEvent {
+  type: "chapterColumn";
+  epoch: number;
+  column: ChapterColumnLayout;
+}
+
 export interface ErrorEvent extends PaginationEventMetadata {
   type: "error";
   message: string;
@@ -198,12 +256,19 @@ export type PaginationEvent =
       requestId: number;
       pages: Record<string, number | null>;
     }
+  | {
+      type: "textOffsetsLocated";
+      scope: string;
+      requestId: number;
+      locations: Record<string, TextOffsetLocation | null>;
+    }
   | PartialReadyEvent
   | ReadyEvent
   | ProgressEvent
   | PageContentEvent
   | PageUnavailableEvent
   | ChapterUnavailableEvent
+  | ChapterColumnEvent
   | ErrorEvent
   | TraceEvent;
 

@@ -15,6 +15,12 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
+import type { TOCItem } from "@/lib/db";
+import type {
+  ChapterCanonicalText,
+  ResolvedLeafPage,
+  ResolvedSpread,
+} from "@/lib/pagination-v2";
 import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
@@ -43,6 +49,17 @@ import {
   serializeReaderPageDebugDump,
 } from "./debug/page-debug-dump";
 import { DeferredEpubImageProvider } from "./shared/DeferredEpubImageProvider";
+import { ReaderSearchPanel } from "./search/ReaderSearchPanel";
+import { ReaderSearchStepper } from "./search/ReaderSearchStepper";
+import { useReaderSearch } from "./search/use-reader-search";
+import { useSearchMarks } from "./search/use-search-marks";
+import { useHotkey } from "@tanstack/react-hotkeys";
+import type { ReaderLocation } from "./reader-location";
+import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
+import { ScrollStage } from "./scroll/ScrollStage";
+import { SelectAcrossPagesButton } from "./scroll/SelectAcrossPagesButton";
+import { useSelectionAtPageEdge } from "./scroll/use-selection-at-page-edge";
+import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
   paginationStatus,
@@ -71,6 +88,29 @@ function DisplayReadyCommitProbe({
     });
   }, []);
 
+  return null;
+}
+
+const EMPTY_TOC: TOCItem[] = [];
+
+/** The first page a spread shows. */
+function leadingPage(spread: ResolvedSpread | null): ResolvedLeafPage | null {
+  for (const slot of spread?.slots ?? [])
+    if (slot.kind === "page") return slot.page;
+  return null;
+}
+
+/** The canonical offset of the first text block a page shows, if loaded. */
+function pageTextOffset(
+  page: ResolvedLeafPage | null,
+  getCanonicalText: (chapterIndex: number) => ChapterCanonicalText | null,
+): number | null {
+  if (!page) return null;
+  const text = getCanonicalText(page.chapterIndex);
+  for (const slice of page.content) {
+    const start = text?.blockStarts.get(slice.blockId);
+    if (start !== undefined) return start;
+  }
   return null;
 }
 
@@ -134,6 +174,10 @@ export function Reader() {
   const isReaderStageMeasured =
     isStageMeasured && stageSlotElement?.dataset.readerStageSlot === "content";
 
+  // Scroll mode's place in the book; pages mode leaves it null.
+  const [scrollLocation, setScrollLocation] = useState<ReaderLocation | null>(
+    null,
+  );
   const {
     resources: sessionResources,
     state: sessionState,
@@ -143,12 +187,41 @@ export function Reader() {
     viewport: stageViewport,
     spreadColumns: resolvedSpreadColumns,
     layoutReady: isReaderStageMeasured,
+    scrollLocation,
   });
   const resumeBackgroundLoad = sessionActions.resumeBackgroundLoad;
   const endHistoryGroup = sessionActions.endHistoryGroup;
   useEffect(() => {
     endHistoryGroup();
   }, [chromeState.activeReaderSheet, endHistoryGroup]);
+
+  const { displayReady, settledPaintReady } = useReaderDisplayReadiness({
+    bookId,
+    contentReady: isReaderStageMeasured && sessionState.status === "ready",
+    stageContentRef,
+  });
+
+  // Debug-mode prototype: per-chapter scroll mode beside paged reading.
+  const scrollMode = useReaderScrollMode({
+    bookId,
+    enabled: debugEnabled,
+    touch: chromeInteractionMode === "touch",
+    ready: displayReady,
+    spread: sessionState.pagination.spread,
+    spreadWindow: sessionState.pagination.spreadWindow,
+    column: sessionState.pagination.scrollColumn,
+    chapterEntries: sessionState.chapters.entries,
+    chapterStartPages: sessionState.navigation.chapterStartPages,
+    // The engine's count grows while the book paginates; the navigation
+    // total would echo scroll mode's own report back.
+    totalPages: sessionState.pagination.spread?.totalPages ?? 0,
+    chapterAccess: sessionResources.chapterAccess,
+    setScrollChapter: sessionActions.setScrollChapter,
+    goToAnchor: sessionActions.goToAnchor,
+    goToChapter: sessionActions.goToChapter,
+    stageContentRef,
+    onLocationChange: setScrollLocation,
+  });
 
   const {
     state: annotationState,
@@ -157,14 +230,16 @@ export function Reader() {
     isCreatingHighlight,
     creationPosition,
     creationText,
+    activeHighlightCopyText,
     selectColor,
     closeCreation,
     clearActiveHighlight,
     captureSelectionNote,
   } = useReaderAnnotations({
     bookId,
-    spread: sessionState.pagination.spread,
-    stageContentRef,
+    // In scroll mode the column is the selectable surface.
+    spread: scrollMode.selectionSpread ?? sessionState.pagination.spread,
+    stageContentRef: scrollMode.annotationContainerRef,
     chapterEntries: sessionState.chapters.entries,
     fontConfig: sessionState.pagination.paginationConfig.fontConfig,
     publisherBookStylingEnabled:
@@ -175,11 +250,66 @@ export function Reader() {
     onCreateHighlight: sessionActions.createHighlight,
   });
 
-  const { displayReady, settledPaintReady } = useReaderDisplayReadiness({
-    bookId,
-    contentReady: isReaderStageMeasured && sessionState.status === "ready",
+  // A page selection that a page break stops can move into scroll mode.
+  const selectionAtPageEdge = useSelectionAtPageEdge({
+    enabled:
+      scrollMode.selectAcrossPagesAvailable &&
+      chromeState.activeReaderSheet === null &&
+      displayReady,
     stageContentRef,
   });
+
+  // Search starts its worker once the book has settled, or when it opens.
+  const searchOpen = chromeState.activeReaderSheet === "search";
+  // Search ideas for Design ideas, Debug mode only: `?search=` steps to the
+  // nearest match and `?searchMarks=` picks how matches are marked.
+  const searchIdea = debugEnabled ? searchParams.get("search") : null;
+  const searchMarks = debugEnabled ? searchParams.get("searchMarks") : null;
+  const [searchStarted, setSearchStarted] = useState(false);
+  const readerPage = leadingPage(sessionState.pagination.spread);
+  if ((searchOpen || searchIdea) && !searchStarted) setSearchStarted(true);
+  const search = useReaderSearch({
+    bookId: bookId ?? "",
+    enabled: searchStarted,
+    warm: settledPaintReady,
+    chapters: sessionState.chapters.entries,
+    toc: sessionState.book?.toc ?? EMPTY_TOC,
+    chapterAccess: sessionResources.chapterAccess,
+    highlights: sessionState.highlights,
+    locations: sessionState.pagination.searchLocations,
+    locateTextOffsets: sessionResources.locateTextOffsets,
+    layoutKey: `${sessionState.pagination.status}:${sessionState.navigation.totalPages}`,
+    currentChapterIndex: sessionState.navigation.currentChapterIndex,
+    currentPageInChapter: readerPage?.currentPageInChapter ?? null,
+    readerOffset:
+      readerPage?.chapterIndex === sessionState.navigation.currentChapterIndex
+        ? pageTextOffset(
+            readerPage,
+            sessionResources.chapterAccess.getCanonicalText,
+          )
+        : null,
+    goToTextOffset: sessionActions.goToTextOffset,
+    // A Design ideas preview leaves the book where its reader left it.
+    previewOnly: Boolean(searchIdea),
+  });
+  const searchActiveIndex = search.state.activeIndex;
+  useSearchMarks({
+    enabled: searchOpen || searchActiveIndex !== null,
+    // In scroll mode the column holds the text, and it mounts rows as the
+    // reader scrolls.
+    containerRef: scrollMode.annotationContainerRef,
+    contentKey: scrollMode.renderedRows,
+    spread: sessionState.pagination.spread,
+    spreadWindow: sessionState.pagination.spreadWindow,
+    results: search.state.results,
+    activeId:
+      searchActiveIndex === null
+        ? null
+        : (search.state.results[searchActiveIndex]?.id ?? null),
+    getCanonicalText: sessionResources.chapterAccess.getCanonicalText,
+  });
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
+
   const { prompt: handoffPrompt } = useReaderHandoffPrompt({
     bookId,
     // The handoff target needs the complete chapter-to-page map. Starting this
@@ -205,6 +335,83 @@ export function Reader() {
     if (!settledPaintReady) return;
     resumeBackgroundLoad();
   }, [resumeBackgroundLoad, settledPaintReady]);
+  const searchIdeaStep = useRef<"query" | "open" | "done">("query");
+  const { setQuery: setSearchQuery, next: nextSearchResult } = search;
+  useEffect(() => {
+    if (!searchIdea || !displayReady) return;
+    if (searchIdeaStep.current === "query") {
+      searchIdeaStep.current = "open";
+      setSearchQuery(searchIdea, { remember: false });
+    } else if (
+      searchIdeaStep.current === "open" &&
+      search.state.status === "done" &&
+      search.state.results.length
+    ) {
+      searchIdeaStep.current = "done";
+      nextSearchResult();
+    }
+  }, [
+    displayReady,
+    nextSearchResult,
+    search.state.results.length,
+    search.state.status,
+    searchIdea,
+    setSearchQuery,
+  ]);
+
+  // Find next and previous, as in a browser.
+  const stepEnabled = displayReady && search.state.results.length > 0;
+  useHotkey(
+    "Mod+G",
+    (event) => {
+      event.preventDefault();
+      search.next();
+    },
+    {
+      target: window,
+      enabled: stepEnabled,
+      ignoreInputs: false,
+      stopPropagation: false,
+      meta: { name: "Next search result", description: "Go to the next match" },
+    },
+  );
+  useHotkey(
+    "Mod+Shift+G",
+    (event) => {
+      event.preventDefault();
+      search.previous();
+    },
+    {
+      target: window,
+      enabled: stepEnabled,
+      ignoreInputs: false,
+      stopPropagation: false,
+      meta: {
+        name: "Previous search result",
+        description: "Go to the previous match",
+      },
+    },
+  );
+
+  useHotkey(
+    "Mod+F",
+    (event) => {
+      event.preventDefault();
+      if (!displayReady) return;
+      chromeActions.openReaderSheet("search");
+      setSearchFocusRequest((request) => request + 1);
+    },
+    {
+      target: window,
+      ignoreInputs: false,
+      requireReset: true,
+      stopPropagation: false,
+      meta: {
+        name: "Search book",
+        description: "Find words in this book",
+      },
+    },
+  );
   const statusPrompt = useReaderStatusPrompt({
     bookId,
     isReady: displayReady,
@@ -262,6 +469,16 @@ export function Reader() {
     sessionState.chapters.entries[sessionState.navigation.currentChapterIndex];
   const isReaderInteractionSuppressed =
     chromeState.activeReaderSheet !== null || !displayReady;
+  const selectAcrossPages = (variant: "island" | "toolbar") =>
+    selectionAtPageEdge && isCreatingHighlight ? (
+      <SelectAcrossPagesButton
+        variant={variant}
+        onSelect={() => {
+          closeCreation();
+          scrollMode.enterWithSelection(selectionAtPageEdge);
+        }}
+      />
+    ) : undefined;
   // The annotation panel owns the mobile bottom edge, including before focus
   // and while its notebook is open. Reading controls must not compete with it.
   const mobileAnnotationVisible =
@@ -327,7 +544,10 @@ export function Reader() {
   };
 
   return (
-    <div className="relative h-dvh overflow-hidden overscroll-none bg-background">
+    <div
+      data-search-marks={searchMarks ?? undefined}
+      className="relative h-dvh overflow-hidden overscroll-none bg-background"
+    >
       {displayReady && (
         <DisplayReadyCommitProbe
           key={bookId}
@@ -343,6 +563,8 @@ export function Reader() {
           canGoNext={sessionState.navigation.canGoNext}
           chromeInteractionMode={chromeInteractionMode}
           isChromeSuppressed={isReaderInteractionSuppressed}
+          scrollMode={scrollMode.scrollGestures}
+          pull={scrollMode.pull}
           onDismissContentTap={
             noteViewportHeight === null &&
             !(isMobile && (isCreatingHighlight || activeHighlightData))
@@ -364,6 +586,7 @@ export function Reader() {
             topRailProps,
             bottomRailProps,
             chromeSurfaceProps,
+            showChrome,
             hideChrome,
           }) => (
             <div
@@ -431,35 +654,85 @@ export function Reader() {
                   top: "env(safe-area-inset-top)",
                   bottom: "max(env(safe-area-inset-bottom), 0.625rem)",
                   // Both drag axes belong to the Reader; preserve native pinch zoom.
-                  touchAction:
-                    chromeInteractionMode === "touch" ? "pinch-zoom" : "auto",
+                  // Scroll mode gives the vertical axis back to the browser.
+                  touchAction: scrollMode.scrollGestures
+                    ? "pan-y pinch-zoom"
+                    : chromeInteractionMode === "touch"
+                      ? "pinch-zoom"
+                      : "auto",
                 }}
               >
                 <DeferredEpubImageProvider key={bookId} bookId={bookId}>
-                  <SpreadStage
-                    spread={sessionState.pagination.spread}
-                    previousSpread={
-                      sessionState.pagination.spreadWindow?.previous
-                    }
-                    nextSpread={sessionState.pagination.spreadWindow?.next}
-                    spreadConfig={sessionState.pagination.spreadConfig}
-                    columnSpacingPx={columnGapPx}
-                    paginationConfig={sessionState.pagination.paginationConfig}
-                    stageContentRef={stageContentRef}
-                    onLinkActivate={sessionActions.openInternalHref}
-                    disableAnimations={
-                      !sessionState.settings.pageAnimationsEnabled
-                    }
-                    renderAdjacentSpreads={shouldPrepareSwipePages}
-                    swipeEnabled={swipeNavigationEnabled}
-                    onSwipeStart={hideChrome}
-                    onSwipeNext={sessionActions.nextSpread}
-                    onSwipePrevious={sessionActions.prevSpread}
-                    paddingTopPx={stagePadding.paddingTop}
-                    paddingBottomPx={stagePadding.paddingBottom}
-                    paddingLeftPx={stagePadding.paddingX}
-                    paddingRightPx={stagePadding.paddingX}
-                  />
+                  {scrollMode.showSpreadStage && (
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        // Over the column for a scrubber preview or a jump.
+                        zIndex: scrollMode.spreadAboveStage ? 4 : undefined,
+                        // Reopening in scroll mode: no page flash first.
+                        visibility: scrollMode.hideSpreadStage
+                          ? "hidden"
+                          : undefined,
+                      }}
+                    >
+                      <SpreadStage
+                        spread={sessionState.pagination.spread}
+                        previousSpread={
+                          sessionState.pagination.spreadWindow?.previous
+                        }
+                        nextSpread={sessionState.pagination.spreadWindow?.next}
+                        spreadConfig={sessionState.pagination.spreadConfig}
+                        columnSpacingPx={columnGapPx}
+                        paginationConfig={
+                          sessionState.pagination.paginationConfig
+                        }
+                        stageContentRef={stageContentRef}
+                        onLinkActivate={sessionActions.openInternalHref}
+                        disableAnimations={
+                          !sessionState.settings.pageAnimationsEnabled
+                        }
+                        renderAdjacentSpreads={shouldPrepareSwipePages}
+                        swipeEnabled={swipeNavigationEnabled}
+                        onSwipeStart={hideChrome}
+                        onSwipeNext={sessionActions.nextSpread}
+                        onSwipePrevious={sessionActions.prevSpread}
+                        paddingTopPx={stagePadding.paddingTop}
+                        paddingBottomPx={stagePadding.paddingBottom}
+                        paddingLeftPx={stagePadding.paddingX}
+                        paddingRightPx={stagePadding.paddingX}
+                      />
+                    </div>
+                  )}
+                  {scrollMode.stage && (
+                    <ScrollStage
+                      key={scrollMode.stageKey}
+                      {...scrollMode.stage}
+                      baseFontSize={
+                        sessionState.pagination.paginationConfig.fontConfig
+                          .baseSizePx
+                      }
+                      bodyLineHeight={Math.round(
+                        sessionState.pagination.paginationConfig.layoutTheme
+                          .baseFontSizePx *
+                          sessionState.pagination.paginationConfig.layoutTheme
+                            .lineHeightFactor,
+                      )}
+                      paddingTopPx={stagePadding.paddingTop}
+                      paddingLeftPx={stagePadding.paddingX}
+                      paddingRightPx={stagePadding.paddingX}
+                      onScrollDirection={(direction) => {
+                        if (direction === "down") hideChrome();
+                        else showChrome();
+                      }}
+                      onSnapStart={hideChrome}
+                      onLinkActivate={sessionActions.openInternalHref}
+                      // A phone's header and footer cover the stage's
+                      // soft edges while they show.
+                      chromeVisible={
+                        isMobile && noteViewportHeight === null && chromeVisible
+                      }
+                    />
+                  )}
                 </DeferredEpubImageProvider>
               </div>
 
@@ -468,7 +741,26 @@ export function Reader() {
                   !isReaderInteractionSuppressed &&
                   !mobileAnnotationVisible &&
                   !(isMobile && annotationState.kind === "active") &&
-                  (handoffPrompt ? (
+                  (searchActiveIndex !== null ? (
+                    <ReaderSearchStepper
+                      floating={isMobile}
+                      index={searchActiveIndex}
+                      total={search.state.results.length}
+                      truncated={search.state.truncated}
+                      onPrevious={() => {
+                        search.previous();
+                        if (chromeInteractionMode === "touch") hideChrome();
+                      }}
+                      onNext={() => {
+                        search.next();
+                        if (chromeInteractionMode === "touch") hideChrome();
+                      }}
+                      onShowResults={() =>
+                        chromeActions.openReaderSheet("search")
+                      }
+                      onClose={search.exit}
+                    />
+                  ) : handoffPrompt ? (
                     <ReaderChromeAccessory
                       kind="handoff"
                       floating={isMobile}
@@ -563,6 +855,16 @@ export function Reader() {
                 chromeSurfaceProps={chromeSurfaceProps}
                 isContentsOpen={chromeState.activeReaderSheet === "contents"}
                 currentPage={sessionState.navigation.currentPage}
+                progressLabel={
+                  scrollMode.progressLabel && (
+                    <p
+                      data-testid="reader-scroll-progress"
+                      className="-mt-0.5 pb-1 text-center text-[9px] font-numeric font-medium uppercase tracking-[0.14em] text-muted-foreground/80 tabular-nums"
+                    >
+                      {scrollMode.progressLabel}
+                    </p>
+                  )
+                }
                 totalPages={sessionState.navigation.totalPages}
                 currentChapterIndex={
                   sessionState.navigation.currentChapterIndex
@@ -616,6 +918,7 @@ export function Reader() {
                       isMobile && (isCreatingHighlight || activeHighlightData)
                         ? {
                             identity: annotationState,
+                            action: selectAcrossPages("island"),
                             highlightId: activeHighlightData?.id,
                             tools: (
                               <HighlightToolbarContainer
@@ -664,7 +967,15 @@ export function Reader() {
                     onVisitHighlight={sessionActions.goToHighlight}
                     chapters={sessionState.chapters.entries}
                     chapterAccess={sessionResources.chapterAccess}
-                    pagination={sessionState.pagination}
+                    pagination={
+                      // Notes capture and place against what the view shows.
+                      scrollMode.viewSpread
+                        ? {
+                            ...sessionState.pagination,
+                            spread: scrollMode.viewSpread,
+                          }
+                        : sessionState.pagination
+                    }
                     locateAnchors={sessionResources.locateAnchors}
                     open={
                       noteViewportHeight !== null ||
@@ -674,7 +985,9 @@ export function Reader() {
                       sessionState.navigation.currentChapterIndex
                     }
                     location={{
-                      page: sessionState.navigation.currentPage,
+                      page:
+                        scrollMode.visiblePages?.first ??
+                        sessionState.navigation.currentPage,
                       chapter: currentChapterEntry?.title ?? "Current chapter",
                     }}
                     notebook={
@@ -708,15 +1021,27 @@ export function Reader() {
                     onDraftPresenceChange={setNoteDraftPresent}
                     onReturnToReading={hideChrome}
                     margin={{
-                      width: stagePadding.paddingX,
+                      // Scroll mode centres one page-wide column, so a spread
+                      // layout leaves it the wider margins.
+                      width:
+                        scrollMode.mode === "scroll"
+                          ? stagePadding.paddingX +
+                            ((resolvedSpreadColumns - 1) *
+                              (stageViewport.width + columnGapPx)) /
+                              2
+                          : stagePadding.paddingX,
                       enabled: !isMobile && !isReaderInteractionSuppressed,
+                      // In scroll mode notes move with their passages.
+                      follow: scrollMode.mode === "scroll",
                       location: {
-                        page: Math.min(
-                          sessionState.navigation.totalPages,
-                          sessionState.navigation.currentPage +
-                            resolvedSpreadColumns -
-                            1,
-                        ),
+                        page:
+                          scrollMode.visiblePages?.last ??
+                          Math.min(
+                            sessionState.navigation.totalPages,
+                            sessionState.navigation.currentPage +
+                              resolvedSpreadColumns -
+                              1,
+                          ),
                         chapter:
                           sessionState.chapters.entries[
                             sessionState.pagination.spread?.chapterIndexEnd ??
@@ -744,10 +1069,40 @@ export function Reader() {
                         currentChapterHref={currentChapterEntry?.href ?? ""}
                         onNavigateToHref={sessionActions.openTocHref}
                         notesPanel={notesPanel}
+                        searchPanel={
+                          <ReaderSearchPanel
+                            search={search}
+                            isOpen={searchOpen}
+                            autoFocus={isMobile ? "when-empty" : "always"}
+                            focusRequest={searchFocusRequest}
+                            // The tools and, on a touch screen, the
+                            // header and footer can cover the match.
+                            onResultOpened={() => {
+                              chromeActions.closeReaderSheet();
+                              if (chromeInteractionMode === "touch")
+                                hideChrome();
+                            }}
+                            className={isMobile ? undefined : "h-full"}
+                          />
+                        }
                         onCopyDebugDump={
                           debugEnabled
                             ? () => void handleCopyDebugDump()
                             : undefined
+                        }
+                        layoutControl={
+                          debugEnabled ? (
+                            <ReadingLayoutRow
+                              value={scrollMode.preferredMode}
+                              disabled={scrollMode.switchDisabled}
+                              onChange={(next) => {
+                                // The sheet closes while the layout changes
+                                // behind it.
+                                chromeActions.closeReaderSheet();
+                                scrollMode.setMode(next);
+                              }}
+                            />
+                          ) : undefined
                         }
                       />
                     )}
@@ -763,6 +1118,7 @@ export function Reader() {
                       isCreatingHighlight={isCreatingHighlight}
                       creationPosition={creationPosition}
                       creationText={creationText}
+                      activeHighlightCopyText={activeHighlightCopyText}
                       onCreateColorSelect={selectColor}
                       onCreateClose={closeCreation}
                       activeHighlight={
@@ -772,6 +1128,7 @@ export function Reader() {
                       }
                       onEditClose={clearActiveHighlight}
                       onCreateNoteSubmit={undefined}
+                      creationAction={selectAcrossPages("toolbar")}
                       onAddSelectionNote={() => {
                         const note = captureSelectionNote();
                         if (!note) return;

@@ -32,6 +32,16 @@ This job scheduling bears a passing similarity to React Fiber: split expensive w
 
 Epochs keep events from old layout work from overwriting newer results on the main thread. Coalescing prevents repeated config changes or repeated navigation commands from forcing the worker to finish work that no longer matters.
 
+## Scroll mode prototype (Debug)
+
+With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).
+
+- The engine builds the column from the chapter's paged layout (`shared/layout-column.ts`), so lines break exactly as on the pages. Each page's start is a column offset, and its anchor comes from `pickAnchorForPage`.
+- `ScrollStage` positions rows at exact offsets and mounts only the rows near the view. Long blocks split into chunks of 8 lines. The rows of a text selection stay mounted.
+- Pages → Scroll opens at the current page's offset. Scroll → Pages snaps to the page of the first fully visible line, or to the next page when it starts within two lines of the top.
+- The settled scroll position goes to pagination as a linear move, so checkpoints and reading sessions follow it. Highlights resolve against a one-page spread of the whole column and save the same offsets as on a page.
+- `?scrollWindow=off` mounts every row, for comparing frame times.
+
 ## High-level stages
 
 1. `Book -> ChapterEntry[]`
@@ -66,6 +76,40 @@ The Reader cache has four owners under `data/reader-cache/`:
   Re-run only the decoration stage for already loaded chapters, then update pagination for chapters whose highlighted HTML changed.
 - pagination config or spread config change:
   Pagination handles relayout itself. Reader-side chapter content does not reload.
+
+## Search
+
+Search runs over canonical chapter text, the same coordinates highlights and
+notes use, so a result stays correct when the type changes and pages move.
+
+- `search/search.worker.ts` holds the book's text and searches it chapter by
+  chapter, yielding every 8ms. It starts at the reader's page and wraps round
+  the book, so when it stops at 1,000 matches it keeps those nearest the
+  reader. It sends the first match at once, then progress. A newer query or a
+  cancel stops the old search.
+- The worker starts once the book has settled and the page is idle. The text
+  goes over a chapter at a time in idle moments, and the worker folds the
+  whole book in the background (about 25ms for 2.6 million characters on a
+  laptop), so the first search only has to match. Nothing is searched until
+  search opens.
+- Every keystroke searches. Matching is `String#indexOf` over the folded
+  text, which covers a 2.6-million-character book in 0.1–5ms, so there is no
+  index: a trigram index answers three or more letters in microseconds but
+  takes 60–200ms and about 10MB to build and does nothing for the first two
+  letters, and a suffix array takes seconds. The list keeps the last query's
+  results until the new query's first arrive, so typing never blanks it.
+- `search/search-text.ts` folds case, accents, curly quotes and invisible
+  characters, and maps folded matches back to canonical offsets. Most text
+  folds one to one, so the map keeps only the places where it does not.
+- `goToTextOffset` and `locateTextOffsets` in `pagination-v2` turn an offset
+  into a page. Locating covers only the results shown and the first few from
+  the reader's page, so a long result list does not hold up page turns. A
+  step from the reader compares pages within a chapter, because book page
+  numbers move while earlier chapters are still being laid out.
+- `search/search-marks.ts` marks the matches on the pages in view with the
+  CSS Custom Highlight API, without changing the page's DOM.
+- Searching never moves the page or the reading checkpoint. Opening a result
+  is a `search` jump, so the history strip leads back.
 
 ## Reader diagnostics CLI
 

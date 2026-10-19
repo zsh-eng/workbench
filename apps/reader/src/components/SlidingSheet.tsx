@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import {
   AnimatePresence,
   motion,
@@ -20,7 +21,12 @@ function SheetPage({
   const reduceMotion = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (present) ref.current?.focus({ preventScroll: true });
+    if (!present) return;
+    // A page can name the control that should take focus, such as a field.
+    const target =
+      ref.current?.querySelector<HTMLElement>("[data-sheet-autofocus]") ??
+      ref.current;
+    target?.focus({ preventScroll: true });
   }, [present]);
   return (
     <motion.div
@@ -64,6 +70,7 @@ export function SlidingSheet({
   rootPage,
   title,
   onBack,
+  safeAreaBottom = true,
   children,
 }: {
   open: boolean;
@@ -72,18 +79,27 @@ export function SlidingSheet({
   rootPage: string;
   title: string;
   onBack: () => void;
+  /** Keeps the page above the home indicator. A page that scrolls to the
+   * sheet's edge, such as Appearance, turns it off. */
+  safeAreaBottom?: boolean;
   children: ReactNode;
 }) {
-  const [display, setDisplay] = useState({ page, title, children });
+  const [display, setDisplay] = useState({
+    page,
+    title,
+    children,
+    safeAreaBottom,
+  });
   if (
     open &&
     (display.page !== page ||
       display.children !== children ||
-      display.title !== title)
+      display.title !== title ||
+      display.safeAreaBottom !== safeAreaBottom)
   ) {
-    setDisplay({ page, title, children });
+    setDisplay({ page, title, children, safeAreaBottom });
   }
-  const current = open ? { page, title, children } : display;
+  const current = open ? { page, title, children, safeAreaBottom } : display;
   const direction = current.page === rootPage ? -1 : 1;
   return (
     <BottomSheet
@@ -121,7 +137,12 @@ export function SlidingSheet({
             </p>
             <div />
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col overflow-y-auto",
+              current.safeAreaBottom && "pb-[env(safe-area-inset-bottom)]",
+            )}
+          >
             {current.children}
           </div>
         </SheetPage>

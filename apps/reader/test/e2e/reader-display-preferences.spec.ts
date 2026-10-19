@@ -3,6 +3,7 @@ import {
   expect,
   openLocalBook,
   waitForReaderReady,
+  waitForSheet,
 } from "./helpers/fixtures";
 
 for (const mobile of [true, false]) {
@@ -41,10 +42,12 @@ for (const mobile of [true, false]) {
             .getByRole("button", { name: "Open reader tools", exact: true })
             .click();
           if (mobile) {
-            await page
-              .getByRole("button", { name: /Themes & settings$/ })
+            const tools = await waitForSheet(page, "Reader tools");
+            await tools
+              .getByRole("button", { name: "Appearance", exact: true })
               .click();
-            await page.getByRole("tab", { name: "Layout" }).click();
+            const settings = await waitForSheet(page, "Appearance");
+            await settings.getByRole("tab", { name: "Layout" }).click();
           } else {
             await page
               .getByRole("button", { name: "Reading appearance", exact: true })

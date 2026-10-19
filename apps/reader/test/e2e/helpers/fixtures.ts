@@ -3,6 +3,7 @@ import {
   expect,
   type BrowserContext,
   type Frame,
+  type Locator,
   type Page,
 } from "@playwright/test";
 import { fileURLToPath } from "node:url";
@@ -295,6 +296,39 @@ export async function openLocalBook(page: Page, bookId: string): Promise<void> {
   // Direct entry tests startup from prepared storage without depending on hover prefetch.
   await page.goto(`/reader/${bookId}`);
   await waitForReaderReady(page);
+}
+
+/**
+ * Waits for a phone Reader sheet to rest and returns it. A detent sheet
+ * slides in on the browser's own scrolling and takes focus once it rests;
+ * until then a tap meets a moving target and keys still go to the page. The
+ * fixed-height sheet needs no wait.
+ */
+export async function waitForSheet(page: Page, name: string): Promise<Locator> {
+  const dialog = page.getByRole("dialog", { name, exact: true });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => {
+        const overlay = element.closest(".reader-sheet-overlay");
+        if (!overlay) return true;
+        const sheet = element.closest(".reader-sheet")!;
+        return (
+          !overlay.hasAttribute("data-entering") &&
+          sheet.getBoundingClientRect().top < innerHeight
+        );
+      }),
+    )
+    .toBe(true);
+  return dialog;
+}
+
+/** Opens Reader tools from the phone header once it shows, and waits for them. */
+export async function openReaderTools(page: Page): Promise<Locator> {
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  return waitForSheet(page, "Reader tools");
 }
 
 /** Shows the phone reading chrome, which carries the Notes Island capsule. */

@@ -1,6 +1,7 @@
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import {
   prepareBlocks,
+  resolveCanonicalRangeText,
   resolveContentAnchorRangeToHighlight,
   resolveDomEndpointToContentAnchor,
   type FontConfig,
@@ -32,6 +33,8 @@ import {
   READER_TOUCH_TAP_HANDLED_EVENT,
   TOUCH_TAP_SELECTION_SUPPRESSION_MS,
 } from "./reader-interaction-events";
+import { selectParagraph } from "../paragraph-selection";
+import { getSpreadContentKey } from "../spread-identity";
 import type { ReaderSessionChapterAccess } from "./use-reader-session";
 
 export interface ActiveHighlightState {
@@ -40,11 +43,14 @@ export interface ActiveHighlightState {
 }
 
 interface PendingHighlightDraft {
-  position: { x: number; y: number };
+  /** The selection's top centre, and its foot for tools that open below. */
+  position: { x: number; y: number; bottom: number };
   spineItemId: string;
   highlight: NonNullable<
     ReturnType<typeof resolveContentAnchorRangeToHighlight>
   >;
+  /** The passage as copied: page spacing and paragraph breaks, not source whitespace. */
+  copyText: string;
 }
 
 /**
@@ -87,8 +93,10 @@ interface UseReaderAnnotationsResult {
   activeHighlight: ActiveHighlightState | null;
   activeHighlightData: Highlight | null;
   isCreatingHighlight: boolean;
-  creationPosition: { x: number; y: number };
+  creationPosition: { x: number; y: number; bottom?: number };
   creationText: string;
+  /** The selected highlight's text as the toolbar copies it. */
+  activeHighlightCopyText: string;
   selectColor: (color: AnnotationColor) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
@@ -203,8 +211,12 @@ function resolvePendingHighlightDraft(options: {
   if (!isSelectionInsideContainer(selection, container)) return null;
 
   const range = selection.getRangeAt(0);
-  const position = getSelectionPosition(selection);
-  if (!position) return null;
+  const selectionPosition = getSelectionPosition(selection);
+  if (!selectionPosition) return null;
+  const position = {
+    ...selectionPosition,
+    bottom: range.getBoundingClientRect().bottom,
+  };
 
   const startAnchor = resolveDomEndpointToContentAnchor({
     node: range.startContainer,
@@ -247,7 +259,36 @@ function resolvePendingHighlightDraft(options: {
     position,
     spineItemId: chapter.spineItemId,
     highlight,
+    copyText: resolveCanonicalRangeText({
+      chapterBlocks,
+      chapterCanonicalText,
+      startOffset: highlight.startOffset,
+      endOffset: highlight.endOffset,
+    }),
   };
+}
+
+/** A saved highlight's copy text, from its chapter when that is loaded. */
+function resolveHighlightCopyText(
+  highlight: Highlight,
+  chapterEntries: ChapterEntry[],
+  chapterAccess: ReaderSessionChapterAccess,
+): string {
+  const chapterIndex = chapterEntries.findIndex(
+    (entry) => entry.spineItemId === highlight.spineItemId,
+  );
+  if (chapterIndex < 0) return highlight.selectedText;
+  const chapterBlocks = chapterAccess.getBlocks(chapterIndex);
+  const chapterCanonicalText = chapterAccess.getCanonicalText(chapterIndex);
+  if (!chapterBlocks || !chapterCanonicalText) return highlight.selectedText;
+  return (
+    resolveCanonicalRangeText({
+      chapterBlocks,
+      chapterCanonicalText,
+      startOffset: highlight.startOffset,
+      endOffset: highlight.endOffset,
+    }) || highlight.selectedText
+  );
 }
 
 export function useReaderAnnotations({
@@ -289,6 +330,18 @@ export function useReaderAnnotations({
       null
     );
   }, [activeHighlight, highlights]);
+
+  const activeHighlightCopyText = useMemo(
+    () =>
+      activeHighlightData
+        ? resolveHighlightCopyText(
+            activeHighlightData,
+            chapterEntries,
+            chapterAccess,
+          )
+        : "",
+    [activeHighlightData, chapterAccess, chapterEntries],
+  );
 
   const resolveSelectionDraft = useCallback(
     (selection: Selection): PendingHighlightDraft | null => {
@@ -386,6 +439,7 @@ export function useReaderAnnotations({
     };
 
     let timeoutId = 0;
+    let paragraphTimeoutId = 0;
     const isTouchDevice =
       "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const delay = isTouchDevice ? 300 : 100;
@@ -398,6 +452,22 @@ export function useReaderAnnotations({
         event.target.closest("[data-note-composer]")
       )
         return;
+      // A triple-click means the paragraph. Selecting it fires selectionchange,
+      // so its timer must not be the one selectionchange cancels.
+      const container = stageContentRef.current;
+      const selection = window.getSelection();
+      if (
+        event instanceof MouseEvent &&
+        event.detail >= 3 &&
+        event.target instanceof Node &&
+        container?.contains(event.target) &&
+        selection &&
+        selectParagraph(selection)
+      ) {
+        window.clearTimeout(paragraphTimeoutId);
+        paragraphTimeoutId = window.setTimeout(handleResolvedSelection, delay);
+        return;
+      }
       timeoutId = window.setTimeout(handleResolvedSelection, delay);
     };
 
@@ -414,6 +484,17 @@ export function useReaderAnnotations({
       clearDomSelection();
     };
 
+    // A native copy (Cmd+C, or Copy in the iOS selection menu) would take
+    // a line break from every wrapped line. Copy the passage as text instead.
+    const handleCopy = (event: ClipboardEvent) => {
+      const selection = window.getSelection();
+      const draft = selection ? resolveSelectionDraft(selection) : null;
+      if (!draft || !event.clipboardData) return;
+      event.clipboardData.setData("text/plain", draft.copyText);
+      event.preventDefault();
+    };
+
+    document.addEventListener("copy", handleCopy);
     document.addEventListener("mouseup", handlePointerUp);
     document.addEventListener("touchend", handlePointerUp);
     document.addEventListener("selectionchange", handleSelectionChange);
@@ -423,6 +504,7 @@ export function useReaderAnnotations({
     );
 
     return () => {
+      document.removeEventListener("copy", handleCopy);
       document.removeEventListener("mouseup", handlePointerUp);
       document.removeEventListener("touchend", handlePointerUp);
       document.removeEventListener("selectionchange", handleSelectionChange);
@@ -433,19 +515,18 @@ export function useReaderAnnotations({
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+      window.clearTimeout(paragraphTimeoutId);
     };
-  }, [resolveSelectionDraft]);
+  }, [resolveSelectionDraft, stageContentRef]);
 
+  // Clear a selection when the pages it was made on go away.
+  const visiblePagesKey = spread ? getSpreadContentKey(spread) : "";
   useEffect(() => {
     clearDomSelection();
     setState((previousState) =>
       previousState.kind === "creating" ? { kind: "idle" } : previousState,
     );
-  }, [
-    spread?.currentSpread,
-    spread?.chapterIndexEnd,
-    spread?.chapterIndexStart,
-  ]);
+  }, [visiblePagesKey]);
 
   useEffect(() => {
     if (state.kind !== "active") return;
@@ -507,7 +588,8 @@ export function useReaderAnnotations({
     activeHighlightData,
     isCreatingHighlight: state.kind === "creating",
     creationPosition: pendingDraft?.position ?? { x: 0, y: 0 },
-    creationText: pendingDraft?.highlight.selectedText ?? "",
+    creationText: pendingDraft?.copyText ?? "",
+    activeHighlightCopyText,
     selectColor,
     closeCreation,
     clearActiveHighlight,

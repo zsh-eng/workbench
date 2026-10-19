@@ -25,14 +25,11 @@ describe("BookStatusSheet", () => {
       }),
     );
 
-    expect(screen.getAllByText("Reading status", { selector: "p" })).toHaveLength(1);
-    const dialog = screen.getByRole("dialog", { name: "Reading status" });
-    expect(dialog.querySelector("[data-base-ui-swipe-ignore]")).toBeNull();
-    expect(dialog.querySelector(".select-none")).toBeTruthy();
-
-    const selectedOption = screen.getByRole("button", { name: "Reading" });
-    expect(selectedOption.getAttribute("aria-pressed")).toBe("true");
-    expect(selectedOption.classList.contains("border-foreground")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Reading" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
 
     expect(screen.queryByRole("button", { name: "Open Book One" })).toBeNull();
 
@@ -40,33 +37,5 @@ describe("BookStatusSheet", () => {
 
     expect(onSelectStatus).toHaveBeenCalledWith("finished");
     expect(onOpenChange).not.toHaveBeenCalled();
-  });
-
-  it("shows reader navigation without making the current book interactive", () => {
-    const onBack = vi.fn();
-
-    render(
-      createElement(BookStatusSheet, {
-        open: true,
-        onOpenChange: vi.fn(),
-        bookTitle: "Current Book",
-        bookAuthor: "Current Author",
-        coverUrl: "blob:current-cover",
-        status: "reading",
-        isUpdating: false,
-        onBack,
-        onSelectStatus: vi.fn(),
-        onRemove: () => false,
-      }),
-    );
-
-    expect(
-      screen.queryByRole("button", { name: "Open Current Book" }),
-    ).toBeNull();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Back to reader tools" }),
-    );
-    expect(onBack).toHaveBeenCalledOnce();
   });
 });

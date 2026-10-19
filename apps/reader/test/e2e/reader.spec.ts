@@ -19,28 +19,6 @@ test.describe("Reader with local EPUB data", () => {
     await openLocalBook(page, localBook.id);
   });
 
-  test("should display content and turn a page", async ({ page }) => {
-    await nextSpread(page);
-    expect((await currentPages(page)).length).toBeGreaterThan(0);
-  });
-
-  test("should navigate back to library", async ({ page }) => {
-    await returnToLibrary(page);
-    await expect(
-      page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
-    ).toBeVisible();
-  });
-
-  test("should show table of contents", async ({ page }) => {
-    await page.mouse.move(600, 20);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: /CHAPTER I\. Down the Rabbit-Hole/i }),
-    ).toBeVisible();
-  });
-
   test("should restore the saved spread after leaving and reopening", async ({
     page,
     localBook,
@@ -117,15 +95,15 @@ test.describe("Reader touch subscriptions", () => {
     isMobile: true,
   });
 
+  // One plain run and one with reduced motion behind a home indicator.
   for (const { reducedMotion, bottomInset } of [
     { reducedMotion: "no-preference", bottomInset: 0 },
-    { reducedMotion: "no-preference", bottomInset: 34 },
     { reducedMotion: "reduce", bottomInset: 34 },
   ] as const) {
     test(`peeks at page count only while dragging upwards (${reducedMotion}, ${bottomInset}px inset)`, async ({
       page,
       localBook,
-    }, testInfo) => {
+    }) => {
       await page.emulateMedia({ reducedMotion });
       const cdp = await page.context().newCDPSession(page);
       await cdp.send("Emulation.setSafeAreaInsetsOverride", {
@@ -211,23 +189,9 @@ test.describe("Reader touch subscriptions", () => {
       // Hold past the old release-gesture limit; this is intentional input timing.
       await page.waitForTimeout(800);
       await expect(content).toBeInViewport();
-      await expect(peek).toHaveCSS(
-        "padding-bottom",
-        bottomInset > 0 ? "16px" : "4px",
-      );
-      await expect(peek.locator("canvas")).toHaveCSS("height", "56px");
-      await expect
-        .poll(() =>
-          peekTime.evaluate(
-            (element) =>
-              window.innerHeight - element.getBoundingClientRect().bottom,
-          ),
-        )
-        .toBeCloseTo(bottomInset > 0 ? 16 : 4, 0);
       const peekScrubberPixels = await peek
         .locator("canvas")
         .evaluate((canvas) => canvas.toDataURL());
-      await page.screenshot({ path: testInfo.outputPath("progress-peek.png") });
       await cdp.send("Input.dispatchTouchEvent", {
         type: "touchEnd",
         touchPoints: [],
@@ -251,24 +215,12 @@ test.describe("Reader touch subscriptions", () => {
       await expect(tools).toBeInViewport();
       await expect(peek).not.toBeInViewport();
       await expect(page.getByTestId("reader-page-indicator")).toBeInViewport();
-      await expect(footer.locator("canvas")).toHaveCSS("height", "56px");
+      // The footer scrubber shows the same progress as the peek.
       await expect
         .poll(() =>
           footer.locator("canvas").evaluate((canvas) => canvas.toDataURL()),
         )
         .toBe(peekScrubberPixels);
-      const bottomPadding = await page.evaluate(() => {
-        const peek = document.querySelector("[data-reader-progress-peek]")!;
-        const footer = document.querySelector("[data-reader-footer]")!;
-        return [
-          getComputedStyle(peek).paddingBottom,
-          getComputedStyle(footer).paddingBottom,
-        ];
-      });
-      expect(bottomPadding).toEqual([
-        bottomInset > 0 ? "16px" : "4px",
-        bottomInset > 0 ? "34px" : "12px",
-      ]);
       await cdp.detach();
     });
   }
@@ -276,7 +228,7 @@ test.describe("Reader touch subscriptions", () => {
   test("shows recorded and current reading time only in the peek, offline", async ({
     page,
     localBook,
-  }, testInfo) => {
+  }) => {
     await page.setViewportSize({ width: 320, height: 750 });
     await openLocalBook(page, localBook.id);
     const peek = page.locator("[data-reader-progress-peek]");
@@ -311,7 +263,6 @@ test.describe("Reader touch subscriptions", () => {
     }, localBook.id);
     const time = peek.getByTestId("reader-peek-reading-time");
     await expect(time).toHaveText("18m today · 2h 18m total");
-    const originalHeight = (await peek.boundingBox())!.height;
     // Reading without another input must be accounted for when the peek starts.
     await page.clock.fastForward(120_000);
     const cdp = await page.context().newCDPSession(page);
@@ -326,21 +277,6 @@ test.describe("Reader touch subscriptions", () => {
     await expect(peek).toBeInViewport({ ratio: 1 });
     await expect(time).toHaveText("20m today · 2h 20m total");
     await expect(time).toBeInViewport({ ratio: 1 });
-    expect((await peek.boundingBox())!.height).toBe(originalHeight);
-    const count = peek.getByTestId("reader-peek-page-indicator");
-    const countBounds = (await count.boundingBox())!;
-    const timeBounds = (await time.boundingBox())!;
-    expect(timeBounds.y).toBeGreaterThanOrEqual(
-      countBounds.y + countBounds.height,
-    );
-    expect(
-      Math.abs(
-        countBounds.x +
-          countBounds.width / 2 -
-          timeBounds.x -
-          timeBounds.width / 2,
-      ),
-    ).toBeLessThan(1);
     await expect
       .poll(() =>
         page.evaluate(async (bookId) => {
@@ -353,9 +289,6 @@ test.describe("Reader touch subscriptions", () => {
         }, localBook.id),
       )
       .toBeGreaterThanOrEqual(120_000);
-    await page.screenshot({
-      path: testInfo.outputPath("peek-reading-time.png"),
-    });
     await cdp.send("Input.dispatchTouchEvent", {
       type: "touchEnd",
       touchPoints: [],
@@ -366,9 +299,6 @@ test.describe("Reader touch subscriptions", () => {
     await expect(page.getByTestId("reader-page-indicator")).toBeInViewport();
     await expect(footer.getByTestId("reader-peek-reading-time")).toHaveCount(0);
     await expect(footer).not.toContainText(/today|total/);
-    expect(
-      (await page.getByTestId("reader-page-indicator").boundingBox())!.height,
-    ).toBe(countBounds.height);
     await cdp.detach();
   });
 

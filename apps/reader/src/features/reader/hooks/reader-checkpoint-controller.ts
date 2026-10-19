@@ -1,8 +1,9 @@
-import type {
-  ResolvedLeafPage,
-  ResolvedSpread,
-  SpreadIntent,
-} from "@/lib/pagination-v2";
+import type { ResolvedSpread, SpreadIntent } from "@/lib/pagination-v2";
+import {
+  readerLocationFromSpread,
+  toChapterProgressPercent,
+  type ReaderLocation,
+} from "../reader-location";
 
 export const CHECKPOINT_FLUSH_INTERVAL_MS = 5000;
 
@@ -15,35 +16,31 @@ export interface ReaderCheckpointSnapshot {
   bookProgress?: number;
 }
 
-type ResolvedPageSlot = Extract<
-  ResolvedSpread["slots"][number],
-  { kind: "page" }
->;
-
-function getLeadingVisiblePage(
-  spread: ResolvedSpread | null,
-): ResolvedLeafPage | null {
-  return (
-    spread?.slots.find((slot): slot is ResolvedPageSlot => slot.kind === "page")
-      ?.page ?? null
-  );
-}
-
-function toCheckpointScrollProgress(
-  localPageIndex: number,
-  totalPagesInChapter: number,
-): number {
-  if (totalPagesInChapter <= 1) return 0;
-  return (localPageIndex / (totalPagesInChapter - 1)) * 100;
-}
-
 /**
  * Page numbers count only the chapters laid out so far, so the whole-book
  * fraction is exact only after pagination of the whole book is complete.
  */
-function toBookProgress(page: ResolvedLeafPage): number {
-  if (page.totalPages <= 1) return 0;
-  return (page.currentPage - 1) / (page.totalPages - 1);
+function toBookProgress(location: ReaderLocation): number {
+  if (location.totalPages <= 1) return 0;
+  return (location.currentPage - 1) / (location.totalPages - 1);
+}
+
+/** The snapshot for a location in either reading mode. */
+export function createReaderCheckpointSnapshotFromLocation(
+  bookId: string | undefined,
+  location: ReaderLocation | null,
+  isFullyPaginated: boolean,
+): ReaderCheckpointSnapshot | null {
+  if (!bookId || !location) return null;
+
+  return {
+    bookId,
+    currentSpineIndex: location.chapterIndex,
+    localPageIndex: location.pageIndexInChapter,
+    totalPagesInChapter: location.totalPagesInChapter,
+    scrollProgress: toChapterProgressPercent(location),
+    ...(isFullyPaginated ? { bookProgress: toBookProgress(location) } : {}),
+  };
 }
 
 export function createReaderCheckpointSnapshot(
@@ -51,25 +48,11 @@ export function createReaderCheckpointSnapshot(
   spread: ResolvedSpread | null,
   isFullyPaginated: boolean,
 ): ReaderCheckpointSnapshot | null {
-  if (!bookId) return null;
-
-  const leadingPage = getLeadingVisiblePage(spread);
-  if (!leadingPage) return null;
-
-  const localPageIndex = Math.max(0, leadingPage.currentPageInChapter - 1);
-  const totalPagesInChapter = Math.max(1, leadingPage.totalPagesInChapter);
-
-  return {
+  return createReaderCheckpointSnapshotFromLocation(
     bookId,
-    currentSpineIndex: leadingPage.chapterIndex,
-    localPageIndex,
-    totalPagesInChapter,
-    scrollProgress: toCheckpointScrollProgress(
-      localPageIndex,
-      totalPagesInChapter,
-    ),
-    ...(isFullyPaginated ? { bookProgress: toBookProgress(leadingPage) } : {}),
-  };
+    readerLocationFromSpread(spread),
+    isFullyPaginated,
+  );
 }
 
 export function shouldTrackCheckpointIntent(intent: SpreadIntent): boolean {

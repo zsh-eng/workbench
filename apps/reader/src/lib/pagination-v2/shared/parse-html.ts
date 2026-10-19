@@ -14,8 +14,7 @@
  * - Inline images mixed with text are not supported by pagination v2.
  *   Image-only wrappers like `<p><img /></p>` are still lifted out as block
  *   images during tree walking.
- * - Image sizing prefers numeric `width`/`height`, then
- *   `data-epub-intrinsic-width` / `data-epub-intrinsic-height`, then defaults.
+ * - Image sizing uses numeric `width`/`height`, then defaults.
  * - Inline formatting currently preserved in runs:
  *   - bold (`<strong>`, `<b>`)
  *   - italic (`<em>`, `<i>`)
@@ -537,13 +536,9 @@ function createImageBlock(
   if (!src) return null;
 
   const intrinsicWidth =
-    parseNumeric(element.getAttribute("width")) ??
-    parseNumeric(element.getAttribute("data-epub-intrinsic-width")) ??
-    DEFAULT_INTRINSIC_WIDTH;
+    parseNumeric(element.getAttribute("width")) ?? DEFAULT_INTRINSIC_WIDTH;
   const intrinsicHeight =
-    parseNumeric(element.getAttribute("height")) ??
-    parseNumeric(element.getAttribute("data-epub-intrinsic-height")) ??
-    DEFAULT_INTRINSIC_HEIGHT;
+    parseNumeric(element.getAttribute("height")) ?? DEFAULT_INTRINSIC_HEIGHT;
 
   return {
     type: "image",

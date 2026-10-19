@@ -7,6 +7,7 @@ import {
   db,
   deleteBook,
   getBookChapterSourceCache,
+  getBookFile,
   putBookChapterSourceCache,
   type Book,
   type BookFile,
@@ -107,6 +108,37 @@ describe("reader body cache", () => {
     expect(cacheRow?.chaptersByPath[chapterEntry.href]?.bodyHtml).toContain(
       "Hello",
     );
+  });
+
+  it("finds chapter and image files named by percent-encoded hrefs", async () => {
+    const encodedEntry = {
+      ...chapterEntry,
+      href: "OPS/Donna%20Tartt%20-%20Chapter.xhtml",
+    };
+    await db.bookFiles.bulkAdd([
+      createBookFile(
+        "book-1",
+        "OPS/Donna Tartt - Chapter.xhtml",
+        "application/xhtml+xml",
+        '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>Encoded</p><img src="My%20Cover.png" /></body></html>',
+      ),
+      createBookFile("book-1", "OPS/My Cover.png", "image/png", "png"),
+    ]);
+
+    const result = await loadReaderBodyCache({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      chapterEntries: [encodedEntry],
+      publisherBookStylingEnabled: false,
+      matchPublisherBodyTextSize: false,
+    });
+
+    expect(
+      result.baseContentByChapter.get(0)?.canonicalText.fullText,
+    ).toContain("Encoded");
+    expect(await getBookFile("book-1", "OPS/My%20Cover.png")).toMatchObject({
+      path: "OPS/My Cover.png",
+    });
   });
 
   it("uses the persisted cache instead of rereading chapter blobs", async () => {

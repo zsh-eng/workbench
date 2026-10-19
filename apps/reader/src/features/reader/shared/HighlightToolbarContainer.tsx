@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import type { Highlight } from "@/types/highlight";
 import { AnimatePresence } from "motion/react";
+import type { ReactNode } from "react";
 
 interface ActiveHighlightState {
   id: string;
@@ -21,8 +22,10 @@ interface HighlightToolbarContainerProps {
 
   // For creating new highlights (text selection mode)
   isCreatingHighlight: boolean;
-  creationPosition: { x: number; y: number };
+  creationPosition: { x: number; y: number; bottom?: number };
   creationText: string;
+  /** The selected highlight's text as Copy writes it. */
+  activeHighlightCopyText?: string;
   onCreateColorSelect: (color: AnnotationColor) => void;
   onCreateClose: () => void;
   onHighlightChange?: (highlight: Highlight) => void;
@@ -30,6 +33,8 @@ interface HighlightToolbarContainerProps {
   onAddSelectionNote?: () => void;
   onAddHighlightNote?: (highlight: Highlight) => void;
   onCreateNoteSubmit?: (content: string) => void;
+  /** A further action for a new selection, after the desktop pill's own. */
+  creationAction?: ReactNode;
 
   // For editing existing highlights
   activeHighlight: ActiveHighlightState | null;
@@ -43,12 +48,14 @@ export function HighlightToolbarContainer({
   isCreatingHighlight,
   creationPosition,
   creationText,
+  activeHighlightCopyText,
   onCreateColorSelect,
   onCreateClose,
   onHighlightChange,
   onCreateNoteSubmit,
   onAddHighlightNote,
   onAddSelectionNote,
+  creationAction,
   activeHighlight,
   onEditClose,
 }: HighlightToolbarContainerProps) {
@@ -118,6 +125,7 @@ export function HighlightToolbarContainer({
             onColorSelect={onCreateColorSelect}
             onNoteSubmit={onCreateNoteSubmit}
             textToCopy={creationText}
+            action={creationAction}
           />
         )}
       </AnimatePresence>
@@ -135,7 +143,9 @@ export function HighlightToolbarContainer({
                 : undefined
             }
             onDelete={handleEditDelete}
-            textToCopy={activeHighlightData.selectedText}
+            textToCopy={
+              activeHighlightCopyText || activeHighlightData.selectedText
+            }
           />
         )}
       </AnimatePresence>

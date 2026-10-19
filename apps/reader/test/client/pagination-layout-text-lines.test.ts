@@ -4,6 +4,10 @@ import {
   layoutTextLines,
   prepareBlocks,
 } from "@/lib/pagination-v2";
+import {
+  measureCollapsedSpaceWidth,
+  measureTextWidth,
+} from "@/lib/pagination-v2/shared/measure";
 import { describe, expect, it } from "vitest";
 
 const BASE_FONT_CONFIG: FontConfig = {
@@ -361,5 +365,46 @@ describe("layoutPreWrapLines cursor offsets", () => {
       .map((line) => line.startOffset?.itemIndex ?? -1)
       .filter((itemIndex) => itemIndex >= 0);
     expect(laterOffsets.some((itemIndex) => itemIndex >= 1)).toBe(true);
+  });
+});
+
+describe("Knuth-Plass justification", () => {
+  it("keeps the unjustified last line, with its spaces, inside the column", () => {
+    const blocks: Block[] = [
+      {
+        type: "text",
+        id: "last-line",
+        tag: "p",
+        runs: [
+          {
+            kind: "text",
+            text: "Ana looks bemused at the call",
+            bold: false,
+            italic: false,
+            isCode: false,
+          },
+        ],
+      },
+    ];
+    const [textBlock] = prepareBlocks(blocks, BASE_FONT_CONFIG);
+    if (textBlock?.type !== "text") throw new Error("Expected a text block");
+    const item = textBlock.items[0]!;
+    // The words fit on one line; the words and their spaces do not.
+    const maxWidth = item.fullWidth - measureCollapsedSpaceWidth(item.font);
+
+    const { lines, renderMode } = layoutTextLines(textBlock.items, maxWidth, {
+      textAlign: "justify-knuth-plass",
+    });
+
+    expect(renderMode).toBe("manual-justify");
+    expect(lines.length).toBeGreaterThan(1);
+    const lastLineText = lines
+      .at(-1)!
+      .fragments.map((fragment) => fragment.text)
+      .join("")
+      .trimEnd();
+    expect(measureTextWidth(lastLineText, item.font)).toBeLessThanOrEqual(
+      maxWidth,
+    );
   });
 });
