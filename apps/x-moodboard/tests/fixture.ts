@@ -122,7 +122,7 @@ export function buildFixture() {
 
   const items = [
     item(1, {
-      text: "Quiet typography study for a reading app. Lowercase marginalia everywhere.",
+      text: "Quiet typography study for a reading app &amp; notes &gt; marginalia everywhere.",
       topics: ["Design inspiration"],
       subtags: { "Design inspiration": ["typography"] },
       media: [media(photo, { role: "post-image", alt_text: "A warm gradient study", format: "jpg" })],

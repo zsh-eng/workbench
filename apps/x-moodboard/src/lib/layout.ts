@@ -24,8 +24,8 @@ export function gridMetrics(width: number, density: Density): GridMetrics {
 
 /** Text card typography. Mirrors .card-text styles in app.css. */
 export const TEXT_CARD = {
-  comfortable: { size: 15, line: 22, pad: 16, maxLines: 10, title: 19, titleLine: 24, footer: 18 },
-  compact: { size: 13.5, line: 19, pad: 12, maxLines: 7, title: 16, titleLine: 20, footer: 16 },
+  comfortable: { size: 14, line: 21, pad: 16, maxLines: 10, title: 17, titleLine: 22, footer: 18 },
+  compact: { size: 13, line: 19, pad: 12, maxLines: 7, title: 15, titleLine: 20, footer: 16 },
 } as const;
 
 export const CAPTION_HEIGHT = 46;
@@ -53,18 +53,20 @@ export interface GridLayout {
 
 // ---------------------------------------------------------------- text measure
 
-// Same stack as --font-text, minus generic keywords that canvas does not resolve.
-const FONT_STACK = '"Iowan Old Style", Charter, "New York", Georgia, "Noto Serif", serif';
+// Same stack as --font-ui.
+const FONT_STACK = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif';
+const TITLE_TRACKING = -0.012; // --track-head
 
 class Measurer {
   private ctx: CanvasRenderingContext2D;
   private cache = new Map<string, number>();
   private avg: number;
   readonly space: number;
-  constructor(readonly size: number, weight = 400) {
+  constructor(readonly size: number, weight = 400, tracking = 0) {
     const canvas = document.createElement("canvas");
     this.ctx = canvas.getContext("2d")!;
     this.ctx.font = `${weight} ${size}px ${FONT_STACK}`;
+    if (tracking && "letterSpacing" in this.ctx) this.ctx.letterSpacing = `${tracking * size}px`;
     this.space = this.ctx.measureText(" ").width;
     this.avg = this.ctx.measureText("the quick brown fox jumps over a lazy dog").width / 41;
   }
@@ -110,10 +112,10 @@ class Measurer {
 }
 
 const measurers = new Map<string, Measurer>();
-function measurer(size: number, weight = 400) {
-  const key = `${size}/${weight}`;
+function measurer(size: number, weight = 400, tracking = 0) {
+  const key = `${size}/${weight}/${tracking}`;
   let m = measurers.get(key);
-  if (!m) measurers.set(key, (m = new Measurer(size, weight)));
+  if (!m) measurers.set(key, (m = new Measurer(size, weight, tracking)));
   return m;
 }
 
@@ -127,7 +129,7 @@ export function textCardLines(item: LibraryItem, colWidth: number, density: Dens
   const spec = TEXT_CARD[density];
   const inner = colWidth - spec.pad * 2;
   const body = cardText(articleBody(item.text, item.articleTitle));
-  const titleLines = item.articleTitle ? measurer(spec.title, 600).lines(item.articleTitle, inner, 3) : 0;
+  const titleLines = item.articleTitle ? measurer(spec.title, 600, TITLE_TRACKING).lines(item.articleTitle, inner, 3) : 0;
   const max = Math.max(3, spec.maxLines - titleLines);
   const lines = body ? measurer(spec.size).lines(body, inner, max) : 0;
   const result = { lines, titleLines };

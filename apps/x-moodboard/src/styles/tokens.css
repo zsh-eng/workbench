@@ -1,5 +1,5 @@
 /* Cuttings design tokens.
-   Warm paper, dark ink, one cinnabar accent. Images supply the colour. */
+   Warm paper, dark ink, one cinnabar accent, one sans-serif family. Images supply the colour. */
 
 :root {
   color-scheme: light;
@@ -20,16 +20,18 @@
   --mark-fill: var(--ink);
   --shadow-pop: 0 1px 2px rgb(29 28 26 / 0.06), 0 8px 24px rgb(29 28 26 / 0.1);
 
+  /* The platform UI face (SF Pro on Apple devices). Interface and post text share it. */
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-text: "Iowan Old Style", Charter, "New York", ui-serif, Georgia, "Noto Serif", serif;
 
   --size-xs: 11.5px;
   --size-s: 12.5px;
   --size-m: 13.5px;
   --size-l: 15px;
-  --size-card: 15px;
-  --size-read: 18px;
-  --size-title: 21px;
+  --size-read: 16px;
+  --size-page: 17px;
+  /* Headings tighten as they grow. */
+  --track-head: -0.012em;
+  --track-display: -0.02em;
 
   --space-1: 4px;
   --space-2: 8px;

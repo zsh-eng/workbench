@@ -286,10 +286,9 @@ pre,
   padding-right: var(--space-2);
   border-radius: 6px;
   color: var(--ink);
-  font-family: var(--font-text);
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: var(--track-head);
   text-decoration: none;
 }
 
@@ -820,8 +819,8 @@ pre,
   margin: 0;
   overflow: hidden;
   color: var(--ink);
-  font-family: var(--font-text);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -880,11 +879,10 @@ pre,
   display: -webkit-box;
   margin: 0 0 8px;
   overflow: hidden;
-  font-family: var(--font-text);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 600;
-  line-height: 24px;
-  letter-spacing: -0.01em;
+  line-height: 22px;
+  letter-spacing: var(--track-head);
   -webkit-box-orient: vertical;
 }
 
@@ -894,9 +892,8 @@ pre,
   margin: 0;
   overflow: hidden;
   color: var(--ink);
-  font-family: var(--font-text);
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 14px;
+  line-height: 21px;
   white-space: pre-line;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
@@ -921,9 +918,21 @@ pre,
   text-overflow: ellipsis;
 }
 
+/* Archive states read as a quiet flag, not as a topic, and never truncate; the author does. */
 .card-cue--state {
+  flex: none;
   color: var(--ink-2);
-  font-style: italic;
+}
+
+.card-cue--state::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 0.12em;
 }
 
 .card-text--compact {
@@ -931,12 +940,12 @@ pre,
 }
 
 .card-text--compact .card-body {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 19px;
 }
 
 .card-text--compact .card-title {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 20px;
 }
 
@@ -1038,10 +1047,9 @@ pre,
 
 .state h1 {
   margin: var(--space-2) 0 0;
-  font-family: var(--font-text);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-display);
 }
 
 .state-body {
@@ -1070,10 +1078,9 @@ pre,
 
 .empty h2 {
   margin: 0;
-  font-family: var(--font-text);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-display);
   overflow-wrap: anywhere;
 }
 
@@ -1480,20 +1487,19 @@ pre,
 
 .article-title {
   margin: 0;
-  font-family: var(--font-text);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.015em;
+  line-height: 1.22;
+  letter-spacing: var(--track-display);
+  text-wrap: balance;
 }
 
 .post-text {
   max-width: 64ch;
   margin-top: var(--space-5);
   color: var(--ink);
-  font-family: var(--font-text);
   font-size: var(--size-read);
-  line-height: 1.58;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1553,8 +1559,7 @@ mark {
 
 .quote blockquote {
   margin: 0 0 var(--space-2);
-  font-family: var(--font-text);
-  font-size: 16px;
+  font-size: 14.5px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1739,8 +1744,8 @@ mark {
 }
 
 .detail--text .post-text {
-  font-size: 20px;
-  line-height: 1.56;
+  font-size: var(--size-page);
+  line-height: 1.6;
 }
 
 /* topic editor */
@@ -1901,9 +1906,9 @@ mark {
 
 .modal-head h2 {
   margin: 0;
-  font-family: var(--font-text);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: var(--track-head);
 }
 
 .shortcuts {
@@ -2149,10 +2154,6 @@ mark {
 
   .page-content {
     padding: var(--space-6) var(--space-5);
-  }
-
-  .detail--text .post-text {
-    font-size: 18px;
   }
 
   .detail-dock {

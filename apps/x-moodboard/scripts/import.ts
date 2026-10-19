@@ -148,6 +148,10 @@ function handleFromUrl(url: string | undefined | null): string | null {
   const match = url?.match(/x\.com\/([^/]+)\/status\//i) ?? url?.match(/twitter\.com\/([^/]+)\/status\//i);
   return match ? match[1] : null;
 }
+/** X escapes these three characters in post text; the archive kept the escapes. */
+function unescapeX(text: string) {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
 function samePost(a: string | undefined | null, b: string | undefined | null) {
   return !!a && !!b && a.toLowerCase().replace(/\/$/, "") === b.toLowerCase().replace(/\/$/, "");
 }
@@ -495,9 +499,10 @@ function projectItem(item: SourceItem, ctx: BuildContext) {
   const subtags: Partial<Record<Topic, string[]>> = {};
   for (const topic of topics) if (item.subtags?.[topic]?.length) subtags[topic] = [...item.subtags[topic]];
 
+  const text = unescapeX(item.text);
   let articleTitle: string | null = null;
   if (state === "article") {
-    const lines = item.text.split("\n");
+    const lines = text.split("\n");
     if (lines[0].trim() === "Article" && lines[1]) articleTitle = lines[1].trim();
   }
 
@@ -510,7 +515,7 @@ function projectItem(item: SourceItem, ctx: BuildContext) {
       ? {
           url: quotedUrl ?? quoteEvidence?.url ?? null,
           handle: handleFromUrl(quotedUrl ?? quoteEvidence?.url),
-          text: quoteEvidence?.text ?? null,
+          text: quoteEvidence ? unescapeX(quoteEvidence.text) : null,
         }
       : null;
 
@@ -524,7 +529,7 @@ function projectItem(item: SourceItem, ctx: BuildContext) {
     name: item.author_name ?? null,
     postedAt: item.post_date ?? null,
     order: order0,
-    text: item.text,
+    text,
     textState: state,
     articleTitle,
     topics,

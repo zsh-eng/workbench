@@ -70,7 +70,8 @@ source archive (read-only)          library.local/ (private, ignored)
 - **Importer** (`scripts/import.ts`). It reads the source twice and stops if
   the files change during the read or changed less than 5 s ago. It keeps only
   items whose `source_types` include `x-bookmarks`. It drops Telegram
-  provenance, message IDs and saved dates. It checks every referenced file
+  provenance, message IDs and saved dates. It decodes the `&amp;`, `&lt;` and
+  `&gt;` escapes that X leaves in post text. It checks every referenced file
   against the manifest. A missing or mismatched file becomes an honest
   "not saved" slot; the post stays. Snapshots are written to a temporary
   folder, renamed, and then `current.json` is replaced atomically. The last three
@@ -124,10 +125,11 @@ source archive (read-only)          library.local/ (private, ignored)
 
 ## Design direction
 
-A quiet editorial studio: warm paper, dark ink, one cinnabar accent. Images
-supply the colour. Post text is set in a book face (Iowan Old Style, Charter
-fallback); interface text uses the system face. Text-only posts are designed as
-cards of their own, and read as a page in the detail view. Motion is spatial:
+A quiet studio, after mymind and Atlas: warm paper, dark ink, one cinnabar
+accent. Images supply the colour. One sans-serif family, the platform UI face
+(SF Pro on Apple devices), sets both interface and post text; size, weight and
+colour make the hierarchy. Text-only posts are designed as cards of their own,
+and read as a page in the detail view. Motion is spatial:
 the card image travels into the detail view and back to its card. Filtering
 animates only the visible cards. With reduced motion, the app uses a short fade.
 Video cards preview silently on hover, one at a time; no video loads until you

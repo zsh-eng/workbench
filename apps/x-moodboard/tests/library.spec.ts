@@ -21,6 +21,8 @@ test("imports X bookmarks only and keeps Telegram provenance out of the app", as
   expect(served).not.toContain("SECRET-TG");
   expect(served.toLowerCase()).not.toContain("telegram");
 
+  // X escapes &, < and > in post text; the app shows the characters.
+  expect(byPost[POSTS.photo].text).toContain("reading app & notes > marginalia");
   expect(byPost[POSTS.truncated].textState).toBe("truncated");
   expect(byPost[POSTS.article].textState).toBe("article");
   expect(byPost[POSTS.poster].formats).toEqual(["video-preview"]);
