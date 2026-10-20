@@ -50,6 +50,8 @@ export class Session {
   status: SyncStatus = { phase: "loading" };
   /** Changes whenever a record or the status changes. */
   version = 0;
+  /** Changes only when a record changes. */
+  records = 0;
   private listeners = new Set<() => void>();
   private running: Promise<void> | null = null;
   private again = false;
@@ -63,7 +65,10 @@ export class Session {
     private readonly content: Channel,
   ) {
     for (const channel of [library, content])
-      channel.storage.subscribe(() => this.emit());
+      channel.storage.subscribe(() => {
+        this.records++;
+        this.emit();
+      });
   }
 
   static async open(account: Account) {

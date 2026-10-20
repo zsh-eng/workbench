@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { Activity, useEffect, useState } from "react";
 import {
   Navigate,
   Outlet,
   RouterProvider,
   ScrollRestoration,
   createBrowserRouter,
+  useMatches,
 } from "react-router-dom";
 import {
   currentAccount,
@@ -13,6 +14,7 @@ import {
   signInWithGoogle,
   type Account,
 } from "./api";
+import type { Folder } from "./articles";
 import { Copies } from "./Copies";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
@@ -24,10 +26,11 @@ const router = createBrowserRouter([
   {
     element: <Root />,
     children: [
-      { index: true, element: <Library folder="saved" /> },
-      { path: "favourites", element: <Library folder="favourites" /> },
-      { path: "archive", element: <Library folder="archive" /> },
-      { path: "history", element: <Library folder="history" /> },
+      // Root renders the library for these routes; see KeptLibrary.
+      { index: true, element: null, handle: { folder: "saved" } },
+      { path: "favourites", element: null, handle: { folder: "favourites" } },
+      { path: "archive", element: null, handle: { folder: "archive" } },
+      { path: "history", element: null, handle: { folder: "history" } },
       { path: "read/:id", element: <Reader /> },
       { path: "copies", element: <Copies /> },
       { path: "*", element: <Navigate to="/" replace /> },
@@ -77,13 +80,31 @@ export function App() {
 }
 
 function Root() {
+  const handle = useMatches().at(-1)?.handle as { folder?: Folder } | undefined;
   return (
     <>
       <ScrollRestoration />
       <SyncTriggers />
+      <KeptLibrary folder={handle?.folder} />
       <Outlet />
       <Toaster />
     </>
+  );
+}
+
+/**
+ * The library stays mounted, hidden, while an article or another page is
+ * open, so Back shows it at once with its cards, search and scroll position.
+ */
+function KeptLibrary({ folder }: { folder?: Folder }) {
+  const [last, setLast] = useState(folder);
+  if (folder && folder !== last) setLast(folder);
+  const shown = folder ?? last;
+  if (!shown) return null;
+  return (
+    <Activity mode={folder ? "visible" : "hidden"}>
+      <Library folder={shown} />
+    </Activity>
   );
 }
 

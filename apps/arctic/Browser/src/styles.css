@@ -196,7 +196,7 @@ button {
     color 0.15s;
 }
 .icon-button:hover,
-.icon-button[data-popup-open] {
+.icon-button[aria-expanded="true"] {
   background: var(--fill);
   color: var(--fg);
 }
@@ -427,7 +427,7 @@ button {
 }
 .card:hover .card-line .icon-button,
 .card-line .icon-button:focus-visible,
-.card-line .icon-button[data-popup-open] {
+.card-line .icon-button[aria-expanded="true"] {
   opacity: 1;
 }
 @media (hover: none) {

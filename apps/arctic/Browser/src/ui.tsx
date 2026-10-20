@@ -7,12 +7,18 @@ import {
   BookmarkPlus,
   FileText,
   Link2,
+  MoreHorizontal,
   LogOut,
   RefreshCw,
   Star,
   Trash2,
 } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import {
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { signOut } from "./api";
 import { edits, editLibrary, removeArticle, type Article } from "./articles";
@@ -105,78 +111,163 @@ export function ArticleMenu({
   trigger: ReactElement;
   onRemoved?: () => void;
 }) {
-  const actions = useActions();
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger render={trigger} />
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={6} align="end">
-          <Menu.Popup className="menu">
-            {article.saved ? (
-              <>
-                <Item
-                  icon={<Star size={16} />}
-                  keys="F"
-                  onClick={() => actions.favourite(article)}
-                >
-                  {article.favourite ? "Remove from Favourites" : "Favourite"}
-                </Item>
-                <Item
-                  icon={
-                    article.archived ? (
-                      <ArchiveRestore size={16} />
-                    ) : (
-                      <Archive size={16} />
-                    )
-                  }
-                  keys="E"
-                  onClick={() => actions.archive(article)}
-                >
-                  {article.archived ? "Move to Saved" : "Archive"}
-                </Item>
-              </>
-            ) : (
-              <Item
-                icon={<BookmarkPlus size={16} />}
-                onClick={() => actions.save(article)}
-              >
-                Save to library
-              </Item>
-            )}
-            <Item
-              icon={<ArrowUpRight size={16} />}
-              keys="O"
-              onClick={() =>
-                window.open(article.url, "_blank", "noopener,noreferrer")
-              }
-            >
-              Open original
-            </Item>
-            <Item
-              icon={<Link2 size={16} />}
-              onClick={() =>
-                navigator.clipboard
-                  .writeText(article.url)
-                  .then(() => showToast("Link copied"), reportError)
-              }
-            >
-              Copy link
-            </Item>
-            <Menu.Separator className="menu-separator" />
-            <Item
-              icon={<Trash2 size={16} />}
-              danger
-              onClick={() => {
-                void actions.remove(article);
-                onRemoved?.();
-              }}
-            >
-              Remove from library
-            </Item>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
+      <ArticleMenuPopup article={article} onRemoved={onRemoved} />
     </Menu.Root>
+  );
+}
+
+/**
+ * One menu serves every card in the library. A card has a plain button, so a
+ * long library mounts no menu machinery per card.
+ */
+type CardMenuState = { article: Article; anchor: HTMLElement } | null;
+let cardMenu: CardMenuState = null;
+const cardMenuListeners = new Set<() => void>();
+function setCardMenu(next: CardMenuState) {
+  cardMenu?.anchor.setAttribute("aria-expanded", "false");
+  next?.anchor.setAttribute("aria-expanded", "true");
+  cardMenu = next;
+  cardMenuListeners.forEach((listener) => listener());
+}
+
+export function CardMenu() {
+  const opened = useSyncExternalStore(
+    (listener) => {
+      cardMenuListeners.add(listener);
+      return () => cardMenuListeners.delete(listener);
+    },
+    () => cardMenu,
+  );
+  // The popup keeps its article while it closes.
+  const [shown, setShown] = useState(opened);
+  if (opened && opened !== shown) setShown(opened);
+  return (
+    <Menu.Root
+      open={opened !== null}
+      modal={false}
+      onOpenChange={(open, details) => {
+        if (open) return;
+        // A press on the open card's button closes the menu with its click.
+        if (
+          details.reason === "outside-press" &&
+          opened?.anchor.contains(details.event.target as Node)
+        )
+          return details.cancel();
+        setCardMenu(null);
+      }}
+    >
+      {shown && (
+        <ArticleMenuPopup article={shown.article} anchor={shown.anchor} />
+      )}
+    </Menu.Root>
+  );
+}
+
+export function CardMenuButton({ article }: { article: Article }) {
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={`More for ${article.title}`}
+      aria-haspopup="menu"
+      aria-expanded="false"
+      onClick={(event) => {
+        const anchor = event.currentTarget;
+        setCardMenu(cardMenu?.anchor === anchor ? null : { article, anchor });
+      }}
+    >
+      <MoreHorizontal size={18} />
+    </button>
+  );
+}
+
+function ArticleMenuPopup({
+  article,
+  anchor,
+  onRemoved,
+}: {
+  article: Article;
+  /** Positions a menu that has no trigger; focus returns here after a key closes it. */
+  anchor?: HTMLElement;
+  onRemoved?: () => void;
+}) {
+  const actions = useActions();
+  return (
+    <Menu.Portal>
+      <Menu.Positioner sideOffset={6} align="end" anchor={anchor}>
+        <Menu.Popup
+          className="menu"
+          finalFocus={
+            anchor && ((type) => (type === "keyboard" ? anchor : true))
+          }
+        >
+          {article.saved ? (
+            <>
+              <Item
+                icon={<Star size={16} />}
+                keys="F"
+                onClick={() => actions.favourite(article)}
+              >
+                {article.favourite ? "Remove from Favourites" : "Favourite"}
+              </Item>
+              <Item
+                icon={
+                  article.archived ? (
+                    <ArchiveRestore size={16} />
+                  ) : (
+                    <Archive size={16} />
+                  )
+                }
+                keys="E"
+                onClick={() => actions.archive(article)}
+              >
+                {article.archived ? "Move to Saved" : "Archive"}
+              </Item>
+            </>
+          ) : (
+            <Item
+              icon={<BookmarkPlus size={16} />}
+              onClick={() => actions.save(article)}
+            >
+              Save to library
+            </Item>
+          )}
+          <Item
+            icon={<ArrowUpRight size={16} />}
+            keys="O"
+            onClick={() =>
+              window.open(article.url, "_blank", "noopener,noreferrer")
+            }
+          >
+            Open original
+          </Item>
+          <Item
+            icon={<Link2 size={16} />}
+            onClick={() =>
+              navigator.clipboard
+                .writeText(article.url)
+                .then(() => showToast("Link copied"), reportError)
+            }
+          >
+            Copy link
+          </Item>
+          <Menu.Separator className="menu-separator" />
+          <Item
+            icon={<Trash2 size={16} />}
+            danger
+            onClick={() => {
+              void actions.remove(article);
+              onRemoved?.();
+            }}
+          >
+            Remove from library
+          </Item>
+        </Menu.Popup>
+      </Menu.Positioner>
+    </Menu.Portal>
   );
 }
 

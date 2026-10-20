@@ -74,69 +74,109 @@ const swiftNow = () => (Date.now() - SWIFT_EPOCH_MS) / 1000;
 const https = (value: unknown) =>
   typeof value === "string" && /^https?:\/\//i.test(value) ? value : undefined;
 
-function parse(storage: RecordStorage, key: string): Fields | undefined {
+/** A record's value, or nothing when it is missing or removed. */
+function raw(storage: RecordStorage, key: string) {
   const view = storage.view(key);
-  if (!view || view.isDeleted) return undefined;
+  return view && !view.isDeleted ? view.value : undefined;
+}
+
+function parse(value: string | undefined): Fields | undefined {
+  if (value === undefined) return undefined;
   try {
-    return JSON.parse(view.value);
+    return JSON.parse(value);
   } catch {
     return undefined;
   }
 }
 
-export function project(
-  arctic: RecordStorage,
-  content: RecordStorage,
-): Article[] {
-  const articles: Article[] = [];
-  for (const key of arctic.keys()) {
-    if (!key.startsWith("article/")) continue;
-    const id = key.slice("article/".length);
-    const metadata = parse(arctic, key);
-    const library = parse(arctic, `library/${id}`);
-    if (!metadata || !library || typeof metadata.url !== "string") continue;
-    let host = "";
-    try {
-      host = new URL(metadata.url).hostname.replace(/^www\./, "");
-    } catch {
-      continue;
+type Values = [
+  article?: string,
+  library?: string,
+  tags?: string,
+  copy?: string,
+];
+
+/**
+ * Projects the records into articles. An article whose four records did not
+ * change keeps its object, so a sync does not render its card again.
+ */
+export function projector() {
+  let previous = new Map<
+    string,
+    { values: Values; article: Article | undefined }
+  >();
+  return (arctic: RecordStorage, content: RecordStorage): Article[] => {
+    const next = new Map<
+      string,
+      { values: Values; article: Article | undefined }
+    >();
+    const articles: Article[] = [];
+    for (const key of arctic.keys()) {
+      if (!key.startsWith("article/")) continue;
+      const id = key.slice("article/".length);
+      const values: Values = [
+        raw(arctic, key),
+        raw(arctic, `library/${id}`),
+        raw(arctic, `tags/${id}`),
+        raw(content, `content/${id}`),
+      ];
+      const known = previous.get(id);
+      const article =
+        known && known.values.every((value, index) => value === values[index])
+          ? known.article
+          : toArticle(id, values);
+      next.set(id, { values, article });
+      if (article) articles.push(article);
     }
-    const tags = parse(arctic, `tags/${id}`);
-    const copy = parse(content, `content/${id}`);
-    articles.push({
-      id,
-      url: metadata.url,
-      host,
-      title: displayTitle(String(metadata.title || host), host),
-      subtitle: typeof metadata.subtitle === "string" ? metadata.subtitle : "",
-      image: https(metadata.imageURL),
-      favicon: https(metadata.faviconURL),
-      saved: library.saved === true,
-      archived: library.archived === true,
-      favourite: library.favourite === true,
-      read: library.read === true,
-      savedAt: fromSwift(library.savedAt),
-      lastVisitedAt: fromSwift(library.lastVisitedAt),
-      favouritedAt: fromSwift(library.favouritedAt),
-      tags: Array.isArray(tags?.names)
-        ? tags.names.filter((name) => typeof name === "string")
-        : [],
-      copy:
-        copy &&
-        typeof copy.file === "string" &&
-        /^xxh64:[0-9a-f]{16}$/.test(copy.file)
-          ? {
-              file: copy.file,
-              words: Number(copy.words) || 0,
-              bytes: Number(copy.bytes) || 0,
-              byline: typeof copy.byline === "string" ? copy.byline : undefined,
-              source: String(copy.source ?? ""),
-              savedAt: Number(copy.savedAt) || 0,
-            }
-          : undefined,
-    });
+    previous = next;
+    return articles;
+  };
+}
+
+function toArticle(id: string, values: Values): Article | undefined {
+  const metadata = parse(values[0]);
+  const library = parse(values[1]);
+  if (!metadata || !library || typeof metadata.url !== "string") return;
+  let host = "";
+  try {
+    host = new URL(metadata.url).hostname.replace(/^www\./, "");
+  } catch {
+    return;
   }
-  return articles;
+  const tags = parse(values[2]);
+  const copy = parse(values[3]);
+  return {
+    id,
+    url: metadata.url,
+    host,
+    title: displayTitle(String(metadata.title || host), host),
+    subtitle: typeof metadata.subtitle === "string" ? metadata.subtitle : "",
+    image: https(metadata.imageURL),
+    favicon: https(metadata.faviconURL),
+    saved: library.saved === true,
+    archived: library.archived === true,
+    favourite: library.favourite === true,
+    read: library.read === true,
+    savedAt: fromSwift(library.savedAt),
+    lastVisitedAt: fromSwift(library.lastVisitedAt),
+    favouritedAt: fromSwift(library.favouritedAt),
+    tags: Array.isArray(tags?.names)
+      ? tags.names.filter((name) => typeof name === "string")
+      : [],
+    copy:
+      copy &&
+      typeof copy.file === "string" &&
+      /^xxh64:[0-9a-f]{16}$/.test(copy.file)
+        ? {
+            file: copy.file,
+            words: Number(copy.words) || 0,
+            bytes: Number(copy.bytes) || 0,
+            byline: typeof copy.byline === "string" ? copy.byline : undefined,
+            source: String(copy.source ?? ""),
+            savedAt: Number(copy.savedAt) || 0,
+          }
+        : undefined,
+  };
 }
 
 export function inFolder(article: Article, folder: Folder) {

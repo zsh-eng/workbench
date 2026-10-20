@@ -112,6 +112,22 @@ is a view transition of the cover and title.
 Shortcuts: `/` searches. In the reader, `F` favourites, `E` archives and
 returns, `O` opens the original, and `Escape` returns.
 
-The first load is 602 kB of JavaScript (194 kB gzip): React, React Router,
+A library of 600 or more articles stays quick:
+
+- A long folder renders 36 cards first, then 72 more each frame. Back and
+  Forward render all cards at once, so the scroll position returns.
+- The library stays mounted, hidden with React `Activity`, while an article
+  or another page is open. Back shows it again without a new render.
+- One menu serves every card; a card has a plain button.
+- A sync keeps the object of each article whose records did not change, so
+  its card does not render again. A status change alone renders no cards.
+
+On a production build with 607 saved articles (M-series Mac, Chromium), the
+first cards of any folder paint 14–36 ms after the click, all cards follow
+within 130 ms, and no task blocks for 50 ms or more. Back from the reader
+takes 56 ms. Before these changes, the Saved folder took 125 ms and Back
+133 ms.
+
+The first load is 604 kB of JavaScript (195 kB gzip): React, React Router,
 Base UI menus and tooltips, DOMPurify, zod (through local-sync) and the app.
 Defuddle (309 kB, 87 kB gzip) loads only to extract a page.

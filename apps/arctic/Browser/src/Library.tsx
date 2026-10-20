@@ -1,14 +1,21 @@
-import { MoreHorizontal, Search, Star } from "lucide-react";
+import { Search, Star } from "lucide-react";
 import {
   memo,
+  startTransition,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type MouseEvent,
 } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigationType,
+  useSearchParams,
+} from "react-router-dom";
 import {
   folders,
   inFolder,
@@ -19,7 +26,12 @@ import {
   type Folder,
 } from "./articles";
 import { useArticles, useSession, useStatus } from "./state";
-import { AccountMenu, ArticleMenu, describeStatus } from "./ui";
+import {
+  AccountMenu,
+  CardMenu,
+  CardMenuButton,
+  describeStatus,
+} from "./ui";
 
 export function Library({ folder }: { folder: Folder }) {
   const articles = useArticles();
@@ -68,11 +80,24 @@ export function Library({ folder }: { folder: Folder }) {
       ),
     [shelf, topic, deferredQuery],
   );
+  // Back and Forward render every card at once, so the scroll position returns.
+  const returning =
+    useNavigationType() === "POP" && location.key !== "default";
+  const rendered = useSteps(
+    visible.length,
+    `${folder}\n${topic}\n${deferredQuery}`,
+    returning,
+  );
 
   const first =
     articles.length === 0 &&
     (status.phase === "loading" || status.phase === "syncing");
-  const from = location.pathname + location.search;
+  // Every card links with this one object, so a new search or folder does not
+  // render the cards again. A history entry keeps a copy made when it opens.
+  const opened = useRef({ from: "/" }).current;
+  useLayoutEffect(() => {
+    opened.from = location.pathname + location.search;
+  });
   const title = folders.find((item) => item.id === folder)!;
 
   return (
@@ -123,8 +148,8 @@ export function Library({ folder }: { folder: Folder }) {
       </header>
       {visible.length > 0 ? (
         <main className="grid">
-          {visible.map((article) => (
-            <Card key={article.id} article={article} from={from} />
+          {visible.slice(0, rendered).map((article) => (
+            <Card key={article.id} article={article} state={opened} />
           ))}
         </main>
       ) : first ? null : (
@@ -139,8 +164,34 @@ export function Library({ folder }: { folder: Folder }) {
           </p>
         </div>
       )}
+      <CardMenu />
     </>
   );
+}
+
+const FIRST_STEP = 36;
+const STEP = 72;
+
+/**
+ * How many cards to render. A long list renders in steps, one per frame, so
+ * the first cards paint at once and no frame waits for the rest. A new list
+ * starts again; a change to the same list keeps what is on screen.
+ */
+function useSteps(length: number, list: string, all: boolean) {
+  const [limit, setLimit] = useState(FIRST_STEP);
+  const [current, setCurrent] = useState(list);
+  if (current !== list) {
+    setCurrent(list);
+    setLimit(FIRST_STEP);
+  }
+  useEffect(() => {
+    if (all || limit >= length) return;
+    const frame = requestAnimationFrame(() =>
+      startTransition(() => setLimit((value) => value + STEP)),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [all, limit, length]);
+  return all ? length : limit;
 }
 
 function LibraryBar({
@@ -212,25 +263,30 @@ export function useScrolled() {
   return scrolled;
 }
 
+/**
+ * The opened card shares its cover and title with the reader page. The library
+ * stays mounted under the reader, so the last card gives up its names first.
+ */
+let marked: HTMLElement[] = [];
+function mark(event: MouseEvent<HTMLElement>) {
+  for (const element of marked)
+    element.style.removeProperty("view-transition-name");
+  const card = event.currentTarget.closest(".card");
+  const cover = card?.querySelector<HTMLElement>(".cover");
+  const title = card?.querySelector<HTMLElement>(".card-title");
+  cover?.style.setProperty("view-transition-name", "cover");
+  title?.style.setProperty("view-transition-name", "title");
+  marked = [cover, title].filter((element) => element != null);
+}
+
 const Card = memo(function Card({
   article,
-  from,
+  state,
 }: {
   article: Article;
-  from: string;
+  state: { from: string };
 }) {
   const path = `/read/${article.id}`;
-  const state = { from };
-  // The opened card shares its cover and title with the reader page.
-  const mark = (event: MouseEvent<HTMLElement>) => {
-    const card = event.currentTarget.closest(".card");
-    card
-      ?.querySelector<HTMLElement>(".cover")
-      ?.style.setProperty("view-transition-name", "cover");
-    card
-      ?.querySelector<HTMLElement>(".card-title")
-      ?.style.setProperty("view-transition-name", "title");
-  };
   return (
     <article
       className="card"
@@ -256,18 +312,7 @@ const Card = memo(function Card({
       </Link>
       <div className="card-line">
         <Source article={article} />
-        <ArticleMenu
-          article={article}
-          trigger={
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={`More for ${article.title}`}
-            >
-              <MoreHorizontal size={18} />
-            </button>
-          }
-        />
+        <CardMenuButton article={article} />
       </div>
       <Link
         to={path}

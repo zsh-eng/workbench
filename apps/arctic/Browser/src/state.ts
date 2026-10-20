@@ -1,5 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
-import { project, type Article } from "./articles";
+import { projector, type Article } from "./articles";
 import type { Session } from "./sync/session";
 
 export const SessionContext = createContext<Session | null>(null);
@@ -20,13 +20,22 @@ function useVersion(session: Session) {
 /** One projection per record change, shared by every component that reads it. */
 const projections = new WeakMap<
   Session,
-  { version: number; articles: Article[] }
+  {
+    records: number;
+    articles: Article[];
+    project: ReturnType<typeof projector>;
+  }
 >();
 function articles(session: Session) {
   const cached = projections.get(session);
-  if (cached?.version === session.version) return cached.articles;
+  if (cached?.records === session.records) return cached.articles;
+  const project = cached?.project ?? projector();
   const next = project(session.arctic, session.copies);
-  projections.set(session, { version: session.version, articles: next });
+  projections.set(session, {
+    records: session.records,
+    articles: next,
+    project,
+  });
   return next;
 }
 
