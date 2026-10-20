@@ -98,6 +98,13 @@ With `--extract`, it also downloads saved articles that have no copy with
 page; see [download measurements](docs/DOWNLOAD_VALIDATION.md)). The output
 holds personal article text: keep it private, and delete it after the import.
 
+`scripts/upload.ts <folder>` imports such a folder without a browser. It uses
+the Workbench Backup credential (`wb auth login`), which may upload Arctic
+article text and nothing else, and it follows the rules of the Article text
+page: files match articles the same way, and the minimum length, size limit
+and 30% rule apply. `--dry-run` reports what it would upload. Run it again
+safely: copies that are already there are kept.
+
 ## Design
 
 One system with the phone app: the platform sans-serif for interface and

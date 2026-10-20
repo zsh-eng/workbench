@@ -5,7 +5,13 @@ import { createSyncHonoRoutes } from "@zsh-eng/local-sync/hono";
 import { syncDeviceIdSchema } from "@zsh-eng/local-sync";
 import { UAParser } from "ua-parser-js";
 import { createAuth } from "./auth";
-import { cliAuth, cliIdentity, cliReadPath, devicePage } from "./cli-auth";
+import {
+  cliAuth,
+  cliIdentity,
+  cliReadPath,
+  cliWritePath,
+  devicePage,
+} from "./cli-auth";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
@@ -63,7 +69,10 @@ const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   if (c.req.header("Authorization")) {
     const identity = await cliIdentity(c);
     if (!identity) return c.json({ error: "Unauthorized" }, 401);
-    if (c.req.method !== "GET" || !cliReadPath(c.req.path)) return c.json({ error: "Read-only CLI credential" }, 403);
+    const allowed =
+      (c.req.method === "GET" && cliReadPath(c.req.path)) ||
+      cliWritePath(c.req.method, c.req.path);
+    if (!allowed) return c.json({ error: "Not allowed for a CLI credential" }, 403);
     c.set("user", identity.user);
     c.set("session", { id: "cli", token: "", userId: identity.user.id, createdAt: new Date(0), updatedAt: new Date(0), expiresAt: identity.expiresAt });
     return next();

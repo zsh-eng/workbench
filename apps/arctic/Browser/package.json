@@ -10,6 +10,7 @@
     "deploy": "bun run build && wrangler deploy",
     "test": "playwright test",
     "copies": "bun scripts/copies.ts",
+    "upload": "bun scripts/upload.ts",
     "test:service": "bun test server/service.test.ts",
     "browser:install": "playwright install chromium"
   },

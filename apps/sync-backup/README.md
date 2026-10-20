@@ -25,10 +25,14 @@ Each sync is one-shot. On macOS, launchd can run it periodically.
 ## Login and permissions
 
 `auth login` prints a code and opens `https://api.zsheng.app/device`. Sign in
-with Google, enter the code and approve read-only access. `--no-browser` leaves
+with Google, enter the code and approve access. `--no-browser` leaves
 browser opening to you. Credentials expire after 90 days; sign in again when
 needed. `auth logout` revokes the current CLI credential and keeps local data.
 Browser sign-out does not revoke this independent CLI credential.
+
+`wb` itself only downloads. The server also lets this credential upload Arctic
+article text (`arctic-content` only), which `apps/arctic/Browser/scripts/upload.ts`
+uses; it cannot change any other data.
 
 This is a first-party device-code flow, not a general OAuth authorization
 server. Device grants expire after ten minutes, can be approved/exchanged once,

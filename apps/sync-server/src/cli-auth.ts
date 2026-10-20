@@ -123,7 +123,7 @@ cliAuth.post("/token", async (c) => {
     access_token: token,
     token_type: "Bearer",
     expires_in: lifetime / 1000,
-    scope: "sync:read files:read",
+    scope: "sync:read files:read arctic-content:write",
   });
 });
 cliAuth.post("/revoke", async (c) => {
@@ -134,7 +134,7 @@ cliAuth.post("/revoke", async (c) => {
   return c.json({ ok: true });
 });
 
-/** This credential authorizes only explicitly listed read routes, never app writes. */
+/** This credential authorizes listed read routes and Arctic article text uploads only. */
 export async function cliIdentity(c: Context<AppEnv>) {
   const header = c.req.header("Authorization");
   if (!header?.startsWith("Bearer wb_")) return null;
@@ -177,6 +177,21 @@ export const cliReadPath = (path: string) =>
     decodeURIComponent(path),
   );
 
+/**
+ * The one write a CLI credential may make: Arctic article text, which the
+ * server checks as it checks the web app's copies (HTML, no script, 2 MiB).
+ * It never writes Reader, Spaced or the phone's Arctic records.
+ */
+export const cliWritePath = (method: string, path: string) => {
+  const decoded = decodeURIComponent(path);
+  return (
+    (method === "POST" &&
+      decoded === "/api/apps/arctic-content/sync/v3/push") ||
+    (method === "PUT" &&
+      /^\/api\/apps\/arctic-content\/files\/xxh64:[a-f0-9]{16}$/.test(decoded))
+  );
+};
+
 export function devicePage(local: boolean) {
   return html`
     <!doctype html>
@@ -207,8 +222,9 @@ export function devicePage(local: boolean) {
       </style>
       <h1>Authorize Workbench CLI</h1>
       <p>
-        This allows a CLI to download your Reader and Spaced data and files for 90
-        days. It cannot edit your data. Only enter a code from a login you started.
+        This allows a CLI to download your Reader, Spaced and Arctic data and
+        files for 90 days, and to upload Arctic article text. It cannot change
+        anything else. Only enter a code from a login you started.
       </p>
       <p id="identity"></p>
       <button id="google">Sign in with Google</button>
@@ -222,7 +238,7 @@ export function devicePage(local: boolean) {
             autocomplete="off"
             required
             maxlength="9" /></label
-        ><button>Approve read-only access</button>
+        ><button>Approve access</button>
       </form>
       <p id="message" role="status"></p>
       <script>

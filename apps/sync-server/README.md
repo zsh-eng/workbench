@@ -107,16 +107,20 @@ Google authorization URL, browser-bound finish, wrong verifier, one-use exchange
 expiry, revocation, session renewal, scoped push/pull, and disabled media routes.
 Google's external login UI and native device handoff still require a device test.
 
-## Read-only backup CLI
+## Backup CLI
 
 [Workbench Backup](../sync-backup/README.md) signs in through `/device` and
 `/api/cli/{device,approve,token,revoke}`. Migration `0004_cli_auth.sql` adds
-short-lived device grants, hashed 90-day read-only credentials, and rate limits.
+short-lived device grants, hashed 90-day credentials, and rate limits.
 CLI credentials resolve the authenticated user and are restricted to Reader and
 Spaced state/pull/file reads, Arctic state/pull reads, `arctic-content` file
 reads (the `arctic` namespace has no file API),
-plus `/api/me` and `/api/namespaces`. They cannot
-push, upload, delete, or inspect browser sessions. The browser approval requires
+plus `/api/me` and `/api/namespaces`. Their one write is Arctic article text
+(`cliWritePath`): `arctic-content` pushes and file uploads, which the server
+checks as it checks the web app's copies. The owner approved this on
+20 October 2026 for `apps/arctic/Browser/scripts/upload.ts`. CLI credentials
+cannot write Reader, Spaced or the phone's `arctic` records, delete files, or
+inspect browser sessions. The browser approval requires
 an authenticated session, same-origin POST, and an explicit code confirmation.
 No Google credentials or browser cookies are transferred to the CLI.
 

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { expect, it } from "vitest";
 import worker from "../src/index";
+import xxhash from "xxhash-wasm";
 import { digest } from "../src/cli-auth";
 const origin = "http://localhost:8792";
 const call = (path: string, init?: RequestInit) =>
@@ -31,7 +32,7 @@ async function user() {
     .map((x) => x.split(";")[0])
     .join("; ");
 }
-it("authorizes device once, isolates identity, rejects all writes, expires and revokes credentials", async () => {
+it("authorizes device once, isolates identity, allows only Arctic text writes, expires and revokes credentials", async () => {
   const cookie = await user();
   const grant = (await (await post("/api/cli/device")).json()) as any;
   expect(grant.access_token).toBeUndefined();
@@ -163,17 +164,56 @@ it("authorizes device once, isolates identity, rejects all writes, expires and r
       .status,
   ).toBe(403);
   expect((await call("/api/apps/arctic/files", { headers })).status).toBe(403);
-  // Arctic's article text is backed up like Reader's files, and never written.
+  // Arctic's article text is backed up like Reader's files, and the CLI may
+  // upload it: a file the server checks, then the record that names it.
   expect((await call("/api/apps/arctic-content/files", { headers })).status).toBe(200);
+  const { h64Raw } = await xxhash();
+  const fileId = (html: string) =>
+    `xxh64:${h64Raw(new TextEncoder().encode(html)).toString(16).padStart(16, "0")}`;
+  const html = "<p>Sea ice keeps time.</p>";
+  const put = (body: string) =>
+    call(`/api/apps/arctic-content/files/${fileId(body)}`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "text/html; charset=utf-8" },
+      body,
+    });
+  expect((await put(html)).status).toBe(200);
+  expect((await put("<p>x</p><script>alert(1)</script>")).status).toBe(415);
   expect(
     (
-      await call("/api/apps/arctic-content/files/xxh64:0000000000000000", {
-        method: "PUT",
+      await call(`/api/apps/arctic-content/files/${fileId(html)}`, {
+        method: "DELETE",
         headers,
-        body: "<p>x</p>",
       })
     ).status,
   ).toBe(403);
+  const content = (await (
+    await call("/api/apps/arctic-content/sync/v3/state", { headers })
+  ).json()) as any;
+  const contentScoped = {
+    ...headers,
+    "X-Device-ID": "cli-test",
+    "X-Sync-Scope": JSON.stringify(content),
+  };
+  expect(
+    (
+      await post(
+        "/api/apps/arctic-content/sync/v3/push",
+        {
+          changes: [
+            {
+              key: "content/a",
+              value: JSON.stringify({ file: fileId(html), format: "html" }),
+              isDeleted: false,
+              schemaVersion: 1,
+              hlc: { wallTimeMs: Date.now(), counter: 0 },
+            },
+          ],
+        },
+        contentScoped,
+      )
+    ).status,
+  ).toBe(200);
   const stranger = await user();
   const other = await (
     await call("/api/apps/reader/sync/v3/state", {

@@ -6,6 +6,21 @@ export function cleanArticle(html: string, source: string) {
     doc.querySelector("#reader-content") ??
     doc.querySelector("article") ??
     doc.body;
+  tidyArticle(root, source);
+  return DOMPurify.sanitize(root.innerHTML, {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ["target"],
+    FORBID_TAGS: ["iframe", "form", "input", "button"],
+    FORBID_ATTR: ["style", "srcset"],
+  });
+}
+
+/**
+ * Removes active and styling markup and resolves links against the page.
+ * It needs only DOM methods, so scripts/upload.ts runs it on a linkedom
+ * document; DOMPurify then runs in the browser on every copy it shows.
+ */
+export function tidyArticle(root: Element, source: string) {
   root
     .querySelectorAll(
       "script,style,iframe,form,button,input,textarea,select,object,embed,link,meta,base,svg,math",
@@ -38,12 +53,6 @@ export function cleanArticle(html: string, source: string) {
       node.setAttribute("loading", "lazy");
       node.setAttribute("referrerpolicy", "no-referrer");
     }
-  });
-  return DOMPurify.sanitize(root.innerHTML, {
-    USE_PROFILES: { html: true },
-    ADD_ATTR: ["target"],
-    FORBID_TAGS: ["iframe", "form", "input", "button"],
-    FORBID_ATTR: ["style", "srcset"],
   });
 }
 

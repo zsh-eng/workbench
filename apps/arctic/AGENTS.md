@@ -16,8 +16,9 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   state, titles and tags are approved and live (10 October 2026). Article text
   copies in the separate `arctic-content` namespace are approved (19 October
   2026): cleaned HTML only, no scripts, at most 2 MiB each; the web app in
-  `Browser/` writes them. Annotation and reading-time sync need the user's
-  approval of a concrete migration.
+  `Browser/` writes them, and so does `Browser/scripts/upload.ts` with the
+  Workbench Backup credential (approved 20 October 2026). Annotation and
+  reading-time sync need the user's approval of a concrete migration.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
   Arctic routes remain during transition. Never change or remove `links.json`:
