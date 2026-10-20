@@ -113,7 +113,8 @@ Google's external login UI and native device handoff still require a device test
 `/api/cli/{device,approve,token,revoke}`. Migration `0004_cli_auth.sql` adds
 short-lived device grants, hashed 90-day read-only credentials, and rate limits.
 CLI credentials resolve the authenticated user and are restricted to Reader and
-Spaced state/pull/file reads, Arctic state/pull reads (Arctic has no file API),
+Spaced state/pull/file reads, Arctic state/pull reads, `arctic-content` file
+reads (the `arctic` namespace has no file API),
 plus `/api/me` and `/api/namespaces`. They cannot
 push, upload, delete, or inspect browser sessions. The browser approval requires
 an authenticated session, same-origin POST, and an explicit code confirmation.
