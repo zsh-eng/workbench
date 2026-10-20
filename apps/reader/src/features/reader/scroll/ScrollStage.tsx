@@ -39,6 +39,12 @@ import {
   resolveSnapPage,
   type ScrollRow,
 } from "./scroll-model";
+import {
+  createColumnTextPoints,
+  wordEnds,
+  wordStartsBackward,
+  type ChapterTextSource,
+} from "./column-text-points";
 import { restoreSelection, type SelectionLocators } from "./selection-transfer";
 
 /** Rows rendered beyond each edge of the view. */
@@ -94,13 +100,42 @@ export type ScrollStageStart =
  */
 export type ScrollStageEnter = "keep-page" | "fade-all" | "pull";
 
+/**
+ * A page selection handed to the column. It is selected again as the column
+ * appears; an extension then grows it across the page break while the
+ * column eases the text on the other side into view.
+ */
+export interface SelectionHandoff {
+  locators: SelectionLocators | null;
+  extension: {
+    /** "end": grows past the page's foot; "start": back past its head. */
+    edge: "end" | "start";
+    /** The canonical range the selection grows to. */
+    start: number;
+    end: number;
+    /** Where the page's selection stopped; growth starts here. */
+    grownFrom: number;
+    text: ChapterTextSource;
+  } | null;
+  /** Without an extension: ease the lines past this edge into view. */
+  reveal?: "end" | "start";
+  /** The selection is in place and the view at rest. */
+  onDone?: () => void;
+}
+
+/** How long the column takes to bring the other page's words in. */
+const HANDOFF_MS = 620;
+/** Where a grown selection's far end comes to rest, down the view. */
+const HANDOFF_END_AT = 0.56;
+const HANDOFF_START_AT = 0.3;
+
 export interface ScrollStageHandle {
   /**
    * Stops any fling and moves the reading line's page into its paged
-   * position. Lines of other pages fade out. A sideways velocity carries a
-   * swipe back to centre in the same spring.
+   * position, or the given page. Lines of other pages fade out. A sideways
+   * velocity carries a swipe back to centre in the same spring.
    */
-  snapToPage: (options?: { velocityX?: number }) => {
+  snapToPage: (options?: { velocityX?: number; pageIndex?: number }) => {
     pageIndex: number;
     finished: Promise<void>;
   };
@@ -117,6 +152,8 @@ export interface ScrollStageHandle {
   finishPull: (commit: boolean) => Promise<void>;
   /** Selects the same text as a selection made on a page. */
   restoreSelection: (locators: SelectionLocators) => boolean;
+  /** Takes a page selection as the column appears; see SelectionHandoff. */
+  takeSelection: (handoff: SelectionHandoff) => void;
 }
 
 interface ScrollStageProps {
@@ -972,6 +1009,163 @@ export function ScrollStage({
     });
   };
 
+  // A selection handed over from a page: selected again on the column's
+  // first visible frame, then grown across the break once it settles.
+  const handoffRef = useRef<{
+    handoff: SelectionHandoff;
+    restored: boolean;
+  } | null>(null);
+  const handoffAnimationRef = useRef<{ stop: () => void } | null>(null);
+  useEffect(() => () => handoffAnimationRef.current?.stop(), []);
+
+  const runHandoff = useEffectEvent((handoff: SelectionHandoff) => {
+    const scroller = scrollerRef.current;
+    const content = contentRef.current;
+    const finish = () => {
+      pinnedRangeRef.current = null;
+      handoff.onDone?.();
+    };
+    if (!scroller || !content) return finish();
+    const { extension } = handoff;
+    const reveal = extension?.edge ?? handoff.reveal;
+    if (!reveal) return finish();
+
+    // Keep the page and its neighbours mounted while the view moves.
+    const around = [startPageIndex - 1, startPageIndex, startPageIndex + 1]
+      .map((pageIndex) => rowRangeForPage(rows, pageIndex))
+      .reduce<RowRange | null>(
+        (union, part) => (part ? unionRange(part, union) : union),
+        null,
+      );
+    pinnedRangeRef.current = around;
+    flushSync(() => {
+      commitRange(
+        computeTargetRange(scroller.scrollTop, scroller.clientHeight),
+      );
+    });
+
+    const selection = window.getSelection();
+    const points = extension
+      ? createColumnTextPoints(content, extension.text)
+      : null;
+    // Growth runs word by word from where the page's selection stopped.
+    const steps = (() => {
+      if (!extension || !points) return [];
+      const fixed =
+        extension.edge === "end"
+          ? points.start(extension.start)
+          : points.end(extension.end);
+      if (!fixed) return [];
+      const offsets =
+        extension.edge === "end"
+          ? wordEnds(
+              extension.text.fullText,
+              extension.grownFrom,
+              extension.end,
+            )
+          : wordStartsBackward(
+              extension.text.fullText,
+              extension.start,
+              extension.grownFrom,
+            );
+      return offsets.flatMap((offset) => {
+        const point =
+          extension.edge === "end" ? points.end(offset) : points.start(offset);
+        return point ? [{ fixed, point }] : [];
+      });
+    })();
+    const select = (index: number) => {
+      const step = steps[index];
+      if (!step || !selection) return;
+      selection.setBaseAndExtent(
+        step.fixed.node,
+        step.fixed.offset,
+        step.point.node,
+        step.point.offset,
+      );
+    };
+
+    // Where the view comes to rest: the grown end a little above the
+    // middle, or the grown start a third of the way down.
+    const last = steps.at(-1)?.point;
+    const target = (() => {
+      const viewTop = scroller.getBoundingClientRect().top;
+      const height = scroller.clientHeight;
+      if (last) {
+        const probe = document.createRange();
+        probe.setStart(last.node, last.offset);
+        probe.setEnd(last.node, last.offset);
+        const rect =
+          probe.getClientRects()[0] ??
+          (last.node.parentElement ?? content).getBoundingClientRect();
+        const y = rect.top - viewTop;
+        const delta =
+          reveal === "end"
+            ? y + bodyLineHeight - height * HANDOFF_END_AT
+            : y - height * HANDOFF_START_AT;
+        return reveal === "end" ? Math.max(0, delta) : Math.min(0, delta);
+      }
+      // Reveal only: a few lines past the edge.
+      return (reveal === "end" ? 1 : -1) * bodyLineHeight * 4;
+    })();
+    const from = scroller.scrollTop;
+    const to = Math.max(
+      0,
+      Math.min(scroller.scrollHeight - scroller.clientHeight, from + target),
+    );
+
+    if (prefersReducedMotion || (Math.abs(to - from) < 1 && !steps.length)) {
+      setScrollTop(scroller, to);
+      select(steps.length - 1);
+      return finish();
+    }
+    let shown = -1;
+    const animation = animate(from, to, {
+      duration: HANDOFF_MS / 1000,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (value) => {
+        setScrollTop(scroller, value);
+        const progress = to === from ? 1 : (value - from) / (to - from);
+        const index = Math.min(
+          steps.length - 1,
+          Math.floor(progress * steps.length),
+        );
+        if (index > shown) {
+          shown = index;
+          select(index);
+        }
+      },
+    });
+    handoffAnimationRef.current = animation;
+    void animation.then(() => {
+      if (handoffAnimationRef.current !== animation) return;
+      handoffAnimationRef.current = null;
+      select(steps.length - 1);
+      rememberReadingLine(scroller.scrollTop, scroller.clientHeight);
+      finish();
+    });
+  });
+
+  const progressHandoff = useEffectEvent((kind: Phase["kind"]) => {
+    const pending = handoffRef.current;
+    if (!pending) return;
+    const content = contentRef.current;
+    if (!pending.restored && pending.handoff.locators && content) {
+      restoreSelection(content, pending.handoff.locators);
+    }
+    pending.restored = true;
+    if (kind !== "settled") return;
+    handoffRef.current = null;
+    // After the frame that shows the column, outside React's commit.
+    const frame = requestAnimationFrame(() => runHandoff(pending.handoff));
+    handoffAnimationRef.current = { stop: () => cancelAnimationFrame(frame) };
+  });
+  useLayoutEffect(() => {
+    if (phase.kind === "entering" || phase.kind === "settled") {
+      progressHandoff(phase.kind);
+    }
+  }, [phase.kind]);
+
   useImperativeHandle(handleRef, () => ({
     snapToPage: (options = {}) => {
       const scroller = scrollerRef.current;
@@ -984,14 +1178,18 @@ export function ScrollStage({
       scroller.style.overflowY = "hidden";
       scroller.scrollTop = scrollTop;
 
-      const pageIndex = resolveSnapPage({
-        column,
-        readingLine: readingLineOffset(
-          scrollTop,
-          paddingTopPx,
-          scroller.clientHeight,
-        ),
-      });
+      const pageIndex =
+        options.pageIndex !== undefined &&
+        column.pageStarts[options.pageIndex] !== undefined
+          ? options.pageIndex
+          : resolveSnapPage({
+              column,
+              readingLine: readingLineOffset(
+                scrollTop,
+                paddingTopPx,
+                scroller.clientHeight,
+              ),
+            });
       const pageStart = column.pageStarts[pageIndex] ?? 0;
       pinnedRangeRef.current = rowRangeForPage(rows, pageIndex);
       flushSync(() => {
@@ -1064,6 +1262,12 @@ export function ScrollStage({
       const content = contentRef.current;
       if (!content) return false;
       return restoreSelection(content, locators);
+    },
+    takeSelection: (handoff) => {
+      handoffRef.current = { handoff, restored: false };
+      if (phase.kind === "entering" || phase.kind === "settled") {
+        progressHandoff(phase.kind);
+      }
     },
   }));
 

@@ -29,10 +29,14 @@ async function showChrome(page: Page) {
       const rect = element.getBoundingClientRect();
       return rect.top > 0 && rect.height > 0;
     }));
-  for (let attempt = 0; attempt < 3 && !(await shown()); attempt++) {
+  // A tap toggles the chrome; wait for each one to land before another.
+  for (let attempt = 0; attempt < 4 && !(await shown()); attempt++) {
     await page.evaluate(() => getSelection()?.removeAllRanges());
     await page.touchscreen.tap(195, 420);
-    await page.waitForTimeout(450);
+    await expect
+      .poll(shown, { timeout: 1500 })
+      .toBe(true)
+      .catch(() => {});
   }
   await expect.poll(shown).toBe(true);
 }
@@ -78,8 +82,26 @@ async function scrollStageTo(page: Page, scrollTop: number) {
     .locator(SCROLL_STAGE)
     .evaluate((element, top) => element.scrollTo({ top }), scrollTop);
   await expect.poll(() => stageScrollTop(page)).toBe(scrollTop);
-  // Positions settle a moment after scrolling stops.
-  await page.waitForTimeout(400);
+}
+
+/**
+ * Sets a selection and waits for the page to hear the change, then
+ * releases the pointer, which is when the Reader reads a selection.
+ */
+async function selectAndRelease(page: Page, select: () => Promise<void>) {
+  const heard = page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        }),
+      ),
+  );
+  await select();
+  await heard;
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
 }
 
 /** Text lines in view, with their tops relative to the stage. */
@@ -110,41 +132,38 @@ const savedHighlights = (page: Page, bookId: string) =>
   }, bookId);
 
 const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
+/** Text without its whitespace, which a line break can add or take away. */
+const letters = (text: string) => text.replace(/\s+/g, "");
 
 /** Selects the start of the first long text run in the reading area. */
 async function selectInRows(page: Page, pageIndex: number, length = 24) {
-  const text = await page.evaluate(
-    ({ selector, pageIndex, length }) => {
-      const rows = document.querySelectorAll(
-        `${selector} [data-page-index="${pageIndex}"]`,
-      );
-      for (const row of rows) {
-        const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          if ((node.textContent?.trim().length ?? 0) < length) continue;
-          const rect = range.getBoundingClientRect();
-          if (rect.top < 140 || rect.bottom > 640) continue;
-          range.setStart(node, 0);
-          range.setEnd(node, length);
-          getSelection()!.removeAllRanges();
-          getSelection()!.addRange(range);
-          return range.toString();
+  let text = "";
+  await selectAndRelease(page, async () => {
+    text = await page.evaluate(
+      ({ selector, pageIndex, length }) => {
+        const rows = document.querySelectorAll(
+          `${selector} [data-page-index="${pageIndex}"]`,
+        );
+        for (const row of rows) {
+          const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            if ((node.textContent?.trim().length ?? 0) < length) continue;
+            const rect = range.getBoundingClientRect();
+            if (rect.top < 140 || rect.bottom > 640) continue;
+            range.setStart(node, 0);
+            range.setEnd(node, length);
+            getSelection()!.removeAllRanges();
+            getSelection()!.addRange(range);
+            return range.toString();
+          }
         }
-      }
-      throw new Error("No passage in the reading area");
-    },
-    { selector: SCROLL_STAGE, pageIndex, length },
-  );
-  // The selection change must land before the release that resolves it.
-  await expect
-    .poll(() => page.evaluate(() => getSelection()?.toString()))
-    .toBe(text);
-  await page.waitForTimeout(50);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
+        throw new Error("No passage in the reading area");
+      },
+      { selector: SCROLL_STAGE, pageIndex, length },
+    );
+  });
   return text;
 }
 
@@ -299,19 +318,21 @@ test("Reopening a book read in scroll mode restores scroll mode at the same line
   await page.reload();
   // The page stays hidden: the book reopens straight into the column.
   await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
-  const after = await stageScrollTop(page);
   // The first line that was fully in view is now at the top of the reading
-  // area, so the text moves up by less than one line and a paragraph gap.
-  expect(after).toBeGreaterThanOrEqual(before);
-  expect(after - before).toBeLessThan(48);
-  const shift = after - before;
-  const linesAfter = await visibleLines(page);
-  expect(linesAfter.slice(0, 8).map((line) => line.text)).toEqual(
-    linesBefore
-      .filter((line) => line.y - shift >= 0)
-      .slice(0, 8)
-      .map((line) => line.text),
-  );
+  // area: the same lines follow, shifted up together.
+  await expect
+    .poll(async () => {
+      const shift = (await stageScrollTop(page)) - before;
+      const linesAfter = await visibleLines(page);
+      const expected = linesBefore
+        .filter((line) => line.y - shift >= 0)
+        .slice(0, 8)
+        .map((line) => line.text);
+      return linesAfter
+        .slice(0, 8)
+        .every((line, index) => line.text === expected[index]);
+    })
+    .toBe(true);
 });
 
 test("A highlight made, opened and deleted in scroll mode never moves the text", async ({
@@ -357,70 +378,69 @@ test("A highlight made, opened and deleted in scroll mode never moves the text",
 
 /**
  * Selects a few words at the start of the page's first line or the end of
- * its last, holds as a finger would before lifting, then releases.
+ * its last (on a spread, the given page's), then releases.
  */
-async function selectAtPageEdge(page: Page, edge: "first" | "last") {
-  const selected = await page.evaluate(
-    ({ spread, edge }) => {
-      const slices = document.querySelectorAll(
-        `${spread} [data-reader-slice-type="text"]`,
-      );
-      const slice = slices[edge === "first" ? 0 : slices.length - 1]!;
-      const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
-      const nodes: Text[] = [];
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (node.textContent?.trim()) nodes.push(node as Text);
-      }
-      const node = nodes[edge === "first" ? 0 : nodes.length - 1]!;
-      const range = document.createRange();
-      if (edge === "first") {
-        range.setStart(node, 0);
-        range.setEnd(node, Math.min(node.length, 12));
-      } else {
-        range.setStart(node, Math.max(0, node.length - 12));
-        range.setEnd(node, node.length);
-      }
-      getSelection()!.removeAllRanges();
-      getSelection()!.addRange(range);
-      return range.toString();
-    },
-    { spread: CURRENT_SPREAD, edge },
-  );
-  await page.waitForTimeout(700);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
+async function selectAtPageEdge(page: Page, edge: "first" | "last", slot = 0) {
+  let selected = "";
+  await selectAndRelease(page, async () => {
+    selected = await page.evaluate(
+      ({ spread, edge, slot }) => {
+        const slices = document.querySelectorAll(
+          `${spread} [data-reader-page-slot="${slot}"] [data-reader-slice-type="text"]`,
+        );
+        const slice = slices[edge === "first" ? 0 : slices.length - 1]!;
+        const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (node.textContent?.trim()) nodes.push(node as Text);
+        }
+        const node = nodes[edge === "first" ? 0 : nodes.length - 1]!;
+        const range = document.createRange();
+        if (edge === "first") {
+          range.setStart(node, 0);
+          range.setEnd(node, Math.min(node.length, 12));
+        } else {
+          range.setStart(node, Math.max(0, node.length - 12));
+          range.setEnd(node, node.length);
+        }
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        return range.toString();
+      },
+      { spread: CURRENT_SPREAD, edge, slot },
+    );
+  });
   return selected;
 }
 
 /** Selects a few words in the middle of the page, clear of its edges. */
 async function selectInPage(page: Page) {
-  await page.evaluate((spread) => {
-    const slices = [
-      ...document.querySelectorAll(`${spread} [data-reader-slice-type="text"]`),
-    ];
-    const top = slices[0]!.getBoundingClientRect().bottom + 40;
-    const bottom = slices.at(-1)!.getBoundingClientRect().top - 40;
-    for (const slice of slices) {
-      const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if ((node.textContent?.length ?? 0) < 12) continue;
-        const range = document.createRange();
-        range.setStart(node, 0);
-        range.setEnd(node, 12);
-        const rects = [...range.getClientRects()];
-        if (rects.some((rect) => rect.top < top || rect.bottom > bottom))
-          continue;
-        getSelection()!.removeAllRanges();
-        getSelection()!.addRange(range);
-        return;
+  await selectAndRelease(page, () =>
+    page.evaluate((spread) => {
+      const slices = [
+        ...document.querySelectorAll(
+          `${spread} [data-reader-slice-type="text"]`,
+        ),
+      ];
+      const top = slices[0]!.getBoundingClientRect().bottom + 40;
+      const bottom = slices.at(-1)!.getBoundingClientRect().top - 40;
+      for (const slice of slices) {
+        const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if ((node.textContent?.length ?? 0) < 12) continue;
+          const range = document.createRange();
+          range.setStart(node, 0);
+          range.setEnd(node, 12);
+          const rects = [...range.getClientRects()];
+          if (rects.some((rect) => rect.top < top || rect.bottom > bottom))
+            continue;
+          getSelection()!.removeAllRanges();
+          getSelection()!.addRange(range);
+          return;
+        }
       }
-    }
-    throw new Error("No passage clear of the page's edges");
-  }, CURRENT_SPREAD);
-  await page.waitForTimeout(200);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+      throw new Error("No passage clear of the page's edges");
+    }, CURRENT_SPREAD),
   );
 }
 
@@ -431,12 +451,23 @@ async function clearSelection(page: Page) {
   });
 }
 
-const SELECT_ACROSS_PAGES = "[data-reader-select-across-pages]";
+const SPILL_TAB = "[data-reader-spill-tab]";
 
-/** Boxes of the selection, the page-edge action and the highlight tools. */
+/** A reader without Debug mode, where Scroll is not a reading layout. */
+const withoutDebugMode = (page: Page) =>
+  page.addInitScript(() =>
+    localStorage.setItem("reader-debug-enabled-v1", "false"),
+  );
+const ISLAND_TOOLS = '[data-notes-island="tools"]';
+
+type Box = { top: number; bottom: number; left: number; right: number };
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/** Boxes of the selection, the spill tab and the highlight tools. */
 const selectionLayout = (page: Page, tools: string) =>
   page.evaluate(
-    ({ action, tools }) => {
+    ({ tab, tools }) => {
       const box = (rect: DOMRect) => ({
         top: rect.top,
         bottom: rect.bottom,
@@ -446,56 +477,141 @@ const selectionLayout = (page: Page, tools: string) =>
       const range = getSelection()!.getRangeAt(0);
       return {
         selection: [...range.getClientRects()].map(box),
-        action: box(document.querySelector(action)!.getBoundingClientRect()),
+        tab: box(document.querySelector(tab)!.getBoundingClientRect()),
         tools: box(document.querySelector(tools)!.getBoundingClientRect()),
       };
     },
-    { action: SELECT_ACROSS_PAGES, tools },
+    { tab: SPILL_TAB, tools },
   );
 
-type Box = { top: number; bottom: number; left: number; right: number };
-const overlaps = (a: Box, b: Box) =>
-  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-const contains = (outer: Box, inner: Box) =>
-  inner.left >= outer.left &&
-  inner.right <= outer.right &&
-  inner.top >= outer.top &&
-  inner.bottom <= outer.bottom;
+/** Nothing covers anything else: the selection, the tab, the tools. */
+const clearOfEachOther = async (page: Page, tools: string) => {
+  const layout = await selectionLayout(page, tools);
+  return (
+    !overlaps(layout.tab, layout.tools) &&
+    !layout.selection.some(
+      (rect) => overlaps(rect, layout.tab) || overlaps(rect, layout.tools),
+    )
+  );
+};
 
-test("Select across pages sits in the highlight tools at either page edge", async ({
+test("A selection cut by a page break offers the rest of the sentence, clear of the highlight tools", async ({
   page,
   localBook,
 }) => {
   await openLocalBook(page, localBook.id);
   for (let index = 0; index < 6; index++) await nextSpread(page);
 
+  const tab = page.locator(SPILL_TAB);
   for (const edge of ["last", "first"] as const) {
+    // The next page's head continues this page's last sentence.
+    if (edge === "first") {
+      await clearSelection(page);
+      await expect(tab).toHaveCount(0);
+      await nextSpread(page);
+    }
     await selectAtPageEdge(page, edge);
-    await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
-    await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
-    // Once the island has risen: the action is in it, clear of the text.
-    await expect
-      .poll(async () => {
-        const layout = await selectionLayout(
-          page,
-          '[data-notes-island="tools"]',
-        );
-        return (
-          contains(layout.tools, layout.action) &&
-          !layout.selection.some((rect) => overlaps(rect, layout.action))
-        );
-      })
-      .toBe(true);
-
-    await clearSelection(page);
-    await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
+    await expect(page.locator(ISLAND_TOOLS)).toBeVisible();
+    await expect(tab).toBeVisible();
+    // It names what it does and quotes the words on the other page.
+    await expect(tab).toHaveAccessibleName(
+      edge === "last"
+        ? /^Continue selection onto page \d+: “.+”$/
+        : /^Extend selection back to page \d+: “.+”$/,
+    );
+    await expect.poll(() => clearOfEachOther(page, ISLAND_TOOLS)).toBe(true);
   }
+
   // A selection clear of the page's edges does not offer it.
   await selectInPage(page);
-  await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
-  // Long enough for it to have appeared, were it offered.
-  await page.waitForTimeout(300);
-  await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
+  await expect(page.locator(ISLAND_TOOLS)).toBeVisible();
+  await expect(tab).toHaveCount(0);
+});
+
+test("The spill tab finishes the sentence on the next page, and the highlight returns to pages where it ends", async ({
+  page,
+  localBook,
+}) => {
+  // Every reader has it, not only Debug mode.
+  await withoutDebugMode(page);
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 6; index++) await nextSpread(page);
+  const [pageNumber] = await currentPages(page);
+
+  const selected = await selectAtPageEdge(page, "last");
+  const tab = page.locator(SPILL_TAB);
+  await expect(tab).toBeVisible();
+  const beyond = (await tab.getAttribute("aria-label"))!.match(/“(.+)”$/)![1]!;
+  await tab.tap();
+
+  // The column takes the selection and grows it over the break to the end
+  // of the sentence, with the tools back for it.
+  await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+  await expect
+    .poll(async () =>
+      letters((await page.evaluate(() => getSelection()?.toString())) ?? ""),
+    )
+    .toBe(letters(selected + beyond));
+  await page.getByRole("button", { name: "Highlight with yellow" }).tap();
+  await expect
+    .poll(async () => (await savedHighlights(page, localBook.id)).length)
+    .toBe(1);
+  const [highlight] = await savedHighlights(page, localBook.id);
+  expect(letters(highlight!.selectedText)).toBe(letters(selected + beyond));
+
+  // Back on pages, at the page where the highlight ends; the reading mode
+  // stays Pages.
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+  await expect
+    .poll(() => currentPages(page))
+    .toEqual([String(Number(pageNumber) + 1)]);
+  await expect(
+    page
+      .locator(`${CURRENT_SPREAD} mark[data-highlight-id="${highlight!.id}"]`)
+      .first(),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).not.toBe("scroll");
+});
+
+test("Without Debug mode, a visit to the column leaves no Scroll layout behind, and Scroll is not offered", async ({
+  page,
+  localBook,
+}) => {
+  await withoutDebugMode(page);
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 6; index++) await nextSpread(page);
+  await selectAtPageEdge(page, "last");
+  await page.locator(SPILL_TAB).tap();
+  await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+
+  // Reloading mid-visit reopens the book in pages.
+  await page.reload();
+  await waitForReaderReady(page);
+  await expect(
+    page.locator(`${CURRENT_SPREAD} [data-reader-page-content]`).first(),
+  ).toBeVisible();
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).not.toBe("scroll");
+
+  // A long pull from pages stays on the page.
+  const cdp = await page.context().newCDPSession(page);
+  await touchDrag(cdp, { x: 195, y: 780 }, { x: 195, y: 300 }, 36, false);
+  await expect(page.locator("[data-reader-pull-pill]")).toHaveCount(0);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+
+  // Appearance's Layout has no Pages or Scroll row.
+  const settings = await openReadingSettings(page);
+  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await expect(settings.getByRole("tabpanel")).toBeVisible();
+  await expect(settings.locator("[data-reading-layout-row]")).toHaveCount(0);
 });
 
 test.describe("on a desktop", () => {
@@ -505,93 +621,24 @@ test.describe("on a desktop", () => {
     hasTouch: false,
   });
 
-  test("Select across pages sits in the highlight pill at either page edge", async ({
+  test("Only the spread's outer edges offer the spill tab, clear of the highlight pill", async ({
     page,
     localBook,
   }) => {
+    await withoutDebugMode(page);
     await openLocalBook(page, localBook.id);
     for (let index = 0; index < 3; index++) await nextSpread(page);
-    for (const edge of ["last", "first"] as const) {
-      await selectAtPageEdge(page, edge);
-      await expect(page.locator(SELECT_ACROSS_PAGES)).toBeVisible();
-      // The action is in the pill, and the pill clear of the text.
-      await expect
-        .poll(async () => {
-          const layout = await selectionLayout(page, ".highlight-toolbar");
-          return (
-            contains(layout.tools, layout.action) &&
-            !layout.selection.some((rect) => overlaps(rect, layout.tools))
-          );
-        })
-        .toBe(true);
-      await clearSelection(page);
-      await expect(page.locator(SELECT_ACROSS_PAGES)).toHaveCount(0);
-    }
+    // The right page's foot: the next page is not in view.
+    await selectAtPageEdge(page, "last", 1);
+    await expect(page.locator(SPILL_TAB)).toBeVisible();
+    await expect
+      .poll(() => clearOfEachOther(page, ".highlight-toolbar"))
+      .toBe(true);
+    // The left page's foot: the facing page shows the rest.
+    await selectAtPageEdge(page, "last", 0);
+    await expect(page.locator(".highlight-toolbar")).toBeVisible();
+    await expect(page.locator(SPILL_TAB)).toHaveCount(0);
   });
-});
-
-test("Select across pages moves a selection at a page break into scroll mode", async ({
-  page,
-  localBook,
-}) => {
-  await openLocalBook(page, localBook.id);
-  for (let index = 0; index < 6; index++) await nextSpread(page);
-  const [pageNumber] = await currentPages(page);
-
-  // Select the end of the page's last line.
-  const selected = await selectAtPageEdge(page, "last");
-  const action = page.locator(SELECT_ACROSS_PAGES);
-  await expect(action).toHaveAccessibleName(/select across pages/i);
-  await action.tap();
-
-  await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
-  await expect
-    .poll(() => page.evaluate(() => getSelection()?.toString().trim()))
-    .toBe(selected.trim());
-
-  // Extend the same selection into the next page's first line.
-  const extended = await page.evaluate((stage) => {
-    const selection = getSelection()!;
-    const row = selection.focusNode!.parentElement!.closest(
-      "[data-scroll-row-index]",
-    )!;
-    const next = Number(row.getAttribute("data-page-index")) + 1;
-    const slice = document.querySelector(
-      `${stage} [data-page-index="${next}"] [data-reader-slice-type="text"]`,
-    )!;
-    const walker = document.createTreeWalker(slice, NodeFilter.SHOW_TEXT);
-    const node = walker.nextNode() as Text;
-    selection.extend(node, Math.min(node.length, 10));
-    return selection.toString();
-  }, SCROLL_STAGE);
-  expect(normalized(extended).length).toBeGreaterThan(
-    normalized(selected).length,
-  );
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
-  await page.getByRole("button", { name: "Highlight with yellow" }).tap();
-  await expect
-    .poll(async () => (await savedHighlights(page, localBook.id)).length)
-    .toBe(1);
-  const [highlight] = await savedHighlights(page, localBook.id);
-  expect(normalized(highlight!.selectedText)).toBe(normalized(extended));
-
-  // Back on pages, the highlight runs from that page onto the next.
-  await chooseLayout(page, "Pages");
-  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
-  await waitForReaderReady(page);
-  const marks = page.locator(
-    `${CURRENT_SPREAD} mark[data-highlight-id="${highlight!.id}"]`,
-  );
-  if ((await currentPages(page))[0] !== pageNumber) {
-    await page.keyboard.press("ArrowLeft");
-    await expect.poll(() => currentPages(page)).toEqual([pageNumber]);
-    await waitForReaderReady(page);
-  }
-  await expect(marks.first()).toBeVisible();
-  await nextSpread(page);
-  await expect(marks.first()).toBeVisible();
 });
 
 test("A pull from pages enters scroll mode only past the threshold", async ({
@@ -602,12 +649,23 @@ test("A pull from pages enters scroll mode only past the threshold", async ({
   for (let index = 0; index < 4; index++) await nextSpread(page);
   const [pageNumber] = await currentPages(page);
   const cdp = await page.context().newCDPSession(page);
-  // Pages keep the chapter's column ready in the background.
-  await page.waitForTimeout(800);
   const pill = page.locator("[data-reader-pull-pill]");
+  const release = () =>
+    cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 
-  // A short pull: the peek, then a little text, then back to the page.
-  await touchDrag(cdp, { x: 195, y: 700 }, { x: 195, y: 520 }, 12);
+  // A short pull: the peek, then a little text, then back to the page. The
+  // pull starts once the chapter's column is ready in the background.
+  let pulled = false;
+  for (let attempt = 0; attempt < 10 && !pulled; attempt++) {
+    await touchDrag(cdp, { x: 195, y: 700 }, { x: 195, y: 520 }, 12, false);
+    pulled = await expect(pill)
+      .toHaveAttribute("data-reader-pull-pill", "pulling", { timeout: 1000 })
+      .then(() => true)
+      .catch(() => false);
+    await release();
+  }
+  expect(pulled).toBe(true);
+  await expect(pill).toHaveCount(0);
   await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
   await waitForReaderReady(page);
   expect(await currentPages(page)).toEqual([pageNumber]);
@@ -616,21 +674,9 @@ test("A pull from pages enters scroll mode only past the threshold", async ({
   await touchDrag(cdp, { x: 195, y: 780 }, { x: 195, y: 300 }, 36, false);
   await expect(pill).toHaveAttribute("data-reader-pull-pill", "armed");
   await expect(pill).toHaveText("Release to scroll");
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchEnd",
-    touchPoints: [],
-  });
+  await release();
   await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
   await expect(pill).toHaveCount(0);
-  const page0 = await page
-    .locator(SCROLL_STAGE)
-    .evaluate((element) =>
-      Number(
-        element.querySelector<HTMLElement>("[data-reader-page-tick]")?.dataset
-          .readerPageStart ?? 0,
-      ),
-    );
-  expect(page0).toBeGreaterThan(0);
   await expect
     .poll(() =>
       page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),

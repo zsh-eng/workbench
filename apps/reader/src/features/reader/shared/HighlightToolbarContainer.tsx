@@ -8,7 +8,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import type { Highlight } from "@/types/highlight";
 import { AnimatePresence } from "motion/react";
-import type { ReactNode } from "react";
 
 interface ActiveHighlightState {
   id: string;
@@ -33,8 +32,6 @@ interface HighlightToolbarContainerProps {
   onAddSelectionNote?: () => void;
   onAddHighlightNote?: (highlight: Highlight) => void;
   onCreateNoteSubmit?: (content: string) => void;
-  /** A further action for a new selection, after the desktop pill's own. */
-  creationAction?: ReactNode;
 
   // For editing existing highlights
   activeHighlight: ActiveHighlightState | null;
@@ -55,7 +52,6 @@ export function HighlightToolbarContainer({
   onCreateNoteSubmit,
   onAddHighlightNote,
   onAddSelectionNote,
-  creationAction,
   activeHighlight,
   onEditClose,
 }: HighlightToolbarContainerProps) {
@@ -125,7 +121,6 @@ export function HighlightToolbarContainer({
             onColorSelect={onCreateColorSelect}
             onNoteSubmit={onCreateNoteSubmit}
             textToCopy={creationText}
-            action={creationAction}
           />
         )}
       </AnimatePresence>
