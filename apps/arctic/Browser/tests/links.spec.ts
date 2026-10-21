@@ -166,6 +166,16 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   await expect(add).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".card-title").first()).toHaveText("Polar night");
 
+  // Paste saves the copied link at once.
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() =>
+    navigator.clipboard.writeText("https://example.com/sea-smoke"),
+  );
+  await add.click();
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  await expect(add).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".card-title").first()).toHaveText("Sea smoke");
+
   await page.locator(".card-title", { hasText: "A floe at dawn" }).click();
   await expect(page.locator(".prose")).toContainText("Paragraph 30.");
   const toolbar = page.getByRole("toolbar", { name: "Article" });
@@ -228,7 +238,7 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   // Archive returns to the library, which no longer shows the article.
   await toolbar.getByRole("button", { name: "Archive" }).click();
   await expect(page.locator(".toast")).toContainText("Archived");
-  await expect(page.locator(".card-title").first()).toHaveText("Polar night");
+  await expect(page.locator(".card-title").first()).toHaveText("Sea smoke");
   await expect(page.getByText("A floe at dawn")).toHaveCount(0);
   await expect
     .poll(

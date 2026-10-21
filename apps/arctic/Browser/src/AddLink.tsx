@@ -264,6 +264,9 @@ export function LinkDock({ children }: { children: ReactNode }) {
     link.reset();
   }
   // A press on a control keeps the field focused, and the keyboard up.
+  // Focus moves on mousedown, and Safari on iOS sends one for each tap even
+  // when pointerdown is cancelled. Without this, the blur closes an empty
+  // field, and the tap's click lands on the closed form instead of Paste.
   const keepFocus = (event: { preventDefault: () => void }) =>
     event.preventDefault();
 
@@ -327,7 +330,7 @@ export function LinkDock({ children }: { children: ReactNode }) {
                   type="submit"
                   className="dock-save"
                   aria-label="Save"
-                  onPointerDown={keepFocus}
+                  onMouseDown={keepFocus}
                 >
                   <ArrowUp size={18} />
                 </button>
@@ -336,7 +339,7 @@ export function LinkDock({ children }: { children: ReactNode }) {
                   <button
                     type="button"
                     className="dock-paste"
-                    onPointerDown={keepFocus}
+                    onMouseDown={keepFocus}
                     onClick={() =>
                       navigator.clipboard.readText().then(
                         (text) => {
@@ -360,7 +363,7 @@ export function LinkDock({ children }: { children: ReactNode }) {
             className="icon-button dock-add"
             aria-label={adding ? "Cancel" : "Save a link"}
             aria-expanded={adding}
-            onPointerDown={adding ? keepFocus : undefined}
+            onMouseDown={adding ? keepFocus : undefined}
             onClick={adding ? close : open}
           >
             <Plus size={20} />

@@ -176,7 +176,11 @@ reading progress. Each width gets the layout that suits its hands:
   **+** saves a link the way Safari edits its address: the search capsule
   becomes a link field above the keyboard, with Paste while it is empty and
   Save once it is not; the **+** turns to × and the list waits under a light
-  scrim (`LinkDock` in `src/AddLink.tsx`).
+  scrim (`LinkDock` in `src/AddLink.tsx`). On iPhone, Safari shows its own
+  Paste button above ours, and the link saves when you tap it. The dock's
+  controls keep the field focused on mousedown, because Safari on iOS sends a
+  mousedown for each tap, even when pointerdown is cancelled. Chromium does
+  not, so check changes to the dock in the iOS Simulator.
   The library is a list by default. The reader has no top bar: one toolbar at
   the bottom holds Back, Notes, Text, Favourite, Archive and More, and steps
   down while you read on. A selection turns that toolbar into the highlight

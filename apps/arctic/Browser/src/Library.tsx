@@ -513,7 +513,7 @@ function PhoneDock({
     <LinkDock>
       <button type="button" className="search-capsule" onClick={onSearch}>
         <Search size={17} />
-        Search {count > 0 ? `${count.toLocaleString()} articles` : ""}
+        Search {count > 0 ? `${count.toLocaleString()} ${count === 1 ? "article" : "articles"}` : ""}
       </button>
     </LinkDock>
   );

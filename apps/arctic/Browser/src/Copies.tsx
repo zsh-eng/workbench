@@ -387,7 +387,7 @@ function FromBrowser({
               onClick={start}
             >
               {queue.length
-                ? `Open ${queue.length.toLocaleString()} articles`
+                ? `Open ${queue.length.toLocaleString()} ${queue.length === 1 ? "article" : "articles"}`
                 : "Every saved article has text"}
             </button>
             <a
