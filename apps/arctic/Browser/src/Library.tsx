@@ -548,9 +548,11 @@ function usePrefetch(
     if (!element) return;
     let cancelled = false;
     let handle = 0;
-    // Safari has no idle callbacks; a short timeout stands in.
+    // Safari has no idle callbacks; a short timeout stands in. The two kinds
+    // of handle share numbers, so each is cancelled only by its own kind.
+    const hasIdle = typeof requestIdleCallback === "function";
     const idle = (work: () => void): number =>
-      typeof requestIdleCallback === "function"
+      hasIdle
         ? requestIdleCallback(work, { timeout: 2000 })
         : Number(setTimeout(work, 200));
     const onScreen = () => {
@@ -583,8 +585,8 @@ function usePrefetch(
     return () => {
       cancelled = true;
       window.removeEventListener("scrollend", start);
-      if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle);
-      clearTimeout(handle);
+      if (hasIdle) cancelIdleCallback(handle);
+      else clearTimeout(handle);
     };
   }, [grid, byId, session]);
 

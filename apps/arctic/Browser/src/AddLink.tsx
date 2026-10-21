@@ -1,6 +1,12 @@
 import { Popover } from "@base-ui/react/popover";
 import { ClipboardPaste, Plus } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { editLibrary, removeArticle, type Article } from "./articles";
 import { articleId, canonicalURL, saveLink } from "./links";
@@ -168,6 +174,10 @@ function LinkForm({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const canPaste = compact && !!navigator.clipboard?.readText;
+  // Focus in the tap that opened the form, so a phone opens its keyboard.
+  // A sheet is still below the screen then; scrolling the field into view
+  // would stop it halfway and scroll the page behind it.
+  useLayoutEffect(() => input.current?.focus({ preventScroll: true }), []);
   const submit = async (text: string) => {
     if (!text.trim() || busy) return;
     setBusy(true);
@@ -203,7 +213,6 @@ function LinkForm({ onDone }: { onDone: () => void }) {
           autoCapitalize="off"
           spellCheck={false}
           placeholder="Paste a link"
-          autoFocus
           data-sheet-autofocus
           value={value}
           aria-invalid={error ? true : undefined}

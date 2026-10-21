@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SheetProps } from "./sheet";
 
 /**
@@ -30,10 +30,10 @@ export function useWide() {
   );
 }
 
-const loadSheet = () => import("./sheet");
-const LazySheet = lazy(() =>
-  loadSheet().then((module) => ({ default: module.Sheet })),
-);
+let sheet: typeof import("./sheet") | undefined;
+let loading: Promise<unknown> | undefined;
+const loadSheet = () =>
+  (loading ??= import("./sheet").then((module) => (sheet = module)));
 
 /**
  * React Aria's sheet stays out of the first load. A phone loads it just
@@ -51,11 +51,14 @@ export function preloadSheet() {
 export function Sheet(props: SheetProps) {
   // A sheet that never opened needs no code.
   const [used, setUsed] = useState(props.isOpen);
+  const [, setLoaded] = useState(false);
   if (props.isOpen && !used) setUsed(true);
-  if (!used) return null;
-  return (
-    <Suspense fallback={null}>
-      <LazySheet {...props} />
-    </Suspense>
-  );
+  useEffect(() => {
+    if (used && !sheet) void loadSheet().then(() => setLoaded(true));
+  }, [used]);
+  // Loaded code renders in the same commit as the tap, so a field in the
+  // sheet can take focus in that tap and the phone opens its keyboard.
+  // React.lazy would wait a task, even for code that is already here.
+  if (!used || !sheet) return null;
+  return <sheet.Sheet {...props} />;
 }

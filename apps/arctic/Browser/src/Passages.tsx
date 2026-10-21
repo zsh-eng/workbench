@@ -96,7 +96,8 @@ export function Passages({
   }, [reveal, ready]);
 
   // A selection in the text shows the bar once the pointer lifts, or after
-  // the selection rests (touch handles).
+  // the selection rests (touch handles). A touch that scrolls, or a long
+  // press the browser takes for selection, ends in pointercancel instead.
   useEffect(() => {
     if (!ready) return;
     let pressed = false;
@@ -130,11 +131,13 @@ export function Passages({
     document.addEventListener("selectionchange", changed);
     document.addEventListener("pointerdown", down);
     document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("selectionchange", changed);
       document.removeEventListener("pointerdown", down);
       document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
     };
   }, [ready, prose]);
 

@@ -54,10 +54,10 @@
 }
 
 /* At a partial detent a swipe on the content moves the sheet; the content
-   scrolls only at full height, as on iOS. */
+   scrolls only at full height, as on iOS. There, a pull down at the top of
+   the content passes to the sheet and lowers it. */
 .sheet-overlay[data-expanded] .sheet-body {
   overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .sheet-handle {

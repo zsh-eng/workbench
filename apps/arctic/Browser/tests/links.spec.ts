@@ -126,7 +126,17 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
     title: "A floe at dawn",
     subtitle: "Where the ice goes in spring.",
   });
-  await phone(context.request).push(floe.records);
+  // Older reading below it, so the list can scroll.
+  const older = Array.from({ length: 20 }, (_, n) =>
+    article(`https://example.com/older-${n}`, {
+      title: `Older reading ${n + 1}`,
+      savedAt: Date.UTC(2026, 0, n + 1),
+    }),
+  );
+  await phone(context.request).push([
+    ...floe.records,
+    ...older.flatMap((item) => item.records),
+  ]);
   await addText(context.request, floe, paragraphs(30));
   await page.goto("/");
   await expect(page.locator(".card[data-copy]")).toHaveCount(1);
@@ -136,6 +146,12 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   const sheet = page.getByRole("dialog", { name: "Save a link" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByPlaceholder("Paste a link")).toBeFocused();
+  // The field takes focus in the tap, without scrolling, which would stop
+  // the sheet partway up the screen.
+  await expect
+    .poll(async () => (await sheet.boundingBox())?.y ?? Infinity)
+    .toBeLessThan(60);
+  expect(await page.evaluate(() => scrollY)).toBe(0);
   await sheet.getByPlaceholder("Paste a link").fill("https://example.com/polar-night");
   await sheet.getByRole("button", { name: "Save", exact: true }).click();
   await expect(sheet).toBeHidden();
@@ -145,6 +161,34 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   await expect(page.locator(".prose")).toContainText("Paragraph 30.");
   const toolbar = page.getByRole("toolbar", { name: "Article" });
   await expect(toolbar).toBeVisible();
+
+  // A touch scroll ends in pointercancel, not pointerup. A passage selected
+  // after it still brings up the colours.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Input.synthesizeScrollGesture", {
+    x: 195,
+    y: 600,
+    yDistance: -240,
+    gestureSourceType: "touch",
+  });
+  await page.evaluate(() => {
+    const text = document.querySelectorAll(".prose p")[4]!.firstChild!;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await expect(page.getByRole("button", { name: "Highlight sage" })).toBeVisible();
+  await page.evaluate(() => getSelection()!.removeAllRanges());
+  await expect(page.getByRole("button", { name: "Highlight sage" })).toBeHidden();
+  // The toolbar stepped aside on the way down; scrolling up brings it back.
+  await cdp.send("Input.synthesizeScrollGesture", {
+    x: 195,
+    y: 300,
+    yDistance: 400,
+    gestureSourceType: "touch",
+  });
+  await expect(toolbar).toBeInViewport();
 
   // Text and theme leaves the page in view and changes it as it goes.
   await toolbar.getByRole("button", { name: "Text and theme" }).click();
@@ -175,7 +219,8 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   // Archive returns to the library, which no longer shows the article.
   await toolbar.getByRole("button", { name: "Archive" }).click();
   await expect(page.locator(".toast")).toContainText("Archived");
-  await expect(page.locator(".card-title")).toHaveText(["Polar night"]);
+  await expect(page.locator(".card-title").first()).toHaveText("Polar night");
+  await expect(page.getByText("A floe at dawn")).toHaveCount(0);
   await expect
     .poll(
       async () =>
