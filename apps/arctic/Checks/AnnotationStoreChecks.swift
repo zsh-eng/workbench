@@ -119,6 +119,40 @@ enum TestMode { static let enabled = false }
     precondition(failing.failedNotes.isEmpty)
     precondition(AnnotationStore(directory: failedDirectory).records.first?.id == failedID)
     print("Optimistic notes: immediate publication, async persistence, ordered edits/deletes, retained failure and retry passed")
+
+    // Account sync: the record is byte for byte what Arctic for the web writes
+    // (Browser/src/annotations.ts). A merge takes the later edit, the account's
+    // copy on a tie, and is not an edit on this device.
+    let id = UUID(uuidString: "0F3A3B5E-6C1D-4E2A-9B7C-1D2E3F405162")!
+    let web = ReaderAnnotation(
+      id: id, articleURL: URL(string: "https://example.com/ice?a=1")!,
+      quote: ReaderQuote(exact: "Sea ice", prefix: "", suffix: " forms", start: 12), note: "",
+      isHighlighted: true, createdAt: Date(timeIntervalSinceReferenceDate: 782_000_000.5),
+      updatedAt: Date(timeIntervalSinceReferenceDate: 782_000_100.25), colour: .sage)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    let encoded = String(decoding: try encoder.encode(web), as: UTF8.self)
+    precondition(
+      encoded
+        == #"{"articleURL":"https://example.com/ice?a=1","colour":"sage","createdAt":782000000.5,"id":"0F3A3B5E-6C1D-4E2A-9B7C-1D2E3F405162","isHighlighted":true,"note":"","quote":{"exact":"Sea ice","prefix":"","start":12,"suffix":" forms"},"updatedAt":782000100.25}"#
+    )
+    var edits = 0
+    let synced = AnnotationStore(directory: directory.appending(path: "synced"))
+    synced.edited = { edits += 1 }
+    try synced.merge([web])
+    precondition(synced.records == [web] && edits == 0)
+    var tie = web
+    tie.note = "The same moment, on another device"
+    try synced.merge([tie])
+    precondition(synced.records.first?.note == tie.note)
+    var older = web
+    older.note = "An older edit"
+    older.updatedAt = web.updatedAt.addingTimeInterval(-1)
+    try synced.merge([older])
+    precondition(synced.records.first?.note == tie.note && edits == 0)
+    try synced.recolour(id, colour: .blue)
+    precondition(edits == 1)
+    print("Account records: web encoding, later edit wins, tie takes the account's copy, merges are not edits passed")
     print(
       "Annotation storage: reopen, legacy yellow, persisted colour, Unicode, deduplication, note preservation, clear-and-retype after restart, explicit deletion, stale merge, damaged-record isolation passed"
     )

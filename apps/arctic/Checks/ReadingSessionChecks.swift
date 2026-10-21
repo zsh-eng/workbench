@@ -147,8 +147,42 @@ import Foundation
     try await settled(pages)
     precondition(pages.total(for: first) == 3)
     precondition(pages.total(for: next) == 9)
+
+    // Account sync: sessions with time upload; the account's newer copies
+    // replace this device's and count once; the visit in progress stays local.
+    let synced = ReadingSessions(
+      directory: directory.appending(path: "synced"), monotonicNow: { clock.tick },
+      wallNow: { clock.date })
+    try await ready(synced)
+    var pauses = 0
+    synced.paused = { pauses += 1 }
+    synced.begin(url: first)
+    precondition(synced.syncable.isEmpty)
+    clock.advance(6)
+    synced.pause()
+    precondition(pauses == 1 && synced.syncable.count == 1)
+    let fromWeb = ArticleReadingSession(
+      id: UUID(), articleURL: next, startedAt: clock.date, updatedAt: clock.date, seconds: 40)
+    synced.merge([fromWeb])
+    precondition(synced.total(for: next) == 40)
+    var longer = fromWeb
+    longer.seconds = 55
+    longer.updatedAt = clock.date.addingTimeInterval(30)
+    synced.merge([longer, fromWeb])
+    precondition(synced.total(for: next) == 55)
+    let current = synced.syncable.first { $0.articleURL == first }!
+    var other = current
+    other.seconds = 999
+    other.updatedAt = clock.date.addingTimeInterval(60)
+    synced.merge([other])
+    precondition(synced.total(for: first) == 6)
+    synced.end()
+    try await settled(synced)
+    let reopened = ReadingSessions(directory: directory.appending(path: "synced"))
+    try await ready(reopened)
+    precondition(reopened.total(for: next) == 55 && reopened.total(for: first) == 6)
     print(
-      "Reading sessions: 120-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation, retained retry and scoped page lifecycle passed"
+      "Reading sessions: 120-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation, retained retry, scoped page lifecycle and account merges passed"
     )
   }
 

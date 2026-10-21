@@ -20,8 +20,10 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   Workbench Backup credential (approved 20 October 2026). Annotation and
   reading-time sync are approved web first (21 October 2026): records only, in
   `arctic-annotations` and `arctic-reading`, in the phone's `ReaderAnnotation`
-  and `ArticleReadingSession` encodings. The phone does not upload them yet;
-  ask before building that. The web saves new links (approved 21 October
+  and `ArticleReadingSession` encodings. The phone syncs them too (approved
+  21 October 2026): `AccountRecordJournal` in `Sources/LibrarySync.swift`
+  uploads its files and pulls the web's; keep both sides' encodings equal
+  (`Checks/AnnotationStoreChecks.swift` compares the bytes). The web saves new links (approved 21 October
   2026) by writing the phone's `article/`, `library/` and `tags/` records for
   a new article; keep `Browser/src/links.ts` in step with
   `ArticleSyncCodec.canonicalURL`, `identity` and `values`.

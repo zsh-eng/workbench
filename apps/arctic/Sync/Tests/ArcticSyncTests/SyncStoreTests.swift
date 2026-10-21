@@ -237,3 +237,62 @@ func simultaneousOfflineEditsResolveByDeviceAndStayResolvedAfterRestart(_ backen
   #expect(await restarted.snapshot()["article/one"]?.value == "from b")
   #expect(await restarted.pendingCount == 0)
 }
+
+/// Whole records that live in files: each side keeps the newer `updatedAt`,
+/// whichever device uploaded last.
+@Test(arguments: Backend.allCases) func recordFamiliesKeepTheNewerEditOnEachSide(
+  _ backend: Backend
+) async throws {
+  struct Passage: Codable { let updatedAt: Int; let text: String }
+  func value(_ updatedAt: Int, _ text: String) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    return String(
+      decoding: try! encoder.encode(Passage(updatedAt: updatedAt, text: text)), as: UTF8.self)
+  }
+  let newer: @Sendable (String, String) -> SyncStore.Newer = { local, remote in
+    guard let theirs = try? JSONDecoder().decode(Passage.self, from: Data(remote.utf8)) else {
+      return .local
+    }
+    guard let ours = try? JSONDecoder().decode(Passage.self, from: Data(local.utf8)) else {
+      return .remote
+    }
+    return ours.updatedAt > theirs.updatedAt ? .local : .remote
+  }
+  let remote = Remote()
+  let phoneFile = backend.location()
+  let webFile = backend.location()
+  defer {
+    backend.remove(phoneFile)
+    backend.remove(webFile)
+  }
+  let phone = try backend.open(phoneFile, accountID: "alice", deviceID: "phone")
+  let web = try backend.open(webFile, accountID: "alice", deviceID: "web")
+  // The web edited a passage after the phone did, and made one the phone lacks.
+  try await web.commit([
+    mutation(value(9, "web edit"), key: "annotation/b"),
+    mutation(value(2, "web only"), key: "annotation/c"),
+  ])
+  try await web.sync(using: remote)
+
+  // The phone uploads last, yet the web's newer edit stays.
+  var files = ["annotation/a": value(1, "phone"), "annotation/b": value(5, "phone")]
+  let pulled = try await phone.sync(using: remote, reconciling: files, newer: newer)
+  #expect(pulled == ["annotation/b": value(9, "web edit"), "annotation/c": value(2, "web only")])
+  #expect(await phone.pendingCount == 0)
+  #expect(await remote.records["annotation/a"]?.value == value(1, "phone"))
+  #expect(await remote.records["annotation/b"]?.value == value(9, "web edit"))
+
+  // Stored here, the pulled records are settled: nothing moves either way.
+  files.merge(pulled) { $1 }
+  #expect(try await phone.sync(using: remote, reconciling: files, newer: newer).isEmpty)
+  #expect(await phone.pendingCount == 0)
+
+  // A newer edit on the phone reaches the web.
+  files["annotation/b"] = value(12, "phone edit")
+  #expect(try await phone.sync(using: remote, reconciling: files, newer: newer).isEmpty)
+  try await web.sync(using: remote)
+  #expect(await web.snapshot()["annotation/b"]?.value == value(12, "phone edit"))
+  #expect(await web.snapshot()["annotation/a"]?.value == value(1, "phone"))
+}
+

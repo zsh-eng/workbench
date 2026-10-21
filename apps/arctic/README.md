@@ -247,11 +247,10 @@ articles that the account lacks, Arctic asks whether to add them, for example
 just now**. Sign-out asks first, keeps the account's articles in the account, and
 shows this device's own library again.
 
-Saved, archived, favourite and read state, titles and tags sync. Reader copies,
-images, highlights, notes and reading time stay on each device. Arctic for the
-web already syncs its own highlights and reading time in the phone's formats
-(`Browser/README.md`); the phone does not upload or read them yet. The session
-credential stays in the device Keychain. Jev keys, cookies and passwords are
+Saved, archived, favourite and read state, titles and tags sync, and so do
+highlights, notes and reading sessions, with Arctic for the web as well. Reader
+copies and images stay on each device. The session credential stays in the
+device Keychain. Jev keys, cookies and passwords are
 never sync data.
 
 Each library is a profile with one SQLite file: the local profile, and one for
@@ -260,7 +259,17 @@ each account scope (server, user, namespace and epoch). An edit shows at once;
 opens, when it becomes active, and three seconds after an edit. Offline edits wait
 in the outbox. Sign-out keeps both profiles on the device.
 
-Edits merge by field. Each pending edit keeps the value it started from. When
+Highlights and notes (`arctic-annotations`) and reading sessions
+(`arctic-reading`) sync as whole records, after the library, each with its own
+SQLite journal beside the library's (`AccountRecordJournal` in
+`LibrarySync.swift`). Their files stay what the app shows. A sync pulls first,
+then keeps the later `updatedAt` of each record on both sides, and uploads this
+device's newer ones; on a tie the account's copy wins. A removed passage is a
+record with `deletedAt`, so a sync cannot revive it. The first sync after this
+change uploads every highlight, note and reading session already on the device.
+A highlight shows on the article whose URL it names.
+
+Library edits merge by field. Each pending edit keeps the value it started from. When
 another device changed the same article meanwhile, a field that only one device
 changed keeps that change: archive on iPhone and favourite on Mac both stay. When
 both devices changed the same field, the device that syncs second keeps its value.
@@ -271,8 +280,7 @@ and reads the copy back before it commits. The old file stays unchanged as a
 backup. An unreadable file is never copied or overwritten; Arctic keeps using it.
 
 `../sync-server` owns the shared auth/v3 routes at `https://api.zsheng.app`.
-Annotation, reading-time and position sync, and HTML or image upload, are not
-implemented. See the [release boundaries](../../packages/arctic-sync-server/README.md)
+Reader position sync, and HTML or image upload, are not implemented. See the [release boundaries](../../packages/arctic-sync-server/README.md)
 and the [measured SQLite journal](Sync/PERFORMANCE.md).
 
 ## Open from another app

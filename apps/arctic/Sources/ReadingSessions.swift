@@ -23,6 +23,8 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
   var lastError: String? { failures.values.first ?? loadError }
   var hasPendingWrites: Bool { !pending.isEmpty }
   var hasUnpersistedChanges: Bool { !dirty.isEmpty }
+  /// Called when a visit pauses, so account sync can upload its time.
+  var paused: (() -> Void)?
 
   private struct Visit {
     var id: UUID
@@ -101,6 +103,7 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
     accountBoundary()
     visit?.boundary = nil
     flush(force: true)
+    paused?()
   }
 
   func end(url: URL? = nil) {
@@ -122,6 +125,25 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
 
   /// Read once when statistics open, rather than observing each activity boundary.
   func snapshot() -> [ArticleReadingSession] { Array(records.values) }
+
+  /// Sessions with time in them, as account sync uploads them.
+  var syncable: [ArticleReadingSession] { records.values.filter { $0.seconds > 0 } }
+
+  /// Sessions from the account, such as Arctic for the web's. A newer copy
+  /// replaces this device's; the visit in progress stays this device's own.
+  func merge(_ incoming: [ArticleReadingSession]) {
+    for record in incoming {
+      guard record.seconds.isFinite, record.seconds >= 0, record.id != visit?.id else { continue }
+      let previous = records[record.id]
+      if let previous, previous == record || previous.updatedAt > record.updatedAt { continue }
+      if let previous { totals[previous.articleURL, default: 0] -= previous.seconds }
+      records[record.id] = record
+      totals[record.articleURL, default: 0] += record.seconds
+      revisions[record.id, default: 0] += 1
+      dirty.insert(record.id)
+      if !pending.contains(record.id) { write(record.id) }
+    }
+  }
 
   func sessions(for url: URL) -> [ArticleReadingSession] {
     records.values.filter { $0.articleURL == url && $0.seconds > 0 }

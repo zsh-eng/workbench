@@ -20,8 +20,11 @@ private actor SharedService {
   func revoke() { rejected = true }
   func load(_ request: URLRequest) throws -> (Data, URLResponse) {
     requests.append(request)
-    let scope = SyncScope(origin: sharedServer.absoluteString, userId: "alice", epoch: epoch)
     let path = request.url!.path
+    // Each namespace is its own stream: /api/apps/<namespace>/sync/v3/...
+    let namespace = path.split(separator: "/").dropFirst(2).first.map(String.init) ?? "arctic"
+    let scope = SyncScope(
+      origin: sharedServer.absoluteString, userId: "alice", namespace: namespace, epoch: epoch)
     let expectedHeader = try scope.header
     let status =
       rejected
@@ -101,6 +104,32 @@ private actor SharedService {
   await service.revoke()
   await #expect(throws: SyncFailure.unauthorized) { try await reopened.sync(using: remote) }
   #expect(await reopened.pendingCount == 1)
+}
+
+@Test func namespaceTransportUsesItsOwnStream() async throws {
+  let service = SharedService()
+  let remote = try HTTPRemote(
+    identity: sharedIdentity, namespace: "arctic-annotations",
+    performRequest: { try await service.load($0) }, cancelRequests: {}, persistSession: { _ in })
+  let scope = try await remote.getScope()
+  #expect(scope.namespace == "arctic-annotations")
+  let store = try SyncStore(
+    file: FileManager.default.temporaryDirectory.appending(path: "\(UUID()).json"), scope: scope,
+    deviceID: "phone")
+  try await store.commit([.init(key: "annotation/one", value: #"{"note":"Kept"}"#)])
+  try await store.sync(using: remote)
+  #expect(await store.pendingCount == 0)
+  #expect(
+    await service.requests.map(\.url!.path) == [
+      "/api/apps/arctic-annotations/sync/v3/state",
+      "/api/apps/arctic-annotations/sync/v3/pull",
+      "/api/apps/arctic-annotations/sync/v3/push",
+    ])
+  // The library's scope cannot bind another namespace's transport.
+  let library = SyncScope(origin: sharedServer.absoluteString, userId: "alice", epoch: "epoch-1")
+  #expect(throws: SyncFailure.wrongAccount) {
+    try HTTPRemote(identity: sharedIdentity, scope: library, namespace: "arctic-annotations")
+  }
 }
 
 @Test func liveProfileDatabaseKeepsItsScope() async throws {

@@ -39,6 +39,9 @@ struct ReaderAnnotation: Codable, Identifiable, Equatable, Sendable {
   private(set) var pendingNoteIDs: Set<UUID> = []
   private(set) var failedNotes: [UUID: String] = [:]
   @ObservationIgnored private let writes = DispatchQueue(label: "arctic.annotation-writes", qos: .userInitiated)
+  /// Called after each edit on this device, so account sync can upload it.
+  @ObservationIgnored var edited: (() -> Void)?
+  @ObservationIgnored private var merging = false
 
 
   init(directory: URL? = nil) {
@@ -223,10 +226,14 @@ struct ReaderAnnotation: Codable, Identifiable, Equatable, Sendable {
     try write(record)
   }
 
+  /// Records from the account. One replaces this device's copy unless that
+  /// copy is newer; on a tie the account's wins, so every device settles on it.
   func merge(_ incoming: [ReaderAnnotation]) throws {
+    merging = true
+    defer { merging = false }
     for record in incoming {
       if let local = records.first(where: { $0.id == record.id }),
-        local.updatedAt >= record.updatedAt
+        local == record || local.updatedAt > record.updatedAt
       {
         continue
       }
@@ -252,5 +259,6 @@ struct ReaderAnnotation: Codable, Identifiable, Equatable, Sendable {
     } else {
       records.append(record)
     }
+    if !merging { edited?() }
   }
 }

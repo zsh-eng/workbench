@@ -63,7 +63,8 @@ first and upload about a second later; a closed tab keeps them for the next
 visit.
 
 Reading time and highlights have their own namespaces, in the phone's formats
-(approved 21 October 2026, the web first; the phone does not upload them yet):
+(approved 21 October 2026). The phone syncs them as well, so a passage
+highlighted on either shows on both:
 
 | Namespace | Records |
 | --- | --- |

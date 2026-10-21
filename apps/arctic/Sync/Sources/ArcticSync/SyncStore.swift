@@ -244,6 +244,55 @@ public actor SyncStore {
     return state.rows
   }
 
+  /// Which of two different values of a key is newer.
+  public enum Newer: Sendable { case local, remote, neither }
+
+  /// Brings this journal and a family of whole records that live elsewhere on
+  /// this device together, in one transaction and without a network call. A
+  /// local value that the journal lacks, or that `newer` finds newer, commits
+  /// for upload. The account's values that are newer, and those this device
+  /// lacks, return by key for the caller to store. A removed record is a value
+  /// that says so, not a tombstone; a tombstone does not reach the caller.
+  public func reconcile(
+    _ local: [String: String],
+    newer: @Sendable (_ local: String, _ remote: String) -> Newer,
+    now: Date = Date()
+  ) throws -> [String: String] {
+    var uploads: [LocalMutation] = []
+    var downloads: [String: String] = [:]
+    for (key, value) in local {
+      guard let row = state.rows[key], !row.isDeleted else {
+        uploads.append(LocalMutation(key: key, value: value))
+        continue
+      }
+      guard row.value != value else { continue }
+      switch newer(value, row.value) {
+      case .local: uploads.append(LocalMutation(key: key, value: value))
+      case .remote: downloads[key] = row.value
+      case .neither: break
+      }
+    }
+    for (key, row) in state.rows where !row.isDeleted && local[key] == nil {
+      downloads[key] = row.value
+    }
+    try commit(uploads.sorted { $0.key < $1.key }, now: now)
+    return downloads
+  }
+
+  /// Syncs a family of whole records kept elsewhere on this device: pull,
+  /// reconcile with the pulled rows, then upload. Reconciling after the pull
+  /// keeps an older copy here from replacing another device's newer edit,
+  /// since the server keeps the newest upload. Returns `reconcile`'s values.
+  public func sync(
+    using remote: any SyncRemote, reconciling local: [String: String],
+    newer: @Sendable (_ local: String, _ remote: String) -> Newer
+  ) async throws -> [String: String] {
+    try await sync(using: remote)
+    let downloads = try reconcile(local, newer: newer)
+    if !state.pending.isEmpty { try await sync(using: remote) }
+    return downloads
+  }
+
   /// Pull first, then send a fixed outbox snapshot. New edits during network awaits
   /// remain pending. The caller schedules another pass for those later edits.
   public func sync(using remote: any SyncRemote) async throws {

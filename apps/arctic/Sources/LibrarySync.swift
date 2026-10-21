@@ -28,8 +28,10 @@ struct LibraryAccount: Codable, Equatable {
 }
 
 /// Keeps the library the same on every device signed in to one account. Saved,
-/// archived, favourite and read state, titles and tags sync; Reader copies and
-/// images stay on each device. Jev keys, cookies and credentials never sync.
+/// archived, favourite and read state, titles and tags sync, and so do
+/// highlights, notes and reading sessions (`AccountRecordJournal`); Reader
+/// copies and images stay on each device. Jev keys, cookies and credentials
+/// never sync.
 ///
 /// Signing in opens the account's own profile. The device's local library is
 /// added only when the user chooses to, and it shows again after sign-out.
@@ -63,6 +65,9 @@ struct LibraryAccount: Codable, Equatable {
   @ObservationIgnored private var login: NativeGoogleSignIn?
   /// The account profile opened during sign-in, before the user chooses.
   @ObservationIgnored private var joining: ArticleSyncRepository?
+  /// Highlights and notes, and reading sessions: a transport and a journal each.
+  @ObservationIgnored private var streams:
+    [AccountRecordFamily: (remote: HTTPRemote, journal: AccountRecordJournal)] = [:]
   @ObservationIgnored private var running: Task<Void, Never>?
   @ObservationIgnored private var again = false
   @ObservationIgnored private var soon: Task<Void, Never>?
@@ -74,6 +79,8 @@ struct LibraryAccount: Codable, Equatable {
     joined = saved != nil
     status = saved == nil ? .signedOut : .syncing
     store.journalCommitted = { [weak self] in self?.syncSoon() }
+    AnnotationStore.shared.edited = { [weak self] in self?.syncSoon() }
+    ReadingSessions.shared.paused = { [weak self] in self?.syncSoon() }
   }
 
   var isSignedIn: Bool { account != nil }
@@ -158,6 +165,7 @@ struct LibraryAccount: Codable, Equatable {
       await transport.cancel()
       throw SyncFailure.scopeChanged
     }
+    retireStreams()
     remote = transport
     cancelRemote = { await transport.cancel() }
     signOutRemote = { try await transport.signOut() }
@@ -249,6 +257,8 @@ struct LibraryAccount: Codable, Equatable {
     do {
       try await repository.sync(using: remote)
       guard LibraryAccount.saved == account else { return }
+      try await syncRecords()
+      guard LibraryAccount.saved == account else { return }
       lastSynced = Date()
       status = .upToDate
     } catch {
@@ -260,6 +270,56 @@ struct LibraryAccount: Codable, Equatable {
       store.applyRemoteChanges(changes, from: repository)
     }
     pendingCount = await repository.pendingCount
+  }
+
+  /// Highlights and notes, then reading sessions, after the library. Each
+  /// pulls, keeps the newer edit of every record, and uploads this device's.
+  private func syncRecords() async throws {
+    #if DEBUG
+      // The test account holds a library only.
+      if SyncFixture.current != nil { return }
+    #endif
+    for family in AccountRecordFamily.allCases {
+      switch family {
+      case .annotations:
+        let annotations = AnnotationStore.shared
+        let (remote, journal) = try await stream(family)
+        try annotations.merge(try await journal.sync(annotations.records, using: remote))
+      case .reading:
+        let sessions = ReadingSessions.shared
+        // Before its files load, this device would seem to have no sessions.
+        guard sessions.isLoaded else { continue }
+        let (remote, journal) = try await stream(family)
+        sessions.merge(try await journal.sync(sessions.syncable, using: remote))
+      }
+    }
+  }
+
+  /// Each family's own stream, bound once per sign-in. The credential comes
+  /// from Keychain, where the library's transport keeps it fresh.
+  private func stream(_ family: AccountRecordFamily) async throws
+    -> (remote: HTTPRemote, journal: AccountRecordJournal)
+  {
+    if let stream = streams[family] { return stream }
+    guard let session = try savedSession() else { throw SyncFailure.unauthorized }
+    let remote = try HTTPRemote(identity: session, namespace: family.namespace)
+    do {
+      let journal = try AccountRecordJournal(
+        root: store.libraryRoot, scope: try await remote.getScope())
+      streams[family] = (remote, journal)
+      return (remote, journal)
+    } catch {
+      await remote.cancel()
+      throw error
+    }
+  }
+
+  private func retireStreams() {
+    let remotes = streams.values.map(\.remote)
+    streams = [:]
+    Task {
+      for remote in remotes { await remote.cancel() }
+    }
   }
 
   // MARK: Sign-out
@@ -298,6 +358,7 @@ struct LibraryAccount: Codable, Equatable {
 
   private func forgetSession() {
     let cancel = cancelRemote
+    retireStreams()
     remote = nil
     cancelRemote = nil
     signOutRemote = nil
@@ -320,6 +381,7 @@ struct LibraryAccount: Codable, Equatable {
     switch error {
     case SyncFailure.unauthorized:
       remote = nil
+      retireStreams()
       status = .needsSignIn
     case SyncFailure.scopeChanged, SyncFailure.wrongAccount:
       status = .failed(
@@ -339,6 +401,87 @@ struct LibraryAccount: Codable, Equatable {
         status = .failed("Sync could not finish. Your changes are saved on this device.")
       }
     }
+  }
+}
+
+/// A record that syncs whole: a highlight or note, or a reading session. Each
+/// is one file on this device and one record in the account, in the same
+/// encoding, so Arctic for the web reads it as it is
+/// (`Browser/src/annotations.ts`, `Browser/src/reading.ts`).
+protocol AccountRecord: Codable, Equatable, Identifiable, Sendable where ID == UUID {
+  var updatedAt: Date { get }
+}
+extension ReaderAnnotation: AccountRecord {}
+extension ArticleReadingSession: AccountRecord {}
+
+/// The namespaces beside the library's: `annotation/<UUID>` records in
+/// `arctic-annotations`, and `session/<UUID>` records in `arctic-reading`.
+enum AccountRecordFamily: String, CaseIterable, Sendable {
+  case annotations = "arctic-annotations"
+  case reading = "arctic-reading"
+  var namespace: String { rawValue }
+  var prefix: String { self == .annotations ? "annotation/" : "session/" }
+}
+
+/// One family's journal in one account: the account's rows, this device's
+/// outbox and the cursor. The files stay what the app shows. On both sides the
+/// newer `updatedAt` wins, as in `AnnotationStore.merge`, and a removed passage
+/// is a record with `deletedAt`, so a sync cannot revive it.
+actor AccountRecordJournal {
+  let family: AccountRecordFamily
+  private let store: SyncStore
+
+  /// The journal sits beside the library's profiles, named by its own
+  /// stream's scope: a stream reset on the server starts a new journal.
+  init(root: URL, scope: SyncScope) throws {
+    guard let family = AccountRecordFamily(rawValue: scope.namespace) else {
+      throw ArticleSyncError.invalidScope
+    }
+    let identity = try scope.header
+    let prefix = family.prefix
+    self.family = family
+    store = try SyncStore(
+      database: root.appending(path: ArticleSyncCodec.hash(identity), directoryHint: .isDirectory)
+        .appending(path: "journal.sqlite"),
+      accountID: identity,
+      validateValue: { change in
+        guard change.schemaVersion == 1, change.key.hasPrefix(prefix) else {
+          throw ArticleSyncError.invalidValue
+        }
+      })
+  }
+
+  /// Uploads this device's newer records, and returns the account's newer
+  /// ones and those this device lacks. A record that does not decode is left
+  /// out; the others still arrive.
+  func sync<Record: AccountRecord>(_ records: [Record], using remote: any SyncRemote) async throws
+    -> [Record]
+  {
+    var local: [String: String] = [:]
+    for record in records {
+      local[family.prefix + record.id.uuidString] = try ArticleSyncCodec.encode(record)
+    }
+    let pulled = try await store.sync(using: remote, reconciling: local) { local, remote in
+      Self.newer(Record.self, local: local, remote: remote)
+    }
+    let decoder = JSONDecoder()
+    return pulled.values.compactMap { try? decoder.decode(Record.self, from: Data($0.utf8)) }
+  }
+
+  /// The later edit wins. On a tie the account's copy does, so two devices
+  /// settle on one. A record that does not decode is replaced.
+  static func newer<Record: AccountRecord>(_: Record.Type, local: String, remote: String)
+    -> SyncStore.Newer
+  {
+    let decoder = JSONDecoder()
+    guard let theirs = try? decoder.decode(Record.self, from: Data(remote.utf8)) else {
+      return .local
+    }
+    guard let ours = try? decoder.decode(Record.self, from: Data(local.utf8)) else {
+      return .remote
+    }
+    if ours == theirs { return .neither }
+    return ours.updatedAt > theirs.updatedAt ? .local : .remote
   }
 }
 

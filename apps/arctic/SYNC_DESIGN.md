@@ -1,7 +1,8 @@
 # Arctic sync design
 
-Updated 11 October 2026 · Library sync is live: Google account, library state, titles
-and tags. Annotations, reading time and files stay on each device.
+Updated 21 October 2026 · Library sync is live: Google account, library state, titles
+and tags. Highlights, notes and reading sessions sync in their own namespaces
+(`arctic-annotations`, `arctic-reading`). Files stay on each device.
 Reader and Spaced now use the shared service. The dated 3 October schema audit
 below describes the legacy Arctic adapter, not the new shared server.
 
@@ -41,8 +42,9 @@ flowchart LR
 | --- | --- | --- |
 | Native transport | `Sync/`: HTTPS, Keychain, Google handoff, shared cookie and scoped v3 transport | Google sign-in and a cross-device check on real devices |
 | Local sync store | Actor with one SQLite journal per profile: records, outbox, private values, clock, cursor, tombstones and persisted v3 identity. It is the live library store | iPhone measurements |
-| Article bridge | `ArticleSyncRepository.swift` and `LibraryJournal.swift`: metadata, library and tags, with field-wise edit patches. **Sync** sheet on iPhone and Mac | Annotation, reading-time and position families |
-| Other user data | Separate annotation/session files; Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
+| Article bridge | `ArticleSyncRepository.swift` and `LibraryJournal.swift`: metadata, library and tags, with field-wise edit patches. **Sync** sheet on iPhone and Mac | Reader position family |
+| Highlights and reading time | Annotation and session files, synced whole by `AccountRecordJournal` (`LibrarySync.swift`), one journal per namespace; the later `updatedAt` wins | Mac app; a cross-device check on real devices |
+| Other user data | Reader positions in UserDefaults | One account-scoped repository with transactional outbox capture |
 | Server | Shared Worker includes deployed `arctic` and native auth; real Better Auth/D1 tests pass | Device auth verification |
 | Optional files | Authenticated, SHA-256 verified R2 API | Deferred from core sync; preservation needs durable jobs, portable manifests and bounded restore |
 
@@ -496,8 +498,10 @@ encrypted. End-to-end encryption would need a separate key recovery design.
 
 On 10 October 2026 the user approved two steps: copying the library into the
 local SQLite profile, and Google account sync of library state, titles and tags.
-Both are active. Annotation, reading-time and file sync, deployments and remote
-migrations each need separate approval; see [Arctic's agent instructions](AGENTS.md).
+Both are active. On 21 October 2026 the user approved annotation and
+reading-time sync, first on the web and then on the phone; both are active.
+File sync, deployments and remote migrations each need separate approval; see
+[Arctic's agent instructions](AGENTS.md).
 
 Acceptance checks must cover:
 

@@ -22,18 +22,23 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
   ) { completionHandler(nil) }
 }
 
-/// Each transport belongs to one account. Retirement gates both requests and
-/// credential refreshes. No shared browser cookies are used.
+/// Each transport belongs to one account and one of its namespaces (`arctic`
+/// for the library). Retirement gates both requests and credential refreshes.
+/// No shared browser cookies are used.
 public actor HTTPRemote: SyncRemote {
+  public nonisolated let namespace: String
   private var identity: ArcticSession
   private let performRequest: @Sendable (URLRequest) async throws -> (Data, URLResponse)
   private let cancelRequests: @Sendable () -> Void
   private let persistSession: @Sendable (ArcticSession) throws -> Void
   private var retired = false
   private var scope: SyncScope?
-  public init(identity: ArcticSession, scope: SyncScope? = nil) throws {
+  public init(identity: ArcticSession, scope: SyncScope? = nil, namespace: String = "arctic")
+    throws
+  {
     try Self.validateServer(identity.server)
-    if let scope { try Self.validateScope(scope, identity: identity) }
+    if let scope { try Self.validateScope(scope, identity: identity, namespace: namespace) }
+    self.namespace = namespace
     self.identity = identity
     self.scope = scope
     let config = URLSessionConfiguration.ephemeral
@@ -53,12 +58,14 @@ public actor HTTPRemote: SyncRemote {
   init(
     identity: ArcticSession,
     scope: SyncScope? = nil,
+    namespace: String = "arctic",
     performRequest: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse),
     cancelRequests: @escaping @Sendable () -> Void,
     persistSession: @escaping @Sendable (ArcticSession) throws -> Void
   ) throws {
     try Self.validateServer(identity.server)
-    if let scope { try Self.validateScope(scope, identity: identity) }
+    if let scope { try Self.validateScope(scope, identity: identity, namespace: namespace) }
+    self.namespace = namespace
     self.identity = identity
     self.scope = scope
     self.performRequest = performRequest
@@ -145,7 +152,8 @@ public actor HTTPRemote: SyncRemote {
     ]
     if let head { query.append(URLQueryItem(name: "head", value: String(head))) }
     let data = try await request(
-      path: "api/apps/arctic/sync/v3/pull", deviceID: deviceID, query: query, scoped: true)
+      path: "api/apps/\(namespace)/sync/v3/pull", deviceID: deviceID, query: query,
+      scoped: true)
     return try JSONDecoder().decode(SyncPull.self, from: data)
   }
   public func push(deviceID: String, changes: [SyncChange]) async throws -> SyncPush {
@@ -153,7 +161,7 @@ public actor HTTPRemote: SyncRemote {
     guard scope != nil else { throw SyncFailure.scopeRequired }
     struct Body: Encodable { let changes: [SyncChange] }
     let data = try await request(
-      path: "api/apps/arctic/sync/v3/push", method: "POST",
+      path: "api/apps/\(namespace)/sync/v3/push", method: "POST",
       body: JSONEncoder().encode(Body(changes: changes)), deviceID: deviceID, scoped: true)
     return try JSONDecoder().decode(SyncPush.self, from: data)
   }
@@ -165,9 +173,9 @@ public actor HTTPRemote: SyncRemote {
   }
   /// Bind once, or verify a persisted scope. Never replace a changed epoch.
   public func getScope() async throws -> SyncScope {
-    let data = try await request(path: "api/apps/arctic/sync/v3/state")
+    let data = try await request(path: "api/apps/\(namespace)/sync/v3/state")
     let found = try JSONDecoder().decode(SyncScope.self, from: data)
-    try Self.validateScope(found, identity: identity)
+    try Self.validateScope(found, identity: identity, namespace: namespace)
     guard scope == nil || scope == found else { throw SyncFailure.scopeChanged }
     scope = found
     return found
@@ -228,11 +236,13 @@ public actor HTTPRemote: SyncRemote {
     try Task.checkCancellation()
   }
 
-  private static func validateScope(_ scope: SyncScope, identity: ArcticSession) throws {
+  private static func validateScope(
+    _ scope: SyncScope, identity: ArcticSession, namespace: String
+  ) throws {
     let origin = identity.server.absoluteString.trimmingCharacters(
       in: CharacterSet(charactersIn: "/"))
     guard scope.origin == origin, scope.userId == identity.accountID,
-      scope.namespace == "arctic", !scope.epoch.isEmpty
+      scope.namespace == namespace, !scope.epoch.isEmpty
     else { throw SyncFailure.wrongAccount }
   }
   private static func validateServer(_ url: URL) throws {
