@@ -13,11 +13,16 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { cleanByline } from "./content";
 import { edits, editLibrary, folders, minutes, type Article } from "./articles";
 import { SIZES, getSettings, updateSettings } from "./settings";
-import { AppearanceControls, ReadingControls } from "./SettingsPage";
+import {
+  AppearanceControls,
+  ReadingControls,
+  TextControls,
+} from "./SettingsPage";
 import { useArticles, useRecords, useSession, useStatus } from "./state";
 import { articleText, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
 import { NotesPanel, Passages } from "./Passages";
+import { Sheet, useCompact } from "./surface";
 import { ArticleMenu, Tip, useActions } from "./ui";
 
 export function Reader() {
@@ -91,6 +96,14 @@ function Page({
   const [textCover] = useState(
     () => !!body && "html" in body && body.withoutLead !== undefined,
   );
+  // A description that the text repeats in its opening is said once. A text
+  // that arrives late keeps it, so nothing moves.
+  const [repeats] = useState(
+    () =>
+      !!body &&
+      "html" in body &&
+      opensWith(body.html, article.subtitle),
+  );
 
   useEffect(() => {
     if (!file) return;
@@ -114,13 +127,24 @@ function Page({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const target = event.target as HTMLElement;
+      // A sheet, menu, or popover takes the keys while it is open, even
+      // before focus moves into it; Escape closes it, not the article.
+      if (document.querySelector(".sheet-overlay")) return;
+      if (key === "escape" && document.querySelector(".menu, .passage-bar"))
+        return;
+      // Size keys also work in the text panel, where their changes show.
+      const sizing =
+        (key === "=" || key === "+" || key === "-") &&
+        !!target.closest(".type-panel");
       if (
-        (event.target as HTMLElement).closest(
+        !sizing &&
+        target.closest(
           "input, textarea, [contenteditable], [role=menu], [role=dialog]",
         )
       )
         return;
-      const key = event.key.toLowerCase();
       if (key === "escape") onBack();
       else if (key === "f" && article.saved) void actions.favourite(article);
       else if (key === "e" && article.saved) {
@@ -176,7 +200,9 @@ function Page({
         <h1 className="article-title" style={{ viewTransitionName: "title" }}>
           {article.title}
         </h1>
-        {article.subtitle && <p className="dek">{article.subtitle}</p>}
+        {article.subtitle && !repeats && (
+          <p className="dek">{article.subtitle}</p>
+        )}
         {meta.length > 0 && (
           <div className="byline">
             {meta.map((item, index) => (
@@ -275,6 +301,19 @@ function Page({
   );
 }
 
+/** Whether the first words of the text include the description. */
+function opensWith(html: string, description: string) {
+  const words = (value: string) =>
+    value
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&[a-z#0-9]+;/gi, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+      .toLowerCase();
+  const start = words(description).slice(0, 80);
+  return start.length >= 24 && words(html.slice(0, 6000)).slice(0, 900).includes(start);
+}
+
 /** Time spent on this article so far, on every device. */
 function ReadFor({ url }: { url: string }) {
   const session = useSession();
@@ -334,7 +373,7 @@ function ReaderBar({
   article?: Article;
   onReveal?: (id: string) => void;
 }) {
-  const actions = useActions();
+  const compact = useCompact();
   const bar = useRef<HTMLDivElement>(null);
   const label = useMemo(() => {
     const path = (from ?? "/").split("?")[0];
@@ -343,15 +382,29 @@ function ReaderBar({
     return folders.find((folder) => folder.path === path)?.title ?? "Library";
   }, [from]);
 
-  // The bar steps aside while reading down and returns on any upward scroll.
+  // The bars step aside while reading down and return on any upward scroll,
+  // and at the end of the article, where its actions are.
   useEffect(() => {
     let last = window.scrollY;
     let frame = 0;
+    let covered = false;
     const update = () => {
       frame = 0;
       const element = bar.current;
       if (!element) return;
       const y = window.scrollY;
+      // A sheet holds the page still; its scrolls are not the reader's. The
+      // bars come back when it closes.
+      if (document.querySelector(".sheet-overlay")) {
+        covered = true;
+        last = y;
+        return;
+      }
+      if (covered) {
+        covered = false;
+        last = y;
+        element.removeAttribute("data-hidden");
+      }
       const max = document.documentElement.scrollHeight - window.innerHeight;
       element.style.setProperty(
         "--progress",
@@ -359,7 +412,8 @@ function ReaderBar({
       );
       element.toggleAttribute("data-scrolled", y > 4);
       if (Math.abs(y - last) > 6) {
-        element.toggleAttribute("data-hidden", y > last && y > 160);
+        const hidden = y > last && y > 160 && y < max - 120;
+        element.toggleAttribute("data-hidden", hidden);
         last = y;
       }
     };
@@ -372,103 +426,159 @@ function ReaderBar({
       window.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [compact]);
 
+  const back = (
+    <button
+      type="button"
+      className="back"
+      onClick={onBack}
+      aria-label={compact ? `Back to ${label}` : undefined}
+    >
+      <ChevronLeft size={compact ? 22 : 20} />
+      {!compact && label}
+    </button>
+  );
+  const actions = article && (
+    <ArticleActions article={article} onBack={onBack} onReveal={onReveal} />
+  );
+  // A phone holds everything in one toolbar at the bottom, in thumb reach;
+  // the top of the screen is the article's.
+  if (compact)
+    return (
+      <div className="dock" ref={bar} role="toolbar" aria-label="Article">
+        {back}
+        {actions}
+        <div className="progress" />
+      </div>
+    );
   return (
     <div className="bar reader-bar" ref={bar}>
-      <button type="button" className="back" onClick={onBack}>
-        <ChevronLeft size={20} />
-        {label}
-      </button>
-      {article && (
-        <div className="actions">
-          {article.copy && onReveal && (
-            <NotesPanel article={article} onReveal={onReveal} />
-          )}
-          <TypePanel />
-          {article.saved && (
-            <>
-              <Tip
-                label={
-                  article.favourite ? "Remove from Favourites" : "Favourite"
-                }
-                keys="F"
-              >
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Favourite"
-                  aria-pressed={article.favourite}
-                  onClick={() => void actions.favourite(article)}
-                >
-                  <Star size={19} />
-                </button>
-              </Tip>
-              <Tip
-                label={article.archived ? "Move to Saved" : "Archive"}
-                keys="E"
-              >
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={article.archived ? "Move to Saved" : "Archive"}
-                  onClick={() => {
-                    void actions.archive(article);
-                    if (!article.archived) onBack();
-                  }}
-                >
-                  {article.archived ? (
-                    <ArchiveRestore size={19} />
-                  ) : (
-                    <Archive size={19} />
-                  )}
-                </button>
-              </Tip>
-            </>
-          )}
-          <Tip label="Open original" keys="O">
-            <a
-              className="icon-button"
-              aria-label="Open original"
-              href={article.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <ArrowUpRight size={19} />
-            </a>
-          </Tip>
-          <ArticleMenu
-            article={article}
-            onRemoved={onBack}
-            trigger={
-              <button type="button" className="icon-button" aria-label="More">
-                <MoreHorizontal size={19} />
-              </button>
-            }
-          />
-        </div>
-      )}
+      {back}
+      {actions}
       <div className="progress" />
     </div>
   );
 }
 
-/** Font, size, spacing, width and theme, as in the Settings page. */
-function TypePanel() {
+/** Notes, text, favourite, archive and more: in the top bar, or a phone's dock. */
+function ArticleActions({
+  article,
+  onBack,
+  onReveal,
+}: {
+  article: Article;
+  onBack: () => void;
+  onReveal?: (id: string) => void;
+}) {
+  const actions = useActions();
   return (
-    <Popover.Root>
-      <Tip label="Text and theme" keys="− +">
-        <Popover.Trigger
-          render={
+    <div className="actions">
+      {article.copy && onReveal && (
+        <NotesPanel article={article} onReveal={onReveal} />
+      )}
+      <TypePanel />
+      {article.saved && (
+        <>
+          <Tip
+            label={article.favourite ? "Remove from Favourites" : "Favourite"}
+            keys="F"
+          >
             <button
               type="button"
               className="icon-button"
-              aria-label="Text and theme"
+              aria-label="Favourite"
+              aria-pressed={article.favourite}
+              onClick={() => void actions.favourite(article)}
             >
-              <ALargeSmall size={20} />
+              <Star size={19} />
             </button>
-          }
-        />
+          </Tip>
+          <Tip label={article.archived ? "Move to Saved" : "Archive"} keys="E">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={article.archived ? "Move to Saved" : "Archive"}
+              onClick={() => {
+                void actions.archive(article);
+                if (!article.archived) onBack();
+              }}
+            >
+              {article.archived ? (
+                <ArchiveRestore size={19} />
+              ) : (
+                <Archive size={19} />
+              )}
+            </button>
+          </Tip>
+        </>
+      )}
+      <ArticleMenu
+        article={article}
+        onRemoved={onBack}
+        trigger={
+          <button type="button" className="icon-button" aria-label="More">
+            <MoreHorizontal size={19} />
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Font, size, spacing, width and theme, as in the Settings page. On a phone
+ * it is a sheet that leaves the page in view, undimmed, so each change shows
+ * as it is made; it rests at half height with size, font and theme, and
+ * drags up to the rest.
+ */
+function TypePanel() {
+  const compact = useCompact();
+  const [open, setOpen] = useState(false);
+  const trigger = (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label="Text and theme"
+      onClick={compact ? () => setOpen(true) : undefined}
+    >
+      <ALargeSmall size={20} />
+    </button>
+  );
+  if (compact)
+    return (
+      <>
+        {trigger}
+        <Sheet
+          isOpen={open}
+          onOpenChange={setOpen}
+          title="Text and theme"
+          dim={false}
+          snapPoints={["min(46dvh, 100%)"]}
+        >
+          <div className="type-panel">
+            <TextControls
+              fields={[
+                "size",
+                "font",
+                "theme",
+                "appearance",
+                "spacing",
+                "width",
+                "align",
+              ]}
+            />
+            <Link className="panel-link" to="/settings">
+              All settings
+            </Link>
+          </div>
+        </Sheet>
+      </>
+    );
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Tip label="Text and theme" keys="− +">
+        <Popover.Trigger render={trigger} />
       </Tip>
       <Popover.Portal>
         <Popover.Positioner sideOffset={8} align="end">

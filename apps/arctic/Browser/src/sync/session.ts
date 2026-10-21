@@ -196,7 +196,12 @@ export class Session {
   /** The cleaned HTML of a copy, from this browser or the account. */
   readFile(id: string): Promise<string> {
     const existing = this.files.get(id);
-    if (existing) return existing;
+    if (existing) {
+      // Most recently read last; the oldest leave first.
+      this.files.delete(id);
+      this.files.set(id, existing);
+      return existing;
+    }
     const work = (async () => {
       const cached = await transact(this.db, ["files"], "readonly", (tx) =>
         promised<{ html: string } | undefined>(tx.objectStore("files").get(id)),
@@ -214,6 +219,9 @@ export class Session {
       return html;
     })();
     this.files.set(id, work);
+    // The reader keeps its own cleaned copies (src/text.ts); a few raw ones
+    // are enough here.
+    for (const old of [...this.files.keys()].slice(0, -8)) this.files.delete(old);
     work.catch(() => this.files.delete(id));
     return work;
   }

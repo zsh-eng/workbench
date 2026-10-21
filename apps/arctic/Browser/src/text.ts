@@ -12,7 +12,11 @@ export type Text =
 
 const pending = new Map<string, Promise<Text>>();
 const settled = new Map<string, Text>();
-const KEEP = 8;
+// Cleaned texts are a few hundred kilobytes at most; two dozen cover a
+// session of opening, returning, and prefetching what is on screen.
+const KEEP = 24;
+// The image objects stay referenced, so their decoded pictures stay in memory.
+const images = new Map<string, { image: HTMLImageElement; decoded: Promise<void> }>();
 
 const keyOf = (article: Article) =>
   `${article.id} ${article.copy?.file} ${article.image ?? ""}`;
@@ -54,6 +58,43 @@ export function articleText(session: Session, article: Article) {
     });
   }
   return work;
+}
+
+/**
+ * Reads, cleans, and decodes ahead of a likely open, so the page appears with
+ * its text and cover in the first frame. A pointer that rests on a card, a
+ * touch that starts on it, or a card on screen while the browser is idle all
+ * start it; a second start is free.
+ */
+export function prefetch(session: Session, article: Article) {
+  if (article.copy && !pending.has(keyOf(article)))
+    void articleText(session, article);
+  if (article.image && !images.has(article.image)) {
+    const image = new Image();
+    image.referrerPolicy = "no-referrer";
+    image.decoding = "async";
+    image.src = article.image;
+    images.set(article.image, { image, decoded: image.decode().catch(() => {}) });
+    for (const old of [...images.keys()].slice(0, -KEEP)) images.delete(old);
+  }
+}
+
+/**
+ * Prefetches only what this browser already keeps, for idle time: a text
+ * from the network waits for a sign of intent.
+ */
+export async function prefetchKept(session: Session, articles: Article[]) {
+  const kept = await session.keptFiles();
+  return articles.filter(
+    (article) =>
+      !article.copy ||
+      kept.has(article.copy.file) ||
+      pending.has(keyOf(article)),
+  );
+}
+/** Waits for a prefetched cover to decode, so a page change shows it whole. */
+export function decodedImage(src: string | undefined) {
+  return (src && images.get(src)?.decoded) || Promise.resolve();
 }
 
 /** The text when it is ready now, so the first render can place the cover. */

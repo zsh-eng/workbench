@@ -132,25 +132,28 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
 
   private async editNow(key: string, fields: Fields) {
     const row = this.rows.get(key);
-    if (!row || row.isDeleted)
-      throw new Error("This article is no longer in your library.");
     const previous = this.pending.get(key);
+    // A record saved here and not yet uploaded has only its whole value.
+    const live =
+      previous?.value !== undefined
+        ? !previous.isDeleted
+        : !!row && !row.isDeleted;
+    if (!live) throw new Error("This article is no longer in your library.");
     const next: Pending = {
       ns: this.ns,
       key,
       hlc: this.tick(),
       rev: (previous?.rev ?? 0) + 1,
-      patch: { ...(previous?.patch ?? {}), ...fields },
-      base: previous?.base ?? JSON.parse(row.value),
     };
     if (previous?.value !== undefined) {
       // A field edit after a whole-value write changes that value.
-      next.patch = undefined;
-      next.base = undefined;
       next.value = encodeSorted(
         this.normalize(applyFields(JSON.parse(previous.value), fields)),
       );
       next.isDeleted = previous.isDeleted;
+    } else {
+      next.patch = { ...(previous?.patch ?? {}), ...fields };
+      next.base = previous?.base ?? JSON.parse(row!.value);
     }
     await this.commitPending([next]);
   }

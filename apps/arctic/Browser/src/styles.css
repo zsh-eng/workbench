@@ -130,6 +130,9 @@ button {
 ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
+[hidden] {
+  display: none !important;
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -373,7 +376,7 @@ button {
 .cover {
   position: relative;
   display: block;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 2 / 1;
   overflow: hidden;
   border-radius: var(--radius);
   background: var(--fill);
@@ -394,7 +397,7 @@ button {
   object-fit: cover;
   opacity: 0;
   transition:
-    opacity 0.3s,
+    opacity 0.18s,
     transform 0.5s var(--ease);
 }
 .cover img[data-loaded] {
@@ -402,32 +405,6 @@ button {
 }
 .card:hover .cover img[data-loaded] {
   transform: scale(1.015);
-}
-.cover-text {
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 20px 22px;
-  font-size: 19px;
-  font-weight: 500;
-  line-height: 1.36;
-  letter-spacing: -0.014em;
-  color: var(--fg-2);
-  text-wrap: pretty;
-}
-.cover-site {
-  position: absolute;
-  left: 20px;
-  bottom: 16px;
-  right: 20px;
-  font-size: 22px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  color: var(--fg-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .card-line {
   display: flex;
@@ -445,11 +422,21 @@ button {
   color: var(--fg-2);
   white-space: nowrap;
 }
-.source img {
+.favicon {
+  display: inline-grid;
+  place-items: center;
   width: 16px;
   height: 16px;
   border-radius: 4px;
   flex: none;
+  background: var(--fill-2);
+  color: var(--fg-2);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+img.favicon {
+  background: none;
 }
 .source .host {
   overflow: hidden;
@@ -501,6 +488,43 @@ button {
 }
 .card[data-read] .card-title {
   color: color-mix(in srgb, var(--fg) 82%, var(--bg));
+}
+/* A text card: the article has no image, so its words take the space. */
+.card:not([data-image]) .card-line {
+  margin-top: 0;
+}
+.card-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 6px 0 0;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--fg-2);
+  text-wrap: pretty;
+}
+.grid[data-layout="list"] .card-excerpt {
+  display: none;
+}
+/* A link saved on this page arrives at the top. */
+.card[data-fresh] {
+  animation: card-in 0.36s var(--ease) both;
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+@media (hover: none) {
+  .card {
+    transition: transform 0.2s var(--ease);
+  }
+  .card:has(> a:active) {
+    transform: scale(0.985);
+    transition-duration: 0.12s;
+  }
 }
 
 .empty {
@@ -572,14 +596,14 @@ a.article-source:hover {
   color: var(--fg-3);
 }
 .hero {
-  width: min(100vw - 2 * var(--gutter), 920px);
-  margin: 40px 0 0 50%;
+  width: min(100vw - 2 * var(--gutter), calc(var(--measure) + 160px));
+  margin: 36px 0 0 50%;
   transform: translateX(-50%);
 }
 .hero img {
   display: block;
   width: 100%;
-  max-height: 72vh;
+  max-height: min(56vh, 480px);
   object-fit: cover;
   border-radius: var(--radius);
   background: var(--fill);
@@ -1150,6 +1174,25 @@ a.article-source:hover {
   animation-duration: 0.32s;
   animation-timing-function: var(--ease);
 }
+/* Cards that move when the list changes (src/motion.ts). */
+.grid .card {
+  view-transition-class: card;
+}
+::view-transition-group(.card) {
+  animation-duration: 0.26s;
+}
+::view-transition-old(.card):only-child {
+  animation: card-out 0.16s cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-new(.card):only-child {
+  animation: card-in 0.3s var(--ease) both;
+}
+@keyframes card-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   ::view-transition-group(*),
@@ -1471,10 +1514,6 @@ a.article-source:hover {
   aspect-ratio: 4 / 3;
   margin-top: 3px;
   border-radius: 8px;
-}
-.grid[data-layout="list"] .card:not([data-image]) .cover,
-.grid[data-layout="list"] .cover:empty {
-  display: none;
 }
 .grid[data-layout="list"] .card:hover .cover img[data-loaded] {
   transform: none;
@@ -1881,4 +1920,366 @@ a.article-source:hover {
 .highlight-list .article-note-label + .note {
   margin-left: 0;
   color: var(--fg);
+}
+
+/* Phone surfaces. A phone keeps the top for content and puts what a thumb
+   does at the bottom: search and save in the library, every article action
+   in the reader. Both bars are the same quiet strip with a hairline. */
+@media (max-width: 720px) {
+  input,
+  textarea {
+    /* Below 16 px, iOS zooms the page into a focused field. */
+    font-size: 16px !important;
+  }
+  .shelf {
+    padding-top: 6px;
+  }
+  .grid {
+    gap: 28px 20px;
+    padding-top: 22px;
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+  .grid[data-layout="list"] {
+    padding-top: 6px;
+  }
+  .article {
+    padding-top: calc(24px + env(safe-area-inset-top));
+    padding-bottom: calc(150px + env(safe-area-inset-bottom));
+  }
+}
+
+.strip {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: env(safe-area-inset-top) var(--gutter) 0;
+  box-sizing: content-box;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.strip[data-scrolled] {
+  border-bottom-color: var(--rule);
+}
+.folders {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  margin: 0 auto 0 -10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.folders::-webkit-scrollbar {
+  display: none;
+}
+.folder {
+  position: relative;
+  z-index: 1;
+  padding: 6px 9px;
+  border-radius: 16px;
+  font-size: clamp(14px, 3.9vw, 15px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg-2);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.folder[aria-current="page"] {
+  color: var(--fg);
+}
+.capsule {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 16px;
+  background: var(--fill);
+  transition:
+    transform 0.22s var(--ease),
+    width 0.22s var(--ease);
+}
+.strip-search {
+  position: absolute;
+  inset: env(safe-area-inset-top) var(--gutter) 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.strip[data-searching] .strip-search {
+  opacity: 1;
+  pointer-events: auto;
+}
+.strip-search svg {
+  position: absolute;
+  left: 11px;
+  color: var(--fg-3);
+  pointer-events: none;
+}
+.strip-search input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  outline: none;
+}
+.strip-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+.cancel {
+  flex: none;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.library-dock,
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px var(--gutter) calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+}
+.search-capsule {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--fill);
+  color: var(--fg-3);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.library-dock .icon-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--fill);
+  color: var(--fg);
+}
+
+/* The reader's toolbar: Back, then the article's actions, evenly spaced. It
+   steps down while reading on and returns on any upward scroll. */
+.dock {
+  justify-content: space-between;
+  gap: 0;
+  padding-top: 6px;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom));
+  transition: transform 0.24s var(--ease);
+}
+.dock[data-hidden] {
+  transform: translateY(100%);
+  transition-duration: 0.2s;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+.dock .actions {
+  display: contents;
+}
+.dock :is(.icon-button, .back) {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: none;
+  color: var(--fg-2);
+}
+.dock .back {
+  color: var(--fg);
+}
+.dock .progress {
+  top: -1px;
+  bottom: auto;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.dock .notes-button .count {
+  top: 5px;
+  right: 3px;
+}
+
+/* A selection on a phone turns the toolbar into the highlight bar. */
+.passage-bar[data-docked] {
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  justify-items: stretch;
+  padding: 8px var(--gutter) calc(8px + env(safe-area-inset-bottom));
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: 0 -1px 0 var(--rule);
+  animation: none;
+}
+.passage-bar[data-docked] .passage-row {
+  justify-content: space-between;
+}
+.passage-bar[data-docked] .note-editor {
+  width: 100%;
+  max-width: none;
+}
+
+:root:has(.dock, .library-dock) .toast {
+  bottom: calc(70px + env(safe-area-inset-bottom));
+}
+
+/* Sheets on a phone */
+.action-sheet {
+  padding: 2px 14px 4px;
+}
+.action-head {
+  display: grid;
+  gap: 3px;
+  padding: 4px 6px 14px;
+}
+.action-head strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.action-host {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.action-group {
+  margin-bottom: 10px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fg) 4.5%, var(--raised));
+  overflow: hidden;
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-size: 16px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.action-row + .action-row {
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+.action-row svg {
+  flex: none;
+  color: var(--fg-2);
+}
+button.action-row:active {
+  background: var(--fill-2);
+}
+.action-row.danger,
+.action-row.danger svg {
+  color: var(--danger);
+}
+.action-detail {
+  margin-left: auto;
+  max-width: 55%;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--fg-3);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.segmented.action-choice {
+  display: flex;
+  margin-left: auto;
+}
+.segmented.action-choice label {
+  padding: 5px 12px;
+}
+.sheet .notes-panel {
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0 20px 16px;
+}
+.sheet .type-panel {
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0 20px 12px;
+}
+
+/* Saving a link */
+.link-popover {
+  width: 360px;
+  padding: 14px;
+}
+.link-form {
+  display: grid;
+  gap: 10px;
+}
+.sheet .link-form {
+  padding: 0 20px 12px;
+}
+.link-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 15px;
+  outline: none;
+}
+.link-field input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.link-field input[aria-invalid] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.link-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-2);
+}
+.link-note.error {
+  color: var(--danger);
+}
+.link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

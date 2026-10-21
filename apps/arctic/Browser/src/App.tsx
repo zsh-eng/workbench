@@ -24,7 +24,7 @@ import { ReadingPage } from "./ReadingPage";
 import { SettingsPage } from "./SettingsPage";
 import { SessionContext, articles } from "./state";
 import { downloadNew } from "./offline";
-import { articleText } from "./text";
+import { articleText, decodedImage, prefetch } from "./text";
 import { Session } from "./sync/session";
 import { Toaster } from "./ui";
 
@@ -78,9 +78,10 @@ const router = createBrowserRouter([
 ]);
 
 /**
- * Opening an article waits up to 100 ms for its text, so the text arrives
- * with the page and the page change animates the final layout. A text from
- * IndexedDB takes a few milliseconds; one from the network follows the page.
+ * Opening an article waits up to 100 ms for its text and cover, so they
+ * arrive with the page and the page change animates the final layout. Cards
+ * prefetch both (see prefetch), so the wait is usually none; a text from the
+ * network follows the page.
  */
 async function readFirst({ params }: LoaderFunctionArgs) {
   const opened = await open().catch(() => null);
@@ -88,11 +89,15 @@ async function readFirst({ params }: LoaderFunctionArgs) {
   const article = articles(opened.session).find(
     (item) => item.id === params.id,
   );
-  if (article?.copy)
-    await Promise.race([
+  if (!article) return null;
+  prefetch(opened.session, article);
+  await Promise.race([
+    Promise.all([
       articleText(opened.session, article),
-      new Promise((resolve) => setTimeout(resolve, 100)),
-    ]);
+      decodedImage(article.image),
+    ]),
+    new Promise((resolve) => setTimeout(resolve, 100)),
+  ]);
   return null;
 }
 

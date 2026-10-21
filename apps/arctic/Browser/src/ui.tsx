@@ -8,15 +8,18 @@ import {
   Clock,
   Highlighter,
   FileText,
+  LayoutGrid,
   Link2,
   MoreHorizontal,
   LogOut,
   RefreshCw,
   Settings,
+  Share,
   Star,
   Trash2,
 } from "lucide-react";
 import {
+  cloneElement,
   useState,
   useSyncExternalStore,
   type ReactElement,
@@ -33,7 +36,12 @@ import {
   useStatus,
   useToast,
 } from "./state";
+import { updateSettings, useSettings } from "./settings";
+import { Choice } from "./SettingsPage";
+import { Sheet, useCompact } from "./surface";
+import { listMotion } from "./motion";
 import type { Session, SyncStatus } from "./sync/session";
+import type { Fields } from "./sync/storage";
 
 export function Tip({
   label,
@@ -59,49 +67,57 @@ export function Tip({
   );
 }
 
-/** Library edits. Each one uploads shortly after; archive and remove can be undone. */
+/**
+ * Library edits. Each one uploads shortly after; archive and remove can be
+ * undone. A card that leaves or returns moves the cards around it.
+ */
 export function useActions() {
   const session = useSession();
-  const run = (work: Promise<unknown>) =>
-    work.then(() => session.syncSoon(), reportError);
+  const run = (work: () => Promise<unknown>) =>
+    listMotion(work).then(
+      () => {
+        session.syncSoon();
+        return true;
+      },
+      (error) => {
+        reportError(error);
+        return false;
+      },
+    );
+  const library = (article: Article, fields: Fields) => () =>
+    editLibrary(session.arctic, article, fields);
   return {
     favourite: (article: Article) =>
-      run(
-        editLibrary(
-          session.arctic,
-          article,
-          edits.favourite(!article.favourite),
-        ),
-      ),
+      run(library(article, edits.favourite(!article.favourite))),
     archive: (article: Article) => {
       const archived = !article.archived;
-      return run(
-        editLibrary(session.arctic, article, edits.archive(archived)).then(() =>
+      return run(library(article, edits.archive(archived))).then(
+        (done) =>
+          done &&
           showToast(archived ? "Archived" : "Moved to Saved", {
             label: "Undo",
-            run: () =>
-              void run(
-                editLibrary(session.arctic, article, edits.archive(!archived)),
-              ),
+            run: () => void run(library(article, edits.archive(!archived))),
           }),
-        ),
       );
     },
     save: (article: Article) =>
-      run(
-        editLibrary(session.arctic, article, edits.save()).then(() =>
-          showToast("Saved"),
-        ),
+      run(library(article, edits.save())).then(
+        (done) => done && showToast("Saved"),
       ),
-    remove: (article: Article) =>
-      run(
-        removeArticle(session.arctic, session.copies, article).then((undo) =>
+    remove: (article: Article) => {
+      let undo: (() => Promise<void>) | undefined;
+      return run(async () => {
+        undo = await removeArticle(session.arctic, session.copies, article);
+      }).then(
+        (done) =>
+          done &&
+          undo &&
           showToast("Removed from your library", {
             label: "Undo",
-            run: () => void run(undo()),
+            run: () => void run(undo!),
           }),
-        ),
-      ),
+      );
+    },
   };
 }
 
@@ -111,14 +127,158 @@ export function ArticleMenu({
   onRemoved,
 }: {
   article: Article;
-  trigger: ReactElement;
+  trigger: ReactElement<{ onClick?: () => void }>;
   onRemoved?: () => void;
 }) {
+  const compact = useCompact();
+  const [open, setOpen] = useState(false);
+  if (compact)
+    return (
+      <>
+        {cloneElement(trigger, { onClick: () => setOpen(true) })}
+        <ActionSheet
+          article={open ? article : null}
+          onClose={() => setOpen(false)}
+          onRemoved={onRemoved}
+          inToolbar
+        />
+      </>
+    );
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger render={trigger} />
       <ArticleMenuPopup article={article} onRemoved={onRemoved} />
     </Menu.Root>
+  );
+}
+
+/**
+ * A phone's article menu: a sheet that names the article, with rows a thumb
+ * can reach. It keeps its article while it closes.
+ */
+export function ActionSheet({
+  article,
+  onClose,
+  onRemoved,
+  inToolbar = false,
+}: {
+  article: Article | null;
+  onClose: () => void;
+  onRemoved?: () => void;
+  /** Favourite and Archive are already in the reader's toolbar. */
+  inToolbar?: boolean;
+}) {
+  const [shown, setShown] = useState(article);
+  if (article && article !== shown) setShown(article);
+  return (
+    <Sheet
+      isOpen={article !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={shown ? `Actions for ${shown.title}` : "Actions"}
+    >
+      {shown && (
+        <ActionRows
+          article={shown}
+          onClose={onClose}
+          onRemoved={onRemoved}
+          inToolbar={inToolbar}
+        />
+      )}
+    </Sheet>
+  );
+}
+
+function ActionRows({
+  article,
+  onClose,
+  onRemoved,
+  inToolbar,
+}: {
+  article: Article;
+  onClose: () => void;
+  onRemoved?: () => void;
+  inToolbar: boolean;
+}) {
+  const actions = useActions();
+  const row = (
+    icon: ReactNode,
+    label: string,
+    run: () => void,
+    danger = false,
+  ) => (
+    <button
+      type="button"
+      className={danger ? "action-row danger" : "action-row"}
+      onClick={() => {
+        onClose();
+        run();
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+  const share =
+    typeof navigator.share === "function"
+      ? () =>
+          void navigator
+            .share({ title: article.title, url: article.url })
+            .catch(() => {})
+      : undefined;
+  return (
+    <div className="action-sheet">
+      <header className="action-head">
+        <span className="action-host">{article.host}</span>
+        <strong>{article.title}</strong>
+      </header>
+      <div className="action-group" hidden={inToolbar && article.saved}>
+        {article.saved ? (
+          <>
+            {row(
+              <Star size={20} />,
+              article.favourite ? "Remove from Favourites" : "Favourite",
+              () => void actions.favourite(article),
+            )}
+            {row(
+              article.archived ? (
+                <ArchiveRestore size={20} />
+              ) : (
+                <Archive size={20} />
+              ),
+              article.archived ? "Move to Saved" : "Archive",
+              () => void actions.archive(article),
+            )}
+          </>
+        ) : (
+          row(<BookmarkPlus size={20} />, "Save to library", () =>
+            void actions.save(article),
+          )
+        )}
+      </div>
+      <div className="action-group">
+        {row(<ArrowUpRight size={20} />, "Open original", () =>
+          window.open(article.url, "_blank", "noopener,noreferrer"),
+        )}
+        {share
+          ? row(<Share size={20} />, "Share", share)
+          : row(<Link2 size={20} />, "Copy link", () =>
+              navigator.clipboard
+                .writeText(article.url)
+                .then(() => showToast("Link copied"), reportError),
+            )}
+      </div>
+      <div className="action-group">
+        {row(
+          <Trash2 size={20} />,
+          "Remove from library",
+          () => {
+            void actions.remove(article);
+            onRemoved?.();
+          },
+          true,
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -147,6 +307,14 @@ export function CardMenu() {
   // The popup keeps its article while it closes.
   const [shown, setShown] = useState(opened);
   if (opened && opened !== shown) setShown(opened);
+  const compact = useCompact();
+  if (compact)
+    return (
+      <ActionSheet
+        article={opened?.article ?? null}
+        onClose={() => setCardMenu(null)}
+      />
+    );
   return (
     <Menu.Root
       open={opened !== null}
@@ -335,7 +503,44 @@ export function AccountMenu() {
   const session = useSession();
   const status = useStatus();
   const navigate = useNavigate();
+  const compact = useCompact();
+  const [open, setOpen] = useState(false);
   const { account } = session;
+  const face = account.image ? (
+    <img src={account.image} alt="" referrerPolicy="no-referrer" />
+  ) : (
+    (account.name || account.email).slice(0, 1).toUpperCase()
+  );
+  const places: [ReactNode, string, string][] = [
+    [<Highlighter size={compact ? 20 : 16} />, "Highlights", "/highlights"],
+    [<Clock size={compact ? 20 : 16} />, "Reading time", "/reading"],
+    [<FileText size={compact ? 20 : 16} />, "Article text", "/copies"],
+    [<Settings size={compact ? 20 : 16} />, "Settings", "/settings"],
+  ];
+  if (compact)
+    return (
+      <>
+        <button
+          type="button"
+          className="avatar"
+          aria-label="Account"
+          onClick={() => setOpen(true)}
+        >
+          {face}
+        </button>
+        <Sheet isOpen={open} onOpenChange={setOpen} title="Account">
+          <AccountSheet
+            status={describeStatus(status, session.pendingCount)}
+            places={places}
+            onClose={() => setOpen(false)}
+            onGo={(path) => {
+              setOpen(false);
+              navigate(path);
+            }}
+          />
+        </Sheet>
+      </>
+    );
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger
@@ -343,11 +548,7 @@ export function AccountMenu() {
         aria-label="Account"
         render={<button type="button" />}
       >
-        {account.image ? (
-          <img src={account.image} alt="" referrerPolicy="no-referrer" />
-        ) : (
-          (account.name || account.email).slice(0, 1).toUpperCase()
-        )}
+        {face}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner sideOffset={8} align="end">
@@ -365,30 +566,11 @@ export function AccountMenu() {
             >
               Sync now
             </Item>
-            <Item
-              icon={<Highlighter size={16} />}
-              onClick={() => navigate("/highlights")}
-            >
-              Highlights
-            </Item>
-            <Item
-              icon={<Clock size={16} />}
-              onClick={() => navigate("/reading")}
-            >
-              Reading time
-            </Item>
-            <Item
-              icon={<FileText size={16} />}
-              onClick={() => navigate("/copies")}
-            >
-              Article text
-            </Item>
-            <Item
-              icon={<Settings size={16} />}
-              onClick={() => navigate("/settings")}
-            >
-              Settings
-            </Item>
+            {places.map(([icon, label, path]) => (
+              <Item key={path} icon={icon} onClick={() => navigate(path)}>
+                {label}
+              </Item>
+            ))}
             <Menu.Separator className="menu-separator" />
             <Item
               icon={<LogOut size={16} />}
@@ -400,6 +582,81 @@ export function AccountMenu() {
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+function AccountSheet({
+  status,
+  places,
+  onClose,
+  onGo,
+}: {
+  status: string;
+  places: [ReactNode, string, string][];
+  onClose: () => void;
+  onGo: (path: string) => void;
+}) {
+  const session = useSession();
+  const { account } = session;
+  const { layout } = useSettings();
+  return (
+    <div className="action-sheet">
+      <header className="action-head">
+        <strong>{account.name || account.email}</strong>
+        <span className="action-host">{account.email}</span>
+      </header>
+      <div className="action-group">
+        <button
+          type="button"
+          className="action-row"
+          onClick={() => void session.sync().catch(() => {})}
+        >
+          <RefreshCw size={20} />
+          Sync now
+          <span className="action-detail">{status}</span>
+        </button>
+        <div className="action-row static">
+          <LayoutGrid size={20} />
+          Library
+          <Choice
+            label="Library layout"
+            className="segmented action-choice"
+            value={layout}
+            options={[
+              ["cards", "Cards"],
+              ["list", "List"],
+            ]}
+            onChange={(next) => updateSettings({ layout: next })}
+          />
+        </div>
+      </div>
+      <div className="action-group">
+        {places.map(([icon, label, path]) => (
+          <button
+            key={path}
+            type="button"
+            className="action-row"
+            onClick={() => onGo(path)}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="action-group">
+        <button
+          type="button"
+          className="action-row"
+          onClick={() => {
+            onClose();
+            void leave(session);
+          }}
+        >
+          <LogOut size={20} />
+          Sign out
+        </button>
+      </div>
+    </div>
   );
 }
 

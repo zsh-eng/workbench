@@ -71,60 +71,34 @@ export function SettingsPage() {
 }
 
 export function AppearanceControls() {
-  const settings = useSettings();
-  return (
-    <>
-      <Field label="Appearance">
-        <Choice
-          label="Appearance"
-          value={settings.appearance}
-          options={[
-            ["system", "System"],
-            ["light", "Light"],
-            ["dark", "Dark"],
-          ]}
-          onChange={(appearance) => updateSettings({ appearance })}
-        />
-      </Field>
-      <Field label="Theme">
-        <Choice
-          label="Theme"
-          value={settings.theme}
-          className="swatches"
-          options={[
-            ["arctic", <Swatch theme="arctic" label="Arctic" />],
-            ["flexoki", <Swatch theme="flexoki" label="Flexoki" />],
-            ["night", <Swatch theme="night" label="Night" />],
-          ]}
-          onChange={(theme) => updateSettings({ theme })}
-        />
-      </Field>
-    </>
-  );
-}
-
-/** A theme's day and night palettes, side by side. */
-function Swatch({ theme, label }: { theme: Settings["theme"]; label: string }) {
-  return (
-    <>
-      <span className="swatch" data-swatch={theme} aria-hidden>
-        <span>Aa</span>
-        <span>Aa</span>
-      </span>
-      {label}
-    </>
-  );
+  return <TextControls fields={["appearance", "theme"]} />;
 }
 
 export function ReadingControls() {
+  return (
+    <TextControls fields={["font", "size", "spacing", "width", "align"]} />
+  );
+}
+
+export type TextField =
+  | "font"
+  | "size"
+  | "spacing"
+  | "width"
+  | "align"
+  | "appearance"
+  | "theme";
+
+/** Reading and appearance settings, in the order a surface needs them. */
+export function TextControls({ fields }: { fields: TextField[] }) {
   const settings = useSettings();
   const step = (by: number) =>
     updateSettings({
       size: Math.min(SIZES.max, Math.max(SIZES.min, settings.size + by)),
     });
-  return (
-    <>
-      <Field label="Font">
+  const render: Record<TextField, () => ReactNode> = {
+    font: () => (
+      <Field key="font" label="Font">
         <Choice
           label="Font"
           value={settings.font}
@@ -141,7 +115,9 @@ export function ReadingControls() {
           onChange={(font) => updateSettings({ font })}
         />
       </Field>
-      <Field label="Text size">
+    ),
+    size: () => (
+      <Field key="size" label="Text size">
         <div className="stepper">
           <button
             type="button"
@@ -162,7 +138,9 @@ export function ReadingControls() {
           </button>
         </div>
       </Field>
-      <Field label="Line spacing">
+    ),
+    spacing: () => (
+      <Field key="spacing" label="Line spacing">
         <Choice
           label="Line spacing"
           value={settings.spacing}
@@ -174,7 +152,9 @@ export function ReadingControls() {
           onChange={(spacing) => updateSettings({ spacing })}
         />
       </Field>
-      <Field label="Width">
+    ),
+    width: () => (
+      <Field key="width" label="Width">
         <Choice
           label="Width"
           value={settings.width}
@@ -186,7 +166,9 @@ export function ReadingControls() {
           onChange={(width) => updateSettings({ width })}
         />
       </Field>
-      <Field label="Alignment">
+    ),
+    align: () => (
+      <Field key="align" label="Alignment">
         <Choice
           label="Alignment"
           value={settings.align}
@@ -197,6 +179,49 @@ export function ReadingControls() {
           onChange={(align) => updateSettings({ align })}
         />
       </Field>
+    ),
+    appearance: () => (
+      <Field key="appearance" label="Appearance">
+        <Choice
+          label="Appearance"
+          value={settings.appearance}
+          options={[
+            ["system", "System"],
+            ["light", "Light"],
+            ["dark", "Dark"],
+          ]}
+          onChange={(appearance) => updateSettings({ appearance })}
+        />
+      </Field>
+    ),
+    theme: () => (
+      <Field key="theme" label="Theme">
+        <Choice
+          label="Theme"
+          value={settings.theme}
+          className="swatches"
+          options={[
+            ["arctic", <Swatch theme="arctic" label="Arctic" />],
+            ["flexoki", <Swatch theme="flexoki" label="Flexoki" />],
+            ["night", <Swatch theme="night" label="Night" />],
+          ]}
+          onChange={(theme) => updateSettings({ theme })}
+        />
+      </Field>
+    ),
+  };
+  return <>{fields.map((field) => render[field]())}</>;
+}
+
+/** A theme's day and night palettes, side by side. */
+function Swatch({ theme, label }: { theme: Settings["theme"]; label: string }) {
+  return (
+    <>
+      <span className="swatch" data-swatch={theme} aria-hidden>
+        <span>Aa</span>
+        <span>Aa</span>
+      </span>
+      {label}
     </>
   );
 }

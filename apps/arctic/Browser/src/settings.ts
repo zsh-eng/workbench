@@ -26,7 +26,8 @@ export const DEFAULT_SETTINGS: Settings = {
   spacing: "normal",
   width: "normal",
   align: "left",
-  layout: "cards",
+  // A phone shows more of the library as a list.
+  layout: matchMedia("(max-width: 720px)").matches ? "list" : "cards",
   offline: false,
 };
 

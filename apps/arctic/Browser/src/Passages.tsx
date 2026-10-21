@@ -26,6 +26,7 @@ import {
 } from "./annotations";
 import type { Article } from "./articles";
 import { reportError, showToast, useRecords, useSession } from "./state";
+import { Sheet, useCompact } from "./surface";
 import { Tip } from "./ui";
 
 /** The account's passages and notes, for one article or all, oldest first. */
@@ -339,12 +340,26 @@ function FloatingBar({
   children: ReactNode;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const compact = useCompact();
   useLayoutEffect(() => {
     let frame = 0;
     const place = () => {
       frame = 0;
       const bar = element.current;
       if (!bar) return;
+      // A phone docks the bar at the bottom, in the toolbar's place, clear of
+      // the system's own selection menu. It rides above the keyboard.
+      if (compact) {
+        const viewport = window.visualViewport;
+        const keyboard = viewport
+          ? Math.max(0, innerHeight - viewport.height - viewport.offsetTop)
+          : 0;
+        bar.style.transform = keyboard
+          ? `translateY(${-Math.round(keyboard)}px)`
+          : "";
+        bar.style.visibility = "";
+        return;
+      }
       const rects = [...range.getClientRects()];
       const first = rects[0];
       const last = rects.at(-1);
@@ -366,17 +381,27 @@ function FloatingBar({
     };
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
     const observer = new ResizeObserver(schedule);
     if (element.current) observer.observe(element.current);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
       observer.disconnect();
     };
-  }, [range]);
+  }, [range, compact]);
   return (
-    <div className="passage-bar" ref={element} role="dialog" aria-label="Passage">
+    <div
+      className="passage-bar"
+      ref={element}
+      role="dialog"
+      aria-label="Passage"
+      data-docked={compact || undefined}
+    >
       {children}
     </div>
   );
@@ -427,8 +452,71 @@ function NoteEditor({
   );
 }
 
-/** The article's passages in reading order, and a note on the whole article. */
+/**
+ * The article's passages in reading order, and a note on the whole article:
+ * a sheet on phones, resting at half height so the page shows above it, and
+ * a popover elsewhere.
+ */
 export function NotesPanel({
+  article,
+  onReveal,
+}: {
+  article: Article;
+  onReveal: (id: string) => void;
+}) {
+  const compact = useCompact();
+  const count = useAnnotations(article.url).filter((item) => item.quote).length;
+  const [open, setOpen] = useState(false);
+  const reveal = (id: string) => {
+    setOpen(false);
+    onReveal(id);
+  };
+  const trigger = (
+    <button
+      type="button"
+      className="icon-button notes-button"
+      aria-label="Notes"
+      onClick={compact ? () => setOpen(true) : undefined}
+    >
+      <NotebookPen size={18} />
+      {count > 0 && <span className="count">{count}</span>}
+    </button>
+  );
+  if (compact)
+    return (
+      <>
+        {trigger}
+        <Sheet
+          isOpen={open}
+          onOpenChange={setOpen}
+          title="Notes"
+          heading
+          snapPoints={["min(55dvh, 100%)"]}
+        >
+          <div className="notes-panel">
+            <NotesContent article={article} onReveal={reveal} />
+          </div>
+        </Sheet>
+      </>
+    );
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Tip label="Notes">
+        <Popover.Trigger render={trigger} />
+      </Tip>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={8} align="end">
+          <Popover.Popup className="menu notes-panel">
+            <h2>Notes</h2>
+            <NotesContent article={article} onReveal={reveal} />
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function NotesContent({
   article,
   onReveal,
 }: {
@@ -443,68 +531,51 @@ export function NotesPanel({
   const articleNote = annotations.find((item) => !item.quote);
   // The first save creates the note; later saves before it syncs edit it.
   const created = useRef<Annotation | undefined>(undefined);
-  const [open, setOpen] = useState(false);
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Tip label="Notes">
-        <Popover.Trigger
-          render={
-            <button type="button" className="icon-button notes-button" aria-label="Notes">
-              <NotebookPen size={18} />
-              {passages.length > 0 && <span className="count">{passages.length}</span>}
-            </button>
-          }
-        />
-      </Tip>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="end">
-          <Popover.Popup className="menu notes-panel">
-            <h2>Notes</h2>
-            <NoteEditor
-              value={articleNote?.note ?? ""}
-              placeholder="A note on this article"
-              onSave={(note) => {
-                const existing = articleNote ?? created.current;
-                const next = existing
-                  ? { ...existing, note, updatedAt: Date.now() }
-                  : newAnnotation(article.url, {
-                      note,
-                      isHighlighted: false,
-                      colour: undefined,
-                    });
-                created.current = next;
-                void saveAnnotation(session, next).catch(reportError);
-              }}
-            />
-            {passages.length === 0 ? (
-              <p className="notes-empty">
-                Select text to highlight it or add a note. Highlights sync to
-                your account.
-              </p>
-            ) : (
-              <ol className="passages">
-                {passages.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className="passage"
-                      onClick={() => {
-                        setOpen(false);
-                        onReveal(item.id);
-                      }}
-                    >
-                      <blockquote data-colour={item.isHighlighted ? item.colour ?? "yellow" : undefined}>
-                        {item.quote!.exact}
-                      </blockquote>
-                      {item.note && <p>{item.note}</p>}
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+    <>
+      <NoteEditor
+        value={articleNote?.note ?? ""}
+        placeholder="A note on this article"
+        onSave={(note) => {
+          const existing = articleNote ?? created.current;
+          const next = existing
+            ? { ...existing, note, updatedAt: Date.now() }
+            : newAnnotation(article.url, {
+                note,
+                isHighlighted: false,
+                colour: undefined,
+              });
+          created.current = next;
+          void saveAnnotation(session, next).catch(reportError);
+        }}
+      />
+      {passages.length === 0 ? (
+        <p className="notes-empty">
+          Select text to highlight it or add a note. Highlights sync to your
+          account.
+        </p>
+      ) : (
+        <ol className="passages">
+          {passages.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className="passage"
+                onClick={() => onReveal(item.id)}
+              >
+                <blockquote
+                  data-colour={
+                    item.isHighlighted ? (item.colour ?? "yellow") : undefined
+                  }
+                >
+                  {item.quote!.exact}
+                </blockquote>
+                {item.note && <p>{item.note}</p>}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
   );
 }

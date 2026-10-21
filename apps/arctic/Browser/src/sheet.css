@@ -1,0 +1,105 @@
+/* React Aria's Sheet moves on native scrolling: the overlay is a scroll
+   container, snap markers are its detents, and view timelines drive every
+   animation from the sheet's position. These rules give it Arctic's look:
+   one raised surface, a hairline edge, and no ornament. */
+
+.sheet-overlay {
+  z-index: 60;
+}
+
+.sheet {
+  /* content-box: overscroll padding extends the sheet below the screen. */
+  box-sizing: content-box;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px 20px 0 0;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow:
+    0 0 0 1px var(--edge),
+    0 -12px 40px rgb(0 0 0 / 0.08);
+  transform-origin: 50% 0;
+  outline: none;
+}
+:root[data-mode="dark"] .sheet {
+  box-shadow:
+    0 0 0 1px var(--edge),
+    0 -12px 40px rgb(0 0 0 / 0.4);
+}
+
+/* A sheet with a field opens to the top, clear of the keyboard. */
+.sheet[data-tall] {
+  height: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
+}
+
+.sheet-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: max(env(safe-area-inset-bottom), 12px);
+}
+
+/* At a partial detent a swipe on the content moves the sheet; the content
+   scrolls only at full height, as on iOS. */
+.sheet-overlay[data-expanded] .sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet-handle {
+  flex: none;
+  width: 36px;
+  height: 5px;
+  margin: 8px auto 6px;
+  border-radius: 3px;
+  background: var(--fill-2);
+  transition: opacity 150ms;
+}
+.sheet[data-has-descendants] .sheet-handle {
+  opacity: 0;
+}
+
+.sheet-title {
+  margin: 4px 20px 8px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* Only the lowest sheet dims the page. */
+.sheet-backdrop[data-stack-index="0"] {
+  background: rgb(0 0 0 / 0.22);
+}
+:root[data-mode="dark"] .sheet-backdrop[data-stack-index="0"] {
+  background: rgb(0 0 0 / 0.5);
+}
+
+@keyframes sheet-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A sheet steps back while another opens over it. */
+@keyframes sheet-recede {
+  to {
+    transform: translateY(-8px) scale(0.94);
+  }
+}

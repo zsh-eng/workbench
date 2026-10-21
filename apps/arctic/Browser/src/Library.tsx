@@ -8,7 +8,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type MouseEvent,
+  type PointerEvent,
+  type RefObject,
 } from "react";
 import {
   Link,
@@ -27,7 +30,10 @@ import {
 } from "./articles";
 import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
+import { AddLinkButton, isFresh, usePasteToSave } from "./AddLink";
 import { useArticles, useSession, useStatus } from "./state";
+import { preloadSheet, useCompact } from "./surface";
+import { prefetch, prefetchKept } from "./text";
 import {
   AccountMenu,
   CardMenu,
@@ -82,18 +88,23 @@ export function Library({ folder }: { folder: Folder }) {
       ),
     [shelf, topic, deferredQuery],
   );
+  const compact = useCompact();
   // Back and Forward render every card at once, so the scroll position returns.
   const returning =
     useNavigationType() === "POP" && location.key !== "default";
+  // A phone shows a dozen cards at most, so it renders those first.
   const rendered = useSteps(
     visible.length,
     `${folder}\n${topic}\n${deferredQuery}`,
     returning,
+    compact ? 12 : 36,
   );
 
   useLayoutEffect(() => {
-    if (visible.length && !performance.getEntriesByName("arctic:cards").length)
+    if (visible.length && !performance.getEntriesByName("arctic:cards").length) {
       performance.mark("arctic:cards");
+      preloadSheet();
+    }
   }, [visible.length]);
 
   const first =
@@ -107,12 +118,26 @@ export function Library({ folder }: { folder: Folder }) {
   });
   const title = folders.find((item) => item.id === folder)!;
   const { layout } = useSettings();
+  const grid = useRef<HTMLElement>(null);
+  const intent = usePrefetch(grid, visible);
+  const search = useRef<HTMLInputElement>(null);
+  usePasteToSave();
+  useSearchKey(search);
 
   return (
     <>
-      <LibraryBar query={query} onQuery={setQuery} />
+      {compact ? (
+        <PhoneStrip
+          folder={folder}
+          query={query}
+          onQuery={setQuery}
+          input={search}
+        />
+      ) : (
+        <LibraryBar query={query} onQuery={setQuery} input={search} />
+      )}
       <header className="shelf">
-        <nav className="tabs" aria-label="Library">
+        <nav className="tabs" aria-label="Library" hidden={compact}>
           {folders.map((item) => (
             <Link
               key={item.id}
@@ -124,7 +149,7 @@ export function Library({ folder }: { folder: Folder }) {
             </Link>
           ))}
         </nav>
-        <div className="shelf-meta">
+        <div className="shelf-meta" hidden={compact}>
           <span className="shelf-count">
             {first
               ? "Getting your library…"
@@ -162,6 +187,7 @@ export function Library({ folder }: { folder: Folder }) {
               onClick={() => setTopic(null)}
             >
               All
+              {compact && <span>{shelf.length.toLocaleString()}</span>}
             </button>
             {topics.map(([name, count]) => (
               <button
@@ -179,9 +205,19 @@ export function Library({ folder }: { folder: Folder }) {
         )}
       </header>
       {visible.length > 0 ? (
-        <main className="grid" data-layout={layout}>
-          {visible.slice(0, rendered).map((article) => (
-            <Card key={article.id} article={article} state={opened} />
+        <main
+          className="grid"
+          data-layout={layout}
+          ref={grid}
+          {...intent}
+        >
+          {visible.slice(0, rendered).map((article, index) => (
+            <Card
+              key={article.id}
+              article={article}
+              state={opened}
+              eager={index < 6}
+            />
           ))}
         </main>
       ) : first ? null : (
@@ -196,12 +232,234 @@ export function Library({ folder }: { folder: Folder }) {
           </p>
         </div>
       )}
+      {compact && (
+        <PhoneDock
+          count={shelf.length}
+          onSearch={() => {
+            // Focus in the same tap, so the phone's keyboard opens.
+            search.current?.focus();
+            window.scrollTo({ top: 0 });
+          }}
+        />
+      )}
       <CardMenu />
     </>
   );
 }
 
-const FIRST_STEP = 36;
+/** "/" searches, from anywhere outside a field. */
+function useSearchKey(input: RefObject<HTMLInputElement | null>) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey)
+        return;
+      const target = event.target as HTMLElement;
+      if (target.closest("input, textarea, [contenteditable], [role=dialog]"))
+        return;
+      event.preventDefault();
+      input.current?.focus();
+      input.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [input]);
+}
+
+/**
+ * A phone's library header: the folders on one line, the current one on a
+ * capsule that slides to the next, and the account. Searching turns the
+ * line into the field, with Cancel.
+ */
+function PhoneStrip({
+  folder,
+  query,
+  onQuery,
+  input,
+}: {
+  folder: Folder;
+  query: string;
+  onQuery: (value: string) => void;
+  input: RefObject<HTMLInputElement | null>;
+}) {
+  const scrolled = useScrolled();
+  const [focused, setFocused] = useState(false);
+  const searching = focused || query !== "";
+  const nav = useRef<HTMLElement>(null);
+  const capsule = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const current = nav.current?.querySelector<HTMLElement>(
+      "[aria-current=page]",
+    );
+    const pill = capsule.current;
+    if (!current || !pill) return;
+    pill.style.width = `${current.offsetWidth}px`;
+    pill.style.transform = `translateX(${current.offsetLeft}px)`;
+  }, [folder]);
+  return (
+    <div
+      className="strip"
+      data-scrolled={scrolled || undefined}
+      data-searching={searching || undefined}
+    >
+      <nav className="folders" aria-label="Library" ref={nav}>
+        <span className="capsule" ref={capsule} aria-hidden />
+        {folders.map((item) => (
+          <Link
+            key={item.id}
+            to={item.path}
+            replace
+            className="folder"
+            aria-current={item.id === folder ? "page" : undefined}
+          >
+            {item.title}
+          </Link>
+        ))}
+      </nav>
+      <AccountMenu />
+      <label className="strip-search">
+        <Search size={16} />
+        <span className="visually-hidden">Search</span>
+        <input
+          ref={input}
+          type="search"
+          placeholder="Search"
+          enterKeyHint="search"
+          value={query}
+          tabIndex={searching ? 0 : -1}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(event) => onQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              onQuery("");
+              event.currentTarget.blur();
+            } else if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <button
+          type="button"
+          className="cancel"
+          tabIndex={searching ? 0 : -1}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => {
+            onQuery("");
+            input.current?.blur();
+          }}
+        >
+          Cancel
+        </button>
+      </label>
+    </div>
+  );
+}
+
+/** A phone's search and save, at the bottom, where a thumb rests. */
+function PhoneDock({
+  count,
+  onSearch,
+}: {
+  count: number;
+  onSearch: () => void;
+}) {
+  return (
+    <div className="library-dock">
+      <button type="button" className="search-capsule" onClick={onSearch}>
+        <Search size={17} />
+        Search {count > 0 ? `${count.toLocaleString()} articles` : ""}
+      </button>
+      <AddLinkButton />
+    </div>
+  );
+}
+
+/**
+ * Prefetches an article's text and cover before it opens: when a pointer
+ * rests on its card for a moment, when a touch or a click starts, when the
+ * card takes focus, and, while the browser is idle, for the cards on screen.
+ * One set of listeners on the list serves every card.
+ */
+function usePrefetch(
+  grid: RefObject<HTMLElement | null>,
+  visible: Article[],
+) {
+  const session = useSession();
+  const byId = useMemo(
+    () => new Map(visible.map((article) => [article.id, article])),
+    [visible],
+  );
+  const find = (target: EventTarget | null) => {
+    const id = (target as Element | null)
+      ?.closest?.<HTMLElement>(".card")
+      ?.dataset.id;
+    return id ? byId.get(id) : undefined;
+  };
+  const resting = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    const element = grid.current;
+    if (!element) return;
+    let cancelled = false;
+    let handle = 0;
+    // Safari has no idle callbacks; a short timeout stands in.
+    const idle = (work: () => void): number =>
+      typeof requestIdleCallback === "function"
+        ? requestIdleCallback(work, { timeout: 2000 })
+        : Number(setTimeout(work, 200));
+    const onScreen = () => {
+      const articles: Article[] = [];
+      for (const card of element.querySelectorAll<HTMLElement>(".card")) {
+        const box = card.getBoundingClientRect();
+        if (box.top > innerHeight) break;
+        if (box.bottom < 0) continue;
+        const article = byId.get(card.dataset.id ?? "");
+        if (article) articles.push(article);
+      }
+      return articles;
+    };
+    // One article per idle period, so scrolling and typing never wait.
+    const run = (queue: Article[]) => {
+      const next = queue.shift();
+      if (cancelled || !next) return;
+      prefetch(session, next);
+      handle = idle(() => run(queue));
+    };
+    const start = () => {
+      handle = idle(() => {
+        void prefetchKept(session, onScreen().slice(0, 12)).then(
+          (articles) => !cancelled && run(articles),
+        );
+      });
+    };
+    start();
+    window.addEventListener("scrollend", start);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("scrollend", start);
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle);
+      clearTimeout(handle);
+    };
+  }, [grid, byId, session]);
+
+  return {
+    onPointerOver: (event: PointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      clearTimeout(resting.current);
+      const article = find(event.target);
+      if (article)
+        resting.current = setTimeout(() => prefetch(session, article), 60);
+    },
+    onPointerLeave: () => clearTimeout(resting.current),
+    onPointerDown: (event: PointerEvent) => {
+      const article = find(event.target);
+      if (article) prefetch(session, article);
+    },
+    onFocus: (event: FocusEvent) => {
+      const article = find(event.target);
+      if (article) prefetch(session, article);
+    },
+  };
+}
+
 const STEP = 72;
 
 /**
@@ -209,12 +467,12 @@ const STEP = 72;
  * the first cards paint at once and no frame waits for the rest. A new list
  * starts again; a change to the same list keeps what is on screen.
  */
-function useSteps(length: number, list: string, all: boolean) {
-  const [limit, setLimit] = useState(FIRST_STEP);
+function useSteps(length: number, list: string, all: boolean, first: number) {
+  const [limit, setLimit] = useState(first);
   const [current, setCurrent] = useState(list);
   if (current !== list) {
     setCurrent(list);
-    setLimit(FIRST_STEP);
+    setLimit(first);
   }
   useEffect(() => {
     if (all || limit >= length) return;
@@ -229,27 +487,15 @@ function useSteps(length: number, list: string, all: boolean) {
 function LibraryBar({
   query,
   onQuery,
+  input,
 }: {
   query: string;
   onQuery: (value: string) => void;
+  input: RefObject<HTMLInputElement | null>;
 }) {
   const session = useSession();
   const status = useStatus();
-  const input = useRef<HTMLInputElement>(null);
   const scrolled = useScrolled();
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey)
-        return;
-      const target = event.target as HTMLElement;
-      if (target.closest("input, textarea, [contenteditable]")) return;
-      event.preventDefault();
-      input.current?.focus();
-      input.current?.select();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
   const note =
     status.phase === "offline" || status.phase === "error"
       ? describeStatus(status, session.pendingCount)
@@ -279,6 +525,7 @@ function LibraryBar({
         />
         <kbd>/</kbd>
       </label>
+      <AddLinkButton />
       <AccountMenu />
     </div>
   );
@@ -314,35 +561,41 @@ function mark(event: MouseEvent<HTMLElement>) {
 const Card = memo(function Card({
   article,
   state,
+  eager,
 }: {
   article: Article;
   state: { from: string };
+  /** One of the first cards on screen: its cover loads first. */
+  eager: boolean;
 }) {
   const path = `/read/${article.id}`;
+  // An article without a working image is a text card: its title and the
+  // start of its description, with no stand-in cover.
+  const [failed, setFailed] = useState(false);
+  const image = failed ? undefined : article.image;
+  const [fresh] = useState(() => isFresh(article.id));
   return (
     <article
       className="card"
+      data-id={article.id}
       data-read={article.read || undefined}
       data-copy={article.copy ? "" : undefined}
-      data-image={article.image ? "" : undefined}
+      data-image={image ? "" : undefined}
+      data-fresh={fresh || undefined}
     >
-      <Link
-        to={path}
-        state={state}
-        viewTransition
-        className="cover"
-        tabIndex={-1}
-        aria-hidden
-        onClick={mark}
-      >
-        {article.image ? (
-          <Cover src={article.image} />
-        ) : article.subtitle ? (
-          <div className="cover-text">{article.subtitle}</div>
-        ) : (
-          <div className="cover-site">{article.host}</div>
-        )}
-      </Link>
+      {image && (
+        <Link
+          to={path}
+          state={state}
+          viewTransition
+          className="cover"
+          tabIndex={-1}
+          aria-hidden
+          onClick={mark}
+        >
+          <Cover src={image} eager={eager} onFail={() => setFailed(true)} />
+        </Link>
+      )}
       <div className="card-line">
         <Source article={article} />
         <CardMenuButton article={article} />
@@ -356,6 +609,9 @@ const Card = memo(function Card({
       >
         {article.title}
       </Link>
+      {!image && article.subtitle && (
+        <p className="card-excerpt">{article.subtitle}</p>
+      )}
     </article>
   );
 });
@@ -363,7 +619,7 @@ const Card = memo(function Card({
 export function Source({ article }: { article: Article }) {
   return (
     <span className="source">
-      {article.favicon && <Favicon src={article.favicon} />}
+      <Favicon src={article.favicon} host={article.host} />
       <span className="host">{article.host}</span>
       {article.copy && (
         <>
@@ -378,30 +634,49 @@ export function Source({ article }: { article: Article }) {
   );
 }
 
-function Cover({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return null;
+function Cover({
+  src,
+  eager,
+  onFail,
+}: {
+  src: string;
+  eager: boolean;
+  onFail: () => void;
+}) {
   return (
     <img
       src={src}
       alt=""
-      loading="lazy"
+      loading={eager ? "eager" : "lazy"}
+      fetchPriority={eager ? "high" : undefined}
       decoding="async"
       referrerPolicy="no-referrer"
+      // A cover already in memory shows at once; one from the network fades in.
       ref={(image) => {
         if (image?.complete && image.naturalWidth) image.dataset.loaded = "";
       }}
-      onLoad={(event) => (event.currentTarget.dataset.loaded = "")}
-      onError={() => setFailed(true)}
+      onLoad={(event) => {
+        // A spacer pixel or a tiny icon is no cover.
+        if (event.currentTarget.naturalWidth < 48) onFail();
+        else event.currentTarget.dataset.loaded = "";
+      }}
+      onError={onFail}
     />
   );
 }
 
-function Favicon({ src }: { src: string }) {
+/** The site's icon, or its initial in the same square, so lines align. */
+function Favicon({ src, host }: { src?: string; host: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return null;
+  if (!src || failed)
+    return (
+      <span className="favicon" aria-hidden>
+        {host.charAt(0).toUpperCase()}
+      </span>
+    );
   return (
     <img
+      className="favicon"
       src={src}
       alt=""
       loading="lazy"
