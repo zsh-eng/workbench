@@ -191,6 +191,7 @@ within 130 ms, and no task blocks for 50 ms or more. Back from the reader
 takes 56 ms. Before these changes, the Saved folder took 125 ms and Back
 133 ms.
 
-The first load is 604 kB of JavaScript (195 kB gzip): React, React Router,
-Base UI menus and tooltips, DOMPurify, zod (through local-sync) and the app.
+The first load is 648 kB of JavaScript (209 kB gzip): React, React Router,
+Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
+the app.
 Defuddle (309 kB, 87 kB gzip) loads only to extract a page.
