@@ -66,6 +66,8 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
   /** Edits and remote records apply one at a time, each to the state the last one committed. */
   private lock: Promise<unknown> = Promise.resolve();
   private listeners = new Set<(keys: string[]) => void>();
+  /** Changes whenever a record changes. */
+  revision = 0;
 
   constructor(
     private readonly db: IDBDatabase,
@@ -309,6 +311,7 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
   }
 
   private emit(keys: string[]) {
+    this.revision++;
     for (const listener of this.listeners) listener(keys);
   }
 }

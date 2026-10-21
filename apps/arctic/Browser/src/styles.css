@@ -1502,3 +1502,133 @@ a.article-source:hover {
   color: var(--accent);
   text-decoration: none;
 }
+
+/* Reading time */
+.byline .read-for {
+  color: inherit;
+  text-decoration: none;
+}
+.byline .read-for:hover {
+  color: var(--fg);
+}
+.week {
+  margin-top: 36px;
+  padding: 26px 26px 20px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+.week-label {
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--fg-2);
+}
+.week-total {
+  margin-top: 6px;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 18px;
+}
+.day {
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 10px;
+  height: 128px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+}
+.day-bar {
+  width: min(32px, 100%);
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  transition:
+    background 0.15s,
+    height 0.3s var(--ease);
+}
+.day-bar[data-empty] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.day[aria-pressed="true"] .day-bar:not([data-empty]) {
+  background: var(--accent);
+}
+.day[aria-pressed="true"] .day-bar[data-empty] {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.day-name {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--fg-2);
+}
+.day[aria-pressed="true"] .day-name {
+  color: var(--fg);
+  font-weight: 700;
+}
+.day-detail {
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--fg-2);
+  text-align: center;
+}
+.day-detail strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 26px 0 0;
+}
+.metrics div {
+  padding: 0 16px;
+  border-left: 1px solid var(--rule);
+}
+.metrics div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.metrics dt {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.metrics dd {
+  margin: 4px 0 0;
+  font-size: clamp(17px, 4.6vw, 22px);
+  white-space: nowrap;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.read-rows li a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.read-rows li a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--fg-3);
+}
+.quiet-note {
+  margin-top: 40px;
+  font-size: 19px;
+  color: var(--fg-2);
+  text-align: center;
+}
+.page > p.footnote {
+  margin-top: 36px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}

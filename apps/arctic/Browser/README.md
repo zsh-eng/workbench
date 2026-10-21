@@ -59,7 +59,21 @@ reference dates, so the phone decodes them to the same bytes. The app follows
 the phone's rules: an unsaved article is neither archived nor favourite, and
 opening an article marks it read with a visit time. Edits commit to IndexedDB
 first and upload about a second later; a closed tab keeps them for the next
-visit. Highlights, notes and reading time stay on the phone.
+visit.
+
+Reading time and highlights have their own namespaces, in the phone's formats
+(approved 21 October 2026, the web first; the phone does not upload them yet):
+
+| Namespace | Records |
+| --- | --- |
+| `arctic-reading` | `session/<UUID>`: one visit's active seconds (`src/reading.ts`) |
+| `arctic-annotations` | `annotation/<UUID>`: a highlight or note (`src/annotations.ts`) |
+
+Reading time counts as on the phone: time between two of the reader's own
+actions (scroll, keys, pointer) counts when the gap is two minutes or less,
+and a hidden tab pauses. A visit saves every five seconds and uploads within a
+minute. **Reading** (`/reading`) shows the last seven days, today, articles
+read for a minute or more, all time, and this week's articles.
 
 Text copies are cleaned HTML files in `arctic-content`: no scripts, at most
 2 MiB, named by XXH64 (`src/sync/xxh64.ts`; the server checks every hash). The

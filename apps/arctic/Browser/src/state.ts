@@ -1,6 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { projector, type Article } from "./articles";
 import type { Session } from "./sync/session";
+import type { RecordStorage } from "./sync/storage";
 
 export const SessionContext = createContext<Session | null>(null);
 
@@ -44,6 +45,14 @@ export function useArticles(): Article[] {
   return useSyncExternalStore(
     (listener) => session.subscribe(listener),
     () => articles(session),
+  );
+}
+
+/** The revision of one namespace's records, for views derived from them. */
+export function useRecords(storage: RecordStorage) {
+  return useSyncExternalStore(
+    (listener) => storage.subscribe(listener),
+    () => storage.revision,
   );
 }
 

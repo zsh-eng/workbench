@@ -14,8 +14,9 @@ import { cleanByline } from "./content";
 import { edits, editLibrary, folders, minutes, type Article } from "./articles";
 import { SIZES, getSettings, updateSettings } from "./settings";
 import { AppearanceControls, ReadingControls } from "./SettingsPage";
-import { useArticles, useSession, useStatus } from "./state";
+import { useArticles, useRecords, useSession, useStatus } from "./state";
 import { articleText, readyText, type Text } from "./text";
+import { duration, readingSessions, useReadingClock } from "./reading";
 import { ArticleMenu, Tip, useActions } from "./ui";
 
 export function Reader() {
@@ -98,7 +99,9 @@ function Page({
   const leads = !!text && "html" in text && text.withoutLead !== undefined;
   const cover = !!article.image && !(textCover && leads);
 
-  useReadingPosition(article.id, !!text && "html" in text);
+  const readable = !!text && "html" in text;
+  useReadingPosition(article.id, readable);
+  useReadingClock(session, article.url, readable);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -169,6 +172,7 @@ function Page({
                 {item}
               </span>
             ))}
+            <ReadFor url={article.url} />
           </div>
         )}
         {cover && (
@@ -248,6 +252,29 @@ function Page({
         )}
       </article>
     </>
+  );
+}
+
+/** Time spent on this article so far, on every device. */
+function ReadFor({ url }: { url: string }) {
+  const session = useSession();
+  const revision = useRecords(session.reading);
+  const seconds = useMemo(
+    () =>
+      readingSessions(session.reading)
+        .filter((visit) => visit.articleURL === url)
+        .reduce((sum, visit) => sum + visit.seconds, 0),
+    // The revision changes with the records.
+    [session, url, revision],
+  );
+  if (seconds < 30) return null;
+  return (
+    <span>
+      <span className="dot">· </span>
+      <Link to="/reading" className="read-for">
+        Read for {duration(seconds)}
+      </Link>
+    </span>
   );
 }
 

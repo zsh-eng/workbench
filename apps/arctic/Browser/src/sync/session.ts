@@ -12,8 +12,18 @@ import { deleteDatabase, openDatabase, promised, transact } from "./idb";
 import { RecordStorage } from "./storage";
 import { xxh64 } from "./xxh64";
 
-/** The phone's library, and this app's text copies, kept apart (see apps/sync-server). */
-const NAMESPACES = { library: "arctic", content: "arctic-content" } as const;
+/**
+ * The phone's library, text copies, highlights and notes, and reading
+ * sessions, each apart (see apps/sync-server). The phone validates every
+ * `arctic` record, so new record families have their own namespaces.
+ */
+const NAMESPACES = {
+  library: "arctic",
+  content: "arctic-content",
+  annotations: "arctic-annotations",
+  reading: "arctic-reading",
+} as const;
+type Channels = Record<keyof typeof NAMESPACES, Channel>;
 export const MAX_COPY_BYTES = 2 * 1024 * 1024;
 
 export type SyncStatus =
@@ -45,26 +55,28 @@ type Channel = {
   ) => Promise<Response>;
 };
 
-/** One signed-in account in this browser: two synced namespaces and a file cache. */
+/** One signed-in account in this browser: its synced namespaces and a file cache. */
 export class Session {
   status: SyncStatus = { phase: "loading" };
-  /** Changes whenever a record or the status changes. */
+  /** Changes whenever a library or text record, or the status, changes. */
   version = 0;
-  /** Changes only when a record changes. */
+  /** Changes only when a library or text record changes. */
   records = 0;
   private listeners = new Set<() => void>();
   private running: Promise<void> | null = null;
   private again = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private due = Infinity;
   private files = new Map<string, Promise<string>>();
 
   private constructor(
     readonly account: Account,
     private readonly db: IDBDatabase,
-    private readonly library: Channel,
-    private readonly content: Channel,
+    private readonly channels: Channels,
   ) {
-    for (const channel of [library, content])
+    // Highlights and reading time have their own readers (useRecords), so a
+    // reading checkpoint does not render the library.
+    for (const channel of [channels.library, channels.content])
       channel.storage.subscribe(() => {
         this.records++;
         this.emit();
@@ -93,24 +105,35 @@ export class Session {
       });
       return { storage, client, request: http.request } satisfies Channel;
     };
-    const [library, content] = await Promise.all([
+    const [library, content, annotations, reading] = await Promise.all([
       channel(NAMESPACES.library, normalizeLibrary),
       channel(NAMESPACES.content),
+      channel(NAMESPACES.annotations),
+      channel(NAMESPACES.reading),
     ]);
-    return new Session(account, db, library, content);
+    return new Session(account, db, { library, content, annotations, reading });
   }
 
   get arctic() {
-    return this.library.storage;
+    return this.channels.library.storage;
   }
 
   get copies() {
-    return this.content.storage;
+    return this.channels.content.storage;
+  }
+
+  get annotations() {
+    return this.channels.annotations.storage;
+  }
+
+  get reading() {
+    return this.channels.reading.storage;
   }
 
   get pendingCount() {
-    return (
-      this.library.storage.pendingCount + this.content.storage.pendingCount
+    return Object.values(this.channels).reduce(
+      (sum, channel) => sum + channel.storage.pendingCount,
+      0,
     );
   }
 
@@ -121,9 +144,10 @@ export class Session {
     };
   }
 
-  /** Pull, then upload, for both namespaces. Calls during a run start one more run. */
+  /** Pull, then upload, for each namespace. Calls during a run start one more run. */
   sync(): Promise<void> {
     clearTimeout(this.timer);
+    this.due = Infinity;
     if (this.running) {
       this.again = true;
       return this.running;
@@ -135,8 +159,8 @@ export class Session {
       try {
         do {
           this.again = false;
-          await this.library.client.sync();
-          await this.content.client.sync();
+          for (const channel of Object.values(this.channels))
+            await channel.client.sync();
         } while (this.again);
         this.setStatus({ phase: "synced", lastSyncedAt: Date.now() });
       } catch (error) {
@@ -157,9 +181,15 @@ export class Session {
     return this.running;
   }
 
-  /** Edits upload a moment later, so quick changes share one request. */
+  /**
+   * Edits upload a moment later, so quick changes share one request. A sync
+   * that is already due sooner keeps its time.
+   */
   syncSoon(delay = 1200) {
+    const due = Date.now() + delay;
+    if (due >= this.due) return;
     clearTimeout(this.timer);
+    this.due = due;
     this.timer = setTimeout(() => void this.sync().catch(() => {}), delay);
   }
 
@@ -172,7 +202,11 @@ export class Session {
         promised<{ html: string } | undefined>(tx.objectStore("files").get(id)),
       );
       if (cached) return cached.html;
-      const response = await this.content.request(`/files/${id}`, {}, false);
+      const response = await this.channels.content.request(
+        `/files/${id}`,
+        {},
+        false,
+      );
       const html = await response.text();
       await transact(this.db, ["files"], "readwrite", async (tx) => {
         tx.objectStore("files").put({ id, html, savedAt: Date.now() });
@@ -194,7 +228,11 @@ export class Session {
 
   /** Downloads a copy into this browser for offline reading, without holding it in memory. */
   async keepFile(id: string, signal?: AbortSignal) {
-    const response = await this.content.request(`/files/${id}`, { signal }, false);
+    const response = await this.channels.content.request(
+      `/files/${id}`,
+      { signal },
+      false,
+    );
     const html = await response.text();
     await transact(this.db, ["files"], "readwrite", async (tx) => {
       tx.objectStore("files").put({ id, html, savedAt: Date.now() });
@@ -209,7 +247,7 @@ export class Session {
     if (/<script\b/i.test(html))
       throw new Error("This copy contains a script.");
     const id = xxh64(bytes);
-    await this.content.request(
+    await this.channels.content.request(
       `/files/${id}`,
       {
         method: "PUT",

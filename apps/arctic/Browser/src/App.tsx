@@ -19,6 +19,7 @@ import type { Folder } from "./articles";
 import { Copies } from "./Copies";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
+import { ReadingPage } from "./ReadingPage";
 import { SettingsPage } from "./SettingsPage";
 import { SessionContext, articles } from "./state";
 import { downloadNew } from "./offline";
@@ -68,6 +69,7 @@ const router = createBrowserRouter([
       },
       { path: "copies", element: <Copies /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "reading", element: <ReadingPage /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

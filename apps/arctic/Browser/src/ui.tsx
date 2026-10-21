@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   ArrowUpRight,
   BookmarkPlus,
+  Clock,
   FileText,
   Link2,
   MoreHorizontal,
@@ -362,6 +363,12 @@ export function AccountMenu() {
               onClick={() => void session.sync().catch(() => {})}
             >
               Sync now
+            </Item>
+            <Item
+              icon={<Clock size={16} />}
+              onClick={() => navigate("/reading")}
+            >
+              Reading time
             </Item>
             <Item
               icon={<FileText size={16} />}
