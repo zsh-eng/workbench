@@ -97,11 +97,20 @@ function useShow() {
   };
 }
 
-/** The library's + button: a sheet on phones, a popover elsewhere. */
-export function AddLinkButton() {
+/**
+ * The library's + button: a sheet on phones, a popover elsewhere. In the
+ * sidebar it is a row with its shortcut.
+ */
+export function AddLinkButton({ row = false }: { row?: boolean }) {
   const compact = useCompact();
   const [open, setOpen] = useState(false);
-  const button = (
+  const button = row ? (
+    <button type="button" className="side-item side-add">
+      <Plus size={16} />
+      Save a link
+      <kbd aria-hidden>⌘V</kbd>
+    </button>
+  ) : (
     <button
       type="button"
       className="icon-button"
@@ -128,11 +137,19 @@ export function AddLinkButton() {
     );
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Tip label="Save a link" keys="⌘V">
+      {row ? (
         <Popover.Trigger render={button} />
-      </Tip>
+      ) : (
+        <Tip label="Save a link" keys="⌘V">
+          <Popover.Trigger render={button} />
+        </Tip>
+      )}
       <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="end">
+        <Popover.Positioner
+          sideOffset={8}
+          align={row ? "start" : "end"}
+          side={row ? "right" : "bottom"}
+        >
           <Popover.Popup className="menu link-popover">
             <LinkForm onDone={() => setOpen(false)} />
           </Popover.Popup>

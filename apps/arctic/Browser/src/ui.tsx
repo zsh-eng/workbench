@@ -30,6 +30,7 @@ import { signOut } from "./api";
 import { edits, editLibrary, removeArticle, type Article } from "./articles";
 import {
   dismissToast,
+  holdToast,
   reportError,
   showToast,
   useSession,
@@ -499,7 +500,8 @@ export function describeStatus(status: SyncStatus, pending: number) {
   }
 }
 
-export function AccountMenu() {
+/** The account and its places. In the sidebar it is a row with the name. */
+export function AccountMenu({ row = false }: { row?: boolean }) {
   const session = useSession();
   const status = useStatus();
   const navigate = useNavigate();
@@ -543,15 +545,30 @@ export function AccountMenu() {
     );
   return (
     <Menu.Root modal={false}>
-      <Menu.Trigger
-        className="avatar"
-        aria-label="Account"
-        render={<button type="button" />}
-      >
-        {face}
-      </Menu.Trigger>
+      {row ? (
+        <Menu.Trigger
+          className="side-item side-account"
+          aria-label="Account"
+          render={<button type="button" />}
+        >
+          <span className="avatar">{face}</span>
+          <span className="side-name">{account.name || account.email}</span>
+        </Menu.Trigger>
+      ) : (
+        <Menu.Trigger
+          className="avatar"
+          aria-label="Account"
+          render={<button type="button" />}
+        >
+          {face}
+        </Menu.Trigger>
+      )}
       <Menu.Portal>
-        <Menu.Positioner sideOffset={8} align="end">
+        <Menu.Positioner
+          sideOffset={8}
+          align={row ? "start" : "end"}
+          side={row ? "top" : "bottom"}
+        >
           <Menu.Popup className="menu">
             <div className="menu-account">
               <strong>{account.name || account.email}</strong>
@@ -684,7 +701,15 @@ export function Toaster() {
   const toast = useToast();
   if (!toast) return null;
   return (
-    <div className="toast" role="status" key={toast.id}>
+    <div
+      className="toast"
+      role="status"
+      key={toast.id}
+      onPointerEnter={() => holdToast(true)}
+      onPointerLeave={() => holdToast(false)}
+      onFocus={() => holdToast(true)}
+      onBlur={() => holdToast(false)}
+    >
       {toast.message}
       {toast.action && (
         <button

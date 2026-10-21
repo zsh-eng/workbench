@@ -2283,3 +2283,158 @@ button.action-row:active {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* The wide library: a sidebar with every place, and one column of cards
+   that shares its left edge with the title and the search. */
+.desk {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100dvh;
+  padding: 14px 12px;
+  border-right: 1px solid var(--rule);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.sidebar .brand {
+  height: 32px;
+  margin: 0 8px 2px;
+}
+.side-group {
+  display: grid;
+  gap: 1px;
+}
+.side-end {
+  margin-top: auto;
+}
+.side-label {
+  margin: 0 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-3);
+}
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--fg-2);
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.side-item svg {
+  flex: none;
+  color: var(--fg-3);
+}
+.side-item:hover {
+  background: var(--fill);
+  color: var(--fg);
+}
+.side-item:is([aria-current="page"], [aria-pressed="true"]) {
+  background: var(--fill);
+  color: var(--fg);
+  font-weight: 600;
+}
+.side-item[aria-current="page"] svg {
+  color: var(--fg);
+}
+.side-count {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.side-add {
+  color: var(--fg);
+  font-weight: 550;
+}
+.side-add svg {
+  color: var(--fg);
+}
+.side-add kbd {
+  margin-left: auto;
+  font: 12px var(--ui);
+  color: var(--fg-3);
+}
+.side-account {
+  height: 40px;
+  margin-top: 6px;
+}
+.side-account .avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+.side-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.desk-main {
+  min-width: 0;
+}
+.desk-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 var(--gutter);
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.desk-bar[data-scrolled] {
+  border-bottom-color: var(--rule);
+}
+.desk-bar .search {
+  width: min(380px, 50%);
+}
+.desk-bar .layout-toggle {
+  margin-left: auto;
+}
+.desk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px var(--gutter) 0;
+}
+.desk-head h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+.desk-head .shelf-count {
+  font-size: 14px;
+  color: var(--fg-2);
+}
+.desk .grid,
+.desk .empty {
+  margin: 0;
+}
+.desk .grid {
+  padding-top: 26px;
+}

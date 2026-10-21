@@ -1,4 +1,14 @@
-import { LayoutGrid, List, Search, Star } from "lucide-react";
+import {
+  Archive,
+  Bookmark,
+  Clock,
+  Highlighter,
+  History,
+  LayoutGrid,
+  List,
+  Search,
+  Star,
+} from "lucide-react";
 import {
   memo,
   startTransition,
@@ -11,6 +21,7 @@ import {
   type FocusEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import {
@@ -32,8 +43,8 @@ import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, usePasteToSave } from "./AddLink";
 import { useArticles, useSession, useStatus } from "./state";
-import { preloadSheet, useCompact } from "./surface";
-import { prefetch, prefetchKept } from "./text";
+import { preloadSheet, useCompact, useWide } from "./surface";
+import { idlePrefetchable, isCover, prefetch } from "./text";
 import {
   AccountMenu,
   CardMenu,
@@ -124,6 +135,148 @@ export function Library({ folder }: { folder: Folder }) {
   usePasteToSave();
   useSearchKey(search);
 
+  const wide = useWide();
+  const counts = useMemo(() => {
+    const result = { saved: 0, favourites: 0, archive: 0, history: 0 };
+    for (const article of articles)
+      for (const item of folders)
+        if (inFolder(article, item.id)) result[item.id]++;
+    return result;
+  }, [articles]);
+
+  const count = (
+    <span className="shelf-count">
+      {first
+        ? "Getting your library…"
+        : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+    </span>
+  );
+  const layoutToggle = (
+    <Choice
+      label="Layout"
+      className="layout-toggle"
+      value={layout}
+      options={[
+        [
+          "cards",
+          <>
+            <LayoutGrid size={16} />
+            <span className="visually-hidden">Cards</span>
+          </>,
+        ],
+        [
+          "list",
+          <>
+            <List size={17} />
+            <span className="visually-hidden">List</span>
+          </>,
+        ],
+      ]}
+      onChange={(next) => updateSettings({ layout: next })}
+    />
+  );
+  const showTopics = topics.length > 1 && folder !== "history";
+  const topicButton = (name: string | null, label: string, n: number) => (
+    <button
+      key={name ?? ""}
+      type="button"
+      className={wide ? "side-item" : "topic"}
+      aria-pressed={topic === name}
+      onClick={() => setTopic(name === null || topic === name ? null : name)}
+    >
+      {label}
+      {(name !== null || compact || wide) && (
+        <span className={wide ? "side-count" : undefined} aria-hidden>
+          {n.toLocaleString()}
+        </span>
+      )}
+    </button>
+  );
+  const list =
+    visible.length > 0 ? (
+      <main className="grid" data-layout={layout} ref={grid} {...intent}>
+        {visible.slice(0, rendered).map((article, index) => (
+          <Card
+            key={article.id}
+            article={article}
+            state={opened}
+            eager={index < 6}
+          />
+        ))}
+      </main>
+    ) : first ? null : (
+      <div className="empty">
+        <h2>{query || topic ? "Nothing matches." : title.empty}</h2>
+        <p>
+          {query || topic
+            ? "Try another word, or clear the search."
+            : folder === "saved"
+              ? "Save a link with + or ⌘V, or with Arctic on your iPhone."
+              : "Articles appear here as you read and sort them."}
+        </p>
+      </div>
+    );
+
+  // A wide window: the folders, topics and places in a sidebar, so nothing
+  // scrolls out of reach and the page has one left edge.
+  if (wide)
+    return (
+      <div className="desk">
+        <aside className="sidebar">
+          <Link to="/" className="brand">
+            <img src="/icon-64.png" alt="" />
+            Arctic
+          </Link>
+          <AddLinkButton row />
+          <nav className="side-group" aria-label="Library">
+            {folders.map((item) => (
+              <Link
+                key={item.id}
+                to={item.path + (query ? `?q=${encodeURIComponent(query)}` : "")}
+                className="side-item"
+                aria-current={item.id === folder ? "page" : undefined}
+              >
+                {FOLDER_ICONS[item.id]}
+                {item.title}
+                <span className="side-count" aria-hidden>
+                  {counts[item.id].toLocaleString()}
+                </span>
+              </Link>
+            ))}
+          </nav>
+          {showTopics && (
+            <div className="side-group" role="group" aria-label="Topics">
+              <h2 className="side-label">Topics</h2>
+              {topicButton(null, "All", shelf.length)}
+              {topics.map(([name, n]) => topicButton(name, name, n))}
+            </div>
+          )}
+          <nav className="side-group side-end" aria-label="Places">
+            <Link to="/highlights" className="side-item">
+              <Highlighter size={16} />
+              Highlights
+            </Link>
+            <Link to="/reading" className="side-item">
+              <Clock size={16} />
+              Reading time
+            </Link>
+            <AccountMenu row />
+          </nav>
+        </aside>
+        <div className="desk-main">
+          <DeskBar query={query} onQuery={setQuery} input={search}>
+            {layoutToggle}
+          </DeskBar>
+          <header className="desk-head">
+            <h1>{title.title}</h1>
+            {count}
+          </header>
+          {list}
+        </div>
+        <CardMenu />
+      </div>
+    );
+
   return (
     <>
       {compact ? (
@@ -150,88 +303,17 @@ export function Library({ folder }: { folder: Folder }) {
           ))}
         </nav>
         <div className="shelf-meta" hidden={compact}>
-          <span className="shelf-count">
-            {first
-              ? "Getting your library…"
-              : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
-          </span>
-          <Choice
-            label="Layout"
-            className="layout-toggle"
-            value={layout}
-            options={[
-              [
-                "cards",
-                <>
-                  <LayoutGrid size={16} />
-                  <span className="visually-hidden">Cards</span>
-                </>,
-              ],
-              [
-                "list",
-                <>
-                  <List size={17} />
-                  <span className="visually-hidden">List</span>
-                </>,
-              ],
-            ]}
-            onChange={(next) => updateSettings({ layout: next })}
-          />
+          {count}
+          {layoutToggle}
         </div>
-        {topics.length > 1 && folder !== "history" && (
+        {showTopics && (
           <div className="topics" role="group" aria-label="Topics">
-            <button
-              type="button"
-              className="topic"
-              aria-pressed={!topic}
-              onClick={() => setTopic(null)}
-            >
-              All
-              {compact && <span>{shelf.length.toLocaleString()}</span>}
-            </button>
-            {topics.map(([name, count]) => (
-              <button
-                key={name}
-                type="button"
-                className="topic"
-                aria-pressed={topic === name}
-                onClick={() => setTopic(topic === name ? null : name)}
-              >
-                {name}
-                <span>{count}</span>
-              </button>
-            ))}
+            {topicButton(null, "All", shelf.length)}
+            {topics.map(([name, n]) => topicButton(name, name, n))}
           </div>
         )}
       </header>
-      {visible.length > 0 ? (
-        <main
-          className="grid"
-          data-layout={layout}
-          ref={grid}
-          {...intent}
-        >
-          {visible.slice(0, rendered).map((article, index) => (
-            <Card
-              key={article.id}
-              article={article}
-              state={opened}
-              eager={index < 6}
-            />
-          ))}
-        </main>
-      ) : first ? null : (
-        <div className="empty">
-          <h2>{query || topic ? "Nothing matches." : title.empty}</h2>
-          <p>
-            {query || topic
-              ? "Try another word, or clear the search."
-              : folder === "saved"
-                ? "Save an article with Arctic on your iPhone. It appears here after the next sync."
-                : "Articles appear here as you read and sort them."}
-          </p>
-        </div>
-      )}
+      {list}
       {compact && (
         <PhoneDock
           count={shelf.length}
@@ -244,6 +326,72 @@ export function Library({ folder }: { folder: Folder }) {
       )}
       <CardMenu />
     </>
+  );
+}
+
+const FOLDER_ICONS: Record<Folder, ReactNode> = {
+  saved: <Bookmark size={16} />,
+  favourites: <Star size={16} />,
+  archive: <Archive size={16} />,
+  history: <History size={16} />,
+};
+
+/** The wide library's search, above the cards, with the layout beside it. */
+function DeskBar({
+  query,
+  onQuery,
+  input,
+  children,
+}: {
+  query: string;
+  onQuery: (value: string) => void;
+  input: RefObject<HTMLInputElement | null>;
+  children: ReactNode;
+}) {
+  const session = useSession();
+  const status = useStatus();
+  const scrolled = useScrolled();
+  const note =
+    status.phase === "offline" || status.phase === "error"
+      ? describeStatus(status, session.pendingCount)
+      : "";
+  return (
+    <div className="desk-bar" data-scrolled={scrolled || undefined}>
+      <SearchField query={query} onQuery={onQuery} input={input} />
+      {note && <span className="status-note">{note}</span>}
+      {children}
+    </div>
+  );
+}
+
+function SearchField({
+  query,
+  onQuery,
+  input,
+}: {
+  query: string;
+  onQuery: (value: string) => void;
+  input: RefObject<HTMLInputElement | null>;
+}) {
+  return (
+    <label className="search">
+      <Search size={16} />
+      <span className="visually-hidden">Search</span>
+      <input
+        ref={input}
+        type="search"
+        placeholder="Search"
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            onQuery("");
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <kbd>/</kbd>
+    </label>
   );
 }
 
@@ -425,7 +573,7 @@ function usePrefetch(
     };
     const start = () => {
       handle = idle(() => {
-        void prefetchKept(session, onScreen().slice(0, 12)).then(
+        void idlePrefetchable(session, onScreen().slice(0, 12)).then(
           (articles) => !cancelled && run(articles),
         );
       });
@@ -507,24 +655,7 @@ function LibraryBar({
         Arctic
       </Link>
       {note && <span className="status-note">{note}</span>}
-      <label className="search">
-        <Search size={16} />
-        <span className="visually-hidden">Search</span>
-        <input
-          ref={input}
-          type="search"
-          placeholder="Search"
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              onQuery("");
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        <kbd>/</kbd>
-      </label>
+      <SearchField query={query} onQuery={onQuery} input={input} />
       <AddLinkButton />
       <AccountMenu />
     </div>
@@ -653,12 +784,12 @@ function Cover({
       referrerPolicy="no-referrer"
       // A cover already in memory shows at once; one from the network fades in.
       ref={(image) => {
-        if (image?.complete && image.naturalWidth) image.dataset.loaded = "";
+        if (image?.complete && isCover(image)) image.dataset.loaded = "";
       }}
       onLoad={(event) => {
-        // A spacer pixel or a tiny icon is no cover.
-        if (event.currentTarget.naturalWidth < 48) onFail();
-        else event.currentTarget.dataset.loaded = "";
+        if (isCover(event.currentTarget))
+          event.currentTarget.dataset.loaded = "";
+        else onFail();
       }}
       onError={onFail}
     />

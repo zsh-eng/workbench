@@ -84,6 +84,7 @@ const router = createBrowserRouter([
  * network follows the page.
  */
 async function readFirst({ params }: LoaderFunctionArgs) {
+  performance.mark("arctic:load");
   const opened = await open().catch(() => null);
   if (!opened?.account) return null;
   const article = articles(opened.session).find(
@@ -98,6 +99,7 @@ async function readFirst({ params }: LoaderFunctionArgs) {
     ]),
     new Promise((resolve) => setTimeout(resolve, 100)),
   ]);
+  performance.mark("arctic:loaded");
   return null;
 }
 

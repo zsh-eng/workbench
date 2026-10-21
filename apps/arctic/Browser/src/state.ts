@@ -73,9 +73,15 @@ const toastListeners = new Set<() => void>();
 
 /** One notice at a time; a new one replaces the last. */
 export function showToast(message: string, action?: Toast["action"]) {
-  clearTimeout(toastTimer);
   toast = { id: Date.now(), message, action };
   toastListeners.forEach((listener) => listener());
+  holdToast(false);
+}
+
+/** A notice stays while the pointer or focus is on it, then 6 s more. */
+export function holdToast(held: boolean) {
+  clearTimeout(toastTimer);
+  if (held || !toast) return;
   toastTimer = setTimeout(() => {
     toast = null;
     toastListeners.forEach((listener) => listener());

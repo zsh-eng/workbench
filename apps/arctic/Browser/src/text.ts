@@ -80,18 +80,31 @@ export function prefetch(session: Session, article: Article) {
 }
 
 /**
- * Prefetches only what this browser already keeps, for idle time: a text
- * from the network waits for a sign of intent.
+ * What idle time may prefetch: the texts this browser keeps, and the first
+ * few on screen from the network, as the phone preloads its visible rows.
+ * With Save-Data on, the network waits for a sign of intent.
  */
-export async function prefetchKept(session: Session, articles: Article[]) {
+export async function idlePrefetchable(session: Session, articles: Article[]) {
+  const saveData =
+    (navigator as Navigator & { connection?: { saveData?: boolean } })
+      .connection?.saveData === true;
   const kept = await session.keptFiles();
+  let fetched = 0;
   return articles.filter(
     (article) =>
       !article.copy ||
       kept.has(article.copy.file) ||
-      pending.has(keyOf(article)),
+      pending.has(keyOf(article)) ||
+      (!saveData && fetched++ < 6),
   );
 }
+
+/**
+ * Whether a loaded image can be a cover: a blank spacer (WordPress's
+ * blank.jpg) or a site icon is too small to fill one.
+ */
+export const isCover = (image: HTMLImageElement) => image.naturalWidth >= 300;
+
 /** Waits for a prefetched cover to decode, so a page change shows it whole. */
 export function decodedImage(src: string | undefined) {
   return (src && images.get(src)?.decoded) || Promise.resolve();

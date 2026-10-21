@@ -3,6 +3,13 @@ import { addText, article, paragraphs, phone, signUp } from "./phone";
 
 test.beforeEach(async ({ context }) => {
   await signUp(context);
+  // Publisher images, as a site serves them: a 1200 × 630 picture.
+  await context.route("https://images.example/**", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="#9ab"/></svg>',
+    }),
+  );
 });
 
 test("shows the cover image once when the text starts with it", async ({

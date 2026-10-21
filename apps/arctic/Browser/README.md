@@ -3,8 +3,8 @@
 The Arctic reading library in a browser, at `https://arctic.zsheng.app`. It
 syncs with Arctic on iPhone through the shared API (`apps/sync-server`) and the
 same Google account. It shows Saved, Favourites, Archive and History, with the
-phone's topics, and it reads the text of an article when the account has a
-copy of it.
+phone's topics, reads the text of an article when the account has a copy of
+it, and saves new links.
 
 ## Run and check
 
@@ -43,13 +43,14 @@ two namespaces with `@zsh-eng/local-sync`:
 
 | Namespace | Records | Written here |
 | --- | --- | --- |
-| `arctic` | `article/<id>`, `library/<id>`, `tags/<id>` from the phone | `library/<id>` only, and tombstones on Remove |
+| `arctic` | `article/<id>`, `library/<id>`, `tags/<id>` from the phone | `library/<id>`; all three for a saved link; tombstones on Remove |
 | `arctic-content` | `content/<id>`: the file, word count, byline and source of a text copy | all |
 
 `<id>` is the SHA-256 of the article's canonical URL, as the phone computes it.
 The phone validates every `arctic` record and stops a pull at one it cannot
-read, so this app never adds a record family there, never changes a URL, and
-never writes `article/` or `tags/` values.
+read, so this app never adds a record family there and never changes a URL. It
+writes `article/` and `tags/` values only for a link it saves, exactly as the
+phone writes a new article (see Saving links).
 
 A library edit is a field edit (`src/sync/storage.ts`). It applies to the
 latest record when it uploads, so the phone's change to another field
@@ -95,6 +96,27 @@ keeps the app shell, so the library and opened articles work offline.
 browser (`src/offline.ts`, four at a time, and asks the browser to keep the
 storage), and can download new text after each sync. Images still load from
 each publisher.
+
+## Saving links
+
+**Save a link** (the **+** button, or `⌘V` with a link anywhere in the
+library) writes the phone's three records for a new article
+(`ArticleSyncCodec.values`): `article/<id>` with the title and an empty
+description, `library/<id>` saved now, and `tags/<id>` with empty lists and the
+phone's generation for the id (`src/links.ts`). The URL is the phone's
+canonical URL: http or https, a lowercase host, no default port and no
+fragment, with the query kept. The browser's URL parser normalizes first; then
+every character that Swift's parser would escape (`|`, `^`, `[`, a lone `%`, and
+others) is escaped, so both apps hash the same string. Records for 18 awkward
+addresses passed the phone's `canonicalURL`, `identity` and decoders on Swift
+Foundation (21 October 2026), and `tests/links.spec.ts` checks the records.
+
+The web cannot fetch another site, so the title comes from the address
+("how-sea-ice-keeps-time" becomes "How sea ice keeps time"). The new article
+has no image and no preview, so Arctic on iPhone fetches its title, image and
+topics when it next opens (`ArticleStore.needsPreview`). A link already in
+Saved is pointed out; one from History is saved again. Undo removes a new link
+with tombstones.
 
 ## Article text
 
@@ -144,19 +166,48 @@ safely: copies that are already there are kept.
 
 One system with the phone app: the platform sans-serif for interface and
 reading, a neutral palette, hairline rules, and untreated publisher images.
-Glacier blue marks only small details, such as the favourite star. Folders are
-large text tabs; a card is a 16:10 cover, the source line and the title. An
-article without an image shows its standfirst as a text cover. The List layout
-shows a row per article (source line, two lines of title, a small image), about
-eight on a phone screen.
+Glacier blue marks only small details, such as the favourite star and the
+reading progress. Each width gets the layout that suits its hands:
+
+- **Phone** (720 px and narrower). The top holds the folders on one line, the
+  current one on a capsule that slides, and the account. Search and **+** sit
+  at the bottom, in thumb reach; search turns the top line into the field.
+  The library is a list by default. The reader has no top bar: one toolbar at
+  the bottom holds Back, Notes, Text, Favourite, Archive and More, and steps
+  down while you read on. A selection turns that toolbar into the highlight
+  bar, clear of the system's selection menu.
+- **Wide** (1100 px and wider). A sidebar holds Save a link, the folders and
+  topics with counts, Highlights, Reading time and the account; the search,
+  title and cards share one left edge.
+- Between the two, the large folder tabs and the top bar remain.
+
+A card is a 2:1 cover, the source line and the title. An article without a
+usable image (none, a blank spacer, or a site icon under 300 px) is a text
+card: its title and the start of its description. A description that the text
+repeats in its opening shows once.
+
+**Sheets.** On a phone, Notes, Text and theme, More, the account and Save a
+link are React Aria sheets (`src/sheet.tsx`, after the EPUB Reader's). The
+browser's own scrolling moves them, so a drag follows the finger, keeps its
+momentum and rests on detents. Text and theme rests at half height without
+dimming, so each change shows on the page; Notes rests at 55% of the screen;
+Save a link opens to the top, clear of the keyboard. Wider windows use Base
+UI popovers and menus with the same content (`src/surface.tsx` chooses). The
+sheet code (71 kB, 23 kB gzip) is a separate chunk that a phone loads just
+after the first cards.
+
+**Motion** is short and shows where things go. Opening an article moves its
+cover and title into the page (a view transition), and Back reverses it into
+the card. When a change adds or removes a card, the cards on screen move to
+their places and the card fades (`src/motion.ts`); only on-screen cards take
+part. Bars slide away while reading down. With reduced motion, changes are
+instant.
 
 The reader sets 20 px text on a 640 px measure and hides its bar while you
 read down. It shows the cover image once: when the text starts with the same
 picture (through an image proxy or at another size, `src/text.ts`), or with
 any picture under a Substack quote card, the text's own image and caption take
-the cover's place. Opening an article waits up to 100 ms for its text, so the
-text arrives with the page. The forward page change is a view transition of
-the cover and title.
+the cover's place.
 
 **Settings** (`/settings`, and the **Aa** panel in the reader) follow Reader's:
 they belong to the browser (`src/settings.ts`, localStorage). Appearance is
@@ -166,9 +217,10 @@ System, Light or Dark; a theme is a pair of palettes: Arctic (neutral), Flexoki
 settings are the font (system sans, `ui-serif`, or Iowan Old Style), size,
 line spacing, width and alignment.
 
-Shortcuts: `/` searches. In the reader, `F` favourites, `E` archives and
-returns, `O` opens the original, `H` highlights the selection, `-` and `=`
-change the text size, and `Escape` returns.
+Shortcuts: `/` searches and `⌘V` saves a copied link. In the reader, `F`
+favourites, `E` archives and returns, `O` opens the original, `H` highlights
+the selection, `-` and `=` change the text size (also in the Aa panel), and
+`Escape` returns. While a sheet, menu or popover is open, the keys are its.
 
 A library of 600 or more articles stays quick:
 
@@ -177,21 +229,30 @@ A library of 600 or more articles stays quick:
   after the page starts (140 ms with a 4× CPU slowdown and 150 ms latency),
   where the account check first made it 300 ms. The performance marks
   `arctic:script`, `arctic:open` and `arctic:cards` time each step.
-- A long folder renders 36 cards first, then 72 more each frame. Back and
-  Forward render all cards at once, so the scroll position returns.
+- A long folder renders 36 cards first (12 on a phone), then 72 more each
+  frame. Back and Forward render all cards at once, so the scroll position
+  returns.
+- An article's text and cover load before it opens: when the pointer rests on
+  its card for 60 ms, when a touch or click starts, when the card takes focus,
+  and, while the browser is idle, for the cards on screen (texts this browser
+  keeps, and six more from the network unless Save-Data is on). The loader
+  then waits at most 100 ms, usually not at all, so the page appears with its
+  text and a decoded cover. The last 24 cleaned texts and covers stay in
+  memory. `arctic:load`, `arctic:loaded` and `arctic:text` time an open.
 - The library stays mounted, hidden with React `Activity`, while an article
   or another page is open. Back shows it again without a new render.
-- One menu serves every card; a card has a plain button.
+- One menu serves every card; a card has a plain button, and one set of
+  listeners on the list prefetches for every card.
 - A sync keeps the object of each article whose records did not change, so
   its card does not render again. A status change alone renders no cards.
 
-On a production build with 607 saved articles (M-series Mac, Chromium), the
-first cards of any folder paint 14–36 ms after the click, all cards follow
-within 130 ms, and no task blocks for 50 ms or more. Back from the reader
-takes 56 ms. Before these changes, the Saved folder took 125 ms and Back
-133 ms.
+On a production build with 603 saved articles (M-series Mac, Chromium), a click
+on a card shows the article's text in 60 ms (median of 8; 73 ms before
+prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
+before). The first cards of any folder paint 14–36 ms after the click, and
+Back from the reader takes 56 ms.
 
-The first load is 648 kB of JavaScript (209 kB gzip): React, React Router,
+The first load is 662 kB of JavaScript (213 kB gzip): React, React Router,
 Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
-the app.
-Defuddle (309 kB, 87 kB gzip) loads only to extract a page.
+the app. The sheet (71 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
+to extract a page) load separately.

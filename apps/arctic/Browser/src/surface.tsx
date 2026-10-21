@@ -17,6 +17,19 @@ export function useCompact() {
   );
 }
 
+/** A window wide enough for the library's sidebar. */
+const wide = matchMedia("(min-width: 1100px)");
+
+export function useWide() {
+  return useSyncExternalStore(
+    (listener) => {
+      wide.addEventListener("change", listener);
+      return () => wide.removeEventListener("change", listener);
+    },
+    () => wide.matches,
+  );
+}
+
 const loadSheet = () => import("./sheet");
 const LazySheet = lazy(() =>
   loadSheet().then((module) => ({ default: module.Sheet })),

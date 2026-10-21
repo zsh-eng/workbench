@@ -8,7 +8,7 @@ import {
   MoreHorizontal,
   Star,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { cleanByline } from "./content";
 import { edits, editLibrary, folders, minutes, type Article } from "./articles";
@@ -19,7 +19,7 @@ import {
   TextControls,
 } from "./SettingsPage";
 import { useArticles, useRecords, useSession, useStatus } from "./state";
-import { articleText, readyText, type Text } from "./text";
+import { articleText, isCover, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
 import { NotesPanel, Passages } from "./Passages";
 import { Sheet, useCompact } from "./surface";
@@ -117,8 +117,12 @@ function Page({
   }, [file, session, article]);
 
   const text = body?.file === file ? body : undefined;
+  useLayoutEffect(() => {
+    if (text && "html" in text) performance.mark("arctic:text");
+  }, [text]);
   const leads = !!text && "html" in text && text.withoutLead !== undefined;
-  const cover = !!article.image && !(textCover && leads);
+  const [smallCover, setSmallCover] = useState(false);
+  const cover = !!article.image && !(textCover && leads) && !smallCover;
 
   const readable = !!text && "html" in text;
   useReadingPosition(article.id, readable);
@@ -221,6 +225,12 @@ function Page({
               alt=""
               referrerPolicy="no-referrer"
               decoding="async"
+              ref={(image) => {
+                if (image?.complete && image.naturalWidth && !isCover(image))
+                  setSmallCover(true);
+              }}
+              onLoad={(event) => !isCover(event.currentTarget) && setSmallCover(true)}
+              onError={() => setSmallCover(true)}
             />
           </figure>
         )}

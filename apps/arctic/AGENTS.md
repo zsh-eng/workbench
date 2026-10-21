@@ -21,7 +21,10 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   reading-time sync are approved web first (21 October 2026): records only, in
   `arctic-annotations` and `arctic-reading`, in the phone's `ReaderAnnotation`
   and `ArticleReadingSession` encodings. The phone does not upload them yet;
-  ask before building that.
+  ask before building that. The web saves new links (approved 21 October
+  2026) by writing the phone's `article/`, `library/` and `tags/` records for
+  a new article; keep `Browser/src/links.ts` in step with
+  `ArticleSyncCodec.canonicalURL`, `identity` and `values`.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
   Arctic routes remain during transition. Never change or remove `links.json`:

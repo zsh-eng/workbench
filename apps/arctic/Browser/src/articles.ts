@@ -4,7 +4,8 @@ import type { Fields, RecordStorage } from "./sync/storage";
  * One saved or visited article, projected from the phone's records:
  * `article/<id>` (title, images), `library/<id>` (state), `tags/<id>`, and
  * this app's `content/<id>` (the text copy). `id` is the SHA-256 of the
- * canonical URL. Only `library` and `content` records are written here.
+ * canonical URL. This app writes `library` and `content` records, and all
+ * three phone records for a link it saves (src/links.ts).
  */
 export type Article = {
   id: string;
@@ -150,7 +151,12 @@ function toArticle(id: string, values: Values): Article | undefined {
     url: metadata.url,
     host,
     title: displayTitle(String(metadata.title || host), host),
-    subtitle: typeof metadata.subtitle === "string" ? metadata.subtitle : "",
+    // A description without words, such as Substack's "...", is none.
+    subtitle:
+      typeof metadata.subtitle === "string" &&
+      /\p{L}{3}/u.test(metadata.subtitle)
+        ? metadata.subtitle
+        : "",
     image: https(metadata.imageURL),
     favicon: https(metadata.faviconURL),
     saved: library.saved === true,
