@@ -69,7 +69,9 @@ bun run wb export --output /private/new-export-directory
 
 Native Arctic backs up records only: its Reader copies and images stay on each
 device, and the server has no file API for them. The article text that Arctic's
-web app reads is the `arctic-content` namespace, records and files. Its keys are `article/<id>`, `library/<id>`
+web app reads is the `arctic-content` namespace, records and files; highlights
+and notes are `arctic-annotations`, and reading sessions `arctic-reading`
+(records only). Its keys are `article/<id>`, `library/<id>`
 and `tags/<id>`, so its tables are `article`, `library` and `tags`. Arctic is
 synced once the server lists it; after that, coverage requires it.
 

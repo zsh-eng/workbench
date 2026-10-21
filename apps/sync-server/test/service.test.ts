@@ -197,7 +197,41 @@ it("keeps Arctic's article text in arctic-content: HTML without scripts, at most
     await (
       await SELF.fetch(`${origin}/api/namespaces`, { headers: { Cookie: cookie } })
     ).json(),
-  ).toEqual({ namespaces: ["reader", "spaced", "arctic", "arctic-content"] });
+  ).toEqual({
+    namespaces: [
+      "reader",
+      "spaced",
+      "arctic",
+      "arctic-content",
+      "arctic-annotations",
+      "arctic-reading",
+    ],
+  });
+});
+
+it("keeps Arctic highlights and reading sessions in their own record namespaces", async () => {
+  const cookie = await user();
+  for (const namespace of ["arctic-annotations", "arctic-reading"]) {
+    const records = client(cookie, namespace);
+    await records.remote.push("web", [
+      { ...change(JSON.stringify({ seconds: 42 })), key: "session/A" },
+    ]);
+    expect(
+      (await records.remote.pull("phone", { cursor: 0, excludeOwnDevice: false })).records.map(
+        (record) => record.key,
+      ),
+    ).toEqual(["session/A"]);
+    // Records only, as native Arctic.
+    await expect(records.request("/files")).rejects.toThrow("404");
+  }
+  expect(
+    (
+      await client(cookie, "arctic").remote.pull("phone", {
+        cursor: 0,
+        excludeOwnDevice: false,
+      })
+    ).records,
+  ).toEqual([]);
 });
 
 it("rejects stale epochs and a different account without changing local state", async () => {

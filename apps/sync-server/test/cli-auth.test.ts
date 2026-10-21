@@ -214,6 +214,27 @@ it("authorizes device once, isolates identity, allows only Arctic text writes, e
       )
     ).status,
   ).toBe(200);
+  // Highlights and reading sessions back up, but the CLI cannot write them.
+  const annotations = await call("/api/apps/arctic-annotations/sync/v3/state", {
+    headers,
+  });
+  expect(annotations.status).toBe(200);
+  expect(
+    (
+      await post(
+        "/api/apps/arctic-annotations/sync/v3/push",
+        { changes: [] },
+        {
+          ...headers,
+          "X-Device-ID": "cli-test",
+          "X-Sync-Scope": JSON.stringify(await annotations.json()),
+        },
+      )
+    ).status,
+  ).toBe(403);
+  expect(
+    (await call("/api/apps/arctic-reading/sync/v3/state", { headers })).status,
+  ).toBe(200);
   const stranger = await user();
   const other = await (
     await call("/api/apps/reader/sync/v3/state", {

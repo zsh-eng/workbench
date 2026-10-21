@@ -1,7 +1,22 @@
 import type { Session, User } from "better-auth/types";
 /** Each app's records and files. `arctic-content` holds Arctic's article
- * text; native Arctic reads only `arctic`, so the two stay apart. */
-export const NAMESPACES = ["reader", "spaced", "arctic", "arctic-content"] as const;
+ * text, `arctic-annotations` its highlights and notes, and `arctic-reading`
+ * its reading sessions; native Arctic's library reads only `arctic`, so each
+ * new record family has its own namespace. */
+export const NAMESPACES = [
+  "reader",
+  "spaced",
+  "arctic",
+  "arctic-content",
+  "arctic-annotations",
+  "arctic-reading",
+] as const;
+/** Namespaces that sync records only. */
+export const RECORDS_ONLY: readonly Namespace[] = [
+  "arctic",
+  "arctic-annotations",
+  "arctic-reading",
+];
 export type Namespace = (typeof NAMESPACES)[number];
 export const isNamespace = (value: string): value is Namespace =>
   (NAMESPACES as readonly string[]).includes(value);

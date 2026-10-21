@@ -5,6 +5,9 @@ and R2 bucket at `https://api.zsheng.app`. The production cutover completed on
 4 October 2026; see [migration evidence](MIGRATION.md). Arctic's library syncs
 in `arctic` (records only). Its article text copies, written by Arctic for the
 web, use `arctic-content`: HTML files without scripts, at most 2 MiB each.
+Highlights and notes (`arctic-annotations`) and reading sessions
+(`arctic-reading`) sync records only, in the phone's own formats; the owner
+approved them on 21 October 2026, the web app first.
 
 ## Local development
 
@@ -37,8 +40,8 @@ EPUB or create cards to try this profile.
 
 ## Data contract
 
-Requests use `/api/apps/<namespace>`: `reader`, `spaced`, `arctic` or
-`arctic-content`. The server authenticates
+Requests use `/api/apps/<namespace>`: `reader`, `spaced`, `arctic`,
+`arctic-content`, `arctic-annotations` or `arctic-reading`. The server authenticates
 the user and validates the namespace. Record uniqueness, pull cursors, winner
 lookups, files, and device records all use the user and namespace. Both apps can
 use the same record key or file ID without changing each other's data.
@@ -113,7 +116,7 @@ Google's external login UI and native device handoff still require a device test
 `/api/cli/{device,approve,token,revoke}`. Migration `0004_cli_auth.sql` adds
 short-lived device grants, hashed 90-day credentials, and rate limits.
 CLI credentials resolve the authenticated user and are restricted to Reader and
-Spaced state/pull/file reads, Arctic state/pull reads, `arctic-content` file
+Spaced state/pull/file reads, state/pull reads of the four Arctic namespaces, `arctic-content` file
 reads (the `arctic` namespace has no file API),
 plus `/api/me` and `/api/namespaces`. Their one write is Arctic article text
 (`cliWritePath`): `arctic-content` pushes and file uploads, which the server

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { cors } from "hono/cors";
 import { createMiddleware } from "hono/factory";
 import { createSyncHonoRoutes } from "@zsh-eng/local-sync/hono";
@@ -15,7 +15,13 @@ import {
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
-import { isNamespace, NAMESPACES, trustedOrigins, type AppEnv } from "./env";
+import {
+  isNamespace,
+  NAMESPACES,
+  RECORDS_ONLY,
+  trustedOrigins,
+  type AppEnv,
+} from "./env";
 
 const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
@@ -206,14 +212,15 @@ app.get("/api/apps/:namespace/devices", async (c) => {
     })),
   });
 });
-// Native Arctic keeps its media to itself: it syncs records only. Article text
-// that the web app reads lives in `arctic-content` (files.ts limits it).
-app.use("/api/apps/arctic/files", async (c) =>
-  c.json({ error: "Media sync is not enabled" }, 404),
-);
-app.use("/api/apps/arctic/files/*", async (c) =>
-  c.json({ error: "Media sync is not enabled" }, 404),
-);
+// Native Arctic keeps its media to itself: its namespaces sync records only.
+// Article text that the web app reads lives in `arctic-content` (files.ts
+// limits it).
+const recordsOnly = async (c: Context<AppEnv>, next: Next) =>
+  (RECORDS_ONLY as readonly string[]).includes(c.req.param("namespace") ?? "")
+    ? c.json({ error: "Media sync is not enabled" }, 404)
+    : next();
+app.use("/api/apps/:namespace/files", recordsOnly);
+app.use("/api/apps/:namespace/files/*", recordsOnly);
 app.route("/api/apps/:namespace/files", createFileRoutes());
 app.get("/health", (c) =>
   c.json({ ok: true, apps: NAMESPACES }),

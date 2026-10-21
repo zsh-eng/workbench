@@ -10,6 +10,8 @@ const MAX_BYTES: Record<Namespace, number> = {
   spaced: 2 * MiB,
   arctic: 0,
   "arctic-content": 2 * MiB,
+  "arctic-annotations": 0,
+  "arctic-reading": 0,
 };
 /** Arctic's article text: a reader copy that the client cleaned. The server
  * keeps that contract: HTML only, and no scripts. */
