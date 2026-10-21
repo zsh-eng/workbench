@@ -141,20 +141,29 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   await page.goto("/");
   await expect(page.locator(".card[data-copy]")).toHaveCount(1);
 
-  // Save a link from the library's bottom bar.
-  await page.getByRole("button", { name: "Save a link" }).click();
-  const sheet = page.getByRole("dialog", { name: "Save a link" });
-  await expect(sheet).toBeVisible();
-  await expect(sheet.getByPlaceholder("Paste a link")).toBeFocused();
-  // The field takes focus in the tap, without scrolling, which would stop
-  // the sheet partway up the screen.
-  await expect
-    .poll(async () => (await sheet.boundingBox())?.y ?? Infinity)
-    .toBeLessThan(60);
-  expect(await page.evaluate(() => scrollY)).toBe(0);
-  await sheet.getByPlaceholder("Paste a link").fill("https://example.com/polar-night");
-  await sheet.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(sheet).toBeHidden();
+  // Save a link from the library's bottom bar: + turns the search capsule
+  // into the field, focused in the tap, and the list stays where it was.
+  await page.evaluate(() => scrollTo(0, 300));
+  const add = page.getByRole("button", { name: "Save a link" });
+  await add.click();
+  const field = page.getByPlaceholder("Paste a link");
+  await expect(field).toBeFocused();
+  const cancel = page
+    .locator(".library-dock")
+    .getByRole("button", { name: "Cancel" });
+  await expect(cancel).toHaveAttribute("aria-expanded", "true");
+  expect(await page.evaluate(() => scrollY)).toBe(300);
+  await page.keyboard.press("Escape");
+  await expect(add).toBeFocused();
+  await expect(add).toHaveAttribute("aria-expanded", "false");
+
+  await add.click();
+  await field.fill("polar night");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".dock-note")).toContainText("not a web address");
+  await field.fill("https://example.com/polar-night");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(add).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".card-title").first()).toHaveText("Polar night");
 
   await page.locator(".card-title", { hasText: "A floe at dawn" }).click();

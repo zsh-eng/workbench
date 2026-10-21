@@ -41,7 +41,7 @@ import {
 } from "./articles";
 import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
-import { AddLinkButton, isFresh, usePasteToSave } from "./AddLink";
+import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
 import { useArticles, useSession, useStatus } from "./state";
 import { preloadSheet, useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
@@ -510,13 +510,12 @@ function PhoneDock({
   onSearch: () => void;
 }) {
   return (
-    <div className="library-dock">
+    <LinkDock>
       <button type="button" className="search-capsule" onClick={onSearch}>
         <Search size={17} />
         Search {count > 0 ? `${count.toLocaleString()} articles` : ""}
       </button>
-      <AddLinkButton />
-    </div>
+    </LinkDock>
   );
 }
 

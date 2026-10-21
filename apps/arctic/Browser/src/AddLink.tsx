@@ -1,18 +1,20 @@
 import { Popover } from "@base-ui/react/popover";
-import { ClipboardPaste, Plus } from "lucide-react";
+import { ArrowUp, Link2, Plus } from "lucide-react";
 import {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { editLibrary, removeArticle, type Article } from "./articles";
 import { articleId, canonicalURL, saveLink } from "./links";
 import { listMotion } from "./motion";
 import { articles as projected, reportError, showToast, useSession } from "./state";
-import { Sheet, useCompact } from "./surface";
+import { useAboveKeyboard } from "./surface";
 import type { Session } from "./sync/session";
 import { Tip } from "./ui";
 
@@ -40,7 +42,9 @@ export async function addLink(
   // The card renders as the records are written, so it is marked first.
   // With view transitions, the list motion brings it in instead.
   const url = canonicalURL(input);
-  if (url && !document.startViewTransition) fresh = await articleId(url);
+  // Not a link: nothing moves.
+  if (!url) return { kind: "invalid" } as const;
+  if (!document.startViewTransition) fresh = await articleId(url);
   const result = await listMotion(() => saveLink(session, input, known));
   if (result.kind === "invalid") return result;
   show();
@@ -104,11 +108,11 @@ function useShow() {
 }
 
 /**
- * The library's + button: a sheet on phones, a popover elsewhere. In the
- * sidebar it is a row with its shortcut.
+ * The library's + button where a pointer reaches it: a popover under the
+ * button, or beside the sidebar's row with its shortcut. A phone saves from
+ * its bottom bar instead (`LinkDock`).
  */
 export function AddLinkButton({ row = false }: { row?: boolean }) {
-  const compact = useCompact();
   const [open, setOpen] = useState(false);
   const button = row ? (
     <button type="button" className="side-item side-add">
@@ -117,30 +121,10 @@ export function AddLinkButton({ row = false }: { row?: boolean }) {
       <kbd aria-hidden>⌘V</kbd>
     </button>
   ) : (
-    <button
-      type="button"
-      className="icon-button"
-      aria-label="Save a link"
-      onClick={compact ? () => setOpen(true) : undefined}
-    >
+    <button type="button" className="icon-button" aria-label="Save a link">
       <Plus size={20} />
     </button>
   );
-  if (compact)
-    return (
-      <>
-        {button}
-        <Sheet
-          isOpen={open}
-          onOpenChange={setOpen}
-          title="Save a link"
-          heading
-          tall
-        >
-          <LinkForm onDone={() => setOpen(false)} />
-        </Sheet>
-      </>
-    );
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       {row ? (
@@ -165,34 +149,57 @@ export function AddLinkButton({ row = false }: { row?: boolean }) {
   );
 }
 
-function LinkForm({ onDone }: { onDone: () => void }) {
+/**
+ * A link being typed, and saving it: one for the popover, one for the dock.
+ * A link closes its field first, so the list moves with nothing over it.
+ */
+function useLinkField(onSaved: () => void) {
   const session = useSession();
   const show = useShow();
-  const compact = useCompact();
   const input = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const canPaste = compact && !!navigator.clipboard?.readText;
-  // Focus in the tap that opened the form, so a phone opens its keyboard.
-  // A sheet is still below the screen then; scrolling the field into view
-  // would stop it halfway and scroll the page behind it.
-  useLayoutEffect(() => input.current?.focus({ preventScroll: true }), []);
   const submit = async (text: string) => {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    try {
-      const result = await addLink(session, text, show);
-      if (result.kind === "invalid") {
-        setError("That is not a web address. Links start with https://.");
-        input.current?.focus();
-      } else onDone();
-    } catch (reason) {
-      reportError(reason);
-    } finally {
-      setBusy(false);
+    if (!text.trim()) return;
+    if (!canonicalURL(text)) {
+      setError("That is not a web address. Links start with https://.");
+      input.current?.focus();
+      return;
     }
+    setValue("");
+    onSaved();
+    await addLink(session, text, show).catch(reportError);
   };
+  return {
+    input,
+    value,
+    error,
+    change(text: string) {
+      setValue(text);
+      setError("");
+    },
+    reset() {
+      setValue("");
+      setError("");
+    },
+    submit,
+  };
+}
+
+/** The field's attributes: a URL keyboard, and nothing changed as it is typed. */
+const URL_FIELD = {
+  type: "url",
+  inputMode: "url",
+  autoComplete: "off",
+  autoCapitalize: "off",
+  spellCheck: false,
+  placeholder: "Paste a link",
+} as const;
+
+function LinkForm({ onDone }: { onDone: () => void }) {
+  const link = useLinkField(onDone);
+  const { input } = link;
+  useLayoutEffect(() => input.current?.focus({ preventScroll: true }), [input]);
   return (
     <form
       className="link-form"
@@ -200,55 +207,166 @@ function LinkForm({ onDone }: { onDone: () => void }) {
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        void submit(value);
+        void link.submit(link.value);
       }}
     >
       <label className="link-field">
         <span className="visually-hidden">Link</span>
         <input
           ref={input}
-          type="url"
-          inputMode="url"
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          placeholder="Paste a link"
-          data-sheet-autofocus
-          value={value}
-          aria-invalid={error ? true : undefined}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setError("");
-          }}
+          {...URL_FIELD}
+          value={link.value}
+          aria-invalid={link.error ? true : undefined}
+          onChange={(event) => link.change(event.target.value)}
         />
       </label>
-      <p className={error ? "link-note error" : "link-note"} role="status">
-        {error ||
+      <p className={link.error ? "link-note error" : "link-note"} role="status">
+        {link.error ||
           "Arctic on your iPhone adds the title, image and topics when it next opens."}
       </p>
       <div className="link-actions">
-        {canPaste && (
-          <button
-            type="button"
-            className="button quiet"
-            onClick={() =>
-              navigator.clipboard.readText().then((text) => {
-                setValue(text.trim());
-                void submit(text);
-              }, reportError)
-            }
-          >
-            <ClipboardPaste size={16} /> Paste and save
-          </button>
-        )}
         <button
           type="submit"
           className="button primary"
-          disabled={!value.trim() || busy}
+          disabled={!link.value.trim()}
         >
           Save
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * A phone's bottom bar, which saves links the way Safari edits its address:
+ * + turns the search capsule into a link field above the keyboard, and the
+ * + turns to × to put it back. The list stays in view under a light scrim,
+ * and a tap on it cancels. An empty field offers Paste; a typed one, Save.
+ */
+export function LinkDock({ children }: { children: ReactNode }) {
+  const [adding, setAdding] = useState(false);
+  const dock = useRef<HTMLDivElement>(null);
+  const add = useRef<HTMLButtonElement>(null);
+  const link = useLinkField(() => close());
+  const { input } = link;
+  const canPaste = !!navigator.clipboard?.readText;
+  useAboveKeyboard(dock, adding);
+
+  const open = () => {
+    // Render the field and focus it in this tap, so the phone opens its
+    // keyboard. Without preventScroll the page would scroll to the field.
+    flushSync(() => setAdding(true));
+    input.current?.focus({ preventScroll: true });
+  };
+  function close() {
+    input.current?.blur();
+    setAdding(false);
+    link.reset();
+  }
+  // A press on a control keeps the field focused, and the keyboard up.
+  const keepFocus = (event: { preventDefault: () => void }) =>
+    event.preventDefault();
+
+  return (
+    <>
+      {adding && (
+        <div
+          className="dock-scrim"
+          aria-hidden
+          onPointerDown={(event) => {
+            event.preventDefault();
+            close();
+          }}
+        />
+      )}
+      <div
+        className="library-dock"
+        ref={dock}
+        data-adding={adding || undefined}
+      >
+        {link.error && (
+          <p className="dock-note" role="alert">
+            {link.error}
+          </p>
+        )}
+        <div className="dock-row">
+          <div className="dock-slot">
+            <div className="dock-search" inert={adding}>
+              {children}
+            </div>
+            <form
+              className="dock-link"
+              inert={!adding}
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                void link.submit(link.value);
+              }}
+            >
+              <Link2 size={17} aria-hidden />
+              <input
+                ref={input}
+                {...URL_FIELD}
+                aria-label="Link"
+                enterKeyHint="go"
+                value={link.value}
+                aria-invalid={link.error ? true : undefined}
+                onChange={(event) => link.change(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  close();
+                  add.current?.focus({ preventScroll: true });
+                }}
+                // The keyboard put away on an empty field ends the edit.
+                onBlur={() => {
+                  if (!link.value.trim()) close();
+                }}
+              />
+              {link.value.trim() ? (
+                <button
+                  type="submit"
+                  className="dock-save"
+                  aria-label="Save"
+                  onPointerDown={keepFocus}
+                >
+                  <ArrowUp size={18} />
+                </button>
+              ) : (
+                canPaste && (
+                  <button
+                    type="button"
+                    className="dock-paste"
+                    onPointerDown={keepFocus}
+                    onClick={() =>
+                      navigator.clipboard.readText().then(
+                        (text) => {
+                          link.change(text.trim());
+                          void link.submit(text);
+                        },
+                        // Paste declined: the field stays for typing.
+                        () => input.current?.focus(),
+                      )
+                    }
+                  >
+                    Paste
+                  </button>
+                )
+              )}
+            </form>
+          </div>
+          <button
+            ref={add}
+            type="button"
+            className="icon-button dock-add"
+            aria-label={adding ? "Cancel" : "Save a link"}
+            aria-expanded={adding}
+            onPointerDown={adding ? keepFocus : undefined}
+            onClick={adding ? close : open}
+          >
+            <Plus size={20} />
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

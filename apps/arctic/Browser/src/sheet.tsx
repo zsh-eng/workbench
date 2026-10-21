@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet as AriaSheet,
@@ -20,15 +20,12 @@ export type SheetProps = {
    * to full height. Omit them for a sheet that fits its content.
    *
    * The phone keyboard would cover a lower detent, so a sheet with detents
-   * opens at full height when its content names a field to focus
-   * (`data-sheet-autofocus`), rises to full height when a field takes focus,
-   * and puts the keyboard away when it is dragged lower.
+   * rises to full height when a field takes focus, and puts the keyboard
+   * away when it is dragged lower.
    */
   snapPoints?: (number | string)[];
   /** Dims the page. A sheet that changes the page, as Text does, leaves it in view. */
   dim?: boolean;
-  /** Takes the screen below the status bar, for a field the keyboard would cover. */
-  tall?: boolean;
   children: ReactNode;
 };
 
@@ -46,25 +43,14 @@ export function Sheet({
   heading = false,
   snapPoints,
   dim = true,
-  tall = false,
   children,
 }: SheetProps) {
   const hasDetents = !!snapPoints?.length;
-  // React Aria opens a sheet at its first detent. Full height goes first
-  // when the content will focus a field.
-  const [opensFull, setOpensFull] = useState(false);
-  const [wasOpen, setWasOpen] = useState(isOpen);
-  if (wasOpen !== isOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) setOpensFull(false);
-  }
-  const detents =
-    hasDetents && opensFull ? ["100%", ...snapPoints] : snapPoints;
   return (
     <SheetOverlay
       isOpen={isOpen}
       onOpenChange={onOpenChange}
-      snapPoints={detents}
+      snapPoints={snapPoints}
       className="sheet-overlay"
     >
       {({ isExpanded, isExiting }) => (
@@ -74,13 +60,14 @@ export function Sheet({
               className="sheet-backdrop"
               swipeAnimation="sheet-backdrop"
               swipeAnimationRange={
-                detents?.length ? { start: detents.length - 1 } : undefined
+                snapPoints?.length
+                  ? { start: snapPoints.length - 1 }
+                  : undefined
               }
             />
           )}
           <AriaSheet
             className="sheet"
-            data-tall={tall || undefined}
             stackAnimation="sheet-recede"
             overscrollPadding
           >
@@ -96,7 +83,6 @@ export function Sheet({
                 hasDetents={hasDetents}
                 isExpanded={isExpanded}
                 isExiting={isExiting}
-                setOpensFull={setOpensFull}
               >
                 {children}
               </SheetBody>
@@ -125,13 +111,11 @@ function SheetBody({
   hasDetents,
   isExpanded,
   isExiting,
-  setOpensFull,
   children,
 }: {
   hasDetents: boolean;
   isExpanded: boolean;
   isExiting: boolean;
-  setOpensFull: (opensFull: boolean) => void;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -150,13 +134,6 @@ function SheetBody({
     scroller.addEventListener("scrollend", leave);
     return () => scroller.removeEventListener("scrollend", leave);
   }, [isExiting]);
-
-  // The body mounts each time the sheet opens, before React Aria scrolls the
-  // sheet to its first detent, so this runs once per opening.
-  useLayoutEffect(() => {
-    if (hasDetents && ref.current?.querySelector("[data-sheet-autofocus]"))
-      setOpensFull(true);
-  }, [hasDetents, setOpensFull]);
 
   // Dragged below full height, the sheet puts the keyboard away.
   const wasExpanded = useRef(isExpanded);

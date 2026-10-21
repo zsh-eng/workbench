@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import type { SheetProps } from "./sheet";
 
 /**
@@ -28,6 +28,43 @@ export function useWide() {
     },
     () => wide.matches,
   );
+}
+
+/**
+ * How much of the window the phone keyboard covers. It covers the page
+ * without resizing it; the visual viewport is what stays in view.
+ */
+export function keyboardHeight() {
+  const viewport = window.visualViewport;
+  return viewport
+    ? Math.max(0, innerHeight - viewport.height - viewport.offsetTop)
+    : 0;
+}
+
+/** Keeps a bar fixed at the bottom above the keyboard while `active`. */
+export function useAboveKeyboard(
+  ref: RefObject<HTMLElement | null>,
+  active: boolean,
+) {
+  useEffect(() => {
+    const element = ref.current;
+    const viewport = window.visualViewport;
+    if (!active || !element || !viewport) return;
+    const place = () => {
+      const keyboard = keyboardHeight();
+      element.style.transform = keyboard
+        ? `translateY(${-Math.round(keyboard)}px)`
+        : "";
+    };
+    place();
+    viewport.addEventListener("resize", place);
+    viewport.addEventListener("scroll", place);
+    return () => {
+      viewport.removeEventListener("resize", place);
+      viewport.removeEventListener("scroll", place);
+      element.style.transform = "";
+    };
+  }, [ref, active]);
 }
 
 let sheet: typeof import("./sheet") | undefined;

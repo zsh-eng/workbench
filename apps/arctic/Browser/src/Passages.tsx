@@ -26,7 +26,7 @@ import {
 } from "./annotations";
 import type { Article } from "./articles";
 import { reportError, showToast, useRecords, useSession } from "./state";
-import { Sheet, useCompact } from "./surface";
+import { keyboardHeight, Sheet, useCompact } from "./surface";
 import { Tip } from "./ui";
 
 /** The account's passages and notes, for one article or all, oldest first. */
@@ -353,10 +353,7 @@ function FloatingBar({
       // A phone docks the bar at the bottom, in the toolbar's place, clear of
       // the system's own selection menu. It rides above the keyboard.
       if (compact) {
-        const viewport = window.visualViewport;
-        const keyboard = viewport
-          ? Math.max(0, innerHeight - viewport.height - viewport.offsetTop)
-          : 0;
+        const keyboard = keyboardHeight();
         bar.style.transform = keyboard
           ? `translateY(${-Math.round(keyboard)}px)`
           : "";

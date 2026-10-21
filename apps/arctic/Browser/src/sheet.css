@@ -30,11 +30,6 @@
     0 -12px 40px rgb(0 0 0 / 0.4);
 }
 
-/* A sheet with a field opens to the top, clear of the keyboard. */
-.sheet[data-tall] {
-  height: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
-}
-
 .sheet-content {
   display: flex;
   flex-direction: column;

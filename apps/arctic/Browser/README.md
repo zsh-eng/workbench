@@ -172,6 +172,10 @@ reading progress. Each width gets the layout that suits its hands:
 - **Phone** (720 px and narrower). The top holds the folders on one line, the
   current one on a capsule that slides, and the account. Search and **+** sit
   at the bottom, in thumb reach; search turns the top line into the field.
+  **+** saves a link the way Safari edits its address: the search capsule
+  becomes a link field above the keyboard, with Paste while it is empty and
+  Save once it is not; the **+** turns to × and the list waits under a light
+  scrim (`LinkDock` in `src/AddLink.tsx`).
   The library is a list by default. The reader has no top bar: one toolbar at
   the bottom holds Back, Notes, Text, Favourite, Archive and More, and steps
   down while you read on. A selection turns that toolbar into the highlight
@@ -186,15 +190,15 @@ usable image (none, a blank spacer, or a site icon under 300 px) is a text
 card: its title and the start of its description. A description that the text
 repeats in its opening shows once.
 
-**Sheets.** On a phone, Notes, Text and theme, More, the account and Save a
-link are React Aria sheets (`src/sheet.tsx`, after the EPUB Reader's). The
+**Sheets.** On a phone, Notes, Text and theme, More and the account are
+React Aria sheets (`src/sheet.tsx`, after the EPUB Reader's). The
 browser's own scrolling moves them, so a drag follows the finger, keeps its
 momentum and rests on detents. Text and theme rests at half height without
-dimming, so each change shows on the page; Notes rests at 55% of the screen;
-Save a link opens to the top, clear of the keyboard. Wider windows use Base
-UI popovers and menus with the same content (`src/surface.tsx` chooses). The
-sheet code (71 kB, 23 kB gzip) is a separate chunk that a phone loads just
-after the first cards.
+dimming, so each change shows on the page; Notes rests at 55% of the screen.
+A single field gets no sheet: it would cover the list to hold one line above
+the keyboard. Wider windows use Base UI popovers and menus with the same
+content (`src/surface.tsx` chooses). The sheet code (71 kB, 23 kB gzip) is a
+separate chunk that a phone loads just after the first cards.
 
 **Motion** is short and shows where things go. Opening an article moves its
 cover and title into the page (a view transition), and Back reverses it into
