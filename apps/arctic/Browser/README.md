@@ -67,6 +67,10 @@ reader cleans a copy again with DOMPurify before it shows it. A copy under 120
 words is refused as a preview or sign-in page; a new copy replaces one only
 when it is 30% longer. Opened copies stay in IndexedDB, and a service worker
 keeps the app shell, so the library and opened articles work offline.
+**Settings → Offline** downloads the text of every saved article into this
+browser (`src/offline.ts`, four at a time, and asks the browser to keep the
+storage), and can download new text after each sync. Images still load from
+each publisher.
 
 ## Article text
 
@@ -118,13 +122,23 @@ One system with the phone app: the platform sans-serif for interface and
 reading, a neutral palette, hairline rules, and untreated publisher images.
 Glacier blue marks only small details, such as the favourite star. Folders are
 large text tabs; a card is a 16:10 cover, the source line and the title. An
-article without an image shows its standfirst as a text cover. The reader sets
+article without an image shows its standfirst as a text cover. The List layout
+shows a row per article (source line, two lines of title, a small image), about
+eight on a phone screen. The reader sets
 20 px text on a 640 px measure and hides its bar while you read down. It shows
 the cover image once: when the text starts with the same picture (through an
 image proxy or at another size, `src/text.ts`), or with any picture under a
 Substack quote card, the text's own image and caption take the cover's place.
 Opening an article waits up to 100 ms for its text, so the text arrives with
-the page. Light and dark follow the system. The forward page change
+the page.
+
+**Settings** (`/settings`, and the **Aa** panel in the reader) follow Reader's:
+they belong to the browser (`src/settings.ts`, localStorage). Appearance is
+System, Light or Dark; a theme is a pair of palettes: Arctic (neutral), Flexoki
+(warm paper and ink) and Night (Arctic by day, black by night).
+`public/appearance.js` applies the theme before the first paint. Reading
+settings are the font (system sans, `ui-serif`, or Iowan Old Style), size,
+line spacing, width and alignment; `-` and `=` change the size in the reader. The forward page change
 is a view transition of the cover and title.
 
 Shortcuts: `/` searches. In the reader, `F` favourites, `E` archives and

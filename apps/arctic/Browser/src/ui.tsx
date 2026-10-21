@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   LogOut,
   RefreshCw,
+  Settings,
   Star,
   Trash2,
 } from "lucide-react";
@@ -367,6 +368,12 @@ export function AccountMenu() {
               onClick={() => navigate("/copies")}
             >
               Article text
+            </Item>
+            <Item
+              icon={<Settings size={16} />}
+              onClick={() => navigate("/settings")}
+            >
+              Settings
             </Item>
             <Menu.Separator className="menu-separator" />
             <Item

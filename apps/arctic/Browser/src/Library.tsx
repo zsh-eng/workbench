@@ -1,4 +1,4 @@
-import { Search, Star } from "lucide-react";
+import { LayoutGrid, List, Search, Star } from "lucide-react";
 import {
   memo,
   startTransition,
@@ -25,6 +25,8 @@ import {
   type Article,
   type Folder,
 } from "./articles";
+import { updateSettings, useSettings } from "./settings";
+import { Choice } from "./SettingsPage";
 import { useArticles, useSession, useStatus } from "./state";
 import {
   AccountMenu,
@@ -104,6 +106,7 @@ export function Library({ folder }: { folder: Folder }) {
     opened.from = location.pathname + location.search;
   });
   const title = folders.find((item) => item.id === folder)!;
+  const { layout } = useSettings();
 
   return (
     <>
@@ -125,6 +128,28 @@ export function Library({ folder }: { folder: Folder }) {
           {first
             ? "Getting your library…"
             : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+          <Choice
+            label="Layout"
+            className="layout-toggle"
+            value={layout}
+            options={[
+              [
+                "cards",
+                <>
+                  <LayoutGrid size={16} />
+                  <span className="visually-hidden">Cards</span>
+                </>,
+              ],
+              [
+                "list",
+                <>
+                  <List size={17} />
+                  <span className="visually-hidden">List</span>
+                </>,
+              ],
+            ]}
+            onChange={(next) => updateSettings({ layout: next })}
+          />
         </div>
         {topics.length > 1 && folder !== "history" && (
           <div className="topics" role="group" aria-label="Topics">
@@ -152,7 +177,7 @@ export function Library({ folder }: { folder: Folder }) {
         )}
       </header>
       {visible.length > 0 ? (
-        <main className="grid">
+        <main className="grid" data-layout={layout}>
           {visible.slice(0, rendered).map((article) => (
             <Card key={article.id} article={article} state={opened} />
           ))}
@@ -297,6 +322,7 @@ const Card = memo(function Card({
       className="card"
       data-read={article.read || undefined}
       data-copy={article.copy ? "" : undefined}
+      data-image={article.image ? "" : undefined}
     >
       <Link
         to={path}

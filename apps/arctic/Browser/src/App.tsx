@@ -19,7 +19,9 @@ import type { Folder } from "./articles";
 import { Copies } from "./Copies";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
+import { SettingsPage } from "./SettingsPage";
 import { SessionContext, articles } from "./state";
+import { downloadNew } from "./offline";
 import { articleText } from "./text";
 import { Session } from "./sync/session";
 import { Toaster } from "./ui";
@@ -65,6 +67,7 @@ const router = createBrowserRouter([
         hydrateFallbackElement: null,
       },
       { path: "copies", element: <Copies /> },
+      { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
@@ -153,18 +156,25 @@ function KeptLibrary({ folder }: { folder?: Folder }) {
   );
 }
 
-/** Sync on open, on return to the tab, when the network comes back, and every five minutes. */
+/**
+ * Sync on open, on return to the tab, when the network comes back, and every
+ * five minutes. New text downloads after a sync when Offline is on.
+ */
 function SyncTriggers() {
   useEffect(() => {
     let session: Session | undefined;
+    const run = (current: Session) =>
+      current.sync().then(
+        () => downloadNew(current, articles(current)),
+        () => {},
+      );
     void open().then((opened) => {
       if (!("session" in opened)) return;
       session = opened.session;
-      void session.sync().catch(() => {});
+      void run(session);
     });
     const sync = () => {
-      if (document.visibilityState === "visible")
-        void session?.sync().catch(() => {});
+      if (session && document.visibilityState === "visible") void run(session);
     };
     document.addEventListener("visibilitychange", sync);
     window.addEventListener("online", sync);

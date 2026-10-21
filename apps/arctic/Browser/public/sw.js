@@ -9,7 +9,12 @@ async function install() {
   const html = await page.clone().text();
   await cache.put("/", page);
   const assets = [...new Set(html.match(/\/assets\/[\w.-]+/g) ?? [])];
-  await cache.addAll([...assets, "/icon-64.png", "/favicon.png"]);
+  await cache.addAll([
+    ...assets,
+    "/appearance.js",
+    "/icon-64.png",
+    "/favicon.png",
+  ]);
 }
 
 self.addEventListener("install", (event) => {
@@ -44,6 +49,20 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match("/")),
+    );
+    return;
+  }
+  // The theme script runs before every paint: the cached copy at once, the
+  // network's for next time.
+  if (url.pathname === "/appearance.js") {
+    const fresh = fetch(request).then(async (response) => {
+      if (response.ok)
+        await (await caches.open(CACHE)).put(request, response.clone());
+      return response;
+    });
+    event.waitUntil(fresh.catch(() => {}));
+    event.respondWith(
+      caches.match(request).then((cached) => cached ?? fresh),
     );
     return;
   }

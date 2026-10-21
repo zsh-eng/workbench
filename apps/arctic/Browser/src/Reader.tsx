@@ -1,4 +1,6 @@
+import { Popover } from "@base-ui/react/popover";
 import {
+  ALargeSmall,
   Archive,
   ArchiveRestore,
   ArrowUpRight,
@@ -10,6 +12,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { cleanByline } from "./content";
 import { edits, editLibrary, folders, minutes, type Article } from "./articles";
+import { SIZES, getSettings, updateSettings } from "./settings";
+import { AppearanceControls, ReadingControls } from "./SettingsPage";
 import { useArticles, useSession, useStatus } from "./state";
 import { articleText, readyText, type Text } from "./text";
 import { ArticleMenu, Tip, useActions } from "./ui";
@@ -101,7 +105,7 @@ function Page({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (
         (event.target as HTMLElement).closest(
-          "input, textarea, [contenteditable], [role=menu]",
+          "input, textarea, [contenteditable], [role=menu], [role=dialog]",
         )
       )
         return;
@@ -113,7 +117,11 @@ function Page({
         if (!article.archived) onBack();
       } else if (key === "o")
         window.open(article.url, "_blank", "noopener,noreferrer");
-      else return;
+      else if (key === "=" || key === "+" || key === "-") {
+        const size = getSettings().size + (key === "-" ? -1 : 1);
+        if (size < SIZES.min || size > SIZES.max) return;
+        updateSettings({ size });
+      } else return;
       event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
@@ -323,6 +331,7 @@ function ReaderBar({
       </button>
       {article && (
         <div className="actions">
+          <TypePanel />
           {article.saved && (
             <>
               <Tip
@@ -387,6 +396,38 @@ function ReaderBar({
       )}
       <div className="progress" />
     </div>
+  );
+}
+
+/** Font, size, spacing, width and theme, as in the Settings page. */
+function TypePanel() {
+  return (
+    <Popover.Root>
+      <Tip label="Text and theme" keys="− +">
+        <Popover.Trigger
+          render={
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Text and theme"
+            >
+              <ALargeSmall size={20} />
+            </button>
+          }
+        />
+      </Tip>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={8} align="end">
+          <Popover.Popup className="menu type-panel">
+            <ReadingControls />
+            <AppearanceControls />
+            <Link className="panel-link" to="/settings">
+              All settings
+            </Link>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

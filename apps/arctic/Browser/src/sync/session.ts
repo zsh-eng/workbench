@@ -184,6 +184,23 @@ export class Session {
     return work;
   }
 
+  /** The copies that this browser keeps. */
+  async keptFiles(): Promise<Set<string>> {
+    const keys = await transact(this.db, ["files"], "readonly", (tx) =>
+      promised(tx.objectStore("files").getAllKeys()),
+    );
+    return new Set(keys as string[]);
+  }
+
+  /** Downloads a copy into this browser for offline reading, without holding it in memory. */
+  async keepFile(id: string, signal?: AbortSignal) {
+    const response = await this.content.request(`/files/${id}`, { signal }, false);
+    const html = await response.text();
+    await transact(this.db, ["files"], "readwrite", async (tx) => {
+      tx.objectStore("files").put({ id, html, savedAt: Date.now() });
+    });
+  }
+
   /** Uploads cleaned HTML; the server checks its hash, type and size. */
   async uploadFile(html: string) {
     const bytes = new TextEncoder().encode(html);
