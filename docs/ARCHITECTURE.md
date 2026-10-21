@@ -22,8 +22,10 @@ and local development files. Shared packages must not import app code.
   [Reader architecture](../apps/reader/docs/ARCHITECTURE.md) before changing
   its data loading, storage, caches, or Reader lifecycle.
 - **Arctic for the web** is the React app under `apps/arctic/Browser`, a static
-  Worker at `arctic.zsheng.app`. It syncs the phone's `arctic` records and its
-  own `arctic-content` text copies through the shared API into IndexedDB. See
+  Worker at `arctic.zsheng.app`. It syncs the phone's `arctic` records, its
+  own `arctic-content` text copies, and highlights and reading sessions
+  (`arctic-annotations`, `arctic-reading`) through the shared API into
+  IndexedDB. See
   its [guide](../apps/arctic/Browser/README.md) before changing what it writes.
 - **Arctic** owns the native iOS and Mac apps, share extension, Swift sync package,
   and WebView extraction bundle. Read its [app guide](../apps/arctic/README.md),

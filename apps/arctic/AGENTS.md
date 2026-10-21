@@ -18,7 +18,10 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   2026): cleaned HTML only, no scripts, at most 2 MiB each; the web app in
   `Browser/` writes them, and so does `Browser/scripts/upload.ts` with the
   Workbench Backup credential (approved 20 October 2026). Annotation and
-  reading-time sync need the user's approval of a concrete migration.
+  reading-time sync are approved web first (21 October 2026): records only, in
+  `arctic-annotations` and `arctic-reading`, in the phone's `ReaderAnnotation`
+  and `ArticleReadingSession` encodings. The phone does not upload them yet;
+  ask before building that.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
   Arctic routes remain during transition. Never change or remove `links.json`:

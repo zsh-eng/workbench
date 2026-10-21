@@ -248,7 +248,9 @@ just now**. Sign-out asks first, keeps the account's articles in the account, an
 shows this device's own library again.
 
 Saved, archived, favourite and read state, titles and tags sync. Reader copies,
-images, highlights, notes and reading time stay on each device. The session
+images, highlights, notes and reading time stay on each device. Arctic for the
+web already syncs its own highlights and reading time in the phone's formats
+(`Browser/README.md`); the phone does not upload or read them yet. The session
 credential stays in the device Keychain. Jev keys, cookies and passwords are
 never sync data.
 
