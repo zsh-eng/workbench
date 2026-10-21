@@ -75,6 +75,16 @@ and a hidden tab pauses. A visit saves every five seconds and uploads within a
 minute. **Reading** (`/reading`) shows the last seven days, today, articles
 read for a minute or more, all time, and this week's articles.
 
+Highlights follow the phone too (`Resources/annotations.js`): a quote keeps
+its exact text and 48 characters on each side, and finds its place by text, so
+a passage from another copy of the article still shows. Selecting text offers
+four colours, a note and Copy (`H` highlights); selecting a highlight changes
+its colour or note, or removes it, with Undo. The CSS Custom Highlight API
+paints them without changing the article's HTML. **Notes** in the reader bar
+lists the passages in reading order and holds a note on the whole article;
+**Highlights** (`/highlights`) lists every passage by article. A removed
+passage keeps its record with `deletedAt`, as on the phone.
+
 Text copies are cleaned HTML files in `arctic-content`: no scripts, at most
 2 MiB, named by XXH64 (`src/sync/xxh64.ts`; the server checks every hash). The
 reader cleans a copy again with DOMPurify before it shows it. A copy under 120
@@ -138,13 +148,15 @@ Glacier blue marks only small details, such as the favourite star. Folders are
 large text tabs; a card is a 16:10 cover, the source line and the title. An
 article without an image shows its standfirst as a text cover. The List layout
 shows a row per article (source line, two lines of title, a small image), about
-eight on a phone screen. The reader sets
-20 px text on a 640 px measure and hides its bar while you read down. It shows
-the cover image once: when the text starts with the same picture (through an
-image proxy or at another size, `src/text.ts`), or with any picture under a
-Substack quote card, the text's own image and caption take the cover's place.
-Opening an article waits up to 100 ms for its text, so the text arrives with
-the page.
+eight on a phone screen.
+
+The reader sets 20 px text on a 640 px measure and hides its bar while you
+read down. It shows the cover image once: when the text starts with the same
+picture (through an image proxy or at another size, `src/text.ts`), or with
+any picture under a Substack quote card, the text's own image and caption take
+the cover's place. Opening an article waits up to 100 ms for its text, so the
+text arrives with the page. The forward page change is a view transition of
+the cover and title.
 
 **Settings** (`/settings`, and the **Aa** panel in the reader) follow Reader's:
 they belong to the browser (`src/settings.ts`, localStorage). Appearance is
@@ -152,11 +164,11 @@ System, Light or Dark; a theme is a pair of palettes: Arctic (neutral), Flexoki
 (warm paper and ink) and Night (Arctic by day, black by night).
 `public/appearance.js` applies the theme before the first paint. Reading
 settings are the font (system sans, `ui-serif`, or Iowan Old Style), size,
-line spacing, width and alignment; `-` and `=` change the size in the reader. The forward page change
-is a view transition of the cover and title.
+line spacing, width and alignment.
 
 Shortcuts: `/` searches. In the reader, `F` favourites, `E` archives and
-returns, `O` opens the original, and `Escape` returns.
+returns, `O` opens the original, `H` highlights the selection, `-` and `=`
+change the text size, and `Escape` returns.
 
 A library of 600 or more articles stays quick:
 

@@ -46,7 +46,7 @@ test("shows the phone's library, with topics, search and folders", async ({
   await expect(page.locator(".card-title").first()).toHaveText(
     "How sea ice keeps time",
   );
-  await expect(page.locator(".shelf-meta")).toHaveText("2 articles");
+  await expect(page.locator(".shelf-count")).toHaveText("2 articles");
 
   await page.getByRole("button", { name: /^Nature/ }).click();
   await expect(page.locator(".card-title")).toHaveText([

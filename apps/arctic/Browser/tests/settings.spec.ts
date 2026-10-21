@@ -56,7 +56,8 @@ test("downloads saved text for reading offline", async ({ page, context }) => {
     page.getByRole("button", { name: "All text is on this device" }),
   ).toBeDisabled();
 
-  // Neither article was opened before.
+  // Neither article was opened before. The service worker keeps the app.
+  await page.evaluate(() => navigator.serviceWorker.ready);
   await context.setOffline(true);
   await page.goto("/").catch(() => {});
   await page.locator(".card-title", { hasText: "The tundra" }).click();

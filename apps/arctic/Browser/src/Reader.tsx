@@ -17,6 +17,7 @@ import { AppearanceControls, ReadingControls } from "./SettingsPage";
 import { useArticles, useRecords, useSession, useStatus } from "./state";
 import { articleText, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
+import { NotesPanel, Passages } from "./Passages";
 import { ArticleMenu, Tip, useActions } from "./ui";
 
 export function Reader() {
@@ -74,7 +75,14 @@ function Page({
 }) {
   const session = useSession();
   const actions = useActions();
+  const location = useLocation();
   const file = article.copy?.file;
+  const prose = useRef<HTMLDivElement>(null);
+  // The Highlights page and the Notes panel open a passage.
+  const [reveal, setReveal] = useState(() => {
+    const passage = (location.state as { passage?: string } | null)?.passage;
+    return passage ? { id: passage } : undefined;
+  });
   // The route loader reads the text first, so it usually arrives with the page.
   const [body, setBody] = useState<Text | undefined>(() => readyText(article));
   // When the text starts with the cover image, the text's own copy (with its
@@ -147,7 +155,12 @@ function Page({
 
   return (
     <>
-      <ReaderBar onBack={onBack} from={from} article={article} />
+      <ReaderBar
+        onBack={onBack}
+        from={from}
+        article={article}
+        onReveal={(id) => setReveal({ id })}
+      />
       <article className="article">
         <a
           className="article-source"
@@ -194,6 +207,7 @@ function Page({
         ) : (
           <div
             className="prose"
+            ref={prose}
             dangerouslySetInnerHTML={{
               __html: cover ? (text.withoutLead ?? text.html) : text.html,
             }}
@@ -251,6 +265,12 @@ function Page({
           </footer>
         )}
       </article>
+      <Passages
+        article={article}
+        prose={prose}
+        ready={readable}
+        reveal={reveal}
+      />
     </>
   );
 }
@@ -307,15 +327,19 @@ function ReaderBar({
   onBack,
   from,
   article,
+  onReveal,
 }: {
   onBack: () => void;
   from?: string;
   article?: Article;
+  onReveal?: (id: string) => void;
 }) {
   const actions = useActions();
   const bar = useRef<HTMLDivElement>(null);
   const label = useMemo(() => {
     const path = (from ?? "/").split("?")[0];
+    if (path === "/reading") return "Reading";
+    if (path === "/highlights") return "Highlights";
     return folders.find((folder) => folder.path === path)?.title ?? "Library";
   }, [from]);
 
@@ -358,6 +382,9 @@ function ReaderBar({
       </button>
       {article && (
         <div className="actions">
+          {article.copy && onReveal && (
+            <NotesPanel article={article} onReveal={onReveal} />
+          )}
           <TypePanel />
           {article.saved && (
             <>

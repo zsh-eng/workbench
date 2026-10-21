@@ -125,9 +125,11 @@ export function Library({ folder }: { folder: Folder }) {
           ))}
         </nav>
         <div className="shelf-meta">
-          {first
-            ? "Getting your library…"
-            : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+          <span className="shelf-count">
+            {first
+              ? "Getting your library…"
+              : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+          </span>
           <Choice
             label="Layout"
             className="layout-toggle"

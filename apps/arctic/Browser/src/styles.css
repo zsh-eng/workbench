@@ -1632,3 +1632,253 @@ a.article-source:hover {
   line-height: 1.5;
   color: var(--fg-2);
 }
+
+/* Highlights: the phone's colours (Resources/annotations.js) */
+:root {
+  --hl-yellow: rgb(245 199 64 / 0.38);
+  --hl-sage: rgb(75 171 111 / 0.24);
+  --hl-rose: rgb(229 104 140 / 0.24);
+  --hl-blue: rgb(56 164 209 / 0.24);
+}
+:root[data-mode="dark"] {
+  --hl-yellow: rgb(245 199 64 / 0.3);
+  --hl-sage: rgb(99 200 134 / 0.3);
+  --hl-rose: rgb(241 137 166 / 0.3);
+  --hl-blue: rgb(102 197 234 / 0.3);
+}
+::highlight(arctic-yellow) {
+  background-color: var(--hl-yellow);
+  color: inherit;
+}
+::highlight(arctic-sage) {
+  background-color: var(--hl-sage);
+  color: inherit;
+}
+::highlight(arctic-rose) {
+  background-color: var(--hl-rose);
+  color: inherit;
+}
+::highlight(arctic-blue) {
+  background-color: var(--hl-blue);
+  color: inherit;
+}
+::highlight(arctic-focus) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-colour="yellow"] {
+  --solid: #e9b520;
+}
+[data-colour="sage"] {
+  --solid: #4bab6f;
+}
+[data-colour="rose"] {
+  --solid: #e5688c;
+}
+[data-colour="blue"] {
+  --solid: #38a4d1;
+}
+
+.passage-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 14px;
+  background: var(--raised);
+  box-shadow:
+    0 0 0 0.5px var(--edge),
+    var(--shadow);
+  font: 14px/1.4 var(--ui);
+  animation: appear 0.12s var(--ease);
+}
+.passage-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.passage-row .icon-button {
+  width: 34px;
+  height: 34px;
+}
+.colours {
+  display: flex;
+  gap: 2px;
+  padding: 0 2px;
+}
+.colour {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+.colour::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--solid);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+  transition: transform 0.15s var(--ease);
+}
+.colour:hover::before {
+  transform: scale(1.12);
+}
+.colour[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--fg);
+}
+.passage-rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--rule);
+}
+.note-editor {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  font: 14px/1.45 var(--ui);
+  color: var(--fg);
+  field-sizing: content;
+  max-height: 40vh;
+  resize: none;
+  outline: none;
+}
+.note-editor:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.passage-bar .note-editor {
+  width: 300px;
+  max-width: calc(100vw - 34px);
+}
+
+.notes-button {
+  position: relative;
+}
+.notes-button .count {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.notes-panel {
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(72dvh, 680px);
+  overflow-y: auto;
+  padding: 16px;
+}
+.notes-panel h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.notes-empty {
+  margin: 14px 0 2px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+.passages {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.passage {
+  display: block;
+  width: 100%;
+  padding: 12px 6px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+.passage:hover {
+  background: var(--fill);
+}
+.passage blockquote,
+.highlight-list blockquote {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--solid, var(--rule));
+  font-family: var(--reading-font);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.passage p,
+.highlight-list .note {
+  margin: 6px 0 0 15px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+}
+.page-search {
+  width: 100%;
+  margin-top: 24px;
+}
+.highlight-list h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.highlight-list h2 a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--fg-3);
+}
+.highlight-host {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.highlight-list ol {
+  display: grid;
+  gap: 18px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.highlight-list li > a {
+  color: inherit;
+  text-decoration: none;
+}
+.highlight-list li > a:hover blockquote {
+  color: var(--fg-2);
+}
+.article-note-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.highlight-list .article-note-label + .note {
+  margin-left: 0;
+  color: var(--fg);
+}

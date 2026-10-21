@@ -62,7 +62,9 @@ self.addEventListener("fetch", (event) => {
     });
     event.waitUntil(fresh.catch(() => {}));
     event.respondWith(
-      caches.match(request).then((cached) => cached ?? fresh),
+      caches
+        .match(request, { ignoreVary: true })
+        .then((cached) => cached ?? fresh),
     );
     return;
   }
@@ -70,8 +72,10 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith("/assets/") ||
     url.pathname.startsWith("/icon-")
   ) {
+    // Hashed files never change. A module script asks with an Origin header
+    // that the installed copy lacks, so a Vary header must not hide it.
     event.respondWith(
-      caches.match(request).then(
+      caches.match(request, { ignoreVary: true }).then(
         (cached) =>
           cached ??
           fetch(request).then((response) => {

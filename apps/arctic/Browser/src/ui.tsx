@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   BookmarkPlus,
   Clock,
+  Highlighter,
   FileText,
   Link2,
   MoreHorizontal,
@@ -363,6 +364,12 @@ export function AccountMenu() {
               onClick={() => void session.sync().catch(() => {})}
             >
               Sync now
+            </Item>
+            <Item
+              icon={<Highlighter size={16} />}
+              onClick={() => navigate("/highlights")}
+            >
+              Highlights
             </Item>
             <Item
               icon={<Clock size={16} />}
