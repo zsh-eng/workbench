@@ -95,7 +95,14 @@ bun scripts/copies.ts <out> --native <folder>
 
 With `--extract`, it also downloads saved articles that have no copy with
 `server/extractor.ts` (Defuddle on the fetched HTML, then a headless Chromium
-page; see [download measurements](docs/DOWNLOAD_VALIDATION.md)). The output
+page; see [download measurements](docs/DOWNLOAD_VALIDATION.md)). With
+`--unwall`, it reads saved articles on the phone's Unwall list
+(`../Resources/unwall-domains.json`) through `unwall.app` in a headless browser,
+as the phone opens them, and keeps copies of 400 words or more: Unwall shows
+the publisher's teaser when it cannot open a page. On 21 October 2026 it read
+38 of 51 such articles (NYT, FT, The Atlantic, Bloomberg, WSJ, The Economist);
+most of The Economist stayed a teaser. Every pass skips pages that already have
+text in the account (from the Workbench Backup mirror). The output
 holds personal article text: keep it private, and delete it after the import.
 
 `scripts/upload.ts <folder>` imports such a folder without a browser. It uses

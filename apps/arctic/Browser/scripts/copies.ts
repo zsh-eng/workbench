@@ -3,7 +3,7 @@
  * app's Article text page (`/copies`, "From files"). Reads every source and
  * changes none. The output holds personal article text: keep it private.
  *
- *   bun scripts/copies.ts <folder> [--native <dir>]... [--extract] [--limit <n>]
+ *   bun scripts/copies.ts <folder> [--native <dir>]... [--extract] [--unwall] [--limit <n>]
  *
  * --native   An Arctic data folder: the Mac app's container (the default), or
  *            a copy of the iPhone app's folder (see README). Its offline copies
@@ -12,6 +12,10 @@
  * --extract  Also download saved articles that have no copy, with the same
  *            Defuddle extraction as the app (server/extractor.ts). Paywalled
  *            pages give previews; the web app refuses copies under 120 words.
+ * --unwall   Also read saved articles on the phone's Unwall list through
+ *            unwall.app in a headless browser, as the phone opens them.
+ *
+ * Pages that already have text in the account (in the mirror) are skipped.
  *
  * Saved articles come from the Workbench Backup mirror (ARCTIC_BACKUP_DIR).
  */
@@ -22,7 +26,8 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseHTML } from "linkedom";
-import { Extractor } from "../server/extractor";
+import { chromium } from "playwright";
+import { Extractor, fromHTML } from "../server/extractor";
 
 const args = process.argv.slice(2);
 const output = args.find(
@@ -33,7 +38,7 @@ const output = args.find(
 );
 if (!output) {
   console.error(
-    "Usage: bun scripts/copies.ts <folder> [--native <dir>]... [--extract] [--limit <n>]",
+    "Usage: bun scripts/copies.ts <folder> [--native <dir>]... [--extract] [--unwall] [--limit <n>]",
   );
   process.exit(2);
 }
@@ -85,6 +90,25 @@ function savedArticles() {
       [...saved].flatMap((id) =>
         urls.has(id) ? [[pageKey(urls.get(id)!), urls.get(id)!]] : [],
       ),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/** Pages that already have text in the account, from the mirror's arctic-content records. */
+function pagesWithText() {
+  const path = join(backup, "mirror.sqlite");
+  if (!existsSync(path)) return new Set<string>();
+  const db = new Database(path, { readonly: true });
+  try {
+    return new Set(
+      db
+        .query<{ value: string }, []>(
+          "SELECT value FROM records WHERE namespace='arctic-content' AND is_deleted=0 AND key LIKE 'content/%'",
+        )
+        .all()
+        .map(({ value }) => pageKey(JSON.parse(value).url)),
     );
   } finally {
     db.close();
@@ -146,7 +170,8 @@ async function write(
 
 await mkdir(output, { recursive: true, mode: 0o700 });
 const saved = savedArticles();
-const done = new Set<string>();
+const done = pagesWithText();
+const before = done.size;
 let native = 0;
 for (const folder of natives) {
   const ids = await nativeURLs(folder);
@@ -169,7 +194,7 @@ for (const folder of natives) {
   }
 }
 console.log(
-  `${native} offline copies from Arctic; ${saved.size} saved articles in the mirror.`,
+  `${native} offline copies from Arctic; ${saved.size} saved articles in the mirror, ${before} with text.`,
 );
 
 if (args.includes("--extract")) {
@@ -199,4 +224,82 @@ if (args.includes("--extract")) {
   console.log(
     `${extracted} extracted; ${failed} could not be read without a browser session.`,
   );
+}
+
+/** Unwall shows the publisher's teaser when it cannot open a page: 200–250 words. */
+const UNWALL_MIN_WORDS = 400;
+
+if (args.includes("--unwall")) {
+  // As the phone routes links (Sources/ArticleBrowser.swift): listed hosts open through unwall.app.
+  const domains: string[] = JSON.parse(
+    await readFile(
+      join(import.meta.dir, "../../Resources/unwall-domains.json"),
+      "utf8",
+    ),
+  );
+  const listed = (url: string) => {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      domains.includes(host) ||
+      domains.some((domain) => host.endsWith(`.${domain}`))
+    );
+  };
+  const queue = [...saved]
+    .filter(([key, url]) => !done.has(key) && listed(url))
+    .slice(0, limit);
+  const browser = await chromium.launch();
+  let read = 0;
+  const worker = async () => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      const [key, url] = next;
+      const page = await browser.newPage();
+      try {
+        await page.goto(`https://unwall.app/${url}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 45_000,
+        });
+        // The article arrives in a frame; wait up to 15 s for one with text.
+        let best = { words: 0, html: "" };
+        for (let tries = 0; tries < 15 && best.words < UNWALL_MIN_WORDS; tries++) {
+          await page.waitForTimeout(1000);
+          for (const frame of page.frames().slice(1)) {
+            const words = await frame
+              .evaluate(
+                () =>
+                  (document.body?.innerText ?? "").split(/\s+/).filter(Boolean)
+                    .length,
+              )
+              .catch(() => 0);
+            // Unwall's frame carries its own scripts; extract from a copy without them.
+            if (words > best.words)
+              best = {
+                words,
+                html: await frame.evaluate(() => {
+                  const copy = document.documentElement.cloneNode(true) as Element;
+                  copy
+                    .querySelectorAll("script,style,noscript,template")
+                    .forEach((element) => element.remove());
+                  return copy.outerHTML;
+                }),
+              };
+          }
+        }
+        const result = fromHTML(best.html || "<html></html>", url);
+        if (result.wordCount < UNWALL_MIN_WORDS)
+          throw new Error(`${result.wordCount} words`);
+        await write(url, result.content, result.author, "extractor");
+        done.add(key);
+        read++;
+      } catch (error) {
+        console.log(
+          `  ${new URL(url).hostname} (Unwall): ${error instanceof Error ? error.message.split("\n")[0] : error}`,
+        );
+      } finally {
+        await page.close();
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  await browser.close();
+  console.log(`${read} read through Unwall.`);
 }

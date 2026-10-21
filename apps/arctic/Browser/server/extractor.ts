@@ -40,7 +40,7 @@ function usable(result: DefuddleResponse) {
     )
   );
 }
-function fromHTML(html: string, url: string) {
+export function fromHTML(html: string, url: string) {
   const { document } = parseHTML(html);
   Object.defineProperty(document, "URL", { value: url });
   Object.defineProperty(document, "styleSheets", { value: [] });
