@@ -89,6 +89,11 @@ export function Library({ folder }: { folder: Folder }) {
     returning,
   );
 
+  useLayoutEffect(() => {
+    if (visible.length && !performance.getEntriesByName("arctic:cards").length)
+      performance.mark("arctic:cards");
+  }, [visible.length]);
+
   const first =
     articles.length === 0 &&
     (status.phase === "loading" || status.phase === "syncing");

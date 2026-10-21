@@ -39,39 +39,58 @@ const router = createBrowserRouter([
 ]);
 
 type Opened =
-  | { account: null }
-  | { account: Account; session: Session; offline: boolean };
+  | { account: null; expired?: boolean }
+  | { account: Account; session: Session };
 
-/** Opens once per page load; a remembered account opens offline from this browser's copy. */
+/**
+ * Opens once per page load. A remembered account opens this browser's copy at
+ * once, as Reader opens its library; the account check follows (see App).
+ */
 let opening: Promise<Opened> | undefined;
 function open(): Promise<Opened> {
   opening ??= (async () => {
-    let account: Account | null;
-    let offline = false;
-    try {
-      account = await currentAccount();
-    } catch {
-      account = rememberedAccount();
-      offline = true;
-    }
+    const account =
+      rememberedAccount() ?? (await currentAccount().catch(() => null));
     if (!account) return { account: null };
-    return { account, session: await Session.open(account), offline };
+    const session = await Session.open(account);
+    performance.mark("arctic:open", {
+      detail: { records: session.arctic.size + session.copies.size },
+    });
+    return { account, session };
   })();
   return opening;
 }
+// IndexedDB opens while React prepares its first render.
+void open().catch(() => {});
 
 export function App() {
   const [opened, setOpened] = useState<Opened | Error | undefined>();
   useEffect(() => {
     open().then(setOpened, (error: Error) => setOpened(error));
   }, []);
-  if (opened === undefined)
-    return <div className="quiet-page">Opening Arctic…</div>;
+  // The server confirms the remembered account in the background. A signed-out
+  // browser keeps its copy for the next sign-in; another account reloads.
+  const userId =
+    opened && !(opened instanceof Error) ? opened.account?.userId : undefined;
+  useEffect(() => {
+    if (!userId) return;
+    currentAccount().then(
+      (account) => {
+        if (!account) setOpened({ account: null, expired: true });
+        else if (account.userId !== userId) location.reload();
+      },
+      () => {
+        /* Offline: the sync status says so. */
+      },
+    );
+  }, [userId]);
+  // Opening reads IndexedDB only; a blank frame is shorter than a message.
+  if (opened === undefined) return null;
   if (opened instanceof Error)
     return (
       <div className="quiet-page">Arctic could not open: {opened.message}</div>
     );
-  if (!opened.account) return <Welcome />;
+  if (!opened.account) return <Welcome expired={opened.expired} />;
   return (
     <SessionContext.Provider value={opened.session}>
       <RouterProvider router={router} />
@@ -133,11 +152,13 @@ function SyncTriggers() {
   return null;
 }
 
-function Welcome() {
+function Welcome({ expired }: { expired?: boolean }) {
   const [error, setError] = useState(
     new URLSearchParams(location.search).get("signin") === "failed"
       ? "Google sign-in did not finish. Try again."
-      : "",
+      : expired
+        ? "You were signed out. Sign in again to sync."
+        : "",
   );
   const [busy, setBusy] = useState(false);
   return (

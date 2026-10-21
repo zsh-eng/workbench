@@ -128,6 +128,11 @@ returns, `O` opens the original, and `Escape` returns.
 
 A library of 600 or more articles stays quick:
 
+- A returning visit opens this browser's copy at once, as Reader does, and
+  checks the account in the background. The first cards paint about 55 ms
+  after the page starts (140 ms with a 4× CPU slowdown and 150 ms latency),
+  where the account check first made it 300 ms. The performance marks
+  `arctic:script`, `arctic:open` and `arctic:cards` time each step.
 - A long folder renders 36 cards first, then 72 more each frame. Back and
   Forward render all cards at once, so the scroll position returns.
 - The library stays mounted, hidden with React `Activity`, while an article

@@ -93,12 +93,11 @@ export class Session {
       });
       return { storage, client, request: http.request } satisfies Channel;
     };
-    return new Session(
-      account,
-      db,
-      await channel(NAMESPACES.library, normalizeLibrary),
-      await channel(NAMESPACES.content),
-    );
+    const [library, content] = await Promise.all([
+      channel(NAMESPACES.library, normalizeLibrary),
+      channel(NAMESPACES.content),
+    ]);
+    return new Session(account, db, library, content);
   }
 
   get arctic() {
