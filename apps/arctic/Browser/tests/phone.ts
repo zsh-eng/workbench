@@ -4,6 +4,7 @@ import {
   type BrowserContext,
 } from "@playwright/test";
 import { createHash } from "node:crypto";
+import { xxh64 } from "../src/sync/xxh64";
 
 export const API = "http://localhost:8792";
 const origin = { Origin: "http://localhost:5186" };
@@ -98,6 +99,7 @@ export function article(
   options: {
     title: string;
     subtitle?: string;
+    image?: string;
     tags?: string[];
     savedAt?: number;
     archived?: boolean;
@@ -107,6 +109,7 @@ export function article(
   const {
     title,
     subtitle = "",
+    image,
     tags = [],
     savedAt = Date.now(),
     archived = false,
@@ -116,7 +119,15 @@ export function article(
     id,
     url,
     records: [
-      { key: `article/${id}`, value: sorted({ url, title, subtitle }) },
+      {
+        key: `article/${id}`,
+        value: sorted({
+          url,
+          title,
+          subtitle,
+          ...(image ? { imageURL: image } : {}),
+        }),
+      },
       {
         key: `library/${id}`,
         value: sorted({
@@ -149,3 +160,44 @@ export const paragraphs = (count: number) =>
     (_, index) =>
       `<p>Paragraph ${index + 1}. Sea ice forms, drifts and thins with the seasons, and the people who read it keep careful notes about where it goes.</p>`,
   ).join("");
+
+/** Adds a text copy to the account, as Arctic for the web saves one. */
+export async function addText(
+  request: APIRequestContext,
+  item: { id: string; url: string },
+  html: string,
+) {
+  const bytes = new TextEncoder().encode(html);
+  const file = xxh64(bytes);
+  const scope = JSON.stringify(
+    await (
+      await request.get(`${API}/api/apps/arctic-content/sync/v3/state`)
+    ).json(),
+  );
+  const upload = await request.put(
+    `${API}/api/apps/arctic-content/files/${file}`,
+    {
+      headers: {
+        ...origin,
+        "X-Sync-Scope": scope,
+        "Content-Type": "text/html; charset=utf-8",
+      },
+      data: Buffer.from(bytes),
+    },
+  );
+  expect(upload.ok()).toBeTruthy();
+  await phone(request, "arctic-content").push([
+    {
+      key: `content/${item.id}`,
+      value: sorted({
+        url: item.url,
+        file,
+        bytes: bytes.byteLength,
+        words: html.split(/\s+/).length,
+        format: "html",
+        source: "file",
+        savedAt: Date.now(),
+      }),
+    },
+  ]);
+}

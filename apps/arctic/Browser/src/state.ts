@@ -26,7 +26,7 @@ const projections = new WeakMap<
     project: ReturnType<typeof projector>;
   }
 >();
-function articles(session: Session) {
+export function articles(session: Session) {
   const cached = projections.get(session);
   if (cached?.records === session.records) return cached.articles;
   const project = cached?.project ?? projector();

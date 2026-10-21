@@ -6,6 +6,7 @@ import {
   ScrollRestoration,
   createBrowserRouter,
   useMatches,
+  type LoaderFunctionArgs,
 } from "react-router-dom";
 import {
   currentAccount,
@@ -18,25 +19,10 @@ import type { Folder } from "./articles";
 import { Copies } from "./Copies";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
-import { SessionContext } from "./state";
+import { SessionContext, articles } from "./state";
+import { articleText } from "./text";
 import { Session } from "./sync/session";
 import { Toaster } from "./ui";
-
-const router = createBrowserRouter([
-  {
-    element: <Root />,
-    children: [
-      // Root renders the library for these routes; see KeptLibrary.
-      { index: true, element: null, handle: { folder: "saved" } },
-      { path: "favourites", element: null, handle: { folder: "favourites" } },
-      { path: "archive", element: null, handle: { folder: "archive" } },
-      { path: "history", element: null, handle: { folder: "history" } },
-      { path: "read/:id", element: <Reader /> },
-      { path: "copies", element: <Copies /> },
-      { path: "*", element: <Navigate to="/" replace /> },
-    ],
-  },
-]);
 
 type Opened =
   | { account: null; expired?: boolean }
@@ -62,6 +48,46 @@ function open(): Promise<Opened> {
 }
 // IndexedDB opens while React prepares its first render.
 void open().catch(() => {});
+
+const router = createBrowserRouter([
+  {
+    element: <Root />,
+    children: [
+      // Root renders the library for these routes; see KeptLibrary.
+      { index: true, element: null, handle: { folder: "saved" } },
+      { path: "favourites", element: null, handle: { folder: "favourites" } },
+      { path: "archive", element: null, handle: { folder: "archive" } },
+      { path: "history", element: null, handle: { folder: "history" } },
+      {
+        path: "read/:id",
+        element: <Reader />,
+        loader: readFirst,
+        hydrateFallbackElement: null,
+      },
+      { path: "copies", element: <Copies /> },
+      { path: "*", element: <Navigate to="/" replace /> },
+    ],
+  },
+]);
+
+/**
+ * Opening an article waits up to 100 ms for its text, so the text arrives
+ * with the page and the page change animates the final layout. A text from
+ * IndexedDB takes a few milliseconds; one from the network follows the page.
+ */
+async function readFirst({ params }: LoaderFunctionArgs) {
+  const opened = await open().catch(() => null);
+  if (!opened?.account) return null;
+  const article = articles(opened.session).find(
+    (item) => item.id === params.id,
+  );
+  if (article?.copy)
+    await Promise.race([
+      articleText(opened.session, article),
+      new Promise((resolve) => setTimeout(resolve, 100)),
+    ]);
+  return null;
+}
 
 export function App() {
   const [opened, setOpened] = useState<Opened | Error | undefined>();

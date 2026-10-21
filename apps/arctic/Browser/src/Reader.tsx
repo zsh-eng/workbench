@@ -8,12 +8,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { cleanArticle, cleanByline } from "./content";
+import { cleanByline } from "./content";
 import { edits, editLibrary, folders, minutes, type Article } from "./articles";
 import { useArticles, useSession, useStatus } from "./state";
+import { articleText, readyText, type Text } from "./text";
 import { ArticleMenu, Tip, useActions } from "./ui";
-
-type Body = { file: string; html: string } | { file: string; error: string };
 
 export function Reader() {
   const { id = "" } = useParams();
@@ -70,32 +69,32 @@ function Page({
 }) {
   const session = useSession();
   const actions = useActions();
-  const [body, setBody] = useState<Body>();
   const file = article.copy?.file;
+  // The route loader reads the text first, so it usually arrives with the page.
+  const [body, setBody] = useState<Text | undefined>(() => readyText(article));
+  // When the text starts with the cover image, the text's own copy (with its
+  // caption) is the cover. A text that arrives late drops its copy instead, so
+  // nothing moves.
+  const [textCover] = useState(
+    () => !!body && "html" in body && body.withoutLead !== undefined,
+  );
 
   useEffect(() => {
     if (!file) return;
     let current = true;
-    session.readFile(file).then(
-      (html) =>
-        current &&
-        setBody({
-          file,
-          html: withoutHero(cleanArticle(html, article.url), article.image),
-        }),
-      () =>
-        current &&
-        setBody({
-          file,
-          error: "The text could not load. Check your connection.",
-        }),
+    void articleText(session, article).then(
+      (text) => current && text && setBody(text),
     );
     return () => {
       current = false;
     };
-  }, [file, session, article.url, article.image]);
+  }, [file, session, article]);
 
-  useReadingPosition(article.id, !!body && "html" in body);
+  const text = body?.file === file ? body : undefined;
+  const leads = !!text && "html" in text && text.withoutLead !== undefined;
+  const cover = !!article.image && !(textCover && leads);
+
+  useReadingPosition(article.id, !!text && "html" in text);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -164,7 +163,7 @@ function Page({
             ))}
           </div>
         )}
-        {article.image && (
+        {cover && (
           <figure className="hero" style={{ viewTransitionName: "cover" }}>
             <img
               src={article.image}
@@ -176,17 +175,19 @@ function Page({
         )}
         {!file ? (
           <Missing article={article} />
-        ) : !body || body.file !== file ? null : "error" in body ? (
+        ) : !text ? null : "error" in text ? (
           <div className="missing">
-            <p>{body.error}</p>
+            <p>{text.error}</p>
           </div>
         ) : (
           <div
             className="prose"
-            dangerouslySetInnerHTML={{ __html: body.html }}
+            dangerouslySetInnerHTML={{
+              __html: cover ? (text.withoutLead ?? text.html) : text.html,
+            }}
           />
         )}
-        {(!file || (body && "html" in body)) && (
+        {(!file || (text && "html" in text)) && (
           <footer className="end">
             {article.saved ? (
               <button
@@ -387,40 +388,6 @@ function ReaderBar({
       <div className="progress" />
     </div>
   );
-}
-
-/** The hero shows the article's image once; drop the same image at the start of the text. */
-function withoutHero(html: string, image?: string) {
-  if (!image) return html;
-  const name = (src: string) => {
-    try {
-      return (
-        new URL(src).pathname
-          .split("/")
-          .pop()
-          ?.replace(/\.\w+$/, "") ?? ""
-      );
-    } catch {
-      return "";
-    }
-  };
-  const target = name(image);
-  if (target.length < 4) return html;
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const first = [...doc.body.querySelectorAll("img")]
-    .slice(0, 2)
-    .find((img) => {
-      const source = name(img.getAttribute("src") ?? "");
-      return source && (source.includes(target) || target.includes(source));
-    });
-  if (!first) return html;
-  const node = first.closest("figure") ?? first;
-  const before = doc.createRange();
-  before.setStart(doc.body, 0);
-  before.setEndBefore(node);
-  if (before.toString().trim().length > 400) return html;
-  node.remove();
-  return doc.body.innerHTML;
 }
 
 /** Reopening an article returns to the same place, in this browser. */

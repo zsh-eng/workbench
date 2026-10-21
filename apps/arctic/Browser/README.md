@@ -119,8 +119,12 @@ reading, a neutral palette, hairline rules, and untreated publisher images.
 Glacier blue marks only small details, such as the favourite star. Folders are
 large text tabs; a card is a 16:10 cover, the source line and the title. An
 article without an image shows its standfirst as a text cover. The reader sets
-20 px text on a 640 px measure, hides its bar while you read down, and shows
-the hero image once. Light and dark follow the system. The forward page change
+20 px text on a 640 px measure and hides its bar while you read down. It shows
+the cover image once: when the text starts with the same picture (through an
+image proxy or at another size, `src/text.ts`), or with any picture under a
+Substack quote card, the text's own image and caption take the cover's place.
+Opening an article waits up to 100 ms for its text, so the text arrives with
+the page. Light and dark follow the system. The forward page change
 is a view transition of the cover and title.
 
 Shortcuts: `/` searches. In the reader, `F` favourites, `E` archives and

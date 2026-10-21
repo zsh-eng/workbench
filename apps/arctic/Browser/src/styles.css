@@ -609,6 +609,10 @@ a.article-source:hover {
 .prose figure img {
   margin: 0 auto;
 }
+/* The text's own copy of the cover image takes the cover's place. */
+.prose [data-lead] {
+  view-transition-name: cover;
+}
 .prose figcaption {
   margin-top: 10px;
   font-size: 14px;
