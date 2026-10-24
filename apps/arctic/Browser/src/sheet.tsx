@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet as AriaSheet,
@@ -53,7 +59,7 @@ export function Sheet({
       snapPoints={snapPoints}
       className="sheet-overlay"
     >
-      {({ isExpanded, isExiting }) => (
+      {({ isExpanded, isExiting, isEntering }) => (
         <>
           {dim && (
             <SheetBackdrop
@@ -83,6 +89,7 @@ export function Sheet({
                 hasDetents={hasDetents}
                 isExpanded={isExpanded}
                 isExiting={isExiting}
+                isEntering={isEntering}
               >
                 {children}
               </SheetBody>
@@ -92,6 +99,51 @@ export function Sheet({
       )}
     </SheetOverlay>
   );
+}
+
+/**
+ * Starts a sheet's entrance at the bottom edge of the screen.
+ *
+ * React Aria brings a sheet in by scrolling one screen height, whatever the
+ * sheet's height. A sheet half the screen tall spends the first half of that
+ * scroll below the screen, so a tap seemed to do nothing for a moment
+ * (100–300 ms on iPhone). Before that scroll starts, this moves the sheet up
+ * until its top edge meets the bottom of the screen; the scroll then covers
+ * only the distance that you see.
+ *
+ * Snapping would pull the sheet back to its closed position, so it is off
+ * until the sheet rests. Only touch screens get this: there React Aria waits
+ * two frames for a keyboard before it scrolls, so the jump and the scroll are
+ * in separate frames. In one task, React Aria notes, the browser can stop the
+ * scroll at the jump.
+ */
+function useEdgeEntrance(
+  ref: RefObject<HTMLElement | null>,
+  isEntering: boolean,
+) {
+  const restoreSnap = useRef<() => void>(undefined);
+  useLayoutEffect(() => {
+    const sheet = ref.current?.closest<HTMLElement>(".sheet");
+    const scroller = sheet?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (!sheet || !scroller || navigator.maxTouchPoints === 0) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const below = sheet.getBoundingClientRect().top - innerHeight;
+    if (below <= 0) return;
+    const snap = scroller.style.scrollSnapType;
+    scroller.style.scrollSnapType = "none";
+    scroller.scrollTop += below;
+    restoreSnap.current = () => (scroller.style.scrollSnapType = snap);
+  }, [ref]);
+  // React Aria marks the sheet as entering from the first frame of its
+  // scroll until the scroll ends.
+  const started = useRef(false);
+  useLayoutEffect(() => {
+    if (isEntering) started.current = true;
+    else if (started.current) {
+      restoreSnap.current?.();
+      restoreSnap.current = undefined;
+    }
+  }, [isEntering]);
 }
 
 /** Fields that open the phone keyboard. */
@@ -111,14 +163,18 @@ function SheetBody({
   hasDetents,
   isExpanded,
   isExiting,
+  isEntering,
   children,
 }: {
   hasDetents: boolean;
   isExpanded: boolean;
   isExiting: boolean;
+  isEntering: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+
+  useEdgeEntrance(ref, isEntering);
 
   // A closing sheet scrolls out of view, and React Aria unmounts it once it
   // is gone. React puts back scroll offsets when a commit moves focus, which

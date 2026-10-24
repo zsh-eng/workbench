@@ -365,14 +365,23 @@
   --magenta-secondary: #641f46;
 }
 
-/* The Undo countdown ring: one linear drain, paused with its timer. */
-@keyframes undo-drain {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: 1;
-  }
+/* Workbench's toast and Undo countdown (@workbench/elements/toast), in the
+   reading theme's popover colours, wherever they are drawn. */
+.wb-toast,
+.wb-countdown {
+  --wb-toast-surface: var(--popover);
+  --wb-toast-text: var(--popover-foreground);
+  --wb-toast-edge: var(--border);
+  --wb-toast-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --wb-toast-radius: var(--sidebar-panel-radius);
+  --wb-toast-fill: var(--secondary);
+  --wb-toast-fill-hover: color-mix(in srgb, var(--secondary) 70%, transparent);
+  --wb-toast-numerals: var(--font-numeric);
+}
+/* Sonner sizes the toast's slot; the toast fills it. */
+.reader-toast {
+  width: 100%;
 }
 
 @layer utilities {

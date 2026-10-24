@@ -5,7 +5,9 @@
   "exports": {
     ".": "./src/player.ts",
     "./react": "./src/react.ts",
-    "./frames": "./src/frames.ts"
+    "./frames": "./src/frames.ts",
+    "./toast": "./src/toast.tsx",
+    "./toast.css": "./src/toast.css"
   },
   "peerDependencies": {
     "react": ">=18"

@@ -11,8 +11,15 @@ demo contract.
 - `@workbench/elements/frames`: `DEVICES`, `FrameMessage`, `FrameTimeMessage`,
   `FrameReadyMessage`, `isFrameReady`, `useDeviceRowScale`, `useNearView`,
   `useFrameSelection`, `useFrameTime`.
+- `@workbench/elements/toast`: `Toast` and `UndoCountdown`, a toast that
+  offers Undo with a ring and a number counting down, after Telegram's undo
+  bar. Import `@workbench/elements/toast.css` once and colour it with its
+  `--wb-toast-*` properties; the app places it and moves it in and out. Arctic
+  for the web and Reader use it.
 
-The package exports TypeScript source. It works with React 18 and 19.
+The package exports TypeScript source. It works with React 18 and 19; the
+toast needs 19. The toast uses no hooks, so an app whose React is another copy
+can render it.
 
 ## In a self-contained page
 

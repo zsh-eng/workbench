@@ -44,7 +44,7 @@ import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
 import type { SyncSummary } from "@zsh-eng/local-sync";
 import { useArticles, useSession, useStatusText, useSyncing } from "./state";
-import { preloadSheet, useCompact, useWide } from "./surface";
+import { useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
 import { AccountMenu, CardMenu, CardMenuButton } from "./ui";
 
@@ -107,13 +107,8 @@ export function Library({ folder }: { folder: Folder }) {
   );
 
   useLayoutEffect(() => {
-    if (
-      visible.length &&
-      !performance.getEntriesByName("arctic:cards").length
-    ) {
+    if (visible.length && !performance.getEntriesByName("arctic:cards").length)
       performance.mark("arctic:cards");
-      preloadSheet();
-    }
   }, [visible.length]);
 
   const first = articles.length === 0 && syncing;

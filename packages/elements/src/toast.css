@@ -1,0 +1,197 @@
+/*
+ * Toasts (toast.tsx). An app colours them with these properties, at :root or
+ * on its toaster:
+ *
+ *   --wb-toast-surface, --wb-toast-text, --wb-toast-edge, --wb-toast-shadow
+ *   --wb-toast-fill, --wb-toast-fill-hover   the Undo button
+ *   --wb-toast-radius
+ *   --wb-toast-numerals                      the countdown's font
+ *
+ * Text centres on its capitals and baseline (text-box), so a line sits in the
+ * middle of the toast in any font, and a second line keeps it there.
+ */
+
+@property --wb-countdown-left {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.wb-toast {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 18px;
+  border: 1px solid var(--wb-toast-edge, rgb(0 0 0 / 0.1));
+  border-radius: var(--wb-toast-radius, 24px);
+  background: var(--wb-toast-surface, #fff);
+  color: var(--wb-toast-text, #111);
+  box-shadow: var(
+    --wb-toast-shadow,
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1)
+  );
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The ring and the button sit concentric with the toast's rounded ends. */
+.wb-toast[data-undo] {
+  justify-content: flex-start;
+  padding: 7px 7px 7px 11px;
+  text-align: start;
+}
+
+.wb-toast-message {
+  min-width: 0;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+  text-box: trim-both cap alphabetic;
+}
+.wb-toast[data-undo] .wb-toast-message {
+  flex: 1;
+}
+
+.wb-toast-action {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--wb-toast-fill, rgb(0 0 0 / 0.05));
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wb-toast-action > span {
+  text-box: trim-both cap alphabetic;
+}
+/* A 48 px target: the button's height and the toast's padding above it. */
+.wb-toast-action::before {
+  content: "";
+  position: absolute;
+  inset: -8px 0;
+}
+.wb-toast-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .wb-toast-action:hover {
+    background: var(--wb-toast-fill-hover, rgb(0 0 0 / 0.09));
+  }
+}
+
+/* The countdown: one clock drives the ring, the number and its roll. */
+.wb-countdown {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  counter-reset: wb-countdown var(--wb-countdown-left);
+  animation: wb-countdown-count calc(var(--wb-countdown-seconds) * 1s)
+    steps(var(--wb-countdown-seconds), end) forwards;
+}
+.wb-countdown svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  rotate: -90deg;
+}
+.wb-countdown circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+}
+.wb-countdown-track {
+  opacity: 0.15;
+}
+.wb-countdown-ring {
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  animation: wb-countdown-drain calc(var(--wb-countdown-seconds) * 1s) linear
+    forwards;
+}
+.wb-countdown-digit {
+  font-family: var(--wb-toast-numerals, inherit);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-box: trim-both cap alphabetic;
+  animation: wb-countdown-tick 1s var(--wb-countdown-seconds) both;
+}
+.wb-countdown-digit::before {
+  content: counter(wb-countdown);
+}
+
+/* Pointing at a toast, focus in it, or a hidden page holds the time left. */
+.wb-countdown,
+.wb-countdown-ring,
+.wb-countdown-digit {
+  animation-play-state: var(--wb-countdown-play, running);
+}
+.wb-countdown:is([data-paused], [data-hidden]),
+.wb-toast:focus-within {
+  --wb-countdown-play: paused;
+}
+@media (hover: hover) {
+  .wb-toast:hover {
+    --wb-countdown-play: paused;
+  }
+}
+
+@keyframes wb-countdown-count {
+  from {
+    --wb-countdown-left: var(--wb-countdown-seconds);
+  }
+  to {
+    --wb-countdown-left: 0;
+  }
+}
+@keyframes wb-countdown-drain {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 1;
+  }
+}
+/* Each second the number rolls down and out, and the next rolls in. */
+@keyframes wb-countdown-tick {
+  0% {
+    opacity: 0;
+    translate: 0 -0.45em;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  24%,
+  86% {
+    opacity: 1;
+    translate: 0 0;
+    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  }
+  100% {
+    opacity: 0;
+    translate: 0 0.45em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-countdown-digit {
+    animation: none;
+  }
+}
