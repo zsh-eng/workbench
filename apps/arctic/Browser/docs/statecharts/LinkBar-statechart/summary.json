@@ -1,0 +1,185 @@
+{
+  "view": "customer",
+  "second": {
+    "role": "fix",
+    "label": "the fix",
+    "lacks": []
+  },
+  "modelStates": 64,
+  "modelTransitions": 236,
+  "chartStates": 13,
+  "chartTransitions": 17,
+  "chartStatus": {
+    "works": 13,
+    "wrong": 0,
+    "fixed": 3,
+    "mixed": 0,
+    "after": 0,
+    "worse": 0
+  },
+  "mixedStatus": [],
+  "cover": {
+    "drawn": true,
+    "states": 16,
+    "transitions": 82,
+    "leftOutStates": [
+      "Link bar, a link typed (an earlier Paste waits)",
+      "Link bar, empty (an earlier Paste waits)",
+      "Link bar, not a link (an earlier Paste waits)"
+    ],
+    "leftOutTransitions": [
+      "A link saved after Cancel --> Library, filtered: Search, or pick a topic",
+      "A link saved after Cancel --> Library: Search, or pick a topic",
+      "A link saved after Cancel --> Link bar, empty: Tap +",
+      "Library (an earlier Paste waits) --> Library: The browser refuses the clipboard",
+      "Library (an earlier Paste waits) --> Link bar, empty (an earlier Paste waits): Tap +",
+      "Library (an earlier Paste waits) --> Link bar, waiting for the clipboard: Tap +",
+      "Library (an earlier Paste waits) --> Saved, the new link at the top: The clipboard gives a link",
+      "Library, filtered (an earlier Paste waits) --> Library (an earlier Paste waits): Search, or pick a topic",
+      "Library, filtered (an earlier Paste waits) --> Library, filtered: The browser refuses the clipboard",
+      "Library, filtered (an earlier Paste waits) --> Link bar, empty (an earlier Paste waits): Tap +",
+      "Library, filtered (an earlier Paste waits) --> Link bar, waiting for the clipboard: Tap +",
+      "Library, filtered (an earlier Paste waits) --> Saved, but the filter hides the new link: The clipboard gives a link",
+      "Library, filtered (an earlier Paste waits) --> Saved, the new link at the top: The clipboard gives a link",
+      "Library, filtered --> Library: Search, or pick a topic",
+      "Link bar, a link typed (an earlier Paste waits) --> A link saved after Cancel: The clipboard gives a link",
+      "Link bar, a link typed (an earlier Paste waits) --> Library (an earlier Paste waits): Tap × or the list",
+      "Link bar, a link typed (an earlier Paste waits) --> Library, filtered (an earlier Paste waits): Tap × or the list",
+      "Link bar, a link typed (an earlier Paste waits) --> Link bar, a link typed: The browser refuses the clipboard",
+      "Link bar, a link typed (an earlier Paste waits) --> Link bar, not a link (an earlier Paste waits): Type in the field",
+      "Link bar, a link typed (an earlier Paste waits) --> Saved, but the filter hides the new link (an earlier Paste waits): Tap Save",
+      "Link bar, a link typed (an earlier Paste waits) --> Saved, the new link at the top (an earlier Paste waits): Tap Save",
+      "Link bar, a link typed --> Library, filtered: Tap × or the list",
+      "Link bar, a link typed --> Library: Tap × or the list",
+      "Link bar, a link typed --> Link bar, not a link: Type in the field",
+      "Link bar, empty (an earlier Paste waits) --> A link saved after Cancel: The clipboard gives a link",
+      "Link bar, empty (an earlier Paste waits) --> Library (an earlier Paste waits): Tap × or the list",
+      "Link bar, empty (an earlier Paste waits) --> Library, filtered (an earlier Paste waits): Tap × or the list",
+      "Link bar, empty (an earlier Paste waits) --> Link bar, a link typed (an earlier Paste waits): Type in the field",
+      "Link bar, empty (an earlier Paste waits) --> Link bar, empty: The browser refuses the clipboard",
+      "Link bar, empty (an earlier Paste waits) --> Link bar, not a link (an earlier Paste waits): Type in the field",
+      "Link bar, empty --> Library, filtered: Tap × or the list",
+      "Link bar, empty --> Library: Tap × or the list",
+      "Link bar, not a link (an earlier Paste waits) --> A link saved after Cancel: The clipboard gives a link",
+      "Link bar, not a link (an earlier Paste waits) --> Library (an earlier Paste waits): Tap × or the list",
+      "Link bar, not a link (an earlier Paste waits) --> Library, filtered (an earlier Paste waits): Tap × or the list",
+      "Link bar, not a link (an earlier Paste waits) --> Link bar, a link typed (an earlier Paste waits): Type in the field",
+      "Link bar, not a link (an earlier Paste waits) --> Link bar, not a link: The browser refuses the clipboard",
+      "Link bar, not a link --> Library, filtered: Tap × or the list",
+      "Link bar, not a link --> Library: Tap × or the list",
+      "Link bar, not a link --> Link bar, a link typed: Type in the field",
+      "Link bar, waiting for the clipboard --> Library, filtered (an earlier Paste waits): Tap × or the list",
+      "Link bar, waiting for the clipboard --> Link bar, a link typed: The browser refuses the clipboard",
+      "Link bar, waiting for the clipboard --> Link bar, empty: The browser refuses the clipboard",
+      "Link bar, waiting for the clipboard --> Link bar, not a link: The browser refuses the clipboard",
+      "Link bar, waiting for the clipboard --> Saved, but the filter hides the new link: The clipboard gives a link",
+      "Link bar, waiting for the clipboard --> Saved, the new link at the top: The clipboard gives a link",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> A link saved after Cancel: The clipboard gives a link",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> Library (an earlier Paste waits): Search, or pick a topic",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> Library, filtered: The browser refuses the clipboard",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> Link bar, empty (an earlier Paste waits): Tap +",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> Link bar, waiting for the clipboard: Tap +",
+      "Saved, but the filter hides the new link (an earlier Paste waits) --> Saved, but the filter hides the new link: The clipboard gives a link",
+      "Saved, but the filter hides the new link --> Library: Search, or pick a topic",
+      "Saved, but the filter hides the new link --> Link bar, empty: Tap +",
+      "Saved, the new link at the top (an earlier Paste waits) --> A link saved after Cancel: The clipboard gives a link",
+      "Saved, the new link at the top (an earlier Paste waits) --> Library (an earlier Paste waits): Search, or pick a topic",
+      "Saved, the new link at the top (an earlier Paste waits) --> Library, filtered (an earlier Paste waits): Search, or pick a topic",
+      "Saved, the new link at the top (an earlier Paste waits) --> Library, filtered: The browser refuses the clipboard",
+      "Saved, the new link at the top (an earlier Paste waits) --> Library: The browser refuses the clipboard",
+      "Saved, the new link at the top (an earlier Paste waits) --> Link bar, empty (an earlier Paste waits): Tap +",
+      "Saved, the new link at the top (an earlier Paste waits) --> Link bar, waiting for the clipboard: Tap +",
+      "Saved, the new link at the top (an earlier Paste waits) --> Saved, the new link at the top: The clipboard gives a link",
+      "Saved, the new link at the top --> Library, filtered: Search, or pick a topic",
+      "Saved, the new link at the top --> Library: Search, or pick a topic",
+      "Saved, the new link at the top --> Link bar, empty: Tap +"
+    ]
+  },
+  "chartGroups": [
+    {
+      "name": "Library",
+      "color": "#d6eaf8",
+      "states": 4
+    },
+    {
+      "name": "Link bar",
+      "color": "#fdebd0",
+      "states": 4
+    },
+    {
+      "name": "Saved",
+      "color": "#e8daef",
+      "states": 5
+    }
+  ],
+  "mixedGroups": [],
+  "classes": [
+    {
+      "n": 1,
+      "end": "A link saved after Cancel",
+      "invariant": "CancelSavesNothing",
+      "rule": "After you cancel the link bar, nothing you did in it gets saved.",
+      "cause": null,
+      "readerSteps": 4,
+      "modelSteps": 5,
+      "counterexamples": 4,
+      "lastSteps": [
+        "The clipboard gives a link"
+      ],
+      "startsHere": false,
+      "fix": "Library (an earlier Paste waits)"
+    },
+    {
+      "n": 2,
+      "end": "Saved, but the filter hides the new link",
+      "invariant": "SavedLinkInView",
+      "rule": "When a save from the link bar is done, its card is in view.",
+      "cause": null,
+      "readerSteps": 4,
+      "modelSteps": 5,
+      "counterexamples": 1,
+      "lastSteps": [
+        "The clipboard gives a link",
+        "Tap Save"
+      ],
+      "startsHere": false,
+      "fix": "Saved, the new link at the top"
+    },
+    {
+      "n": 3,
+      "end": "A link saved after Cancel",
+      "invariant": "SavedLinkInView",
+      "rule": "When a save from the link bar is done, its card is in view.",
+      "cause": null,
+      "readerSteps": 5,
+      "modelSteps": 6,
+      "counterexamples": 1,
+      "lastSteps": [
+        "The clipboard gives a link"
+      ],
+      "startsHere": false,
+      "fix": "Library, filtered (an earlier Paste waits)"
+    },
+    {
+      "n": 4,
+      "end": "Saved, but the filter hides the new link (an earlier Paste waits)",
+      "invariant": "SavedLinkInView",
+      "rule": "When a save from the link bar is done, its card is in view.",
+      "cause": null,
+      "readerSteps": 5,
+      "modelSteps": 6,
+      "counterexamples": 2,
+      "lastSteps": [
+        "Tap Save"
+      ],
+      "startsHere": false,
+      "fix": "Saved, the new link at the top (an earlier Paste waits)"
+    }
+  ],
+  "codeLike": [],
+  "uncited": {
+    "LinkBar.tla": [],
+    "LinkBarFixed.tla": []
+  },
+  "brokenProperties": []
+}

@@ -1,0 +1,87 @@
+{
+  "view": "customer",
+  "modelStates": 22,
+  "modelTransitions": 64,
+  "chartStates": 13,
+  "chartTransitions": 11,
+  "chartStatus": {
+    "works": 13,
+    "wrong": 1,
+    "fixed": 0,
+    "mixed": 0,
+    "after": 0
+  },
+  "mixedStatus": [],
+  "cover": {
+    "drawn": true,
+    "states": 14,
+    "transitions": 40,
+    "leftOutStates": [
+      "Text and theme loading"
+    ],
+    "leftOutTransitions": [
+      "Library (offline) --> Library: The connection returns",
+      "Library (the sheet's code failed) --> Library (the sheet's code failed, offline): The connection drops",
+      "Library (the sheet's code failed) --> Reading (the sheet's code failed): Open an article",
+      "Library (the sheet's code failed, offline) --> Reading (the sheet's code failed, offline): Open an article",
+      "Library --> Library (offline): The connection drops",
+      "Reading (offline) --> Library (offline): Back",
+      "Reading (offline) --> Reading: The connection returns",
+      "Reading (the sheet's code failed) --> Library (the sheet's code failed): Back",
+      "Reading (the sheet's code failed) --> Reading (the sheet's code failed, offline): The connection drops",
+      "Reading (the sheet's code failed) --> Text and theme tapped, nothing opens: Tap Text and theme",
+      "Reading (the sheet's code failed, offline) --> Library (the sheet's code failed, offline): Back",
+      "Reading (the sheet's code failed, offline) --> Text and theme tapped, nothing opens (offline): Tap Text and theme",
+      "Reading --> Library: Back",
+      "Reading --> Reading (offline): The connection drops",
+      "Reading --> Text and theme loading: Tap Text and theme",
+      "Text and theme loading (offline) --> Library (offline): Back",
+      "Text and theme loading (offline) --> Text and theme loading: The connection returns",
+      "Text and theme loading --> Library: Back",
+      "Text and theme loading --> Text and theme loading (offline): The connection drops",
+      "Text and theme loading --> Text and theme open: The sheet's code arrives",
+      "Text and theme open (offline) --> Library (offline): Back",
+      "Text and theme open (offline) --> Reading (offline): Close the sheet",
+      "Text and theme open (offline) --> Text and theme open: The connection returns",
+      "Text and theme open --> Library: Back",
+      "Text and theme open --> Reading: Close the sheet",
+      "Text and theme open --> Text and theme open (offline): The connection drops",
+      "Text and theme tapped, nothing opens (offline) --> Library (the sheet's code failed, offline): Back",
+      "Text and theme tapped, nothing opens --> Library (the sheet's code failed): Back",
+      "Text and theme tapped, nothing opens --> Text and theme tapped, nothing opens (offline): The connection drops"
+    ]
+  },
+  "chartGroups": [
+    {
+      "name": "Library",
+      "color": "#d6eaf8",
+      "states": 4
+    },
+    {
+      "name": "Reading",
+      "color": "#fdebd0",
+      "states": 9
+    }
+  ],
+  "mixedGroups": [],
+  "classes": [
+    {
+      "n": 1,
+      "end": "Text and theme tapped, nothing opens",
+      "invariant": "SheetShowsOnline",
+      "rule": "Once things settle while online, the Text and theme sheet you tapped is on screen.",
+      "cause": null,
+      "readerSteps": 4,
+      "modelSteps": 5,
+      "counterexamples": 1,
+      "lastSteps": [
+        "Tap Text and theme",
+        "The connection returns"
+      ],
+      "startsHere": false,
+      "fix": null
+    }
+  ],
+  "codeLike": [],
+  "brokenProperties": []
+}
