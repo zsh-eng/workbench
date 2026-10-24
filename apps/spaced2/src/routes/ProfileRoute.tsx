@@ -3,7 +3,7 @@ import { useOnlineStatus } from "@/components/hooks/online-status";
 import { ImagesLinkButton } from "@/components/profile/images-link-button";
 import { LoginButton } from "@/components/profile/login-button";
 import { LogoutButton } from "@/components/profile/logout-button";
-import OfflineUsageDialog from "@/components/profile/offline-usage-dialog";
+import { ConnectionNotice } from "@/components/profile/connection-notice";
 import { StatsLinkButton } from "@/components/profile/stats-link-button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { SiGithub } from "@icons-pack/react-simple-icons";
@@ -19,11 +19,11 @@ export default function ProfileRoute() {
         Profile
       </h1>
 
+      <ConnectionNotice status={online ? "online" : "offline"} />
       <ThemeToggle />
       <StatsLinkButton />
       <ImagesLinkButton />
 
-      {!online && <OfflineUsageDialog />}
       {loggedIn.isLoggedIn ? <LogoutButton /> : <LoginButton />}
 
       <Link
