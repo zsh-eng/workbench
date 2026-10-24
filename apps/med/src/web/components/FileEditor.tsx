@@ -201,6 +201,17 @@ export default function FileEditor({
   });
   const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
     context;
+  // Another program changed the file after the draft's text was read: the
+  // watch found it, or the file read again differs from an unsaved draft's.
+  // A save on its way changes the file too, so its answer decides.
+  const changedOnDisk =
+    !draft.saving &&
+    (stale ||
+      (draft.dirty &&
+        !context.loading &&
+        context.file?.kind === "text" &&
+        context.file.path === draft.file.path &&
+        context.file.identity !== draft.file.identity));
   const changes = useMemo(() => createChangeGutter(), []);
   const [localBlame, setLocalBlame] = useState(false);
   const [blameNotice, setBlameNotice] = useState("");
@@ -806,6 +817,18 @@ export default function FileEditor({
       {draft.error && (
         <div role="alert" className="med-editor-message">
           {draft.error}
+        </div>
+      )}
+      {changedOnDisk && !draft.error && (
+        <div role="status" className="med-editor-message">
+          {draft.dirty ? (
+            "The file changed on disk. Your draft is kept, and Save will not replace the file."
+          ) : (
+            <>
+              The file changed on disk.{" "}
+              <button onClick={context.onRefresh}>Refresh contents</button>
+            </>
+          )}
         </div>
       )}
       {clipboardError && (
