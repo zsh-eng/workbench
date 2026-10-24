@@ -6,6 +6,32 @@ const workerOptions = [
   ...(config ? ["--config", config] : []),
   ...(persist ? ["--persist-to", persist] : []),
 ];
+// SHARED_API_PORT and SHARED_APP_PORT (with one app) move the stack off the
+// usual ports, so test suites in two worktrees can run at once.
+const apiPort = process.env.SHARED_API_PORT ?? "8792";
+const apps = [
+  ["reader", "5175"],
+  ["spaced2", "5180"],
+  ["arctic/Browser", "5186"],
+]
+  .filter(
+    ([app]) =>
+      !process.env.SHARED_APPS ||
+      process.env.SHARED_APPS.split(",").includes(app!),
+  )
+  .map(([app, port]) => [app!, process.env.SHARED_APP_PORT ?? port!]);
+const moved =
+  !!process.env.SHARED_API_PORT || !!process.env.SHARED_APP_PORT
+    ? [
+        "--var",
+        `BASE_URL:http://localhost:${apiPort}`,
+        "--var",
+        `APP_ORIGINS:${apps.map(([, port]) => `http://localhost:${port}`).join(",")}`,
+        ...(process.env.SHARED_INSPECTOR_PORT
+          ? ["--inspector-port", process.env.SHARED_INSPECTOR_PORT]
+          : []),
+      ]
+    : [];
 for (const command of [
   ["bun", "run", "build:packages"],
   [
@@ -38,8 +64,9 @@ const children = [
       "dev",
       "--local",
       "--port",
-      "8792",
+      apiPort,
       ...workerOptions,
+      ...moved,
     ],
     {
       cwd: `${root}apps/sync-server`,
@@ -48,37 +75,30 @@ const children = [
     },
   ),
   // SHARED_APPS=arctic/Browser starts one app; the default starts all three.
-  ...[
-    ["reader", "5175"],
-    ["spaced2", "5180"],
-    ["arctic/Browser", "5186"],
-  ]
-    .filter(
-      ([app]) =>
-        !process.env.SHARED_APPS ||
-        process.env.SHARED_APPS.split(",").includes(app!),
-    )
-    .map(([app, port]) =>
-      Bun.spawn(
-        [
-          "bun",
-          "x",
-          "--no-install",
-          "vite",
-          "--host",
-          "localhost",
-          "--port",
-          port,
-          "--strictPort",
-        ],
-        {
-          cwd: `${root}apps/${app}`,
-          env: { ...process.env, VITE_SHARED_API_URL: "http://localhost:8792" },
-          stdout: "inherit",
-          stderr: "inherit",
+  ...apps.map(([app, port]) =>
+    Bun.spawn(
+      [
+        "bun",
+        "x",
+        "--no-install",
+        "vite",
+        "--host",
+        "localhost",
+        "--port",
+        port,
+        "--strictPort",
+      ],
+      {
+        cwd: `${root}apps/${app}`,
+        env: {
+          ...process.env,
+          VITE_SHARED_API_URL: `http://localhost:${apiPort}`,
         },
-      ),
+        stdout: "inherit",
+        stderr: "inherit",
+      },
     ),
+  ),
 ];
 function stop() {
   for (const child of children) child.kill("SIGTERM");

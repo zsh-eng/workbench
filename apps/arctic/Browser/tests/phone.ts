@@ -6,8 +6,8 @@ import {
 import { createHash } from "node:crypto";
 import { xxh64 } from "../src/sync/xxh64";
 
-export const API = "http://localhost:8792";
-const origin = { Origin: "http://localhost:5186" };
+export const API = `http://localhost:${process.env.E2E_API_PORT ?? "8792"}`;
+const origin = { Origin: `http://localhost:${process.env.E2E_PORT ?? "5186"}` };
 
 /** A fresh local account; the browser context holds its session. */
 export async function signUp(context: BrowserContext) {
