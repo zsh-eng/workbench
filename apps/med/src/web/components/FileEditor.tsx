@@ -614,12 +614,13 @@ export default function FileEditor({
     ];
     const state = draft.state
       ? draft.state.update({ effects: StateEffect.reconfigure.of(extensions) }).state
-      : EditorState.create({ doc: draft.savedText, extensions });
+      : EditorState.create({ doc: draft.text ?? draft.savedText, extensions });
     const editor = new EditorView({ state, parent: body.current });
     view.current = editor;
     editor.requestMeasure({ read: () => null, write: () => paintGutters.current() });
     cursorLine.current(editor.state.doc.lineAt(editor.state.selection.main.head).number);
-    drafts.update(draft, { state: editor.state });
+    // A draft from storage has its text; from now on, the editor holds it.
+    drafts.update(draft, { state: editor.state, text: undefined });
     const cm = getCM(editor)!;
     actions.set(cm, {
       scroll: (y) => {

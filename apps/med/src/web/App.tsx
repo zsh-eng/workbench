@@ -55,7 +55,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   useDisposeOnClose,
-  useParkedDrafts,
+  useWindowDrafts,
   useShell,
   useTabCommands,
   useThread,
@@ -518,9 +518,12 @@ export function App({
   );
   const browseApi = prefetch.api;
   useDisposeOnClose(prefetch.dispose);
-  // An unsaved draft outlasts its workspace: it waits in the window.
-  const parkedDrafts = useParkedDrafts();
-  const [editorDrafts] = useState(() => createEditorDrafts(parkedDrafts ?? undefined));
+  // An unsaved draft outlasts its workspace and a reload: it waits in the
+  // window and in the browser's storage, under this workspace.
+  const windowDrafts = useWindowDrafts();
+  const [editorDrafts] = useState(() =>
+    createEditorDrafts(windowDrafts ?? undefined, workspace?.id),
+  );
   useDisposeOnClose(editorDrafts.park);
   // In the window's shell, open files outlast a restart. A tab with an
   // unsaved draft keeps its place in a full row.
@@ -531,7 +534,10 @@ export function App({
     }),
   );
   useSyncExternalStore(editorDrafts.subscribe, editorDrafts.getSnapshot);
+  // In the window's shell, the window warns only for a draft that storage
+  // did not take.
   useEffect(() => {
+    if (windowDrafts) return;
     const warn = (event: BeforeUnloadEvent) => {
       if (editorDrafts.hasDirty()) {
         event.preventDefault();
@@ -540,7 +546,7 @@ export function App({
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [editorDrafts]);
+  }, [editorDrafts, windowDrafts]);
 
   const [loadBlame] = useState(
     () =>
@@ -3654,7 +3660,7 @@ export function App({
                   label: "Close workspace",
                   // The home workspace and vaults stay.
                   disabled: workspace.pinned,
-                  run: () => workspace.close(workspace.id),
+                  run: () => workspace.requestClose(workspace.id),
                 },
               ]),
         ]

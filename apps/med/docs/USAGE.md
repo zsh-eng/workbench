@@ -614,8 +614,12 @@ draft is unsaved.
 Drafts and their undo history stay in memory across tab switches and closes;
 open the file again to resume. An unsaved draft also stays when you close its
 workspace, or when Med unloads a workspace that you have not shown for a
-while; it comes back when you open the file again. Med keeps up to 24 drafts
-in each workspace. A reload warns about unsaved work but loses drafts.
+while; it comes back when you open the file again. Closing a tab or a
+workspace with unsaved drafts asks first. Unsaved drafts are also kept in the
+browser's storage, by workspace and file, so they come back after a reload,
+without their undo history. If the file changed meanwhile, the editor says so.
+Med keeps up to 24 drafts in each workspace. Leaving the page warns only when
+the browser could not keep a draft, as when its storage is full.
 
 If another process changes the file, the editor says so. A saved draft offers
 **Refresh contents**. An unsaved draft stays, and the editor shows what changed
