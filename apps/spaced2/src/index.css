@@ -7,6 +7,33 @@
 @config '../tailwind.config.js';
 
 /*
+  Layers, bottom to top. Each layer is its own stacking context, so a z-index
+  inside one (a number such as z-10) only orders siblings there and never
+  reaches another layer. Use these names, not numbers, to place a layer:
+
+  - content (the base, no z-index): the routes, inside <main class="isolate">.
+    Fixed or z-indexed parts of a page stay under the app's chrome.
+  - sticky: app headers and floating controls (logo, Return to top).
+  - tabbar: the bottom tab bar on phones, the side rail on desktops.
+  - overlay: dialogs, sheets and drawers, with their scrims. Portal them.
+  - popover: menus, selects and tooltips; they can open inside an overlay.
+  - toast: toasts, above everything.
+*/
+@theme static {
+  --z-index-sticky: 10;
+  --z-index-tabbar: 20;
+  --z-index-overlay: 30;
+  --z-index-popover: 40;
+  --z-index-toast: 50;
+}
+
+/* The tab bar's height, and the space a page keeps free for it on phones. */
+:root {
+  --tabbar-height: 3.5rem;
+  --tabbar-space: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+/*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still
   looks the same as it did with Tailwind CSS v3.

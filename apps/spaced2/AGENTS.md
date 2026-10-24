@@ -9,6 +9,13 @@ private local benchmark and browser fixtures. Preserve React 18, Vite 6,
 Zod 3 domain validation and the FSRS parameters during structural changes.
 The sync package owns its separate Zod dependency.
 
+Give each app layer a name from the scale in `src/index.css` (`z-sticky`,
+`z-tabbar`, `z-overlay`, `z-popover`, `z-toast`). A bare number such as `z-10`
+only orders siblings inside one layer. Routes render in an isolated `<main>`,
+so a page's own z-index stays under the tab bar. After layout or layer
+changes, run `bun run test:browser` in this directory (Chromium, with a dev
+server on `SPACED_BROWSER_PORT`, default 5249).
+
 Keep local writes independent of network requests. Preserve the active review
 card during background changes. Test UI changes in a browser. Do not include
 private backups, optimizer data, credentials, or local state in Git.

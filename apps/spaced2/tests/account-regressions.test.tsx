@@ -335,6 +335,42 @@ test("offline account triggers are disabled native buttons", async () => {
   expect(buttons.every((button) => !button.disabled)).toBe(true);
 });
 
+test("offline, the profile leads with the offline notice, and the notice goes when back online", async () => {
+  globalThis.fetch = (async () =>
+    new Response(null, { status: 401 })) as typeof fetch;
+  Object.defineProperty(navigator, "onLine", {
+    value: false,
+    configurable: true,
+  });
+  const { default: ProfileRoute } = await import("@/routes/ProfileRoute");
+  const view = await mount(
+    <ThemeProvider storageKey="account-test-theme">
+      <MemoryRouter initialEntries={["/profile"]}>
+        <ProfileRoute />
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
+  const notice = view.container.querySelector('[role="status"]');
+  expect(notice?.textContent).toContain("You're offline");
+  // Not wedged between the buttons: every control on the page follows it.
+  const controls = [...view.container.querySelectorAll("button, a")];
+  expect(controls.length).toBeGreaterThan(0);
+  for (const control of controls)
+    expect(
+      notice!.compareDocumentPosition(control) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+  Object.defineProperty(navigator, "onLine", {
+    value: true,
+    configurable: true,
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event("online"));
+  });
+  expect(view.container.querySelector('[role="status"]')).toBeNull();
+});
+
 test("privacy cleanup rejects failed logout, retries local failure offline, and blocks late sync writes", async () => {
   const child = Bun.spawn(
     [

@@ -1,6 +1,6 @@
 import FlashcardTable from "@/components/cards-table";
 import DeckCard from "@/components/deck/deck-card";
-import OfflineUsageDialog from "@/components/profile/offline-usage-dialog";
+import { ConnectionNotice } from "@/components/profile/connection-notice";
 import EmptyReviewUi from "@/components/review/empty";
 import EmptyStats from "@/components/stats/empty";
 import { SyncBoundary, type SyncStatusSource } from "@/components/sync-status";
@@ -50,10 +50,9 @@ function Offline() {
   return (
     <Specimen
       title="Offline notice"
-      note="The Profile page shows this while the device is offline. What can I do? opens the explanation."
-      surface="card"
+      note="The top of the Profile page while the device is offline. It goes away when the device is back online."
     >
-      <OfflineUsageDialog />
+      <ConnectionNotice status="offline" />
     </Specimen>
   );
 }

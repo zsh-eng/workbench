@@ -105,7 +105,7 @@ export function ElementsLayout({
   return (
     <StageContext.Provider value={stage}>
       <div className="min-h-svh bg-background text-foreground">
-        <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur">
+        <header className="sticky top-0 z-sticky border-b border-border bg-background/90 backdrop-blur">
           <div className="flex h-12 items-center gap-2 px-4">
             <a
               href="/"

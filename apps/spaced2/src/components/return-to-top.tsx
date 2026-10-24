@@ -20,7 +20,7 @@ export default function ReturnToTop() {
     <div
       // Make the surrounding hit area slighlty bigger
       className={cn(
-        "fixed top-4 left-1/2 -translate-x-1/2 z-30 py-4 px-8",
+        "fixed top-4 left-1/2 -translate-x-1/2 z-sticky py-4 px-8",
         !isVisible && "pointer-events-none",
       )}
       aria-hidden={!isVisible}

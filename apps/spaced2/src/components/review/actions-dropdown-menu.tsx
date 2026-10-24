@@ -53,7 +53,7 @@ export default function ActionsDropdownMenu({
 
         <DropdownMenuContent
           className={cn(
-            "w-56 sm:w-40 text-muted-foreground text-base sm:text-sm bg-muted/80 backdrop-blur-xl rounded-lg p-1 flex flex-col shadow-sm mt-0 mr-6 animate-fade-in-dropdown-menu z-20 gap-1",
+            "w-56 sm:w-40 text-muted-foreground text-base sm:text-sm bg-muted/80 backdrop-blur-xl rounded-lg p-1 flex flex-col shadow-sm mt-0 mr-6 animate-fade-in-dropdown-menu gap-1",
             "sm:-mt-2",
           )}
           align="end"
