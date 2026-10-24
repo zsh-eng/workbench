@@ -331,8 +331,8 @@ function ReadFor({ url }: { url: string }) {
   const seconds = useMemo(
     () =>
       readingSessions(session.reading)
-        .filter((visit) => visit.articleURL === url)
-        .reduce((sum, visit) => sum + visit.seconds, 0),
+        .filter((visit) => visit.subject.id === url)
+        .reduce((sum, visit) => sum + visit.activeMs / 1000, 0),
     // The revision changes with the records.
     [session, url, revision],
   );
