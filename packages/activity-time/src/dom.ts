@@ -51,7 +51,7 @@ export function observeInteraction(
 ): () => void {
   const win = options.target ?? window;
   const doc = win.document;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => Date.now());
   const pauseOnBlur = options.pauseOnBlur ?? true;
   const scrollAfterInputMs = options.scrollAfterInputMs ?? 1000;
   const exit = handlers.exit ?? handlers.pause;

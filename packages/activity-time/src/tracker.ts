@@ -67,7 +67,8 @@ export class ActivityTracker<P = null> {
     this.app = options.app;
     this.gapMs = options.gapMs ?? DEFAULT_GAP_MS;
     this.checkpointMs = options.checkpointMs ?? CHECKPOINT_MS;
-    this.now = options.now ?? Date.now;
+    // Read `Date` on each call, so that a test clock installed later applies.
+    this.now = options.now ?? (() => Date.now());
     this.device = options.device ?? null;
     this.persist = options.persist ?? (() => undefined);
     this.onError = options.onError ?? (() => undefined);
