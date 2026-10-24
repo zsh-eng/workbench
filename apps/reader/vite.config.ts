@@ -35,7 +35,9 @@ export default defineConfig(({ command, mode }) => ({
       workbox: {
         // Built-in document and pagination-worker fonts must be available from
         // CacheStorage on repeat launches, without an HTTP cache revalidation.
-        globPatterns: ["**/*.{js,css,html,woff,woff2}"],
+        // Every browser that runs the service worker takes the woff2 source,
+        // so the woff fallbacks Fontsource also emits stay out.
+        globPatterns: ["**/*.{js,css,html,woff2}"],
         // Explicit registration must retain the existing auto-update lifecycle.
         skipWaiting: true,
         clientsClaim: true,
