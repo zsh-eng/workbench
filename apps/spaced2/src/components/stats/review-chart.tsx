@@ -117,14 +117,15 @@ export function ReviewChart({ reviewLogs }: ReviewChartProps) {
             Showing review activity for the last 3 months
           </CardDescription>
         </div>
-        <div className="flex flex-wrap">
+        {/* One row of four on phones too; wrapping left Relearning alone. */}
+        <div className="grid grid-cols-4 sm:flex sm:flex-wrap">
           {(["new", "learning", "review", "relearning"] as const).map(
             (chart) => {
               return (
                 <button
                   key={chart}
                   data-active={activeChart === chart}
-                  className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
+                  className="flex min-w-0 flex-col justify-center gap-1 border-t px-3 py-4 text-left not-first:border-l data-[active=true]:bg-muted/50 sm:flex-1 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
                   onClick={() => setActiveChart(chart)}
                 >
                   <span className="text-xs text-muted-foreground">
