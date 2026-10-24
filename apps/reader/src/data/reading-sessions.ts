@@ -1,11 +1,14 @@
 /** Reading-duration records and cleanup of sessions left open by a device. */
 import { getOrCreateDeviceId } from "@/lib/device";
+import { READER_GAP_MS, type ReaderSessionRow } from "@workbench/activity-time";
 import Dexie from "dexie";
 import { db, isNotDeleted } from "./database";
 
-export const READING_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+/** A longer pause between inputs counts nothing (`packages/activity-time`). */
+export const READING_SESSION_IDLE_TIMEOUT_MS = READER_GAP_MS;
 
-export interface ReadingSession {
+/** The stored row; `fromReaderSession` reads it as a shared activity session. */
+export interface ReadingSession extends ReaderSessionRow {
   id: string; // UUID primary key for this reader-open session
   bookId: string; // Foreign key to Book
   deviceId: string; // Device that owns this session

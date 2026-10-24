@@ -93,6 +93,9 @@ export default defineConfig(({ command, mode }) => ({
       "@": path.resolve(__dirname, "./src"),
       "@server": path.resolve(__dirname, "./server"),
     },
+    // Workspace packages link their React peer from the workspace root,
+    // which can be another version. One copy keeps their hooks working.
+    dedupe: ["react", "react-dom"],
   },
   server: {
     allowedHosts: ["fe-dev.zsheng.app", "pc.zsheng.app"],

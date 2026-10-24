@@ -16,6 +16,9 @@ export default defineProject({
       "@": path.resolve(__dirname, "./src"),
       "@server": path.resolve(__dirname, "./server"),
     },
+    // Workspace packages link their React peer from the workspace root,
+    // which can be another version. One copy keeps their hooks working.
+    dedupe: ["react", "react-dom"],
   },
   test: {
     name: "client",
