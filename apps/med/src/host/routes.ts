@@ -34,9 +34,15 @@ export function routeTable(routes: readonly Route[]) {
     find(method: string | undefined, path: string) {
       const entry = byKey.get(`${method} ${path}`);
       if (!entry) return undefined;
-      return async (url: URL, body: () => Promise<unknown>, context: RouteContext) => {
+      return async (
+        url: URL,
+        body: (limit?: number) => Promise<unknown>,
+        context: RouteContext,
+      ) => {
         const raw =
-          entry.contract.method === "GET" ? Object.fromEntries(url.searchParams) : await body();
+          entry.contract.method === "GET"
+            ? Object.fromEntries(url.searchParams)
+            : await body(entry.contract.maxBody);
         return entry.handle(entry.contract.input.parse(raw), context);
       };
     },

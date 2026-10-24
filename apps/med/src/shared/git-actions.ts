@@ -67,10 +67,12 @@ export const fileChangesSchema = z.object({
   tooLarge: z.boolean(),
 });
 export type FileChanges = z.infer<typeof fileChangesSchema>;
+/** Commit all sends every changed path; a large checkout can have many. */
+const STAGE_PATHS = 200_000;
 export const stageRequestSchema = z.object({
   repo: repoField,
   /** Omitted: every change. */
-  paths: z.array(z.string().min(1).max(4096)).min(1).max(10_000).optional(),
+  paths: z.array(z.string().min(1).max(4096)).min(1).max(STAGE_PATHS).optional(),
   stage: z.boolean(),
 });
 export type StageRequest = z.infer<typeof stageRequestSchema>;
@@ -114,6 +116,7 @@ export const commitRoutes = {
     path: "/api/git/stage",
     input: stageRequestSchema,
     output: workingStatusSchema,
+    maxBody: 32 * 1024 * 1024,
   },
   commit: {
     method: "POST",

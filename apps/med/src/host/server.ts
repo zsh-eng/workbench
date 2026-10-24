@@ -1736,7 +1736,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         try {
           const routed = routes.find(request.method, url.pathname);
           if (routed) {
-            send(await routed(url, () => readBody(request), { signal: abort.signal, requireRepo }));
+            send(
+              await routed(url, (limit) => readBody(request, limit), {
+                signal: abort.signal,
+                requireRepo,
+              }),
+            );
             return;
           }
           if (

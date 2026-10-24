@@ -248,14 +248,26 @@ export async function workingFileChanges(
 export async function stagePaths(input: StageRequest, signal?: AbortSignal) {
   const paths = input.paths ? checkedPaths(input.repo, input.paths) : null;
   const options = { signal, maxBytes: 1024 * 1024, env: LITERAL };
+  // Paths go on standard input: a command line holds about 1 MB, and Commit
+  // all can name every changed file.
+  const named = paths
+    ? { args: ["--pathspec-from-file=-", "--pathspec-file-nul"], input: paths.join("\0") }
+    : null;
   if (input.stage) {
-    await git(input.repo, ["add", "--all", "--", ...(paths ?? [])], options);
+    await git(input.repo, ["add", "--all", ...(named?.args ?? [])], {
+      ...options,
+      input: named?.input,
+    });
     return;
   }
   // Almost every checkout has a first commit; ask Git about HEAD only when the
   // usual command fails.
   try {
-    if (paths) await git(input.repo, ["restore", "--staged", "--", ...paths], options);
+    if (named)
+      await git(input.repo, ["restore", "--staged", ...named.args], {
+        ...options,
+        input: named.input,
+      });
     else await git(input.repo, ["reset", "--quiet"], options);
     return;
   } catch (error) {
@@ -271,8 +283,8 @@ export async function stagePaths(input: StageRequest, signal?: AbortSignal) {
   // Before the first commit, the index is all there is to unstage from.
   await git(
     input.repo,
-    ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--", ...(paths ?? ["."])],
-    options,
+    ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", ...(named?.args ?? ["--", "."])],
+    { ...options, input: named?.input },
   );
 }
 

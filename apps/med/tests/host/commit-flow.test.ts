@@ -137,6 +137,34 @@ test("stages and unstages files, all changes, and literal names, before and afte
   expect((await stage(true, ["../outside"])).status).toBe(400);
 });
 
+test("stages and unstages more paths than one command line holds", async () => {
+  const { repo, stage, commit } = await fixture();
+  await mkdir(join(repo, "many"));
+  // 6,000 paths of 190 characters are more than the 1 MB that macOS allows
+  // for a command's arguments.
+  const paths = Array.from({ length: 6000 }, (_, index) => `many/${"n".repeat(180)}-${index}.ts`);
+  await Promise.all(paths.map((path) => write(repo, path, "one\n")));
+  const states = (state: WorkingStatus) => [
+    ...new Set(state.files.map((file) => `${file.staged ?? "-"} / ${file.unstaged ?? "-"}`)),
+  ];
+
+  // Before the first commit and after it.
+  let result = await stage(true, paths);
+  expect(result.status).toBe(200);
+  expect(result.body.files).toHaveLength(6000);
+  expect(states(result.body)).toEqual(["added / -"]);
+  result = await stage(false, paths);
+  expect(states(result.body)).toEqual(["- / untracked"]);
+  result = await stage(true, paths);
+  expect((await commit("start", result.body.indexKey)).status).toBe(200);
+  await Promise.all(paths.map((path) => write(repo, path, "two\n")));
+  result = await stage(true, paths);
+  expect(states(result.body)).toEqual(["modified / -"]);
+  result = await stage(false, paths);
+  expect(result.body.files).toHaveLength(6000);
+  expect(states(result.body)).toEqual(["- / modified"]);
+});
+
 test("commits only the staged state the view saw, and reports hook output", async () => {
   const { repo, status, stage, commit } = await fixture();
   await write(repo, "a.ts", "a\n");
