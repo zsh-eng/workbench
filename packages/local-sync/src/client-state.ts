@@ -1,4 +1,5 @@
 import { observeSyncHlc, tickSyncHlcBatch } from "./clock.js";
+import { SyncScopeError } from "./errors.js";
 import {
   syncClientStateSchema,
   syncDeviceIdSchema,
@@ -104,12 +105,14 @@ export function bindSyncScope(
           state.scope![key as keyof SyncScope],
       )
     )
-      throw new Error(
+      throw new SyncScopeError(
         "Sync account, namespace, server or epoch changed. Local data is preserved; migration is required.",
       );
     return;
   }
   if (state.bootstrapped || state.pullCursor !== 0)
-    throw new Error("Legacy sync state requires an explicit migration");
+    throw new SyncScopeError(
+      "Legacy sync state requires an explicit migration",
+    );
   store.write({ ...state, scope });
 }

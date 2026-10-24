@@ -3,6 +3,7 @@ import {
   bindSyncScope,
   type SyncClientStateStore,
 } from "./client-state.js";
+import { SyncRecordError, SyncScopeError } from "./errors.js";
 import {
   DEFAULT_SYNC_PULL_LIMIT,
   MAX_SYNC_PUSH_CHANGES,
@@ -120,7 +121,7 @@ export class SyncClient<Prepared> {
     const check = () => {
       controller.signal.throwIfAborted();
       if (this.requireState().deviceId !== deviceId)
-        throw new Error("Sync account/device changed during pull");
+        throw new SyncScopeError("Sync account/device changed during pull");
     };
     try {
       while (true) {
@@ -257,13 +258,13 @@ function* createPushBatches(changes: readonly SyncPushChange[]) {
   for (const change of changes) {
     const validation = syncPushChangeSchema.safeParse(change);
     if (!validation.success) {
-      throw new Error(
+      throw new SyncRecordError(
         `Cannot synchronize record ${change.key}: ${validation.error.message}`,
       );
     }
     const changeBytes = encoder.encode(JSON.stringify(change)).byteLength;
     if (envelopeBytes + changeBytes > MAX_SYNC_PUSH_BODY_BYTES) {
-      throw new Error(
+      throw new SyncRecordError(
         `Cannot synchronize record ${change.key}: encoded mutation exceeds the push body limit`,
       );
     }

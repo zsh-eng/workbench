@@ -1,7 +1,7 @@
 {
   "name": "@zsh-eng/local-sync",
-  "version": "0.2.1",
-  "description": "Local-first record sync with explicit storage, Dexie and Hono/D1 adapters",
+  "version": "0.3.0",
+  "description": "Local-first record sync with explicit storage, sync status, Dexie, Hono/D1 and React adapters",
   "files": [
     "dist",
     "README.md"
@@ -20,6 +20,10 @@
     "./hono": {
       "types": "./dist/hono/index.d.ts",
       "import": "./dist/hono/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
     }
   },
   "scripts": {
@@ -42,7 +46,8 @@
   "peerDependencies": {
     "@hono/zod-validator": "^0.7.6",
     "dexie": "^4.4.2",
-    "hono": "^4.12.15"
+    "hono": "^4.12.15",
+    "react": ">=18"
   },
   "peerDependenciesMeta": {
     "dexie": {
@@ -52,6 +57,9 @@
       "optional": true
     },
     "@hono/zod-validator": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     }
   }

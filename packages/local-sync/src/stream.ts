@@ -1,3 +1,4 @@
+import { SyncNetworkError } from "./errors.js";
 import { syncPullResponseSchema, type SyncPullResponse } from "./protocol.js";
 
 /** Wire frames are bounded separately from decoded records and transport buffers. */
@@ -63,10 +64,17 @@ export async function* readSyncPullStream(
       signal.throwIfAborted();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const chunk = await Promise.race([
-        reader.read(),
+        reader.read().catch((error: unknown) => {
+          signal.throwIfAborted();
+          // Browsers fail a dropped body with a TypeError; keep other errors.
+          if (!(error instanceof TypeError)) throw error;
+          throw new SyncNetworkError("Sync stream connection failed", {
+            cause: error,
+          });
+        }),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error("Sync stream idle timeout")),
+            () => reject(new SyncNetworkError("Sync stream idle timeout")),
             idleTimeoutMs,
           );
         }),
@@ -104,7 +112,9 @@ export async function* readSyncPullStream(
         }
       }
     }
-    if (!ended || bytes !== 0) throw new Error("Truncated sync stream");
+    // A dropped connection ends the body early; the next attempt resumes.
+    if (!ended || bytes !== 0)
+      throw new SyncNetworkError("Truncated sync stream");
   } finally {
     signal.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
