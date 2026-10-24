@@ -126,6 +126,8 @@ const savedReview = (id: string) => ({
  * announces saved reviews on the window channel. */
 function createHost() {
   const sessions: string[] = [];
+  // Every working file's text on disk.
+  let fileText = "export const after = 2;\n";
   const streams = new Set<string>();
   const windows = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const announce = (review: {
@@ -499,9 +501,9 @@ function createHost() {
           source,
           path,
           kind: "text",
-          size: 24,
-          identity: `${source.repo}:${path}`,
-          text: "export const after = 2;\n",
+          size: fileText.length,
+          identity: `${source.repo}:${path}:${fileText}`,
+          text: fileText,
         });
       }
     }
@@ -523,6 +525,9 @@ function createHost() {
     setPull,
     removals,
     releaseSession,
+    setFileText(text: string) {
+      fileText = text;
+    },
   };
 }
 
@@ -1050,14 +1055,18 @@ test("an unsaved draft outlasts its tab: a reload still warns, and the reopened 
   const leave = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(leave);
   expect(leave.defaultPrevented).toBe(true);
-
-  // ⌘⌥T opens the thread again, and its file opens with the draft.
+  // Another program changes the file. ⌘⌥T opens the thread again, and its
+  // file opens with the draft and says that the file changed.
+  host.setFileText("export const agent = 3;\n");
   await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
   if (!editor.query()) await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
   await expect.element(editor).toHaveTextContent("export draft after = 2;");
   await expect
     .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "The file changed on disk" }))
     .toBeVisible();
 });
 
