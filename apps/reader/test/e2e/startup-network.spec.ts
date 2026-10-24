@@ -5,7 +5,8 @@ import {
   waitForReaderReady,
 } from "./helpers/fixtures";
 
-const control = "http://127.0.0.1:5197";
+// The lab's control is beside it (scripts/network-lab.ts).
+const control = `http://127.0.0.1:${Number(process.env.E2E_PORT ?? 5196) + 1}`;
 async function setFault(
   request: APIRequestContext,
   target: string,

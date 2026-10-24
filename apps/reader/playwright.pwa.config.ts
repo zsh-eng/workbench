@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 // Run after bun run build. This uses the production service worker and no API mocks.
+// E2E_PORT moves the server, as in playwright.config.ts.
+const port = Number(process.env.E2E_PORT ?? 5195);
 export default defineConfig({
   testDir: "./test/e2e",
   outputDir: "./test-results/pwa",
@@ -7,7 +9,7 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     ...devices["Desktop Chrome"],
-    baseURL: "http://127.0.0.1:5195",
+    baseURL: `http://127.0.0.1:${port}`,
     serviceWorkers: "allow",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -15,8 +17,8 @@ export default defineConfig({
   webServer: {
     // http.server queues only 5 connections and resets the rest, which the
     // service worker's precache burst exceeds while the page loads modules.
-    command: `python3 -c "import functools, http.server as h; h.ThreadingHTTPServer.request_queue_size = 256; h.test(HandlerClass=functools.partial(h.SimpleHTTPRequestHandler, directory='dist/client'), ServerClass=h.ThreadingHTTPServer, port=5195, bind='127.0.0.1')"`,
-    url: "http://127.0.0.1:5195",
+    command: `python3 -c "import functools, http.server as h; h.ThreadingHTTPServer.request_queue_size = 256; h.test(HandlerClass=functools.partial(h.SimpleHTTPRequestHandler, directory='dist/client'), ServerClass=h.ThreadingHTTPServer, port=${port}, bind='127.0.0.1')"`,
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
   },
 });
