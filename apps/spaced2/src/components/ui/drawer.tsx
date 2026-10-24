@@ -44,7 +44,10 @@ const DrawerContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed bottom-0 z-overlay mt-24 flex h-auto flex-col border bg-background",
-        direction === "bottom" ? "rounded-t-[10px]" : "",
+        // A bottom sheet keeps its last row clear of the home indicator.
+        direction === "bottom"
+          ? "rounded-t-[10px] pb-[env(safe-area-inset-bottom)]"
+          : "",
         direction === "right" && "right-0 h-full max-w-lg pt-4",
         direction === "left" && "left-0 h-full max-w-lg pt-4",
         className,
