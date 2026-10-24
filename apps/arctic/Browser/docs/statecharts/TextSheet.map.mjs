@@ -22,7 +22,8 @@ function where(v) {
 // The label for one model state.
 export function state(v) {
   const notes = [];
-  if (!v.sheetAsked && v.sheetCode === "failed") notes.push("the sheet's code failed");
+  if (!v.sheetAsked && v.sheetCode === "failed")
+    notes.push("the sheet's code failed");
   if (v.net === "offline") notes.push("offline");
   return notes.length ? `${where(v)} (${notes.join(", ")})` : where(v);
 }
@@ -42,6 +43,7 @@ const STEPS = {
   PreloadSheet: "Arctic loads the sheet's code",
   SheetLoads: "The sheet's code arrives",
   SheetFails: "The sheet's code fails to load",
+  ShellInstalls: "The service worker keeps the sheet's code",
 };
 
 // The label for one step.

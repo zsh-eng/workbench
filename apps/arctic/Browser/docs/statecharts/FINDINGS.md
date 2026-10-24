@@ -9,16 +9,17 @@ Med, the review app in `apps/med`, is not modelled here.
 
 ## Files
 
-| Model | What it holds | Rules |
-| --- | --- | --- |
-| `LinkBar.tla`, `LinkBarFixed.tla` | The phone's link bar, and the search or topic that filters the library. | 1, 2 |
-| `TextSheet.tla` | The Text and theme sheet, the chunk that holds its code, and the network. | 3 |
-| `NoteSync.tla`, `NoteSyncFixed.tla` | One note on a highlight, edited on the phone and on the web. | 4, 5 |
-| `ArticleText.tla`, `ArticleTextFixed.tla` | The text of a link saved on the web. | 6 |
+| Model                                     | What it holds                                                             | Rules |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ----- |
+| `LinkBar.tla`, `LinkBarFixed.tla`         | The phone's link bar, and the search or topic that filters the library.   | 1, 2  |
+| `TextSheet.tla`, `TextSheetFixed.tla`     | The Text and theme sheet, the chunk that holds its code, and the network. | 3     |
+| `NoteSync.tla`, `NoteSyncFixed.tla`       | One note on a highlight, edited on the phone and on the web.              | 4, 5  |
+| `ArticleText.tla`, `ArticleTextFixed.tla` | The text of a link saved on the web.                                      | 6     |
 
 - A bug model describes the code at commit 9bb68715, before the fixes. A
   fixed model describes the code after its fix, and cites the current lines.
-  `TextSheet.tla` describes the current code.
+  `TextSheet.tla` describes the code before `agent/arctic-sheets-toast`, and
+  `TextSheetFixed.tla` the code after it.
 - Each model has a `.cfg` with its rules and a `.map.mjs` with the reader's
   labels. The fixed model uses the same two files.
 - `<Name>-statechart/` holds what the tool wrote: `chart.mmd` and
@@ -34,7 +35,7 @@ run these with pstack's `skills/statechart/scripts/statechart.mjs`:
 
 ```sh
 node statechart.mjs from-spec LinkBar.tla --fixed LinkBarFixed.tla --cover --png --title "Link bar on a phone"
-node statechart.mjs from-spec TextSheet.tla --cover --png --title "Text and theme sheet on a phone"
+node statechart.mjs from-spec TextSheet.tla --fixed TextSheetFixed.tla --label "the merged code" --expect-broken SheetShowsOnline --cover --png --title "Text and theme sheet on a phone"
 node statechart.mjs from-spec NoteSync.tla --fixed NoteSyncFixed.tla --cover --png --title "One note on the phone and the web"
 node statechart.mjs from-spec ArticleText.tla --fixed ArticleTextFixed.tla --png --title "The text of a link saved on the web"
 ```
@@ -47,12 +48,12 @@ Quote counts only from `summary.json`.
 
 From each `summary.json`, 24 October 2026:
 
-| Model | Model states | Model transitions | Chart states | Chart transitions | Chart status |
-| --- | --- | --- | --- | --- | --- |
-| LinkBar | 64 | 236 | 13 | 17 | 13 work, 3 fixed, 0 still wrong |
-| TextSheet | 22 | 64 | 13 of 14 | 11 of 40 | 13 work, 1 wrong |
-| NoteSync | 225 | 341 | 14 | 16 | 16 work, 1 fixed, 0 still wrong |
-| ArticleText | 8 | 10 | 9 | 11 | 7 work, 2 fixed, 0 still wrong |
+| Model       | Model states | Model transitions | Chart states | Chart transitions | Chart status                    |
+| ----------- | ------------ | ----------------- | ------------ | ----------------- | ------------------------------- |
+| LinkBar     | 64           | 236               | 13           | 17                | 13 work, 3 fixed, 0 still wrong |
+| TextSheet   | 22           | 64                | 13 of 14     | 12 of 42          | 13 work, 1 fixed, 0 still wrong |
+| NoteSync    | 225          | 341               | 14           | 16                | 16 work, 1 fixed, 0 still wrong |
+| ArticleText | 8            | 10                | 9            | 11                | 7 work, 2 fixed, 0 still wrong  |
 
 - Each guard in each model cites a line of code (`uncited` is empty).
 - TLC found no bug that a reading of the code had not found. It found two
@@ -61,14 +62,14 @@ From each `summary.json`, 24 October 2026:
 
 ## Rules
 
-| # | Rule | Invariant | Before the fix | After the fix |
-| --- | --- | --- | --- | --- |
-| 1 | After you cancel the link bar, nothing you did in it gets saved. | `CancelSavesNothing` | Broken: bug 1 | Holds (90968d39) |
-| 2 | When a save from the link bar is done, its card is in view. | `SavedLinkInView` | Broken: bug 2 | Holds (90968d39) |
-| 3 | Once things settle while online, the Text and theme sheet you tapped is on screen. | `SheetShowsOnline` | Broken: bug 3 | Not fixed here |
-| 4 | Once both devices are done syncing, they show the same note. | `SameNote` | Holds | Holds |
-| 5 | Once both devices are done syncing, the note is its newest edit. | `NewestNote` | Broken: bug 4 | Holds (95110e6b) |
-| 6 | Once the phone has an article's text and is done syncing, the web can show it too. | `TextReachesWeb` | Broken: bug 5 | Holds (4ca672ee) |
+| #   | Rule                                                                               | Invariant            | Before the fix | After the fix                                     |
+| --- | ---------------------------------------------------------------------------------- | -------------------- | -------------- | ------------------------------------------------- |
+| 1   | After you cancel the link bar, nothing you did in it gets saved.                   | `CancelSavesNothing` | Broken: bug 1  | Holds (90968d39)                                  |
+| 2   | When a save from the link bar is done, its card is in view.                        | `SavedLinkInView`    | Broken: bug 2  | Holds (90968d39)                                  |
+| 3   | Once things settle while online, the Text and theme sheet you tapped is on screen. | `SheetShowsOnline`   | Broken: bug 3  | Holds (arctic-sheets-toast, `TextSheetFixed.tla`) |
+| 4   | Once both devices are done syncing, they show the same note.                       | `SameNote`           | Holds          | Holds                                             |
+| 5   | Once both devices are done syncing, the note is its newest edit.                   | `NewestNote`         | Broken: bug 4  | Holds (95110e6b)                                  |
+| 6   | Once the phone has an article's text and is done syncing, the web can show it too. | `TextReachesWeb`     | Broken: bug 5  | Holds (4ca672ee)                                  |
 
 Rules 4 and 5 said "online and done syncing". A device that is offline cannot
 be done syncing in these models, so the word is gone. Rule 6 was a proposal.
@@ -139,6 +140,14 @@ connection returns.
   also keeps the failed module, so a later import of the same URL fails too.
   `agent/arctic-sheets-toast` owns this code, so this branch does not change
   it.
+- **Fixed on `agent/integration`** by `agent/arctic-sheets-toast`: the service
+  worker installs the sheet's code (`public/sw.js:19-30`), and a failed load
+  closes the sheet, says so in a toast, and is forgotten, so the next tap
+  tries again at a new address (`src/surface.tsx:87-100`, `:121-138`).
+  `TextSheetFixed.tla` models that code: `SheetShowsOnline` holds (13 states
+  work, 1 fixed, 0 still wrong), and `tests/sheets.spec.ts` "a sheet whose
+  code failed to load opens on the next tap" replays the path. The temporary
+  replay in [REPLAYS.md](REPLAYS.md) is no longer needed.
 
 ### 4. An older phone edit replaces a newer web edit (rule 5)
 
