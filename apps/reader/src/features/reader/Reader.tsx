@@ -60,6 +60,7 @@ import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
 import { useSelectAcross } from "./scroll/use-select-across";
 import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
+import { isReadingFontId } from "@/lib/reading-fonts";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
 function DisplayReadyCommitProbe({
@@ -125,6 +126,11 @@ export function Reader() {
     debugEnabled && searchParams.get("header") === "split"
       ? "split"
       : "current";
+  // Reading fonts for Design ideas: `?font=` lays the book out in a font
+  // without saving it; Debug mode only.
+  const fontParam = searchParams.get("font");
+  const previewFontFamily =
+    debugEnabled && isReadingFontId(fontParam) ? fontParam : null;
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const [notebookOpen, setNotebookOpen] = useState(false);
@@ -190,6 +196,7 @@ export function Reader() {
     spreadColumns: resolvedSpreadColumns,
     layoutReady: isReaderStageMeasured,
     scrollLocation,
+    previewFontFamily,
   });
   const resumeBackgroundLoad = sessionActions.resumeBackgroundLoad;
   const endHistoryGroup = sessionActions.endHistoryGroup;

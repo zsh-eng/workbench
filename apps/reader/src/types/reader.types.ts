@@ -49,16 +49,9 @@ export const THEME_CLASSES = [
 ] as const;
 export type ReaderTheme = (typeof THEME_CLASSES)[number];
 
-export const FONT_CLASSES = [
-  "serif",
-  "sans-serif",
-  "monospace",
-  "lora",
-  "iowan",
-  "garamond",
-  "inter",
-] as const;
-export type FontFamily = (typeof FONT_CLASSES)[number];
+import type { FontFamily } from "@/lib/reading-fonts";
+
+export type { FontFamily };
 
 export const CONTENT_WIDTH_CLASSES = [
   "compact",
@@ -75,18 +68,6 @@ export const CONTENT_WIDTH_VALUES: Record<ContentWidth, string> = {
   medium: "56rem", // 896px
   wide: "64rem", // 1024px
   full: "72rem", // 1152px
-};
-
-export const FONT_STACKS: Record<FontFamily, string> = {
-  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
-  "sans-serif":
-    'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
-  monospace:
-    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-  lora: '"Lora", serif',
-  iowan: '"Iowan Old Style", "Sitka Text", Palatino, "Book Antiqua", serif',
-  garamond: '"EB Garamond", "Garamond", serif',
-  inter: '"Inter", sans-serif',
 };
 
 export const READER_FONT_SIZE_MIN_PX = 8;

@@ -38,12 +38,12 @@ test("mobile settings expose choices and apply themes when preference storage is
   await expect(
     page.getByRole("button", { name: "Lora", pressed: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Inter", exact: true }).click();
+  await page.getByRole("button", { name: "System", exact: true }).click();
   await expect(
     page.getByText("Appearance changes weren’t saved.", { exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("button", { name: "Inter", pressed: true }),
+    page.getByRole("button", { name: "System", pressed: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Layout" }).click();
   for (const name of ["Left", "Center", "Right", "Justify"]) {

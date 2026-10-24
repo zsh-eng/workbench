@@ -97,6 +97,45 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  fonts: {
+    current: {
+      id: "font-current",
+      title: "Your font",
+      description:
+        "The book you read last, in the font you chose in Appearance → Type.",
+      src: (bookId) => `/reader/${bookId}`,
+    },
+    ideas: [
+      {
+        id: "font-system",
+        title: "System",
+        description:
+          "San Francisco, the face of Apple's own apps: optical sizes and tracking tuned for the screen, nothing to download. Off Apple devices it shows Source Sans.",
+        src: (bookId) => `/reader/${bookId}?font=system`,
+      },
+      {
+        id: "font-seravek",
+        title: "Seravek",
+        description:
+          "The humanist sans of Apple Books, built into iOS and macOS: warm, open and a little narrow, so lines hold more words.",
+        src: (bookId) => `/reader/${bookId}?font=seravek`,
+      },
+      {
+        id: "font-source-sans",
+        title: "Source Sans",
+        description:
+          "Adobe's open-source humanist sans, bundled so it looks the same everywhere and offline. Its small x-height reads best a size up.",
+        src: (bookId) => `/reader/${bookId}?font=source-sans`,
+      },
+      {
+        id: "font-atkinson",
+        title: "Atkinson",
+        description:
+          "Atkinson Hyperlegible Next, from the Braille Institute: letters that never look alike, for small sizes and tired eyes.",
+        src: (bookId) => `/reader/${bookId}?font=atkinson`,
+      },
+    ],
+  },
   dark: {
     current: {
       id: "dark-current",

@@ -88,3 +88,16 @@ it("preserves unread settings while saved System appearance applies", () => {
   get.mockRestore();
   expect(localStorage.getItem("epub-reader-settings")).toBe(saved);
 });
+
+it("reopens a saved Inter choice in System, the sans that replaced it", () => {
+  localStorage.setItem("epub-reader-settings", '{"fontFamily":"inter"}');
+  function FontProbe() {
+    return createElement(
+      "output",
+      null,
+      useReaderSettings().settings.fontFamily,
+    );
+  }
+  render(createElement(ReaderSettingsProvider, null, createElement(FontProbe)));
+  expect(screen.getByRole("status").textContent).toBe("system");
+});

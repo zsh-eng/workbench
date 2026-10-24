@@ -29,6 +29,7 @@ import type { Book } from "@/lib/db";
 import { compareBooksByLastReadDesc } from "@/lib/library-sort";
 import { MOTION } from "@/lib/motion";
 import { warmPaginationWorker } from "@/lib/pagination-v2/worker/pagination-worker-service";
+import { getReadingFont } from "@/lib/reading-fonts";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -172,19 +173,22 @@ export function Library() {
   }, [booksLoaded, fontsReady, initialCoversReady]);
   useAppShellReady(displayReady);
 
-  // Warm the app-lifetime pagination worker after the reveal has painted.
-  // Reader routes then reuse its loaded built-in fonts.
+  // Warm the app-lifetime pagination worker after the reveal has painted, with
+  // the reading font. Reader routes then reuse the loaded font.
+  const readingFont = getReadingFont(settings.fontFamily).stack;
   useEffect(() => {
     if (!displayReady) return;
     let secondFrame: number | null = null;
     const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => warmPaginationWorker());
+      secondFrame = requestAnimationFrame(() =>
+        warmPaginationWorker([readingFont]),
+      );
     });
     return () => {
       cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
     };
-  }, [displayReady]);
+  }, [displayReady, readingFont]);
 
   useEffect(() => {
     const books = data?.categorized.continueReading ?? [];

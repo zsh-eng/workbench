@@ -11,33 +11,10 @@ import {
   READER_FONT_SIZE_MAX_PX,
   READER_FONT_SIZE_MIN_PX,
 } from "@/types/reader.types";
-import type {
-  FontFamily,
-  ReaderSettings,
-  TextAlign,
-} from "@/types/reader.types";
+import { READING_FONTS } from "@/lib/reading-fonts";
+import type { ReaderSettings, TextAlign } from "@/types/reader.types";
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight } from "lucide-react";
 import { InspectorSection } from "./InspectorSection";
-
-const fonts: { value: FontFamily; label: string; stack: string }[] = [
-  { value: "lora", label: "Lora", stack: '"Lora", serif' },
-  {
-    value: "iowan",
-    label: "Iowan",
-    stack: '"Iowan Old Style", "Sitka Text", Palatino, serif',
-  },
-  {
-    value: "garamond",
-    label: "Garamond",
-    stack: '"EB Garamond", "Garamond", serif',
-  },
-  { value: "inter", label: "Inter", stack: '"Inter", sans-serif' },
-  {
-    value: "monospace",
-    label: "Mono",
-    stack: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
-  },
-];
 
 interface SettingsSectionProps {
   settings: ReaderSettings;
@@ -122,12 +99,13 @@ export function SettingsSection({
         <div className="space-y-1.5">
           <span className="text-[11px] text-muted-foreground">Font</span>
           <div className="flex gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {fonts.map((font) => {
-              const isSelected = settings.fontFamily === font.value;
+            {READING_FONTS.map((font) => {
+              const isSelected = settings.fontFamily === font.id;
               return (
                 <button
-                  key={font.value}
-                  onClick={() => onUpdateSettings({ fontFamily: font.value })}
+                  key={font.id}
+                  title={font.description}
+                  onClick={() => onUpdateSettings({ fontFamily: font.id })}
                   className={cn(
                     "flex h-14 w-14 flex-shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg border transition-[background-color,border-color,opacity,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] motion-reduce:active:scale-100 motion-reduce:active:opacity-80",
                     isSelected

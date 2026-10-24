@@ -6,25 +6,25 @@ import type {
   PaginationWorkerMessage,
 } from "../protocol";
 import { ensurePublisherFontsReadyFromBlocks } from "../shared/publisher-fonts";
-import { ensurePaginationWorkerFontsReady } from "./fonts";
+import type { FontConfig } from "../shared/types";
+import { ensureBundledFontsReady } from "./fonts";
 import {
   PaginationJobScheduler,
   type ScheduledPaginationJob,
 } from "./scheduler";
 import { PAGINATION_TASK_YIELD_BUDGET_MS } from "./scheduler-policy";
 
-const workerFontsReady = ensurePaginationWorkerFontsReady();
-let publisherFontsReady: Promise<void> = Promise.resolve();
+// Built-in fonts load with the reading font that uses them, before each
+// layout (see `waitForCommandFonts`), so the worker is ready once it runs.
+let commandFontsReady: Promise<void> = Promise.resolve();
 
-void workerFontsReady.then(() => {
-  postMessage({
-    sessionGeneration: null,
-    event: {
-      type: "trace",
-      name: "worker-fonts-ready",
-    },
-  } satisfies PaginationWorkerEventMessage);
-});
+postMessage({
+  sessionGeneration: null,
+  event: {
+    type: "trace",
+    name: "worker-fonts-ready",
+  },
+} satisfies PaginationWorkerEventMessage);
 
 // ---------------------------------------------------------------------------
 // Worker state
@@ -146,12 +146,10 @@ async function pump(): Promise<void> {
   let sliceStartedAt = performance.now();
 
   try {
-    await workerFontsReady;
-
     while (scheduler.hasWork()) {
-      const publisherFontsReadyForWork = publisherFontsReady;
-      await publisherFontsReadyForWork;
-      if (publisherFontsReadyForWork !== publisherFontsReady) continue;
+      const fontsReadyForWork = commandFontsReady;
+      await fontsReadyForWork;
+      if (fontsReadyForWork !== commandFontsReady) continue;
       scheduler.expandIncomingCommands();
 
       const job = scheduler.peek();
@@ -185,38 +183,63 @@ function resetWorkerSession(sessionGeneration: number | null): void {
   layoutEpoch = 0;
   activeEventEpoch = 0;
   activeSessionGeneration = sessionGeneration;
-  publisherFontsReady = Promise.resolve();
+  commandFontsReady = Promise.resolve();
   workerRunStartedAtMs = null;
   workerActiveMs = 0;
   currentWorkStepStartedAtMs = null;
 }
 
-function waitForCommandPublisherFonts(
-  command: PaginationCommand,
-): Promise<void> {
-  const loadCommandFonts = () => {
+function readingFontFamilies(fontConfig: FontConfig): string[] {
+  return [
+    fontConfig.bodyFamily,
+    fontConfig.headingFamily,
+    fontConfig.codeFamily,
+  ];
+}
+
+/**
+ * The fonts a command lays text out in: the reading font for a new layout and
+ * embedded publisher fonts for new chapters. Layout waits for them, so no
+ * text is measured in a fallback face.
+ */
+function waitForCommandFonts(command: PaginationCommand): Promise<void> {
+  const loadCommandFonts = async (): Promise<void> => {
     switch (command.type) {
       case "init":
-        return ensurePublisherFontsReadyFromBlocks(command.firstChapterBlocks);
+        await Promise.all([
+          ensureBundledFontsReady(
+            readingFontFamilies(command.paginationConfig.fontConfig),
+          ),
+          ensurePublisherFontsReadyFromBlocks(command.firstChapterBlocks),
+        ]);
+        return;
+      case "updatePaginationConfig":
+        await ensureBundledFontsReady(
+          readingFontFamilies(command.paginationConfig.fontConfig),
+        );
+        return;
       case "addChapter":
       case "updateChapter":
-        return ensurePublisherFontsReadyFromBlocks(command.blocks);
-      default:
-        return undefined;
+        await ensurePublisherFontsReadyFromBlocks(command.blocks);
+        return;
     }
   };
 
   const fontsReady =
     command.type === "init"
-      ? Promise.resolve(loadCommandFonts())
-      : publisherFontsReady.then(loadCommandFonts);
+      ? loadCommandFonts()
+      : commandFontsReady.then(loadCommandFonts);
   return fontsReady.catch((error) => {
-    console.warn("[pagination worker] Failed to load publisher fonts", error);
+    console.warn("[pagination worker] Failed to load fonts", error);
   });
 }
 
 self.onmessage = (e: MessageEvent<PaginationWorkerMessage>) => {
   const message = e.data;
+  if (message.type === "loadFonts") {
+    void ensureBundledFontsReady(message.fontFamilies);
+    return;
+  }
   if (message.type === "cancel") {
     if (message.sessionGeneration !== activeSessionGeneration) return;
     resetWorkerSession(null);
@@ -235,10 +258,10 @@ self.onmessage = (e: MessageEvent<PaginationWorkerMessage>) => {
     return;
   }
 
-  publisherFontsReady = waitForCommandPublisherFonts(command);
+  commandFontsReady = waitForCommandFonts(command);
 
   if (command.type === "init") {
-    void publisherFontsReady.then(() => {
+    void commandFontsReady.then(() => {
       if (activeSessionGeneration !== sessionGeneration) return;
       postSessionEvent({
         type: "trace",

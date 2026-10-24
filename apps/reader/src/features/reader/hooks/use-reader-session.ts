@@ -14,7 +14,7 @@ import type {
 import type { TextOffsetLocation } from "@/lib/pagination-v2/protocol";
 import type { Highlight } from "@/types/highlight";
 import type { ReaderLocation } from "../reader-location";
-import type { ReaderSettings } from "@/types/reader.types";
+import type { FontFamily, ReaderSettings } from "@/types/reader.types";
 import { useMemo } from "react";
 import type { ChapterEntry } from "../types";
 import { useReaderCore } from "./use-reader-core";
@@ -36,10 +36,15 @@ export interface UseReaderSessionOptions {
   layoutReady?: boolean;
   /** Scroll mode's location; page numbers and progress follow it while set. */
   scrollLocation?: ReaderLocation | null;
+  /** A font laid out in place of the saved one and never saved. */
+  previewFontFamily?: FontFamily | null;
 }
 
 export type ReaderSessionStatus =
-  "loading" | "ready" | "not-found" | "file-error";
+  | "loading"
+  | "ready"
+  | "not-found"
+  | "file-error";
 
 export interface ReaderSessionChapterAccess {
   getBlocks: (chapterIndex: number) => Block[] | null;

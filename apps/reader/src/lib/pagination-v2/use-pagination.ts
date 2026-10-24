@@ -343,15 +343,15 @@ export function usePagination(
         if (event.name === "worker-fonts-ready") {
           endReaderTraceSpan(workerStartupSpanRef.current, {
             blocksPagination: true,
-            includes:
-              "worker startup, built-in font readiness, and trace delivery",
+            includes: "worker startup and trace delivery",
           });
           workerStartupSpanRef.current = null;
           break;
         }
         endReaderTraceSpan(publisherFontsSpanRef.current, {
           blocksPagination: true,
-          includes: "publisher font readiness and trace delivery",
+          includes:
+            "reading font and publisher font readiness, and trace delivery",
         });
         publisherFontsSpanRef.current = null;
         break;
@@ -534,8 +534,8 @@ export function usePagination(
       endReaderTraceSpan(workerStartupSpanRef.current, {
         blocksPagination: !session.workerFontsReadyAtAcquire,
         includes: session.workerFontsReadyAtAcquire
-          ? "app-lifetime worker and built-in fonts were already ready"
-          : "worker startup, built-in font readiness, and trace delivery",
+          ? "app-lifetime worker was already running"
+          : "worker startup and trace delivery",
         workerLifetime: "app",
         workerWarmAtAcquire: session.workerFontsReadyAtAcquire,
       });
@@ -731,7 +731,11 @@ export function usePagination(
       target: Omit<GoToTextOffsetCommand, "type" | "intent">,
       options: { intent: SpreadIntent },
     ) => {
-      postCommand({ type: "goToTextOffset", ...target, intent: options.intent });
+      postCommand({
+        type: "goToTextOffset",
+        ...target,
+        intent: options.intent,
+      });
     },
     [postCommand],
   );
