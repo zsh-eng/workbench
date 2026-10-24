@@ -2,8 +2,9 @@
 
 Status, 24 October 2026: TLC checked each model, and each chart comes from
 TLC's state graph. Bugs 1, 2, 4 and 5 are fixed, and each fix has a test that
-failed before it (see [REPLAYS.md](REPLAYS.md)). Bug 3 is not fixed here: the
-sheets branch (`agent/arctic-sheets-toast`) owns its code.
+failed before it (see [REPLAYS.md](REPLAYS.md)). Bug 3 is fixed by the sheets
+branch (`agent/arctic-sheets-toast`), merged on `agent/integration`; its entry
+below says how the fixed model checks it.
 
 Med, the review app in `apps/med`, is not modelled here.
 
