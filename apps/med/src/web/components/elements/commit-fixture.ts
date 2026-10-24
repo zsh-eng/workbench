@@ -183,14 +183,22 @@ export function createFakeRepository(initial: CommitSwitches) {
       version += 1;
       return status();
     },
-    async commit(message, indexKey) {
+    async commit({ message, indexKey, files: named, all }) {
       await wait();
       if (indexKey !== String(version))
         throw new Error("The staged files or the branch changed since this view loaded.");
-      if (switches().hookFails)
+      // Commit all stages its files only for the commit, as git commit -a does.
+      const before = files;
+      if (all)
+        files = files.map((file) =>
+          named?.some((entry) => entry.path === file.path) ? { ...file, state: "all" } : file,
+        );
+      if (switches().hookFails) {
+        files = before;
         throw new Error(
           "The commit did not complete.\n\nlint-staged: src/web/App.tsx\n  12:3  error  Missing semicolon  semi",
         );
+      }
       files = files.flatMap((file) =>
         file.state === "all"
           ? []

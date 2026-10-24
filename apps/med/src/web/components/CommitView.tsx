@@ -18,6 +18,7 @@ import {
   stagedPaths,
   stageState,
   type CommitApi,
+  type ShownFile,
   type StageChange,
   type WorkingDiff,
   type WorkingFile,
@@ -75,16 +76,20 @@ const writeDraft = (key: string, text: string) => {
   }
 };
 
-/** Each file's change from HEAD to the working files, by path. */
+/** Each file's change from HEAD to the working files, by path. `object` is
+ * the working file's blob as the last read named it: kept metadata can hold
+ * an older index line with the same lines. */
 interface ParsedDiff {
   id: string;
-  files: Map<string, { info: ReviewFile; metadata: FileDiffMetadata | null }>;
+  files: Map<string, { info: ReviewFile; metadata: FileDiffMetadata | null; object?: string }>;
 }
 /** A partly staged file shows its staged and unstaged halves. */
 interface Split {
   key: string;
   staged: FileDiffMetadata | null;
   unstaged: FileDiffMetadata | null;
+  /** The staged blob, as the last read named it. */
+  stagedObject?: string;
   note: string | null;
 }
 /** One file, or one half of a partly staged file, in the stream. */
@@ -138,6 +143,7 @@ async function parseDiff(
     const before = previous?.files.get(info.path)?.metadata;
     files.set(info.path, {
       info,
+      object: parsed?.newObjectId,
       metadata: !parsed
         ? null
         : before && fingerprint(before) === fingerprint(parsed)
@@ -178,6 +184,44 @@ function placeholder(owner: object, file: WorkingFile) {
     byPath.set(key, metadata);
   }
   return metadata;
+}
+
+/**
+ * The files that a commit takes, with what the tab shows of each: the blob
+ * on its diff's index line, or, for a new file that Git does not track, the
+ * SHA-256 of its text. A file that the tab does not show yet, or cannot show,
+ * such as a binary one, goes without.
+ */
+async function shownToCommit(
+  rows: readonly WorkingFile[],
+  all: boolean,
+  diff: ParsedDiff | null,
+  splits: ReadonlyMap<string, Split>,
+): Promise<ShownFile[]> {
+  const hash = async (text: string) =>
+    [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  return (
+    await Promise.all(
+      rows.map(async (file): Promise<ShownFile[]> => {
+        const entry = diff?.files.get(file.path);
+        let shown: Omit<ShownFile, "path"> = {};
+        // A partly staged file shows its staged half, once it loads.
+        if (!all && stageState(file) === "partial") {
+          const object = splits.get(file.path)?.stagedObject;
+          if (object) shown = { object };
+        } else if (entry?.info.untracked) {
+          if (all && entry.metadata && crypto.subtle)
+            shown = { text: await hash(entry.metadata.additionLines.join("")) };
+        } else if (entry?.object) shown = { object: entry.object };
+        return [
+          { path: file.path, ...shown },
+          ...(file.previousPath ? [{ path: file.previousPath }] : []),
+        ];
+      }),
+    )
+  ).flat();
 }
 
 /**
@@ -345,18 +389,22 @@ export default function CommitView({
         const halves = await api.changes(file, abort.signal);
         const before = splits.get(file.path);
         // An unchanged half keeps its metadata, so the stream does not redraw it.
-        const half = (patch: string, previous: FileDiffMetadata | null | undefined) => {
-          const metadata = patch ? (parseReviewPatch(patch)[0] ?? null) : null;
-          return metadata && previous && fingerprint(previous) === fingerprint(metadata)
+        const parse = (patch: string) => (patch ? (parseReviewPatch(patch)[0] ?? null) : null);
+        const half = (
+          metadata: FileDiffMetadata | null,
+          previous: FileDiffMetadata | null | undefined,
+        ) =>
+          metadata && previous && fingerprint(previous) === fingerprint(metadata)
             ? previous
             : metadata;
-        };
+        const staged = parse(halves.staged);
         return [
           file.path,
           {
             key: splitKey,
-            staged: half(halves.staged, before?.staged),
-            unstaged: half(halves.unstaged, before?.unstaged),
+            staged: half(staged, before?.staged),
+            stagedObject: staged?.newObjectId,
+            unstaged: half(parse(halves.unstaged), before?.unstaged),
             note: halves.binary ? "Binary file" : halves.tooLarge ? "Too large to show" : null,
           },
         ];
@@ -445,21 +493,28 @@ export default function CommitView({
     // The files that the dialog counts. The commit holds these, or it stops.
     const counted = (all ? files.flatMap(rowPaths) : stagedPaths(status)).toSorted();
     setCommitError(null);
+    // What the tab shows of each counted file, as it shows it now.
+    const shownFiles = shownToCommit(
+      all ? files : files.filter((file) => file.staged && file.staged !== "conflicted"),
+      all,
+      diff,
+      splits,
+    );
     return run("commit", async () => {
       try {
-        if (all) {
-          // Only the files shown: a file that came after is not counted.
-          writes.current += 1;
-          accept(await api.stage(counted, true));
-          writes.current += 1;
-        }
         // Queued stages have finished. A stage that failed, or a change that
-        // Git reported since, stops the commit.
-        if (stagedPaths(latest.current!).join("\0") !== counted.join("\0"))
+        // Git reported since, stops the commit. Commit all stages on the
+        // host, in a copy of the index.
+        if (!all && stagedPaths(latest.current!).join("\0") !== counted.join("\0"))
           throw new Error(
             "The staged files changed since you pressed Commit. Check them, then commit again.",
           );
-        const result = await api.commit(written, latest.current!.indexKey);
+        const result = await api.commit({
+          message: written,
+          indexKey: latest.current!.indexKey,
+          files: await shownFiles,
+          ...(all ? { all } : {}),
+        });
         setText("");
         setComposing(false);
         await Promise.all([readStatus(), readDiff()]);
@@ -470,7 +525,7 @@ export default function CommitView({
         await readStatus().catch(() => {});
       }
     });
-  }, [accept, api, commitAll, commitCount, files, readDiff, readStatus, run, status, text]);
+  }, [api, commitAll, commitCount, diff, files, readDiff, readStatus, run, splits, status, text]);
   const push = useCallback(
     (track = false) => {
       if (!status?.head || !status.branch) return;

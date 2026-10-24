@@ -552,16 +552,19 @@ that showed before.
 - **Commit.** `c` or **Commit…** opens the message: a summary, and `Enter`
   goes on to the description. `⌘↵` commits the staged files. With nothing
   staged, the commit takes every file that the dialog counts, unless a file
-  has a conflict. `Esc`
-  keeps the message as a draft. Hooks run; if a hook stops the commit, its
-  output shows under the message.
+  has a conflict. As with `git commit -a`, those files are staged only for
+  the commit: if it does not complete, nothing stays staged. `Esc` keeps the
+  message as a draft. Hooks run; if a hook stops the commit, its output shows
+  under the message.
 - **Push.** `⇧P` pushes to the upstream. For a branch without one, Med asks,
   then pushes to the push remote (usually `origin`) and tracks it. Med never
   force-pushes.
 
 If the staged files change outside Med, or a stage fails, the commit stops
 and the tab reads them again. A commit holds the files that its dialog
-counted, or nothing. For hunks, amends, rebases, and branch switches, use **Copy lazygit
+counted, with the changes that the tab showed, or nothing: when an agent
+changes a file after the tab showed it, the commit stops and keeps the
+message. For hunks, amends, rebases, and branch switches, use **Copy lazygit
 command** on the workspace.
 
 ## Attempts

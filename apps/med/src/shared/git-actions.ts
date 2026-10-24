@@ -22,7 +22,9 @@ export const pushResultSchema = z.object({
 
 // The Commit tab: stage files, commit them, and push the branch.
 const repoField = z.string().min(1).max(4096);
-const commitId = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+/** A Git object ID, SHA-1 or SHA-256. */
+const objectId = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+const commitId = objectId;
 export const changeKindSchema = z.enum([
   "added",
   "modified",
@@ -67,8 +69,8 @@ export const fileChangesSchema = z.object({
   tooLarge: z.boolean(),
 });
 export type FileChanges = z.infer<typeof fileChangesSchema>;
-/** Commit all sends every changed path; a large checkout can have many. */
-const STAGE_PATHS = 200_000;
+/** Commit all names every change: at most 10,000, and a rename has two paths. */
+const STAGE_PATHS = 20_000;
 export const stageRequestSchema = z.object({
   repo: repoField,
   /** Omitted: every change. */
@@ -76,10 +78,29 @@ export const stageRequestSchema = z.object({
   stage: z.boolean(),
 });
 export type StageRequest = z.infer<typeof stageRequestSchema>;
+/** One file of a commit, and what the Commit tab showed of it. */
+export const shownFileSchema = z.object({
+  path: z.string().min(1).max(4096),
+  /** The blob that the tab's diff showed: the staged one, or the working
+   * file's for Commit all. */
+  object: objectId.optional(),
+  /** A new file that Git does not track: the SHA-256 of the text shown. */
+  text: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+});
+export type ShownFile = z.infer<typeof shownFileSchema>;
 export const commitRequestSchema = z.object({
   repo: repoField,
   message: z.string().max(100_000),
   indexKey: z.string().min(1).max(128),
+  /** The files that the commit must hold, with what the tab showed of them.
+   * The commit stops when Git has other files staged, or other content. */
+  files: z.array(shownFileSchema).max(STAGE_PATHS).optional(),
+  /** Stage `files` first, as `git commit -a` does: in a copy of the index,
+   * so a commit that does not complete leaves the index as it was. */
+  all: z.boolean().optional(),
 });
 export type CommitRequest = z.infer<typeof commitRequestSchema>;
 export const commitResultSchema = z.object({ head: commitId, summary: z.string() });
@@ -123,6 +144,7 @@ export const commitRoutes = {
     path: "/api/git/commit",
     input: commitRequestSchema,
     output: commitResultSchema,
+    maxBody: 32 * 1024 * 1024,
   },
   pushBranch: {
     method: "POST",

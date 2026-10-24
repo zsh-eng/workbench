@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,11 +51,12 @@ async function fixture() {
     (await call<WorkingStatus>(`/api/git/status?repo=${encodeURIComponent(repo)}`)).body;
   const stage = (stage: boolean, paths?: string[]) =>
     call<WorkingStatus>("/api/git/stage", { repo, stage, ...(paths ? { paths } : {}) });
-  const commit = (message: string, indexKey: string) =>
+  const commit = (message: string, indexKey: string, more: object = {}) =>
     call<{ head?: string; summary?: string; error?: { message: string } }>("/api/git/commit", {
       repo,
       message,
       indexKey,
+      ...more,
     });
   const push = (head: string, track: boolean) =>
     call<{ branch?: string; error?: { message: string } }>("/api/git/push-branch", {
@@ -203,6 +205,101 @@ test("commits only the staged state the view saw, and reports hook output", asyn
   // Unstaged work stays where it was.
   expect(summary(await status())).toEqual(["a.ts: - / modified", "b.ts: - / untracked"]);
   expect(await commit("again", (await status()).indexKey)).toMatchObject({ status: 422 });
+});
+
+test("Commit all stages in a copy of the index, so a failed hook leaves the index as it was", async () => {
+  const { repo, status, commit } = await fixture();
+  await write(repo, "a.ts", "a\n");
+  git(repo, "add", "a.ts");
+  git(repo, "commit", "-m", "start");
+  await write(repo, "a.ts", "a\nb\n");
+  await write(repo, "new.ts", "new\n");
+  const seen = await status();
+  const all = { all: true, files: [{ path: "a.ts" }, { path: "new.ts" }] };
+  const hook = join(repo, ".git", "hooks", "pre-commit");
+  await writeFile(hook, "#!/bin/sh\necho 'lint: a.ts needs a semicolon' >&2\nexit 1\n");
+  await chmod(hook, 0o755);
+
+  const failed = await commit("feat: all", seen.indexKey, all);
+  expect(failed.status).toBe(422);
+  expect(failed.body.error?.message).toContain("lint: a.ts needs a semicolon");
+  // As after git commit -a: nothing is staged that was not staged before.
+  expect(summary(await status())).toEqual(["a.ts: - / modified", "new.ts: - / untracked"]);
+  expect((await status()).indexKey).toBe(seen.indexKey);
+
+  await rm(hook);
+  // A file that came after the tab read the checkout is not in the commit.
+  await write(repo, "later.ts", "later\n");
+  const done = await commit("feat: all", seen.indexKey, all);
+  expect(done.status).toBe(200);
+  expect(git(repo, "show", "--name-only", "--format=", "HEAD")).toBe("a.ts\nnew.ts");
+  expect(summary(await status())).toEqual(["later.ts: - / untracked"]);
+});
+
+test("a commit stops when a file is not what the tab showed of it", async () => {
+  const { repo, status, commit } = await fixture();
+  await write(repo, "a.ts", "a\n");
+  git(repo, "add", "a.ts");
+  git(repo, "commit", "-m", "start");
+  const start = git(repo, "rev-parse", "HEAD");
+  const changed = "A file changed after the tab showed it. Check the changes, then commit again.";
+
+  // The tab showed a.ts as staged. An agent changes and stages it again; the
+  // tab reads the status, but its diff still shows the first change.
+  await write(repo, "a.ts", "a\nshown\n");
+  git(repo, "add", "a.ts");
+  const shown = git(repo, "rev-parse", ":a.ts");
+  await write(repo, "a.ts", "a\nlater\n");
+  git(repo, "add", "a.ts");
+  let seen = await status();
+  let result = await commit("feat: a", seen.indexKey, { files: [{ path: "a.ts", object: shown }] });
+  expect(result).toMatchObject({ status: 409, body: { error: { message: changed } } });
+  expect(git(repo, "rev-parse", "HEAD")).toBe(start);
+  result = await commit("feat: a", seen.indexKey, {
+    files: [{ path: "a.ts", object: git(repo, "rev-parse", ":a.ts") }],
+  });
+  expect(result.status).toBe(200);
+
+  // Commit all: a changed file, and a new file that Git does not track.
+  await write(repo, "a.ts", "a\nlater\nall\n");
+  await write(repo, "new.ts", "new\n");
+  const object = git(repo, "hash-object", "a.ts");
+  const text = createHash("sha256").update("new\n").digest("hex");
+  const all = {
+    all: true,
+    files: [
+      { path: "a.ts", object },
+      { path: "new.ts", text },
+    ],
+  };
+  seen = await status();
+  await write(repo, "a.ts", "a\nlater\nall, by an agent\n");
+  expect(await commit("feat: all", seen.indexKey, all)).toMatchObject({
+    status: 409,
+    body: { error: { message: changed } },
+  });
+  await write(repo, "a.ts", "a\nlater\nall\n");
+  await write(repo, "new.ts", "new, by an agent\n");
+  expect(await commit("feat: all", seen.indexKey, all)).toMatchObject({ status: 409 });
+  // A refused Commit all leaves the index as it was.
+  expect(summary(await status())).toEqual(["a.ts: - / modified", "new.ts: - / untracked"]);
+  // An agent reverts a counted file: it has no change to commit.
+  await write(repo, "new.ts", "new\n");
+  await write(repo, "a.ts", "a\nlater\n");
+  expect(await commit("feat: all", seen.indexKey, all)).toMatchObject({
+    status: 409,
+    body: {
+      error: {
+        message:
+          "The staged files changed since you pressed Commit. Check them, then commit again.",
+      },
+    },
+  });
+  await write(repo, "a.ts", "a\nlater\nall\n");
+  result = await commit("feat: all", seen.indexKey, all);
+  expect(result.status).toBe(200);
+  expect(git(repo, "show", "HEAD:a.ts")).toBe("a\nlater\nall");
+  expect(git(repo, "show", "HEAD:new.ts")).toBe("new");
 });
 
 test("pushes a new branch after the user agrees to track it, then pushes to its upstream", async () => {
