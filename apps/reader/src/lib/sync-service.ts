@@ -1,176 +1,140 @@
-import { SHARED_API_ORIGIN } from "./shared-api";
-import { SyncHttpError } from "@zsh-eng/local-sync";
-/** Application lifecycle wrapper around the small sync v2 client. */
-
+/**
+ * Reader's record sync on the shared sync controller (`@zsh-eng/local-sync`).
+ * The controller decides when to sync, backs off after failures, and holds
+ * the connection, account and sync status that the UI shows.
+ */
+import {
+  browserSyncNetwork,
+  createSyncController,
+  type SyncFailure,
+  type SyncNetworkSource,
+} from "@zsh-eng/local-sync";
 import {
   getLabRuntime,
   getRuntimeOnline,
+  getRuntimeStorage,
   subscribeRuntimeOnline,
 } from "@/features/sync-lab/runtime";
 import { getOrCreateDeviceId } from "@/lib/device";
-import { getOrCreateSyncClientState } from "@/lib/sync-v2/client-state";
-import { syncV2SyncDb } from "@/lib/sync-v2/db";
+import { SHARED_STORAGE_SUFFIX } from "@/lib/shared-api";
 import {
-  SyncV2Client,
-  type SyncV2RunResult,
-  SyncRemoteRequestError,
-} from "@/lib/sync-v2/sync";
+  getOrCreateSyncClientState,
+  readSyncClientState,
+} from "@/lib/sync-v2/client-state";
+import { syncV2SyncDb } from "@/lib/sync-v2/db";
+import { SyncV2Client } from "@/lib/sync-v2/sync";
 
 const SYNC_INTERVAL_MS = 30_000;
+/** The remembered account and last sync time, per API origin. */
+export const SYNC_STATUS_STORAGE_KEY =
+  "epub-reader-sync-status" + SHARED_STORAGE_SUFFIX;
+
 export type SyncServiceResult =
   | { status: "offline" }
-  | ({ status: "completed" } & SyncV2RunResult);
+  | { status: "cancelled" }
+  | { status: "completed" };
 
-export interface SyncServiceState {
-  isSyncing: boolean;
-  lastSyncedAt: Date | null;
-  error: Error | null;
-  authRequired: boolean;
+/** A manual sync failed; `failure` says why in the controller's terms. */
+export class SyncFailedError extends Error {
+  readonly failure: SyncFailure;
+  constructor(failure: SyncFailure) {
+    super(
+      "message" in failure ? failure.message : `Sync failed (${failure.kind})`,
+    );
+    this.name = "SyncFailedError";
+    this.failure = failure;
+  }
 }
 
-/** Owns automatic sync and its subscriptions for one application lifetime. */
+/** The browser's network, or the Sync Lab's simulated one inside the lab. */
+function readerNetwork(): SyncNetworkSource {
+  const browser = browserSyncNetwork();
+  return {
+    isOnline: getRuntimeOnline,
+    subscribe(listener) {
+      const stopOnline = subscribeRuntimeOnline((online) =>
+        listener(online ? "online" : "offline"),
+      );
+      const stopVisible = browser.subscribe((event) => {
+        if (event === "visible") listener(event);
+      });
+      return () => {
+        stopOnline();
+        stopVisible();
+      };
+    },
+  };
+}
+
+/** Owns automatic record sync for one application lifetime. */
 class SyncService {
-  private controller: AbortController | undefined;
-  private state: SyncServiceState = {
-    isSyncing: false,
-    lastSyncedAt: null,
-    error: null,
-    authRequired: false,
-  };
-  private readonly listeners = new Set<() => void>();
-  private activeRun: Promise<SyncServiceResult> | null = null;
-  private sessionId: string | undefined;
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-  getSnapshot = () => this.state;
-  private publish(update: Partial<SyncServiceState>) {
-    this.state = { ...this.state, ...update };
-    this.listeners.forEach((listener) => listener());
-  }
-  private readonly pendingRuns = new Set<Promise<SyncServiceResult>>();
-  private isOnline = getRuntimeOnline();
-  private syncInterval: number | null = null;
-  private requestedInterval: number | null = null;
+  readonly controller = createSyncController({
+    run: async ({ signal, markRestoring }) => {
+      if (!readSyncClientState()?.bootstrapped) markRestoring();
+      await new SyncV2Client({
+        syncDb: syncV2SyncDb,
+        onEvent: getLabRuntime()?.onSyncEvent,
+        signal,
+      }).sync();
+    },
+    network: readerNetwork(),
+    intervalMs: SYNC_INTERVAL_MS,
+    persist: { storage: getRuntimeStorage(), key: SYNC_STATUS_STORAGE_KEY },
+  });
+  private requested = false;
   private readonly unsubscribers: Array<() => void> = [];
 
   constructor() {
     getOrCreateSyncClientState(getOrCreateDeviceId());
     if (typeof window === "undefined") return;
-    this.unsubscribers.push(subscribeRuntimeOnline(this.handleOnline));
     const lab = getLabRuntime();
-    if (lab)
-      this.unsubscribers.push(lab.subscribeAutoSync(this.updatePeriodicSync));
+    if (!lab) return;
+    // Lab clients have a synthetic, always signed-in account (see use-auth).
+    this.controller.confirmSignedIn({ userId: "sync-lab-user" });
+    this.unsubscribers.push(lab.subscribeAutoSync(this.update));
   }
 
-  startPeriodicSync(intervalMs = SYNC_INTERVAL_MS): void {
-    this.requestedInterval = intervalMs;
-    this.updatePeriodicSync();
-  }
+  subscribe = (listener: () => void) => this.controller.subscribe(listener);
+  getSnapshot = () => this.controller.getSnapshot();
 
-  /** A confirmed new session can recover 401 failures, including while offline. */
-  setSessionIdentity(sessionId: string | undefined): void {
-    if (sessionId === undefined || sessionId === this.sessionId) return;
-    this.sessionId = sessionId;
-    this.publish({ authRequired: false, error: null });
+  /** Sync now, then periodically, on reconnect and on return to the app. */
+  startPeriodicSync(): void {
+    this.requested = true;
+    this.update();
   }
 
   stopPeriodicSync(): void {
-    this.requestedInterval = null;
-    this.clearInterval();
-    if (SHARED_API_ORIGIN) this.controller?.abort();
+    this.requested = false;
+    this.controller.stop();
   }
 
   dispose(): void {
     this.stopPeriodicSync();
     for (const unsubscribe of this.unsubscribers) unsubscribe();
+    this.controller.dispose();
   }
 
-  syncAll(): Promise<SyncServiceResult> {
-    if (!this.isOnline) return Promise.resolve({ status: "offline" });
-    if (this.activeRun) return this.activeRun;
-    const sessionId = this.sessionId;
-    this.publish({ isSyncing: true, error: null, authRequired: false });
-    const controller = new AbortController();
-    this.controller = controller;
-    const client = new SyncV2Client({
-      syncDb: syncV2SyncDb,
-      onEvent: getLabRuntime()?.onSyncEvent,
-      signal: SHARED_API_ORIGIN ? controller.signal : undefined,
-    });
-    const run: Promise<SyncServiceResult> = client
-      .sync()
-      .then((result) => {
-        if (SHARED_API_ORIGIN) controller.signal.throwIfAborted();
-        this.publish({ lastSyncedAt: new Date(), error: null });
-        return { status: "completed" as const, ...result };
-      })
-      .catch((failure) => {
-        const error =
-          failure instanceof Error ? failure : new Error(String(failure));
-        if (sessionId === this.sessionId)
-          this.publish({
-            error,
-            authRequired:
-              (error instanceof SyncRemoteRequestError ||
-                error instanceof SyncHttpError) &&
-              error.status === 401,
-          });
-        throw error;
-      })
-      .finally(() => {
-        this.pendingRuns.delete(run);
-        this.activeRun = null;
-        this.publish({ isSyncing: false });
-        // A session change can join an exchange issued with the old credentials.
-        if (sessionId !== this.sessionId && this.syncInterval !== null)
-          this.runAutomaticSync();
-      });
-    this.activeRun = run;
-    this.pendingRuns.add(run);
-    return run;
+  /** A manual sync. Rejects with `SyncFailedError` so the caller can say so. */
+  async syncAll(): Promise<SyncServiceResult> {
+    const attempt = await this.controller.syncNow();
+    if (attempt.outcome === "failed") {
+      console.error("Sync failed:", attempt.failure);
+      throw new SyncFailedError(attempt.failure);
+    }
+    return {
+      status: attempt.outcome === "synced" ? "completed" : attempt.outcome,
+    };
   }
 
   /** Call after stopping the scheduler to wait for issued sync exchanges. */
-  async drain(): Promise<void> {
-    while (this.pendingRuns.size > 0)
-      await Promise.allSettled(this.pendingRuns);
+  drain(): Promise<void> {
+    return this.controller.drain();
   }
 
-  private clearInterval(): void {
-    if (this.syncInterval === null) return;
-    window.clearInterval(this.syncInterval);
-    this.syncInterval = null;
-  }
-
-  private updatePeriodicSync = (): void => {
-    const enabled = getLabRuntime()?.autoSync() ?? true;
-    if (!enabled || this.requestedInterval === null) {
-      this.clearInterval();
-      return;
-    }
-    if (this.syncInterval !== null || typeof window === "undefined") return;
-    this.syncInterval = window.setInterval(
-      this.runAutomaticSync,
-      this.requestedInterval,
-    );
-    this.runAutomaticSync();
-  };
-
-  private runAutomaticSync = (): void => {
-    if (this.state.authRequired) return;
-    void this.syncAll().catch((error) =>
-      console.error("Automatic sync failed:", error),
-    );
-  };
-
-  private handleOnline = (online: boolean): void => {
-    this.isOnline = online;
-    if (!online || this.syncInterval === null) return;
-    this.runAutomaticSync();
+  private update = (): void => {
+    if (this.requested && (getLabRuntime()?.autoSync() ?? true))
+      this.controller.start();
+    else this.controller.stop();
   };
 }
 

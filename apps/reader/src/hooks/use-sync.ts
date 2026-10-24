@@ -1,8 +1,10 @@
-import { useAuth } from "@/hooks/use-auth";
-import { deleteBook as deleteBookFromDb } from "@/lib/db";
+import { observeAuthSession, useAuth } from "@/hooks/use-auth";
+import { db, deleteBook as deleteBookFromDb } from "@/lib/db";
 import { syncService } from "@/lib/sync-service";
 import { subscribeToQueryInvalidation } from "@/lib/query-invalidation";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
+import { liveQuery } from "dexie";
 import {
   createContext,
   createElement,
@@ -10,8 +12,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -20,115 +20,71 @@ export class SyncUnavailableError extends Error {}
 interface SyncContextValue {
   /** Whether a sync is currently in progress */
   isSyncing: boolean;
-  /** Last sync timestamp */
-  lastSyncedAt: Date | null;
   /** Trigger a manual sync */
   triggerSync: () => Promise<void>;
   /** Delete a book (syncs deletion to server) */
   deleteBook: (bookId: string) => Promise<void>;
-  /** Error from last sync attempt */
-  syncError: Error | null;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
 
 /**
- * Owns the synchronization lifecycle and observable UI state once.
+ * Owns the synchronization lifecycle once.
  *
  * This hook:
  * - Refreshes queries after committed database writes, including offline edits
- * - Starts periodic sync when user is authenticated
+ * - Passes session answers and the outbox size to the sync controller
+ * - Runs automatic sync while this device believes a user is signed in,
+ *   including a remembered user while offline
  * - Provides manual sync triggers and book operations
- * - Exposes sync state to the UI
  */
 export function SyncProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { isAuthenticated, isLoading: isAuthLoading, session } = useAuth();
-  const sessionId = session?.id;
-  const serviceState = useSyncExternalStore(
-    syncService.subscribe,
-    syncService.getSnapshot,
+  const { isAuthenticated } = useAuth();
+  const isSyncing = useSyncStatus(
+    syncService.controller,
+    (status) => status.running,
   );
-  const [manualError, setManualError] = useState<Error | null>(null);
-  const isSyncing = serviceState.isSyncing;
-  const lastSyncedAt = isAuthenticated ? serviceState.lastSyncedAt : null;
-  const syncError = manualError ?? serviceState.error;
   useEffect(() => subscribeToQueryInvalidation(queryClient), [queryClient]);
-
+  useEffect(() => observeAuthSession(), []);
   useEffect(() => {
-    if (serviceState.lastSyncedAt) setManualError(null);
-  }, [serviceState.lastSyncedAt]);
+    const pending = liveQuery(() => db._sync_outbox.count()).subscribe({
+      next: (count) => syncService.controller.setPending(count),
+      error: (error) => console.error("Could not count pending changes", error),
+    });
+    return () => pending.unsubscribe();
+  }, []);
 
-  // Start/stop periodic sync based on auth status
+  // A signed-out or ended session stops automatic sync until the next sign-in.
   useEffect(() => {
-    if (isAuthLoading) {
+    if (!isAuthenticated) {
+      syncService.stopPeriodicSync();
       return;
     }
-
-    if (isAuthenticated) {
-      syncService.setSessionIdentity(sessionId);
-      // Start periodic sync (every 30 seconds)
-      syncService.startPeriodicSync(30000);
-    } else {
-      // Stop sync when logged out
-      syncService.stopPeriodicSync();
-    }
-
+    syncService.startPeriodicSync();
     return () => {
       syncService.stopPeriodicSync();
     };
-  }, [isAuthenticated, isAuthLoading, sessionId]);
+  }, [isAuthenticated]);
 
   // Manual sync trigger
   const triggerSync = useCallback(async () => {
     if (!isAuthenticated)
       throw new SyncUnavailableError("Sign in to sync your library.");
-
-    setManualError(null);
-
-    try {
-      const result = await syncService.syncAll();
-      if (result.status === "offline") {
-        throw new SyncUnavailableError("Connect to the internet to sync.");
-      }
-    } catch (error) {
-      console.error("[useSync] Sync failed:", error);
-      const syncFailure =
-        error instanceof Error ? error : new Error("Sync failed");
-      setManualError(syncFailure);
-      throw syncFailure;
-    }
+    const result = await syncService.syncAll();
+    if (result.status === "offline")
+      throw new SyncUnavailableError("Connect to the internet to sync.");
   }, [isAuthenticated]);
 
-  // Delete a book (syncs to server)
-  const deleteBook = useCallback(
-    async (bookId: string) => {
-      if (!isAuthenticated) {
-        await deleteBookFromDb(bookId);
-        return;
-      }
-
-      // Delete locally first
-      await deleteBookFromDb(bookId);
-
-      // Then run the normal pull-push flow.
-      void syncService.syncAll().catch((error) => {
-        // Deletion already committed. The shared sync row reports transport failure.
-        console.error("Book deletion sync is pending:", error);
-      });
-    },
-    [isAuthenticated],
-  );
+  // The deletion commits locally; sync sends it soon, or after the backoff.
+  const deleteBook = useCallback(async (bookId: string) => {
+    await deleteBookFromDb(bookId);
+    syncService.controller.requestSync();
+  }, []);
 
   const value = useMemo<SyncContextValue>(
-    () => ({
-      isSyncing,
-      lastSyncedAt,
-      triggerSync,
-      deleteBook,
-      syncError,
-    }),
-    [deleteBook, isSyncing, lastSyncedAt, syncError, triggerSync],
+    () => ({ isSyncing, triggerSync, deleteBook }),
+    [deleteBook, isSyncing, triggerSync],
   );
 
   return createElement(SyncContext.Provider, { value }, children);

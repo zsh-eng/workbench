@@ -10,6 +10,7 @@ import {
   FileText,
   LayoutGrid,
   Link2,
+  LogIn,
   MoreHorizontal,
   LogOut,
   RefreshCw,
@@ -26,7 +27,8 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { signOut } from "./api";
+import type { SyncSummary } from "@zsh-eng/local-sync";
+import { signInWithGoogle, signOut } from "./api";
 import { edits, editLibrary, removeArticle, type Article } from "./articles";
 import {
   dismissToast,
@@ -34,14 +36,14 @@ import {
   reportError,
   showToast,
   useSession,
-  useStatus,
+  useStatusText,
   useToast,
 } from "./state";
 import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { Sheet, useCompact } from "./surface";
 import { listMotion } from "./motion";
-import type { Session, SyncStatus } from "./sync/session";
+import type { Session } from "./sync/session";
 import type { Fields } from "./sync/storage";
 
 export function Tip({
@@ -251,8 +253,10 @@ function ActionRows({
             )}
           </>
         ) : (
-          row(<BookmarkPlus size={20} />, "Save to library", () =>
-            void actions.save(article),
+          row(
+            <BookmarkPlus size={20} />,
+            "Save to library",
+            () => void actions.save(article),
           )
         )}
       </div>
@@ -468,42 +472,30 @@ function Item({
   );
 }
 
-export function describeStatus(status: SyncStatus, pending: number) {
-  const ago = (time?: number) => {
-    if (!time) return "";
-    const minutes = Math.round((Date.now() - time) / 60000);
-    if (minutes < 1) return "just now";
-    if (minutes < 60) return `${minutes} min ago`;
-    const hours = Math.round(minutes / 60);
-    return hours < 24
-      ? `${hours} h ago`
-      : new Date(time).toLocaleDateString(undefined, {
-          day: "numeric",
-          month: "short",
-        });
+/**
+ * What the sync row does: sync now, or what the status asks for (sign in
+ * again after a session ends, reload after the server requires an update).
+ */
+function syncAction(session: Session, status: SyncSummary) {
+  if (status.action === "sign-in")
+    return {
+      label: "Sign in again",
+      icon: LogIn,
+      run: () => void signInWithGoogle().catch(reportError),
+    };
+  if (status.action === "reload")
+    return { label: "Reload", icon: RefreshCw, run: () => location.reload() };
+  return {
+    label: "Sync now",
+    icon: RefreshCw,
+    run: () => void session.sync(),
   };
-  switch (status.phase) {
-    case "loading":
-      return "Opening your library…";
-    case "syncing":
-      return "Syncing…";
-    case "synced":
-      return pending
-        ? `${pending} changes to upload`
-        : `Synced ${ago(status.lastSyncedAt)}`;
-    case "offline":
-      return pending
-        ? `Offline. ${pending} changes will upload later.`
-        : "Offline. Showing this browser's copy.";
-    case "error":
-      return status.message;
-  }
 }
 
 /** The account and its places. In the sidebar it is a row with the name. */
 export function AccountMenu({ row = false }: { row?: boolean }) {
   const session = useSession();
-  const status = useStatus();
+  const status = useStatusText();
   const navigate = useNavigate();
   const compact = useCompact();
   const [open, setOpen] = useState(false);
@@ -514,11 +506,28 @@ export function AccountMenu({ row = false }: { row?: boolean }) {
     (account.name || account.email).slice(0, 1).toUpperCase()
   );
   const places: [ReactNode, string, string][] = [
-    [<Highlighter size={compact ? 20 : 16} />, "Highlights", "/highlights"],
-    [<Clock size={compact ? 20 : 16} />, "Reading time", "/reading"],
-    [<FileText size={compact ? 20 : 16} />, "Article text", "/copies"],
-    [<Settings size={compact ? 20 : 16} />, "Settings", "/settings"],
+    [
+      <Highlighter key="highlights" size={compact ? 20 : 16} />,
+      "Highlights",
+      "/highlights",
+    ],
+    [
+      <Clock key="reading" size={compact ? 20 : 16} />,
+      "Reading time",
+      "/reading",
+    ],
+    [
+      <FileText key="copies" size={compact ? 20 : 16} />,
+      "Article text",
+      "/copies",
+    ],
+    [
+      <Settings key="settings" size={compact ? 20 : 16} />,
+      "Settings",
+      "/settings",
+    ],
   ];
+  const sync = syncAction(session, status);
   if (compact)
     return (
       <>
@@ -532,7 +541,7 @@ export function AccountMenu({ row = false }: { row?: boolean }) {
         </button>
         <Sheet isOpen={open} onOpenChange={setOpen} title="Account">
           <AccountSheet
-            status={describeStatus(status, session.pendingCount)}
+            status={status}
             places={places}
             onClose={() => setOpen(false)}
             onGo={(path) => {
@@ -570,18 +579,15 @@ export function AccountMenu({ row = false }: { row?: boolean }) {
           side={row ? "top" : "bottom"}
         >
           <Menu.Popup className="menu">
-            <div className="menu-account">
+            <div className="menu-account" title={status.detail}>
               <strong>{account.name || account.email}</strong>
               {account.email}
               <br />
-              {describeStatus(status, session.pendingCount)}
+              {status.label}
             </div>
             <Menu.Separator className="menu-separator" />
-            <Item
-              icon={<RefreshCw size={16} />}
-              onClick={() => void session.sync().catch(() => {})}
-            >
-              Sync now
+            <Item icon={<sync.icon size={16} />} onClick={sync.run}>
+              {sync.label}
             </Item>
             {places.map(([icon, label, path]) => (
               <Item key={path} icon={icon} onClick={() => navigate(path)}>
@@ -608,7 +614,7 @@ function AccountSheet({
   onClose,
   onGo,
 }: {
-  status: string;
+  status: SyncSummary;
   places: [ReactNode, string, string][];
   onClose: () => void;
   onGo: (path: string) => void;
@@ -616,6 +622,7 @@ function AccountSheet({
   const session = useSession();
   const { account } = session;
   const { layout } = useSettings();
+  const sync = syncAction(session, status);
   return (
     <div className="action-sheet">
       <header className="action-head">
@@ -626,11 +633,12 @@ function AccountSheet({
         <button
           type="button"
           className="action-row"
-          onClick={() => void session.sync().catch(() => {})}
+          title={status.detail}
+          onClick={sync.run}
         >
-          <RefreshCw size={20} />
-          Sync now
-          <span className="action-detail">{status}</span>
+          <sync.icon size={20} />
+          {sync.label}
+          <span className="action-detail">{status.label}</span>
         </button>
         <div className="action-row static">
           <LayoutGrid size={20} />
@@ -679,7 +687,7 @@ function AccountSheet({
 
 /** Signing out removes this browser's copy. Unsent edits upload first when possible. */
 async function leave(session: Session) {
-  if (session.pendingCount) await session.sync().catch(() => {});
+  if (session.pendingCount) await session.sync();
   if (
     session.pendingCount &&
     !confirm(
@@ -690,8 +698,11 @@ async function leave(session: Session) {
   try {
     await signOut();
   } catch (error) {
-    reportError(error);
-    return;
+    // An ended session has nothing to end on the server.
+    if (session.controller.getSnapshot().auth.status !== "expired") {
+      reportError(error);
+      return;
+    }
   }
   await session.forget();
   location.assign("/");

@@ -89,6 +89,9 @@ export default defineConfig(({ command, mode }) => ({
     outDir: "dist",
   },
   resolve: {
+    // Workspace packages with a React peer (local-sync/react, elements) must
+    // use this app's React, not the copy linked beside the package.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@server": path.resolve(__dirname, "./server"),

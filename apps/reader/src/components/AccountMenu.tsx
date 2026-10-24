@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { authClient } from "@/lib/auth-client";
 import { useDebugEnabled } from "@/lib/debug-preference";
 import { files } from "@/lib/files";
+import { syncService } from "@/lib/sync-service";
 import { cn } from "@/lib/utils";
 import {
   Bug,
@@ -57,17 +58,25 @@ function getUserInitials(name: string | null | undefined): string {
 /**
  * Sign-in, sync, appearance and the secondary pages, behind one button at the
  * end of each header. Sync stays quiet while it works; when it needs you
- * (offline, signed out, or failing) its state shows beside the button.
+ * (offline, session ended, or failing) its state shows beside the button.
+ * A remembered account shows while offline; only the server ends it.
  */
 export function AccountMenu() {
   const navigate = useNavigate();
   const debugEnabled = useDebugEnabled();
-  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const {
+    user,
+    status: authStatus,
+    isAuthenticated,
+    isLoading: isAuthLoading,
+  } = useAuth();
   const { appearanceMode, setAppearanceMode } = useReaderSettings();
   const { isSyncing, triggerSync } = useSync();
   const syncStatus = useSyncStatus();
   const { toast } = useToast();
-  const showSyncAttention = isAuthenticated && syncStatus.attention;
+  // An ended session keeps its account on this device until sign-out.
+  const hasAccount = isAuthenticated || authStatus === "expired";
+  const showSyncAttention = hasAccount && syncStatus.attention;
 
   const handleSync = async () => {
     try {
@@ -106,6 +115,7 @@ export function AccountMenu() {
     try {
       if (getLabRuntime()) return;
       await authClient.signOut();
+      syncService.controller.signOut();
       navigate("/");
       toast({ message: "Signed out." });
     } catch (error) {
@@ -137,7 +147,7 @@ export function AccountMenu() {
           title={showSyncAttention ? syncStatus.label : "Account"}
           className={cn(APP_HEADER_BUTTON, "relative")}
         >
-          {isAuthenticated && user ? (
+          {hasAccount && user ? (
             <Avatar className="size-7">
               <AvatarImage src={user.image || undefined} alt="" />
               <AvatarFallback className="text-[11px]">
@@ -156,7 +166,7 @@ export function AccountMenu() {
         </DropdownMenuTrigger>
       </div>
       <DropdownMenuContent align="end" className="w-64">
-        {isAuthenticated && user && (
+        {hasAccount && user && (
           <DropdownMenuGroup>
             <DropdownMenuLabel className="pb-2">
               <span className="block truncate">{user.name}</span>
@@ -166,20 +176,21 @@ export function AccountMenu() {
             </DropdownMenuLabel>
           </DropdownMenuGroup>
         )}
-        {isAuthenticated && (
+        {hasAccount && (
           <DropdownMenuItem
             disabled={isSyncing || !syncStatus.online}
             aria-label={
-              syncStatus.authRequired
-                ? "Sign in again"
+              syncStatus.action === "sign-in"
+                ? syncStatus.label
                 : `Sync now: ${syncStatus.label}`
             }
             title={syncStatus.detail}
-            onClick={() =>
-              void (syncStatus.authRequired
-                ? handleGoogleSignIn()
-                : handleSync())
-            }
+            onClick={() => {
+              if (syncStatus.action === "reload") location.reload();
+              else if (syncStatus.action === "sign-in")
+                void handleGoogleSignIn();
+              else void handleSync();
+            }}
           >
             {syncStatus.busyVisible ? (
               <Loader2 className="animate-spin" />
@@ -191,7 +202,7 @@ export function AccountMenu() {
             {syncStatus.label}
           </DropdownMenuItem>
         )}
-        {isAuthenticated && <DropdownMenuSeparator />}
+        {hasAccount && <DropdownMenuSeparator />}
         {isAuthenticated && (
           <DropdownMenuItem render={<Link to="/devices" />}>
             <MonitorSmartphone />
@@ -227,7 +238,7 @@ export function AccountMenu() {
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        {isAuthenticated ? (
+        {hasAccount ? (
           <DropdownMenuItem onClick={() => void handleSignOut()}>
             <LogOut />
             Sign out

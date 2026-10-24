@@ -381,7 +381,7 @@
     },
     "packages/local-sync": {
       "name": "@zsh-eng/local-sync",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "dependencies": {
         "zod": "4.3.6",
       },
@@ -398,11 +398,13 @@
         "@hono/zod-validator": "^0.7.6",
         "dexie": "^4.4.2",
         "hono": "^4.12.15",
+        "react": ">=18",
       },
       "optionalPeers": [
         "@hono/zod-validator",
         "dexie",
         "hono",
+        "react",
       ],
     },
     "packages/text-highlighter": {

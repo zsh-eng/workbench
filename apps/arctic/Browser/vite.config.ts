@@ -7,4 +7,6 @@ export default defineConfig({
   server: { host: "localhost", port: 5186, strictPort: true },
   preview: { host: "localhost", port: 5186, strictPort: true },
   build: { target: "es2022" },
+  // Workspace packages with a React peer (local-sync/react) use this app's React.
+  resolve: { dedupe: ["react", "react-dom"] },
 });

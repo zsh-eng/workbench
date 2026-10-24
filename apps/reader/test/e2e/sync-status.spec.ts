@@ -13,11 +13,14 @@ test("automatic auth failure is visible and does not retry on reconnect", async 
   await page.goto("/");
   // Sync needs attention, so its state shows beside the account button.
   await expect(
-    page.getByRole("button", { name: "Account: Sign in again", exact: true }),
+    page.getByRole("button", {
+      name: "Account: Sign in again to sync",
+      exact: true,
+    }),
   ).toBeVisible();
   const menu = await openAccountMenu(page);
   await expect(
-    menu.getByRole("menuitem", { name: "Sign in again", exact: true }),
+    menu.getByRole("menuitem", { name: "Sign in again to sync", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await page.evaluate(async () => {
@@ -68,7 +71,10 @@ test("record completion does not claim a pending file upload has completed", asy
       }),
     ).toBeVisible();
     await menu
-      .getByRole("menuitem", { name: "Sync now: Uploading files…", exact: true })
+      .getByRole("menuitem", {
+        name: "Sync now: Uploading files…",
+        exact: true,
+      })
       .click();
     menu = await openAccountMenu(page);
     await expect(
@@ -83,7 +89,7 @@ test("record completion does not claim a pending file upload has completed", asy
     release();
     await expect(
       menu.getByRole("menuitem", {
-        name: "Sync now: Reading data synced",
+        name: "Sync now: Synced just now",
         exact: true,
       }),
     ).toBeVisible();
@@ -96,4 +102,48 @@ test("record completion does not claim a pending file upload has completed", asy
   } finally {
     release();
   }
+});
+
+test("offline shows on the account button, and changes made offline sync when the network returns", async ({
+  page,
+  context,
+  localBook,
+  remote,
+}) => {
+  // The restored book is a local change; sync it first.
+  await (
+    await openAccountMenu(page)
+  )
+    .getByRole("menuitem", { name: /^Sync now:/ })
+    .click();
+  await expect(
+    (await openAccountMenu(page)).getByRole("menuitem", {
+      name: "Sync now: Synced just now",
+    }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await context.setOffline(true);
+  // A signed-in reader who goes offline is still signed in.
+  await expect(
+    page.getByRole("button", { name: "Account: Offline", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(async (id) => {
+    const modulePath = "/src/lib/sync-v2/db.ts";
+    const { syncV2Db: db } = await import(modulePath);
+    await db.books.update(id, { title: "Renamed offline" });
+  }, localBook.id);
+  await openAccountMenu(page);
+  await expect(
+    page.getByRole("menuitem", { name: "Sync now: Offline" }),
+  ).toHaveAttribute("title", /1 change is saved on this device/);
+  await page.keyboard.press("Escape");
+
+  const pushed = remote.pushed.length;
+  await context.setOffline(false);
+  await expect(
+    page.getByRole("button", { name: "Account", exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => remote.pushed.length).toBeGreaterThan(pushed);
+  expect(remote.pushed.at(-1)?.value).toContain("Renamed offline");
 });

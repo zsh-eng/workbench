@@ -13,6 +13,7 @@ const auth = vi.hoisted(() => ({
   sessionId: undefined as string | undefined,
 }));
 vi.mock("@/hooks/use-auth", () => ({
+  observeAuthSession: () => () => {},
   useAuth: () => ({
     isAuthenticated: auth.signedIn,
     isLoading: false,
@@ -25,75 +26,14 @@ beforeEach(async () => {
   await db.open();
 });
 
-it("recovers record sync only for a new confirmed session, including restoration offline", async () => {
-  const { SyncService } = await import("@/lib/sync-service");
-  const { SyncRemoteRequestError } = await import("@/lib/sync-v2/sync");
-  const service = new SyncService();
-  const exchange = vi
-    .spyOn(SyncV2Client.prototype, "sync")
-    .mockRejectedValueOnce(new SyncRemoteRequestError("pull", 401))
-    .mockResolvedValue({ pulled: 0, pushed: 0, skipped: 0 });
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  try {
-    service.setSessionIdentity("expired");
-    service.startPeriodicSync();
-    await service.drain();
-    service.stopPeriodicSync();
-    service.setSessionIdentity("expired");
-    service.setSessionIdentity(undefined);
-    service.startPeriodicSync();
-    expect(service.getSnapshot().authRequired).toBe(true);
-    expect(exchange).toHaveBeenCalledOnce();
-    window.dispatchEvent(new Event("offline"));
-    service.setSessionIdentity("restored");
-    expect(service.getSnapshot().authRequired).toBe(false);
-    expect(exchange).toHaveBeenCalledOnce();
-    window.dispatchEvent(new Event("online"));
-    await service.drain();
-    expect(exchange).toHaveBeenCalledTimes(2);
-    expect(service.getSnapshot().error).toBeNull();
-  } finally {
-    service.dispose();
-  }
-});
-
-it("retries the new session when an older in-flight exchange returns 401", async () => {
-  const { SyncService } = await import("@/lib/sync-service");
-  const { SyncRemoteRequestError } = await import("@/lib/sync-v2/sync");
-  const service = new SyncService();
-  const pending = Promise.withResolvers<{
-    pulled: number;
-    pushed: number;
-    skipped: number;
-  }>();
-  const exchange = vi
-    .spyOn(SyncV2Client.prototype, "sync")
-    .mockReturnValueOnce(pending.promise)
-    .mockResolvedValue({ pulled: 0, pushed: 0, skipped: 0 });
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  try {
-    service.setSessionIdentity("old");
-    service.startPeriodicSync();
-    service.stopPeriodicSync();
-    service.setSessionIdentity("new");
-    service.startPeriodicSync();
-    pending.reject(new SyncRemoteRequestError("pull", 401));
-    await service.drain();
-    expect(exchange).toHaveBeenCalledTimes(2);
-    expect(service.getSnapshot()).toMatchObject({
-      authRequired: false,
-      error: null,
-      isSyncing: false,
-    });
-  } finally {
-    service.dispose();
-  }
-});
+/** A browser changes navigator.onLine and then fires the event. */
+function setOnline(online: boolean) {
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(online);
+  act(() => window.dispatchEvent(new Event(online ? "online" : "offline")));
+}
 
 it("forwards confirmed session changes from auth while upload and sync transport stay offline", async () => {
-  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
-  window.dispatchEvent(new Event("offline"));
-  const recordIdentity = vi.spyOn(syncService, "setSessionIdentity");
+  setOnline(false);
   const uploadIdentity = vi.spyOn(files, "setSessionIdentity");
   const resume = vi.spyOn(files, "resumeUploads").mockImplementation(() => {});
   vi.spyOn(files, "pauseUploads").mockImplementation(() => {});
@@ -105,12 +45,10 @@ it("forwards confirmed session changes from auth while upload and sync transport
   auth.sessionId = "restored-offline";
   record.rerender();
   upload.rerender();
-  expect(recordIdentity).toHaveBeenLastCalledWith("restored-offline");
   expect(uploadIdentity).toHaveBeenLastCalledWith("restored-offline");
   expect(resume).not.toHaveBeenCalled();
   expect(manualRetry).not.toHaveBeenCalled();
-  online.mockReturnValue(true);
-  act(() => window.dispatchEvent(new Event("online")));
+  setOnline(true);
   expect(resume).toHaveBeenCalledOnce();
 });
 afterEach(async () => {
@@ -139,18 +77,18 @@ it("rejects a manual offline race without changing the last completed timestamp"
   vi.spyOn(console, "error").mockImplementation(() => {});
   const { result } = mountSync();
   await act(() => result.current.triggerSync());
-  const completedAt = result.current.lastSyncedAt;
-  expect(completedAt).toBeInstanceOf(Date);
-  window.dispatchEvent(new Event("offline"));
+  const completedAt = syncService.getSnapshot().lastSyncedAt;
+  expect(completedAt).toEqual(expect.any(Number));
+  setOnline(false);
   await act(async () => {
     await expect(result.current.triggerSync()).rejects.toThrow(
       "Connect to the internet to sync.",
     );
   });
-  expect(result.current.lastSyncedAt).toBe(completedAt);
-  expect(result.current.syncError?.message).toContain(
-    "Connect to the internet to sync.",
-  );
+  expect(syncService.getSnapshot()).toMatchObject({
+    connection: "offline",
+    lastSyncedAt: completedAt,
+  });
   expect(exchange).toHaveBeenCalledOnce();
 });
 it("deletes a signed-in book locally when exchange is skipped offline", async () => {
@@ -169,7 +107,7 @@ it("deletes a signed-in book locally when exchange is skipped offline", async ()
     toc: [],
     cover: null,
   });
-  window.dispatchEvent(new Event("offline"));
+  setOnline(false);
   await act(async () => {
     await expect(
       result.current.deleteBook("offline-book"),
@@ -186,70 +124,46 @@ it("does not restart exchange on reconnect after periodic sync stops", async () 
   syncService.startPeriodicSync();
   await Promise.resolve();
   syncService.stopPeriodicSync();
-  window.dispatchEvent(new Event("offline"));
-  window.dispatchEvent(new Event("online"));
+  setOnline(false);
+  setOnline(true);
   expect(exchange).toHaveBeenCalledOnce();
 });
 
 it("rejects a signed-out manual sync without exchange or a completion timestamp", async () => {
   auth.signedIn = false;
+  const before = syncService.getSnapshot().lastSyncedAt;
   const exchange = vi.spyOn(syncService, "syncAll");
   const { result } = mountSync();
   await expect(result.current.triggerSync()).rejects.toThrow("Sign in to sync");
   expect(exchange).not.toHaveBeenCalled();
-  expect(result.current.lastSyncedAt).toBeNull();
+  expect(syncService.getSnapshot().lastSyncedAt).toBe(before);
 });
 
-it("publishes automatic failures and recovery through the same state as manual sync", async () => {
-  const { SyncService } = await import("@/lib/sync-service");
-  const service = new SyncService();
-  const exchange = vi
-    .spyOn(SyncV2Client.prototype, "sync")
-    .mockRejectedValueOnce(new Error("Temporary failure"))
-    .mockResolvedValue({ pulled: 0, pushed: 0, skipped: 0 });
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  try {
-    service.startPeriodicSync();
-    expect(service.getSnapshot().isSyncing).toBe(true);
-    await service.drain();
-    expect(service.getSnapshot().error?.message).toBe("Temporary failure");
-    expect(service.getSnapshot().lastSyncedAt).toBeNull();
-    window.dispatchEvent(new Event("offline"));
-    window.dispatchEvent(new Event("online"));
-    await service.drain();
-    expect(service.getSnapshot()).toMatchObject({
-      isSyncing: false,
-      error: null,
-      authRequired: false,
-    });
-    expect(service.getSnapshot().lastSyncedAt).toBeInstanceOf(Date);
-    expect(exchange).toHaveBeenCalledTimes(2);
-  } finally {
-    service.dispose();
-  }
-});
-
-it("blocks automatic 401 retries until an explicit exchange succeeds", async () => {
+it("treats a 401 from Reader's transport as an ended session until an explicit exchange succeeds", async () => {
   const { SyncService } = await import("@/lib/sync-service");
   const { SyncRemoteRequestError } = await import("@/lib/sync-v2/sync");
   const service = new SyncService();
+  service.controller.confirmSignedIn({ userId: "reader" }, "session");
   const exchange = vi
     .spyOn(SyncV2Client.prototype, "sync")
     .mockRejectedValueOnce(new SyncRemoteRequestError("pull", 401))
     .mockResolvedValue({ pulled: 0, pushed: 0, skipped: 0 });
-  vi.spyOn(console, "error").mockImplementation(() => {});
   try {
     service.startPeriodicSync();
     await service.drain();
-    expect(service.getSnapshot().authRequired).toBe(true);
-    window.dispatchEvent(new Event("offline"));
-    window.dispatchEvent(new Event("online"));
+    expect(service.getSnapshot().auth.status).toBe("expired");
+    setOnline(false);
+    setOnline(true);
     service.stopPeriodicSync();
     service.startPeriodicSync();
     await service.drain();
     expect(exchange).toHaveBeenCalledOnce();
+    // Signing in on another app restores the shared cookie; a manual sync proves it.
     await service.syncAll();
-    expect(service.getSnapshot().authRequired).toBe(false);
+    expect(service.getSnapshot()).toMatchObject({
+      auth: { status: "signed-in" },
+      failure: null,
+    });
     expect(exchange).toHaveBeenCalledTimes(2);
   } finally {
     service.dispose();

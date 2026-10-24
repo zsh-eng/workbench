@@ -6,6 +6,7 @@ import {
   type SyncRemote,
   type SyncClientStateStore,
   createNamespacedHttpClient,
+  SyncHttpError,
 } from "@zsh-eng/local-sync";
 
 export function createRemote(
@@ -40,12 +41,8 @@ export function createRemote(
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     signal.throwIfAborted();
-    if (!response.ok)
-      throw new Error(
-        response.status === 401
-          ? "Sign in to sync"
-          : `Sync failed (${response.status}). The server must be migrated first.`,
-      );
+    // The sync controller reads the status: 401 ends the session, 5xx retries.
+    if (!response.ok) throw new SyncHttpError(response.status, response);
     return response.json();
   };
   return {

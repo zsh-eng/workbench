@@ -42,19 +42,15 @@ import {
 import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
-import { useArticles, useSession, useStatus } from "./state";
+import type { SyncSummary } from "@zsh-eng/local-sync";
+import { useArticles, useSession, useStatusText, useSyncing } from "./state";
 import { preloadSheet, useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
-import {
-  AccountMenu,
-  CardMenu,
-  CardMenuButton,
-  describeStatus,
-} from "./ui";
+import { AccountMenu, CardMenu, CardMenuButton } from "./ui";
 
 export function Library({ folder }: { folder: Folder }) {
   const articles = useArticles();
-  const status = useStatus();
+  const syncing = useSyncing();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   // The page owns its filters and the URL follows them, so quick changes never race navigation.
@@ -101,8 +97,7 @@ export function Library({ folder }: { folder: Folder }) {
   );
   const compact = useCompact();
   // Back and Forward render every card at once, so the scroll position returns.
-  const returning =
-    useNavigationType() === "POP" && location.key !== "default";
+  const returning = useNavigationType() === "POP" && location.key !== "default";
   // A phone shows a dozen cards at most, so it renders those first.
   const rendered = useSteps(
     visible.length,
@@ -112,15 +107,16 @@ export function Library({ folder }: { folder: Folder }) {
   );
 
   useLayoutEffect(() => {
-    if (visible.length && !performance.getEntriesByName("arctic:cards").length) {
+    if (
+      visible.length &&
+      !performance.getEntriesByName("arctic:cards").length
+    ) {
       performance.mark("arctic:cards");
       preloadSheet();
     }
   }, [visible.length]);
 
-  const first =
-    articles.length === 0 &&
-    (status.phase === "loading" || status.phase === "syncing");
+  const first = articles.length === 0 && syncing;
   // Every card links with this one object, so a new search or folder does not
   // render the cards again. A history entry keeps a copy made when it opens.
   const opened = useRef({ from: "/" }).current;
@@ -232,7 +228,9 @@ export function Library({ folder }: { folder: Folder }) {
             {folders.map((item) => (
               <Link
                 key={item.id}
-                to={item.path + (query ? `?q=${encodeURIComponent(query)}` : "")}
+                to={
+                  item.path + (query ? `?q=${encodeURIComponent(query)}` : "")
+                }
                 className="side-item"
                 aria-current={item.id === folder ? "page" : undefined}
               >
@@ -348,17 +346,12 @@ function DeskBar({
   input: RefObject<HTMLInputElement | null>;
   children: ReactNode;
 }) {
-  const session = useSession();
-  const status = useStatus();
+  const status = useStatusText();
   const scrolled = useScrolled();
-  const note =
-    status.phase === "offline" || status.phase === "error"
-      ? describeStatus(status, session.pendingCount)
-      : "";
   return (
     <div className="desk-bar" data-scrolled={scrolled || undefined}>
       <SearchField query={query} onQuery={onQuery} input={input} />
-      {note && <span className="status-note">{note}</span>}
+      <StatusNote status={status} />
       {children}
     </div>
   );
@@ -513,7 +506,10 @@ function PhoneDock({
     <LinkDock>
       <button type="button" className="search-capsule" onClick={onSearch}>
         <Search size={17} />
-        Search {count > 0 ? `${count.toLocaleString()} ${count === 1 ? "article" : "articles"}` : ""}
+        Search{" "}
+        {count > 0
+          ? `${count.toLocaleString()} ${count === 1 ? "article" : "articles"}`
+          : ""}
       </button>
     </LinkDock>
   );
@@ -525,18 +521,14 @@ function PhoneDock({
  * card takes focus, and, while the browser is idle, for the cards on screen.
  * One set of listeners on the list serves every card.
  */
-function usePrefetch(
-  grid: RefObject<HTMLElement | null>,
-  visible: Article[],
-) {
+function usePrefetch(grid: RefObject<HTMLElement | null>, visible: Article[]) {
   const session = useSession();
   const byId = useMemo(
     () => new Map(visible.map((article) => [article.id, article])),
     [visible],
   );
   const find = (target: EventTarget | null) => {
-    const id = (target as Element | null)
-      ?.closest?.<HTMLElement>(".card")
+    const id = (target as Element | null)?.closest?.<HTMLElement>(".card")
       ?.dataset.id;
     return id ? byId.get(id) : undefined;
   };
@@ -642,20 +634,15 @@ function LibraryBar({
   onQuery: (value: string) => void;
   input: RefObject<HTMLInputElement | null>;
 }) {
-  const session = useSession();
-  const status = useStatus();
+  const status = useStatusText();
   const scrolled = useScrolled();
-  const note =
-    status.phase === "offline" || status.phase === "error"
-      ? describeStatus(status, session.pendingCount)
-      : "";
   return (
     <div className="bar" data-scrolled={scrolled || undefined}>
       <Link to="/" className="brand">
         <img src="/icon-64.png" alt="" />
         Arctic
       </Link>
-      {note && <span className="status-note">{note}</span>}
+      <StatusNote status={status} />
       <SearchField query={query} onQuery={onQuery} input={input} />
       <AddLinkButton />
       <AccountMenu />
@@ -815,5 +802,15 @@ function Favicon({ src, host }: { src?: string; host: string }) {
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+/** Sync state that needs the reader's attention: offline, signed out, failing. */
+function StatusNote({ status }: { status: SyncSummary }) {
+  if (!status.attention) return null;
+  return (
+    <span className="status-note" title={status.detail}>
+      {status.label}
+    </span>
   );
 }

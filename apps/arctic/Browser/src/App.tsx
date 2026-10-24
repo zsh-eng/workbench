@@ -28,13 +28,12 @@ import { articleText, decodedImage, prefetch } from "./text";
 import { Session } from "./sync/session";
 import { Toaster } from "./ui";
 
-type Opened =
-  | { account: null; expired?: boolean }
-  | { account: Account; session: Session };
+type Opened = { account: null } | { account: Account; session: Session };
 
 /**
  * Opens once per page load. A remembered account opens this browser's copy at
- * once, as Reader opens its library; the account check follows (see App).
+ * once, as Reader opens its library, and starts sync; the account check
+ * follows (see App).
  */
 let opening: Promise<Opened> | undefined;
 function open(): Promise<Opened> {
@@ -46,9 +45,27 @@ function open(): Promise<Opened> {
     performance.mark("arctic:open", {
       detail: { records: session.arctic.size + session.copies.size },
     });
+    downloadAfterSync(session);
+    session.controller.start();
     return { account, session };
   })();
   return opening;
+}
+
+/**
+ * The session's controller syncs on open, on reconnect, on return to the tab
+ * and every five minutes. New text downloads after each sync when Offline is
+ * on (see offline.ts).
+ */
+function downloadAfterSync(session: Session) {
+  const { controller } = session;
+  let last = controller.getSnapshot().lastSyncedAt;
+  controller.subscribe(() => {
+    const { lastSyncedAt } = controller.getSnapshot();
+    if (lastSyncedAt === last) return;
+    last = lastSyncedAt;
+    void downloadNew(session, articles(session));
+  });
 }
 // IndexedDB opens while React prepares its first render.
 void open().catch(() => {});
@@ -108,29 +125,31 @@ export function App() {
   useEffect(() => {
     open().then(setOpened, (error: Error) => setOpened(error));
   }, []);
-  // The server confirms the remembered account in the background. A signed-out
-  // browser keeps its copy for the next sign-in; another account reloads.
-  const userId =
-    opened && !(opened instanceof Error) ? opened.account?.userId : undefined;
+  // The server confirms the remembered account in the background. An ended
+  // session keeps the library open and asks to sign in again; another
+  // account reloads. No answer (offline, unreachable) changes nothing.
+  const session =
+    opened && !(opened instanceof Error) && opened.account
+      ? opened.session
+      : undefined;
   useEffect(() => {
-    if (!userId) return;
+    if (!session) return;
     currentAccount().then(
       (account) => {
-        if (!account) setOpened({ account: null, expired: true });
-        else if (account.userId !== userId) location.reload();
+        if (!account) session.controller.confirmSignedOut();
+        else if (account.userId !== session.account.userId) location.reload();
+        else session.controller.confirmSignedIn(account);
       },
-      () => {
-        /* Offline: the sync status says so. */
-      },
+      () => {},
     );
-  }, [userId]);
+  }, [session]);
   // Opening reads IndexedDB only; a blank frame is shorter than a message.
   if (opened === undefined) return null;
   if (opened instanceof Error)
     return (
       <div className="quiet-page">Arctic could not open: {opened.message}</div>
     );
-  if (!opened.account) return <Welcome expired={opened.expired} />;
+  if (!opened.account) return <Welcome />;
   return (
     <SessionContext.Provider value={opened.session}>
       <RouterProvider router={router} />
@@ -143,7 +162,6 @@ function Root() {
   return (
     <>
       <ScrollRestoration />
-      <SyncTriggers />
       <KeptLibrary folder={handle?.folder} />
       <Outlet />
       <Toaster />
@@ -167,45 +185,11 @@ function KeptLibrary({ folder }: { folder?: Folder }) {
   );
 }
 
-/**
- * Sync on open, on return to the tab, when the network comes back, and every
- * five minutes. New text downloads after a sync when Offline is on.
- */
-function SyncTriggers() {
-  useEffect(() => {
-    let session: Session | undefined;
-    const run = (current: Session) =>
-      current.sync().then(
-        () => downloadNew(current, articles(current)),
-        () => {},
-      );
-    void open().then((opened) => {
-      if (!("session" in opened)) return;
-      session = opened.session;
-      void run(session);
-    });
-    const sync = () => {
-      if (session && document.visibilityState === "visible") void run(session);
-    };
-    document.addEventListener("visibilitychange", sync);
-    window.addEventListener("online", sync);
-    const timer = setInterval(sync, 5 * 60_000);
-    return () => {
-      document.removeEventListener("visibilitychange", sync);
-      window.removeEventListener("online", sync);
-      clearInterval(timer);
-    };
-  }, []);
-  return null;
-}
-
-function Welcome({ expired }: { expired?: boolean }) {
+function Welcome() {
   const [error, setError] = useState(
     new URLSearchParams(location.search).get("signin") === "failed"
       ? "Google sign-in did not finish. Try again."
-      : expired
-        ? "You were signed out. Sign in again to sync."
-        : "",
+      : "",
   );
   const [busy, setBusy] = useState(false);
   return (

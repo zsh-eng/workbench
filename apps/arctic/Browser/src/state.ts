@@ -1,4 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
+import { useSyncStatus, useSyncSummary } from "@zsh-eng/local-sync/react";
 import { projector, type Article } from "./articles";
 import type { Session } from "./sync/session";
 import type { RecordStorage } from "./sync/storage";
@@ -9,13 +10,6 @@ export function useSession() {
   const session = useContext(SessionContext);
   if (!session) throw new Error("Arctic has no signed-in session.");
   return session;
-}
-
-function useVersion(session: Session) {
-  return useSyncExternalStore(
-    (listener) => session.subscribe(listener),
-    () => session.version,
-  );
 }
 
 /** One projection per record change, shared by every component that reads it. */
@@ -56,10 +50,19 @@ export function useRecords(storage: RecordStorage) {
   );
 }
 
+/** Connection, account and sync activity (see @zsh-eng/local-sync). */
 export function useStatus() {
-  const session = useSession();
-  useVersion(session);
-  return session.status;
+  return useSyncStatus(useSession().controller);
+}
+
+/** Whether a sync is running; re-renders only when that changes. */
+export function useSyncing() {
+  return useSyncStatus(useSession().controller, (status) => status.running);
+}
+
+/** The status in words, the same as in the other Workbench apps. */
+export function useStatusText() {
+  return useSyncSummary(useSession().controller);
 }
 
 type Toast = {
