@@ -12,6 +12,7 @@ export default defineProject({
     },
   ],
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@server": path.resolve(__dirname, "./server"),

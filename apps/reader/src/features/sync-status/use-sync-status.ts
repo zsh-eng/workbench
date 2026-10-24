@@ -1,37 +1,38 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import {
+  useSyncStatus as useControllerStatus,
+  useSyncSummary,
+} from "@zsh-eng/local-sync/react";
 import { db } from "@/lib/db";
 import { files } from "@/lib/files";
 import { syncService } from "@/lib/sync-service";
-import {
-  getRuntimeOnline,
-  subscribeRuntimeOnline,
-} from "@/features/sync-lab/runtime";
 
-/** Record acknowledgement and file transfer are separate completion scopes. */
+/** Record sync owns the words; file transfer refines them only while records are quiet. */
+const QUIET = new Set(["pending", "synced", "idle"]);
+
+/**
+ * Record acknowledgement and file transfer are separate completion scopes.
+ * The record summary comes from the shared sync controller, so offline,
+ * unreachable, ended-session and retry states read the same in every app.
+ */
 export function useSyncStatus() {
-  const record = useSyncExternalStore(
-    syncService.subscribe,
-    syncService.getSnapshot,
+  const summary = useSyncSummary(syncService.controller);
+  const online = useControllerStatus(
+    syncService.controller,
+    (status) => status.connection !== "offline",
   );
   const transfer = useSyncExternalStore(files.subscribe, files.getSnapshot);
-  const counts = useLiveQuery(async () => {
-    const [pending, uploads] = await Promise.all([
-      db._sync_outbox.count(),
-      db.fileUploadOperations.toArray(),
-    ]);
+  const uploads = useLiveQuery(async () => {
+    const operations = await db.fileUploadOperations.toArray();
     return {
-      pending,
-      uploads: uploads.length,
-      failedUploads: uploads.filter(
-        (item) => item.lastFailure.kind === "failed",
-      ).length,
+      waiting: operations.length,
+      failed: operations.filter((item) => item.lastFailure.kind === "failed")
+        .length,
     };
   }, []);
-  const [online, setOnline] = useState(getRuntimeOnline);
-  useEffect(() => subscribeRuntimeOnline(setOnline), []);
   const active =
-    record.isSyncing ||
+    summary.busy ||
     transfer.uploading !== null ||
     transfer.downloading.length > 0;
   // Small background exchanges should not flash a spinner in the navigation.
@@ -40,43 +41,33 @@ export function useSyncStatus() {
     const timer = setTimeout(() => setBusyVisible(active), active ? 200 : 300);
     return () => clearTimeout(timer);
   }, [active]);
-  const authRequired = record.authRequired || transfer.authRequired;
-  const label = !online
-    ? "Offline"
-    : authRequired
-      ? "Sign in again"
-      : busyVisible && record.isSyncing
-        ? "Syncing reading data…"
-        : busyVisible && transfer.uploading
-          ? "Uploading files…"
-          : busyVisible && transfer.downloading.length
-            ? "Downloading files…"
-            : record.error
-              ? "Retry reading data sync"
-              : counts?.pending
-                ? `${counts.pending} changes pending`
-                : counts?.failedUploads
-                  ? "Retry file uploads"
-                  : counts?.uploads
-                    ? `${counts.uploads} files waiting`
-                    : counts && record.lastSyncedAt
-                      ? "Reading data synced"
-                      : "Sync now";
-  const detail = counts
-    ? `Reading data: ${counts.pending} pending · Files: ${counts.uploads} awaiting upload${transfer.downloading.length ? ` · ${transfer.downloading.length} downloading` : ""}`
-    : "Reading local sync state…";
+  const quiet = QUIET.has(summary.kind);
+  const signInAgain = transfer.authRequired && quiet;
+  const label = signInAgain
+    ? "Sign in again to sync"
+    : !quiet
+      ? summary.label
+      : transfer.uploading
+        ? "Uploading files…"
+        : transfer.downloading.length
+          ? "Downloading files…"
+          : uploads?.failed
+            ? "Retry file uploads"
+            : uploads?.waiting
+              ? `${uploads.waiting} files waiting`
+              : summary.label;
+  const fileDetail = uploads
+    ? `Files: ${uploads.waiting} awaiting upload${transfer.downloading.length ? ` · ${transfer.downloading.length} downloading` : ""}.`
+    : "";
   return {
     label,
-    detail,
+    detail: [summary.detail, fileDetail].filter(Boolean).join(" "),
     online,
-    authRequired,
+    /** What the sync row does: sign in, or sync (retry included). */
+    action: signInAgain ? ("sign-in" as const) : summary.action,
     /** Offline, signed out, or failing: worth a word in the navigation. */
-    attention:
-      !online ||
-      authRequired ||
-      Boolean(record.error) ||
-      Boolean(counts?.failedUploads),
-    isSyncing: record.isSyncing,
-    busyVisible: busyVisible && online && !authRequired,
+    attention: summary.attention || signInAgain || Boolean(uploads?.failed),
+    isSyncing: summary.busy,
+    busyVisible: busyVisible && active && online,
   };
 }
