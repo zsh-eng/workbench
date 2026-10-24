@@ -4,8 +4,12 @@ Track time between deliberate actions, not the number of actions. Keep one
 small session record for each article visit. Do not write a database row for
 every scroll event, and do not treat an open screen as proof of reading.
 
-Arctic uses a **120-second inactivity threshold**. The EPUB web reader uses
-**10 minutes**. These are product choices, not shared constants.
+Every app counts with one rule. The web apps share its code,
+[activity-time](packages/activity-time/README.md), which also defines one
+record shape for time spent in Reader, Arctic and Spaced. Only the gap
+differs: Arctic and Spaced use **120 seconds**, the EPUB web reader **10
+minutes**, for the quiet minutes between page turns. Each session records
+its gap.
 
 ## Accounting rule
 
@@ -22,27 +26,27 @@ An action at 250 adds another 10 seconds.
 
 A timer saves completed intervals. It **does not add time**. Otherwise a timer
 would keep an abandoned page active forever. This rule can undercount a long,
-quiet reading interval, so display the result as *estimated reading time*.
+quiet reading interval, so display the result as _estimated reading time_.
 
 ## Eligibility and navigation
 
 The view owns eligibility. The accounting module does not inspect UI state.
 
-| Event or state | Policy |
-| --- | --- |
-| Article with readable text, saved or not, foreground | Start or resume an interval |
-| Archived article | Same policy as any article |
-| Scroll, tap, text selection, reader keyboard action | Report deliberate activity |
-| Loading, speculative preload, image decode, restored scroll | Do not report activity |
-| Website mode with extracted article text | Same policy as Reader |
-| Website page without article text, or a publisher front page | Do not start tracking |
-| Background, lock, notes or settings UI | Pause; exclude the time away |
-| Return from a pause | Start a fresh boundary; keep the visit record |
-| Navigate to another document | End the outgoing visit before changing identity |
-| Same-document anchor | Keep the article identity |
-| Back to a previous article | Start a new visit; exclude time on the other page |
-| Page opened above another | Start its visit; the covered page's late pause or end has no effect |
-| Save or unsave while reading | Keep the visit; time is keyed by URL either way |
+| Event or state                                               | Policy                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Article with readable text, saved or not, foreground         | Start or resume an interval                                         |
+| Archived article                                             | Same policy as any article                                          |
+| Scroll, tap, text selection, reader keyboard action          | Report deliberate activity                                          |
+| Loading, speculative preload, image decode, restored scroll  | Do not report activity                                              |
+| Website mode with extracted article text                     | Same policy as Reader                                               |
+| Website page without article text, or a publisher front page | Do not start tracking                                               |
+| Background, lock, notes or settings UI                       | Pause; exclude the time away                                        |
+| Return from a pause                                          | Start a fresh boundary; keep the visit record                       |
+| Navigate to another document                                 | End the outgoing visit before changing identity                     |
+| Same-document anchor                                         | Keep the article identity                                           |
+| Back to a previous article                                   | Start a new visit; exclude time on the other page                   |
+| Page opened above another                                    | Start its visit; the covered page's late pause or end has no effect |
+| Save or unsave while reading                                 | Keep the visit; time is keyed by URL either way                     |
 
 A WebView wrapper can outlive the article it first opened. Key sessions to the
 **current document identity**, not the wrapper's original URL. Scope delayed
@@ -72,21 +76,29 @@ that arrive during a write are written next; an older snapshot cannot replace
 them. Failed writes remain dirty in memory and can be retried. A damaged file
 is kept and does not prevent other sessions from loading.
 
-Elapsed intervals use a monotonic clock. Wall-clock dates are only for history
-and presentation; changes to the device clock cannot add negative duration.
-The controller resets its boundary if the monotonic input regresses in a test
-or unusual runtime condition.
+On the phone, elapsed intervals use a monotonic clock. Wall-clock dates are
+only for history and presentation; changes to the device clock cannot add
+negative duration. The controller resets its boundary if the monotonic input
+regresses in a test or unusual runtime condition. The web uses the wall
+clock, because a browser's monotonic clock can stop while a computer sleeps
+and would then credit a visible page on a sleeping laptop. A clock that goes
+back resets the boundary there too.
 
-These files are local only. Arctic's library sync does **not** include them.
-The web reader persists session summaries through
-its existing domain store and generic sync engine. Do not equate the two
-platforms' current sync status.
+The phone uploads these files as `session/<UUID>` records in `arctic-reading`
+(`AccountRecordJournal` in `Sources/LibrarySync.swift`), and Arctic for the
+web writes the same records. The EPUB web reader persists session summaries
+through its existing domain store and generic sync engine.
 
 ## Reuse in another app
 
+A web app uses [activity-time](packages/activity-time/README.md): its
+tracker, browser signals and hooks do steps 2 to 6, and its session shape and
+`summarizeTime` give the same records and totals as the other apps.
+
 1. Define exactly what makes content eligible and what constitutes activity.
 2. Give the visible reader one owner for starting, pausing, and ending visits.
-3. Use stable document IDs, monotonic intervals, and separate reporting dates.
+3. Use stable document IDs, a clock that cannot add negative time, and
+   separate reporting dates.
 4. Keep activity updates in memory; checkpoint only changed summaries.
 5. Save on lifecycle boundaries. Retain failed values and expose the error.
 6. Test with an injected clock instead of waiting for real idle timeouts.
@@ -109,7 +121,8 @@ Useful code to compare:
 
 - [Native accounting and local files](apps/arctic/Sources/ReadingSessions.swift)
 - [Native deterministic checks](apps/arctic/Checks/ReadingSessionChecks.swift)
-- [Web session controller](apps/reader/src/features/reader/hooks/reading-sessions/reader-reading-session-controller.ts)
+- [Shared web rule, tracker and signals](packages/activity-time/src)
+- [Reader's use of it](apps/reader/src/features/reader/hooks/reading-sessions/use-reader-reading-session.ts)
 - [Web session domain store](apps/reader/src/data/reading-sessions.ts)
 
 A forced process termination can lose changes after the last completed write.
