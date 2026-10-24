@@ -18,8 +18,11 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
+import { Toast } from "@workbench/elements/toast";
+import "@workbench/elements/toast.css";
 import {
   cloneElement,
+  useEffect,
   useState,
   useSyncExternalStore,
   type ReactElement,
@@ -251,8 +254,10 @@ function ActionRows({
             )}
           </>
         ) : (
-          row(<BookmarkPlus size={20} />, "Save to library", () =>
-            void actions.save(article),
+          row(
+            <BookmarkPlus size={20} />,
+            "Save to library",
+            () => void actions.save(article),
           )
         )}
       </div>
@@ -697,30 +702,67 @@ async function leave(session: Session) {
   location.assign("/");
 }
 
+/**
+ * Toasts: Workbench's toast (@workbench/elements/toast), as in Reader, with
+ * Undo counting down after Telegram's undo bar. A phone shows it above the
+ * bottom bar. It stays usable over a sheet, which makes the rest of the page
+ * inert, and the region announces each new toast. ⌘Z or Ctrl+Z undoes while
+ * Undo is on offer.
+ */
 export function Toaster() {
-  const toast = useToast();
-  if (!toast) return null;
+  const current = useToast();
+  // The last toast stays while it leaves.
+  const [shown, setShown] = useState(current);
+  if (current && current !== shown) setShown(current);
+  const leaving = !current && shown !== null;
+  const undo = current?.action;
+  useEffect(() => {
+    if (!undo || !current) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "z" || !(event.metaKey || event.ctrlKey))
+        return;
+      if (event.shiftKey || event.altKey || event.defaultPrevented) return;
+      const target = event.target as HTMLElement;
+      if (target.closest("input, textarea, [contenteditable]")) return;
+      event.preventDefault();
+      undo.run();
+      dismissToast(current.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [current, undo]);
   return (
     <div
-      className="toast"
+      className="toaster"
       role="status"
-      key={toast.id}
-      onPointerEnter={() => holdToast(true)}
-      onPointerLeave={() => holdToast(false)}
-      onFocus={() => holdToast(true)}
-      onBlur={() => holdToast(false)}
+      aria-label="Notifications"
+      data-react-aria-top-layer=""
     >
-      {toast.message}
-      {toast.action && (
-        <button
-          type="button"
-          onClick={() => {
-            toast.action!.run();
-            dismissToast();
+      {shown && (
+        <Toast
+          key={shown.id}
+          className="toast"
+          data-leaving={leaving || undefined}
+          inert={leaving}
+          message={shown.message}
+          undo={
+            shown.action && {
+              label: shown.action.label,
+              onUndo: () => {
+                shown.action!.run();
+                dismissToast(shown.id);
+              },
+              onDone: () => dismissToast(shown.id),
+            }
+          }
+          onPointerEnter={() => holdToast(true)}
+          onPointerLeave={() => holdToast(false)}
+          onFocus={() => holdToast(true)}
+          onBlur={() => holdToast(false)}
+          onAnimationEnd={(event) => {
+            if (event.animationName === "toast-out") setShown(null);
           }}
-        >
-          {toast.action.label}
-        </button>
+        />
       )}
     </div>
   );

@@ -62,33 +62,37 @@ export function useStatus() {
   return session.status;
 }
 
-type Toast = {
+export type Toast = {
   id: number;
   message: string;
+  /** Undo, offered while its countdown runs (UNDO_SECONDS). */
   action?: { label: string; run: () => void };
 };
 let toast: Toast | null = null;
+let toastId = 0;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const toastListeners = new Set<() => void>();
 
 /** One notice at a time; a new one replaces the last. */
 export function showToast(message: string, action?: Toast["action"]) {
-  toast = { id: Date.now(), message, action };
+  toast = { id: ++toastId, message, action };
   toastListeners.forEach((listener) => listener());
   holdToast(false);
 }
 
-/** A notice stays while the pointer or focus is on it, then 6 s more. */
+/**
+ * A notice stays while the pointer or focus is on it, then 6 s more. An
+ * offer of Undo keeps its own time: the toast's countdown ends it.
+ */
 export function holdToast(held: boolean) {
   clearTimeout(toastTimer);
-  if (held || !toast) return;
-  toastTimer = setTimeout(() => {
-    toast = null;
-    toastListeners.forEach((listener) => listener());
-  }, 6000);
+  if (held || !toast || toast.action) return;
+  toastTimer = setTimeout(dismissToast, 6000);
 }
 
-export function dismissToast() {
+/** Dismisses the toast, or only the one with this id. */
+export function dismissToast(id?: number) {
+  if (!toast || (id !== undefined && toast.id !== id)) return;
   clearTimeout(toastTimer);
   toast = null;
   toastListeners.forEach((listener) => listener());

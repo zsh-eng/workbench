@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { addText, article, paragraphs, phone, signUp } from "./phone";
 
-// A phone, where the sheets' code loads on its own.
+// A phone: sheets, and the bottom bar under the toasts.
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
 test.beforeEach(async ({ context }) => {
@@ -35,4 +35,58 @@ test("a sheet whose code failed to load opens on the next tap", async ({
   await expect(
     page.getByRole("dialog", { name: "Text and theme" }),
   ).toBeVisible();
+});
+
+test("Undo counts down above the bottom bar and takes the change back", async ({
+  page,
+  context,
+}) => {
+  await phone(context.request).push([
+    ...article("https://example.com/polynya", {
+      title: "A polynya in winter",
+      savedAt: Date.UTC(2026, 9, 2),
+    }).records,
+    ...article("https://example.com/brash-ice", {
+      title: "Brash ice",
+      savedAt: Date.UTC(2026, 9, 1),
+    }).records,
+  ]);
+  await page.goto("/");
+  await expect(page.locator(".card")).toHaveCount(2);
+
+  const archive = async (title: string) => {
+    await page.getByRole("button", { name: `More for ${title}` }).click();
+    const sheet = page.getByRole("dialog", { name: `Actions for ${title}` });
+    // It takes focus once it rests.
+    await expect
+      .poll(() =>
+        page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")),
+      )
+      .toBe(true);
+    await sheet.getByRole("button", { name: "Archive" }).click();
+    await expect(page.locator(".card-title", { hasText: title })).toHaveCount(
+      0,
+    );
+  };
+
+  await archive("A polynya in winter");
+  const toast = page.getByRole("status", { name: "Notifications" });
+  await expect(toast).toContainText("Archived");
+  // The toast comes to rest above the search bar, clear of it.
+  const bar = (await page.locator(".library-dock").boundingBox())!;
+  await expect
+    .poll(async () => {
+      const box = (await toast.locator(".toast").boundingBox())!;
+      return box.y + box.height <= bar.y;
+    })
+    .toBe(true);
+  await toast.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".card")).toHaveCount(2);
+
+  // ⌘Z or Ctrl+Z undoes while Undo is on offer.
+  await archive("Brash ice");
+  await expect(toast).toContainText("Archived");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator(".card")).toHaveCount(2);
+  await expect(toast.locator(".toast")).toHaveCount(0);
 });

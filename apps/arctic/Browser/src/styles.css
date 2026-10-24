@@ -20,8 +20,9 @@
   --raised: #ffffff;
   --accent: #2178b5;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 10px 32px rgb(0 0 0 / 0.1);
-  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto,
-    "Helvetica Neue", sans-serif;
+  --ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --gutter: 32px;
   --page: 1240px;
@@ -954,40 +955,78 @@ a.article-source:hover {
   font: inherit;
   opacity: 0.6;
 }
-.toast {
+/* Toasts: Workbench's toast (@workbench/elements/toast) in Arctic's
+   colours, centred at the bottom, above a phone's bottom bar. */
+.toaster {
+  --wb-toast-surface: var(--raised);
+  --wb-toast-text: var(--fg);
+  --wb-toast-edge: var(--rule);
+  --wb-toast-shadow: var(--shadow);
+  --wb-toast-fill: color-mix(in srgb, var(--fg) 7%, var(--raised));
+  --wb-toast-fill-hover: color-mix(in srgb, var(--fg) 12%, var(--raised));
+  --toast-bottom: max(24px, env(safe-area-inset-bottom));
   position: fixed;
-  left: 50%;
-  bottom: max(24px, env(safe-area-inset-bottom));
-  z-index: 40;
+  right: 0;
+  bottom: var(--toast-bottom);
+  left: 0;
+  z-index: 70;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 46px;
-  padding: 0 6px 0 18px;
-  border-radius: 13px;
-  background: var(--fg);
-  color: var(--bg);
-  font-size: 14px;
-  box-shadow: var(--shadow);
-  transform: translateX(-50%);
-  animation: toast-in 0.24s var(--ease);
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  transition: bottom 0.24s var(--ease);
 }
-.toast button {
-  height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: inherit;
-  font-weight: 600;
+/* 12 px above the bar: its 57 px and the home indicator's inset. */
+:root:has(.dock:not([data-hidden]), .library-dock) .toaster {
+  --toast-bottom: calc(69px + env(safe-area-inset-bottom));
 }
-.toast button:hover {
-  background: color-mix(in srgb, var(--bg) 16%, transparent);
+.toast {
+  max-width: 440px;
+  pointer-events: auto;
+  transform-origin: 50% 100%;
+  animation: toast-in 0.45s cubic-bezier(0.2, 1.1, 0.3, 1) both;
 }
+/* Undo spans the width, its message at the start and Undo at the end, as in
+   Reader; a notice keeps to its words. */
+.toast[data-undo] {
+  width: 100%;
+  max-width: 356px;
+}
+.toast[data-leaving] {
+  animation: toast-out 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+/* It rises from the bar and settles, as Arctic's toast does on iPhone. */
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    translate: 0 20px;
+    scale: 0.94;
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toaster {
+    transition: none;
+  }
+  .toast,
+  .toast[data-leaving] {
+    animation-duration: 0.15s;
+    animation-timing-function: linear;
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes toast-out {
+    to {
+      opacity: 0;
+    }
   }
 }
 
@@ -2281,10 +2320,6 @@ a.article-source:hover {
 .passage-bar[data-docked] .note-editor {
   width: 100%;
   max-width: none;
-}
-
-:root:has(.dock, .library-dock) .toast {
-  bottom: calc(70px + env(safe-area-inset-bottom));
 }
 
 /* Sheets on a phone */
