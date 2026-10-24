@@ -55,6 +55,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   useDisposeOnClose,
+  useParkedDrafts,
   useShell,
   useTabCommands,
   useThread,
@@ -517,7 +518,10 @@ export function App({
   );
   const browseApi = prefetch.api;
   useDisposeOnClose(prefetch.dispose);
-  const [editorDrafts] = useState(createEditorDrafts);
+  // An unsaved draft outlasts its workspace: it waits in the window.
+  const parkedDrafts = useParkedDrafts();
+  const [editorDrafts] = useState(() => createEditorDrafts(parkedDrafts ?? undefined));
+  useDisposeOnClose(editorDrafts.park);
   // In the window's shell, open files outlast a restart. A tab with an
   // unsaved draft keeps its place in a full row.
   const [fileWorkspace] = useState(() =>

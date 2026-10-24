@@ -1024,6 +1024,43 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await expect.element(history).not.toBeInTheDocument();
 });
 
+test("an unsaved draft outlasts its tab: a reload still warns, and the reopened thread shows the draft", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("third", { agent: "claude", state: "idle" })]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+
+  // A working file of the thread's checkout, edited and not saved.
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await expect
+    .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+
+  // ⌘⌥W closes the tab with its workspace, and asks nothing.
+  await userEvent.keyboard("{Control>}{Alt>}w{/Alt}{/Control}");
+  await expect.poll(threadRows).toEqual([]);
+  expect(document.querySelector('[data-workspace-slot="review-third"]')).toBeNull();
+  // The draft is still in this window, so leaving the page warns.
+  const leave = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(leave);
+  expect(leave.defaultPrevented).toBe(true);
+
+  // ⌘⌥T opens the thread again, and its file opens with the draft.
+  await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  if (!editor.query()) await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await expect
+    .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+});
+
 test("a tab lists its subagents; a click opens one in the Session pane, and a finished one folds once seen", async () => {
   const host = createHost();
   render(host);

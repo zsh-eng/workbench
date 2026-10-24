@@ -39,6 +39,7 @@ import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
+import { createParkedDrafts, type ParkedDrafts } from "../data/editor-drafts";
 import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
@@ -198,6 +199,8 @@ const LOST = "Med restarted before it opened this pull request.";
 const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
+/** The unsaved drafts of workspaces that closed or left memory. */
+const Parked = createContext<ParkedDrafts | null>(null);
 /** Tabs to load before their first visit: the one under the pointer
  * (`next`), then the others, nearest in the sidebar to the tab on screen
  * first. The tabs (`active`, by workspace ID) stay loaded, as open terminal
@@ -377,6 +380,14 @@ export function useWorkspaceShown() {
  * workspace runs effect cleanups too, and comes back with the same objects,
  * so inside a workspace disposal waits until the workspace closes.
  */
+/**
+ * The window's store of unsaved drafts whose workspace went away, so a draft
+ * outlasts its workspace. It is null outside the workspace shell.
+ */
+export function useParkedDrafts() {
+  return use(Parked);
+}
+
 export function useDisposeOnClose(dispose: () => void) {
   const lifetime = use(Lifetime);
   useEffect(() => {
@@ -2129,11 +2140,22 @@ export function WorkspaceViews({
       pool.dispose();
     };
   }, [pool]);
+  // A draft whose workspace closed is still unsaved, so leaving warns.
+  const [parked] = useState(createParkedDrafts);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!parked.hasUnsaved()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [parked]);
 
   // Slots keep one order: `mounted` is most recent first, and a slot that
   // moved in the DOM would lose its scroll offsets, as a thread that jumps to
   // its top while the next workspace prepares.
-  return mounted.toSorted().flatMap((id) => {
+  const slots = mounted.toSorted().flatMap((id) => {
     const workspace = workspaceOf(id);
     if (!workspace || workspace.kind === "vault") return [];
     if (workspace.kind === "pull")
@@ -2162,6 +2184,7 @@ export function WorkspaceViews({
       </Activity>
     );
   });
+  return <Parked value={parked}>{slots}</Parked>;
 }
 
 /** Follows a pull request's job for the list: its title, then its review. */
