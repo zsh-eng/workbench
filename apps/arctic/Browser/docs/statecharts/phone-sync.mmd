@@ -1,0 +1,36 @@
+stateDiagram-v2
+  %% Arctic on the phone and the web, drawn by hand from PhoneSync.tla on
+  %% 24 October 2026. A label with [breaks rule n] ends a bug's path.
+  %% never Once both devices are online and done syncing, they show the same note.
+  %% never Once both devices are online and done syncing, the note is its newest edit.
+  %% never Once the phone has an article's text, the web can show it too.
+  state "Arctic on the phone and the web" as App {
+    state "One note on a highlight" as Note {
+      state "Both show the same note" as Same
+      state "Phone has an unsent edit" as PhoneAhead
+      state "Web has an unsent edit" as WebAhead
+      state "Both have unsent edits" as Both
+      state "Both show the phone's older edit [breaks rule 5]" as OlderWins
+      [*] --> Same
+      Same --> PhoneAhead : Edit on the phone
+      Same --> WebAhead : Edit on the web
+      PhoneAhead --> Same : The phone syncs
+      WebAhead --> Same : The web syncs
+      PhoneAhead --> Both : Edit on the web
+      WebAhead --> Both : Edit on the phone
+      Both --> Same : The newer edit syncs first
+      Both --> OlderWins : The phone syncs first, and its edit is older
+    }
+    --
+    state "Text of a link saved on the web" as Text {
+      state "The account has the link, no text" as LinkOnly
+      state "The phone has the link" as PhoneLink
+      state "Text only on the phone [breaks rule 6]" as PhoneText
+      state "The web shows the text" as WebText
+      [*] --> LinkOnly
+      LinkOnly --> PhoneLink : The phone syncs the library
+      PhoneLink --> PhoneText : The phone preloads or opens it
+      PhoneText --> WebText : Keep a copy on the web
+      LinkOnly --> WebText : Keep a copy on the web
+    }
+  }
