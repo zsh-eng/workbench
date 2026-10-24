@@ -269,6 +269,7 @@ export class AgentInbox {
       text: string;
       noteIds: string[];
       comments?: SentComment[];
+      noteVersions?: Record<string, string>;
       attachmentCount: number;
     },
     body: string,
@@ -292,6 +293,9 @@ export class AgentInbox {
       text: message.text,
       noteIds: message.noteIds,
       ...(message.comments?.length ? { comments: message.comments } : {}),
+      ...(message.noteVersions && Object.keys(message.noteVersions).length
+        ? { noteVersions: message.noteVersions }
+        : {}),
       attachmentCount: message.attachmentCount,
       createdAt: new Date(this.now()).toISOString(),
       delivery: "pending",

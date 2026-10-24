@@ -16,6 +16,7 @@ import {
 import { join } from "node:path";
 import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
+import type { SentComment } from "../shared/agent-inbox";
 import { attemptRefSchema } from "../shared/attempts";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
@@ -1380,15 +1381,11 @@ export class SavedReviewStore {
       return record.captures.flatMap((target) =>
         target.notes.notes
           .filter((note) => !note.parentId)
-          .map((note) => {
-            const replies = target.notes.notes.filter((item) => item.parentId === note.id);
-            // A reply changes the thread, so the newest change counts.
-            const updatedAt = [note, ...replies]
-              .map((item) => item.updatedAt)
-              .sort()
-              .at(-1)!;
-            return { ...note, updatedAt, replies: replies.length };
-          }),
+          .map((note) => ({
+            ...note,
+            updatedAt: threadVersion(target.notes.notes, note),
+            replies: target.notes.notes.filter((item) => item.parentId === note.id).length,
+          })),
       );
     });
   }
@@ -1397,9 +1394,18 @@ export class SavedReviewStore {
   feedback(
     id: string,
     include?: ReadonlySet<string>,
-  ): Promise<{ text: string; count: number; repositoryCount: number; revision: number }> {
+  ): Promise<{
+    text: string;
+    count: number;
+    repositoryCount: number;
+    revision: number;
+    /** Each thread in the text, by ID: its version (as `comments` gives its
+     * `updatedAt`) and the comment as the text has it. */
+    threads: Map<string, { version: string; comment: SentComment }>;
+  }> {
     return this.serial(async () => {
       const record = await this.read(id);
+      const threadsOut = new Map<string, { version: string; comment: SentComment }>();
       const output: string[] = [];
       let outputBytes = 0;
       const checkBytes = (bytes: number) => {
@@ -1497,13 +1503,28 @@ export class SavedReviewStore {
           for (const reply of target.notes.notes.filter((item) => item.parentId === note.id))
             append(reply, number);
         };
-        for (const note of threads) append(note);
+        for (const note of threads) {
+          append(note);
+          threadsOut.set(note.id, {
+            version: threadVersion(target.notes.notes, note),
+            comment: {
+              path: note.path,
+              line: note.line,
+              ...(note.endLine ? { endLine: note.endLine } : {}),
+              text: note.text,
+            },
+          });
+        }
       }
       const pins = [record.saved, ...(record.saved.iterations ?? [])].flatMap(
         (owner) => owner.pins ?? [],
       );
       for (const comment of record.saved.briefComments ?? []) {
         if (include && !include.has(comment.id)) continue;
+        threadsOut.set(comment.id, {
+          version: comment.updatedAt,
+          comment: { path: "Notes", quote: comment.quote, text: comment.text },
+        });
         const pin = pins.find((item) => item.id === comment.section);
         appendText(
           `## User Comment ${++index}`,
@@ -1526,7 +1547,16 @@ export class SavedReviewStore {
         count: index,
         repositoryCount: repositories.size,
         revision: record.saved.revision,
+        threads: threadsOut,
       };
     });
   }
+}
+
+/** A comment thread's version: its newest change. A reply changes the thread. */
+function threadVersion(notes: readonly Note[], note: Note) {
+  return [note, ...notes.filter((item) => item.parentId === note.id)]
+    .map((item) => item.updatedAt)
+    .sort()
+    .at(-1)!;
 }
