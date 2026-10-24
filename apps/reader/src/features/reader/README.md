@@ -38,6 +38,8 @@ Epochs keep events from old layout work from overwriting newer results on the ma
 
 A bundled family (`@fontsource`) is imported twice with the same subsets and weights: in `main.tsx` for the page and in `pagination-v2/worker/fonts.ts` for the worker. The worker loads only the families the reading font names: the Library warms it with the saved font, and each `init` or `updatePaginationConfig` waits for its font before layout. Workbox precaches the font files, so every font works offline.
 
+Design ideas → Reading fonts opens the book you read last in each sans font through the Debug-only `?font=<id>` parameter, which lays the book out without saving the font.
+
 ## Scroll mode prototype (Debug)
 
 With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).

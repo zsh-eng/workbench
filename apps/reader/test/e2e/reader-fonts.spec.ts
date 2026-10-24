@@ -126,3 +126,23 @@ test("a sans font chosen in Appearance lays out the book and stays chosen", asyn
   }
   expect(lines).toBeGreaterThan(20);
 });
+
+test("every sans font keeps justified pages inside their margins", async ({
+  page,
+  localBook,
+}) => {
+  // Justified lines run to the edge, so text measured narrower than it is
+  // drawn would cross it.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "epub-reader-settings",
+      JSON.stringify({ textAlign: "justify-knuth-plass" }),
+    );
+  });
+  for (const font of ["system", "seravek", "source-sans", "atkinson"]) {
+    await page.goto(`/reader/${localBook.id}?font=${font}`);
+    await waitForReaderReady(page);
+    await turnToText(page);
+    expect(await expectTextToFit(page)).toBeGreaterThan(5);
+  }
+});

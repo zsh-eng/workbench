@@ -14,7 +14,7 @@ import {
 } from "@/lib/pagination-v2";
 import type { Highlight } from "@/types/highlight";
 import { getReadingFont } from "@/lib/reading-fonts";
-import type { ReaderSettings } from "@/types/reader.types";
+import type { FontFamily, ReaderSettings } from "@/types/reader.types";
 import {
   useCallback,
   useEffect,
@@ -45,6 +45,11 @@ interface UseReaderCoreOptions {
    * the source of progress, sessions, history and page numbers.
    */
   scrollLocation?: ReaderLocation | null;
+  /**
+   * A font laid out in place of the saved one and never saved, so Design
+   * ideas can compare fonts on the same book (Debug mode only).
+   */
+  previewFontFamily?: FontFamily | null;
 }
 
 interface UseReaderCoreResult {
@@ -124,8 +129,16 @@ export function useReaderCore(
     paragraphSpacingFactor = DEFAULT_PARAGRAPH_SPACING,
     layoutReady = true,
     scrollLocation = null,
+    previewFontFamily = null,
   } = options;
-  const { settings, updateSettings } = useReaderSettings();
+  const { settings: savedSettings, updateSettings } = useReaderSettings();
+  const settings = useMemo(
+    () =>
+      previewFontFamily
+        ? { ...savedSettings, fontFamily: previewFontFamily }
+        : savedSettings,
+    [savedSettings, previewFontFamily],
+  );
   const { book, isLoading: isBookLoading } = useBookLoader(bookId);
   const epubProcessor = useEpubProcessor(book);
   const epubPreparation = resolveReaderEpubPreparation({
