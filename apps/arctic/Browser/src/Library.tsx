@@ -67,6 +67,16 @@ export function Library({ folder }: { folder: Folder }) {
     setShown(folder);
     setTopic(null);
   }
+  // A save shows all of Saved, so the new card is in view (AddLink.tsx).
+  const showAll = (location.state as { showAll?: boolean } | null)?.showAll
+    ? location.key
+    : undefined;
+  const [shownAll, setShownAll] = useState(showAll);
+  if (showAll && showAll !== shownAll) {
+    setShownAll(showAll);
+    setQuery("");
+    setTopic(null);
+  }
   useEffect(() => {
     const next = new URLSearchParams();
     if (query) next.set("q", query);

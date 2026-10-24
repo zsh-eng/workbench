@@ -251,3 +251,50 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
     )
     .toBe(true);
 });
+
+test("the phone's link bar saves nothing after Cancel, and shows what it saves", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  // A clipboard that answers when the test says, as while Chrome asks for
+  // permission to read it.
+  await page.addInitScript(() => {
+    const answers: (() => void)[] = [];
+    navigator.clipboard.readText = () =>
+      new Promise((done) =>
+        answers.push(() => done("https://example.com/polar-night")),
+      );
+    Object.assign(window, { answer: () => answers.shift()?.() });
+  });
+  const older = article("https://example.com/older", { title: "Older reading" });
+  await phone(context.request).push(older.records);
+  await page.goto("/");
+  await expect(page.locator(".card")).toHaveCount(1);
+  const add = page.getByRole("button", { name: "Save a link" });
+  const field = page.getByPlaceholder("Paste a link");
+
+  // A tap on the list cancels a Paste that waits; its link stays unsaved.
+  await add.click();
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  await page.locator(".dock-scrim").click();
+  await expect(add).toHaveAttribute("aria-expanded", "false");
+  await page.evaluate(() => (window as unknown as { answer(): void }).answer());
+
+  // A link saved during a search shows at the top of all of Saved.
+  await page.getByRole("button", { name: /^Search \d/ }).click();
+  const search = page.getByRole("searchbox");
+  await search.fill("older");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\?q=older$/);
+  await add.click();
+  await field.fill("https://example.com/sea-smoke");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".toast")).toContainText("Saved");
+  await expect(page.locator(".card-title")).toHaveText([
+    "Sea smoke",
+    "Older reading",
+  ]);
+  await expect(search).toHaveValue("");
+  await expect(page).toHaveURL(/\/$/);
+});

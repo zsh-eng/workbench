@@ -102,7 +102,7 @@ function useShow() {
   const navigate = useNavigate();
   return () => {
     if (location.pathname !== "/" || location.search)
-      navigate("/", { state: { from: location.pathname } });
+      navigate("/", { state: { from: location.pathname, showAll: true } });
     else window.scrollTo({ top: 0, behavior: "smooth" });
   };
 }
@@ -250,6 +250,8 @@ export function LinkDock({ children }: { children: ReactNode }) {
   const link = useLinkField(() => close());
   const { input } = link;
   const canPaste = !!navigator.clipboard?.readText;
+  // A close drops a Paste that still waits for the clipboard.
+  const closes = useRef(0);
   useAboveKeyboard(dock, adding);
 
   const open = () => {
@@ -259,6 +261,7 @@ export function LinkDock({ children }: { children: ReactNode }) {
     input.current?.focus({ preventScroll: true });
   };
   function close() {
+    closes.current++;
     input.current?.blur();
     setAdding(false);
     link.reset();
@@ -340,16 +343,19 @@ export function LinkDock({ children }: { children: ReactNode }) {
                     type="button"
                     className="dock-paste"
                     onMouseDown={keepFocus}
-                    onClick={() =>
+                    onClick={() => {
+                      const asked = closes.current;
                       navigator.clipboard.readText().then(
                         (text) => {
+                          // Cancelled while the clipboard was read.
+                          if (closes.current !== asked) return;
                           link.change(text.trim());
                           void link.submit(text);
                         },
                         // Paste declined: the field stays for typing.
                         () => input.current?.focus(),
-                      )
-                    }
+                      );
+                    }}
                   >
                     Paste
                   </button>
