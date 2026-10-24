@@ -1,0 +1,20 @@
+{
+  "name": "@workbench/activity-time",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./dom": "./src/dom.ts",
+    "./react": "./src/react.ts"
+  },
+  "scripts": {
+    "test": "bun test ./test"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.9.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
