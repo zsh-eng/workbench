@@ -657,8 +657,10 @@ checks the current content and its folder again, then the file metadata and
 repository access with no wait before it atomically replaces the target. A
 detected change returns 409 and keeps the draft. Another process can still
 write between that last check and the replace; no lock would stop it, as
-other programs do not take Med's. There is no
-forced overwrite or automatic merge. Hard-linked and symlinked files are
+other programs do not take Med's. A draft whose file changed shows the
+change on disk as a read-only diff; **Keep my version** saves with the newer
+file's identity, and **Use the file on disk** opens a new draft from it. There
+is no automatic merge. Hard-linked and symlinked files are
 refused. A save does not stage or commit.
 
 Standalone files have their own source kind. Each grant is one exact canonical

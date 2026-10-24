@@ -618,8 +618,10 @@ while; it comes back when you open the file again. Med keeps up to 24 drafts
 in each workspace. A reload warns about unsaved work but loses drafts.
 
 If another process changes the file, the editor says so. A saved draft offers
-**Refresh contents**. An unsaved draft stays, and saving reports a conflict;
-there is no force save. Med edits existing UTF-8 text files up to 1 MiB.
+**Refresh contents**. An unsaved draft stays, and the editor shows what changed
+on disk since the draft started, as a read-only diff, with two choices: **Keep
+my version** saves the draft over the new file, and **Use the file on disk**
+drops the draft. Med does not merge them. Med edits existing UTF-8 text files up to 1 MiB.
 It cannot save symlinks, hard links, or paths through nested repositories. It
 keeps uniform CRLF line endings and executable bits. Commit and saved-review
 files are read-only.
