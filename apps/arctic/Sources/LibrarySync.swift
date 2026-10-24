@@ -65,9 +65,8 @@ struct LibraryAccount: Codable, Equatable {
   @ObservationIgnored private var login: NativeGoogleSignIn?
   /// The account profile opened during sign-in, before the user chooses.
   @ObservationIgnored private var joining: ArticleSyncRepository?
-  /// Highlights and notes, and reading sessions: a transport and a journal each.
-  @ObservationIgnored private var streams:
-    [AccountRecordFamily: (remote: HTTPRemote, journal: AccountRecordJournal)] = [:]
+  /// Highlights and notes, and reading sessions.
+  @ObservationIgnored private var records: AccountRecords!
   @ObservationIgnored private var running: Task<Void, Never>?
   @ObservationIgnored private var again = false
   @ObservationIgnored private var soon: Task<Void, Never>?
@@ -79,8 +78,14 @@ struct LibraryAccount: Codable, Equatable {
     joined = saved != nil
     status = saved == nil ? .signedOut : .syncing
     store.journalCommitted = { [weak self] in self?.syncSoon() }
-    AnnotationStore.shared.edited = { [weak self] in self?.syncSoon() }
-    ReadingSessions.shared.paused = { [weak self] in self?.syncSoon() }
+    records = AccountRecords(
+      root: store.libraryRoot,
+      connect: { [weak self] family in
+        // The credential comes from Keychain, where the library's transport keeps it fresh.
+        guard let session = try self?.savedSession() else { throw SyncFailure.unauthorized }
+        return try HTTPRemote(identity: session, namespace: family.namespace)
+      },
+      edited: { [weak self] in self?.syncSoon() })
   }
 
   var isSignedIn: Bool { account != nil }
@@ -165,7 +170,7 @@ struct LibraryAccount: Codable, Equatable {
       await transport.cancel()
       throw SyncFailure.scopeChanged
     }
-    retireStreams()
+    records.retire()
     remote = transport
     cancelRemote = { await transport.cancel() }
     signOutRemote = { try await transport.signOut() }
@@ -272,54 +277,13 @@ struct LibraryAccount: Codable, Equatable {
     pendingCount = await repository.pendingCount
   }
 
-  /// Highlights and notes, then reading sessions, after the library. Each
-  /// pulls, keeps the newer edit of every record, and uploads this device's.
+  /// Highlights and notes, then reading sessions, after the library.
   private func syncRecords() async throws {
     #if DEBUG
       // The test account holds a library only.
       if SyncFixture.current != nil { return }
     #endif
-    for family in AccountRecordFamily.allCases {
-      switch family {
-      case .annotations:
-        let annotations = AnnotationStore.shared
-        let (remote, journal) = try await stream(family)
-        try annotations.merge(try await journal.sync(annotations.records, using: remote))
-      case .reading:
-        let sessions = ReadingSessions.shared
-        // Before its files load, this device would seem to have no sessions.
-        guard sessions.isLoaded else { continue }
-        let (remote, journal) = try await stream(family)
-        sessions.merge(try await journal.sync(sessions.syncable, using: remote))
-      }
-    }
-  }
-
-  /// Each family's own stream, bound once per sign-in. The credential comes
-  /// from Keychain, where the library's transport keeps it fresh.
-  private func stream(_ family: AccountRecordFamily) async throws
-    -> (remote: HTTPRemote, journal: AccountRecordJournal)
-  {
-    if let stream = streams[family] { return stream }
-    guard let session = try savedSession() else { throw SyncFailure.unauthorized }
-    let remote = try HTTPRemote(identity: session, namespace: family.namespace)
-    do {
-      let journal = try AccountRecordJournal(
-        root: store.libraryRoot, scope: try await remote.getScope())
-      streams[family] = (remote, journal)
-      return (remote, journal)
-    } catch {
-      await remote.cancel()
-      throw error
-    }
-  }
-
-  private func retireStreams() {
-    let remotes = streams.values.map(\.remote)
-    streams = [:]
-    Task {
-      for remote in remotes { await remote.cancel() }
-    }
+    try await records.sync()
   }
 
   // MARK: Sign-out
@@ -358,7 +322,7 @@ struct LibraryAccount: Codable, Equatable {
 
   private func forgetSession() {
     let cancel = cancelRemote
-    retireStreams()
+    records.retire()
     remote = nil
     cancelRemote = nil
     signOutRemote = nil
@@ -381,7 +345,7 @@ struct LibraryAccount: Codable, Equatable {
     switch error {
     case SyncFailure.unauthorized:
       remote = nil
-      retireStreams()
+      records.retire()
       status = .needsSignIn
     case SyncFailure.scopeChanged, SyncFailure.wrongAccount:
       status = .failed(
@@ -482,6 +446,81 @@ actor AccountRecordJournal {
     }
     if ours == theirs { return .neither }
     return ours.updatedAt > theirs.updatedAt ? .local : .remote
+  }
+}
+
+/// What a family's stream needs from its transport.
+protocol AccountRecordRemote: SyncRemote {
+  func getScope() async throws -> SyncScope
+  func cancel() async
+}
+extension HTTPRemote: AccountRecordRemote {}
+
+/// Highlights and notes, and reading sessions, each in its own stream beside
+/// the library's, with a transport and a journal bound once per sign-in. A
+/// sync pulls each family, keeps the newer edit of every record, and uploads
+/// this device's.
+@MainActor final class AccountRecords {
+  private let root: URL
+  private let annotations: AnnotationStore
+  private let sessions: ReadingSessions
+  private let connect: (AccountRecordFamily) throws -> any AccountRecordRemote
+  private var streams:
+    [AccountRecordFamily: (remote: any AccountRecordRemote, journal: AccountRecordJournal)] = [:]
+
+  /// `edited` runs after each edit on this device, so a sync can follow.
+  init(
+    root: URL,
+    annotations: AnnotationStore = .shared,
+    sessions: ReadingSessions = .shared,
+    connect: @escaping (AccountRecordFamily) throws -> any AccountRecordRemote,
+    edited: @escaping () -> Void
+  ) {
+    self.root = root
+    self.annotations = annotations
+    self.sessions = sessions
+    self.connect = connect
+    annotations.edited = edited
+    sessions.paused = edited
+  }
+
+  func sync() async throws {
+    for family in AccountRecordFamily.allCases {
+      switch family {
+      case .annotations:
+        let (remote, journal) = try await stream(family)
+        try annotations.merge(try await journal.sync(annotations.records, using: remote))
+      case .reading:
+        // Before its files load, this device would seem to have no sessions.
+        guard sessions.isLoaded else { continue }
+        let (remote, journal) = try await stream(family)
+        sessions.merge(try await journal.sync(sessions.syncable, using: remote))
+      }
+    }
+  }
+
+  /// Stops each transport, as the session it holds ends or changes.
+  func retire() {
+    let remotes = streams.values.map(\.remote)
+    streams = [:]
+    Task {
+      for remote in remotes { await remote.cancel() }
+    }
+  }
+
+  private func stream(_ family: AccountRecordFamily) async throws
+    -> (remote: any AccountRecordRemote, journal: AccountRecordJournal)
+  {
+    if let stream = streams[family] { return stream }
+    let remote = try connect(family)
+    do {
+      let journal = try AccountRecordJournal(root: root, scope: try await remote.getScope())
+      streams[family] = (remote, journal)
+      return (remote, journal)
+    } catch {
+      await remote.cancel()
+      throw error
+    }
   }
 }
 
