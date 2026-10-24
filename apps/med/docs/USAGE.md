@@ -138,7 +138,8 @@ load it or read its agents until you open it again.
   off screen for 5 minutes, it does not need you, its agent does not work, and
   its branch has no commits ahead of its base and no uncommitted changes. The
   window that you used last does this, and a notice with **Undo** tells you.
-  Med never closes a tab whose work it cannot check.
+  Med never closes a tab whose work it cannot check, or a tab with an unsaved
+  draft.
 - **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
   Type a word, also while you hold Control, to search history too: closed
   threads and found sessions that are not tabs, by title, branch, repository,
@@ -551,15 +552,20 @@ that showed before.
   `a` stages every file shown, or unstages them all when all are staged.
 - **Commit.** `c` or **Commit…** opens the message: a summary, and `Enter`
   goes on to the description. `⌘↵` commits the staged files. With nothing
-  staged, the commit takes every change, unless a file has a conflict. `Esc`
-  keeps the message as a draft. Hooks run; if a hook stops the commit, its
-  output shows under the message.
+  staged, the commit takes every file that the dialog counts, unless a file
+  has a conflict. As with `git commit -a`, those files are staged only for
+  the commit: if it does not complete, nothing stays staged. `Esc` keeps the
+  message as a draft. Hooks run; if a hook stops the commit, its output shows
+  under the message.
 - **Push.** `⇧P` pushes to the upstream. For a branch without one, Med asks,
   then pushes to the push remote (usually `origin`) and tracks it. Med never
   force-pushes.
 
-If the staged files change outside Med, the commit stops and the tab reads
-them again. For hunks, amends, rebases, and branch switches, use **Copy lazygit
+If the staged files change outside Med, or a stage fails, the commit stops
+and the tab reads them again. A commit holds the files that its dialog
+counted, with the changes that the tab showed, or nothing: when an agent
+changes a file after the tab showed it, the commit stops and keeps the
+message. For hunks, amends, rebases, and branch switches, use **Copy lazygit
 command** on the workspace.
 
 ## Attempts
@@ -607,11 +613,20 @@ stage or commit; use the [Commit tab](#commit-and-push). Blame hides while a
 draft is unsaved.
 
 Drafts and their undo history stay in memory across tab switches and closes;
-open the file again to resume. Med keeps up to 24 drafts. A reload warns about
-unsaved work but loses drafts.
+open the file again to resume. An unsaved draft also stays when you close its
+workspace, or when Med unloads a workspace that you have not shown for a
+while; it comes back when you open the file again. Closing a tab or a
+workspace with unsaved drafts asks first. Unsaved drafts are also kept in the
+browser's storage, by workspace and file, so they come back after a reload,
+without their undo history. If the file changed meanwhile, the editor says so.
+Med keeps up to 24 drafts in each workspace. Leaving the page warns only when
+the browser could not keep a draft, as when its storage is full.
 
-If another process changed the file, saving reports a conflict and keeps your
-draft; there is no force save. Med edits existing UTF-8 text files up to 1 MiB.
+If another process changes the file, the editor says so. A saved draft offers
+**Refresh contents**. An unsaved draft stays, and the editor shows what changed
+on disk since the draft started, as a read-only diff, with two choices: **Keep
+my version** saves the draft over the new file, and **Use the file on disk**
+drops the draft. Med does not merge them. Med edits existing UTF-8 text files up to 1 MiB.
 It cannot save symlinks, hard links, or paths through nested repositories. It
 keeps uniform CRLF line endings and executable bits. Commit and saved-review
 files are read-only.

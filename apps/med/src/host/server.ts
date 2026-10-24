@@ -1494,15 +1494,25 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const bundle = await savedReviews.get(reviewId);
           const inboxState = async (): Promise<AgentInboxState> => {
             const messages = await inbox.messages(reviewId);
-            const sent = new Map<string, string>();
+            // A comment is sent when a message holds its version. A message
+            // from before versions holds the comments as they were when it
+            // was made.
+            const versions = new Map<string, Set<string>>();
+            const sentAt = new Map<string, string>();
             for (const message of messages)
-              for (const id of message.noteIds)
-                if ((sent.get(id) ?? "") < message.createdAt) sent.set(id, message.createdAt);
+              for (const id of message.noteIds) {
+                const version = message.noteVersions?.[id];
+                if (version !== undefined)
+                  versions.set(id, (versions.get(id) ?? new Set()).add(version));
+                else if ((sentAt.get(id) ?? "") < message.createdAt)
+                  sentAt.set(id, message.createdAt);
+              }
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
             const { briefComments, sessions } = await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
-              (sent.get(comment.id) ?? "") < comment.updatedAt;
+              !versions.get(comment.id)?.has(comment.updatedAt) &&
+              (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
               waiting: inbox.waiting(reviewId),
@@ -1581,17 +1591,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const message = await inbox.once(reviewId, input.id, async () => {
               const parts: string[] = [];
               if (input.text.trim()) parts.push(input.text.trim());
-              // The thread shows the comments as they read now.
-              const drafts = input.noteIds.length ? (await inboxState()).drafts : [];
-              const comments = input.noteIds.flatMap((id) =>
-                drafts
-                  .filter((draft) => draft.id === id)
-                  .map(({ id: _id, replies: _replies, ...comment }) => comment),
+              // One read gives the agent's text, the thread's copy of each
+              // comment, and the version that the message holds, so an edit
+              // after it stays a draft.
+              const feedback = input.noteIds.length
+                ? await savedReviews.feedback(reviewId, new Set(input.noteIds))
+                : undefined;
+              if (feedback?.count) parts.push(feedback.text);
+              const included = input.noteIds.flatMap((id) => {
+                const thread = feedback?.threads.get(id);
+                return thread ? [[id, thread] as const] : [];
+              });
+              const comments = included.map(([, thread]) => thread.comment);
+              const noteVersions = Object.fromEntries(
+                included.map(([id, thread]) => [id, thread.version]),
               );
-              if (input.noteIds.length) {
-                const feedback = await savedReviews.feedback(reviewId, new Set(input.noteIds));
-                if (feedback.count) parts.push(feedback.text);
-              }
               for (const attachment of input.attachments)
                 parts.push(`## ${attachment.label}\n\n${attachment.text}`);
               const runner = ownedSessions.get(session.id);
@@ -1637,6 +1651,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   text: input.text.trim(),
                   noteIds: input.noteIds,
                   comments,
+                  noteVersions,
                   attachmentCount: input.attachments.length,
                 },
                 parts.join("\n\n"),
@@ -1721,7 +1736,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         try {
           const routed = routes.find(request.method, url.pathname);
           if (routed) {
-            send(await routed(url, () => readBody(request), { signal: abort.signal, requireRepo }));
+            send(
+              await routed(url, (limit) => readBody(request, limit), {
+                signal: abort.signal,
+                requireRepo,
+              }),
+            );
             return;
           }
           if (
@@ -2227,8 +2247,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   );
                   send({ changed });
                 }
-              } else if (action === "feedback") send(await savedReviews.feedback(id!));
-              else if (action === "pull-request") {
+              } else if (action === "feedback") {
+                const { threads: _threads, ...feedback } = await savedReviews.feedback(id!);
+                send(feedback);
+              } else if (action === "pull-request") {
                 if (!bundle.pullRequestUrl)
                   throw new HostError("no-pull-request", "This review has no pull request.", 404);
                 send(

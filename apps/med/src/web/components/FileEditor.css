@@ -55,6 +55,17 @@
   padding: 7px 12px;
   font-size: 12px;
 }
+.med-editor-conflict-diff {
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 1px solid var(--edit-border);
+}
+.med-editor-conflict {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 45%;
+}
 .med-editor-body {
   flex: 1;
   min-height: 0;

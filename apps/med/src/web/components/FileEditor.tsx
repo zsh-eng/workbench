@@ -31,10 +31,13 @@ import {
 import { searchKeymap } from "@codemirror/search";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
+import { MultiFileDiff } from "@pierre/diffs/react";
 import { useTheme } from "../themes";
 import { codeColors } from "../code-colors";
 import type { EditorDraft, EditorDrafts } from "../data/editor-drafts";
-import type { FileWrite } from "../../shared/local-file";
+import type { FileRead, FileWrite } from "../../shared/local-file";
+import { HttpError } from "../data/api";
+import { diffSurfaceStyle } from "./diff-surface";
 import type { FullFileViewProps } from "./FullFileView";
 import { isBrowseFile } from "../../shared/local-file";
 import { createChangeGutter } from "../data/change-gutter";
@@ -163,6 +166,35 @@ Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
 Vim.defineEx("wq", undefined, (cm) => actions.get(cm)?.saveAndClose());
 
+/** What another program changed in the file since the draft started: a
+ * read-only diff from the draft's first text to the file on disk. */
+function DiskChanges({ path, before, after }: { path: string; before: FileRead; after: FileRead }) {
+  const { active } = useTheme();
+  const options = useMemo(
+    () => ({
+      theme: active.pierreTheme,
+      themeType: active.appearance,
+      diffStyle: "unified" as const,
+      overflow: "wrap" as const,
+      diffIndicators: "bars" as const,
+      lineDiffType: "word-alt" as const,
+      hunkSeparators: "line-info" as const,
+      disableFileHeader: true,
+    }),
+    [active],
+  );
+  return (
+    <div className="med-editor-conflict-diff">
+      <MultiFileDiff
+        oldFile={{ name: path, contents: before.text ?? "", cacheKey: `disk:${before.identity}` }}
+        newFile={{ name: path, contents: after.text ?? "", cacheKey: `disk:${after.identity}` }}
+        options={options}
+        style={diffSurfaceStyle as never}
+      />
+    </div>
+  );
+}
+
 export default function FileEditor({
   draft,
   drafts,
@@ -201,6 +233,29 @@ export default function FileEditor({
   });
   const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
     context;
+  // The file as Med last read it, when it is not the text that the draft
+  // started from: another program changed it.
+  const disk =
+    !context.loading &&
+    context.file?.kind === "text" &&
+    context.file.path === draft.file.path &&
+    context.file.identity !== draft.file.identity
+      ? context.file
+      : null;
+  // Another program changed the file after the draft's text was read: the
+  // watch found it, or the file read again differs from the draft's, as for
+  // a draft that waited while its workspace was closed. A save on its way
+  // changes the file too, so its answer decides.
+  const changedOnDisk = !draft.saving && (stale || !!disk);
+  // An unsaved draft and a changed file: the editor shows what changed on
+  // disk, and you keep one of the two versions.
+  const conflict = changedOnDisk && draft.dirty ? disk : null;
+  // The watch only says that the file changed; read it to show the change.
+  // The read does not replace an unsaved draft.
+  const readDisk = stale && draft.dirty && !draft.saving;
+  useLayoutEffect(() => {
+    if (readDisk) latest.current.context.onRefresh?.();
+  }, [readDisk]);
   const changes = useMemo(() => createChangeGutter(), []);
   const [localBlame, setLocalBlame] = useState(false);
   const [blameNotice, setBlameNotice] = useState("");
@@ -366,13 +421,15 @@ export default function FileEditor({
       }),
     [markdownNavigation],
   );
-  const save = async () => {
+  /** Saves the draft over the file that it started from, or with `over`,
+   * over that newer read of the file. */
+  const save = async (over?: FileRead) => {
     if (draft.saving || !draft.dirty || !draft.state) return;
     const text = draft.state.sliceDoc();
     drafts.update(draft, { saving: true, error: null });
     drafts.notify();
     try {
-      const result = await latest.current.write(draft.file, text);
+      const result = await latest.current.write(over ?? draft.file, text);
       drafts.update(draft, {
         file: result,
         savedText: text,
@@ -380,10 +437,19 @@ export default function FileEditor({
       });
     } catch (error) {
       drafts.update(draft, { error: error instanceof Error ? error.message : String(error) });
+      // The file changed on disk: read it, so the editor can show the change.
+      if (error instanceof HttpError && error.status === 409) latest.current.context.onRefresh?.();
     } finally {
       drafts.update(draft, { saving: false });
       drafts.notify();
     }
+  };
+  /** Drops the draft and edits the file as it is on disk now. */
+  const useDisk = (file: FileRead) => {
+    const key = latest.current.context.editor?.key;
+    if (!key || draft.saving) return;
+    drafts.update(draft, { dirty: false, error: null });
+    drafts.open(key, file, draft.line);
   };
   const callbacks = useRef({ save, close: () => {} });
   const close = () => {
@@ -548,12 +614,13 @@ export default function FileEditor({
     ];
     const state = draft.state
       ? draft.state.update({ effects: StateEffect.reconfigure.of(extensions) }).state
-      : EditorState.create({ doc: draft.savedText, extensions });
+      : EditorState.create({ doc: draft.text ?? draft.savedText, extensions });
     const editor = new EditorView({ state, parent: body.current });
     view.current = editor;
     editor.requestMeasure({ read: () => null, write: () => paintGutters.current() });
     cursorLine.current(editor.state.doc.lineAt(editor.state.selection.main.head).number);
-    drafts.update(draft, { state: editor.state });
+    // A draft from storage has its text; from now on, the editor holds it.
+    drafts.update(draft, { state: editor.state, text: undefined });
     const cm = getCM(editor)!;
     actions.set(cm, {
       scroll: (y) => {
@@ -803,10 +870,34 @@ export default function FileEditor({
           disabled={draft.saving}
         />
       </header>
-      {draft.error && (
+      {draft.error && !conflict && (
         <div role="alert" className="med-editor-message">
           {draft.error}
         </div>
+      )}
+      {conflict ? (
+        <section aria-label="Changes on disk" className="med-editor-conflict">
+          <div role="status" className="med-editor-message">
+            The file changed on disk after your draft started. Your draft is kept. Below is what
+            changed on disk. <button onClick={() => void save(conflict)}>Keep my version</button>{" "}
+            <button onClick={() => useDisk(conflict)}>Use the file on disk</button>
+          </div>
+          <DiskChanges path={draft.file.path} before={draft.file} after={conflict} />
+        </section>
+      ) : (
+        changedOnDisk &&
+        !draft.error && (
+          <div role="status" className="med-editor-message">
+            {draft.dirty ? (
+              "The file changed on disk. Your draft is kept."
+            ) : (
+              <>
+                The file changed on disk.{" "}
+                <button onClick={context.onRefresh}>Refresh contents</button>
+              </>
+            )}
+          </div>
+        )
       )}
       {clipboardError && (
         <div role="alert" className="med-editor-message">

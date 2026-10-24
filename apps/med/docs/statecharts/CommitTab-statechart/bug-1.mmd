@@ -1,0 +1,36 @@
+---
+title: "Committing on the Commit tab, bug 1"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0 fill:#e8eef7,stroke:#74777c,color:#1b2631
+  classDef group0Fixed fill:#e8eef7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0Path fill:#e8eef7,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  state "Legend" as legend {
+    state "Before the commit" as legendGroup0
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup0 group0
+  class legendFixed plainFixed
+  state "A hook stopped the commit" as s0
+  state "Committing a, b (Commit<br/>all)" as s1
+  state "Committing a, b (Commit<br/>all) (Git has a, b staged)" as s2
+  state "Shows a, b staged (Commit<br/>all left a, b staged)" as s3
+  state "Shows a, b, nothing staged" as s4
+  [*] --> s4
+  s4 --> s1 : 1. You press Commit
+  s1 --> s2 : 2. Med stages the files for<br/>Commit all
+  s2 --> s1 : 3. The tab sends the commit
+  s1 --> s0 : 4. A hook stops the commit
+  s0 --> s3 : 5. The tab reads Git's status<br/>after the commit
+  s1 --> s1 : with the fix, Med stages the<br/>files for Commit all cannot<br/>happen at step 2
+  class s0 group0Fixed
+  class s1 group0Path
+  class s2 group0Path
+  class s3 group0Fixed
+  class s4 group0Path

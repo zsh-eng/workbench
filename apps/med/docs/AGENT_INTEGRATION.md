@@ -558,7 +558,9 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
 
 The thread shows each sent message as waiting (for the agent, or for its
 session in a terminal or another app to close), taken, or queued. A sent comment leaves the
-drafts until you edit it or reply to it.
+drafts until you edit it or reply to it. Each message keeps the version of
+each comment that it sent, from the same read as the agent's text, so an
+edit while Med sends stays a draft.
 
 ## Link to a current file
 

@@ -1,0 +1,72 @@
+---
+title: "Sending comments to the agent"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0 fill:#e8eef7,stroke:#74777c,color:#1b2631
+  classDef group1 fill:#dff3e4,stroke:#707a72,color:#1b2631
+  classDef group1Fixed fill:#dff3e4,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group2 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  state "Legend" as legend {
+    state "Not sent" as legendGroup0
+    state "Sent" as legendGroup1
+    state "Waits to be sent again" as legendGroup2
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup0 group0
+  class legendGroup1 group1
+  class legendGroup2 group2
+  class legendFixed plainFixed
+  state "Comment edited, back in<br/>your drafts (the agent's<br/>message has the first<br/>comment)" as s0
+  state "Comment edited, back in<br/>your drafts (the agent's<br/>message has the first<br/>comment, delivered)" as s1
+  state "Comment edited, in your<br/>drafts" as s2
+  state "Comment edited, sending" as s3
+  state "Comment edited, sent (the<br/>agent's message has the<br/>edited comment)" as s4
+  state "Comment edited, sent (the<br/>agent's message has the<br/>edited comment, delivered)" as s5
+  state "Comment edited, sent (the<br/>agent's message has the<br/>edited comment, the thread<br/>shows the first comment)" as s6
+  state "Comment edited, sent (the<br/>agent's message has the<br/>edited comment, the thread<br/>shows the first comment,<br/>delivered)" as s7
+  state "Comment edited, sent (the<br/>agent's message has the<br/>first comment)" as s8
+  state "Comment edited, sent (the<br/>agent's message has the<br/>first comment, delivered)" as s9
+  state "Comment written, in your<br/>drafts" as s10
+  state "Comment written, sending" as s11
+  state "Comment written, sent (the<br/>agent's message has the<br/>first comment)" as s12
+  state "Comment written, sent (the<br/>agent's message has the<br/>first comment, delivered)" as s13
+  [*] --> s10
+  s10 --> s11 : You press Send
+  s10 --> s2 : You edit the comment
+  s11 --> s3 : You edit the comment
+  s2 --> s3 : You press Send
+  s11 --> s12 : The host stores the message<br/>with the time
+  s3 --> s4 : The host stores the message<br/>with the time
+  s3 --> s6 : The host stores the message<br/>with the time
+  s3 --> s8 : The host stores the message<br/>with the time
+  s12 --> s8 : You edit the comment
+  s12 --> s13 : The agent gets the message
+  s4 --> s5 : The agent gets the message
+  s6 --> s7 : The agent gets the message
+  s8 --> s9 : The agent gets the message
+  s12 --> s0 : You edit the comment
+  s13 --> s9 : You edit the comment
+  s0 --> s1 : The agent gets the message
+  s13 --> s1 : You edit the comment
+  s1 --> s5 : The host stores the message<br/>with the time
+  s3 --> s0 : with the fix, The host stores<br/>the message with the time
+  class s0 group2
+  class s1 group2
+  class s2 group0
+  class s3 group0
+  class s4 group1
+  class s5 group1
+  class s6 group1Fixed
+  class s7 group1Fixed
+  class s8 group1Fixed
+  class s9 group1Fixed
+  class s10 group0
+  class s11 group0
+  class s12 group1
+  class s13 group1

@@ -370,7 +370,8 @@ A new thread, a hand-off, an adopted session, and Keep in Med open as tabs. A
 found session opens as a tab once, when Med first sees it work. The browser
 closes a tab on its own when its work has landed (`landed` in
 `web/data/tabs.ts`), from the window used last, never when `unlanded` is
-unknown.
+unknown or the tab's workspace has unsaved drafts (`unsavedFiles`, which
+counts the drafts that wait in the window too).
 
 The signals for tabs that need the reader are in `web/data/signals.ts`. Each
 window sets the installed app's badge to the same count, from the same list.
@@ -476,10 +477,16 @@ because they can contain credentials. No browsing or comparison action pushes.
 
 **Commit.** The Commit tab (`src/host/repository/commit-flow.ts`) is the only
 part of Med that changes the index or makes commits. Stage and unstage take
-whole files, and each path is literal (`GIT_LITERAL_PATHSPECS`). A commit sends
-its message on standard input with the index key that the view showed: a hash
-of HEAD and of each index entry that differs from HEAD. If the index or HEAD
-changed, the host returns 409 and commits nothing. Hooks run as in a terminal,
+whole files, and each path is literal (`GIT_LITERAL_PATHSPECS`); paths go to
+Git on standard input, so their number has no command-line limit. A commit
+sends its message on standard input with the index key that the view showed: a
+hash of HEAD and of each index entry that differs from HEAD. It also names its
+files with what the tab showed of each: the blob on the diff's index line, or
+for a new untracked file the SHA-256 of its text. If the index, HEAD, the
+files, or their content changed, the host returns 409 and commits nothing.
+Commit all (nothing staged) stages its files in a copy of the index
+(`GIT_INDEX_FILE`), as `git commit -a` does; after the commit, `git reset`
+sets those paths in the real index to the new HEAD. Hooks run as in a terminal,
 without an editor or a credential prompt; when a hook stops the commit, the 422
 response has the last 8,000 characters of its output. Push from the Commit tab
 uses the same exact-commit push, to the branch's upstream; a branch without an
@@ -634,8 +641,18 @@ comment** adds a note through the review's comments (`mutateNote`).
 Eligible worktree and local files open in CodeMirror in Vim Normal mode.
 Commit snapshots, dropped files, and files above the edit limit use Pierre.
 Opening a file never writes it. Drafts and undo history live in a bounded
-store for each `App`, in memory only; a reload loses them, and closing a dirty
-editor needs an explicit discard. A disposable worker gives syntax
+store for each `App` (`web/data/editor-drafts.ts`), and closing a dirty editor
+needs an explicit discard. When a workspace closes or leaves memory, its
+unsaved drafts move to a store for the window, and the next editor that opens
+the file takes its draft back; closing a tab or workspace with unsaved drafts
+asks first. Each unsaved draft is also in `localStorage` under
+`med:draft:[workspace, [source, path]]`, with the file it started from,
+written when typing pauses and when the page leaves. The next page parks
+these drafts in the window, at most 24 for each workspace; a workspace takes
+its own back when it mounts, and another workspace takes one when it opens
+the file. Leaving the page warns only for a draft that storage refused. The editor says when the file on disk
+differs from the text that its draft started from: a watch event found it,
+or the file read again differs. After a save, Med reads the file again. A disposable worker gives syntax
 decorations; a generation number stops an older result from coloring newer
 text.
 
@@ -643,10 +660,14 @@ text.
 It accepts a worktree source, a relative path, the expected content identity,
 and up to 1 MiB of UTF-8 text. Saves to one file run one at a time. The host
 validates the path and content, writes and flushes a sibling temporary file,
-checks the current content, file metadata, and repository access again, then
-atomically replaces the target. A detected change returns 409 and keeps the
-draft. Another process can still write after the last check. There is no
-forced overwrite or automatic merge. Hard-linked and symlinked files are
+checks the current content and its folder again, then the file metadata and
+repository access with no wait before it atomically replaces the target. A
+detected change returns 409 and keeps the draft. Another process can still
+write between that last check and the replace; no lock would stop it, as
+other programs do not take Med's. A draft whose file changed shows the
+change on disk as a read-only diff; **Keep my version** saves with the newer
+file's identity, and **Use the file on disk** opens a new draft from it. There
+is no automatic merge. Hard-linked and symlinked files are
 refused. A save does not stage or commit.
 
 Standalone files have their own source kind. Each grant is one exact canonical

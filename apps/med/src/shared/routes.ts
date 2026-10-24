@@ -10,4 +10,6 @@ export interface RouteContract<I extends z.ZodType = z.ZodType, O extends z.ZodT
   path: `/api/${string}`;
   input: I;
   output: O;
+  /** The most bytes a POST body may have. The host's default is 128 KB. */
+  maxBody?: number;
 }

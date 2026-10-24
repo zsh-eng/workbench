@@ -190,6 +190,8 @@ export function createFileWorkspace(
   let abort: AbortController | undefined;
   let generation = 0;
   let staleCheck: AbortController | undefined;
+  /** The read that checks the disk, which skips any cache. */
+  let checkRead: BrowseApi["read"] = api.read;
   let disposed = false;
   let labelTimer: ReturnType<typeof setTimeout> | undefined;
   /** `typed`: the reader typed the Search tab's query, which its label
@@ -313,6 +315,29 @@ export function createFileWorkspace(
       ...(shows ? { active: previous(closing) } : {}),
     });
     if (shows) void load();
+  }
+  /** Reads the active working file and marks it stale when the disk differs. */
+  function checkDisk(readCurrent: BrowseApi["read"]) {
+    checkRead = readCurrent;
+    const tab = snapshot.tabs.find((item) => item.id === snapshot.active);
+    const file = snapshot.file;
+    if (tab?.source.kind !== "worktree" || !file) return;
+    staleCheck?.abort();
+    const check = new AbortController();
+    staleCheck = check;
+    const current = generation;
+    // Watch events also follow our own saves and edits to unrelated files.
+    // Compare identities without replacing the editor's document or selection.
+    void readCurrent(tab.source, tab.path, check.signal).then(
+      (disk) => {
+        if (!check.signal.aborted && current === generation && snapshot.file === file)
+          publish({ stale: disk.identity !== file.identity });
+      },
+      () => {
+        if (!check.signal.aborted && current === generation && snapshot.file === file)
+          publish({ stale: true });
+      },
+    );
   }
   return {
     getSnapshot: () => snapshot,
@@ -512,28 +537,13 @@ export function createFileWorkspace(
       ) {
         staleCheck?.abort();
         publish({ file, stale: false });
+        // Another program may have written the file after the host's last
+        // check, and its watch event's read compared it with the old read.
+        checkDisk(checkRead);
       }
     },
     invalidate(readCurrent: BrowseApi["read"] = api.read) {
-      const tab = snapshot.tabs.find((item) => item.id === snapshot.active);
-      const file = snapshot.file;
-      if (tab?.source.kind !== "worktree" || !file) return;
-      staleCheck?.abort();
-      const check = new AbortController();
-      staleCheck = check;
-      const current = generation;
-      // Watch events also follow our own saves and edits to unrelated files.
-      // Compare identities without replacing the editor's document or selection.
-      void readCurrent(tab.source, tab.path, check.signal).then(
-        (disk) => {
-          if (!check.signal.aborted && current === generation && snapshot.file === file)
-            publish({ stale: disk.identity !== file.identity });
-        },
-        () => {
-          if (!check.signal.aborted && current === generation && snapshot.file === file)
-            publish({ stale: true });
-        },
-      );
+      checkDisk(readCurrent);
     },
     refresh: load,
     dispose() {

@@ -39,6 +39,7 @@ import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { visibleElement } from "../data/palette-focus";
 import { createApi } from "../data/api";
+import { createWindowDrafts, type WindowDrafts } from "../data/editor-drafts";
 import { browserFetch } from "../data/live";
 import { readBrowserToken } from "../data/auth";
 import { readServerEvents } from "../data/sse";
@@ -129,6 +130,8 @@ interface WorkspaceActions {
   /** Shows a workspace and moves the address to it. */
   activate(id: string): void;
   close(id: string): void;
+  /** Closes a workspace, after a question when it has unsaved drafts. */
+  requestClose(id: string): void;
   setUnread(id: string, unread: boolean): void;
   /** Shows the workspace for this task, opening it first if needed. */
   open(input: WorkspaceInput): void;
@@ -198,6 +201,9 @@ const LOST = "Med restarted before it opened this pull request.";
 const removedSchema = z.object({ removed: z.literal(true) });
 /** Disposers that run when a workspace closes or leaves memory. */
 const Lifetime = createContext<Set<() => void> | null>(null);
+/** The window's drafts: unsaved ones of workspaces that closed or left
+ * memory, and the ones in the browser's storage. */
+const Drafts = createContext<WindowDrafts | null>(null);
 /** Tabs to load before their first visit: the one under the pointer
  * (`next`), then the others, nearest in the sidebar to the tab on screen
  * first. The tabs (`active`, by workspace ID) stay loaded, as open terminal
@@ -377,6 +383,14 @@ export function useWorkspaceShown() {
  * workspace runs effect cleanups too, and comes back with the same objects,
  * so inside a workspace disposal waits until the workspace closes.
  */
+/**
+ * The window's drafts, so a draft outlasts its workspace and a reload. It is
+ * null outside the workspace shell.
+ */
+export function useWindowDrafts() {
+  return use(Drafts);
+}
+
 export function useDisposeOnClose(dispose: () => void) {
   const lifetime = use(Lifetime);
   useEffect(() => {
@@ -544,6 +558,17 @@ export function WorkspaceHost({
 }) {
   const [fetcher] = useState(() => providedFetch ?? browserFetch);
   const [store] = useState(() => createWorkspaceStore(location.pathname, history.state));
+  const [drafts] = useState(() => createWindowDrafts());
+  // A draft that storage did not take is lost when the page goes, so leaving warns.
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!drafts.loses()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [drafts]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [switcher, setSwitcher] = useState<{
     held: boolean;
@@ -602,6 +627,10 @@ export function WorkspaceHost({
     },
     [fetcher, store],
   );
+  // Set once the notice can ask.
+  const askClose = useRef<(ids: readonly string[], title: string, close: () => void) => void>(
+    (_ids, _title, close) => close(),
+  );
   const actions = useMemo<WorkspaceActions>(
     () => ({
       activate: (id) => show(id),
@@ -610,6 +639,10 @@ export function WorkspaceHost({
         store.close(id);
         const after = store.getSnapshot().active;
         if (after !== before) show(after, true);
+      },
+      requestClose(id) {
+        const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
+        askClose.current([id], workspace?.title ?? "This workspace", () => actions.close(id));
       },
       open: (input) => show(store.open(input, false)),
       match: store.match,
@@ -1122,10 +1155,38 @@ export function WorkspaceHost({
     },
     [fetcher, forget, openTab],
   );
+  /** Asks before a close that leaves unsaved drafts. They stay in the
+   * window and in the browser's storage, so the question is a reminder. */
+  const confirmClose = useCallback(
+    (ids: readonly string[], title: string, close: () => void) => {
+      const files = ids.flatMap((id) => drafts.unsavedFiles(id));
+      if (!files.length) return close();
+      setNotice({
+        stays: true,
+        text:
+          files.length === 1
+            ? `“${title}” has unsaved changes in ${files[0]}. Close it? The draft stays, and comes back when you open the file.`
+            : `“${title}” has unsaved changes in ${files.length} files. Close it? The drafts stay, and come back when you open the files.`,
+        actions: [
+          {
+            label: "Close",
+            run: () => {
+              setNotice(null);
+              close();
+            },
+          },
+          { label: "Cancel", run: () => setNotice(null) },
+        ],
+      });
+    },
+    [drafts],
+  );
+  useLayoutEffect(() => {
+    askClose.current = confirmClose;
+  }, [confirmClose]);
   /** Sends tabs to history. Their agents keep working. */
-  const closeTabs = useCallback(
-    async (list: readonly Thread[], details: { auto?: boolean; removeWorktree?: boolean } = {}) => {
-      if (!list.length) return;
+  const closeNow = useCallback(
+    async (list: readonly Thread[], details: { auto?: boolean; removeWorktree?: boolean }) => {
       const shown = list.find((thread) => thread.id === currentRef.current);
       setClosing((value) => new Set([...value, ...list.map((thread) => thread.id)]));
       setNotice(null);
@@ -1157,6 +1218,18 @@ export function WorkspaceHost({
       });
     },
     [closeView, fetcher, forget, openTab, reopenTabs],
+  );
+  /** Closes tabs. A close that you ask for checks for unsaved drafts first;
+   * one that Med makes, as for landed work, does not. */
+  const closeTabs = useCallback(
+    async (list: readonly Thread[], details: { auto?: boolean; removeWorktree?: boolean } = {}) => {
+      if (!list.length) return;
+      if (details.auto) return closeNow(list, details);
+      const ids = list.flatMap((thread) => store.match(threadInput(thread)) ?? []);
+      const title = list.length === 1 ? list[0]!.title : `${list.length} tabs`;
+      confirmClose(ids, title, () => void closeNow(list, details));
+    },
+    [closeNow, confirmClose, store],
   );
   /** ⌘⌥T: the tab that closed last opens at its place. */
   const reopenLast = useCallback(async () => {
@@ -1399,7 +1472,8 @@ export function WorkspaceHost({
   }, [activeThread, fetcher, hasTabs]);
 
   // A tab whose work has landed goes to history on its own, from the window
-  // used last, once it has been off screen for a while (data/tabs.ts).
+  // used last, once it has been off screen for a while (data/tabs.ts). A tab
+  // with unsaved drafts stays: only a close that you choose can hide them.
   const [clock, setClock] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 60_000);
@@ -1410,8 +1484,10 @@ export function WorkspaceHost({
     const now = Math.max(clock, Date.now());
     const done = tabs.filter((thread) => {
       if (!lastShown.current.has(thread.id)) lastShown.current.set(thread.id, now);
+      const workspace = store.match(threadInput(thread));
       return (
         !kept.current.has(thread.id) &&
+        !(workspace && drafts.unsavedFiles(workspace).length) &&
         landed(thread, {
           unread: read.isUnread(thread),
           onScreen: thread.id === currentThread,
@@ -1420,7 +1496,7 @@ export function WorkspaceHost({
       );
     });
     if (done.length) void closeTabs(done, { auto: true });
-  }, [clock, closeTabs, currentThread, hasTabs, read, tabs, usedLast]);
+  }, [clock, closeTabs, currentThread, drafts, hasTabs, read, store, tabs, usedLast]);
 
   // The palette reaches the tabs through one object that does not change, so
   // a change to the tabs does not render every mounted workspace again.
@@ -1564,203 +1640,207 @@ export function WorkspaceHost({
     <NoticeBar notice={notice} onDismiss={() => setNotice(null)} floating={!showsSidebar} />
   );
   return (
-    <Actions value={actions}>
-      <Snapshot value={snapshot}>
-        <Threads value={threads}>
-          <Tabs value={tabActions}>
-            <HostFetch value={fetcher}>
-              <PullErrors value={pullErrors}>
-                {pulls.map((workspace) => (
-                  <PullWatcher
-                    key={workspace.id}
-                    workspace={workspace}
-                    onTitle={(title) => store.update(workspace.id, { title })}
-                    onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
-                  />
-                ))}
-                <ShellContext value={shell}>
-                  <div {...stylex.props(styles.shell)}>
-                    {showsSidebar && narrow && (
-                      <div
-                        aria-hidden="true"
-                        onPointerDown={() => setOverlay(false)}
-                        {...stylex.props(styles.shellScrim)}
-                      />
-                    )}
-                    {showsSidebar && (
-                      <>
-                        <aside
-                          aria-label="Sidebar"
-                          {...stylex.props(
-                            styles.shellSidebar,
-                            narrow ? styles.shellOverlay : styles.width(sidebarWidth),
-                          )}
-                        >
-                          <ThreadSidebar
-                            threads={tabs}
-                            sources={sources}
-                            snapshot={snapshot}
-                            loaded={!!threadList}
-                            current={currentThread}
-                            read={read}
-                            notice={noticeBar}
-                            onOpen={(input) => {
-                              setNewThread(false);
-                              setOverlay(false);
-                              actions.open(input);
-                            }}
-                            onOpenThread={openTab}
-                            onOpenSubagent={(thread, subagent) => {
-                              read.seeSubagent(subagent);
-                              openTab(thread);
-                              requestSubagentOpen(
-                                store.match(threadInput(thread)) ?? threadWorkspaceId(thread),
-                                subagent.id,
-                              );
-                            }}
-                            onNewThread={() => {
-                              setOverlay(false);
-                              setNewThread(true);
-                            }}
-                            newThread={newThread}
-                            onHide={toggleSidebar}
-                            onSources={() => {
-                              history.pushState(null, "", "/sources");
-                              window.dispatchEvent(new PopStateEvent("popstate"));
-                            }}
-                            onClose={(thread, removeWorktree) =>
-                              void closeTabs([thread], { removeWorktree })
-                            }
-                            onDelete={confirmDelete}
-                            onReorder={reorderGroup}
-                            onMove={moveTab}
-                            onNext={(kind) => nextTab(kind === "needs" ? needsYou : isWorking)}
-                            onPrefetch={(thread) => {
-                              readThread(thread);
-                              setPointed(threadWorkspaceId(thread));
-                            }}
-                            renaming={renaming}
-                            onRenaming={(thread) => setRenaming(thread?.id ?? null)}
-                            onRename={(thread, name) => void renameTo(thread, name)}
-                          />
-                        </aside>
-                        {!narrow && (
-                          <div
-                            role="separator"
-                            aria-label="Resize sidebar"
-                            aria-orientation="vertical"
-                            aria-valuenow={sidebarWidth}
-                            aria-valuemin={SIDEBAR_MIN}
-                            aria-valuemax={SIDEBAR_MAX}
-                            tabIndex={0}
-                            {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
-                            onKeyDown={(event) => {
-                              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                              event.preventDefault();
-                              resizeSidebar(sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16));
-                            }}
-                            onPointerDown={(event) =>
-                              event.currentTarget.setPointerCapture(event.pointerId)
-                            }
-                            onPointerMove={(event) => {
-                              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                              resizeSidebar(event.clientX);
-                            }}
-                            onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
-                          >
-                            <span {...stylex.props(styles.shellGutterLine)} />
-                          </div>
-                        )}
-                      </>
-                    )}
-                    <div {...stylex.props(styles.shellMain)}>
-                      <WorkspaceBar
-                        context={
-                          newThread || overlayAddress(pathname)
-                            ? undefined
-                            : barContext(activeEntry, threadList ?? null)
-                        }
-                        showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
-                        needs={showsSidebar ? 0 : needs}
-                        rename={
-                          barThread && {
-                            thread: barThread,
-                            editing: !showsSidebar && renaming === barThread.id,
-                            start: () => setRenaming(barThread.id),
-                            done: (name) => {
-                              setRenaming(null);
-                              if (name !== null) void renameTo(barThread, name);
-                            },
-                          }
-                        }
-                      />
-                      <div {...stylex.props(styles.shellViews)}>
+    <Drafts value={drafts}>
+      <Actions value={actions}>
+        <Snapshot value={snapshot}>
+          <Threads value={threads}>
+            <Tabs value={tabActions}>
+              <HostFetch value={fetcher}>
+                <PullErrors value={pullErrors}>
+                  {pulls.map((workspace) => (
+                    <PullWatcher
+                      key={workspace.id}
+                      workspace={workspace}
+                      onTitle={(title) => store.update(workspace.id, { title })}
+                      onSaved={(reviewId) => settlePull(workspace.id, reviewId)}
+                    />
+                  ))}
+                  <ShellContext value={shell}>
+                    <div {...stylex.props(styles.shell)}>
+                      {showsSidebar && narrow && (
                         <div
-                          inert={newThread || !!attemptsGroupOf(pathname) || undefined}
-                          {...stylex.props(styles.shellLayer)}
-                        >
-                          <Warm value={warm}>{children}</Warm>
-                        </div>
-                        {!showsSidebar && noticeBar}
-                        <AttemptsHost
-                          threads={tabs}
-                          fetcher={fetcher}
-                          actions={actions}
-                          onLeave={() => show(store.getSnapshot().active, true)}
+                          aria-hidden="true"
+                          onPointerDown={() => setOverlay(false)}
+                          {...stylex.props(styles.shellScrim)}
                         />
-                        {newThread && (
-                          <NewThread
-                            list={threadList}
+                      )}
+                      {showsSidebar && (
+                        <>
+                          <aside
+                            aria-label="Sidebar"
+                            {...stylex.props(
+                              styles.shellSidebar,
+                              narrow ? styles.shellOverlay : styles.width(sidebarWidth),
+                            )}
+                          >
+                            <ThreadSidebar
+                              threads={tabs}
+                              sources={sources}
+                              snapshot={snapshot}
+                              loaded={!!threadList}
+                              current={currentThread}
+                              read={read}
+                              notice={noticeBar}
+                              onOpen={(input) => {
+                                setNewThread(false);
+                                setOverlay(false);
+                                actions.open(input);
+                              }}
+                              onOpenThread={openTab}
+                              onOpenSubagent={(thread, subagent) => {
+                                read.seeSubagent(subagent);
+                                openTab(thread);
+                                requestSubagentOpen(
+                                  store.match(threadInput(thread)) ?? threadWorkspaceId(thread),
+                                  subagent.id,
+                                );
+                              }}
+                              onNewThread={() => {
+                                setOverlay(false);
+                                setNewThread(true);
+                              }}
+                              newThread={newThread}
+                              onHide={toggleSidebar}
+                              onSources={() => {
+                                history.pushState(null, "", "/sources");
+                                window.dispatchEvent(new PopStateEvent("popstate"));
+                              }}
+                              onClose={(thread, removeWorktree) =>
+                                void closeTabs([thread], { removeWorktree })
+                              }
+                              onDelete={confirmDelete}
+                              onReorder={reorderGroup}
+                              onMove={moveTab}
+                              onNext={(kind) => nextTab(kind === "needs" ? needsYou : isWorking)}
+                              onPrefetch={(thread) => {
+                                readThread(thread);
+                                setPointed(threadWorkspaceId(thread));
+                              }}
+                              renaming={renaming}
+                              onRenaming={(thread) => setRenaming(thread?.id ?? null)}
+                              onRename={(thread, name) => void renameTo(thread, name)}
+                            />
+                          </aside>
+                          {!narrow && (
+                            <div
+                              role="separator"
+                              aria-label="Resize sidebar"
+                              aria-orientation="vertical"
+                              aria-valuenow={sidebarWidth}
+                              aria-valuemin={SIDEBAR_MIN}
+                              aria-valuemax={SIDEBAR_MAX}
+                              tabIndex={0}
+                              {...stylex.props(styles.shellGutter, stylex.defaultMarker())}
+                              onKeyDown={(event) => {
+                                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                                event.preventDefault();
+                                resizeSidebar(
+                                  sidebarWidth + (event.key === "ArrowLeft" ? -16 : 16),
+                                );
+                              }}
+                              onPointerDown={(event) =>
+                                event.currentTarget.setPointerCapture(event.pointerId)
+                              }
+                              onPointerMove={(event) => {
+                                if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                                resizeSidebar(event.clientX);
+                              }}
+                              onDoubleClick={() => resizeSidebar(SIDEBAR_WIDTH)}
+                            >
+                              <span {...stylex.props(styles.shellGutterLine)} />
+                            </div>
+                          )}
+                        </>
+                      )}
+                      <div {...stylex.props(styles.shellMain)}>
+                        <WorkspaceBar
+                          context={
+                            newThread || overlayAddress(pathname)
+                              ? undefined
+                              : barContext(activeEntry, threadList ?? null)
+                          }
+                          showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                          needs={showsSidebar ? 0 : needs}
+                          rename={
+                            barThread && {
+                              thread: barThread,
+                              editing: !showsSidebar && renaming === barThread.id,
+                              start: () => setRenaming(barThread.id),
+                              done: (name) => {
+                                setRenaming(null);
+                                if (name !== null) void renameTo(barThread, name);
+                              },
+                            }
+                          }
+                        />
+                        <div {...stylex.props(styles.shellViews)}>
+                          <div
+                            inert={newThread || !!attemptsGroupOf(pathname) || undefined}
+                            {...stylex.props(styles.shellLayer)}
+                          >
+                            <Warm value={warm}>{children}</Warm>
+                          </div>
+                          {!showsSidebar && noticeBar}
+                          <AttemptsHost
+                            threads={tabs}
                             fetcher={fetcher}
-                            repositoryId={activeRepositoryId}
-                            onCancel={() => setNewThread(false)}
-                            onStarted={(review) => {
-                              opening.current.add(review.id);
-                              setNewThread(false);
-                              actions.open({
-                                kind: "review",
-                                reviewId: review.id,
-                                title: review.title,
-                              });
-                            }}
+                            actions={actions}
+                            onLeave={() => show(store.getSnapshot().active, true)}
                           />
-                        )}
+                          {newThread && (
+                            <NewThread
+                              list={threadList}
+                              fetcher={fetcher}
+                              repositoryId={activeRepositoryId}
+                              onCancel={() => setNewThread(false)}
+                              onStarted={(review) => {
+                                opening.current.add(review.id);
+                                setNewThread(false);
+                                actions.open({
+                                  kind: "review",
+                                  reviewId: review.id,
+                                  title: review.title,
+                                });
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </ShellContext>
-              </PullErrors>
-            </HostFetch>
-            {switcher && (
-              <WorkspaceSwitcher
-                snapshot={snapshot}
-                tabs={order}
-                hasHistory={hasTabs}
-                history={!!switcher.history}
-                held={switcher.held}
-                controlHeld={controlHeld}
-                reverse={switcher.reverse}
-                fetcher={fetcher}
-                onChoose={(id) => {
-                  setSwitcher(null);
-                  show(id);
-                }}
-                onOpenTab={(thread) => {
-                  setSwitcher(null);
-                  openTab(thread);
-                }}
-                onOpenHistory={(thread) => {
-                  setSwitcher(null);
-                  void openFromHistory(thread);
-                }}
-                onDelete={deleteNow}
-                onCancel={() => setSwitcher(null)}
-              />
-            )}
-          </Tabs>
-        </Threads>
-      </Snapshot>
-    </Actions>
+                  </ShellContext>
+                </PullErrors>
+              </HostFetch>
+              {switcher && (
+                <WorkspaceSwitcher
+                  snapshot={snapshot}
+                  tabs={order}
+                  hasHistory={hasTabs}
+                  history={!!switcher.history}
+                  held={switcher.held}
+                  controlHeld={controlHeld}
+                  reverse={switcher.reverse}
+                  fetcher={fetcher}
+                  onChoose={(id) => {
+                    setSwitcher(null);
+                    show(id);
+                  }}
+                  onOpenTab={(thread) => {
+                    setSwitcher(null);
+                    openTab(thread);
+                  }}
+                  onOpenHistory={(thread) => {
+                    setSwitcher(null);
+                    void openFromHistory(thread);
+                  }}
+                  onDelete={deleteNow}
+                  onCancel={() => setSwitcher(null)}
+                />
+              )}
+            </Tabs>
+          </Threads>
+        </Snapshot>
+      </Actions>
+    </Drafts>
   );
 }
 
@@ -2129,11 +2209,10 @@ export function WorkspaceViews({
       pool.dispose();
     };
   }, [pool]);
-
   // Slots keep one order: `mounted` is most recent first, and a slot that
   // moved in the DOM would lose its scroll offsets, as a thread that jumps to
   // its top while the next workspace prepares.
-  return mounted.toSorted().flatMap((id) => {
+  const slots = mounted.toSorted().flatMap((id) => {
     const workspace = workspaceOf(id);
     if (!workspace || workspace.kind === "vault") return [];
     if (workspace.kind === "pull")
@@ -2162,6 +2241,7 @@ export function WorkspaceViews({
       </Activity>
     );
   });
+  return slots;
 }
 
 /** Follows a pull request's job for the list: its title, then its review. */

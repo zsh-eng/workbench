@@ -1,14 +1,18 @@
 import {
   commitRoutes,
+  type CommitRequest,
   type CommitResult,
   type FileChanges,
+  type ShownFile,
   type WorkingFile,
   type WorkingStatus,
 } from "../../shared/git-actions";
 import type { ReviewFile } from "../../shared/protocol";
 import { reviewSchema, type createApi } from "./api";
 
-export type { CommitResult, FileChanges, WorkingFile, WorkingStatus };
+export type { CommitResult, FileChanges, ShownFile, WorkingFile, WorkingStatus };
+/** A commit as the tab sends it; the host adds the checkout. */
+export type CommitInput = Omit<CommitRequest, "repo">;
 /** Every change from HEAD to the working files, as one patch. */
 export interface WorkingDiff {
   /** Names the content: the same id means the same changes. */
@@ -31,7 +35,9 @@ export interface CommitApi {
   diff(signal?: AbortSignal): Promise<WorkingDiff>;
   /** Stage or unstage these paths, or every change; returns the new status. */
   stage(paths: string[] | null, stage: boolean): Promise<WorkingStatus>;
-  commit(message: string, indexKey: string): Promise<CommitResult>;
+  /** Commit the index, or with `all`, the files named. The commit stops when
+   * Git has other files or other content than the tab showed. */
+  commit(input: CommitInput): Promise<CommitResult>;
   /** Push HEAD to the upstream; `track` pushes a branch without one and tracks it. */
   push(head: string, track: boolean): Promise<PushedBranch>;
 }
@@ -63,7 +69,7 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
     },
     stage: (paths, stage) =>
       api.call(commitRoutes.stage, { repo, stage, ...(paths ? { paths } : {}) }),
-    commit: (message, indexKey) => api.call(commitRoutes.commit, { repo, message, indexKey }),
+    commit: (input) => api.call(commitRoutes.commit, { repo, ...input }),
     push: (head, track) => api.call(commitRoutes.pushBranch, { repo, head, track }),
   };
 }
@@ -71,6 +77,13 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
 /** The paths that stage or unstage one row: a rename moves both names. */
 export const rowPaths = (file: WorkingFile) =>
   file.previousPath ? [file.path, file.previousPath] : [file.path];
+
+/** The paths that a commit of this status would hold, sorted. */
+export const stagedPaths = (status: WorkingStatus) =>
+  status.files
+    .filter((file) => file.staged && file.staged !== "conflicted")
+    .flatMap(rowPaths)
+    .toSorted();
 
 /** "staged", "partial", or "unstaged", for the row's mark. */
 export function stageState(file: WorkingFile) {

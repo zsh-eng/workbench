@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
+import { AUTO_CLOSE_MS } from "../../src/web/data/tabs";
 import type { Comparison } from "../../src/shared/protocol";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -50,6 +51,8 @@ beforeEach(async () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
+  for (const key of Object.keys(localStorage))
+    if (key.startsWith("med:draft:")) localStorage.removeItem(key);
   for (const key of ["thread-seen", "thread-seen-since", "subagent-seen", "subagent-seen-since"])
     localStorage.removeItem(`med:${key}`);
   for (const key of ["med:thread-seen", "med:thread-seen-since", "med:new-thread", "med:sidebar"])
@@ -62,6 +65,8 @@ afterEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:chrome:v1");
+  for (const key of Object.keys(localStorage))
+    if (key.startsWith("med:draft:")) localStorage.removeItem(key);
   // Workspaces move the address; the test page keeps its own.
   history.replaceState(null, "", address);
 });
@@ -126,6 +131,8 @@ const savedReview = (id: string) => ({
  * announces saved reviews on the window channel. */
 function createHost() {
   const sessions: string[] = [];
+  // Every working file's text on disk.
+  let fileText = "export const after = 2;\n";
   const streams = new Set<string>();
   const windows = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const announce = (review: {
@@ -499,9 +506,9 @@ function createHost() {
           source,
           path,
           kind: "text",
-          size: 24,
-          identity: `${source.repo}:${path}`,
-          text: "export const after = 2;\n",
+          size: fileText.length,
+          identity: `${source.repo}:${path}:${fileText}`,
+          text: fileText,
         });
       }
     }
@@ -523,6 +530,9 @@ function createHost() {
     setPull,
     removals,
     releaseSession,
+    setFileText(text: string) {
+      fileText = text;
+    },
   };
 }
 
@@ -1022,6 +1032,140 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await expect.element(history.getByRole("option", { name: /^Agent review/ })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(history).not.toBeInTheDocument();
+});
+
+test("closing a tab with an unsaved draft asks first, and the reopened thread shows the draft", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("third", { agent: "claude", state: "idle" })]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+
+  // A working file of the thread's checkout, edited and not saved.
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await expect
+    .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+
+  // ⌘⌥W asks first. Cancel keeps the tab.
+  const question = page.getByRole("status").filter({ hasText: "unsaved changes" });
+  await userEvent.keyboard("{Control>}{Alt>}w{/Alt}{/Control}");
+  await expect
+    .element(question)
+    .toMatchTextContent(/^“Third review” has unsaved changes in src\/alpha\.ts\./);
+  await question.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect.element(question).not.toBeInTheDocument();
+  expect(document.querySelector('[data-workspace-slot="review-third"]')).not.toBeNull();
+  // Close closes the tab with its workspace.
+  await userEvent.keyboard("{Control>}{Alt>}w{/Alt}{/Control}");
+  await question.getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(threadRows).toEqual([]);
+  expect(document.querySelector('[data-workspace-slot="review-third"]')).toBeNull();
+  // Another program changes the file. ⌘⌥T opens the thread again, and its
+  // file opens with the draft and says that the file changed.
+  host.setFileText("export const agent = 3;\n");
+  await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  if (!editor.query()) await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await expect
+    .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+  const notice = page.getByRole("status").filter({ hasText: "The file changed on disk" });
+  await expect.element(notice).toBeVisible();
+  // Undo goes back to the text that the draft started from. The file on disk
+  // is still newer, and Refresh reads it.
+  await editor.click();
+  await userEvent.keyboard("u");
+  await expect.element(editor).toHaveTextContent("export const after = 2;");
+  await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  await expect.element(notice).toBeVisible();
+  await page.getByRole("button", { name: "Refresh contents", exact: true }).click();
+  await expect.element(editor).toHaveTextContent("export const agent = 3;");
+  await expect.element(notice).not.toBeInTheDocument();
+});
+
+test("an unsaved draft outlasts a reload, and says when its file changed", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("third", { agent: "claude", state: "idle" })]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+
+  // The draft is kept in this browser, so leaving does not warn.
+  await expect
+    .poll(() => {
+      const leave = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(leave);
+      return leave.defaultPrevented;
+    })
+    .toBe(false);
+  // The page loads again, and another program changed the file meanwhile.
+  root!.unmount();
+  mount!.remove();
+  host.setFileText("export const agent = 3;\n");
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  if (!editor.query()) await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await expect
+    .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
+    .toBeVisible();
+  const changes = page.getByRole("region", { name: "Changes on disk" });
+  await expect.element(changes.getByText("export const agent = 3;")).toBeInTheDocument();
+  // Use the file on disk drops the draft, and storage forgets it.
+  await page.getByRole("button", { name: "Use the file on disk", exact: true }).click();
+  await expect.element(editor).toHaveTextContent("export const agent = 3;");
+  await expect
+    .poll(() => Object.keys(localStorage).filter((key) => key.startsWith("med:draft:")))
+    .toEqual([]);
+});
+
+test("a tab whose work has landed stays open while it has an unsaved draft", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // Three tabs whose work has landed on their base branch, read long ago.
+  const landed = (id: string) =>
+    thread(id, {
+      agent: "claude",
+      state: "idle",
+      updatedAt: 1,
+      unlanded: { base: "main", ahead: 0, uncommitted: false },
+    });
+  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await page.getByRole("button", { name: /^Fourth review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("fourth-target");
+
+  // Time passes with Third and Fifth off screen. Med closes Fifth on its
+  // own; Third keeps its tab, because closing it would hide the draft.
+  const realNow = Date.now.bind(Date);
+  const later = vi.spyOn(Date, "now").mockImplementation(() => realNow() + AUTO_CLOSE_MS * 2);
+  onTestFinished(() => later.mockRestore());
+  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  await expect.element(page.getByText("Closed “Fifth review”: its work has landed.")).toBeVisible();
+  expect(threadRows().map((row) => row.split(/(?<=review)/)[0])).toEqual([
+    "Third review",
+    "Fourth review",
+  ]);
 });
 
 test("a tab lists its subagents; a click opens one in the Session pane, and a finished one folds once seen", async () => {

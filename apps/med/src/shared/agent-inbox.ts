@@ -61,6 +61,9 @@ export const agentMessageSchema = z.object({
   noteIds: z.array(z.string()),
   /** The comments, so the thread can show what was sent. */
   comments: z.array(sentCommentSchema).optional(),
+  /** The version of each comment that the message holds, by ID: the
+   * comment's `updatedAt` when Med read it. A later change is a draft. */
+  noteVersions: z.record(z.string(), z.string()).optional(),
   attachmentCount: z.number().int().nonnegative(),
   createdAt: z.string(),
   /**

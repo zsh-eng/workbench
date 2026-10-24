@@ -23,6 +23,8 @@ async function mountFile(
   beforeRead?: () => Promise<void>,
   syntaxSource?: () => string,
   onWrite?: (text: string, identity: string) => void,
+  // Runs after the write lands and before the host answers.
+  afterWrite?: () => Promise<void>,
 ) {
   localStorage.setItem("med:vim", vim ? "on" : "off");
   initializeTheme();
@@ -78,6 +80,7 @@ async function mountFile(
           { status: 409 },
         );
       }
+      await afterWrite?.();
       return Response.json({ source, path, identity: text, text, size: text.length, kind: "text" });
     }
     if (url.pathname === "/api/browse/read") {
@@ -156,6 +159,7 @@ async function mountFile(
       }),
     )
     .toBeVisible();
+  return controller;
 }
 function shortcut(key: string, shiftKey = false) {
   document.activeElement?.dispatchEvent(
@@ -433,8 +437,10 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
   source = "const agent = 2;";
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
-    .element(page.getByRole("alert"))
-    .toHaveTextContent("File changed on disk. Your draft is kept.");
+    .element(page.getByRole("region", { name: "Changes on disk" }).getByRole("status"))
+    .toMatchTextContent(
+      /^The file changed on disk after your draft started\. Your draft is kept\./,
+    );
   await expect.element(editor).toHaveTextContent("const draft = 1;");
   expect(source).toBe("const agent = 2;");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
@@ -445,6 +451,116 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
   await expect.element(editor).not.toBeInTheDocument();
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
   await expect.element(editor).toHaveTextContent("const agent = 2;");
+});
+
+test("the editor says when another program changes its file", async () => {
+  let source = "const count = 1;";
+  const controller = await mountFile(
+    false,
+    undefined,
+    () => source,
+    (text, identity) => {
+      if (identity !== source) throw new Error("conflict");
+      source = text;
+    },
+  );
+  const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
+  const notice = page.getByRole("status").filter({ hasText: "The file changed on disk" });
+  await expect.element(editor).toHaveTextContent("const count = 1;");
+  // A saved draft: Refresh reads the new contents.
+  source = "const agent = 2;";
+  await controller.refresh();
+  await expect.element(notice).toBeVisible();
+  await expect.element(editor).toHaveTextContent("const count = 1;");
+  await page.getByRole("button", { name: "Refresh contents", exact: true }).click();
+  await expect.element(editor).toHaveTextContent("const agent = 2;");
+  await expect.element(notice).not.toBeInTheDocument();
+  // An unsaved draft stays, and the editor still says that the file changed.
+  await editor.click();
+  await userEvent.keyboard("0wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("const draft = 2;");
+  source = "const other = 3;";
+  await controller.refresh();
+  await expect.element(notice).toBeVisible();
+  await expect.element(editor).toHaveTextContent("const draft = 2;");
+});
+
+test("a draft whose file changed on disk shows the change, then keeps your version or takes the file", async () => {
+  let source = "const count = 1;";
+  const controller = await mountFile(
+    false,
+    undefined,
+    () => source,
+    (text, identity) => {
+      if (identity !== source) throw new Error("conflict");
+      source = text;
+    },
+  );
+  const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
+  const changes = page.getByRole("region", { name: "Changes on disk" });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  // An agent writes the file. The save stops, and the editor shows what the
+  // agent changed, next to the draft.
+  source = "const agent = 2;";
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(changes.getByText("const agent = 2;")).toBeInTheDocument();
+  await expect.element(changes.getByText("const count = 1;")).toBeInTheDocument();
+  await expect.element(editor).toHaveTextContent("const draft = 1;");
+  expect(source).toBe("const agent = 2;");
+  // Keep my version saves the draft over the agent's text.
+  await page.getByRole("button", { name: "Keep my version", exact: true }).click();
+  await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  expect(source).toBe("const draft = 1;");
+  await expect.element(changes).not.toBeInTheDocument();
+
+  // Another draft, and the agent writes again; a watch event finds it.
+  await editor.click();
+  await userEvent.keyboard("0wciwmine{Escape}");
+  await expect.element(editor).toHaveTextContent("const mine = 1;");
+  source = "const other = 3;";
+  await controller.refresh();
+  await expect.element(changes.getByText("const other = 3;")).toBeInTheDocument();
+  // Use the file on disk drops the draft and shows the agent's text.
+  await page.getByRole("button", { name: "Use the file on disk", exact: true }).click();
+  await expect.element(editor).toHaveTextContent("const other = 3;");
+  await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  await expect.element(changes).not.toBeInTheDocument();
+  expect(source).toBe("const other = 3;");
+});
+
+test("a change on disk while a save is on its way still shows after the save", async () => {
+  let source = "const count = 1;";
+  let reads = 0;
+  const controller = await mountFile(
+    false,
+    async () => {
+      reads++;
+    },
+    () => source,
+    (text, identity) => {
+      if (identity !== source) throw new Error("conflict");
+      source = text;
+    },
+    async () => {
+      // After the host's rename and before its answer: another program
+      // writes, and Med reads the file for the watch event.
+      source = "const agent = 2;";
+      const before = reads;
+      void controller.refresh();
+      await expect.poll(() => reads).toBeGreaterThan(before);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    },
+  );
+  const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "The file changed on disk" }))
+    .toBeVisible();
+  expect(source).toBe("const agent = 2;");
 });
 
 test("files start in Normal mode and a clean reopen uses fresh contents", async () => {
