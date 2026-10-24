@@ -80,6 +80,20 @@ function createCheckout(changed: string[], staged: string[] = []) {
     write(path: string) {
       work.add(path);
     },
+    /** Another program stages a file. */
+    stage(path: string) {
+      index.add(path);
+    },
+    /** The next stages wait until the returned function runs. */
+    holdStages() {
+      let release!: () => void;
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      }).then(() => {
+        gate = undefined;
+      });
+      return release;
+    },
     /** The next stages wait, then fail. */
     lockIndex() {
       let release!: () => void;
@@ -151,4 +165,24 @@ test("a stage that fails stops the commit that counted it, and keeps the message
     .toHaveValue("Change a and b");
   await userEvent.keyboard("{Escape}");
   await expect.poll(rows).toEqual(["a.ts, staged, modified", "b.ts, not staged, modified"]);
+});
+
+test("a file that another program stages while your stage is on its way stops the commit", async () => {
+  const checkout = createCheckout(["a.ts", "b.ts"]);
+  render(checkout.api);
+  await expect.poll(rows).toEqual(["a.ts, not staged, modified", "b.ts, not staged, modified"]);
+  await expect.element(files()).toHaveFocus();
+  const release = checkout.holdStages();
+  await userEvent.keyboard(" ");
+  await userEvent.keyboard("c");
+  await expect.element(page.getByRole("heading", { name: "Commit 1 file" })).toBeVisible();
+  await userEvent.keyboard("Change a");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  // An agent runs git add on b before Git answers the stage.
+  checkout.stage("b.ts");
+  release();
+  await expect
+    .element(page.getByRole("dialog").getByRole("alert"))
+    .toMatchTextContent(/^The staged files changed since you pressed Commit\./);
+  expect(checkout.commits).toEqual([]);
 });
