@@ -1,9 +1,12 @@
 import {
   SyncClient,
-  SyncHttpError,
   createNamespacedHttpClient,
   createSyncClientStateStore,
+  createSyncController,
   getOrCreateSyncClientState,
+  type SyncAttempt,
+  type SyncClientStateStore,
+  type SyncController,
   type SyncRecord,
 } from "@zsh-eng/local-sync";
 import { API_ORIGIN, type Account } from "../api";
@@ -25,15 +28,12 @@ const NAMESPACES = {
 } as const;
 type Channels = Record<keyof typeof NAMESPACES, Channel>;
 export const MAX_COPY_BYTES = 2 * 1024 * 1024;
-
-export type SyncStatus =
-  | { phase: "loading" }
-  | { phase: "syncing"; lastSyncedAt?: number }
-  | { phase: "synced"; lastSyncedAt: number }
-  | { phase: "offline"; lastSyncedAt?: number }
-  | { phase: "error"; message: string; lastSyncedAt?: number };
+/** Sync on open, on reconnect, on return to the tab, and every five minutes. */
+const SYNC_INTERVAL_MS = 5 * 60_000;
 
 const stateKey = (userId: string, ns: string) => `arctic:${userId}:${ns}:sync`;
+/** The account's last sync time and whether its session ended (see local-sync). */
+const statusKey = (userId: string) => `arctic:${userId}:sync-status`;
 
 function deviceId() {
   const key = "arctic:device";
@@ -46,6 +46,7 @@ function deviceId() {
 }
 
 type Channel = {
+  stateStore: SyncClientStateStore;
   storage: RecordStorage;
   client: SyncClient<readonly SyncRecord[]>;
   request: (
@@ -55,18 +56,13 @@ type Channel = {
   ) => Promise<Response>;
 };
 
-/** One signed-in account in this browser: its synced namespaces and a file cache. */
+/** One account in this browser: its synced namespaces and a file cache. */
 export class Session {
-  status: SyncStatus = { phase: "loading" };
-  /** Changes whenever a library or text record, or the status, changes. */
-  version = 0;
+  /** When sync runs, and the connection, account and sync status to show. */
+  readonly controller: SyncController;
   /** Changes only when a library or text record changes. */
   records = 0;
   private listeners = new Set<() => void>();
-  private running: Promise<void> | null = null;
-  private again = false;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private due = Infinity;
   private files = new Map<string, Promise<string>>();
 
   private constructor(
@@ -74,6 +70,23 @@ export class Session {
     private readonly db: IDBDatabase,
     private readonly channels: Channels,
   ) {
+    this.controller = createSyncController({
+      run: async ({ signal, markRestoring }) => {
+        if (!channels.library.stateStore.read()?.bootstrapped) markRestoring();
+        for (const channel of Object.values(channels)) {
+          signal.throwIfAborted();
+          await channel.client.sync();
+        }
+      },
+      intervalMs: SYNC_INTERVAL_MS,
+      persist: { storage: localStorage, key: statusKey(account.userId) },
+      user: account,
+    });
+    for (const channel of Object.values(channels))
+      channel.storage.subscribe(() =>
+        this.controller.setPending(this.pendingCount),
+      );
+    this.controller.setPending(this.pendingCount);
     // Highlights and reading time have their own readers (useRecords), so a
     // reading checkpoint does not render the library.
     for (const channel of [channels.library, channels.content])
@@ -103,7 +116,12 @@ export class Session {
         remote: http.remote,
         stateStore,
       });
-      return { storage, client, request: http.request } satisfies Channel;
+      return {
+        stateStore,
+        storage,
+        client,
+        request: http.request,
+      } satisfies Channel;
     };
     const [library, content, annotations, reading] = await Promise.all([
       channel(NAMESPACES.library, normalizeLibrary),
@@ -144,53 +162,18 @@ export class Session {
     };
   }
 
-  /** Pull, then upload, for each namespace. Calls during a run start one more run. */
-  sync(): Promise<void> {
-    clearTimeout(this.timer);
-    this.due = Infinity;
-    if (this.running) {
-      this.again = true;
-      return this.running;
-    }
-    const lastSyncedAt =
-      "lastSyncedAt" in this.status ? this.status.lastSyncedAt : undefined;
-    this.setStatus({ phase: "syncing", lastSyncedAt });
-    this.running = (async () => {
-      try {
-        do {
-          this.again = false;
-          for (const channel of Object.values(this.channels))
-            await channel.client.sync();
-        } while (this.again);
-        this.setStatus({ phase: "synced", lastSyncedAt: Date.now() });
-      } catch (error) {
-        const offline =
-          !navigator.onLine ||
-          error instanceof TypeError ||
-          (error instanceof DOMException && error.name === "TimeoutError");
-        this.setStatus(
-          offline
-            ? { phase: "offline", lastSyncedAt }
-            : { phase: "error", message: message(error), lastSyncedAt },
-        );
-        throw error;
-      } finally {
-        this.running = null;
-      }
-    })();
-    return this.running;
+  /** Pull, then upload, for each namespace, now. Resolves with the outcome; never rejects. */
+  sync(): Promise<SyncAttempt> {
+    return this.controller.syncNow();
   }
 
   /**
    * Edits upload a moment later, so quick changes share one request. A sync
-   * that is already due sooner keeps its time.
+   * that is already due sooner keeps its time; while failing, the retry
+   * schedule applies.
    */
   syncSoon(delay = 1200) {
-    const due = Date.now() + delay;
-    if (due >= this.due) return;
-    clearTimeout(this.timer);
-    this.due = due;
-    this.timer = setTimeout(() => void this.sync().catch(() => {}), delay);
+    this.controller.requestSync(delay);
   }
 
   /** The cleaned HTML of a copy, from this browser or the account. */
@@ -221,7 +204,8 @@ export class Session {
     this.files.set(id, work);
     // The reader keeps its own cleaned copies (src/text.ts); a few raw ones
     // are enough here.
-    for (const old of [...this.files.keys()].slice(0, -8)) this.files.delete(old);
+    for (const old of [...this.files.keys()].slice(0, -8))
+      this.files.delete(old);
     work.catch(() => this.files.delete(id));
     return work;
   }
@@ -272,33 +256,21 @@ export class Session {
   }
 
   close() {
-    clearTimeout(this.timer);
+    this.controller.dispose();
     this.db.close();
   }
 
   /** Removes this browser's copy of the account. The account is unchanged. */
   async forget() {
+    this.controller.signOut();
     this.close();
     await deleteDatabase(this.account.userId);
     for (const ns of Object.values(NAMESPACES))
       localStorage.removeItem(stateKey(this.account.userId, ns));
-  }
-
-  private setStatus(status: SyncStatus) {
-    this.status = status;
-    this.emit();
+    localStorage.removeItem(statusKey(this.account.userId));
   }
 
   private emit() {
-    this.version++;
     for (const listener of this.listeners) listener();
   }
-}
-
-function message(error: unknown) {
-  if (error instanceof SyncHttpError)
-    return error.status === 401
-      ? "Your sign-in has ended. Sign in again to sync."
-      : `The sync service answered ${error.status}. Arctic will try again.`;
-  return error instanceof Error ? error.message : String(error);
 }

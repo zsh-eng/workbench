@@ -18,7 +18,7 @@ import {
   ReadingControls,
   TextControls,
 } from "./SettingsPage";
-import { useArticles, useRecords, useSession, useStatus } from "./state";
+import { useArticles, useRecords, useSession, useSyncing } from "./state";
 import { articleText, isCover, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
 import { NotesPanel, Passages } from "./Passages";
@@ -28,7 +28,7 @@ import { ArticleMenu, Tip, useActions } from "./ui";
 export function Reader() {
   const { id = "" } = useParams();
   const article = useArticles().find((item) => item.id === id);
-  const status = useStatus();
+  const syncing = useSyncing();
   const session = useSession();
   const navigate = useNavigate();
   const location = useLocation();
@@ -60,7 +60,7 @@ export function Reader() {
       <>
         <ReaderBar onBack={back} from={from} />
         <div className="quiet-page">
-          {status.phase === "loading" || status.phase === "syncing"
+          {syncing
             ? "Opening the article…"
             : "This article is not in your library."}
         </div>
@@ -99,10 +99,7 @@ function Page({
   // A description that the text repeats in its opening is said once. A text
   // that arrives late keeps it, so nothing moves.
   const [repeats] = useState(
-    () =>
-      !!body &&
-      "html" in body &&
-      opensWith(body.html, article.subtitle),
+    () => !!body && "html" in body && opensWith(body.html, article.subtitle),
   );
 
   useEffect(() => {
@@ -229,7 +226,9 @@ function Page({
                 if (image?.complete && image.naturalWidth && !isCover(image))
                   setSmallCover(true);
               }}
-              onLoad={(event) => !isCover(event.currentTarget) && setSmallCover(true)}
+              onLoad={(event) =>
+                !isCover(event.currentTarget) && setSmallCover(true)
+              }
               onError={() => setSmallCover(true)}
             />
           </figure>
@@ -321,7 +320,10 @@ function opensWith(html: string, description: string) {
       .trim()
       .toLowerCase();
   const start = words(description).slice(0, 80);
-  return start.length >= 24 && words(html.slice(0, 6000)).slice(0, 900).includes(start);
+  return (
+    start.length >= 24 &&
+    words(html.slice(0, 6000)).slice(0, 900).includes(start)
+  );
 }
 
 /** Time spent on this article so far, on every device. */

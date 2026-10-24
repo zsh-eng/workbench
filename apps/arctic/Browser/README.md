@@ -62,6 +62,15 @@ opening an article marks it read with a visit time. Edits commit to IndexedDB
 first and upload about a second later; a closed tab keeps them for the next
 visit.
 
+Sync runs on open, when the network returns, on return to the tab and every
+five minutes, and backs off after a failure. Its state comes from local-sync's
+sync controller, as in Reader ([states and rules](../../../packages/local-sync/docs/SYNC_STATES.md)).
+The remembered account opens the library offline; only the server ends it.
+When the session ends, the library stays open, its edits stay queued, and the
+account menu asks to sign in again. The bar names a state that needs the
+reader (offline, sign in again, a server that keeps failing); the account menu
+always shows it.
+
 Reading time and highlights have their own namespaces, in the phone's formats
 (approved 21 October 2026). The phone syncs them as well, so a passage
 highlighted on either shows on both:
@@ -261,7 +270,7 @@ prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
 before). The first cards of any folder paint 14–36 ms after the click, and
 Back from the reader takes 56 ms.
 
-The first load is 662 kB of JavaScript (213 kB gzip): React, React Router,
+The first load is 679 kB of JavaScript (218 kB gzip): React, React Router,
 Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
 the app. The sheet (71 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
 to extract a page) load separately.

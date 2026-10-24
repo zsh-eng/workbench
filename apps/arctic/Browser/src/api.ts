@@ -24,15 +24,17 @@ export function rememberedAccount(): Account | null {
   }
 }
 
+/**
+ * The signed-in account, or null when the server answers that there is none.
+ * Rejects when no answer arrives. An ended session keeps the remembered
+ * account, so this browser's copy still opens; signing out forgets it.
+ */
 export async function currentAccount(): Promise<Account | null> {
   const response = await fetch(`${API_ORIGIN}/api/me`, {
     credentials: "include",
     signal: AbortSignal.timeout(15_000),
   });
-  if (response.status === 401) {
-    localStorage.removeItem(ACCOUNT_KEY);
-    return null;
-  }
+  if (response.status === 401) return null;
   if (!response.ok)
     throw new Error(`The account check failed (${response.status}).`);
   const { user } = (await response.json()) as {
