@@ -484,7 +484,12 @@ function syncAction(session: Session, status: SyncSummary) {
     return {
       label: "Sign in again",
       icon: LogIn,
-      run: () => void signInWithGoogle().catch(reportError),
+      run: () => {
+        // Back from the redirect, the account reads as unknown, not "Sign in
+        // again", until the account check answers.
+        session.controller.beginSignIn();
+        void signInWithGoogle().catch(reportError);
+      },
     };
   if (status.action === "reload")
     return { label: "Reload", icon: RefreshCw, run: () => location.reload() };

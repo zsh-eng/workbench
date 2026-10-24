@@ -97,6 +97,9 @@ export function AccountMenu() {
   const handleGoogleSignIn = async () => {
     try {
       if (getLabRuntime()) return;
+      // Back from the redirect, an ended session reads as unknown, not
+      // "Sign in again", until the session check answers.
+      syncService.controller.beginSignIn();
       const { error } = await authClient.signIn.social({
         provider: "google",
         callbackURL: window.location.origin,
