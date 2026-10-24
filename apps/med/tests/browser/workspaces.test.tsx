@@ -1065,9 +1065,18 @@ test("an unsaved draft outlasts its tab: a reload still warns, and the reopened 
   await expect
     .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
     .toBeVisible();
-  await expect
-    .element(page.getByRole("status").filter({ hasText: "The file changed on disk" }))
-    .toBeVisible();
+  const notice = page.getByRole("status").filter({ hasText: "The file changed on disk" });
+  await expect.element(notice).toBeVisible();
+  // Undo goes back to the text that the draft started from. The file on disk
+  // is still newer, and Refresh reads it.
+  await editor.click();
+  await userEvent.keyboard("u");
+  await expect.element(editor).toHaveTextContent("export const after = 2;");
+  await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  await expect.element(notice).toBeVisible();
+  await page.getByRole("button", { name: "Refresh contents", exact: true }).click();
+  await expect.element(editor).toHaveTextContent("export const agent = 3;");
+  await expect.element(notice).not.toBeInTheDocument();
 });
 
 test("a tab lists its subagents; a click opens one in the Session pane, and a finished one folds once seen", async () => {

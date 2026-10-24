@@ -202,13 +202,13 @@ export default function FileEditor({
   const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
     context;
   // Another program changed the file after the draft's text was read: the
-  // watch found it, or the file read again differs from an unsaved draft's.
-  // A save on its way changes the file too, so its answer decides.
+  // watch found it, or the file read again differs from the draft's, as for
+  // a draft that waited while its workspace was closed. A save on its way
+  // changes the file too, so its answer decides.
   const changedOnDisk =
     !draft.saving &&
     (stale ||
-      (draft.dirty &&
-        !context.loading &&
+      (!context.loading &&
         context.file?.kind === "text" &&
         context.file.path === draft.file.path &&
         context.file.identity !== draft.file.identity));
