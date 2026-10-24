@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
+import { AUTO_CLOSE_MS } from "../../src/web/data/tabs";
 import type { Comparison } from "../../src/shared/protocol";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -1129,6 +1130,42 @@ test("an unsaved draft outlasts a reload, and says when its file changed", async
   await expect
     .poll(() => Object.keys(localStorage).filter((key) => key.startsWith("med:draft:")))
     .toEqual([]);
+});
+
+test("a tab whose work has landed stays open while it has an unsaved draft", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // Three tabs whose work has landed on their base branch, read long ago.
+  const landed = (id: string) =>
+    thread(id, {
+      agent: "claude",
+      state: "idle",
+      updatedAt: 1,
+      unlanded: { base: "main", ahead: 0, uncommitted: false },
+    });
+  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  await page.getByRole("button", { name: /^Third review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
+  await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+  const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+  await expect.element(editor).toBeVisible();
+  await userEvent.keyboard("wciwdraft{Escape}");
+  await expect.element(editor).toHaveTextContent("export draft after = 2;");
+  await page.getByRole("button", { name: /^Fourth review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("fourth-target");
+
+  // Time passes with Third and Fifth off screen. Med closes Fifth on its
+  // own; Third keeps its tab, because closing it would hide the draft.
+  const realNow = Date.now.bind(Date);
+  const later = vi.spyOn(Date, "now").mockImplementation(() => realNow() + AUTO_CLOSE_MS * 2);
+  onTestFinished(() => later.mockRestore());
+  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  await expect.element(page.getByText("Closed “Fifth review”: its work has landed.")).toBeVisible();
+  expect(threadRows().map((row) => row.split(/(?<=review)/)[0])).toEqual([
+    "Third review",
+    "Fourth review",
+  ]);
 });
 
 test("a tab lists its subagents; a click opens one in the Session pane, and a finished one folds once seen", async () => {

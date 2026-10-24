@@ -370,7 +370,8 @@ A new thread, a hand-off, an adopted session, and Keep in Med open as tabs. A
 found session opens as a tab once, when Med first sees it work. The browser
 closes a tab on its own when its work has landed (`landed` in
 `web/data/tabs.ts`), from the window used last, never when `unlanded` is
-unknown.
+unknown or the tab's workspace has unsaved drafts (`unsavedFiles`, which
+counts the drafts that wait in the window too).
 
 The signals for tabs that need the reader are in `web/data/signals.ts`. Each
 window sets the installed app's badge to the same count, from the same list.

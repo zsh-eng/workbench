@@ -155,8 +155,16 @@ export function createWindowDrafts(storage: Storage | null = browserStorage()) {
         if (live.get(owner) === drafts) live.delete(owner);
       };
     },
-    /** The files with unsaved drafts in this workspace, while it is open. */
-    unsavedFiles: (owner: string) => live.get(owner)?.unsaved() ?? [],
+    /** The files with unsaved drafts of this workspace: in its open store,
+     * or waiting here since it left memory or the page loaded. */
+    unsavedFiles: (owner: string) => [
+      ...new Set([
+        ...(live.get(owner)?.unsaved() ?? []),
+        ...parked
+          .filter((entry) => entry.owner === owner && unsaved(entry.draft))
+          .map((entry) => entry.draft.file.path),
+      ]),
+    ],
     /** Leaving the page would lose a draft: one that storage did not take. */
     loses() {
       for (const drafts of live.values()) drafts.flush();

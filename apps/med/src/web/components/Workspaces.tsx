@@ -1472,7 +1472,8 @@ export function WorkspaceHost({
   }, [activeThread, fetcher, hasTabs]);
 
   // A tab whose work has landed goes to history on its own, from the window
-  // used last, once it has been off screen for a while (data/tabs.ts).
+  // used last, once it has been off screen for a while (data/tabs.ts). A tab
+  // with unsaved drafts stays: only a close that you choose can hide them.
   const [clock, setClock] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 60_000);
@@ -1483,8 +1484,10 @@ export function WorkspaceHost({
     const now = Math.max(clock, Date.now());
     const done = tabs.filter((thread) => {
       if (!lastShown.current.has(thread.id)) lastShown.current.set(thread.id, now);
+      const workspace = store.match(threadInput(thread));
       return (
         !kept.current.has(thread.id) &&
+        !(workspace && drafts.unsavedFiles(workspace).length) &&
         landed(thread, {
           unread: read.isUnread(thread),
           onScreen: thread.id === currentThread,
@@ -1493,7 +1496,7 @@ export function WorkspaceHost({
       );
     });
     if (done.length) void closeTabs(done, { auto: true });
-  }, [clock, closeTabs, currentThread, hasTabs, read, tabs, usedLast]);
+  }, [clock, closeTabs, currentThread, drafts, hasTabs, read, store, tabs, usedLast]);
 
   // The palette reaches the tabs through one object that does not change, so
   // a change to the tabs does not render every mounted workspace again.

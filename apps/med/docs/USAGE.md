@@ -138,7 +138,8 @@ load it or read its agents until you open it again.
   off screen for 5 minutes, it does not need you, its agent does not work, and
   its branch has no commits ahead of its base and no uncommitted changes. The
   window that you used last does this, and a notice with **Undo** tells you.
-  Med never closes a tab whose work it cannot check.
+  Med never closes a tab whose work it cannot check, or a tab with an unsaved
+  draft.
 - **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
   Type a word, also while you hold Control, to search history too: closed
   threads and found sessions that are not tabs, by title, branch, repository,

@@ -99,3 +99,18 @@ test("a full workspace leaves a draft that waits in the window where it is", () 
   expect(draft.state?.sliceDoc()).toBe("kept draft\n");
   expect(draft.dirty).toBe(true);
 });
+
+test("a workspace's drafts that wait in the window still count as its unsaved files", () => {
+  vi.useFakeTimers();
+  const storage = memoryStorage();
+  const window = createWindowDrafts(storage);
+  // The workspace leaves memory with an unsaved draft.
+  const drafts = createEditorDrafts(window, "review-a");
+  type(drafts, "a.ts", "my draft\n");
+  drafts.park();
+  expect(window.unsavedFiles("review-a")).toEqual(["a.ts"]);
+  expect(window.unsavedFiles("review-b")).toEqual([]);
+  // After a reload, before the workspace opens again.
+  vi.advanceTimersByTime(500);
+  expect(createWindowDrafts(storage).unsavedFiles("review-a")).toEqual(["a.ts"]);
+});
