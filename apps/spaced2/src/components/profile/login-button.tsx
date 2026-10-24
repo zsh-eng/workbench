@@ -3,8 +3,6 @@ import VerifyOtpForm from "@/components/form/verify-otp-form";
 import BouncyButton from "@/components/bouncy-button";
 import { LoginForm } from "@/components/form/login-form";
 import { RegisterForm } from "@/components/form/register-form";
-import { emitChange } from "@/components/hooks/logged-in-status";
-import { useOnlineStatus } from "@/components/hooks/online-status";
 import {
   Dialog,
   DialogContent,
@@ -14,12 +12,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { login, register, registerAndSync, verifyOtp } from "@/lib/auth";
+import { spacedSync } from "@/lib/sync/engine";
 import {
   LoginFormValues,
   RegisterFormValues,
   VerifyOtpFormValues,
 } from "@/lib/form-schema";
 import { cn } from "@/lib/utils";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
 import { LogIn } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -49,7 +49,6 @@ export function LoginFormDialogContent({
       return;
     }
 
-    emitChange();
     onSuccess();
   };
 
@@ -62,7 +61,6 @@ export function LoginFormDialogContent({
     }
 
     if (response.signedIn) {
-      emitChange();
       onSuccess();
     } else {
       setRegisteredEmail(data.email);
@@ -83,7 +81,6 @@ export function LoginFormDialogContent({
       return;
     }
 
-    emitChange();
     onSuccess();
   };
 
@@ -143,9 +140,13 @@ export function LoginFormDialogContent({
   );
 }
 
-export function LoginButton() {
+/** Signing in needs the server, so the button is disabled offline. */
+export function LoginButton({ label = "Sign in" }: { label?: string }) {
   const [isOpen, setIsOpen] = useState(false);
-  const online = useOnlineStatus();
+  const online = useSyncStatus(
+    spacedSync,
+    (status) => status.connection !== "offline",
+  );
 
   const onLoginSuccess = async () => {
     toast.success("Logged in!");
@@ -171,7 +172,7 @@ export function LoginButton() {
             disabled={!online}
           >
             <div className="flex justify-between">
-              <span>Sign in</span>
+              <span>{label}</span>
               <LogIn className="w-6 h-6 text-muted-foreground" />
             </div>
           </BouncyButton>

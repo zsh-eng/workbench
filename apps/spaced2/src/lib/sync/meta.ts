@@ -30,16 +30,3 @@ export async function getClientId(): Promise<string | null> {
 
   return clientId.value as string;
 }
-
-export async function setSessionExpiry(expiry: Date): Promise<void> {
-  await db.metadataKv.put({ key: "sessionExpiry", value: expiry.getTime() });
-}
-
-export async function getSessionExpiry(): Promise<Date | null> {
-  const sessionExpiry = await db.metadataKv.get("sessionExpiry");
-  if (!sessionExpiry) {
-    return null;
-  }
-
-  return new Date(sessionExpiry.value as number);
-}

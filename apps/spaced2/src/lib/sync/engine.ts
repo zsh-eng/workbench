@@ -61,7 +61,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
       signal.throwIfAborted();
       // A 401 is the server's answer: no session. The controller pauses sync.
       if (!response.ok) throw new SyncHttpError(response.status, response);
-      const { userId, expiresAt, user } = await response.json();
+      const { userId, user } = await response.json();
       if (typeof userId !== "string" || !userId)
         throw new Error("Invalid account identity");
       spacedSync.confirmSignedIn({
@@ -86,9 +86,6 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           await reloadMemory();
         }
         await db.metadataKv.put({ key: "owner", value: userId });
-        const expiry = Date.parse(expiresAt);
-        if (Number.isFinite(expiry))
-          await db.metadataKv.put({ key: "sessionExpiry", value: expiry });
         const state = ensureSyncState();
         await db.metadataKv.put({ key: "syncState", value: 2 });
         if (!(await db.metadataKv.get("clientId")))

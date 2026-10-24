@@ -8,15 +8,10 @@ import { RegisterForm } from "@/components/form/register-form";
 import VerifyOtpForm from "@/components/form/verify-otp-form";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { useTheme } from "@/components/theme/theme-context";
-import { useSessionExpired } from "@/components/hooks/session-expired";
-import { login, register, verifyOtp, registerClient } from "@/lib/auth";
-import {
-  getClientId,
-  getSessionExpiry,
-  setClientId,
-  setSessionExpiry,
-} from "@/lib/sync/meta";
-import SyncEngine from "@/lib/sync/engine";
+import { login, register, registerClient } from "@/lib/auth";
+import { getClientId, setClientId } from "@/lib/sync/meta";
+import SyncEngine, { spacedSync } from "@/lib/sync/engine";
+import SessionExpiredBanner from "@/components/session-expired-banner";
 import { db, rawDb, stateStore } from "@/lib/db/persistence";
 import MemoryDB from "@/lib/db/memory";
 import LoginSuccessRoute from "@/routes/LoginSuccessRoute";
@@ -43,6 +38,51 @@ function deferred<T>() {
     reject = no;
   });
   return { promise, resolve, reject };
+}
+const ada = { name: "Ada Lovelace", email: "ada@example.test" };
+/** The server's answer to the account check; the pull has nothing new. */
+function answerMe(me: () => Response) {
+  globalThis.fetch = (async (url) => {
+    if (String(url).endsWith("/me")) return me();
+    const cursor = stateStore.read()?.pullCursor ?? 0;
+    return streamResponse({
+      records: [],
+      cursor,
+      head: cursor,
+      hasMore: false,
+    });
+  }) as typeof fetch;
+}
+/** A sync that the server answers for this user, as after signing in. */
+async function signedInAs(user: typeof ada) {
+  answerMe(() => Response.json({ userId: "test-user", user }));
+  await SyncEngine.syncFromServer();
+}
+function goOffline() {
+  Object.defineProperty(navigator, "onLine", {
+    value: false,
+    configurable: true,
+  });
+  window.dispatchEvent(new Event("offline"));
+  globalThis.fetch = (async () => {
+    throw new TypeError("Failed to fetch");
+  }) as typeof fetch;
+}
+function goOnline() {
+  Object.defineProperty(navigator, "onLine", {
+    value: true,
+    configurable: true,
+  });
+}
+async function mountProfile() {
+  const { default: ProfileRoute } = await import("@/routes/ProfileRoute");
+  return mount(
+    <ThemeProvider storageKey="account-test-theme">
+      <MemoryRouter initialEntries={["/profile"]}>
+        <ProfileRoute />
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
 }
 // Other test files can leave writes in the shared fake IndexedDB connection.
 beforeEach(async () => {
@@ -125,26 +165,6 @@ test("client registration waits for the local client ID write", async () => {
   } finally {
     spy.mockRestore();
   }
-});
-
-test("successful code verification renews session expiry but rejected verification does not", async () => {
-  await setSessionExpiry(new Date(1));
-  globalThis.fetch = (async () =>
-    Response.json({ success: true })) as typeof fetch;
-  expect((await verifyOtp("person@example.com", "ABCD1234")).success).toBe(
-    true,
-  );
-  const renewed = (await getSessionExpiry())!.getTime();
-  expect(renewed).toBeGreaterThan(Date.now() + 6 * 86400000);
-  globalThis.fetch = (async () =>
-    Response.json(
-      { message: "Incorrect code" },
-      { status: 400 },
-    )) as typeof fetch;
-  expect((await verifyOtp("person@example.com", "BADCODE1")).success).toBe(
-    false,
-  );
-  expect((await getSessionExpiry())!.getTime()).toBe(renewed);
 });
 
 for (const mode of ["login", "register"] as const) {
@@ -259,16 +279,23 @@ test("System theme follows appearance changes and removes its listener for a fix
   expect(document.documentElement.classList.contains("light")).toBe(true);
 });
 
-test("the session-expired warning updates at the expiry boundary", async () => {
-  await setSessionExpiry(new Date(Date.now() + 100));
-  function Status() {
-    return <span>{useSessionExpired() ? "expired" : "active"}</span>;
-  }
-  const view = await mount(<Status />);
-  await settle();
-  expect(view.container.textContent).toBe("active");
-  await settle(140);
-  expect(view.container.textContent).toBe("expired");
+test("the session-expired notice follows the server: a refused session shows it, being offline never does, and a new sign-in clears it", async () => {
+  await signedInAs(ada);
+  await mount(<SessionExpiredBanner />);
+  const notice = () =>
+    document.body.textContent?.includes("session has expired");
+
+  goOffline();
+  await act(() => SyncEngine.syncFromServer().catch(() => {}));
+  expect(notice()).toBe(false);
+
+  goOnline();
+  answerMe(() => new Response(null, { status: 401 }));
+  await act(() => SyncEngine.syncFromServer().catch(() => {}));
+  expect(notice()).toBe(true);
+
+  await act(() => signedInAs(ada));
+  expect(notice()).toBe(false);
 });
 
 test("callback sync is a named native button and the button itself starts sync", async () => {
@@ -369,6 +396,48 @@ test("offline, the profile leads with the offline notice, and the notice goes wh
     window.dispatchEvent(new Event("online"));
   });
   expect(view.container.querySelector('[role="status"]')).toBeNull();
+});
+
+test("opened offline, a signed-in account shows its user and a disabled Sign out, never Sign in", async () => {
+  await signedInAs(ada);
+  goOffline();
+  const view = await mountProfile();
+  const account = view.container.querySelector('[aria-label="Account"]');
+  expect(account?.textContent).toContain("Ada Lovelace");
+  expect(account?.textContent).toContain("ada@example.test");
+  const buttons = [...view.container.querySelectorAll("button")];
+  expect(buttons.some((button) => /Sign in/.test(button.textContent!))).toBe(
+    false,
+  );
+  const signOut = buttons.find((button) => button.textContent === "Sign out");
+  expect(signOut?.disabled).toBe(true);
+
+  goOnline();
+  await act(async () => {
+    window.dispatchEvent(new Event("online"));
+  });
+  expect(signOut?.disabled).toBe(false);
+});
+
+test("the account button says what to do: Sign in again for an ended session, Sign in when signed out", async () => {
+  await signedInAs(ada);
+  answerMe(() => new Response(null, { status: 401 }));
+  await SyncEngine.syncFromServer().catch(() => {});
+  const view = await mountProfile();
+  const labels = () =>
+    [...view.container.querySelectorAll("button")].map(
+      (button) => button.textContent,
+    );
+  expect(
+    view.container.querySelector('[aria-label="Account"]')?.textContent,
+  ).toContain("Ada Lovelace");
+  expect(labels()).toContain("Sign in again");
+  expect(labels()).toContain("Sign out");
+
+  await act(async () => spacedSync.signOut());
+  expect(view.container.querySelector('[aria-label="Account"]')).toBeNull();
+  expect(labels()).toContain("Sign in");
+  expect(labels()).not.toContain("Sign out");
 });
 
 test("privacy cleanup rejects failed logout, retries local failure offline, and blocks late sync writes", async () => {

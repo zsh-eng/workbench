@@ -1,8 +1,8 @@
-import { useSessionExpired } from "@/components/hooks/session-expired";
 import { LoginFormDialogContent } from "@/components/profile/login-button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import SyncEngine from "@/lib/sync/engine";
+import SyncEngine, { spacedSync } from "@/lib/sync/engine";
 import { cn } from "@/lib/utils";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -51,8 +51,16 @@ export function SessionExpiredBackdrop({
   );
 }
 
+/**
+ * Shows when the server has refused this device's session (a 401 to a sync,
+ * or its account check). A session that ends while the device cannot ask
+ * shows at the next answer; being offline never shows it.
+ */
 export default function SessionExpiredBanner() {
-  const hasSessionExpired = useSessionExpired();
+  const hasSessionExpired = useSyncStatus(
+    spacedSync,
+    (status) => status.auth.status === "expired",
+  );
   const [showBackdrop, setShowBackdrop] = useState(true);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
 

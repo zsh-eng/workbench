@@ -1,5 +1,4 @@
 import BouncyButton from "@/components/bouncy-button";
-import { useOnlineStatus } from "@/components/hooks/online-status";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,13 +14,19 @@ import {
   logoutAndClearLocalData,
   needsLocalAccountCleanup,
 } from "@/lib/auth/privacy";
+import { spacedSync } from "@/lib/sync/engine";
 import { cn } from "@/lib/utils";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
 import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+/** Signing out needs the server, so the button is disabled offline, never hidden. */
 export function LogoutButton() {
-  const online = useOnlineStatus();
+  const online = useSyncStatus(
+    spacedSync,
+    (status) => status.connection !== "offline",
+  );
   const [retryCleanup, setRetryCleanup] = useState(needsLocalAccountCleanup);
   const disabled = !online && !retryCleanup;
   const handleLogout = async () => {

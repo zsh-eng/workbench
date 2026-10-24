@@ -1,8 +1,7 @@
-import SyncEngine from "@/lib/sync/engine";
+import SyncEngine, { spacedSync } from "@/lib/sync/engine";
 import { ensureSyncState, persistenceReady } from "@/lib/db/persistence";
-import { setClientId, setSessionExpiry } from "@/lib/sync/meta";
+import { setClientId } from "@/lib/sync/meta";
 import { AUTH_API_BASE } from "../api";
-const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7 - 60000;
 async function request(path: string, body: unknown) {
   const response = await fetch(`${AUTH_API_BASE}/auth/${path}`, {
     method: "POST",
@@ -13,8 +12,6 @@ async function request(path: string, body: unknown) {
   const data = await response.json().catch(() => ({}));
   return { response, data };
 }
-const renew = () =>
-  setSessionExpiry(new Date(Date.now() + SESSION_DURATION_MS));
 export async function login(email: string, password: string) {
   const { response, data } = await request("sign-in/email", {
     email,
@@ -26,7 +23,6 @@ export async function login(email: string, password: string) {
       message: data.message ?? "Invalid email or password",
       isTempUser: data.code === "EMAIL_NOT_VERIFIED",
     };
-  await renew();
   return { success: true as const };
 }
 export async function register(email: string, password: string) {
@@ -36,7 +32,6 @@ export async function register(email: string, password: string) {
     name: email.split("@")[0],
   });
   const signedIn = response.ok && typeof data.token === "string";
-  if (signedIn) await renew();
   return {
     success: response.ok,
     signedIn,
@@ -53,7 +48,6 @@ export async function verifyOtp(email: string, pin: string) {
       success: false,
       message: data.message ?? "Incorrect or expired code",
     };
-  await renew();
   return { success: true };
 }
 export async function registerClient() {
@@ -79,5 +73,8 @@ export async function signInWithGoogle() {
   });
   if (!response.ok || typeof data.url !== "string")
     throw new Error(data.message ?? "Google sign-in failed");
+  // Back from the redirect, an ended session reads as unknown, not expired,
+  // until the first sync's account check answers.
+  spacedSync.beginSignIn();
   location.assign(data.url);
 }
