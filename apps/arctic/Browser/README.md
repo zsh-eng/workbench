@@ -292,7 +292,7 @@ prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
 before). The first cards of any folder paint 14–36 ms after the click, and
 Back from the reader takes 56 ms.
 
-The first load is 686 kB of JavaScript (221 kB gzip): React, React Router,
+The first load is 687 kB of JavaScript (221 kB gzip): React, React Router,
 Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
 the app. The sheet (72 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
 to extract a page) load separately.
