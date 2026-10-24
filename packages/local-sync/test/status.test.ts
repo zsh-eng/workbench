@@ -235,6 +235,36 @@ describe("sync status", () => {
     expect(controller.getSnapshot().failure).toBeNull();
   });
 
+  // SyncStates.tla's bug before the fix: an attempt leaves without a valid
+  // cookie, you sign in in another tab, the session check confirms it, and
+  // the attempt's 401 arrives last. The session check is the newer answer.
+  it.each([
+    ["no remembered account", undefined, "session-2"],
+    ["a remembered account and no session id", ada, undefined],
+  ])(
+    "a 401 that arrives after the session check confirmed a session keeps it, with %s",
+    async (_, user, session) => {
+      const server = fakeServer();
+      const controller = createSyncController({
+        run: server.run,
+        network: fakeNetwork(),
+        user,
+      });
+      controller.start();
+      controller.confirmSignedIn(ada, session);
+      server.attempts[0]!.reject(unauthorized());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(controller.getSnapshot().auth.status).toBe("signed-in");
+      expect(server.attempts).toHaveLength(2);
+
+      // The rerun carries the new cookie; a 401 to it does end the session.
+      server.last().reject(unauthorized());
+      await controller.drain();
+      expect(controller.getSnapshot().auth.status).toBe("expired");
+      expect(server.attempts).toHaveLength(2);
+    },
+  );
+
   it("a session ended elsewhere recovers with a manual sync after signing in in another tab", async () => {
     const server = fakeServer();
     const controller = createSyncController({
@@ -263,17 +293,15 @@ describe("sync status", () => {
       user: ada,
     });
     controller.start();
-    server
-      .last()
-      .reject(
-        new SyncHttpError(
-          503,
-          new Response(null, {
-            status: 503,
-            headers: { "Retry-After": "120" },
-          }),
-        ),
-      );
+    server.last().reject(
+      new SyncHttpError(
+        503,
+        new Response(null, {
+          status: 503,
+          headers: { "Retry-After": "120" },
+        }),
+      ),
+    );
     await controller.drain();
     expect(controller.getSnapshot().retryAt).toBe(Date.now() + 120_000);
     expect(summary(controller)).toMatchObject({

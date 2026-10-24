@@ -156,6 +156,12 @@ export function createSyncController(
   let lastAttemptAt = -Infinity;
   /** Changes with the credentials. An answer to older credentials does not change auth. */
   let authEpoch = 0;
+  /**
+   * Counts confirmSignedIn calls. A 401 to an attempt that began before the
+   * server last confirmed a session may refuse an older cookie, so the
+   * attempt runs again instead of ending the session.
+   */
+  let confirmations = 0;
   let sessionId: string | undefined;
   let refusedSessionId: string | undefined;
 
@@ -204,6 +210,7 @@ export function createSyncController(
     timer = undefined;
     const controller = new AbortController();
     const epoch = authEpoch;
+    const confirmed = confirmations;
     attempt = controller;
     requestedAt = Infinity;
     lastAttemptAt = now();
@@ -214,12 +221,18 @@ export function createSyncController(
       connection:
         status.connection === "offline" ? "online" : status.connection,
     });
-    const run = execute(controller, epoch).then((result) => {
+    const run = execute(controller, epoch, confirmed).then((result) => {
       if (active === run) active = null;
       if (attempt === controller) attempt = null;
       publish({ running: false, restoring: false });
-      // Credentials changed during the attempt: try again with the new ones.
-      if (epoch !== authEpoch && automatic()) void begin();
+      // Credentials changed during the attempt, or its 401 may refuse an
+      // older cookie: try again with the current ones.
+      const again =
+        epoch !== authEpoch ||
+        (result.outcome === "failed" &&
+          result.failure.kind === "unauthorized" &&
+          confirmed !== confirmations);
+      if (again && automatic()) void begin();
       else schedule();
       return result;
     });
@@ -230,6 +243,7 @@ export function createSyncController(
   async function execute(
     controller: AbortController,
     epoch: number,
+    confirmed: number,
   ): Promise<SyncAttempt> {
     try {
       await options.run({
@@ -240,7 +254,9 @@ export function createSyncController(
       });
       return controller.signal.aborted ? CANCELLED : succeed(epoch);
     } catch (error) {
-      return controller.signal.aborted ? CANCELLED : fail(error, epoch);
+      return controller.signal.aborted
+        ? CANCELLED
+        : fail(error, epoch, confirmed);
     }
   }
 
@@ -268,7 +284,7 @@ export function createSyncController(
     return { outcome: "synced" };
   }
 
-  function fail(error: unknown, epoch: number): SyncAttempt {
+  function fail(error: unknown, epoch: number, confirmed: number): SyncAttempt {
     const failure = classifySyncFailure(error);
     if (!failure) return CANCELLED;
     const connection =
@@ -277,8 +293,12 @@ export function createSyncController(
         : network.isOnline()
           ? "unreachable"
           : "offline";
-    // A 401 for credentials that have since changed says nothing about the new ones.
-    if (failure.kind === "unauthorized" && epoch !== authEpoch) {
+    // A 401 for credentials that have since changed, or sent before the
+    // server last confirmed a session, says nothing about the current ones.
+    if (
+      failure.kind === "unauthorized" &&
+      (epoch !== authEpoch || confirmed !== confirmations)
+    ) {
       publish({ connection });
       return { outcome: "failed", failure };
     }
@@ -393,6 +413,7 @@ export function createSyncController(
   function confirmSignedIn(user: SyncIdentity, session?: string) {
     // Better Auth and similar clients can repeat an answer from before a 401.
     if (session !== undefined && session === refusedSessionId) return;
+    confirmations++;
     const auth = status.auth;
     const identity = pickIdentity(user);
     const known =
