@@ -671,6 +671,13 @@ struct TaggingNotice: Identifiable {
     return FileManager.default.fileExists(atPath: file.path) ? file : nil
   }
 
+  /// The Reader copies of saved articles, newest saved first, for the account.
+  func keptCopies() -> [KeptCopy] {
+    articles.filter { $0.saved && $0.downloadedAt != nil }
+      .sorted { ($0.savedAt ?? .distantPast) > ($1.savedAt ?? .distantPast) }
+      .map { KeptCopy(url: $0.url, file: downloadFile($0.id)) }
+  }
+
   /// Write bytes before advertising a download. Recheck identity after the disk
   /// write so deleting a link during extraction cannot recreate that record.
   func saveReader(_ html: String, for url: URL) async {

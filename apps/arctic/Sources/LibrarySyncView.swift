@@ -102,7 +102,7 @@ struct LibrarySyncView: View {
         .accessibilityIdentifier("sync-sign-in")
       } footer: {
         Text(
-          "Highlights, notes and reading time sync with your library. Reader copies and images stay on each device. Your Jev key, cookies and passwords never sync."
+          "Highlights, notes and reading time sync with your library. The text of Reader copies goes to your account, so Arctic on the web can show it; images stay on each device. Your Jev key, cookies and passwords never sync."
         )
       }
       if case .failed(let message) = sync.status {

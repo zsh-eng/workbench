@@ -168,6 +168,16 @@ public actor HTTPRemote: SyncRemote {
   public func upload(_ bytes: Data, deviceID: String) async throws -> String {
     throw SyncFailure.mediaSyncDisabled
   }
+  /// Uploads a Reader copy's cleaned HTML to `arctic-content`, where Arctic
+  /// for the web reads it. Other media stays on each device. Returns its file ID.
+  public func uploadText(_ html: Data) async throws -> String {
+    guard namespace == "arctic-content" else { throw SyncFailure.mediaSyncDisabled }
+    let id = XXH64.fileID(html)
+    _ = try await request(
+      path: "api/apps/\(namespace)/files/\(id)", method: "PUT", body: html,
+      contentType: "text/html; charset=utf-8", scoped: true)
+    return id
+  }
   public func download(_ id: String, deviceID: String) async throws -> Data {
     throw SyncFailure.mediaSyncDisabled
   }

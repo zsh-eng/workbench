@@ -29,9 +29,10 @@ struct LibraryAccount: Codable, Equatable {
 
 /// Keeps the library the same on every device signed in to one account. Saved,
 /// archived, favourite and read state, titles and tags sync, and so do
-/// highlights, notes and reading sessions (`AccountRecordJournal`); Reader
-/// copies and images stay on each device. Jev keys, cookies and credentials
-/// never sync.
+/// highlights, notes and reading sessions (`AccountRecords`). The text of a
+/// Reader copy goes to the account when the account has none, so Arctic for
+/// the web shows it; images stay on each device. Jev keys, cookies and
+/// credentials never sync.
 ///
 /// Signing in opens the account's own profile. The device's local library is
 /// added only when the user chooses to, and it shows again after sign-out.
@@ -81,6 +82,7 @@ struct LibraryAccount: Codable, Equatable {
     records = AccountRecords(
       root: store.libraryRoot,
       account: { LibraryAccount.saved?.scope },
+      copies: { [weak self] in self?.store.keptCopies() ?? [] },
       connect: { [weak self] family in
         // The credential comes from Keychain, where the library's transport keeps it fresh.
         guard let session = try self?.savedSession() else { throw SyncFailure.unauthorized }
@@ -380,12 +382,66 @@ extension ReaderAnnotation: AccountRecord {}
 extension ArticleReadingSession: AccountRecord {}
 
 /// The namespaces beside the library's: `annotation/<UUID>` records in
-/// `arctic-annotations`, and `session/<UUID>` records in `arctic-reading`.
+/// `arctic-annotations`, `session/<UUID>` records in `arctic-reading`, and
+/// the text of articles in `arctic-content`: a file and its `content/<id>`
+/// record, by the article's library ID.
 enum AccountRecordFamily: String, CaseIterable, Sendable {
   case annotations = "arctic-annotations"
   case reading = "arctic-reading"
+  case copies = "arctic-content"
   var namespace: String { rawValue }
-  var prefix: String { self == .annotations ? "annotation/" : "session/" }
+  var prefix: String {
+    switch self {
+    case .annotations: "annotation/"
+    case .reading: "session/"
+    case .copies: "content/"
+    }
+  }
+}
+
+/// A Reader copy that this device keeps for a saved article.
+struct KeptCopy: Sendable {
+  let url: URL
+  let file: URL
+}
+
+/// The text of a Reader copy as the account keeps it: the article's HTML,
+/// which the Reader's extraction cleaned (`Web/reader.js`), without the page
+/// around it. As on the web, a shorter page is usually a teaser or an error,
+/// and the server takes HTML without scripts, up to 2 MiB.
+struct ArticleText: Sendable {
+  static let minWords = 120
+  static let maxBytes = 2 * 1024 * 1024
+  let html: Data
+  let words: Int
+
+  init?(file: URL) {
+    guard let page = try? String(contentsOf: file, encoding: .utf8),
+      let start = page.firstRange(of: #/<article id=["']reader-content["']>/#),
+      let end = page.range(
+        of: "</article>", options: .backwards, range: start.upperBound..<page.endIndex)
+    else { return nil }
+    let body = String(page[start.upperBound..<end.lowerBound])
+    let words = body.replacing(#/<[^>]*>/#, with: " ").split(whereSeparator: \.isWhitespace).count
+    let html = Data(body.utf8)
+    guard words >= Self.minWords, html.count <= Self.maxBytes,
+      body.range(of: "<script", options: .caseInsensitive) == nil
+    else { return nil }
+    self.html = html
+    self.words = words
+  }
+}
+
+/// The record that names a copy's file, as Arctic for the web writes it
+/// (`Browser/src/copy.ts`). `savedAt` is in milliseconds.
+struct ArticleCopyRecord: Codable, Equatable {
+  var url: String
+  var file: String
+  var bytes: Int
+  var words: Int
+  var format = "html"
+  var source = "arctic"
+  var savedAt: Int64
 }
 
 /// One family's journal in one account: the account's rows, this device's
@@ -432,6 +488,26 @@ actor AccountRecordJournal {
     return pulled.values.compactMap { try? decoder.decode(Record.self, from: Data($0.utf8)) }
   }
 
+  /// Pulls the account's rows and uploads this device's, with nothing to reconcile.
+  func sync(using remote: any SyncRemote) async throws {
+    try await store.sync(using: remote)
+  }
+
+  /// The keys after the prefix of the account's live records: for copies,
+  /// the articles whose text the account has.
+  func keys() async -> Set<String> {
+    Set(
+      await store.snapshot().compactMap { key, row in
+        row.isDeleted ? nil : String(key.dropFirst(family.prefix.count))
+      })
+  }
+
+  func commit(copy: ArticleCopyRecord, of article: String) async throws {
+    try await store.commit([
+      LocalMutation(key: family.prefix + article, value: ArticleSyncCodec.encode(copy))
+    ])
+  }
+
   /// Commits this device's newer records for upload, without the network.
   func commit<Record: AccountRecord>(_ records: [Record]) async throws {
     _ = try await store.reconcile(values(records)) { local, remote in
@@ -467,14 +543,16 @@ actor AccountRecordJournal {
 /// What a family's stream needs from its transport.
 protocol AccountRecordRemote: SyncRemote {
   func getScope() async throws -> SyncScope
+  func uploadText(_ html: Data) async throws -> String
   func cancel() async
 }
 extension HTTPRemote: AccountRecordRemote {}
 
-/// Highlights and notes, and reading sessions, each in its own stream beside
-/// the library's, with a transport bound once per sign-in and a journal. A
-/// sync pulls each family, keeps the newer edit of every record, and uploads
-/// this device's.
+/// Highlights and notes, reading sessions, and the text of Reader copies,
+/// each in its own stream beside the library's, with a transport bound once
+/// per sign-in and a journal. A sync pulls each family, keeps the newer edit
+/// of every record, and uploads this device's. It also uploads a few Reader
+/// copies whose text the account lacks, so Arctic for the web shows them.
 ///
 /// Each edit commits to its family's journal when it is made, offline too, so
 /// its upload carries the clock of the edit, as the web's do, and not the
@@ -486,7 +564,11 @@ extension HTTPRemote: AccountRecordRemote {}
   private let annotations: AnnotationStore
   private let sessions: ReadingSessions
   private let connect: (AccountRecordFamily) throws -> any AccountRecordRemote
+  private let copies: () -> [KeptCopy]
   private var streams: [AccountRecordFamily: any AccountRecordRemote] = [:]
+  /// Articles whose copy this launch found too short or the server refused.
+  private var refused: Set<String> = []
+  static let copiesPerSync = 5
   private var journals: [AccountRecordFamily: AccountRecordJournal] = [:]
   /// Each family's scope at its last sync, by namespace, so its journal
   /// opens without the network.
@@ -495,13 +577,15 @@ extension HTTPRemote: AccountRecordRemote {}
     ?? [:]
   private var scopesFile: URL { root.appending(path: "account-record-scopes.json") }
 
-  /// `account` is the signed-in account's library scope. `edited` runs after
-  /// each edit on this device, so a sync can follow.
+  /// `account` is the signed-in account's library scope, and `copies` lists
+  /// this device's Reader copies, newest saved first. `edited` runs after each
+  /// edit on this device, so a sync can follow.
   init(
     root: URL,
     account: @escaping () -> SyncScope?,
     annotations: AnnotationStore = .shared,
     sessions: ReadingSessions = .shared,
+    copies: @escaping () -> [KeptCopy],
     connect: @escaping (AccountRecordFamily) throws -> any AccountRecordRemote,
     edited: @escaping () -> Void
   ) {
@@ -509,6 +593,7 @@ extension HTTPRemote: AccountRecordRemote {}
     self.account = account
     self.annotations = annotations
     self.sessions = sessions
+    self.copies = copies
     self.connect = connect
     annotations.edited = { [weak self] in
       self?.commit(.annotations)
@@ -531,8 +616,44 @@ extension HTTPRemote: AccountRecordRemote {}
         guard sessions.isLoaded else { continue }
         let (remote, journal) = try await stream(family)
         sessions.merge(try await journal.sync(sessions.syncable, using: remote))
+      case .copies:
+        try await syncCopies()
       }
     }
+  }
+
+  /// Uploads the Reader copies whose text the account lacks, newest first and
+  /// a few each sync. A copy that the account has stays as it is.
+  private func syncCopies() async throws {
+    let (remote, journal) = try await stream(.copies)
+    try await journal.sync(using: remote)
+    let held = await journal.keys()
+    var sent = 0
+    for copy in copies() where sent < Self.copiesPerSync {
+      guard let url = try? ArticleSyncCodec.canonicalURL(copy.url),
+        let article = try? ArticleSyncCodec.identity(url),
+        !held.contains(article), !refused.contains(article)
+      else { continue }
+      let file = copy.file
+      guard let text = await Task.detached(operation: { ArticleText(file: file) }).value else {
+        refused.insert(article)
+        continue
+      }
+      let id: String
+      do {
+        id = try await remote.uploadText(text.html)
+      } catch SyncFailure.httpStatus(let status) where (400..<500).contains(status) {
+        refused.insert(article)
+        continue
+      }
+      try await journal.commit(
+        copy: ArticleCopyRecord(
+          url: url.absoluteString, file: id, bytes: text.html.count, words: text.words,
+          savedAt: Int64(Date().timeIntervalSince1970 * 1000)),
+        of: article)
+      sent += 1
+    }
+    if sent > 0 { try await journal.sync(using: remote) }
   }
 
   /// Stops each transport, as the session it holds ends or changes.
@@ -555,6 +676,8 @@ extension HTTPRemote: AccountRecordRemote {}
       guard sessions.isLoaded else { return }
       let records = sessions.syncable
       Task { try? await journal.commit(records) }
+    case .copies:
+      return
     }
   }
 
