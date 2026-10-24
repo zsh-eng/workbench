@@ -1,0 +1,38 @@
+---
+title: "Editing a working file, bug 2"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef plainPath fill:#f4f6f7,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  classDef group1 fill:#fdf1d8,stroke:#7f796c,color:#1b2631
+  classDef group1Path fill:#fdf1d8,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  classDef group2 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  classDef group2Fixed fill:#d6eaf8,stroke:#1e8449,stroke-width:4px,color:#145a32
+  state "Legend" as legend {
+    state "Unsaved text kept" as legendGroup1
+    state "Unsaved text lost" as legendGroup2
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup1 group1
+  class legendGroup2 group2
+  class legendFixed plainFixed
+  state "Editing, saved" as s0
+  state "Editing, unsaved" as s1
+  state "File not open" as s2
+  state "Workspace closed (your<br/>unsaved text is gone)" as s3
+  state "Workspace closed, the<br/>draft waits in memory" as s4
+  [*] --> s2
+  s2 --> s0 : 1. You open the file
+  s0 --> s1 : 2. You type
+  s1 --> s3 : 3. You close the workspace
+  s1 --> s4 : with the fix, You close the<br/>workspace
+  class s0 plainPath
+  class s1 group1Path
+  class s2 plainPath
+  class s3 group2Fixed
+  class s4 plainFixed

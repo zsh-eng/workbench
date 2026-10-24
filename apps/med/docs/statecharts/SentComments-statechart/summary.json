@@ -1,0 +1,73 @@
+{
+  "view": "customer",
+  "second": {
+    "role": "fix",
+    "label": "the fix",
+    "lacks": []
+  },
+  "modelStates": 150,
+  "modelTransitions": 203,
+  "chartStates": 14,
+  "chartTransitions": 19,
+  "chartStatus": {
+    "works": 10,
+    "wrong": 0,
+    "fixed": 4,
+    "mixed": 0,
+    "after": 0,
+    "worse": 0
+  },
+  "mixedStatus": [],
+  "chartGroups": [
+    {
+      "name": "Not sent",
+      "color": "#e8eef7",
+      "states": 4
+    },
+    {
+      "name": "Sent",
+      "color": "#dff3e4",
+      "states": 8
+    },
+    {
+      "name": "Waits to be sent again",
+      "color": "#d6eaf8",
+      "states": 2
+    }
+  ],
+  "mixedGroups": [],
+  "classes": [
+    {
+      "n": 1,
+      "end": "Comment edited, sent (the agent's message has the first comment)",
+      "invariant": "SentIsNewest",
+      "rule": "A comment leaves your drafts only when the agent's message has its newest text.",
+      "cause": "the edit landed after the host read the comment and before it stamped the message",
+      "readerSteps": 3,
+      "modelSteps": 6,
+      "counterexamples": 9,
+      "lastSteps": ["The host stores the message with the time", "You edit the comment"],
+      "startsHere": false,
+      "fix": "Comment edited, back in your drafts (the agent's message has the first comment)"
+    },
+    {
+      "n": 2,
+      "end": "Comment edited, sent (the agent's message has the edited comment, the thread shows the first comment)",
+      "invariant": "ThreadShowsSent",
+      "rule": "The thread shows each sent comment as the agent's message has it.",
+      "cause": "the edit landed between the host's two reads of the comment",
+      "readerSteps": 3,
+      "modelSteps": 6,
+      "counterexamples": 6,
+      "lastSteps": ["The host stores the message with the time"],
+      "startsHere": false,
+      "fix": "Comment edited, back in your drafts (the agent's message has the first comment)"
+    }
+  ],
+  "codeLike": [],
+  "uncited": {
+    "SentComments.tla": [],
+    "fix/SentComments.tla": []
+  },
+  "brokenProperties": []
+}
