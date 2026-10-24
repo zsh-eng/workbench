@@ -635,7 +635,11 @@ Eligible worktree and local files open in CodeMirror in Vim Normal mode.
 Commit snapshots, dropped files, and files above the edit limit use Pierre.
 Opening a file never writes it. Drafts and undo history live in a bounded
 store for each `App`, in memory only; a reload loses them, and closing a dirty
-editor needs an explicit discard. A disposable worker gives syntax
+editor needs an explicit discard. When a workspace closes or leaves memory,
+its unsaved drafts move to a store for the window, and the next editor that
+opens the file takes its draft back. The editor says when the file on disk
+differs from the text that its draft started from: a watch event found it,
+or the file read again differs. After a save, Med reads the file again. A disposable worker gives syntax
 decorations; a generation number stops an older result from coloring newer
 text.
 

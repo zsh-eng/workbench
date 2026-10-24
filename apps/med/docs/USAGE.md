@@ -551,15 +551,17 @@ that showed before.
   `a` stages every file shown, or unstages them all when all are staged.
 - **Commit.** `c` or **Commit…** opens the message: a summary, and `Enter`
   goes on to the description. `⌘↵` commits the staged files. With nothing
-  staged, the commit takes every change, unless a file has a conflict. `Esc`
+  staged, the commit takes every file that the dialog counts, unless a file
+  has a conflict. `Esc`
   keeps the message as a draft. Hooks run; if a hook stops the commit, its
   output shows under the message.
 - **Push.** `⇧P` pushes to the upstream. For a branch without one, Med asks,
   then pushes to the push remote (usually `origin`) and tracks it. Med never
   force-pushes.
 
-If the staged files change outside Med, the commit stops and the tab reads
-them again. For hunks, amends, rebases, and branch switches, use **Copy lazygit
+If the staged files change outside Med, or a stage fails, the commit stops
+and the tab reads them again. A commit holds the files that its dialog
+counted, or nothing. For hunks, amends, rebases, and branch switches, use **Copy lazygit
 command** on the workspace.
 
 ## Attempts
@@ -607,11 +609,14 @@ stage or commit; use the [Commit tab](#commit-and-push). Blame hides while a
 draft is unsaved.
 
 Drafts and their undo history stay in memory across tab switches and closes;
-open the file again to resume. Med keeps up to 24 drafts. A reload warns about
-unsaved work but loses drafts.
+open the file again to resume. An unsaved draft also stays when you close its
+workspace, or when Med unloads a workspace that you have not shown for a
+while; it comes back when you open the file again. Med keeps up to 24 drafts
+in each workspace. A reload warns about unsaved work but loses drafts.
 
-If another process changed the file, saving reports a conflict and keeps your
-draft; there is no force save. Med edits existing UTF-8 text files up to 1 MiB.
+If another process changes the file, the editor says so. A saved draft offers
+**Refresh contents**. An unsaved draft stays, and saving reports a conflict;
+there is no force save. Med edits existing UTF-8 text files up to 1 MiB.
 It cannot save symlinks, hard links, or paths through nested repositories. It
 keeps uniform CRLF line endings and executable bits. Commit and saved-review
 files are read-only.
