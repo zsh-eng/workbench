@@ -2,7 +2,8 @@
 (***************************************************************************)
 (* One working file that you edit in a workspace: its draft in the        *)
 (* editor, the host's checked save, the workspace that keeps the draft,   *)
-(* and another program, such as an agent, that writes the same file.      *)
+(* the page that can reload, and another program, such as an agent, that  *)
+(* writes the same file.                                                   *)
 (*                                                                         *)
 (* Each action is one step that the code takes without waiting. Each      *)
 (* guard cites the line that checks it. Paths start at apps/med/src, at   *)
@@ -31,9 +32,12 @@ VARIABLES
   stale,       \* web/data/file-workspace.ts:530: Med saw that the file changed
   owed,        \* history: your newest unsaved text, until it reaches the disk or you discard it
   clobbered,   \* history: a save replaced a change that another program made
-  otherWrote   \* model bound: the other program writes once
+  unasked,     \* history: a close of a workspace with an unsaved draft did not ask
+  otherWrote,  \* model bound: the other program writes once
+  reloaded     \* model bound: you reload the page once
 
-vars == <<disk, event, ws, draft, held, save, stale, owed, clobbered, otherWrote>>
+vars == <<disk, event, ws, draft, held, save, stale, owed, clobbered, unasked, otherWrote,
+          reloaded>>
 
 \* The editor says that the file changed on disk only in a refused save's
 \* error (web/components/FileEditor.tsx:806-810). Its other messages
@@ -53,7 +57,9 @@ Init ==
   /\ stale = FALSE
   /\ owed = None
   /\ clobbered = FALSE
+  /\ unasked = FALSE
   /\ otherWrote = FALSE
+  /\ reloaded = FALSE
 
 (***************************** The reader *********************************)
 
@@ -64,7 +70,7 @@ OpenFile ==
   /\ held' = "store"
   /\ save' = [save EXCEPT !.mine = FALSE]   \* an answer on its way goes to the draft that sent it
   /\ stale' = FALSE                         \* web/data/file-workspace.ts:268
-  /\ UNCHANGED <<disk, event, ws, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, owed, clobbered, unasked, otherWrote, reloaded>>
 
 Type ==
   /\ ws = "shown"                           \* web/components/Workspaces.tsx:2150
@@ -74,7 +80,7 @@ Type ==
                       !.dirty = (text # draft.base)]   \* web/components/FileEditor.tsx:496
        \* Text that the file on disk has already is not owed.
        /\ owed' = IF text # draft.base /\ text # disk THEN text ELSE None
-  /\ UNCHANGED <<disk, event, ws, held, save, stale, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, held, save, stale, clobbered, unasked, otherWrote, reloaded>>
 
 \* u back to the text that Med last read or saved.
 Undo ==
@@ -83,7 +89,7 @@ Undo ==
   /\ draft.doc # draft.base                 \* web/components/FileEditor.tsx:496
   /\ draft' = [draft EXCEPT !.doc = draft.base, !.dirty = FALSE]
   /\ owed' = None
-  /\ UNCHANGED <<disk, event, ws, held, save, stale, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, held, save, stale, clobbered, unasked, otherWrote, reloaded>>
 
 \* :w, Cmd+S or Save.
 Save ==
@@ -95,7 +101,7 @@ Save ==
   /\ draft' = [draft EXCEPT !.saving = TRUE, !.refused = FALSE]   \* FileEditor.tsx:372
   /\ save' = [at |-> "sent", text |-> draft.doc,
               expected |-> draft.base, mine |-> TRUE]            \* FileEditor.tsx:375
-  /\ UNCHANGED <<disk, event, ws, held, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, held, stale, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* Close file, then Discard draft.
 Discard ==
@@ -106,7 +112,7 @@ Discard ==
   /\ draft' = NoDraft                       \* web/components/FileEditor.tsx:826-830
   /\ held' = "none"
   /\ owed' = None
-  /\ UNCHANGED <<disk, event, ws, save, stale, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, save, stale, clobbered, unasked, otherWrote, reloaded>>
 
 \* Refresh file reads the file again; a new read replaces a clean draft.
 Refresh ==
@@ -117,18 +123,18 @@ Refresh ==
   /\ disk # draft.base                      \* web/components/FullFileView.tsx:991
   /\ draft' = Fresh(disk)                   \* web/components/FullFileView.tsx:993
   /\ stale' = FALSE                         \* web/data/file-workspace.ts:538, 268
-  /\ UNCHANGED <<disk, event, ws, held, save, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, held, save, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* Show another workspace: this one stays mounted, hidden.
 Hide ==
   /\ ws = "shown"
   /\ ws' = "hidden"                         \* web/components/Workspaces.tsx:2150
-  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, unasked, otherWrote, reloaded>>
 
 Show ==
   /\ ws = "hidden"
   /\ ws' = "shown"
-  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* x on the thread's row, Cmd+Opt+W, or Close workspace. The drafts live in
 \* the App (web/App.tsx:520), which unmounts with its workspace. Close checks
@@ -137,13 +143,28 @@ CloseWorkspace ==
   /\ ws # "closed"
   /\ ws' = "closed"
   /\ held' = "none"
-  /\ UNCHANGED <<disk, event, draft, save, stale, owed, clobbered, otherWrote>>
+  /\ unasked' = (unasked \/ (held = "store" /\ (draft.dirty \/ draft.saving)))
+  /\ UNCHANGED <<disk, event, draft, save, stale, owed, clobbered, otherWrote, reloaded>>
 
 \* Open the thread or branch again: a new App, with an empty draft store.
 Reopen ==
   /\ ws = "closed"
   /\ ws' = "shown"
-  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, draft, held, save, stale, owed, clobbered, unasked, otherWrote, reloaded>>
+
+\* Reload the page. Med warns about an unsaved draft (web/App.tsx:530-538);
+\* you leave, and the drafts in memory go. A save on its way finishes on
+\* the host, but no page takes its answer.
+Reload ==
+  /\ ~reloaded
+  /\ reloaded' = TRUE
+  /\ ws' = IF ws = "closed" THEN "closed" ELSE "shown"
+  /\ held' = "none"                         \* web/data/editor-drafts.ts:20: the drafts are in memory only
+  /\ draft' = NoDraft
+  /\ save' = [save EXCEPT !.mine = FALSE]
+  /\ event' = FALSE
+  /\ stale' = FALSE
+  /\ UNCHANGED <<disk, owed, clobbered, unasked, otherWrote>>
 
 (****************************** The world *********************************)
 
@@ -153,7 +174,7 @@ OtherWrite ==
   /\ disk' = "O"
   /\ event' = TRUE
   /\ otherWrote' = TRUE
-  /\ UNCHANGED <<ws, draft, held, save, stale, owed, clobbered>>
+  /\ UNCHANGED <<ws, draft, held, save, stale, owed, clobbered, unasked, reloaded>>
 
 (******************************* The app **********************************)
 
@@ -164,7 +185,17 @@ UnloadWorkspace ==
   /\ ws = "hidden"
   /\ ws' = "closed"
   /\ held' = "none"
-  /\ UNCHANGED <<disk, event, draft, save, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, draft, save, stale, owed, clobbered, unasked, otherWrote, reloaded>>
+
+\* Med closes a tab whose work has landed once it has been off screen for a
+\* while (web/components/Workspaces.tsx:1401-1422). It checks for drafts no
+\* more than a close that you choose.
+AutoClose ==
+  /\ ws = "hidden"                          \* web/components/Workspaces.tsx:1417: not on screen
+  /\ ws' = "closed"
+  /\ held' = "none"
+  /\ unasked' = (unasked \/ (held = "store" /\ (draft.dirty \/ draft.saving)))
+  /\ UNCHANGED <<disk, event, draft, save, stale, owed, clobbered, otherWrote, reloaded>>
 
 \* Med compares the file on disk with the open file after a watch event.
 Notice ==
@@ -174,19 +205,19 @@ Notice ==
   /\ IF held = "store"                      \* web/data/file-workspace.ts:519: an open working file
        THEN stale' = (disk # draft.base)    \* web/data/file-workspace.ts:530
        ELSE UNCHANGED stale
-  /\ UNCHANGED <<disk, ws, draft, held, save, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, ws, draft, held, save, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* The host's save (host/repository/browse.ts:396-479).
 HostCheck ==
   /\ save.at = "sent"
   /\ save' = [save EXCEPT !.at = IF disk = save.expected THEN "checked" ELSE "refused"]  \* browse.ts:435
-  /\ UNCHANGED <<disk, event, ws, draft, held, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, draft, held, stale, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* After it writes and flushes the temporary file.
 HostRecheck ==
   /\ save.at = "checked"
   /\ save' = [save EXCEPT !.at = IF disk = save.expected THEN "rechecked" ELSE "refused"]  \* browse.ts:452-460
-  /\ UNCHANGED <<disk, event, ws, draft, held, stale, owed, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, draft, held, stale, owed, clobbered, unasked, otherWrote, reloaded>>
 
 \* parentSafe and the access check wait (browse.ts:461-462), then rename
 \* replaces the file.
@@ -197,7 +228,7 @@ HostRename ==
   /\ clobbered' = (clobbered \/ disk # save.expected)
   /\ owed' = IF owed = save.text THEN None ELSE owed
   /\ save' = [save EXCEPT !.at = "ok"]
-  /\ UNCHANGED <<ws, draft, held, stale, otherWrote>>
+  /\ UNCHANGED <<ws, draft, held, stale, unasked, otherWrote, reloaded>>
 
 \* The editor takes the host's answer (web/components/FileEditor.tsx:374-386).
 \* A draft that no store keeps still takes it, but nothing shows it.
@@ -215,16 +246,16 @@ Answer ==
                                   !.refused = TRUE]               \* FileEditor.tsx:381-385
                    /\ UNCHANGED <<owed, stale>>
        ELSE UNCHANGED <<draft, owed, stale>>
-  /\ UNCHANGED <<disk, event, ws, held, clobbered, otherWrote>>
+  /\ UNCHANGED <<disk, event, ws, held, clobbered, unasked, otherWrote, reloaded>>
 
 Reader ==
   \/ OpenFile \/ Type \/ Undo \/ Save \/ Discard \/ Refresh
-  \/ Hide \/ Show \/ CloseWorkspace \/ Reopen
+  \/ Hide \/ Show \/ CloseWorkspace \/ Reopen \/ Reload
 
 World == OtherWrite
 
 System ==
-  \/ UnloadWorkspace \/ Notice
+  \/ UnloadWorkspace \/ AutoClose \/ Notice
   \/ HostCheck \/ HostRecheck \/ HostRename \/ Answer
 
 Next == Reader \/ World \/ System
@@ -256,5 +287,9 @@ DotTellsTruth ==
 \* Once Med has caught up, the editor tells you when the file on disk is not
 \* the text that it opened or saved.
 ChangeShown == (Settled /\ ws = "shown" /\ held = "store" /\ disk # draft.base) => Banner
+
+\* Closing a workspace with an unsaved draft asks you first. Med does not
+\* close one on its own.
+CloseAsks == ~unasked
 
 =============================================================================

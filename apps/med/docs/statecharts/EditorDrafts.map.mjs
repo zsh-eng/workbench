@@ -12,7 +12,12 @@ export const readerActions = [
   "Hide",
   "Show",
   "CloseWorkspace",
+  "ConfirmClose",
+  "CancelClose",
   "Reopen",
+  "Reload",
+  "KeepMine",
+  "UseDisk",
   "OtherWrite",
 ];
 
@@ -56,7 +61,9 @@ export function state(v) {
       );
   }
   if (v.ws === "hidden") notes.push("workspace hidden");
+  if (v.asking) notes.push("Med asks before it closes the workspace");
   if (lost(v)) notes.push("your unsaved text is gone");
+  if (v.unasked) notes.push("a workspace closed without asking");
   if (v.clobbered) notes.push("another program's change was replaced");
   return notes.length ? `${label} (${notes.join(", ")})` : label;
 }
@@ -74,7 +81,14 @@ export const groupColors = {
 
 const STEPS = {
   Answer: "The editor takes the host's answer",
+  AutoClose: "Med closes the tab, as its work has landed",
   CloseWorkspace: "You close the workspace",
+  ConfirmClose: "You choose Close",
+  CancelClose: "You choose Cancel",
+  Reload: "You reload the page",
+  KeepMine: "You choose Keep my version",
+  UseDisk: "You choose Use the file on disk",
+  ReadDisk: "Med reads the file to show the change",
   Discard: "You discard the draft",
   Hide: "You show another workspace",
   HostCheck: "The host checks the file",
@@ -99,7 +113,11 @@ export function step(action) {
 // Why a bad state is bad.
 export function cause(v, facts, invariant) {
   if (invariant === "UnsavedTextKept")
-    return "the draft that held your text closed with its workspace";
+    return v.reloaded
+      ? "the page reloaded, and your text was in memory only"
+      : "the draft that held your text closed with its workspace";
+  if (invariant === "CloseAsks")
+    return "the workspace closed with an unsaved draft, and nothing asked first";
   if (invariant === "SaveKeepsOtherChanges")
     return "another program wrote the file after the host's last check, before the rename";
   if (invariant === "ChangeShown")
