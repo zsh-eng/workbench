@@ -279,7 +279,8 @@ export type PaginationEvent =
 /**
  * The worker outlives Reader routes, so each command carries the generation of
  * the active book session. A cancel releases the current engine state without
- * terminating the worker or unloading its built-in fonts.
+ * terminating the worker or unloading its built-in fonts. Loading fonts
+ * belongs to no session: it readies the reading font before a book opens.
  */
 export type PaginationWorkerMessage =
   | {
@@ -290,6 +291,11 @@ export type PaginationWorkerMessage =
   | {
       type: "cancel";
       sessionGeneration: number;
+    }
+  | {
+      type: "loadFonts";
+      /** CSS font-family lists, such as the reading font's. */
+      fontFamilies: string[];
     };
 
 /**

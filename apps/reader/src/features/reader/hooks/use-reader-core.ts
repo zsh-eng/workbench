@@ -13,7 +13,8 @@ import {
   type SpreadIntent,
 } from "@/lib/pagination-v2";
 import type { Highlight } from "@/types/highlight";
-import type { FontFamily, ReaderSettings } from "@/types/reader.types";
+import { getReadingFont } from "@/lib/reading-fonts";
+import type { ReaderSettings } from "@/types/reader.types";
 import {
   useCallback,
   useEffect,
@@ -74,25 +75,6 @@ interface UseReaderCoreResult {
   resumeBackgroundLoad: () => void;
 }
 
-function getNamedBodyFont(fontFamily: FontFamily): string {
-  switch (fontFamily) {
-    case "sans-serif":
-    case "inter":
-      return `"Inter", "Helvetica Neue", Arial, sans-serif`;
-    case "monospace":
-      return `"Courier New", Menlo, Monaco, monospace`;
-    case "lora":
-      return `"Lora", Georgia, serif`;
-    case "iowan":
-      return `"Iowan Old Style", "Palatino Linotype", serif`;
-    case "garamond":
-      return `"EB Garamond", Garamond, serif`;
-    case "serif":
-    default:
-      return `"EB Garamond", Georgia, serif`;
-  }
-}
-
 export function buildPaginationConfig(
   settings: Pick<
     ReaderSettings,
@@ -105,10 +87,11 @@ export function buildPaginationConfig(
   paragraphSpacingFactor: number,
   viewport: { width: number; height: number },
 ): PaginationConfig {
+  const readingFont = getReadingFont(settings.fontFamily).stack;
   return {
     fontConfig: {
-      bodyFamily: getNamedBodyFont(settings.fontFamily),
-      headingFamily: getNamedBodyFont(settings.fontFamily),
+      bodyFamily: readingFont,
+      headingFamily: readingFont,
       codeFamily: `"Courier New", Menlo, Monaco, monospace`,
       baseSizePx: settings.fontSize,
     },

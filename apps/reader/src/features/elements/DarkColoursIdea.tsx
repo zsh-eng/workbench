@@ -1,5 +1,5 @@
 import type { AnnotationColor } from "@/lib/highlight-constants";
-import { FONT_STACKS } from "@/types/reader.types";
+import { getReadingFont } from "@/lib/reading-fonts";
 import { ArrowLeft } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -89,7 +89,7 @@ function Passage() {
   return (
     <div
       className="space-y-4 text-[16px] leading-6"
-      style={{ fontFamily: FONT_STACKS.lora }}
+      style={{ fontFamily: getReadingFont("lora").stack }}
     >
       <p>
         The lamps along the canal came on one by one,{" "}

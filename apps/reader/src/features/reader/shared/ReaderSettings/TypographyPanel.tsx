@@ -6,9 +6,9 @@ import {
 } from "@/components/ui/segmented-controls";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { READING_FONTS } from "@/lib/reading-fonts";
 import type {
   ContentWidth,
-  FontFamily,
   ReaderSettings,
   TextAlign,
 } from "@/types/reader.types";
@@ -28,7 +28,7 @@ import {
   MoveVertical,
   Plus,
 } from "lucide-react";
-import { useEffect, useId, useRef } from "react";
+import { useId } from "react";
 
 interface TypographyPanelProps {
   settings: ReaderSettings;
@@ -51,27 +51,6 @@ export function TypographyPanel({
   const segmentedGroupClassName = "w-full rounded-full bg-secondary/40 p-1";
   const segmentedItemClassName =
     "h-9 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[state=on]:text-foreground";
-  const fonts: { value: FontFamily; label: string; stack: string }[] = [
-    { value: "lora", label: "Lora", stack: '"Lora", serif' },
-    {
-      value: "iowan",
-      label: "Iowan",
-      stack: '"Iowan Old Style", "Sitka Text", Palatino, "Book Antiqua", serif',
-    },
-    {
-      value: "garamond",
-      label: "Garamond",
-      stack: '"EB Garamond", "Garamond", serif',
-    },
-    { value: "inter", label: "Inter", stack: '"Inter", sans-serif' },
-    {
-      value: "monospace",
-      label: "Mono",
-      stack:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-    },
-  ];
-
   const lineHeights = [1.2, 1.5, 1.8, 2.0];
   const contentWidths: { value: ContentWidth; label: string }[] = [
     { value: "compact", label: "Compact" },
@@ -80,25 +59,10 @@ export function TypographyPanel({
     { value: "wide", label: "Wide" },
     { value: "full", label: "Full" },
   ];
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const publisherStylingSwitchId = useId();
   const publisherBodySizeSwitchId = useId();
   const pageAnimationsSwitchId = useId();
   const pageNumbersSwitchId = useId();
-
-  useEffect(() => {
-    if (scrollContainerRef.current) {
-      const selectedElement =
-        scrollContainerRef.current.querySelector('[data-state="on"]');
-      if (selectedElement) {
-        selectedElement.scrollIntoView({
-          behavior: "instant",
-          block: "nearest",
-          inline: "center",
-        });
-      }
-    }
-  }, []);
 
   return (
     <div className="space-y-6 pb-2">
@@ -141,34 +105,45 @@ export function TypographyPanel({
       {section === "type" && (
         <div className="space-y-2.5">
           <h4 className={sectionLabelClassName}>Font family</h4>
-          <div
-            ref={scrollContainerRef}
-            className="-mx-4 flex gap-2 overflow-x-auto px-4 py-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-          >
-            {fonts.map((font) => {
-              const isSelected = settings.fontFamily === font.value;
+          {/* Every face shows at once: serifs and Mono, then the sans. */}
+          <div className="grid grid-cols-4 gap-1.5">
+            {READING_FONTS.map((font) => {
+              const isSelected = settings.fontFamily === font.id;
               return (
                 <button
-                  key={font.value}
+                  key={font.id}
+                  type="button"
                   aria-label={font.label}
                   aria-pressed={isSelected}
-                  data-state={isSelected ? "on" : "off"}
-                  onClick={() => onUpdateSettings({ fontFamily: font.value })}
+                  title={font.description}
+                  onClick={() => onUpdateSettings({ fontFamily: font.id })}
                   className={cn(
-                    "relative flex h-24 w-28 shrink-0 cursor-pointer flex-col justify-between rounded-[1.25rem] border px-3 py-3 text-left transition-[background-color,border-color,opacity,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-80",
+                    "relative flex h-[4.5rem] min-w-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[1rem] border px-1 transition-[background-color,border-color,opacity,transform,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-80",
                     isSelected
                       ? "border-border bg-background ring-1 ring-border/70"
                       : "border-border/40 bg-secondary/20 hover:bg-secondary/35",
                   )}
                 >
-                  {isSelected && <Check className="absolute right-3 top-3 size-4 text-foreground" aria-hidden="true" />}
+                  {isSelected && (
+                    <Check
+                      className="absolute right-2 top-2 size-3 text-foreground"
+                      aria-hidden="true"
+                    />
+                  )}
                   <span
-                    className="text-3xl leading-none text-foreground"
+                    className="text-[1.625rem] leading-none text-foreground"
                     style={{ fontFamily: font.stack }}
+                    aria-hidden="true"
                   >
                     Aa
                   </span>
-                  <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                  <span
+                    className={cn(
+                      "max-w-full truncate text-[11px] font-medium",
+                      isSelected ? "text-foreground" : "text-muted-foreground",
+                    )}
+                    aria-hidden="true"
+                  >
                     {font.label}
                   </span>
                 </button>

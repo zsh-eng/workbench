@@ -17,7 +17,8 @@ import {
 } from "@/features/reader/ReaderSettingsSheet";
 import type { ReaderSheetId } from "@/features/reader/types";
 import type { ReadingStatus } from "@/lib/db";
-import { FONT_STACKS, type ReaderSettings } from "@/types/reader.types";
+import { getReadingFont } from "@/lib/reading-fonts";
+import type { ReaderSettings } from "@/types/reader.types";
 import type { Beat } from "@workbench/elements";
 import { useFrameTime } from "@workbench/elements/frames";
 import { useEffect, useLayoutEffect, useState } from "react";
@@ -184,7 +185,7 @@ export function SheetsSpecimen({
         typography={{
           fontSize: settings.fontSize,
           lineHeight: settings.lineHeight,
-          fontFamily: FONT_STACKS[settings.fontFamily],
+          fontFamily: getReadingFont(settings.fontFamily).stack,
         }}
       />
       <ReaderHeader

@@ -6,6 +6,7 @@ import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
 import "@fontsource/dm-sans/700.css";
 
+// Inter sets interface figures (--font-numeric).
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -21,6 +22,28 @@ import "@fontsource/lora/600.css";
 import "@fontsource/lora/400-italic.css";
 
 import "@fontsource/jetbrains-mono/400.css";
+
+// Sans reading fonts: the Latin subsets in the weights the Reader sets (body,
+// italic, headings, bold). Latin follows Latin Extended so it takes the
+// characters both cover, as in Fontsource's own stylesheets. The pagination
+// worker loads the same stylesheets (pagination-v2/worker/fonts.ts).
+import "@fontsource/source-sans-3/latin-ext-400.css";
+import "@fontsource/source-sans-3/latin-400.css";
+import "@fontsource/source-sans-3/latin-ext-400-italic.css";
+import "@fontsource/source-sans-3/latin-400-italic.css";
+import "@fontsource/source-sans-3/latin-ext-600.css";
+import "@fontsource/source-sans-3/latin-600.css";
+import "@fontsource/source-sans-3/latin-ext-700.css";
+import "@fontsource/source-sans-3/latin-700.css";
+
+import "@fontsource/atkinson-hyperlegible-next/latin-ext-400.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-400.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-ext-400-italic.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-400-italic.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-ext-600.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-600.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-ext-700.css";
+import "@fontsource/atkinson-hyperlegible-next/latin-700.css";
 
 import "./index.css";
 /** Configure isolated clients before app modules create their singleton services. */

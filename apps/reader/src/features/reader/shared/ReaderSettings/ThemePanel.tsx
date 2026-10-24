@@ -1,9 +1,6 @@
 import { cn } from "@/lib/utils";
-import {
-  FONT_STACKS,
-  type ReaderSettings,
-  type ReaderTheme,
-} from "@/types/reader.types";
+import { getReadingFont } from "@/lib/reading-fonts";
+import type { ReaderSettings, ReaderTheme } from "@/types/reader.types";
 import { Check } from "lucide-react";
 
 interface ThemePanelProps {
@@ -48,7 +45,7 @@ const themes: ThemeConfig[] = [
 ];
 
 export function ThemePanel({ settings, onUpdateSettings }: ThemePanelProps) {
-  const previewFontFamily = FONT_STACKS[settings.fontFamily];
+  const previewFontFamily = getReadingFont(settings.fontFamily).stack;
 
   return (
     <div className="space-y-4">

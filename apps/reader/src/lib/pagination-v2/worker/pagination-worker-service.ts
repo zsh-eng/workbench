@@ -43,7 +43,7 @@ function createPaginationWorker(): PaginationWorkerTransport {
  * Owns one pagination worker for the application lifetime. Reader sessions are
  * generation-scoped, so a late response from a previous book cannot update the
  * active Reader. Releasing a session clears its worker engine but preserves the
- * worker process and its loaded built-in fonts.
+ * worker process and the built-in fonts it has loaded.
  */
 export class PaginationWorkerService {
   private worker: PaginationWorkerTransport | null = null;
@@ -60,8 +60,11 @@ export class PaginationWorkerService {
     this.createWorker = createWorker;
   }
 
-  warm(): void {
-    this.ensureWorker();
+  /** Starts the worker and loads the fonts in these font-family lists. */
+  warm(fontFamilies: readonly string[] = []): void {
+    const worker = this.ensureWorker();
+    if (fontFamilies.length === 0) return;
+    worker.postMessage({ type: "loadFonts", fontFamilies: [...fontFamilies] });
   }
 
   acquireSession(
@@ -181,8 +184,8 @@ export class PaginationWorkerService {
 
 const paginationWorkerService = new PaginationWorkerService();
 
-export function warmPaginationWorker(): void {
-  paginationWorkerService.warm();
+export function warmPaginationWorker(fontFamilies?: readonly string[]): void {
+  paginationWorkerService.warm(fontFamilies);
 }
 
 export function acquirePaginationWorkerSession(

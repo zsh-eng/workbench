@@ -32,6 +32,12 @@ This job scheduling bears a passing similarity to React Fiber: split expensive w
 
 Epochs keep events from old layout work from overwriting newer results on the main thread. Coalescing prevents repeated config changes or repeated navigation commands from forcing the worker to finish work that no longer matters.
 
+## Reading fonts
+
+`src/lib/reading-fonts.ts` lists the fonts in Appearance → Type. Each has one CSS font-family list that the worker measures and the page renders, so the two lay text out alike. Name every family and end with a generic family. Pretext cannot measure `system-ui` reliably in Chrome or Firefox, so System is San Francisco only in Apple's WebKit, where widths match exactly, and Source Sans elsewhere.
+
+A bundled family (`@fontsource`) is imported twice with the same subsets and weights: in `main.tsx` for the page and in `pagination-v2/worker/fonts.ts` for the worker. The worker loads only the families the reading font names: the Library warms it with the saved font, and each `init` or `updatePaginationConfig` waits for its font before layout. Workbox precaches the font files, so every font works offline.
+
 ## Scroll mode prototype (Debug)
 
 With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).

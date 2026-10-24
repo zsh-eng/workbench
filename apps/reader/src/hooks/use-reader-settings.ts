@@ -1,4 +1,5 @@
 import { getRuntimeStorage } from "@/features/sync-lab/runtime";
+import { toReadingFontId } from "@/lib/reading-fonts";
 import {
   READER_FONT_SIZE_DEFAULT_PX,
   READER_FONT_SIZE_MAX_PX,
@@ -69,6 +70,10 @@ function normalizeReaderSettings(settings: ReaderSettings): ReaderSettings {
   return {
     ...settings,
     fontSize: normalizeFontSize(settings.fontSize),
+    fontFamily: toReadingFontId(
+      settings.fontFamily,
+      DEFAULT_SETTINGS.fontFamily,
+    ),
   };
 }
 

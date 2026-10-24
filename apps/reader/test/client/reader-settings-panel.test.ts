@@ -46,10 +46,10 @@ it("exposes names and current choices through the composed mobile controls", () 
     screen.getByRole("button", { name: "Lora", pressed: true }),
   ).toBeTruthy();
   fireEvent.click(
-    screen.getByRole("button", { name: "Inter", pressed: false }),
+    screen.getByRole("button", { name: "System", pressed: false }),
   );
   expect(
-    screen.getByRole("button", { name: "Inter", pressed: true }),
+    screen.getByRole("button", { name: "System", pressed: true }),
   ).toBeTruthy();
   expect(
     screen.getByRole("button", { name: "Lora", pressed: false }),
