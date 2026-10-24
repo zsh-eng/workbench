@@ -29,6 +29,8 @@ This writes only to the local API. Checks:
 - `bun run test:arctic-browser` runs the Playwright tests in `tests/` against
   the real app and a local API with a fresh database. A test acts as the phone
   through the API and checks the records that the phone receives.
+  `E2E_PORT`, `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move the app, the API and
+  its inspector, so two worktrees can run the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
   `scripts/copies.ts` uses.
 
@@ -202,8 +204,24 @@ momentum and rests on detents. Text and theme rests at half height without
 dimming, so each change shows on the page; Notes rests at 55% of the screen.
 A single field gets no sheet: it would cover the list to hold one line above
 the keyboard. Wider windows use Base UI popovers and menus with the same
-content (`src/surface.tsx` chooses). The sheet code (71 kB, 23 kB gzip) is a
-separate chunk that a phone loads just after the first cards.
+content (`src/surface.tsx` chooses).
+
+React Aria brings a sheet in by scrolling one screen height, however tall the
+sheet is, so a half-height sheet spent the first part of that scroll below the
+screen. Arctic starts the scroll with the sheet's top at the bottom edge, so it
+moves from the first frame. On a production build in a phone-sized window with
+a 4× CPU slowdown, a sheet now shows 53–67 ms after the tap (82–211 ms before),
+and More comes to rest in 293 ms (503 ms). The sheet code (72 kB, 23 kB gzip)
+is a separate chunk that a phone loads just after the first page appears; the
+service worker keeps it, so a sheet opens offline. When the code cannot load,
+a toast says so, and the next tap tries again.
+
+**Toasts** say what just happened, centred above the bottom bar and the home
+indicator. A change that can be taken back offers Undo for eight seconds, with
+a ring and a number that count down: Workbench's toast
+(`@workbench/elements/toast`), which Reader shows too. Pointing at the toast,
+focus in it, or a hidden tab holds the count. Screen readers hear each toast
+from a status region, and Undo is a button in it.
 
 **Motion** is short and shows where things go. Opening an article moves its
 cover and title into the page (a view transition), and Back reverses it into
@@ -226,10 +244,11 @@ System, Light or Dark; a theme is a pair of palettes: Arctic (neutral), Flexoki
 settings are the font (system sans, `ui-serif`, or Iowan Old Style), size,
 line spacing, width and alignment.
 
-Shortcuts: `/` searches and `⌘V` saves a copied link. In the reader, `F`
-favourites, `E` archives and returns, `O` opens the original, `H` highlights
-the selection, `-` and `=` change the text size (also in the Aa panel), and
-`Escape` returns. While a sheet, menu or popover is open, the keys are its.
+Shortcuts: `/` searches, `⌘V` saves a copied link, and `⌘Z` takes back a
+change while its toast offers Undo. In the reader, `F` favourites, `E` archives
+and returns, `O` opens the original, `H` highlights the selection, `-` and `=`
+change the text size (also in the Aa panel), and `Escape` returns. While a
+sheet, menu or popover is open, the keys are its.
 
 A library of 600 or more articles stays quick:
 
@@ -261,7 +280,7 @@ prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
 before). The first cards of any folder paint 14–36 ms after the click, and
 Back from the reader takes 56 ms.
 
-The first load is 662 kB of JavaScript (213 kB gzip): React, React Router,
+The first load is 672 kB of JavaScript (215 kB gzip): React, React Router,
 Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
-the app. The sheet (71 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
+the app. The sheet (72 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
 to extract a page) load separately.
