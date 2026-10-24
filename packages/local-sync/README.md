@@ -11,9 +11,27 @@ client receives its own storage adapter, transport, and durable state store.
 | `@zsh-eng/local-sync`       | Protocol, clock, state store, sync engine        | None                          |
 | `@zsh-eng/local-sync/dexie` | Local mutation capture and atomic reconciliation | `dexie`                       |
 | `@zsh-eng/local-sync/hono`  | Authenticated routes and compacted D1 storage    | `hono`, `@hono/zod-validator` |
+| `@zsh-eng/local-sync/react` | `useSyncStatus` and `useSyncSummary` hooks       | `react`                       |
 
 The package depends on Zod. Adapter peers are optional for consumers that use
 only the core. The package ships ESM JavaScript and TypeScript declarations.
+
+## Sync status
+
+`createSyncController` decides when sync runs and keeps a status store
+(`subscribe`, `getSnapshot`) with three separate axes: the connection
+(`online`, `offline`, `unreachable`), the account (`unknown`, `signed-in`,
+`signed-out`, `expired`) and sync activity (running, pending, last sync,
+failure, retry time). Only a server answer changes the account, so a device
+that is offline or cannot reach the server keeps its remembered user.
+`describeSyncStatus` turns the status into a label, a detail, and an action
+(sign in, retry or reload). The app supplies one sync attempt (`run`), passes
+its session check's answers to `confirmSignedIn` or `confirmSignedOut`, and
+reports its outbox count with `setPending`.
+
+[docs/SYNC_STATES.md](docs/SYNC_STATES.md) has the design, when the client
+cannot tell offline from signed out, and the TLA+ model and chart that check
+the rules.
 
 ## Dexie integration
 

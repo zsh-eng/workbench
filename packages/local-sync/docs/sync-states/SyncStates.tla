@@ -1,0 +1,441 @@
+----------------------------- MODULE SyncStates -----------------------------
+(***************************************************************************)
+(* How a local-first app tells "offline" from "signed out", and what it    *)
+(* shows. The model follows createSyncController in                        *)
+(* packages/local-sync/src/controller.ts, describeSyncStatus in status.ts, *)
+(* and the apps' session checks (apps/reader/src/hooks/use-auth.ts and     *)
+(* apps/arctic/Browser/src/App.tsx). Each action is one synchronous step   *)
+(* of that code. Conditions on the world (the network, the server, the     *)
+(* cookie) are what the code sees when a request settles. See             *)
+(* ../SYNC_STATES.md for the chart and what the model leaves out.          *)
+(***************************************************************************)
+EXTENDS Naturals
+
+CONSTANT MaxEdits
+
+VARIABLES
+  \* The world.
+  device,     \* navigator.onLine: "online" | "offline"
+  reach,      \* requests get an HTTP answer: "yes" | "no" (spotty wifi, a server that is down)
+  account,    \* this browser's cookie, as the server sees it:
+              \*   "none"  nobody is signed in
+              \*   "live"  a valid session that this device has heard about
+              \*   "new"   a valid session that this device has not heard about yet
+              \*           (just back from the sign-in redirect, or signed in in another tab)
+              \*   "ended" the session ended on the server (expired or revoked)
+  \* The controller (controller.ts).
+  auth,       \* status.auth.status: "unknown" | "signed-in" | "signed-out" | "expired"
+  connection, \* status.connection: "online" | "offline" | "unreachable"
+  running,    \* status.running: an attempt is in flight (`active`)
+  stale,      \* authEpoch changed since the attempt in flight began
+  answered,   \* confirmations changed since the attempt in flight began
+  sentWith,   \* the cookie that the attempt in flight carries: "valid" | "none"
+  failure,    \* status.failure.kind, or "none": "none" | "network" | "unauthorized"
+  retryDue,   \* nextAt is finite: a retry is set after a failure
+  requested,  \* requestedAt is finite: requestSync or the online event asked for an attempt
+  sid,        \* sessionId compared with the cookie's session: "none" | "cookie" | "older"
+  synced,     \* status.lastSyncedAt is set
+  \* The app.
+  check,      \* a session check is in flight (Better Auth's get-session, Arctic's /account)
+  unsent,     \* local changes the server does not have; the app reports them as status.pending
+  sent,       \* how many of them the attempt in flight carries
+  \* What the rules read.
+  told        \* since this device was last signed in, the server said there is no session,
+              \* or you signed out
+
+vars == <<device, reach, account, auth, connection, running, stale, answered,
+          sentWith, failure, retryDue, requested, sid, synced, check, unsent,
+          sent, told>>
+
+Out == {"signed-out", "expired"}
+
+\* The cookie the browser sends now.
+Cookie == IF account \in {"live", "new"} THEN "valid" ELSE "none"
+
+\* controller.ts:176-186 automatic(): started, not paused, and the device says
+\* online. The model starts the controller at launch, as Spaced does.
+AutomaticWith(a, d) == a \notin Out /\ d = "online"
+Automatic == AutomaticWith(auth, device)
+
+\* controller.ts:512-516 refused()
+Refused(a) == IF a \in {"signed-in", "expired"} THEN "expired" ELSE "signed-out"
+
+\* What the account menu says: describeSyncStatus in status.ts:226-315, in its order.
+Label ==
+  IF connection = "offline" THEN "Offline"
+  ELSE IF auth = "expired" THEN "Sign in again to sync"
+  ELSE IF running THEN "Syncing"
+  ELSE IF auth = "signed-out" THEN "Sign in to sync"
+  ELSE IF failure = "network" THEN "Couldn't reach the server"
+  ELSE IF unsent > 0 THEN "Saved on this device, will sync"
+  ELSE IF synced THEN "Synced"
+  ELSE "Not synced yet"
+
+\* controller.ts:208-223 begin(): a new attempt carries the cookie the browser has now.
+Begin(c, u) ==
+  /\ running' = TRUE
+  /\ stale' = FALSE
+  /\ answered' = FALSE
+  /\ sentWith' = Cookie
+  /\ sent' = u
+  /\ requested' = FALSE
+  /\ connection' = IF c = "offline" THEN "online" ELSE c
+
+\* No attempt in flight.
+Idle(c) ==
+  /\ running' = FALSE
+  /\ stale' = FALSE
+  /\ answered' = FALSE
+  /\ sentWith' = "none"
+  /\ sent' = 0
+  /\ connection' = c
+
+\* controller.ts:224-236: after an attempt, run again when it should
+\* (`again`), otherwise schedule().
+Settle(again, a, c, u) ==
+  IF again /\ AutomaticWith(a, device) \* controller.ts:235
+  THEN Begin(c, u)
+  ELSE Idle(c) /\ UNCHANGED requested
+
+TypeOK ==
+  /\ device \in {"online", "offline"}
+  /\ reach \in {"yes", "no"}
+  /\ account \in {"none", "live", "new", "ended"}
+  /\ auth \in {"unknown", "signed-in", "signed-out", "expired"}
+  /\ connection \in {"online", "offline", "unreachable"}
+  /\ running \in BOOLEAN /\ stale \in BOOLEAN /\ answered \in BOOLEAN
+  /\ sentWith \in {"valid", "none"}
+  /\ failure \in {"none", "network", "unauthorized"}
+  /\ retryDue \in BOOLEAN /\ requested \in BOOLEAN
+  /\ sid \in {"none", "cookie", "older"}
+  /\ synced \in BOOLEAN /\ check \in BOOLEAN
+  /\ unsent \in 0..MaxEdits /\ sent \in 0..MaxEdits
+  /\ told \in BOOLEAN
+
+(***************************************************************************)
+(* Start: a new device, online, that nobody has signed in on. Every other  *)
+(* launch is a Reopen from a state the model reaches.                      *)
+(***************************************************************************)
+Init ==
+  /\ device = "online" /\ reach = "yes"
+  /\ account = "none" /\ auth = "unknown"
+  /\ connection = "online" \* controller.ts:136
+  /\ failure = "none" /\ retryDue = FALSE /\ requested = FALSE
+  /\ sid = "none" /\ synced = FALSE
+  /\ check = TRUE
+  /\ unsent = 0 /\ told = FALSE
+  /\ running = TRUE \* controller.ts:387 start()
+  /\ stale = FALSE /\ answered = FALSE
+  /\ sentWith = "none" /\ sent = 0
+
+\* The page loads with the persisted status (controller.ts:365-381 save(),
+\* 518-526 initialAuth()), starts sync (controller.ts:383-392), and checks
+\* the session. Only a remembered user survives a reload; signed-out comes
+\* back as unknown. The step sets account' before this.
+Reopened ==
+  LET a == IF auth \in {"signed-in", "expired"} THEN auth ELSE "unknown"
+      go == AutomaticWith(a, device) \* controller.ts:387
+  IN /\ auth' = a
+     /\ told' = (told /\ a \in Out)
+     /\ connection' = IF device = "online" THEN "online" ELSE "offline" \* controller.ts:136
+     /\ failure' = "none" /\ retryDue' = FALSE /\ requested' = FALSE
+     /\ sid' = "none"
+     /\ check' = TRUE
+     /\ running' = go
+     /\ stale' = FALSE /\ answered' = FALSE
+     /\ sentWith' = (IF go THEN Cookie' ELSE "none")
+     /\ sent' = (IF go THEN unsent ELSE 0)
+
+(***************************************************************************)
+(* The world changes.                                                      *)
+(***************************************************************************)
+DeviceGoesOffline ==
+  /\ device = "online"
+  /\ device' = "offline"
+  /\ connection' = "offline" \* controller.ts:333-337
+  /\ UNCHANGED <<reach, account, auth, running, stale, answered, sentWith,
+                 failure, retryDue, requested, sid, synced, check, unsent, sent,
+                 told>>
+
+DeviceGoesOnline ==
+  /\ device = "offline"
+  /\ device' = "online"
+  /\ LET c == IF connection = "offline" THEN "online" ELSE connection \* controller.ts:339
+     IN IF AutomaticWith(auth, "online") /\ ~running \* controller.ts:341
+        THEN Begin(c, unsent)
+        ELSE /\ requested' = TRUE \* controller.ts:343
+             /\ connection' = c
+             /\ UNCHANGED <<running, stale, answered, sentWith, sent>>
+  /\ UNCHANGED <<reach, account, auth, failure, retryDue, sid, synced, check,
+                 unsent, told>>
+
+RequestsStop ==
+  /\ reach = "yes"
+  /\ reach' = "no"
+  /\ UNCHANGED <<device, account, auth, connection, running, stale, answered,
+                 sentWith, failure, retryDue, requested, sid, synced, check,
+                 unsent, sent, told>>
+
+RequestsResume ==
+  /\ reach = "no"
+  /\ reach' = "yes"
+  /\ UNCHANGED <<device, account, auth, connection, running, stale, answered,
+                 sentWith, failure, retryDue, requested, sid, synced, check,
+                 unsent, sent, told>>
+
+SessionEnds ==
+  /\ account \in {"live", "new"}
+  /\ account' = "ended"
+  /\ UNCHANGED <<device, reach, auth, connection, running, stale, answered,
+                 sentWith, failure, retryDue, requested, sid, synced, check,
+                 unsent, sent, told>>
+
+(***************************************************************************)
+(* What you do.                                                            *)
+(***************************************************************************)
+\* A local write. Arctic calls syncSoon(); Reader and Spaced wait for the
+\* periodic attempt, which the model treats as the same request.
+Edit ==
+  /\ unsent < MaxEdits
+  /\ unsent' = unsent + 1
+  /\ requested' = TRUE \* controller.ts:489-492 requestSync()
+  /\ UNCHANGED <<device, reach, account, auth, connection, running, stale,
+                 answered, sentWith, failure, retryDue, sid, synced, check,
+                 sent, told>>
+
+\* The account menu offers Sync now while signed in.
+SyncNow ==
+  /\ auth = "signed-in" \* AccountMenu.tsx:183-192 (Sign in replaces it otherwise)
+  /\ device = "online" \* controller.ts:402
+  /\ ~running \* controller.ts:406
+  /\ Begin(connection, unsent)
+  /\ UNCHANGED <<device, reach, account, auth, failure, retryDue, sid, synced,
+                 check, unsent, told>>
+
+\* The tab becomes visible: Better Auth refetches the session, and the
+\* controller syncs when healthy.
+ReturnToApp ==
+  /\ ~check
+  /\ check' = TRUE
+  /\ IF Automatic /\ ~running /\ failure = "none" \* controller.ts:348-354
+     THEN Begin(connection, unsent)
+     ELSE UNCHANGED <<running, stale, answered, sentWith, sent, requested,
+                      connection>>
+  /\ UNCHANGED <<device, reach, account, auth, failure, retryDue, sid, synced,
+                 unsent, told>>
+
+\* You close the app, or the page reloads, and open it again.
+Reopen ==
+  /\ UNCHANGED <<device, reach, account, synced, unsent>>
+  /\ Reopened
+
+\* Sign-in is a redirect: the page loads again with a new cookie.
+SignInHere ==
+  /\ auth # "signed-in" \* AccountMenu.tsx:190-191 offers Sign in otherwise
+  /\ device = "online" /\ reach = "yes" \* AccountMenu.tsx:100 signIn.social needs the server
+  /\ account' = "new"
+  /\ UNCHANGED <<device, reach, synced, unsent>>
+  /\ Reopened
+
+\* Another tab on this device signs in, which replaces the shared cookie.
+SignInElsewhere ==
+  /\ account \in {"none", "ended"}
+  /\ device = "online" /\ reach = "yes" \* AccountMenu.tsx:100, in the other tab
+  /\ account' = "new"
+  /\ sid' = IF sid = "cookie" THEN "older" ELSE sid
+  /\ UNCHANGED <<device, reach, auth, connection, running, stale, answered,
+                 sentWith, failure, retryDue, requested, synced, check, unsent,
+                 sent, told>>
+
+SignOut ==
+  /\ auth \in {"signed-in", "expired"}
+  /\ device = "online" /\ reach = "yes" \* AccountMenu.tsx:117-118 server first
+  /\ account' = "none"
+  /\ auth' = "signed-out" \* controller.ts:460-475 signOut()
+  /\ told' = TRUE
+  /\ sid' = "none"
+  /\ failure' = "none" /\ retryDue' = FALSE /\ requested' = FALSE
+  /\ synced' = FALSE
+  /\ Idle(connection) \* controller.ts:466 aborts the attempt
+  /\ UNCHANGED <<device, reach, check, unsent>>
+
+(***************************************************************************)
+(* What the app does by itself.                                            *)
+(***************************************************************************)
+\* controller.ts:193-200: the one timer, for a requested sync.
+SoonTimerFires ==
+  /\ Automatic \* controller.ts:193, 200
+  /\ ~running \* controller.ts:193, 200
+  /\ failure = "none" \* controller.ts:194
+  /\ retryDue \/ requested \* controller.ts:194, 196
+  /\ Begin(connection, unsent)
+  /\ UNCHANGED <<device, reach, account, auth, failure, retryDue, sid, synced,
+                 check, unsent, told>>
+
+\* controller.ts:193-200: the one timer, for the retry after a failure.
+RetryTimerFires ==
+  /\ Automatic \* controller.ts:193, 200
+  /\ ~running \* controller.ts:193, 200
+  /\ failure # "none" \* controller.ts:194-195
+  /\ retryDue \* controller.ts:194, 196
+  /\ Begin(connection, unsent)
+  /\ UNCHANGED <<device, reach, account, auth, failure, retryDue, sid, synced,
+                 check, unsent, told>>
+
+\* controller.ts:263-285 succeed()
+AttemptSucceeds ==
+  /\ running
+  /\ device = "online" /\ reach = "yes" \* http.ts:21 the request got a response
+  /\ sentWith = "valid" \* the server accepted the attempt's cookie
+  /\ LET hear == ~stale /\ auth \in {"expired", "signed-in"} \* controller.ts:273-277
+         a == IF hear THEN "signed-in" ELSE auth
+         u == unsent - sent
+     IN /\ auth' = a
+        /\ account' = IF hear /\ account = "new" THEN "live" ELSE account
+        /\ told' = IF hear THEN FALSE ELSE told
+        /\ failure' = "none" /\ retryDue' = FALSE \* controller.ts:266-269, 281
+        /\ synced' = TRUE
+        /\ unsent' = u
+        /\ Settle(stale, a, "online", u) \* controller.ts:231
+  /\ UNCHANGED <<device, reach, sid, check>>
+
+\* controller.ts:287-315 fail() for a request that got no answer.
+AttemptNoAnswer ==
+  /\ running
+  /\ device = "offline" \/ reach = "no" \* http.ts:22-27 fetchOrNetworkError, stream.ts
+  /\ LET c == IF device = "online" THEN "unreachable" ELSE "offline" \* controller.ts:290-295
+     IN /\ failure' = "network" /\ retryDue' = TRUE \* controller.ts:305-307
+        /\ Settle(stale, auth, c, unsent) \* controller.ts:231
+  /\ UNCHANGED <<device, reach, account, auth, sid, synced, check, unsent, told>>
+
+\* controller.ts:305-311: a 401 to the current credentials.
+AttemptRefused ==
+  /\ running
+  /\ device = "online" /\ reach = "yes" \* http.ts:21 the request got a response
+  /\ sentWith = "none" \* the server refused the attempt's cookie
+  /\ ~stale /\ ~answered \* controller.ts:298-301
+  /\ auth' = Refused(auth)
+  /\ told' = TRUE
+  /\ failure' = "unauthorized" /\ retryDue' = TRUE \* controller.ts:305-307
+  /\ Idle("online")
+  /\ UNCHANGED <<device, reach, account, requested, sid, synced, check, unsent>>
+
+\* controller.ts:296-304: a 401 to credentials that have since changed, or to
+\* an attempt that began before the server last confirmed a session.
+AttemptRefusedLate ==
+  /\ running
+  /\ device = "online" /\ reach = "yes" \* http.ts:21 the request got a response
+  /\ sentWith = "none" \* the server refused the attempt's cookie
+  /\ stale \/ answered \* controller.ts:298-301
+  /\ Settle(TRUE, auth, "online", unsent) \* controller.ts:230-235
+  /\ UNCHANGED <<device, reach, account, auth, failure, retryDue, sid, synced,
+                 check, unsent, told>>
+
+\* use-auth.ts:37 and App.tsx:143: an error without a 401 is not an answer.
+CheckGetsNoAnswer ==
+  /\ check
+  /\ device = "offline" \/ reach = "no" \* use-auth.ts:37; App.tsx:143
+  /\ check' = FALSE
+  /\ UNCHANGED <<device, reach, account, auth, connection, running, stale,
+                 answered, sentWith, failure, retryDue, requested, sid, synced,
+                 unsent, sent, told>>
+
+\* use-auth.ts:27-36 and App.tsx:141 call confirmSignedIn (controller.ts:413-448).
+CheckFindsSession ==
+  /\ check
+  /\ device = "online" /\ reach = "yes" \* use-auth.ts:27 data.user
+  /\ account \in {"live", "new"} \* use-auth.ts:27 the server has a session for this cookie
+  /\ check' = FALSE
+  /\ LET changed == auth \in Out \/ (auth = "signed-in" /\ sid = "older") \* controller.ts:423-430
+     IN /\ auth' = "signed-in" \* controller.ts:434-439
+        /\ account' = "live"
+        /\ sid' = "cookie" \* controller.ts:431
+        /\ told' = FALSE
+        /\ failure' = IF failure = "unauthorized" THEN "none" ELSE failure \* controller.ts:440-443
+        /\ IF changed /\ ~running /\ device = "online" \* controller.ts:446
+           THEN Begin(connection, unsent)
+           ELSE /\ stale' = (stale \/ (changed /\ running)) \* controller.ts:432
+                /\ answered' = running \* controller.ts:416
+                /\ UNCHANGED <<running, sentWith, sent, requested, connection>>
+  /\ UNCHANGED <<device, reach, retryDue, synced, unsent>>
+
+\* use-auth.ts:37-38 and App.tsx:139 call confirmSignedOut (controller.ts:450-458).
+CheckFindsNoSession ==
+  /\ check
+  /\ device = "online" /\ reach = "yes" \* use-auth.ts:37 no data, no error
+  /\ account \in {"none", "ended"} \* use-auth.ts:37 the server has no session for this cookie
+  /\ check' = FALSE
+  /\ IF auth \in Out \* controller.ts:452
+     THEN UNCHANGED <<auth, told, stale>>
+     ELSE /\ auth' = Refused(auth) \* controller.ts:455
+          /\ told' = TRUE
+          /\ stale' = running \* controller.ts:454
+  /\ UNCHANGED <<device, reach, account, connection, running, answered,
+                 sentWith, failure, retryDue, requested, sid, synced, unsent,
+                 sent>>
+
+System ==
+  \/ SoonTimerFires
+  \/ RetryTimerFires
+  \/ AttemptSucceeds
+  \/ AttemptNoAnswer
+  \/ AttemptRefused
+  \/ AttemptRefusedLate
+  \/ CheckGetsNoAnswer
+  \/ CheckFindsSession
+  \/ CheckFindsNoSession
+
+Next ==
+  \/ DeviceGoesOffline
+  \/ DeviceGoesOnline
+  \/ RequestsStop
+  \/ RequestsResume
+  \/ SessionEnds
+  \/ Edit
+  \/ SyncNow
+  \/ ReturnToApp
+  \/ Reopen
+  \/ SignInHere
+  \/ SignInElsewhere
+  \/ SignOut
+  \/ System
+
+Spec == Init /\ [][Next]_vars
+
+\* The app has nothing left to do until you, the network or the server act.
+Settled == ~ENABLED System
+
+(***************************************************************************)
+(* Rules.                                                                  *)
+(***************************************************************************)
+
+\* Offline is shown when the device has no network, and only then.
+OfflineMeansNoNetwork == (Label = "Offline") = (device = "offline")
+
+\* Being offline, or a server that does not answer, never signs you out.
+\* Only the server's answer, or you, can.
+NoGuessedSignOut == auth \in Out => told
+
+\* While the server accepts a session that this device has heard about, the
+\* device never offers Sign in: not offline, not when requests fail, and not
+\* after a late answer about an older session.
+HeardSessionStays == account = "live" => auth \notin Out
+
+\* "Couldn't reach the server" is shown only while a retry is coming.
+RetryIsComing ==
+  Label = "Couldn't reach the server" => Automatic /\ ~running /\ retryDue
+
+\* Once the network and the server work again, your changes reach the server
+\* without a reload or a tap.
+SyncsWhenBack ==
+  (Settled /\ device = "online" /\ reach = "yes" /\ account = "live")
+    => unsent = 0
+
+\* A session that ended on the server is never shown as signed in.
+EndedSessionLooksSignedOut == account = "ended" => auth # "signed-in"
+
+\* After you sign in again, here or in another tab, the device never offers
+\* Sign in.
+NewSignInIsSeen == account = "new" => auth \notin Out
+
+=============================================================================
