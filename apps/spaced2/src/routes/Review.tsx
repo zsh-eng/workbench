@@ -6,7 +6,6 @@ import EditFlashcardResponsive from "@/components/card-actions/edit-flashcard-re
 import CardCountBadges from "@/components/card-count-badges";
 import CurrentCardBadge from "@/components/current-card-badge";
 import FlashcardContent from "@/components/flashcard-content";
-import { useActiveStartTime } from "@/components/hooks/inactivity";
 import {
   useCards,
   useReviewCards,
@@ -32,6 +31,8 @@ import {
 import { gradeCardOperation } from "@/lib/sync/operation";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@uidotdev/usehooks";
+import { SPACED_GAP_MS } from "@workbench/activity-time";
+import { useActivitySession } from "@workbench/activity-time/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Grade } from "ts-fsrs";
 
@@ -59,7 +60,13 @@ export default function ReviewRoute() {
     nextReviewCard,
   );
 
-  const start = useActiveStartTime({ id: nextReviewCard?.id });
+  // Time on the card under the shared rule (packages/activity-time): a hidden
+  // tab or another window pauses it, and a pause over two minutes counts
+  // nothing.
+  const cardTime = useActivitySession(
+    nextReviewCard ? { kind: "card", id: nextReviewCard.id } : null,
+    { app: "spaced", gapMs: SPACED_GAP_MS },
+  );
   const isMobile = useMediaQuery("(max-width: 640px)");
 
   const [isEditing, setIsEditing] = useState(false);
@@ -74,7 +81,10 @@ export default function ReviewRoute() {
     if (!nextReviewCard || unavailable || grading.current) return;
     grading.current = true;
     try {
-      await gradeCardOperation(nextReviewCard, grade, Date.now() - start);
+      // Grading is the card's last action.
+      cardTime.input();
+      const duration = cardTime.session?.activeMs ?? 0;
+      await gradeCardOperation(nextReviewCard, grade, duration);
     } catch {
       toast.error("Could not save your review. Please try again.");
     } finally {
