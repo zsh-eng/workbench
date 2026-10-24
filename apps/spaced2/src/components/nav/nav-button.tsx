@@ -6,10 +6,12 @@ import React, { SVGProps, useState } from "react";
 import { Link } from "react-router";
 
 export default function NavButton({
+  label,
   icon,
   href,
   focused,
 }: {
+  label: string;
   icon: React.ReactElement<SVGProps<SVGSVGElement>>;
   href: string;
   focused?: boolean;
@@ -17,7 +19,13 @@ export default function NavButton({
   const [pressed, setPressed] = useState(false);
 
   return (
-    <Link to={href} className="w-full py-1" draggable={false}>
+    <Link
+      to={href}
+      aria-label={label}
+      aria-current={focused ? "page" : undefined}
+      className="w-full py-1"
+      draggable={false}
+    >
       <Button
         onMouseDown={() => {
           setPressed(true);

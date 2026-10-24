@@ -39,13 +39,18 @@ export default function NavBar() {
   }, [navigate]);
 
   return (
-    <div
+    <nav
+      aria-label="Main"
       className={cn(
-        "fixed bottom-0 full flex z-10 bg-muted dark:bg-background w-full pb-[env(safe-area-inset-bottom)]",
-        "md:left-4 md:h-full md:flex-col md:justify-center md:w-16 md:pb-0 -mx-2",
+        "fixed z-tabbar flex bg-muted dark:bg-background",
+        // Phones: a bar across the bottom, above the home indicator.
+        "left-0 right-0 bottom-0 box-content h-(--tabbar-height) items-center border-t pb-[env(safe-area-inset-bottom)]",
+        // Desktops: a rail on the left.
+        "md:right-auto md:left-2 md:top-0 md:h-full md:w-16 md:flex-col md:justify-center md:border-t-0 md:pb-0",
       )}
     >
       <NavButton
+        label="Decks"
         icon={<Book />}
         href={"/decks"}
         focused={path.pathname === "/decks"}
@@ -53,18 +58,21 @@ export default function NavBar() {
 
       {/* Bookmarks */}
       <NavButton
+        label="Saved"
         icon={<Bookmark />}
         href={"/saved"}
         focused={path.pathname === "/saved"}
       />
 
       <NavButton
+        label="Review"
         icon={<Home className={cn("scale-x-110")} strokeWidth={2.5} />}
         href={"/"}
         focused={path.pathname === "/"}
       />
 
       <NavButton
+        label="Create"
         icon={<Plus strokeWidth={3} />}
         href={"/create"}
         focused={path.pathname === "/create"}
@@ -72,10 +80,11 @@ export default function NavBar() {
 
       {/* Settings */}
       <NavButton
+        label="Profile"
         icon={<UserRound />}
         href={"/profile"}
         focused={path.pathname === "/profile"}
       />
-    </div>
+    </nav>
   );
 }

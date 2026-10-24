@@ -43,6 +43,8 @@ export default function App() {
             // close: <X className='text-muted-foreground size-3' />,
           }}
           theme="light"
+          // Sonner's own z-index is far above every layer; use the scale.
+          style={{ zIndex: "var(--z-index-toast)" }}
           toastOptions={{
             closeButton: true,
             duration: 2000,
@@ -76,19 +78,20 @@ export default function App() {
 
 function AppShell() {
   return (
-    <>
+    <div className="font-sans antialiased">
       <CommandBar />
-      <div
+      <SpacedIcon />
+      <NavBar />
+      <SessionExpiredBanner />
+      {/* The content layer: nothing that a page stacks rises above the chrome. */}
+      <main
         className={cn(
-          "grid grid-cols-12 gap-x-6 items-start",
-          "px-2 md:px-0 pb-12 pt-20 md:pt-8",
-          "min-h-screen grid-rows-[min-content_1fr] bg-background font-sans antialiased",
+          "isolate grid grid-cols-12 gap-x-6 items-start",
+          "px-2 md:px-0 pt-20 md:pt-8 pb-(--tabbar-space) md:pb-12",
+          "min-h-screen grid-rows-[min-content_1fr]",
           "bg-muted dark:bg-background",
         )}
       >
-        <SpacedIcon />
-        <NavBar />
-        <SessionExpiredBanner />
         <SyncBoundary>
           <Routes>
             <Route path="/" element={<ReviewRoute />} />
@@ -107,7 +110,7 @@ function AppShell() {
             <Route path="/images" element={<ImagesRoute />} />
           </Routes>
         </SyncBoundary>
-      </div>
-    </>
+      </main>
+    </div>
   );
 }

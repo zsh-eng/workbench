@@ -114,15 +114,20 @@ function Buttons() {
         )}
         {selection.state === "navigation" && (
           <div className="flex w-full max-w-md rounded-xl bg-muted dark:bg-background">
-            <NavButton icon={<Book />} href="/decks" />
-            <NavButton icon={<Bookmark />} href="/saved" />
+            <NavButton label="Decks" icon={<Book />} href="/decks" />
+            <NavButton label="Saved" icon={<Bookmark />} href="/saved" />
             <NavButton
+              label="Review"
               icon={<Home className="scale-x-110" strokeWidth={2.5} />}
               href="/"
               focused
             />
-            <NavButton icon={<Plus strokeWidth={3} />} href="/create" />
-            <NavButton icon={<UserRound />} href="/profile" />
+            <NavButton
+              label="Create"
+              icon={<Plus strokeWidth={3} />}
+              href="/create"
+            />
+            <NavButton label="Profile" icon={<UserRound />} href="/profile" />
           </div>
         )}
       </div>

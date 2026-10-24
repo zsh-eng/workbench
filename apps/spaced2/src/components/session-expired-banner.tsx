@@ -18,14 +18,15 @@ export function SessionExpiredBackdrop({
   onAction,
 }: SessionExpiredBackdropProps) {
   return createPortal(
-    <div>
+    // An overlay: it covers the whole screen, the tab bar included.
+    <div className="fixed inset-0 z-overlay">
       <div
-        className="absolute inset-0 backdrop-blur-xs bg-muted/20 rounded-lg"
+        className="absolute inset-0 backdrop-blur-xs bg-muted/20"
         onClick={onClose}
       />
       <div
         className={cn(
-          "absolute top-auto bottom-1/2 right-1/2 translate-x-1/2 bg-background rounded-xl w-80 py-4 pl-5 pr-5 shadow-sm flex gap-2 items-center justify-start z-30",
+          "absolute top-auto bottom-1/2 right-1/2 translate-x-1/2 bg-background rounded-xl w-80 py-4 pl-5 pr-5 shadow-sm flex gap-2 items-center justify-start",
           // 'sm:right-4 sm:translate-x-0 sm:top-4 sm:bottom-auto animate-fade-in'
         )}
       >

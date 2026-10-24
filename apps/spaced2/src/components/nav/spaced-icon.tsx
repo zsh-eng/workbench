@@ -15,7 +15,7 @@ export function SpacedIcon() {
         MemoryDB.notify();
       }}
     >
-      <div className="absolute top-4 md:top-4 left-1/2 -translate-x-1/2 md:translate-x-0 md:left-4 w-16 h-12 z-30 flex items-center justify-center cursor-pointer">
+      <div className="absolute top-4 md:top-4 left-1/2 -translate-x-1/2 md:translate-x-0 md:left-4 w-16 h-12 z-sticky flex items-center justify-center cursor-pointer">
         <BouncyButton asButton>
           <Telescope
             className={cn("h-10 w-10 text-foreground")}
