@@ -1,18 +1,17 @@
 import { registerLabDrain } from "@/features/sync-lab/runtime";
-import { updateCurrentDeviceReadingSession } from "@/lib/db";
-import type { ResolvedSpread } from "@/lib/pagination-v2";
-import { useEffect, useRef } from "react";
+import {
+  READING_SESSION_IDLE_TIMEOUT_MS,
+  updateCurrentDeviceReadingSession,
+} from "@/lib/db";
+import type { ResolvedSpread, SpreadIntent } from "@/lib/pagination-v2";
+import { toReaderSession, type ReaderPosition } from "@workbench/activity-time";
+import { useActivityTracker } from "@workbench/activity-time/react";
+import { useEffect, useState } from "react";
 import {
   readerLocationFromSpread,
+  toChapterProgressPercent,
   type ReaderLocation,
 } from "../../reader-location";
-import {
-  createReaderReadingSessionPositionFromLocation,
-  ReaderReadingSessionController,
-  READING_SESSION_FLUSH_INTERVAL_MS,
-  shouldRecordReadingSessionActivity,
-  shouldTrackReadingSessionIntent,
-} from "./reader-reading-session-controller";
 
 interface UseReaderReadingSessionOptions {
   bookId?: string;
@@ -21,30 +20,64 @@ interface UseReaderReadingSessionOptions {
   location?: ReaderLocation | null;
 }
 
+/** A scrubber preview is not a place the reader has been. */
+export function shouldTrackReadingSessionIntent(intent: SpreadIntent): boolean {
+  return intent.kind !== "preview";
+}
+
+/** Page turns, jumps and history moves are the reader's own actions. */
+export function shouldRecordReadingSessionActivity(
+  intent: SpreadIntent,
+): boolean {
+  return (
+    intent.kind === "linear" ||
+    intent.kind === "jump" ||
+    intent.kind === "history"
+  );
+}
+
+export function readerSessionPosition(
+  location: ReaderLocation,
+): ReaderPosition {
+  return {
+    spineIndex: location.chapterIndex,
+    progress: toChapterProgressPercent(location),
+  };
+}
+
 /**
- * Persists one mutable reading-session row for the mounted reader instance.
+ * Keeps one `readingSessions` row for the mounted reader's current book.
  *
- * The controller handles the active-time accounting; this hook only wires
- * reader spreads and browser lifecycle/activity events into that controller.
+ * The shared tracker (`packages/activity-time`) counts time by the gap rule,
+ * with the Reader's ten-minute gap, and saves the row. The session starts at
+ * the first real location, so loading does not count. Each later location
+ * moves its end. The reader's own moves count as input, as do the browser's.
  */
 export function useReaderReadingSession({
   bookId,
   spread,
   location: scrollLocation = null,
 }: UseReaderReadingSessionOptions): void {
-  const controllerRef = useRef<ReaderReadingSessionController | null>(null);
-  if (controllerRef.current === null) {
-    controllerRef.current = new ReaderReadingSessionController({
-      persist: async (session) => {
-        await updateCurrentDeviceReadingSession(session);
-      },
-      onError: (error) => {
-        console.error("Failed to save reading session:", error);
-      },
-    });
-  }
+  const [readerInstanceId] = useState(() => crypto.randomUUID());
+  const tracker = useActivityTracker<ReaderPosition>({
+    app: "reader",
+    gapMs: READING_SESSION_IDLE_TIMEOUT_MS,
+    persist: async (session) => {
+      await updateCurrentDeviceReadingSession(
+        toReaderSession(session, readerInstanceId),
+      );
+    },
+    onError: (error) => {
+      console.error("Failed to save reading session:", error);
+    },
+  });
 
-  const controller = controllerRef.current;
+  useEffect(() => {
+    if (!bookId) return;
+    return () => {
+      tracker.end();
+    };
+  }, [bookId, tracker]);
 
   useEffect(() => {
     const location = scrollLocation ?? readerLocationFromSpread(spread);
@@ -55,82 +88,13 @@ export function useReaderReadingSession({
     ) {
       return;
     }
-
-    const position = createReaderReadingSessionPositionFromLocation(
-      bookId,
-      location,
+    tracker.begin(
+      { kind: "book", id: bookId },
+      { position: readerSessionPosition(location) },
     );
-    if (!position) return;
-
-    controller.setPosition(position, {
-      now: Date.now(),
-      recordActivity: shouldRecordReadingSessionActivity(location.intent),
-    });
-    controller.flushLatest();
-  }, [bookId, spread, scrollLocation, controller]);
-
-  useEffect(() => {
-    if (!bookId) return;
-
-    const intervalId = window.setInterval(() => {
-      controller.flushLatest();
-    }, READING_SESSION_FLUSH_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [bookId, controller]);
-
-  useEffect(() => {
-    if (!bookId) return;
-
-    const recordActivity = (event: Event) => {
-      controller.recordActivity(Date.now());
-      // A touch can immediately reveal reading time. Save its activity boundary
-      // now; continuous wheel and keyboard input keep the periodic flush.
-      if (event.type === "pointerdown" || event.type === "touchstart") {
-        controller.flushLatest();
-      }
-    };
-
-    window.addEventListener("keydown", recordActivity);
-    window.addEventListener("pointerdown", recordActivity);
-    window.addEventListener("touchstart", recordActivity, { passive: true });
-    window.addEventListener("wheel", recordActivity, { passive: true });
-
-    return () => {
-      window.removeEventListener("keydown", recordActivity);
-      window.removeEventListener("pointerdown", recordActivity);
-      window.removeEventListener("touchstart", recordActivity);
-      window.removeEventListener("wheel", recordActivity);
-    };
-  }, [bookId, controller]);
-
-  useEffect(() => {
-    if (!bookId) return;
-
-    const handleVisibilityChange = () => {
-      const now = Date.now();
-      controller.setVisible(document.visibilityState === "visible", now);
-      if (document.visibilityState === "hidden") {
-        controller.flushLatest({ force: true });
-      }
-    };
-
-    const handlePageHide = () => {
-      controller.endSession(Date.now());
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pagehide", handlePageHide);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pagehide", handlePageHide);
-      controller.endSession(Date.now());
-    };
-  }, [bookId, controller]);
+    if (shouldRecordReadingSessionActivity(location.intent)) tracker.input();
+  }, [bookId, spread, scrollLocation, tracker]);
 
   // Register last so unmount first queues the final session snapshot.
-  useEffect(() => registerLabDrain(() => controller.whenIdle()), [controller]);
+  useEffect(() => registerLabDrain(() => tracker.whenIdle()), [tracker]);
 }

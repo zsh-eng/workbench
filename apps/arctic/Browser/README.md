@@ -80,10 +80,13 @@ highlighted on either shows on both:
 | `arctic-reading` | `session/<UUID>`: one visit's active seconds (`src/reading.ts`) |
 | `arctic-annotations` | `annotation/<UUID>`: a highlight or note (`src/annotations.ts`) |
 
-Reading time counts as on the phone: time between two of the reader's own
-actions (scroll, keys, pointer) counts when the gap is two minutes or less,
-and a hidden tab pauses. A visit saves every five seconds and uploads within a
-minute. **Reading** (`/reading`) shows the last seven days, today, articles
+Reading time counts as on the phone, with the shared rule of
+[activity-time](../../../packages/activity-time/README.md): time between two of
+the reader's own actions (keys, pointer, touch, wheel, and a scroll just after
+one) counts when the gap is two minutes or less. A hidden tab, or another
+window in focus, pauses. A scroll that restores the position is not an action.
+A visit saves every five seconds and uploads within a minute; a visit under a
+second is not kept. **Reading** (`/reading`) shows the last seven days, today, articles
 read for a minute or more, all time, and this week's articles.
 
 Highlights follow the phone too (`Resources/annotations.js`): a quote keeps

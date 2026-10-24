@@ -12,6 +12,7 @@ export default defineProject({
     },
   ],
   resolve: {
+    // One React for workspace packages with a React peer (see vite.config.ts).
     dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),

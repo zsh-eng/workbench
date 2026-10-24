@@ -35,6 +35,10 @@ and local development files. Shared packages must not import app code.
 - **local-sync** owns the generic record protocol and engine. Its
   [adapter contracts](../packages/local-sync/README.md) apply to consumers.
 - **text-highlighter** owns DOM selection and highlight restoration.
+- **activity-time** owns time spent: the gap rule, the browser's interaction
+  signals, session saves, and one session shape for Reader, Arctic and Spaced,
+  with codecs for each app's stored records. Its
+  [README](../packages/activity-time/README.md) is the format's contract.
 - **arctic-sync-server** exposes private auth and sync route factories. The
   Reader Worker supplies authentication and database/object-storage bindings.
   It is a package, not a separate deployed service.

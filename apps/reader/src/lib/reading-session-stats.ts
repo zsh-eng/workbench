@@ -1,3 +1,4 @@
+import { summarizeTime } from "@workbench/activity-time";
 import {
   differenceInCalendarMonths,
   eachDayOfInterval,
@@ -190,14 +191,21 @@ export function formatReadingSessionRange(range: ReadingSessionRange): string {
   return "All recorded time";
 }
 
+/** Reader rows as the shared stats read them: time on a book. */
+function asBookTime<T extends ReadingSessionAnalyticsRecord>(
+  sessions: readonly T[],
+) {
+  return sessions.map((session) => ({
+    ...session,
+    subject: { kind: "book", id: session.bookId },
+  }));
+}
+
 export function getTotalRecordedReadingTime(
   sessions: readonly ReadingSessionAnalyticsRecord[],
   now = Date.now(),
 ): number {
-  return sessions.reduce((total, session) => {
-    if (session.activeMs <= 0 || session.startedAt > now) return total;
-    return total + session.activeMs;
-  }, 0);
+  return summarizeTime(asBookTime(sessions), { to: now }).activeMs;
 }
 
 /** Uses the same session-start day assignment as the Sessions page. */
@@ -218,7 +226,8 @@ export function getRecordedReadingTimeSummary(
 /**
  * Builds the product-facing reading summary from session records. Reading time
  * is assigned to the session start bucket because sessions store accumulated
- * active time, not a timestamp for every active interval.
+ * active time, not a timestamp for every active interval. The totals follow
+ * the shared rules of `summarizeTime` (`packages/activity-time`).
  */
 export function buildReadingSessionsOverview({
   sessions,
@@ -233,85 +242,48 @@ export function buildReadingSessionsOverview({
 }): ReadingSessionsOverview {
   const nowDate = new Date(now);
   const dateRange = getDateRange(range, nowDate, sessions);
-  const rangeStartMs = dateRange.start.getTime();
-  const rangeEndMs = Math.min(dateRange.end.getTime(), now);
-  const visibleSessions = sessions
-    .filter(
-      (session) =>
-        session.activeMs > 0 &&
-        session.startedAt >= rangeStartMs &&
-        session.startedAt <= rangeEndMs,
-    )
-    .sort((a, b) => b.startedAt - a.startedAt);
   const booksById = new Map(books.map((book) => [book.id, book]));
   const bucketDefinitions = getBucketDefinitions(
     range,
     dateRange.start,
     dateRange.end,
   );
-  const bucketMsByKey = new Map(
-    bucketDefinitions.map((bucket) => [
-      getBucketKey(bucket.date, bucket.granularity),
-      0,
-    ]),
-  );
-
-  for (const session of visibleSessions) {
-    const sessionDate = new Date(session.startedAt);
-    const granularity = bucketDefinitions[0]?.granularity ?? "month";
-    const key = getBucketKey(sessionDate, granularity);
-    bucketMsByKey.set(key, (bucketMsByKey.get(key) ?? 0) + session.activeMs);
-  }
-
-  const bookSummaryById = new Map<string, ReadingBookSummary>();
-  for (const session of visibleSessions) {
-    const book = booksById.get(session.bookId);
-    const current = bookSummaryById.get(session.bookId);
-    if (current) {
-      current.activeMs += session.activeMs;
-      current.sessionCount += 1;
-      current.lastReadAt = Math.max(current.lastReadAt, session.startedAt);
-      continue;
-    }
-
-    bookSummaryById.set(session.bookId, {
-      bookId: session.bookId,
-      title: book?.title ?? "Unavailable book",
-      author: book?.author ?? "",
-      activeMs: session.activeMs,
-      sessionCount: 1,
-      lastReadAt: session.startedAt,
-    });
-  }
-
-  const totalActiveMs = visibleSessions.reduce(
-    (total, session) => total + session.activeMs,
-    0,
-  );
-  const activeDayKeys = new Set(
-    visibleSessions.map((session) =>
-      getBucketKey(new Date(session.startedAt), "day"),
-    ),
-  );
+  const granularity = bucketDefinitions[0]?.granularity ?? "month";
+  const summary = summarizeTime(asBookTime(sessions), {
+    from: dateRange.start.getTime(),
+    to: Math.min(dateRange.end.getTime(), now),
+    bucket: (startedAt) => getBucketKey(new Date(startedAt), granularity),
+  });
+  const totalActiveMs = summary.activeMs;
+  const sessionCount = summary.sessions.length;
 
   return {
     totalActiveMs,
-    sessionCount: visibleSessions.length,
-    bookCount: bookSummaryById.size,
-    activeDays: activeDayKeys.size,
-    averageSessionMs:
-      visibleSessions.length === 0 ? 0 : totalActiveMs / visibleSessions.length,
-    timeBuckets: bucketDefinitions.map((bucket) => ({
-      key: getBucketKey(bucket.date, bucket.granularity),
-      label: bucket.label,
-      shortLabel: bucket.shortLabel,
-      activeMs:
-        bucketMsByKey.get(getBucketKey(bucket.date, bucket.granularity)) ?? 0,
-    })),
-    bookSummaries: Array.from(bookSummaryById.values()).sort(
-      (a, b) => b.activeMs - a.activeMs || b.lastReadAt - a.lastReadAt,
-    ),
-    recentSessions: visibleSessions
+    sessionCount,
+    bookCount: summary.subjects.length,
+    activeDays: summary.days,
+    averageSessionMs: sessionCount === 0 ? 0 : totalActiveMs / sessionCount,
+    timeBuckets: bucketDefinitions.map((bucket) => {
+      const key = getBucketKey(bucket.date, bucket.granularity);
+      return {
+        key,
+        label: bucket.label,
+        shortLabel: bucket.shortLabel,
+        activeMs: summary.buckets.get(key) ?? 0,
+      };
+    }),
+    bookSummaries: summary.subjects.map((total) => {
+      const book = booksById.get(total.subject.id);
+      return {
+        bookId: total.subject.id,
+        title: book?.title ?? "Unavailable book",
+        author: book?.author ?? "",
+        activeMs: total.activeMs,
+        sessionCount: total.sessions,
+        lastReadAt: total.lastStartedAt,
+      };
+    }),
+    recentSessions: summary.sessions
       .filter((session) => session.activeMs >= MIN_MEANINGFUL_READING_MS)
       .slice(0, 6)
       .map((session) => ({

@@ -1,34 +1,26 @@
-import { useEffect } from "react";
-import { encodeSorted, type RecordStorage } from "./sync/storage";
+import {
+  ARCTIC_GAP_MS,
+  decodeArcticSession,
+  encodeArcticSession,
+  localDay,
+  summarizeTime,
+  type ActivitySession,
+} from "@workbench/activity-time";
+import { useActivitySession } from "@workbench/activity-time/react";
+import type { RecordStorage } from "./sync/storage";
 import type { Session } from "./sync/session";
 
 /**
- * Reading time, as Arctic on iPhone counts it (ReadingSessions.swift): a visit
- * is one opening of an article with text, `session/<UUID>` in `arctic-reading`.
- * Time between two of the reader's own actions counts when the gap is two
- * minutes or less; a longer gap counts for nothing. A hidden tab pauses.
+ * Reading time, as Arctic on iPhone counts it (ReadingSessions.swift), with
+ * the shared rule in `packages/activity-time`: a visit is one opening of an
+ * article with text, `session/<UUID>` in `arctic-reading`, in the phone's
+ * format. Time between two of the reader's own actions counts when the gap is
+ * two minutes or less; a longer gap counts for nothing. A hidden tab, or
+ * another window in focus, pauses.
  */
-export const IDLE_MS = 120_000;
-const CHECKPOINT_MS = 5_000;
-const SWIFT_EPOCH_MS = 978_307_200_000;
-const swiftDate = (ms: number) => (ms - SWIFT_EPOCH_MS) / 1000;
+export type ReadingSession = ActivitySession<null>;
 
-export type ReadingSession = {
-  id: string;
-  articleURL: string;
-  startedAt: number;
-  updatedAt: number;
-  seconds: number;
-};
-
-const ACTIVITY = [
-  "scroll",
-  "wheel",
-  "keydown",
-  "pointerdown",
-  "pointermove",
-  "touchstart",
-] as const;
+const PREFIX = "session/";
 
 /** Counts this visit while `active`; checkpoints every five seconds. */
 export function useReadingClock(
@@ -36,110 +28,36 @@ export function useReadingClock(
   articleURL: string,
   active: boolean,
 ) {
-  useEffect(() => {
-    if (!active) return;
-    const id = crypto.randomUUID().toUpperCase();
-    const startedAt = Date.now();
-    let updatedAt = startedAt;
-    let seconds = 0;
-    let boundary =
-      document.visibilityState === "visible" ? performance.now() : undefined;
-    let dirty = false;
-    let checkpoint = performance.now();
-
-    const account = () => {
-      if (boundary === undefined) return;
-      const now = performance.now();
-      const elapsed = now - boundary;
-      boundary = now;
-      if (elapsed <= 0 || elapsed > IDLE_MS) return;
-      seconds += elapsed / 1000;
-      updatedAt = Date.now();
-      dirty = true;
-    };
-    const flush = (force: boolean) => {
-      if (!dirty || (!force && performance.now() - checkpoint < CHECKPOINT_MS))
-        return;
-      checkpoint = performance.now();
-      dirty = false;
-      session.reading
-        .write([
-          {
-            key: `session/${id}`,
-            value: encodeSorted({
-              articleURL,
-              id,
-              seconds: Math.round(seconds * 1000) / 1000,
-              startedAt: swiftDate(startedAt),
-              updatedAt: swiftDate(updatedAt),
-            }),
-          },
-        ])
-        .then(
-          // Reading time uploads within a minute, or soon after a pause.
-          () => session.syncSoon(force ? 3000 : 60_000),
-          () => (dirty = true),
-        );
-    };
-    const activity = () => {
-      account();
-      flush(false);
-    };
-    const pause = () => {
-      account();
-      boundary = undefined;
-      flush(true);
-    };
-    const visibility = () => {
-      if (document.visibilityState !== "visible") pause();
-      else boundary ??= performance.now();
-    };
-
-    for (const type of ACTIVITY)
-      window.addEventListener(type, activity, { passive: true });
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("pagehide", pause);
-    // The timer only saves counted time; it never counts time by itself.
-    const timer = setInterval(() => flush(false), CHECKPOINT_MS);
-    return () => {
-      pause();
-      clearInterval(timer);
-      for (const type of ACTIVITY)
-        window.removeEventListener(type, activity);
-      document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("pagehide", pause);
-    };
-  }, [session, articleURL, active]);
+  useActivitySession(active ? { kind: "article", id: articleURL } : null, {
+    app: "arctic",
+    gapMs: ARCTIC_GAP_MS,
+    // The phone writes upper-case UUIDs.
+    createId: () => crypto.randomUUID().toUpperCase(),
+    persist: async (visit, { paused }) => {
+      // A moment is not a visit. (React's development mode also mounts the
+      // reader twice, which would leave one.)
+      if (visit.activeMs < 1000) return;
+      const key = PREFIX + visit.id;
+      const value = encodeArcticSession(visit);
+      // No second copy of the same value: the phone's format has no end time.
+      if (!value || session.reading.view(key)?.value === value) return;
+      await session.reading.write([{ key, value }]);
+      // Reading time uploads within a minute, or soon after a pause.
+      session.syncSoon(paused ? 3000 : 60_000);
+    },
+  });
 }
 
 /** Every reading session in the account, from this browser and others. */
 export function readingSessions(storage: RecordStorage): ReadingSession[] {
   const sessions: ReadingSession[] = [];
   for (const key of storage.keys()) {
-    if (!key.startsWith("session/")) continue;
+    if (!key.startsWith(PREFIX)) continue;
     const view = storage.view(key);
     if (!view || view.isDeleted) continue;
-    try {
-      const value = JSON.parse(view.value);
-      if (
-        typeof value.articleURL !== "string" ||
-        typeof value.seconds !== "number" ||
-        !Number.isFinite(value.seconds) ||
-        value.seconds < 0 ||
-        typeof value.startedAt !== "number"
-      )
-        continue;
-      sessions.push({
-        id: String(value.id ?? key.slice("session/".length)),
-        articleURL: value.articleURL,
-        seconds: value.seconds,
-        startedAt: value.startedAt * 1000 + SWIFT_EPOCH_MS,
-        updatedAt:
-          (Number(value.updatedAt) || value.startedAt) * 1000 + SWIFT_EPOCH_MS,
-      });
-    } catch {
-      /* A damaged record is skipped; the others still count. */
-    }
+    // A damaged record is skipped; the others still count.
+    const visit = decodeArcticSession(view.value, key.slice(PREFIX.length));
+    if (visit) sessions.push(visit);
   }
   return sessions;
 }
@@ -160,39 +78,30 @@ export function readingStats(
   sessions: ReadingSession[],
   now = new Date(),
 ): ReadingStats {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days = Array.from({ length: 7 }, (_, index) => ({
-    date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + index),
-    seconds: 0,
-  }));
-  const stats: ReadingStats = {
-    days,
-    week: 0,
-    total: 0,
-    articles: 0,
-    visits: 0,
-    byArticle: [],
+  const dates = Array.from(
+    { length: 7 },
+    (_, index) =>
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6 + index),
+  );
+  const week = summarizeTime(sessions, {
+    from: dates[0]!.getTime(),
+    to: now.getTime(),
+  });
+  return {
+    days: dates.map((date) => ({
+      date,
+      seconds: (week.buckets.get(localDay(date.getTime())) ?? 0) / 1000,
+    })),
+    week: week.activeMs / 1000,
+    total: summarizeTime(sessions, { to: now.getTime() }).activeMs / 1000,
+    articles: week.subjects.filter((article) => article.activeMs >= 60_000)
+      .length,
+    visits: week.sessions.length,
+    byArticle: week.subjects.map((article) => [
+      article.subject.id,
+      article.activeMs / 1000,
+    ]),
   };
-  const perArticle = new Map<string, number>();
-  for (const visit of sessions) {
-    if (visit.seconds <= 0 || visit.startedAt > now.getTime()) continue;
-    stats.total += visit.seconds;
-    const started = new Date(visit.startedAt);
-    const day = days.find(
-      (item) => item.date.getTime() === new Date(started.getFullYear(), started.getMonth(), started.getDate()).getTime(),
-    );
-    if (!day) continue;
-    day.seconds += visit.seconds;
-    stats.week += visit.seconds;
-    stats.visits++;
-    perArticle.set(
-      visit.articleURL,
-      (perArticle.get(visit.articleURL) ?? 0) + visit.seconds,
-    );
-  }
-  stats.byArticle = [...perArticle].sort((a, b) => b[1] - a[1]);
-  stats.articles = stats.byArticle.filter(([, seconds]) => seconds >= 60).length;
-  return stats;
 }
 
 /** "<1 min", "12 min", "1 hr 5 min", as on the phone. */
