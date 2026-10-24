@@ -284,6 +284,10 @@ test("the phone's link bar saves nothing after Cancel, and shows what it saves",
   // A link saved during a search shows at the top of all of Saved.
   await page.getByRole("button", { name: /^Search \d/ }).click();
   const search = page.getByRole("searchbox");
+  await search.fill("old");
+  await page.keyboard.press("Enter");
+  // The field stays over the folders, so a tap on it edits the search.
+  await search.click();
   await search.fill("older");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\?q=older$/);
