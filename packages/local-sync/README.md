@@ -26,8 +26,10 @@ failure, retry time). Only a server answer changes the account, so a device
 that is offline or cannot reach the server keeps its remembered user.
 `describeSyncStatus` turns the status into a label, a detail, and an action
 (sign in, retry or reload). The app supplies one sync attempt (`run`), passes
-its session check's answers to `confirmSignedIn` or `confirmSignedOut`, and
-reports its outbox count with `setPending`.
+its session check's answers to `confirmSignedIn` or `confirmSignedOut`,
+reports its outbox count with `setPending`, and calls `beginSignIn` before a
+sign-in redirect, so the page it returns to reads `unknown` rather than "Sign
+in again" until the server answers.
 
 [docs/SYNC_STATES.md](docs/SYNC_STATES.md) has the design, when the client
 cannot tell offline from signed out, and the TLA+ model and chart that check

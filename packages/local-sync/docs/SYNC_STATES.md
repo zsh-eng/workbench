@@ -109,9 +109,10 @@ It cannot tell in these cases:
   attempts). The device shows the remembered user as signed in until the
   next attempt or session check gets a 401. Pending changes stay on the
   device, so nothing is lost.
-- **You signed in somewhere this device has not heard from** (another tab, or
-  just back from the sign-in redirect). The device says "Sign in again" until
-  its next session check or attempt succeeds.
+- **You signed in somewhere this device has not heard from** (another tab).
+  The device says "Sign in again" until its next session check or attempt
+  succeeds. Just back from this page's own sign-in redirect it can tell; see
+  below.
 - **A proxy or captive portal that answers 401 itself** looks like an ended
   session.
 
@@ -128,6 +129,14 @@ It cannot tell in these cases:
   launch, or the first check failed), the late 401 ended the new session. The
   controller now counts confirmations, and a 401 to an attempt that began
   before the latest one runs it again.
+- _Back from the sign-in redirect, the device said "Sign in again" until the
+  session check answered._ The page loads with the ended session that it
+  saved. The app now calls `beginSignIn()` before the redirect. A page that
+  loads within ten minutes over an ended session reads `unknown` (a neutral
+  state) until the server answers, reloads included. The ended session's
+  user stays remembered, so a "no session" answer or a 401 shows "Sign in
+  again" for that user, and a successful attempt signs that user in. Any
+  answer, or ten minutes, ends the return.
 - _Each tab has its own controller._ Tabs share the persisted identity only
   when they load. A sign-in in one tab reaches another through its session
   check (Reader refetches on focus).
@@ -160,6 +169,7 @@ authAnswer.user
   ? sync.confirmSignedIn({ userId, name, email, image }, sessionId)
   : sync.confirmSignedOut(); // only for an answer, never for a failed request
 sync.signOut(); // the user signed out here: forget the identity
+sync.beginSignIn(); // just before a sign-in redirect
 
 const status = useSyncStatus(sync); // SyncStatus
 const auth = useSyncStatus(sync, (s) => s.auth); // re-renders only when auth changes
@@ -188,19 +198,25 @@ node <pstack>/skills/statechart/scripts/statechart.mjs from-spec SyncStates.tla 
   --title "Sync and sign-in states"
 ```
 
-| Rule                         | The reader's sentence                                                                                                                                                                          | Result                              |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `OfflineMeansNoNetwork`      | Offline is shown when the device has no network, and only then.                                                                                                                                | holds                               |
-| `NoGuessedSignOut`           | Being offline, or a server that does not answer, never signs you out. Only the server's answer, or you, can.                                                                                   | holds                               |
-| `HeardSessionStays`          | While the server accepts a session that this device has heard about, the device never offers Sign in: not offline, not when requests fail, and not after a late answer about an older session. | holds (broken before the fix above) |
-| `RetryIsComing`              | "Couldn't reach the server" is shown only while a retry is coming.                                                                                                                             | holds                               |
-| `SyncsWhenBack`              | Once the network and the server work again, your changes reach the server without a reload or a tap.                                                                                           | holds (broken before the fix above) |
-| `EndedSessionLooksSignedOut` | A session that ended on the server is never shown as signed in.                                                                                                                                | known limit                         |
-| `NewSignInIsSeen`            | After you sign in again, here or in another tab, the device never offers Sign in.                                                                                                              | known limit                         |
+| Rule                         | The reader's sentence                                                                                                                                                                          | Result                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `OfflineMeansNoNetwork`      | Offline is shown when the device has no network, and only then.                                                                                                                                | holds                                |
+| `NoGuessedSignOut`           | Being offline, or a server that does not answer, never signs you out. Only the server's answer, or you, can.                                                                                   | holds                                |
+| `HeardSessionStays`          | While the server accepts a session that this device has heard about, the device never offers Sign in: not offline, not when requests fail, and not after a late answer about an older session. | holds (broken before the fix above)  |
+| `RetryIsComing`              | "Couldn't reach the server" is shown only while a retry is coming.                                                                                                                             | holds                                |
+| `BackFromSignInIsSeen`       | Back from signing in on this page, the device does not offer Sign in before the server answers, reloads included, unless ten minutes pass.                                                     | holds (broken without `beginSignIn`) |
+| `SyncsWhenBack`              | Once the network and the server work again, your changes reach the server without a reload or a tap.                                                                                           | holds (broken before the fix above)  |
+| `EndedSessionLooksSignedOut` | A session that ended on the server is never shown as signed in.                                                                                                                                | known limit                          |
+| `NewSignInIsSeen`            | After you sign in again, here or in another tab, the device never offers Sign in.                                                                                                              | known limit                          |
 
-The two known limits are the "cannot tell" cases above. TLC explored 14,188
-states and 88,628 transitions. The overview below keeps the shortest path to
-each of its 23 states (24 of 118 arrows). Gray states work; red and orange
+The two known limits are the "cannot tell" cases above: `NewSignInIsSeen`
+breaks after a sign-in in another tab, or a reload more than ten minutes
+after leaving to sign in with no answer yet. TLC explored 17,092 states and
+111,176 transitions. The overview below keeps the shortest path to each of
+its 23 states (24 of 122 arrows). TLC 2.19 can stop with an internal error
+(an `ArrayIndexOutOfBoundsException` or `EOFException`) while it lists every
+path into `EndedSessionLooksSignedOut`; the command says so. The final run,
+which checks every rule on every state, completes. Gray states work; red and orange
 ones are the known limits; "Sign in again to sync" after an ended session is
 white only because every way there passes a state where the device did not yet
 know.
@@ -276,22 +292,22 @@ stateDiagram-v2
   s17 --> s10 : the session ends on the server
   s17 --> s16 : the sync finishes
   s17 --> s22 : the session check finds the<br/>session
-  s17 --> s15 : the sync gets no answer or the<br/>server refuses the session or<br/>a refusal of the old session<br/>arrives or the sync finishes
+  s17 --> s15 : the server refuses the session<br/>or the sync gets no answer or<br/>a refusal of the old session<br/>arrives or the sync finishes
   s12 --> s5 : the session ends on the server
   s17 --> s11 : the sync gets no answer
   s10 --> s9 : the sync finishes
   s17 --> s13 : the sync finishes
   s22 --> s19 : the network drops
   s22 --> s10 : the session ends on the server
-  s10 --> s8 : the sync gets no answer or the<br/>server refuses the session or<br/>the sync finishes or a refusal<br/>of the old session arrives
+  s10 --> s8 : the server refuses the session<br/>or the sync gets no answer or<br/>the sync finishes or a refusal<br/>of the old session arrives
   s10 --> s4 : the sync gets no answer
   s10 --> s6 : the sync finishes
   s19 --> s5 : the session ends on the server
   s22 --> s18 : the sync gets no answer
-  s10 --> s7 : the session check finds no<br/>session or the server refuses<br/>the session
+  s10 --> s7 : the session check finds no<br/>session or the server refuses<br/>the session or you reopen the<br/>app
   s17 --> s21 : the sync finishes
   s17 --> s20 : the sync finishes
-  s17 --> s14 : the server refuses the session
+  s17 --> s14 : the server refuses the session<br/>or you reopen the app
   class s0 works
   class s1 works
   class s2 works
@@ -324,22 +340,28 @@ overlaps another. It starts the controller at launch, as Spaced does; Reader
 and Arctic start it once signed in, which only removes attempts while the
 account is unknown. A session check is one step: its request and answer happen
 together. An edit asks for a sync, as Arctic's `syncSoon` does; in Reader and
-Spaced the next periodic attempt plays that part.
+Spaced the next periodic attempt plays that part. A sign-in redirect is one
+step: `beginSignIn()`, the provider, and the page's next load. Ten minutes
+passing is a step of its own.
 
 ## In the apps
+
+Each app calls `beginSignIn()` just before its Google sign-in redirect.
 
 - **Reader**: `SyncService.controller` runs `SyncV2Client`. `observeAuthSession`
   passes Better Auth's answers to the controller and ignores its errors other
   than 401. `useAuth` reads the account from the controller, and the account
-  menu shows `useSyncSummary`.
+  menu shows `useSyncSummary`. While the account is `unknown` and Better Auth
+  has not answered, the menu shows a placeholder.
 - **Arctic**: each session owns a controller over its four channels; the
   account check at open confirms or ends the remembered account.
 - **Spaced**: `spacedSync` in `src/lib/sync/engine.ts` runs `/me`, then pull and
-  push. `/me`'s answer is its session check. The profile should read
-  `useSyncStatus(spacedSync, (s) => s.auth)` and `(s) => s.connection` instead
-  of `useLoggedInStatus` and `useOnlineStatus`: `ConnectionNotice` takes
-  `connection === "offline" ? "offline" : "online"`; the account button shows
-  the remembered user while `signed-in`, "Sign in again" while `expired`,
-  "Sign in" while `signed-out`, and a neutral state while `unknown`. Sign-in
-  and sign-out need the server, so disable them offline rather than hiding the
-  account. The expired banner should follow `auth.status === "expired"`.
+  push. `/me`'s answer is its session check. The profile reads
+  `useSyncStatus(spacedSync, (s) => s.connection)` for `ConnectionNotice`, and
+  the account (`src/components/profile/account-section.tsx`) reads `s.auth`
+  with `useSyncSummary` for its words: the remembered user and Sign out while
+  `signed-in`, the user, "Sign in again" and Sign out while `expired`, "Sign
+  in" while `signed-out`, and a neutral "Checking your account…" while
+  `unknown`. Sign-in and sign-out need the server, so they are disabled
+  offline, never hidden. The session-expired notice follows
+  `auth.status === "expired"`.

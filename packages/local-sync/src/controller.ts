@@ -99,6 +99,13 @@ export interface SyncController {
   confirmSignedOut(): void;
   /** The user signed out on this device: forget the identity and last sync time. */
   signOut(): void;
+  /**
+   * The user is leaving to sign in (a redirect). When the page loads again
+   * within ten minutes with an ended session, the account reads `unknown`
+   * instead of "Sign in again" until the server answers. The ended session's
+   * user stays remembered for a "no session" answer.
+   */
+  beginSignIn(): void;
   /** Resolves when no attempt is in flight. */
   drain(): Promise<void>;
   dispose(): void;
@@ -115,8 +122,13 @@ const savedSchema = z.object({
     .optional(),
   expired: z.boolean().optional(),
   lastSyncedAt: z.number().optional(),
+  /** When beginSignIn() last ran, until the server answers. */
+  signInAt: z.number().optional(),
 });
 type Saved = z.infer<typeof savedSchema>;
+
+/** A page that loads this long after beginSignIn() is not a return from it. */
+export const SIGN_IN_RETURN_MS = 10 * 60_000;
 
 const CANCELLED: SyncAttempt = { outcome: "cancelled" };
 
@@ -132,9 +144,22 @@ export function createSyncController(
   const maxRetryMs = options.retry?.maxMs ?? DEFAULT_SYNC_RETRY.maxMs;
   const saved = load(options.persist);
   const listeners = new Set<() => void>();
+  /** beginSignIn()'s time, kept until the server answers. */
+  let signInAt = saved.signInAt;
+  /**
+   * Back from a sign-in redirect to an ended session: its user, while the
+   * account reads `unknown` and no server has answered.
+   */
+  let returning =
+    saved.user &&
+    saved.expired &&
+    signInAt !== undefined &&
+    now() - signInAt < SIGN_IN_RETURN_MS
+      ? saved.user
+      : undefined;
   let status: SyncStatus = {
     connection: network.isOnline() ? "online" : "offline",
-    auth: initialAuth(saved, options.user),
+    auth: returning ? { status: "unknown" } : initialAuth(saved, options.user),
     running: false,
     restoring: false,
     pending: 0,
@@ -270,13 +295,15 @@ export function createSyncController(
       lastSyncedAt: now(),
     };
     // The server accepted this device's session, so the remembered user is signed in.
+    const remembered = rememberedUser();
     if (
       epoch === authEpoch &&
-      (auth.status === "expired" ||
-        (auth.status === "signed-in" && !auth.confirmed))
+      remembered &&
+      !(auth.status === "signed-in" && auth.confirmed)
     ) {
-      next.auth = { status: "signed-in", user: auth.user, confirmed: true };
+      next.auth = { status: "signed-in", user: remembered, confirmed: true };
       refusedSessionId = undefined;
+      answered();
     }
     nextAt = intervalMs > 0 ? now() + intervalMs : Infinity;
     publish(next);
@@ -306,8 +333,9 @@ export function createSyncController(
     nextAt = now() + retryDelay(failures, failure);
     const next: Partial<SyncStatus> = { connection, failure, failures };
     if (failure.kind === "unauthorized") {
-      next.auth = refused(status.auth);
+      next.auth = refusedAuth();
       refusedSessionId = sessionId;
+      answered();
     }
     publish(next);
     if (next.auth) save();
@@ -362,14 +390,34 @@ export function createSyncController(
     else if (status.connection === "offline") publish({ connection: "online" });
   }
 
+  /** The user this device remembers: signed in, ended, or back from signing in. */
+  function rememberedUser(): SyncIdentity | undefined {
+    const auth = status.auth;
+    return auth.status === "signed-in" || auth.status === "expired"
+      ? auth.user
+      : returning;
+  }
+
+  /** A refused session: a remembered user's session has ended; otherwise nobody is signed in. */
+  function refusedAuth(): SyncAuth {
+    const user = rememberedUser();
+    return user ? { status: "expired", user } : { status: "signed-out" };
+  }
+
+  /** The server answered about the session, so a sign-in return is over. */
+  function answered() {
+    returning = undefined;
+    signInAt = undefined;
+  }
+
   function save() {
     if (!options.persist) return;
-    const auth = status.auth;
     const value: Saved = {};
-    if (auth.status === "signed-in" || auth.status === "expired")
-      value.user = auth.user;
-    if (auth.status === "expired") value.expired = true;
+    const user = rememberedUser();
+    if (user) value.user = user;
+    if (status.auth.status === "expired" || returning) value.expired = true;
     if (status.lastSyncedAt !== null) value.lastSyncedAt = status.lastSyncedAt;
+    if (signInAt !== undefined) value.signInAt = signInAt;
     try {
       options.persist.storage.setItem(
         options.persist.key,
@@ -420,9 +468,11 @@ export function createSyncController(
       auth.status === "signed-in" || auth.status === "expired"
         ? auth.user
         : undefined;
+    // Back from signing in, the cookie is new too.
     const credentialsChanged =
       auth.status === "signed-out" ||
       auth.status === "expired" ||
+      returning !== undefined ||
       (known !== undefined &&
         (known.userId !== identity.userId ||
           (sessionId !== undefined &&
@@ -430,6 +480,8 @@ export function createSyncController(
             session !== sessionId)));
     if (session !== undefined) sessionId = session;
     if (credentialsChanged) authEpoch++;
+    const marked = signInAt !== undefined;
+    answered();
     const next: Partial<SyncStatus> = {};
     if (
       auth.status !== "signed-in" ||
@@ -442,7 +494,7 @@ export function createSyncController(
       next.failures = 0;
     }
     publish(next);
-    if (next.auth) save();
+    if (next.auth || marked) save();
     if (credentialsChanged && automatic() && !active) void begin();
     else schedule();
   }
@@ -452,12 +504,15 @@ export function createSyncController(
     if (auth.status === "signed-out" || auth.status === "expired") return;
     refusedSessionId = sessionId;
     authEpoch++;
-    publish({ auth: refused(auth) });
+    const next = refusedAuth();
+    answered();
+    publish({ auth: next });
     save();
     schedule();
   }
 
   function signOut() {
+    answered();
     authEpoch++;
     sessionId = undefined;
     refusedSessionId = undefined;
@@ -496,6 +551,10 @@ export function createSyncController(
     confirmSignedIn,
     confirmSignedOut,
     signOut,
+    beginSignIn() {
+      signInAt = now();
+      save();
+    },
     async drain() {
       while (active) await active;
     },
@@ -506,13 +565,6 @@ export function createSyncController(
       detachNetwork = undefined;
     },
   };
-}
-
-/** A refused session: a known user's session has ended; otherwise nobody is signed in. */
-function refused(auth: SyncAuth): SyncAuth {
-  return auth.status === "signed-in" || auth.status === "expired"
-    ? { status: "expired", user: auth.user }
-    : { status: "signed-out" };
 }
 
 function initialAuth(saved: Saved, user: SyncIdentity | undefined): SyncAuth {

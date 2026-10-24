@@ -285,6 +285,103 @@ describe("sync status", () => {
     });
   });
 
+  describe("back from the sign-in redirect", () => {
+    /** A device whose session ended, where the user then left to sign in again. */
+    async function leftToSignIn() {
+      const persist = { storage: memoryStorage(), key: "app/sync-status" };
+      const server = fakeServer();
+      const open = () =>
+        createSyncController({
+          run: server.run,
+          network: fakeNetwork(),
+          persist,
+        });
+      const page = open();
+      page.confirmSignedIn(ada, "old");
+      page.start();
+      server.last().reject(unauthorized());
+      await page.drain();
+      expect(summary(page).label).toBe("Sign in again to sync");
+      page.beginSignIn();
+      page.dispose();
+      return { server, open };
+    }
+
+    it("reads neither signed in nor Sign in again until the session check answers, across reloads", async () => {
+      const { server, open } = await leftToSignIn();
+      vi.advanceTimersByTime(30_000);
+      let page = open();
+      expect(page.getSnapshot().auth).toEqual({ status: "unknown" });
+      expect(summary(page)).toMatchObject({ action: null, attention: false });
+      page.dispose();
+
+      // A reload before the answer is still the same return.
+      page = open();
+      expect(page.getSnapshot().auth.status).toBe("unknown");
+      page.confirmSignedIn(ada, "new");
+      expect(page.getSnapshot().auth).toEqual({
+        status: "signed-in",
+        user: ada,
+        confirmed: true,
+      });
+      page.start();
+      server.last().resolve();
+      await page.drain();
+      page.dispose();
+
+      // The return is over: the next ended session says so on the next load.
+      page = open();
+      page.start();
+      server.last().reject(unauthorized());
+      await page.drain();
+      page.dispose();
+      expect(open().getSnapshot().auth).toEqual({
+        status: "expired",
+        user: ada,
+      });
+    });
+
+    it("keeps the remembered user when the server answers that there is no session", async () => {
+      const { open } = await leftToSignIn();
+      const page = open();
+      page.confirmSignedOut();
+      expect(page.getSnapshot().auth).toEqual({ status: "expired", user: ada });
+      expect(summary(page).label).toBe("Sign in again to sync");
+    });
+
+    it("signs in the remembered user when an attempt succeeds first, and ends it on a 401", async () => {
+      const { server, open } = await leftToSignIn();
+      const page = open();
+      page.start();
+      server.last().resolve();
+      await page.drain();
+      expect(page.getSnapshot().auth).toEqual({
+        status: "signed-in",
+        user: ada,
+        confirmed: true,
+      });
+      page.dispose();
+
+      const again = open();
+      again.start();
+      server.last().reject(unauthorized());
+      await again.drain();
+      expect(again.getSnapshot().auth).toEqual({
+        status: "expired",
+        user: ada,
+      });
+    });
+
+    it("is not a return when the page loads long after the sign-in began", async () => {
+      const { open } = await leftToSignIn();
+      vi.advanceTimersByTime(11 * 60_000);
+      expect(open().getSnapshot().auth).toEqual({
+        status: "expired",
+        user: ada,
+      });
+    });
+  });
+
   it("maintenance waits for Retry-After, and an upgrade or account change stops automatic sync", async () => {
     const server = fakeServer();
     const controller = createSyncController({

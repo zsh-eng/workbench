@@ -13,11 +13,13 @@ export const readerActions = [
   "RequestsStop",
   "RequestsResume",
   "SessionEnds",
+  "MarkerLapses",
   "Edit",
   "SyncNow",
   "ReturnToApp",
   "Reopen",
   "SignInHere",
+  "SignInGivenUp",
   "SignInElsewhere",
   "SignOut",
 ];
@@ -56,11 +58,13 @@ const STEPS = {
   RequestsStop: "requests stop getting answers",
   RequestsResume: "requests get answers again",
   SessionEnds: "the session ends on the server",
+  MarkerLapses: "ten minutes pass",
   Edit: "you change something",
   SyncNow: "you tap Sync now",
   ReturnToApp: "you come back to the app",
   Reopen: "you reopen the app",
   SignInHere: "you sign in",
+  SignInGivenUp: "you leave to sign in and come back without it",
   SignInElsewhere: "another tab signs in",
   SignOut: "you sign out",
   SoonTimerFires: "the requested sync starts",
@@ -80,7 +84,9 @@ export function step(action) {
 
 export function cause(v, facts, invariant) {
   if (invariant === "NewSignInIsSeen")
-    return "the device has not heard from the server since you signed in";
+    return v.marker
+      ? "the device has not heard from the server since you signed in"
+      : "the device has not heard from the server since you signed in, in another tab or more than ten minutes ago";
   if (invariant === "EndedSessionLooksSignedOut")
     return v.device === "offline" || v.reach === "no"
       ? "the device cannot reach the server"
