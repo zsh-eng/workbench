@@ -17,7 +17,9 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   copies in the separate `arctic-content` namespace are approved (19 October
   2026): cleaned HTML only, no scripts, at most 2 MiB each; the web app in
   `Browser/` writes them, and so does `Browser/scripts/upload.ts` with the
-  Workbench Backup credential (approved 20 October 2026). Annotation and
+  Workbench Backup credential (approved 20 October 2026). The phone uploads
+  the text of its Reader copies that the account lacks, in the web's format
+  (`AccountRecords` in `Sources/LibrarySync.swift`, 24 October 2026). Annotation and
   reading-time sync are approved web first (21 October 2026): records only, in
   `arctic-annotations` and `arctic-reading`, in the phone's `ReaderAnnotation`
   and `ArticleReadingSession` encodings. The phone syncs them too (approved

@@ -1,0 +1,59 @@
+---
+title: "Text and theme sheet on a phone"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  classDef plainWrong fill:#f4f6f7,stroke:#c0392b,stroke-width:4px,color:#7b241c
+  classDef group0 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  classDef group1 fill:#fdebd0,stroke:#7f7668,color:#1b2631
+  classDef group1Wrong fill:#fdebd0,stroke:#c0392b,stroke-width:4px,color:#7b241c
+  state "Legend" as legend {
+    state "Library" as legendGroup0
+    state "Reading" as legendGroup1
+    state "Breaks a rule" as legendWrong
+  }
+  class legendGroup0 group0
+  class legendGroup1 group1
+  class legendWrong plainWrong
+  state "Library" as s0
+  state "Library (offline)" as s1
+  state "Library (the sheet's code<br/>failed)" as s2
+  state "Library (the sheet's code<br/>failed, offline)" as s3
+  state "Reading" as s4
+  state "Reading (offline)" as s5
+  state "Reading (the sheet's code<br/>failed)" as s6
+  state "Reading (the sheet's code<br/>failed, offline)" as s7
+  state "Text and theme loading<br/>(offline)" as s8
+  state "Text and theme open" as s9
+  state "Text and theme open<br/>(offline)" as s10
+  state "Text and theme tapped,<br/>nothing opens" as s11
+  state "Text and theme tapped,<br/>nothing opens (offline)" as s12
+  [*] --> s0
+  [*] --> s1
+  s0 --> s4 : Open an article
+  s1 --> s5 : Open an article
+  s5 --> s8 : Tap Text and theme
+  s1 --> s3 : The sheet's code fails to load
+  s8 --> s12 : The sheet's code fails to load
+  s5 --> s7 : The sheet's code fails to load
+  s3 --> s2 : The connection returns
+  s4 --> s9 : Tap Text and theme
+  s12 --> s11 : The connection returns
+  s7 --> s6 : The connection returns
+  s5 --> s10 : Tap Text and theme
+  class s0 group0
+  class s1 group0
+  class s2 group0
+  class s3 group0
+  class s4 group1
+  class s5 group1
+  class s6 group1
+  class s7 group1
+  class s8 group1
+  class s9 group1
+  class s10 group1
+  class s11 group1Wrong
+  class s12 group1

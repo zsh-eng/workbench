@@ -2053,6 +2053,8 @@ a.article-source:hover {
 }
 .strip-search {
   position: absolute;
+  /* Above each .folder, which is raised over its capsule. */
+  z-index: 2;
   inset: env(safe-area-inset-top) var(--gutter) 0;
   display: flex;
   align-items: center;
@@ -2065,6 +2067,13 @@ a.article-source:hover {
 .strip[data-searching] .strip-search {
   opacity: 1;
   pointer-events: auto;
+}
+/* The folders reach into the gutter, past the field. */
+.folders {
+  transition: opacity 0.15s;
+}
+.strip[data-searching] .folders {
+  opacity: 0;
 }
 .strip-search svg {
   position: absolute;

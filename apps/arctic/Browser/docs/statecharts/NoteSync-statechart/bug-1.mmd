@@ -1,0 +1,46 @@
+---
+title: "One note on the phone and the web, bug 1"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  classDef group0Fixed fill:#d6eaf8,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group1 fill:#fdebd0,stroke:#7f7668,color:#1b2631
+  classDef group1Path fill:#fdebd0,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  classDef group2 fill:#e8daef,stroke:#746d78,color:#1b2631
+  classDef group2Path fill:#e8daef,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  state "Legend" as legend {
+    state "An older edit" as legendGroup0
+    state "The devices differ" as legendGroup1
+    state "The newest edit" as legendGroup2
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup0 group0
+  class legendGroup1 group1
+  class legendGroup2 group2
+  class legendFixed plainFixed
+  state "Both show the phone's<br/>note, an older edit" as s0
+  state "No note yet" as s1
+  state "The web shows no note, the<br/>phone the phone's note<br/>(the phone has not sent<br/>its edit)" as s2
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit)" as s3
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit, the<br/>phone has not sent its<br/>edit)" as s4
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit, the<br/>phone has not sent its<br/>edit, the phone is<br/>syncing)" as s5
+  [*] --> s1
+  s1 --> s2 : 1. Edit the note on the phone
+  s2 --> s4 : 2. Edit the note on the web
+  s4 --> s5 : 3. The phone pulls
+  s5 --> s3 : 5. The phone sends
+  s3 --> s0 : 6. The web takes the account's<br/>note
+  s3 --> s3 : with the fix, The web takes<br/>the account's note cannot<br/>happen at step 6
+  s5 --> s5 : 4. The phone compares<br/>updatedAt
+  class s0 group0Fixed
+  class s1 group2Path
+  class s2 group1Path
+  class s3 group1Path
+  class s4 group1Path
+  class s5 group1Path

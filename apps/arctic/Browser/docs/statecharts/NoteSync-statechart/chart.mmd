@@ -1,0 +1,69 @@
+---
+title: "One note on the phone and the web"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  classDef group0Fixed fill:#d6eaf8,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group1 fill:#fdebd0,stroke:#7f7668,color:#1b2631
+  classDef group2 fill:#e8daef,stroke:#746d78,color:#1b2631
+  state "Legend" as legend {
+    state "An older edit" as legendGroup0
+    state "The devices differ" as legendGroup1
+    state "The newest edit" as legendGroup2
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup0 group0
+  class legendGroup1 group1
+  class legendGroup2 group2
+  class legendFixed plainFixed
+  state "Both show the phone's note" as s0
+  state "Both show the phone's<br/>note, an older edit" as s1
+  state "Both show the web's note" as s2
+  state "Both show the web's note<br/>(the phone is syncing)" as s3
+  state "No note yet" as s4
+  state "The web shows no note, the<br/>phone the phone's note" as s5
+  state "The web shows no note, the<br/>phone the phone's note<br/>(the phone has not sent<br/>its edit)" as s6
+  state "The web shows no note, the<br/>phone the phone's note<br/>(the phone has not sent<br/>its edit, the phone is<br/>syncing)" as s7
+  state "The web shows the web's<br/>note, the phone no note" as s8
+  state "The web shows the web's<br/>note, the phone no note<br/>(the phone is syncing)" as s9
+  state "The web shows the web's<br/>note, the phone no note<br/>(the web has not sent its<br/>edit)" as s10
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit)" as s11
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit, the<br/>phone has not sent its<br/>edit)" as s12
+  state "The web shows the web's<br/>note, the phone the<br/>phone's note (the web has<br/>not sent its edit, the<br/>phone has not sent its<br/>edit, the phone is<br/>syncing)" as s13
+  [*] --> s4
+  s4 --> s10 : Edit the note on the web
+  s4 --> s6 : Edit the note on the phone
+  s10 --> s12 : Edit the note on the phone
+  s10 --> s8 : The web sends its edit
+  s6 --> s12 : Edit the note on the web
+  s6 --> s7 : The phone pulls
+  s12 --> s13 : The phone pulls
+  s8 --> s9 : The phone pulls
+  s9 --> s3 : The phone compares updatedAt
+  s7 --> s5 : The phone sends
+  s13 --> s11 : The phone sends
+  s3 --> s2 : The phone sends
+  s5 --> s0 : The web takes the account's<br/>note
+  s11 --> s1 : The web takes the account's<br/>note or sends its edit
+  s11 --> s11 : with the fix, The web takes<br/>the account's note cannot<br/>happen at step 6 of bug 1
+  s13 --> s13 : The phone compares updatedAt
+  class s0 group2
+  class s1 group0Fixed
+  class s2 group2
+  class s3 group2
+  class s4 group2
+  class s5 group1
+  class s6 group1
+  class s7 group1
+  class s8 group1
+  class s9 group1
+  class s10 group1
+  class s11 group1
+  class s12 group1
+  class s13 group1

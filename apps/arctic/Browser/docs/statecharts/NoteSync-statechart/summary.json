@@ -1,0 +1,95 @@
+{
+  "view": "customer",
+  "second": {
+    "role": "fix",
+    "label": "the fix",
+    "lacks": []
+  },
+  "modelStates": 225,
+  "modelTransitions": 341,
+  "chartStates": 14,
+  "chartTransitions": 16,
+  "chartStatus": {
+    "works": 16,
+    "wrong": 0,
+    "fixed": 1,
+    "mixed": 0,
+    "after": 0,
+    "worse": 0
+  },
+  "mixedStatus": [],
+  "cover": {
+    "drawn": true,
+    "states": 17,
+    "transitions": 34,
+    "leftOutStates": [
+      "The web shows the web's note, the phone the phone's note",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit)",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing)"
+    ],
+    "leftOutTransitions": [
+      "Both show the phone's note --> The web shows the web's note, the phone the phone's note (the web has not sent its edit): Edit the note on the web",
+      "Both show the web's note (the phone is syncing) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing): Edit the note on the phone",
+      "Both show the web's note --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit): Edit the note on the phone",
+      "The web shows no note, the phone the phone's note (the phone has not sent its edit, the phone is syncing) --> The web shows the web's note, the phone the phone's note (the web has not sent its edit, the phone has not sent its edit, the phone is syncing): Edit the note on the web",
+      "The web shows no note, the phone the phone's note --> The web shows the web's note, the phone the phone's note (the web has not sent its edit): Edit the note on the web",
+      "The web shows the web's note, the phone no note (the phone is syncing) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing): Edit the note on the phone",
+      "The web shows the web's note, the phone no note --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit): Edit the note on the phone",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing): The phone pulls",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing) --> Both show the web's note (the phone is syncing): The phone compares updatedAt",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit): The phone sends",
+      "The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing) --> The web shows the web's note, the phone the phone's note: The phone sends",
+      "The web shows the web's note, the phone the phone's note (the web has not sent its edit) --> Both show the phone's note: The web takes the account's note or sends its edit",
+      "The web shows the web's note, the phone the phone's note (the web has not sent its edit) --> The web shows the web's note, the phone the phone's note: The web sends its edit",
+      "The web shows the web's note, the phone the phone's note (the web has not sent its edit, the phone has not sent its edit) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit): The web sends its edit",
+      "The web shows the web's note, the phone the phone's note (the web has not sent its edit, the phone has not sent its edit, the phone is syncing) --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing): The web sends its edit",
+      "The web shows the web's note, the phone the phone's note --> Both show the phone's note, an older edit: The web takes the account's note",
+      "The web shows the web's note, the phone the phone's note --> Both show the phone's note: The web takes the account's note",
+      "The web shows the web's note, the phone the phone's note --> The web shows the web's note, the phone the phone's note (the phone has not sent its edit, the phone is syncing): The phone pulls"
+    ]
+  },
+  "chartGroups": [
+    {
+      "name": "An older edit",
+      "color": "#d6eaf8",
+      "states": 1
+    },
+    {
+      "name": "The devices differ",
+      "color": "#fdebd0",
+      "states": 9
+    },
+    {
+      "name": "The newest edit",
+      "color": "#e8daef",
+      "states": 4
+    }
+  ],
+  "mixedGroups": [],
+  "classes": [
+    {
+      "n": 1,
+      "end": "Both show the phone's note, an older edit",
+      "invariant": "NewestNote",
+      "rule": "Once both devices are done syncing, the note is its newest edit.",
+      "cause": null,
+      "readerSteps": 6,
+      "modelSteps": 7,
+      "counterexamples": 9,
+      "lastSteps": [
+        "The web takes the account's note",
+        "The web sends its edit"
+      ],
+      "startsHere": false,
+      "fix": "The web shows the web's note, the phone the phone's note (the web has not sent its edit)"
+    }
+  ],
+  "codeLike": [
+    "The phone compares updatedAt"
+  ],
+  "uncited": {
+    "NoteSync.tla": [],
+    "NoteSyncFixed.tla": []
+  },
+  "brokenProperties": []
+}

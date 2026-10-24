@@ -412,7 +412,9 @@ normal behavior: native UI tests own saved/history/favourite filters, paste
 choices, and manual tag edits; Web tests own extraction, text anchors, and paint.
 `Sync/Tests` owns durable transport/journal behavior. `Tests/check-article-sync.py`
 owns the article repository: the first-launch copy, edit patches and account
-import. The native UI test owns sign-in, adding articles, relaunch and sign-out
+import. `Tests/check-account-records.py` owns the sync of highlights, notes, reading
+sessions and Reader copies' text (`AccountRecords`), against a fake server with
+the server's rules. The native UI test owns sign-in, adding articles, relaunch and sign-out
 with an in-memory account.
 
 Keep small lower-level checks only where normal UI flows cannot expose the
