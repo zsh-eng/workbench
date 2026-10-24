@@ -15,6 +15,7 @@ import { emptyMetadata, parseReviewPatch, reviewFileMatchesFilter } from "../../
 import {
   predictStage,
   rowPaths,
+  stagedPaths,
   stageState,
   type CommitApi,
   type StageChange,
@@ -441,15 +442,23 @@ export default function CommitView({
     if (!status || !splitMessage(text).summary.trim() || !commitCount) return;
     const written = text;
     const all = commitAll;
+    // The files that the dialog counts. The commit holds these, or it stops.
+    const counted = (all ? files.flatMap(rowPaths) : stagedPaths(status)).toSorted();
     setCommitError(null);
     return run("commit", async () => {
       try {
         if (all) {
+          // Only the files shown: a file that came after is not counted.
           writes.current += 1;
-          accept(await api.stage(null, true));
+          accept(await api.stage(counted, true));
           writes.current += 1;
         }
-        // Queued stages have finished; commit what Git last reported.
+        // Queued stages have finished. A stage that failed, or a change that
+        // Git reported since, stops the commit.
+        if (stagedPaths(latest.current!).join("\0") !== counted.join("\0"))
+          throw new Error(
+            "The staged files changed since you pressed Commit. Check them, then commit again.",
+          );
         const result = await api.commit(written, latest.current!.indexKey);
         setText("");
         setComposing(false);
@@ -461,7 +470,7 @@ export default function CommitView({
         await readStatus().catch(() => {});
       }
     });
-  }, [accept, api, commitAll, commitCount, readDiff, readStatus, run, status, text]);
+  }, [accept, api, commitAll, commitCount, files, readDiff, readStatus, run, status, text]);
   const push = useCallback(
     (track = false) => {
       if (!status?.head || !status.branch) return;

@@ -72,6 +72,13 @@ export function createCommitApi(api: ReturnType<typeof createApi>, repo: string)
 export const rowPaths = (file: WorkingFile) =>
   file.previousPath ? [file.path, file.previousPath] : [file.path];
 
+/** The paths that a commit of this status would hold, sorted. */
+export const stagedPaths = (status: WorkingStatus) =>
+  status.files
+    .filter((file) => file.staged && file.staged !== "conflicted")
+    .flatMap(rowPaths)
+    .toSorted();
+
 /** "staged", "partial", or "unstaged", for the row's mark. */
 export function stageState(file: WorkingFile) {
   if (file.staged === "conflicted") return "unstaged" as const;
