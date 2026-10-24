@@ -476,10 +476,16 @@ because they can contain credentials. No browsing or comparison action pushes.
 
 **Commit.** The Commit tab (`src/host/repository/commit-flow.ts`) is the only
 part of Med that changes the index or makes commits. Stage and unstage take
-whole files, and each path is literal (`GIT_LITERAL_PATHSPECS`). A commit sends
-its message on standard input with the index key that the view showed: a hash
-of HEAD and of each index entry that differs from HEAD. If the index or HEAD
-changed, the host returns 409 and commits nothing. Hooks run as in a terminal,
+whole files, and each path is literal (`GIT_LITERAL_PATHSPECS`); paths go to
+Git on standard input, so their number has no command-line limit. A commit
+sends its message on standard input with the index key that the view showed: a
+hash of HEAD and of each index entry that differs from HEAD. It also names its
+files with what the tab showed of each: the blob on the diff's index line, or
+for a new untracked file the SHA-256 of its text. If the index, HEAD, the
+files, or their content changed, the host returns 409 and commits nothing.
+Commit all (nothing staged) stages its files in a copy of the index
+(`GIT_INDEX_FILE`), as `git commit -a` does; after the commit, `git reset`
+sets those paths in the real index to the new HEAD. Hooks run as in a terminal,
 without an editor or a credential prompt; when a hook stops the commit, the 422
 response has the last 8,000 characters of its output. Push from the Commit tab
 uses the same exact-commit push, to the branch's upstream; a branch without an
