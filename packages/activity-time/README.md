@@ -52,7 +52,8 @@ The session has 75 s; the 165 s gap counts nothing. An input at 250 s adds
 - Only the browser's own events count: an event with `isTrusted` false does
   not. A scroll event is trusted even when code scrolled the page, for
   example to restore a reading position. Thus a scroll counts only just after
-  a real input. Momentum after a flick moves a boundary by a second at most.
+  a real input. Momentum scrolling more than a second after a flick does not
+  count; that moves a boundary and rarely changes a total.
 - Inputs do not count while the page is hidden.
 - An input proves presence, so it also ends a pause. A person can scroll or
   move the mouse over a window that does not have focus, for example to read
@@ -157,3 +158,9 @@ which no store keeps.
 `bun run --cwd packages/activity-time test` runs the rule, the browser
 signals (with happy-dom windows and an injected clock), saves, multi-tab use
 and the codecs.
+
+On a copy of the Workbench Backup mirror (24 October 2026), all 493 Reader
+rows mapped to sessions and back unchanged, and the Sessions page gave the
+same overview for eight ranges as before. All 9 Arctic records re-encoded to
+the same bytes, with the same Reading page stats. All 67,371 Spaced review
+logs mapped, with the same total.
