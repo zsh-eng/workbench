@@ -1,5 +1,11 @@
-import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import type { SheetProps } from "./sheet";
+import { showToast } from "./state";
 
 /**
  * Phones get sheets; wider windows get popovers and menus by their controls.
@@ -67,19 +73,40 @@ export function useAboveKeyboard(
   }, [ref, active]);
 }
 
-let sheet: typeof import("./sheet") | undefined;
-let loading: Promise<unknown> | undefined;
-const loadSheet = () =>
-  (loading ??= import("./sheet").then((module) => (sheet = module)));
+type SheetModule = typeof import("./sheet");
+let sheet: SheetModule | undefined;
+let loading: Promise<SheetModule> | undefined;
+let retryURL: string | undefined;
+
+/**
+ * Loads the sheet's code once. A failed load is forgotten, so the next sheet
+ * tries again. The browser also remembers a module that failed to fetch, for
+ * the life of the page, so the next try asks for the same file at a new
+ * address (Chromium's error names the file; Safari's does not).
+ */
+function loadSheet() {
+  loading ??= (
+    retryURL ? import(/* @vite-ignore */ retryURL) : import("./sheet")
+  ).then(
+    (module: SheetModule) => (sheet = module),
+    (error: unknown) => {
+      loading = undefined;
+      const file = /https?:\/\/\S+?\.(?:js|tsx)\b/.exec(String(error))?.[0];
+      if (file) retryURL = `${file}?retry=${Date.now()}`;
+      throw error;
+    },
+  );
+  return loading;
+}
 
 /**
  * React Aria's sheet stays out of the first load. A phone loads it just
- * after the library appears (24 kB compressed, from the service worker's
+ * after the first page appears (24 kB compressed, from the service worker's
  * cache), so the first sheet opens at once.
  */
 export function preloadSheet() {
-  if (!compact.matches) return;
-  const load = () => void loadSheet();
+  if (!compact.matches || sheet) return;
+  const load = () => void loadSheet().catch(() => {});
   if (typeof requestIdleCallback === "function")
     requestIdleCallback(load, { timeout: 400 });
   else setTimeout(load, 100);
@@ -90,9 +117,25 @@ export function Sheet(props: SheetProps) {
   const [used, setUsed] = useState(props.isOpen);
   const [, setLoaded] = useState(false);
   if (props.isOpen && !used) setUsed(true);
+  const { isOpen, onOpenChange } = props;
   useEffect(() => {
-    if (used && !sheet) void loadSheet().then(() => setLoaded(true));
-  }, [used]);
+    if (!isOpen || sheet) return;
+    let current = true;
+    loadSheet().then(
+      () => current && setLoaded(true),
+      () => {
+        // Closed, so the next tap opens it again and tries the code again.
+        if (!current) return;
+        onOpenChange(false);
+        showToast(
+          "Arctic could not open this. Check the connection and try again.",
+        );
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [isOpen, onOpenChange]);
   // Loaded code renders in the same commit as the tap, so a field in the
   // sheet can take focus in that tap and the phone opens its keyboard.
   // React.lazy would wait a task, even for code that is already here.

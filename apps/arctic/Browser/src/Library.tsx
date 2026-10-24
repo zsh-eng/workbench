@@ -43,14 +43,9 @@ import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
 import { useArticles, useSession, useStatus } from "./state";
-import { preloadSheet, useCompact, useWide } from "./surface";
+import { useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
-import {
-  AccountMenu,
-  CardMenu,
-  CardMenuButton,
-  describeStatus,
-} from "./ui";
+import { AccountMenu, CardMenu, CardMenuButton, describeStatus } from "./ui";
 
 export function Library({ folder }: { folder: Folder }) {
   const articles = useArticles();
@@ -101,8 +96,7 @@ export function Library({ folder }: { folder: Folder }) {
   );
   const compact = useCompact();
   // Back and Forward render every card at once, so the scroll position returns.
-  const returning =
-    useNavigationType() === "POP" && location.key !== "default";
+  const returning = useNavigationType() === "POP" && location.key !== "default";
   // A phone shows a dozen cards at most, so it renders those first.
   const rendered = useSteps(
     visible.length,
@@ -112,10 +106,8 @@ export function Library({ folder }: { folder: Folder }) {
   );
 
   useLayoutEffect(() => {
-    if (visible.length && !performance.getEntriesByName("arctic:cards").length) {
+    if (visible.length && !performance.getEntriesByName("arctic:cards").length)
       performance.mark("arctic:cards");
-      preloadSheet();
-    }
   }, [visible.length]);
 
   const first =
@@ -232,7 +224,9 @@ export function Library({ folder }: { folder: Folder }) {
             {folders.map((item) => (
               <Link
                 key={item.id}
-                to={item.path + (query ? `?q=${encodeURIComponent(query)}` : "")}
+                to={
+                  item.path + (query ? `?q=${encodeURIComponent(query)}` : "")
+                }
                 className="side-item"
                 aria-current={item.id === folder ? "page" : undefined}
               >
@@ -513,7 +507,10 @@ function PhoneDock({
     <LinkDock>
       <button type="button" className="search-capsule" onClick={onSearch}>
         <Search size={17} />
-        Search {count > 0 ? `${count.toLocaleString()} ${count === 1 ? "article" : "articles"}` : ""}
+        Search{" "}
+        {count > 0
+          ? `${count.toLocaleString()} ${count === 1 ? "article" : "articles"}`
+          : ""}
       </button>
     </LinkDock>
   );
@@ -525,18 +522,14 @@ function PhoneDock({
  * card takes focus, and, while the browser is idle, for the cards on screen.
  * One set of listeners on the list serves every card.
  */
-function usePrefetch(
-  grid: RefObject<HTMLElement | null>,
-  visible: Article[],
-) {
+function usePrefetch(grid: RefObject<HTMLElement | null>, visible: Article[]) {
   const session = useSession();
   const byId = useMemo(
     () => new Map(visible.map((article) => [article.id, article])),
     [visible],
   );
   const find = (target: EventTarget | null) => {
-    const id = (target as Element | null)
-      ?.closest?.<HTMLElement>(".card")
+    const id = (target as Element | null)?.closest?.<HTMLElement>(".card")
       ?.dataset.id;
     return id ? byId.get(id) : undefined;
   };

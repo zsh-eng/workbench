@@ -26,6 +26,7 @@ import { SessionContext, articles } from "./state";
 import { downloadNew } from "./offline";
 import { articleText, decodedImage, prefetch } from "./text";
 import { Session } from "./sync/session";
+import { preloadSheet } from "./surface";
 import { Toaster } from "./ui";
 
 type Opened =
@@ -140,6 +141,8 @@ export function App() {
 
 function Root() {
   const handle = useMatches().at(-1)?.handle as { folder?: Folder } | undefined;
+  // Every page can open a sheet, an article opened from a link as well.
+  useEffect(preloadSheet, []);
   return (
     <>
       <ScrollRestoration />
