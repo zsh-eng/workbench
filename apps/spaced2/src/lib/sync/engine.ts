@@ -1,12 +1,21 @@
 import { createLocalSyncState } from "./local-sync-state";
-import { API_BASE, SHARED_API_ORIGIN } from "@/lib/api";
+import { API_BASE, SHARED_API_ORIGIN, SHARED_STORAGE_SUFFIX } from "@/lib/api";
 import {
   broadcastRecordsChanged,
   broadcastRecordsCleared,
   listenForRecordChanges,
 } from "./broadcast";
-import Dexie from "dexie";
-import { SyncClient, createSyncClientState } from "@zsh-eng/local-sync";
+import Dexie, { liveQuery } from "dexie";
+import {
+  SyncClient,
+  SyncHttpError,
+  SyncScopeError,
+  createSyncClientState,
+  createSyncController,
+  type SyncFailure,
+  type SyncRunContext,
+  type SyncStatus,
+} from "@zsh-eng/local-sync";
 import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
 import {
   db,
@@ -21,54 +30,52 @@ import { syncTables } from "./records";
 import { createRemote } from "./server";
 import { withSyncLock, withNetworkSyncLock } from "./lock";
 
-type Status = { syncing: boolean; error: string | null; restoring: boolean };
-let status: Status = { syncing: false, error: null, restoring: false };
-const listeners = new Set<() => void>();
-function setStatus(next: Status) {
-  status = next;
-  listeners.forEach((fn) => fn());
-}
-let stopped = false,
-  started = false;
-let pending: Promise<void> | undefined;
-let controller: AbortController | undefined;
-let interval: ReturnType<typeof setInterval> | undefined;
+/** The remembered account and last sync time, per API origin. */
+const SYNC_STATUS_KEY = "spaced-sync-status" + SHARED_STORAGE_SUFFIX;
 
-function sync(): Promise<void> {
-  if (stopped) return Promise.resolve();
-  if (pending) return pending;
-  pending = withNetworkSyncLock(async () => {
+/** The snapshot that SyncBoundary and the debug Sync page read. */
+type Status = { syncing: boolean; error: string | null; restoring: boolean };
+let snapshot: Status = { syncing: false, error: null, restoring: false };
+/** Stays true until the first full download finishes, across failed attempts. */
+let restoring = false;
+const listeners = new Set<() => void>();
+let stopped = false,
+  started = false,
+  bridged = false;
+let pending: Promise<void> | undefined;
+let stopPending = () => {};
+
+/** One attempt: confirm the account, then pull and push under the network lock. */
+async function runSync({ signal, markRestoring }: SyncRunContext) {
+  if (stopped) return;
+  await withNetworkSyncLock(async () => {
     if (stopped) return;
     await memoryReady;
-    controller = new AbortController();
-
-    setStatus({ ...status, syncing: true, error: null });
     let touched = false;
     let localState: ReturnType<typeof createLocalSyncState> | undefined;
     try {
       const response = await fetch(`${API_BASE}/me`, {
         credentials: "include",
-        signal: AbortSignal.any([
-          controller.signal,
-          AbortSignal.timeout(15000),
-        ]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
       });
-      controller.signal.throwIfAborted();
-      if (response.status === 401) {
-        if (await db._sync_outbox.count())
-          throw new Error("Sign in to save pending changes");
-        return;
-      }
-      if (!response.ok) throw new Error("Cannot verify sync account");
-      const { userId, expiresAt } = await response.json();
+      signal.throwIfAborted();
+      // A 401 is the server's answer: no session. The controller pauses sync.
+      if (!response.ok) throw new SyncHttpError(response.status, response);
+      const { userId, expiresAt, user } = await response.json();
       if (typeof userId !== "string" || !userId)
         throw new Error("Invalid account identity");
+      spacedSync.confirmSignedIn({
+        userId,
+        name: user?.name ?? undefined,
+        email: user?.email ?? undefined,
+        image: user?.image ?? undefined,
+      });
       const state = await withSyncLock(async () => {
-        controller!.signal.throwIfAborted();
+        signal.throwIfAborted();
         const owner = await db.metadataKv.get("owner");
         if (owner && owner.value !== userId) {
           if (SHARED_API_ORIGIN)
-            throw new Error(
+            throw new SyncScopeError(
               "This local library belongs to another account. Local data was preserved.",
             );
           await rawDb.transaction("rw", rawDb.tables, async () => {
@@ -89,7 +96,11 @@ function sync(): Promise<void> {
         localState = createLocalSyncState(stateStore);
         return state;
       });
-      setStatus({ ...status, restoring: !state.bootstrapped });
+      if (!state.bootstrapped) {
+        restoring = true;
+        markRestoring();
+        refresh();
+      }
       const storage = new DexieSyncStorage({
         db: rawDb,
         tables: syncTables,
@@ -100,7 +111,7 @@ function sync(): Promise<void> {
       });
       const locally = <T>(work: () => Promise<T>) =>
         withSyncLock(async () => {
-          controller!.signal.throwIfAborted();
+          signal.throwIfAborted();
           localState!.checkpoint();
           return work();
         });
@@ -115,8 +126,8 @@ function sync(): Promise<void> {
             locally(() => storage.reconcilePushResults(sent, records)),
         },
         stateStore: localState!.store,
-        remote: createRemote(controller.signal, localState!.store),
-        signal: controller.signal,
+        remote: createRemote(signal, localState!.store),
+        signal,
       });
       await client.sync();
 
@@ -130,14 +141,6 @@ function sync(): Promise<void> {
           void Dexie.delete(legacy).catch(() => {});
         localStorage.removeItem("spaced-records-v2-state");
       }
-    } catch (error) {
-      if (!stopped)
-        setStatus({
-          ...status,
-          syncing: false,
-          error: error instanceof Error ? error.message : "Sync failed",
-        });
-      throw error;
     } finally {
       try {
         if (!stopped && localState) {
@@ -151,14 +154,67 @@ function sync(): Promise<void> {
           });
         }
       } finally {
-        setStatus({
-          ...status,
-          syncing: false,
-          restoring: status.restoring && !stateStore.read()?.bootstrapped,
-        });
-        controller = undefined;
+        restoring = restoring && !stateStore.read()?.bootstrapped;
+        refresh();
       }
     }
+  });
+}
+
+/**
+ * When Spaced syncs (every 30 s while healthy, on reconnect, on return to the
+ * page, with backoff after failures) and what the UI can say about the
+ * connection, the account and sync. Read it with `useSyncStatus` or
+ * `useSyncSummary` from `@zsh-eng/local-sync/react`.
+ */
+export const spacedSync = createSyncController({
+  run: runSync,
+  intervalMs: 30_000,
+  persist: { storage: localStorage, key: SYNC_STATUS_KEY },
+});
+
+function errorOf(status: SyncStatus): string | null {
+  const failure = status.failure;
+  if (!failure) return null;
+  if (failure.kind === "unauthorized")
+    return status.pending ? "Sign in to save pending changes" : null;
+  return failureMessage(failure);
+}
+
+function failureMessage(failure: SyncFailure): string {
+  return "message" in failure
+    ? failure.message
+    : `Sync failed (${failure.kind})`;
+}
+
+/** Keeps the boundary's snapshot stable until one of its fields changes. */
+function refresh() {
+  const status = spacedSync.getSnapshot();
+  const next: Status = {
+    syncing: status.running,
+    error: errorOf(status),
+    restoring,
+  };
+  if (
+    next.syncing === snapshot.syncing &&
+    next.error === snapshot.error &&
+    next.restoring === snapshot.restoring
+  )
+    return;
+  snapshot = next;
+  listeners.forEach((fn) => fn());
+}
+
+/** A manual sync. Rejects when it fails, is cancelled, or the device is offline. */
+function sync(): Promise<void> {
+  if (stopped) return Promise.resolve();
+  if (pending) return pending;
+  pending = spacedSync.syncNow().then((attempt) => {
+    if (attempt.outcome === "offline") throw new Error("Offline");
+    if (attempt.outcome === "cancelled")
+      throw new DOMException("Sync was cancelled", "AbortError");
+    if (attempt.outcome === "failed")
+      throw new Error(failureMessage(attempt.failure));
   });
   const reset = () => {
     pending = undefined;
@@ -166,9 +222,7 @@ function sync(): Promise<void> {
   void pending.then(reset, reset);
   return pending;
 }
-const background = () => {
-  if (navigator.onLine) void sync().catch(() => {});
-};
+
 function start() {
   if (started || stopped) return;
   started = true;
@@ -176,7 +230,7 @@ function start() {
     if (cleared) {
       stopped = true;
       disableLocalWrites();
-      controller?.abort();
+      spacedSync.stop();
       location.reload();
       return;
     }
@@ -187,18 +241,19 @@ function start() {
       }
     }).catch(() => {});
   });
-  background();
-  interval = setInterval(background, 30000);
-  window.addEventListener("online", background);
-  document.addEventListener("visibilitychange", background);
+  const outbox = liveQuery(() => db._sync_outbox.count()).subscribe({
+    next: (count) => spacedSync.setPending(count),
+    error: () => {},
+  });
+  stopPending = () => outbox.unsubscribe();
+  spacedSync.start();
 }
 async function wipeDatabase() {
   stopped = true;
   disableLocalWrites();
-  controller?.abort();
-  if (interval) clearInterval(interval);
-  window.removeEventListener("online", background);
-  document.removeEventListener("visibilitychange", background);
+  stopPending();
+  spacedSync.stop();
+  spacedSync.signOut();
   await withSyncLock(async () => {
     rawDb.close();
     await db.delete();
@@ -221,11 +276,15 @@ const SyncEngine = {
   start,
   wipeDatabase,
   subscribe(fn: () => void) {
+    if (!bridged) {
+      bridged = true;
+      spacedSync.subscribe(refresh);
+    }
     listeners.add(fn);
     return () => {
       listeners.delete(fn);
     };
   },
-  getSnapshot: () => status,
+  getSnapshot: () => snapshot,
 };
 export default SyncEngine;
