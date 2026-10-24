@@ -449,16 +449,19 @@ export async function writeBrowse(
       await handle.sync();
       await handle.close();
       const latest = await readBrowse(current.source, path);
+      if (latest.identity !== expectedIdentity || !(await parentSafe(current.source.repo, path)))
+        throw conflict();
+      // The last check before the rename: another program's write between
+      // them is lost, and only that window remains.
       const latestInfo = await lstat(target);
       if (
-        latest.identity !== expectedIdentity ||
         latestInfo.ino !== info.ino ||
         latestInfo.dev !== info.dev ||
+        latestInfo.size !== info.size ||
         latestInfo.mtimeMs !== info.mtimeMs ||
         latestInfo.ctimeMs !== info.ctimeMs
       )
         throw conflict();
-      if (!(await parentSafe(current.source.repo, path))) throw conflict();
       assertAccess();
       await rename(temporary, target);
       return classify(

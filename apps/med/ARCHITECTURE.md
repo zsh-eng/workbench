@@ -653,9 +653,11 @@ text.
 It accepts a worktree source, a relative path, the expected content identity,
 and up to 1 MiB of UTF-8 text. Saves to one file run one at a time. The host
 validates the path and content, writes and flushes a sibling temporary file,
-checks the current content, file metadata, and repository access again, then
-atomically replaces the target. A detected change returns 409 and keeps the
-draft. Another process can still write after the last check. There is no
+checks the current content and its folder again, then the file metadata and
+repository access with no wait before it atomically replaces the target. A
+detected change returns 409 and keeps the draft. Another process can still
+write between that last check and the replace; no lock would stop it, as
+other programs do not take Med's. There is no
 forced overwrite or automatic merge. Hard-linked and symlinked files are
 refused. A save does not stage or commit.
 
