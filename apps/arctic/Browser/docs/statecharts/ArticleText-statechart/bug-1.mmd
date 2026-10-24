@@ -1,0 +1,28 @@
+---
+title: "The text of a link saved on the web, bug 1"
+config:
+  markdownAutoWrap: false
+  state:
+    useMaxWidth: false
+---
+stateDiagram-v2
+  %% second model (fix): the fix
+  classDef plainFixed fill:#f4f6f7,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0 fill:#d6eaf8,stroke:#6b757c,color:#1b2631
+  classDef group0Fixed fill:#d6eaf8,stroke:#1e8449,stroke-width:4px,color:#145a32
+  classDef group0Path fill:#d6eaf8,stroke:#1f3a93,stroke-width:4px,color:#1b2631
+  state "Legend" as legend {
+    state "No text on the web" as legendGroup0
+    state "Fixed or new with the fix" as legendFixed
+  }
+  class legendGroup0 group0
+  class legendFixed plainFixed
+  state "The web has no text, the<br/>link is not on the phone<br/>yet" as s0
+  state "The web has no text, the<br/>phone has no text" as s1
+  state "The web has no text, the<br/>phone keeps the article" as s2
+  [*] --> s0
+  s0 --> s1 : 1. The phone gets the link
+  s1 --> s2 : 2. The phone keeps a Reader<br/>copy
+  class s0 group0Path
+  class s1 group0Path
+  class s2 group0Fixed
