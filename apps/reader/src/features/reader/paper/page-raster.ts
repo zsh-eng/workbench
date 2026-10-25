@@ -66,11 +66,15 @@ function roundedRect(
   context.fill();
 }
 
-function tintedGrainPattern(
-  context: CanvasRenderingContext2D,
+/**
+ * The grain tile in its theme colour, at the raster's scale. Null where the
+ * image would taint the canvas: an SVG image can in some engines, and a
+ * tainted page could not be uploaded to WebGL, so it goes without grain.
+ */
+export function tintedGrainTile(
   grain: PageRasterGrain,
   pixelRatio: number,
-): CanvasPattern | null {
+): HTMLCanvasElement | null {
   const size = Math.round(grain.tile * pixelRatio);
   const tile = document.createElement("canvas");
   tile.width = size;
@@ -82,12 +86,20 @@ function tintedGrainPattern(
   tileContext.fillStyle = grain.colour;
   tileContext.fillRect(0, 0, size, size);
   try {
-    // An SVG image can taint a canvas in some engines; a tainted page could
-    // not be uploaded to WebGL, so it goes without grain instead.
     tileContext.getImageData(0, 0, 1, 1);
   } catch {
     return null;
   }
+  return tile;
+}
+
+function tintedGrainPattern(
+  context: CanvasRenderingContext2D,
+  grain: PageRasterGrain,
+  pixelRatio: number,
+): CanvasPattern | null {
+  const tile = tintedGrainTile(grain, pixelRatio);
+  if (!tile) return null;
   const pattern = context.createPattern(tile, "repeat");
   pattern?.setTransform(new DOMMatrix().scale(1 / pixelRatio));
   return pattern;
