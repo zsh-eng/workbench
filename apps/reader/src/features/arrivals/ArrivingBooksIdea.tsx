@@ -157,9 +157,9 @@ export function ArrivingBooksIdea() {
         >
           {assets ? (
             <DemoLibrary
-              key={`${scenario}:${look}:${demo.state.run}`}
               scenario={scenario}
               look={look}
+              run={demo.state.run}
               assets={assets}
             />
           ) : (
@@ -174,14 +174,23 @@ export function ArrivingBooksIdea() {
   );
 }
 
-/** A demo world for this mount; Strict Mode's second mount gets its own. */
-function useDemo(scenario: ScenarioId, assets: Map<string, SceneAssets>) {
+/**
+ * A fresh demo world for each run, look and scenario; Strict Mode's second
+ * mount gets its own. The last world stays on screen until the next one
+ * exists, so a replay does not empty the page for a frame.
+ */
+function useDemo(
+  scenario: ScenarioId,
+  look: IdeaLook,
+  run: number,
+  assets: Map<string, SceneAssets>,
+) {
   const [demo, setDemo] = useState<ArrivalDemo | null>(null);
   useEffect(() => {
     const created = createArrivalDemo(scenario, assets);
     setDemo(created);
     return () => created.dispose();
-  }, [assets, scenario]);
+  }, [assets, look, run, scenario]);
   return demo;
 }
 
@@ -189,14 +198,16 @@ function useDemo(scenario: ScenarioId, assets: Map<string, SceneAssets>) {
 function DemoLibrary({
   scenario,
   look,
+  run,
   assets,
 }: {
   scenario: ScenarioId;
   look: IdeaLook;
+  run: number;
   assets: Map<string, SceneAssets>;
 }) {
-  const demo = useDemo(scenario, assets);
-  return demo ? <DemoWorld demo={demo} look={look} /> : null;
+  const demo = useDemo(scenario, look, run, assets);
+  return demo ? <DemoWorld key={demo.id} demo={demo} look={look} /> : null;
 }
 
 function DemoWorld({ demo, look }: { demo: ArrivalDemo; look: IdeaLook }) {

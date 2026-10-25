@@ -183,6 +183,8 @@ function sleep(ms: number) {
 }
 
 export interface ArrivalDemo {
+  /** Tells one run's world from the next. */
+  id: number;
   records: ArrivalRecords;
   manager: ActivityManager;
   /** The shelf before the import, newest first. */
@@ -196,6 +198,8 @@ export interface ArrivalDemo {
   reliefFor(sourceFileId: string | null): string | null;
   dispose(): void;
 }
+
+let nextDemo = 1;
 
 /** A fresh demo world for one run of a scenario. */
 export function createArrivalDemo(
@@ -305,6 +309,7 @@ export function createArrivalDemo(
     };
   });
   return {
+    id: nextDemo++,
     records,
     manager,
     shelf,
