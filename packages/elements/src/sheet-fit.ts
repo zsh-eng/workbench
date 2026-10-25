@@ -51,9 +51,10 @@ export interface SheetFitDetail {
  * - Shrinking over several frames is held until the content has been still
  *   for `quiet` milliseconds and no finger is on the sheet; then the sheet
  *   settles once. Rows removed one after another move the sheet once.
- * - At a partial detent the sheet re-snaps in the same frame as each height
- *   change, so a fixed detent keeps its top edge. In full view the top edge
- *   moves with the height.
+ * - At a partial detent only the part below the screen changes: the height
+ *   changes at once and the sheet re-snaps in the same frame, so a fixed
+ *   detent keeps its top edge. In full view the top edge moves with the
+ *   height, on the spring.
  * - Nothing moves under a finger on the sheet. A height change waits until
  *   it lifts and the scroll it started has ended.
  *
@@ -68,6 +69,15 @@ export function fitSheetHeight({
   quiet = 250,
   onState,
 }: SheetFitOptions): () => void {
+  /**
+   * Layout heights as the ResizeObserver reports them: exact, where
+   * `offsetHeight` rounds, and untouched by transforms such as a lower
+   * sheet's step back. Rounding made the content seem to change by a pixel
+   * as the sheet settled, and the sheet settled again, over and over.
+   */
+  const sizes = new WeakMap<Element, number>();
+  const sizeOf = (element: HTMLElement) =>
+    sizes.get(element) ?? element.offsetHeight;
   let height = natural();
   let state: SheetFitState = "rest";
   let run: {
@@ -88,6 +98,8 @@ export function fitSheetHeight({
   const pointers = new Set<number>();
   let lastUserScroll = 0;
   let ownScroll = false;
+  /** Where the sheet last rested when its detent and full view differed. */
+  let selected: "detent" | "full" = "detent";
 
   write(height);
   setState("rest");
@@ -98,8 +110,8 @@ export function fitSheetHeight({
     for (const element of content.querySelectorAll<HTMLElement>(
       "[data-sheet-slack]",
     ))
-      slack += element.offsetHeight;
-    return content.offsetHeight - slack;
+      slack += sizeOf(element);
+    return sizeOf(content) - slack;
   }
 
   function write(next: number) {
@@ -131,14 +143,20 @@ export function fitSheetHeight({
   /** The partial detent the sheet rests on, if any. In full view, none. */
   function restingSnap(): SheetSnap | null {
     const top = scroller.scrollTop;
-    let best: SheetSnap | null = null;
+    let detent: SheetSnap | null = null;
+    let full = false;
     for (const snap of sheetSnaps(scroller)) {
       if (Math.abs(snap.position - top) > 1) continue;
-      // A detent that coincides with full view counts as the detent: the
-      // sheet stays there if the content grows past it again.
-      if (!best || best.full) best = snap;
+      if (snap.full) full = true;
+      else if (snap.marker.hasAttribute("data-sheet-detent")) detent = snap;
     }
-    return best && !best.full ? best : null;
+    // A sheet shorter than its detent rests at both. It keeps the one it
+    // was at before, as UIKit keeps the selected detent: content that grows
+    // again takes it back there, to the detent or to full view.
+    if (detent && full) return selected === "full" ? null : detent;
+    if (full) selected = "full";
+    else if (detent) selected = "detent";
+    return detent;
   }
 
   /** Puts the sheet back on its detent after its height changed. */
@@ -171,6 +189,23 @@ export function fitSheetHeight({
     let from = height;
     let speed = 0;
     let snap = restingSnap();
+    if (snap && !run) {
+      // At a partial detent the sheet runs on below the screen, and only
+      // that part changes: the height changes at once and the sheet keeps
+      // its top edge to the pixel. A spring would move it by a fraction of
+      // a pixel each frame, as the scroll offset is whole pixels. Unless
+      // the sheet is now shorter than its detent: then its top edge moves,
+      // on the spring.
+      const top = fit.getBoundingClientRect().top;
+      write(to);
+      keepSnap(snap);
+      if (Math.abs(fit.getBoundingClientRect().top - top) < 1) {
+        setState("rest");
+        return;
+      }
+      write(from);
+      keepSnap(snap);
+    }
     if (run) {
       const t = Math.min((now - run.start) / 1000, run.seconds);
       const distance = run.to - run.from;
@@ -268,7 +303,12 @@ export function fitSheetHeight({
     move(next);
   }
 
-  const resize = new ResizeObserver(() => {
+  const resize = new ResizeObserver((entries) => {
+    for (const entry of entries)
+      sizes.set(
+        entry.target,
+        entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
+      );
     const next = natural();
     if (Math.abs(next - lastNatural) < 0.5) return;
     lastNatural = next;
