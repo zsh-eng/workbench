@@ -275,6 +275,39 @@ test("selection still works after a curl turn", async ({ page, localBook }) => {
   ).not.toHaveCount(0);
 });
 
+test("the WebGL ink stands in for the text and keeps selection", async ({
+  page,
+  localBook,
+}) => {
+  await page.goto(`/reader/${localBook.id}?turn=curl&paper=fine&ink=gl`);
+  await waitForReaderReady(page);
+  for (let turn = 0; turn < 6; turn++) {
+    await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+    const before = await currentPages(page);
+    await page.touchscreen.tap(360, 420);
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    await waitForReaderReady(page);
+  }
+  const ink = page.locator(`${CURRENT_SPREAD} .reader-ink-canvas`);
+  await expect(ink).toHaveAttribute("data-ready", "");
+  await expect(
+    page.locator(`${CURRENT_SPREAD} [data-reader-page-slice]`).first(),
+  ).toHaveCSS("-webkit-text-fill-color", "rgba(0, 0, 0, 0)");
+
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+  await expect(
+    page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`),
+  ).not.toHaveCount(0);
+
+  // The next page gets its own ink.
+  const before = await currentPages(page);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(before);
+  await waitForReaderReady(page);
+  await expect(ink).toHaveAttribute("data-ready", "");
+});
+
 test("reduced motion keeps the plain turn", async ({ page, localBook }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(`/reader/${localBook.id}?turn=curl`);
