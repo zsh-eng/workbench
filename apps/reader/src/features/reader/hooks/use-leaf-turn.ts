@@ -39,16 +39,18 @@ const TURNED_CREASE =
 /** A backward turn lays the page down faster than the finger moves. */
 const BACKWARD_GAIN = 1.5;
 /**
- * Gravity leans towards the spine so a page let go about a third of the way
- * across falls over rather than back; a page coming back needs less help.
+ * The hill a page let go must cross, as the angle of its middle above the
+ * right-hand stack. A book's hill is upright, too far for a thumb, so the
+ * phone's gravity leans away from a nearer hilltop on either side: a page
+ * let go about 40% of the way across falls over, and short of that falls
+ * back. A page coming back has its own hill, as far for the thumb.
  */
-const LEAN_FORWARD = (65 * Math.PI) / 180;
-const LEAN_BACKWARD = (23 * Math.PI) / 180;
-/** With no page to turn to, gravity leans the page home. */
-const LEAN_HOME_RIGHT = (-30 * Math.PI) / 180;
-const LEAN_HOME_LEFT = (60 * Math.PI) / 180;
+const HILL_FORWARD = (9 * Math.PI) / 180;
+const HILL_BACKWARD = (38 * Math.PI) / 180;
+const LEAN = (60 * Math.PI) / 180;
+const HILL_WIDTH = (6 * Math.PI) / 180;
 /** How much of a flick's speed goes into spinning the page over. */
-const FLICK_SPIN = 0.8;
+const FLICK_SPIN = 1;
 /** The tilt a middle grip allows the roll, following the finger. */
 const MIDDLE_TILT = 0.07;
 /** A corner grip tilts the roll this much, so the corner leads. */
@@ -92,10 +94,13 @@ interface Gesture {
   mode: "fresh" | "catch";
   axis: "pending" | "locked";
   direction: SwipeDirection;
-  /** For a catch: the node held, and where it was. */
+  /**
+   * For a catch: the node held, where it was, and how far it lay from the
+   * spine. A hand holding a page swings that point about the spine.
+   */
   node: number;
   nodeX: number;
-  nodeZ: number;
+  nodeReach: number;
   samples: { x: number; t: number }[];
 }
 
@@ -240,20 +245,26 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
 
   /**
    * Whether the page can turn: the spread it turns to may arrive while the
-   * page is in hand. Without one, gravity leans the page home.
+   * page is in hand. Without one, the hill is out of reach.
    */
   const aim = useEffectEvent((turn: Turn) => {
     const forward = turn.page === "current";
     const target = forward ? adjacent().next : adjacent().previous;
     turn.canTurn = target !== null;
-    turn.leaf.tilt = forward
-      ? turn.canTurn
-        ? LEAN_FORWARD
-        : LEAN_HOME_RIGHT
-      : turn.canTurn
-        ? LEAN_BACKWARD
-        : LEAN_HOME_LEFT;
   });
+
+  /** Leans gravity away from the hilltop, whichever side the page is on. */
+  const lean = (turn: Turn) => {
+    const forward = turn.page === "current";
+    const hill = turn.canTurn
+      ? forward
+        ? HILL_FORWARD
+        : HILL_BACKWARD
+      : forward
+        ? Math.PI
+        : 0;
+    turn.leaf.tilt = LEAN * Math.tanh((turn.leaf.angle() - hill) / HILL_WIDTH);
+  };
 
   /** Starts a turn: the current page lifts, or the last one comes back. */
   const beginTurn = useEffectEvent(
@@ -269,6 +280,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         push: null,
       };
       aim(turn);
+      lean(turn);
       turnRef.current = turn;
       return turn;
     },
@@ -380,6 +392,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         return;
       }
     }
+    lean(turn);
     leaf.advance(elapsed);
     notifyMove(leaf.reach() * (sizeRef.current.width / LEAF_WIDTH));
     if (!leaf.held) {
@@ -467,7 +480,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         direction: turn.page === "current" ? "next" : "previous",
         node,
         nodeX: leaf.x[node]!,
-        nodeZ: leaf.z[node]!,
+        nodeReach: Math.hypot(leaf.x[node]!, leaf.z[node]!),
         samples: [{ x: event.clientX, t: performance.now() }],
       };
       container.setPointerCapture(event.pointerId);
@@ -505,7 +518,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         direction: "next",
         node: LEAF_NODES,
         nodeX: 0,
-        nodeZ: 0,
+        nodeReach: 0,
         samples: [{ x: event.clientX, t: performance.now() }],
       };
     };
@@ -546,11 +559,12 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         const turn = turnRef.current;
         if (!turn) return;
         const metres = LEAF_WIDTH / gesture.width;
-        turn.leaf.holdAt(
-          gesture.node,
-          gesture.nodeX + deltaX * metres,
-          gesture.nodeZ,
+        const reach = gesture.nodeReach;
+        const x = Math.max(
+          -reach,
+          Math.min(reach, gesture.nodeX + deltaX * metres),
         );
+        turn.leaf.holdAt(gesture.node, x, Math.sqrt(reach * reach - x * x));
         return;
       }
 
