@@ -58,6 +58,8 @@ const NODE_COUNT = LEAF_NODES + 1;
  * the cut edge reads as a line rather than a shimmer.
  */
 export const LEAF_THICKNESS_PX = 0.9;
+/** How far the cut edge shows past the face, seen from above, CSS px. */
+const LEAF_EDGE_SPREAD_PX = 0.6;
 
 /** The frame, the fan and the lookup from a page point to its place on it. */
 const SWEEP = `
@@ -285,6 +287,7 @@ attribute float aDepth;
 attribute vec2 aOut;
 ${SWEEP}
 uniform float uThickness;
+uniform float uBevel;
 varying float vS;
 varying vec3 vFacing;
 
@@ -295,8 +298,6 @@ void main() {
   vec3 normal;
   vec3 ruling;
   sweep(sw, world, normal, ruling);
-  // The cut edge runs from the front of the sheet to its back.
-  world -= normal * uThickness * aDepth;
   // Which way the cut faces: the page's outward direction at the edge,
   // carried onto the bent sheet by the section's tangent and ruling.
   float heading = uAngle + uCone * (sw.x - uArc);
@@ -304,6 +305,12 @@ void main() {
   vec2 along = vec2(-across.y, across.x);
   vec3 tangent = normalize(cross(ruling, normal));
   vFacing = normalize(dot(aOut, across) * tangent + dot(aOut, along) * ruling);
+  // The cut edge runs from the front of the sheet to its back. Seen from
+  // above, a sheet lying near flat would show none of it, so it also
+  // reaches a little outward over the page, as the edge's own shadow does.
+  world -= normal * uThickness * aDepth;
+  float outward = length(vFacing.xy);
+  if (outward > 0.001) world.xy += vFacing.xy / outward * uBevel * aDepth;
   vS = sw.x;
   gl_Position = project(page, sw, world);
 }
@@ -400,7 +407,12 @@ const LEAF_UNIFORMS = [
   "uStrength",
   "uFill",
 ] as const;
-const EDGE_UNIFORMS = [...SWEEP_UNIFORMS, "uThickness", "uEdge"] as const;
+const EDGE_UNIFORMS = [
+  ...SWEEP_UNIFORMS,
+  "uThickness",
+  "uBevel",
+  "uEdge",
+] as const;
 const SHADE_UNIFORMS = [
   "uSize",
   "uShade",
@@ -982,6 +994,7 @@ export class LeafRenderer {
     const edge = this.edgeUniforms;
     this.setSweep(edge, geometry);
     gl.uniform1f(edge.uThickness, LEAF_THICKNESS_PX);
+    gl.uniform1f(edge.uBevel, LEAF_EDGE_SPREAD_PX);
     const [red, green, blue] = look.paper;
     if (look.dark) {
       gl.uniform3f(
