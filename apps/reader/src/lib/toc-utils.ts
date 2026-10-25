@@ -1,5 +1,4 @@
 import { type Book, type TOCItem } from "@/lib/db";
-import { splitHrefFragment } from "@/lib/epub-resource-utils";
 
 /**
  * Recursively searches through TOC items to find an item matching the target href.
@@ -94,28 +93,4 @@ export function getChapterTitleFromSpine(
   }
 
   return chapterNumberFallback(spineIndex);
-}
-
-/**
- * Finds the spine index for a given href.
- * Returns null if the href cannot be found in the book's manifest or spine.
- */
-export function findSpineIndexByHref(book: Book, href: string): number | null {
-  const { path } = splitHrefFragment(href);
-
-  // Find the manifest item for this href
-  const manifestItem = book.manifest.find(
-    (item) => item.href === path || item.href.endsWith(path),
-  );
-  if (!manifestItem) {
-    console.error("Manifest item not found for href:", path);
-    return null;
-  }
-
-  // Find the spine index
-  const spineIndex = book.spine.findIndex(
-    (item) => item.idref === manifestItem.id,
-  );
-
-  return spineIndex !== -1 ? spineIndex : null;
 }

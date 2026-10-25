@@ -1,6 +1,5 @@
 import { ThemePanel } from "@/features/reader/shared/ReaderSettings/ThemePanel";
 import { TypographyPanel } from "@/features/reader/shared/ReaderSettings/TypographyPanel";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SegmentedTabs,
@@ -10,9 +9,8 @@ import {
 } from "@/components/ui/segmented-controls";
 import type { ReaderSettings } from "@/types/reader.types";
 import { cn } from "@/lib/utils";
-import { AlignLeft, ChevronLeft, Palette, Type } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { ReaderSheet } from "./shared/ReaderSheet";
+import { AlignLeft, Palette, Type } from "lucide-react";
+import type { ReactNode } from "react";
 
 export type ReaderSettingsPanelTab = "type" | "layout" | "theme";
 
@@ -32,60 +30,6 @@ interface ReaderSettingsListProps {
   /** Pages or Scroll (Debug mode); shown first in the layout section. */
   layoutControl?: ReactNode;
   className?: string;
-}
-
-interface ReaderSettingsSheetProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onBack: () => void;
-  settings: ReaderSettings;
-  onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
-}
-
-export function ReaderSettingsSheet({
-  isOpen,
-  onClose,
-  onBack,
-  settings,
-  onUpdateSettings,
-}: ReaderSettingsSheetProps) {
-  const [activeTab, setActiveTab] = useState<ReaderSettingsPanelTab>("type");
-
-  return (
-    <ReaderSheet
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (open) {
-          return;
-        }
-
-        onClose();
-      }}
-      title="Appearance"
-      panelClassName="max-w-md"
-      bodyClassName="w-full max-w-full overflow-hidden"
-      header={
-        <div className="flex h-8 items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onBack}
-            aria-label="Back to reader tools"
-            className="size-8 rounded-full border border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-        </div>
-      }
-    >
-      <ReaderSettingsPanel
-        settings={settings}
-        onUpdateSettings={onUpdateSettings}
-        activeTab={activeTab}
-        onActiveTabChange={setActiveTab}
-      />
-    </ReaderSheet>
-  );
 }
 
 export function ReaderSettingsPanel({

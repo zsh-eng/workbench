@@ -2,7 +2,6 @@ import {
   addHighlight as addHighlightToDb,
   deleteHighlight as deleteHighlightFromDb,
   getBookHighlights,
-  getHighlights,
   updateHighlight as updateHighlightInDb,
 } from "@/lib/db";
 import { withReaderTraceSpan } from "@/lib/reader-performance-trace";
@@ -34,22 +33,6 @@ export function useBookHighlightsQuery(bookId: string | undefined) {
         getBookHighlights(bookId!),
       ),
     enabled: !!bookId,
-    staleTime: Infinity,
-    gcTime: HIGHLIGHTS_QUERY_GC_TIME_MS,
-  });
-}
-
-/**
- * Hook for fetching highlights for a specific chapter
- */
-export function useHighlightsQuery(
-  bookId: string | undefined,
-  spineItemId: string | undefined,
-) {
-  return useQuery({
-    queryKey: highlightKeys.chapter(bookId ?? "", spineItemId ?? ""),
-    queryFn: () => getHighlights(bookId!, spineItemId!),
-    enabled: !!bookId && !!spineItemId,
     staleTime: Infinity,
     gcTime: HIGHLIGHTS_QUERY_GC_TIME_MS,
   });
