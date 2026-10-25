@@ -68,6 +68,12 @@ const DarkColoursIdea = lazy(() =>
   })),
 );
 
+const SheetMotionIdea = lazy(() =>
+  import("@/features/elements/SheetMotionIdea").then((module) => ({
+    default: module.SheetMotionIdea,
+  })),
+);
+
 const ElementsFrame = lazy(() =>
   import("@/features/elements/ElementsFrame").then((module) => ({
     default: module.ElementsFrame,
@@ -256,6 +262,16 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <DarkColoursIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/sheet-motion"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <SheetMotionIdea />
                           </Suspense>
                         </DebugGate>
                       }
