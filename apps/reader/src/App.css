@@ -169,16 +169,15 @@
 }
 
 @media (hover: hover) {
-.reader-inline-link:hover {
-  color: var(--foreground);
-  text-decoration-color: var(--foreground);
-}
+  .reader-inline-link:hover {
+    color: var(--foreground);
+    text-decoration-color: var(--foreground);
+  }
 
-.reader-inline-link-cluster:hover .reader-inline-link {
-  color: var(--foreground);
-  text-decoration-color: var(--foreground);
-}
-
+  .reader-inline-link-cluster:hover .reader-inline-link {
+    color: var(--foreground);
+    text-decoration-color: var(--foreground);
+  }
 }
 
 .reader-inline-code {
@@ -224,12 +223,11 @@
 }
 
 @media (hover: hover) {
-.reader-note-ref:hover .reader-note-ref-badge {
-  background: var(--secondary);
-  color: var(--foreground);
-  box-shadow: 0.22rem 0.22rem 0 0 var(--accent);
-}
-
+  .reader-note-ref:hover .reader-note-ref-badge {
+    background: var(--secondary);
+    color: var(--foreground);
+    box-shadow: 0.22rem 0.22rem 0 0 var(--accent);
+  }
 }
 
 /* Some ebooks wrap the paragraph text in a link tag. TODO: we have to handle this. */
@@ -290,9 +288,7 @@
   border-radius: 0;
   padding: 0;
   cursor: pointer;
-  transition:
-    opacity 0.15s ease,
-    outline 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 /* The caps reach past the first and last glyph without moving any text:
@@ -312,41 +308,57 @@
   margin-right: -0.08em;
 }
 
-@media (hover: hover) {
-  .epub-highlight:hover { opacity: 0.8; }
+/* Predefined colors. A note-only anchor has none: the browser's yellow
+   mark background must not show. */
+.epub-highlight[data-color] {
+  background-color: var(--highlight-fill);
 }
 
-/* Active state for selected highlights (when delete popover is shown) */
-.epub-highlight-active {
-  opacity: 0.8;
-}
-
-/* Group hover effect for highlights with same data-highlight-id */
-.epub-highlight-group-hover {
-  opacity: 0.8;
-}
-
-/* Note-only anchors must not inherit the browser's yellow mark background. */
 .epub-highlight[data-color="invisible"] {
-  background-color: transparent;
+  --highlight-fill: transparent;
   padding-inline: 0;
 }
 
-/* Predefined colors */
 .epub-highlight[data-color="yellow"] {
-  background-color: var(--yellow-secondary);
+  --highlight-fill: var(--yellow-secondary);
 }
 
 .epub-highlight[data-color="green"] {
-  background-color: var(--green-secondary);
+  --highlight-fill: var(--green-secondary);
 }
 
 .epub-highlight[data-color="blue"] {
-  background-color: var(--blue-secondary);
+  --highlight-fill: var(--blue-secondary);
 }
 
 .epub-highlight[data-color="magenta"] {
-  background-color: var(--magenta-secondary);
+  --highlight-fill: var(--magenta-secondary);
+}
+
+/* The highlight whose tools are open deepens its colour, and so does one
+   under a pointer; a note-only anchor takes a faint tint. Only the
+   background changes. Opacity would fade the words as well, and WebKit
+   paints a translucent inline a device pixel away from where its fade drew
+   it, so the words would jump when the fade settled. The interaction
+   manager gives every segment of a highlight these classes together. */
+.epub-highlight-active[data-color] {
+  background-color: color-mix(
+    in oklab,
+    var(--highlight-fill) 88%,
+    var(--foreground)
+  );
+}
+
+/* A tap also sends a mouse enter, which is not a hover. */
+@media (hover: hover) {
+  .epub-highlight[data-color]:hover,
+  .epub-highlight-group-hover[data-color] {
+    background-color: color-mix(
+      in oklab,
+      var(--highlight-fill) 88%,
+      var(--foreground)
+    );
+  }
 }
 
 mark {
