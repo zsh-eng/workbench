@@ -1,5 +1,5 @@
-import type { LayoutCursor } from "@chenglou/pretext";
-import { layoutNextLine } from "@chenglou/pretext";
+import type { LayoutCursor, PreparedTextWithSegments } from "@chenglou/pretext";
+import { layoutNextLine, prepareWithSegments } from "@chenglou/pretext";
 import {
   layoutNextRichInlineLineRange,
   materializeRichInlineLineRange,
@@ -107,10 +107,7 @@ export function layoutTextLines(
   const safeWidth = Math.max(1, maxWidth);
   const firstLineIndentPx = Math.max(0, options?.firstLineIndentPx ?? 0);
 
-  if (
-    options?.textAlign === "justify-knuth-plass" &&
-    firstLineIndentPx <= 0
-  ) {
+  if (options?.textAlign === "justify-knuth-plass" && firstLineIndentPx <= 0) {
     const knuthPlassLines = layoutTextLinesKnuthPlass(items, safeWidth);
     if (knuthPlassLines !== null) {
       return {
@@ -139,8 +136,9 @@ function layoutTextLinesGreedy(
     hasZeroWidthBreaks ? NATIVE_INLINE_ZERO_WIDTH_BREAK_SAFETY_PX : 0,
   );
   const layoutWidth = Math.max(1, safeWidth - wrapSafety);
+  const words = groupItemsIntoWords(items);
   const prepared = prepareRichInline(
-    items.map((item) => ({
+    words.map(({ item }) => ({
       text: item.leadingGap > 0 ? ` ${item.rawText}` : item.rawText,
       font: item.font,
       extraWidth: item.chromeWidth,
@@ -151,7 +149,9 @@ function layoutTextLinesGreedy(
   let isFirstLine = true;
 
   while (true) {
-    const indentPx = isFirstLine ? Math.min(firstLineIndentPx, safeWidth - 1) : 0;
+    const indentPx = isFirstLine
+      ? Math.min(firstLineIndentPx, safeWidth - 1)
+      : 0;
     const currentLayoutWidth = Math.max(1, layoutWidth - indentPx);
     const richLineRange = layoutNextRichInlineLineRange(
       prepared,
@@ -161,34 +161,31 @@ function layoutTextLinesGreedy(
     if (!richLineRange) break;
 
     const richLine = materializeRichInlineLineRange(prepared, richLineRange);
-    const fragments = richLine.fragments.flatMap<PageFragment>((fragment) => {
-      const item = items[fragment.itemIndex];
-      if (!item || !fragment.text) return [];
-
-      return {
-        kind: "text",
-        text: fragment.text,
-        font: item.font,
-        leadingGap: fragment.gapBefore,
-        inlineRole: item.inlineRole,
-        link: item.link,
-        isCode: item.isCode,
-        highlightMarks: projectHighlightMarks(item.highlightMarks, {
-          preserveStart: cursorsMatch(fragment.start, LINE_START_CURSOR),
-          preserveEnd: cursorsMatch(fragment.end, item.endCursor),
-        }),
-        anchorStart: createOffset(fragment.itemIndex, fragment.start),
-        anchorEnd: createOffset(fragment.itemIndex, fragment.end),
-      };
+    const fragments = richLine.fragments.flatMap((fragment) => {
+      const group = words[fragment.itemIndex];
+      if (!group || !fragment.text) return [];
+      return splitGroupFragment(items, group, fragment);
     });
     const firstFragment = richLine.fragments[0];
     const lastFragment = richLine.fragments[richLine.fragments.length - 1];
+    const firstGroup = firstFragment && words[firstFragment.itemIndex];
+    const lastGroup = lastFragment && words[lastFragment.itemIndex];
 
-    if (fragments.length > 0 && firstFragment && lastFragment) {
+    if (fragments.length > 0 && firstGroup && lastGroup) {
       lines.push({
         fragments,
-        startOffset: createOffset(firstFragment.itemIndex, firstFragment.start),
-        endOffset: createOffset(lastFragment.itemIndex, lastFragment.end),
+        startOffset: groupCursorToItemOffset(
+          items,
+          firstGroup,
+          firstFragment.start,
+          "start",
+        ),
+        endOffset: groupCursorToItemOffset(
+          items,
+          lastGroup,
+          lastFragment.end,
+          "end",
+        ),
         isLastInBlock: false,
         ...(indentPx > 0 ? { indentPx } : {}),
       });
@@ -199,6 +196,304 @@ function layoutTextLinesGreedy(
   }
 
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Items that form one word
+// ---------------------------------------------------------------------------
+
+/**
+ * Consecutive prepared items that line breaking must treat as one item.
+ * `item` is the item itself, or the items' joined text prepared again.
+ */
+interface ItemGroup {
+  item: PreparedInlineItem;
+  itemIndices: number[];
+  /** Where each item's text starts in `item.rawText`. */
+  textStarts: number[];
+}
+
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+function countGraphemes(text: string): number {
+  if (!graphemeSegmenter) return Array.from(text).length;
+  let count = 0;
+  for (const _ of graphemeSegmenter.segment(text)) count++;
+  return count;
+}
+
+/** The first `graphemeCount` graphemes of `text`, in UTF-16 code units. */
+function graphemePrefixLength(text: string, graphemeCount: number): number {
+  if (graphemeCount <= 0) return 0;
+  if (!graphemeSegmenter) {
+    return Array.from(text).slice(0, graphemeCount).join("").length;
+  }
+  let count = 0;
+  for (const { index } of graphemeSegmenter.segment(text)) {
+    if (count === graphemeCount) return index;
+    count++;
+  }
+  return text.length;
+}
+
+const segmentsSpellTextCache = new WeakMap<PreparedTextWithSegments, boolean>();
+
+/** Offsets map to cursors only when the segments are the text, in order. */
+function segmentsSpellText(item: PreparedInlineItem): boolean {
+  let spells = segmentsSpellTextCache.get(item.prepared);
+  if (spells === undefined) {
+    spells = item.prepared.segments.join("") === item.rawText;
+    segmentsSpellTextCache.set(item.prepared, spells);
+  }
+  return spells;
+}
+
+function canJoinWord(
+  previous: PreparedInlineItem,
+  next: PreparedInlineItem,
+): boolean {
+  return (
+    next.leadingGap === 0 &&
+    next.font === previous.font &&
+    previous.chromeWidth === 0 &&
+    next.chromeWidth === 0 &&
+    !itemHasForcedBreak(previous) &&
+    !itemHasForcedBreak(next) &&
+    segmentsSpellText(previous) &&
+    segmentsSpellText(next)
+  );
+}
+
+/**
+ * A highlight splits its run into separate items, and a phone selects a word
+ * without the quotes or commas next to it, so an item boundary often falls
+ * inside what line breaking treats as one word. Pretext breaks a line at any
+ * item boundary when the next item does not fit, and splits the first word of
+ * an item to fill a line, so a new highlight moved its text between lines and
+ * pages. Items in one font with no space between them are laid out as one
+ * item, and their line fragments are split back into the items afterwards.
+ */
+function groupItemsIntoWords(items: PreparedInlineItem[]): ItemGroup[] {
+  const groups: { itemIndices: number[] }[] = [];
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    const item = items[itemIndex]!;
+    const group = groups[groups.length - 1];
+    const previousIndex = group?.itemIndices[group.itemIndices.length - 1];
+    const previous =
+      previousIndex === undefined ? undefined : items[previousIndex];
+    if (group && previous && canJoinWord(previous, item)) {
+      group.itemIndices.push(itemIndex);
+    } else {
+      groups.push({ itemIndices: [itemIndex] });
+    }
+  }
+
+  return groups.flatMap(({ itemIndices }): ItemGroup[] => {
+    const alone = itemIndices.map((itemIndex) => ({
+      item: items[itemIndex]!,
+      itemIndices: [itemIndex],
+      textStarts: [0],
+    }));
+    if (itemIndices.length === 1) return alone;
+
+    const first = items[itemIndices[0]!]!;
+    const textStarts: number[] = [];
+    let text = "";
+    for (const itemIndex of itemIndices) {
+      textStarts.push(text.length);
+      text += items[itemIndex]!.rawText;
+    }
+    // prepareRichInline prepares the same text in the same font, so these
+    // segments are the ones its cursors count.
+    const prepared = prepareWithSegments(text, first.font);
+    // Otherwise cursors would not map back to the items.
+    if (prepared.segments.join("") !== text) return alone;
+
+    return [
+      {
+        item: {
+          ...first,
+          highlightMarks: undefined,
+          targetIds: undefined,
+          prepared,
+          rawText: text,
+          fullText: text,
+          fullWidth: prepared.widths.reduce((total, width) => total + width, 0),
+          endCursor: {
+            segmentIndex: prepared.segments.length,
+            graphemeIndex: 0,
+          },
+        },
+        itemIndices,
+        textStarts,
+      },
+    ];
+  });
+}
+
+function cursorToTextOffset(
+  prepared: PreparedTextWithSegments,
+  cursor: LayoutCursor,
+): number {
+  let offset = 0;
+  for (let index = 0; index < cursor.segmentIndex; index++) {
+    offset += prepared.segments[index]?.length ?? 0;
+  }
+  const segment = prepared.segments[cursor.segmentIndex];
+  return segment === undefined
+    ? offset
+    : offset + graphemePrefixLength(segment, cursor.graphemeIndex);
+}
+
+function textOffsetToCursor(
+  item: PreparedInlineItem,
+  offset: number,
+): LayoutCursor {
+  if (offset >= item.rawText.length) return item.endCursor;
+
+  let segmentStart = 0;
+  const { segments } = item.prepared;
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const segment = segments[segmentIndex]!;
+    if (offset < segmentStart + segment.length) {
+      return {
+        segmentIndex,
+        graphemeIndex: countGraphemes(segment.slice(0, offset - segmentStart)),
+      };
+    }
+    segmentStart += segment.length;
+  }
+  return item.endCursor;
+}
+
+/**
+ * A group cursor as an item cursor. A boundary between two items is the end
+ * of the first when it ends a range and the start of the second when it
+ * starts one.
+ */
+function groupCursorToItemOffset(
+  items: PreparedInlineItem[],
+  group: ItemGroup,
+  cursor: LayoutCursor,
+  edge: "start" | "end",
+): TextCursorOffset {
+  if (group.itemIndices.length === 1) {
+    return createOffset(group.itemIndices[0]!, cursor);
+  }
+
+  const offset = cursorToTextOffset(group.item.prepared, cursor);
+  let member = 0;
+  while (member < group.itemIndices.length - 1) {
+    const end =
+      group.textStarts[member]! +
+      items[group.itemIndices[member]!]!.rawText.length;
+    if (edge === "start" ? offset < end : offset <= end) break;
+    member++;
+  }
+  const itemIndex = group.itemIndices[member]!;
+  return createOffset(
+    itemIndex,
+    textOffsetToCursor(items[itemIndex]!, offset - group.textStarts[member]!),
+  );
+}
+
+function createItemFragment(
+  items: PreparedInlineItem[],
+  itemIndex: number,
+  text: string,
+  leadingGap: number,
+  start: LayoutCursor,
+  end: LayoutCursor,
+): PageFragment {
+  const item = items[itemIndex]!;
+  return {
+    kind: "text",
+    text,
+    font: item.font,
+    leadingGap,
+    inlineRole: item.inlineRole,
+    link: item.link,
+    isCode: item.isCode,
+    highlightMarks: projectHighlightMarks(item.highlightMarks, {
+      preserveStart: cursorsMatch(start, LINE_START_CURSOR),
+      preserveEnd: cursorsMatch(end, item.endCursor),
+    }),
+    anchorStart: createOffset(itemIndex, start),
+    anchorEnd: createOffset(itemIndex, end),
+  };
+}
+
+/** A group's text on one line. */
+interface GroupFragment {
+  text: string;
+  gapBefore: number;
+  start: LayoutCursor;
+  end: LayoutCursor;
+}
+
+/** A group's fragment on one line, as one fragment for each item in it. */
+function splitGroupFragment(
+  items: PreparedInlineItem[],
+  group: ItemGroup,
+  fragment: GroupFragment,
+): PageFragment[] {
+  if (group.itemIndices.length === 1) {
+    return [
+      createItemFragment(
+        items,
+        group.itemIndices[0]!,
+        fragment.text,
+        fragment.gapBefore,
+        fragment.start,
+        fragment.end,
+      ),
+    ];
+  }
+
+  const from = cursorToTextOffset(group.item.prepared, fragment.start);
+  const to = cursorToTextOffset(group.item.prepared, fragment.end);
+  const pieces: {
+    itemIndex: number;
+    from: number;
+    to: number;
+    text: string;
+  }[] = [];
+  for (let member = 0; member < group.itemIndices.length; member++) {
+    const itemIndex = group.itemIndices[member]!;
+    const item = items[itemIndex]!;
+    const start = group.textStarts[member]!;
+    const pieceFrom = Math.max(from, start) - start;
+    const pieceTo = Math.min(to, start + item.rawText.length) - start;
+    if (pieceFrom >= pieceTo) continue;
+    pieces.push({
+      itemIndex,
+      from: pieceFrom,
+      to: pieceTo,
+      text: item.rawText.slice(pieceFrom, pieceTo).replaceAll(SOFT_HYPHEN, ""),
+    });
+  }
+  // A line that ends at a soft hyphen shows the hyphen.
+  const lastPiece = pieces[pieces.length - 1];
+  if (lastPiece && fragment.text === `${pieces.map((p) => p.text).join("")}-`) {
+    lastPiece.text += "-";
+  }
+
+  return pieces
+    .filter((piece) => piece.text)
+    .map((piece, index) => {
+      const item = items[piece.itemIndex]!;
+      return createItemFragment(
+        items,
+        piece.itemIndex,
+        piece.text,
+        index === 0 ? fragment.gapBefore : 0,
+        textOffsetToCursor(item, piece.from),
+        textOffsetToCursor(item, piece.to),
+      );
+    });
 }
 
 function layoutTextLinesPreWrap(
