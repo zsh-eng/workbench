@@ -65,7 +65,12 @@ export function LivingCover({
   useEffect(() => {
     const slot = slotRef.current;
     const host = hostRef.current;
-    if (!slot || !host || !scene || !engine.supported()) return;
+    if (!slot || !host || !scene) return;
+    // Without WebGL the plain cover is the whole story.
+    if (!engine.supported()) {
+      setState("idle");
+      return;
+    }
     setState("loading");
     const view = engine.add({
       slot,
