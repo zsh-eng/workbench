@@ -98,6 +98,8 @@ const VIEW_STORAGE_KEY = "reader-library-view-v1";
 export interface LibraryViewPreferences {
   sort: LibrarySort;
   layout: LibraryLayout;
+  /** Debug mode: draw covers as lit objects (Design ideas → Living covers). */
+  livingCovers: boolean;
 }
 
 // The shelf already orders what you are reading by recency. Date added keeps
@@ -105,6 +107,7 @@ export interface LibraryViewPreferences {
 const DEFAULT_VIEW: LibraryViewPreferences = {
   sort: "added",
   layout: "covers",
+  livingCovers: false,
 };
 
 /** Sorting and layout are preferences of this browser, not synced. */
@@ -121,6 +124,7 @@ export function readViewPreferences(): LibraryViewPreferences {
         stored?.layout === "list" || stored?.layout === "covers"
           ? stored.layout
           : DEFAULT_VIEW.layout,
+      livingCovers: stored?.livingCovers === true,
     };
   } catch {
     return DEFAULT_VIEW;

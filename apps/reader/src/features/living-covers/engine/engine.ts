@@ -110,26 +110,42 @@ function push(list: number[], value: number, limit: number) {
   if (list.length > limit) list.shift();
 }
 
-async function loadImage(
-  url: string,
-  scene: boolean,
-): Promise<HTMLImageElement> {
-  const image = new Image();
-  image.decoding = "async";
-  if (scene) {
-    const blob = await (await fetchSceneFile(url)).blob();
-    const objectUrl = URL.createObjectURL(blob);
-    image.src = objectUrl;
+/**
+ * Decode an image off the main thread into a bitmap, so uploading it to a
+ * context later costs little. Scene maps keep their exact values.
+ */
+async function loadImage(url: string, scene: boolean): Promise<TexImageSource> {
+  const blob = scene
+    ? await (await fetchSceneFile(url)).blob()
+    : await (await fetch(url)).blob();
+  if (typeof createImageBitmap === "function") {
     try {
-      await image.decode();
-    } finally {
-      URL.revokeObjectURL(objectUrl);
+      return await createImageBitmap(blob, {
+        premultiplyAlpha: "none",
+        colorSpaceConversion: scene ? "none" : "default",
+      });
+    } catch {
+      // Some browsers refuse the options; an image element still works.
     }
-    return image;
   }
-  image.src = url;
-  await image.decode();
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(blob);
+  image.src = objectUrl;
+  try {
+    await image.decode();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
   return image;
+}
+
+function imageSize(image: TexImageSource): { width: number; height: number } {
+  if (image instanceof HTMLImageElement)
+    return { width: image.naturalWidth, height: image.naturalHeight };
+  return {
+    width: (image as ImageBitmap).width,
+    height: (image as ImageBitmap).height,
+  };
 }
 
 class LivingView {
@@ -163,8 +179,7 @@ class LivingView {
         depth,
         materials,
         life,
-        width: cover.naturalWidth,
-        height: cover.naturalHeight,
+        ...imageSize(cover),
       };
       engine.schedule(this);
     } catch {
@@ -354,6 +369,8 @@ class Engine {
       Math.abs(target.y - this.tilt.y) > 0.001;
 
     let alive = false;
+    let uploaded = false;
+    let pending = false;
     for (const view of this.views) {
       const renderer = view.renderer;
       if (!renderer || !view.images || !view.visible) continue;
@@ -362,24 +379,32 @@ class Engine {
         continue;
       }
       if (!view.uploaded) {
+        // One upload per frame, so covers arriving in a fling share frames.
+        if (uploaded) {
+          pending = true;
+          continue;
+        }
         renderer.setTextures(view.images);
         view.uploaded = true;
+        uploaded = true;
       }
       const living = hasLife(view.options.scene) && !reduced;
       alive ||= living;
       const params = this.params(view, reduced, now / 1000);
       if (!params) continue;
-      const key = living
-        ? ""
-        : JSON.stringify([
-            params.eye,
-            params.light,
-            params.yaw,
-            params.pitch,
-            params.canvas,
-            params.view,
-          ]);
-      if (key && key === view.lastKey) continue;
+      const key = JSON.stringify([
+        params.eye,
+        params.light,
+        params.yaw,
+        params.pitch,
+        params.canvas,
+        params.view,
+      ]);
+      // Still covers draw only on change. Life in a grid draws at half rate;
+      // a hero book draws every frame.
+      const lifeFrame =
+        living && (view.options.mode === "hero" || stats.frames % 2 === 0);
+      if (key === view.lastKey && !lifeFrame) continue;
       view.lastKey = key;
       const start = performance.now();
       renderer.draw(params);
@@ -388,7 +413,7 @@ class Engine {
       view.setState(reduced ? "still" : "ready");
     }
     stats.animating = alive || settling;
-    if (stats.animating) this.requestFrame();
+    if (stats.animating || pending) this.requestFrame();
     else this.lastFrame = 0;
   }
 
@@ -402,7 +427,8 @@ class Engine {
     if (rect.width < 2 || rect.height < 2) return null;
     const images = view.images!;
     const pad = Math.round(rect.width * CANVAS_PAD[mode]);
-    host.style.inset = `${-pad}px`;
+    const inset = `${-pad}px`;
+    if (host.style.inset !== inset) host.style.inset = inset;
     const canvas = {
       width: rect.width + pad * 2,
       height: rect.height + pad * 2,
