@@ -3,7 +3,7 @@ import type { SyncTableMap } from "@zsh-eng/local-sync/dexie";
 
 // Materialized operation families: one current row per family and entity, not a replay log.
 export type StoredOperation = Operation & { id: string; isDeleted: boolean };
-export function operationId(op: Operation): string {
+function operationId(op: Operation): string {
   const p = op.payload;
   const id =
     op.type === "updateDeckCard"

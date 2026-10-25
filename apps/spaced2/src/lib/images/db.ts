@@ -30,7 +30,7 @@ export const imagePersistedDb = createImageDatabase(
   "ImageCacheV2" + SHARED_STORAGE_SUFFIX,
 );
 
-export function isCachedImage(
+function isCachedImage(
   image: CachedImage | UncachedImage,
 ): image is CachedImage {
   return (

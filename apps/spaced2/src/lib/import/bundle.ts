@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const SPACED_BUNDLE_VERSION = "spaced-bundle-v1" as const;
 
-export const bundleWarningSchema = z.object({
+const bundleWarningSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
   file: z.string().min(1),
@@ -15,13 +15,13 @@ export const bundleAssetSchema = z.object({
   alt: z.string().optional(),
 });
 
-export const bundleCardSourceSchema = z.object({
+const bundleCardSourceSchema = z.object({
   file: z.string().min(1),
   lineStart: z.number().int().positive(),
   lineEnd: z.number().int().positive(),
 });
 
-export const bundleCardOriginSchema = z.object({
+const bundleCardOriginSchema = z.object({
   noteId: z.string(),
   noteType: z.enum(["basic", "reverse", "cloze"]),
   variantKey: z.string(),
@@ -35,7 +35,7 @@ export const bundleCardSchema = z.object({
   origin: bundleCardOriginSchema.optional(),
 });
 
-export const bundleSourceSchema = z.object({
+const bundleSourceSchema = z.object({
   type: z.literal("obsidian"),
   vaultRoot: z.string().min(1),
   inputs: z.array(z.string().min(1)).min(1),

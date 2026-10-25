@@ -24,7 +24,7 @@ import {
 import { toStoredOperation } from "./records";
 import { withSyncLock } from "./lock";
 
-export function emptyCardToOperations(card: CardWithMetadata): Operation[] {
+function emptyCardToOperations(card: CardWithMetadata): Operation[] {
   const now = Date.now();
   const cardOperation: CardOperation = {
     type: "card",
@@ -567,20 +567,6 @@ function handleUpdateDeckCardOperation(
   return { applied: true };
 }
 
-export async function setDeckMembership(
-  deckId: string,
-  cardId: string,
-  present: boolean,
-) {
-  await persistFormOperations([
-    {
-      type: "updateDeckCard",
-      payload: { deckId, cardId, present },
-      timestamp: Date.now(),
-    },
-  ]);
-}
-
 export function handleClientOperation(operation: Operation): OperationResult {
   switch (operation.type) {
     case "card":
@@ -608,7 +594,7 @@ export function handleClientOperation(operation: Operation): OperationResult {
   }
 }
 
-export async function handleClientOperationWithPersistence(
+async function handleClientOperationWithPersistence(
   operation: Operation,
 ): Promise<OperationResult> {
   await persistFormOperations([operation]);
@@ -673,11 +659,4 @@ export async function updateBookmarkedClientSide(
     timestamp: Date.now(),
   };
   await handleClientOperationWithPersistence(cardOperation);
-}
-
-/** Import legacy operation exports as current records, keeping the newest family. */
-export async function applyOperations(operations: Operation[]) {
-  await persistFormOperations(
-    [...operations].sort((a, b) => a.timestamp - b.timestamp),
-  );
 }

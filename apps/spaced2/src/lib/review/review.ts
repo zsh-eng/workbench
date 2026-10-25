@@ -47,7 +47,7 @@ export function gradeCard(
 /**
  * Converts a review log operation to a review log.
  */
-export function reviewLogOperationToReviewLog(
+function reviewLogOperationToReviewLog(
   operation: ReviewLogOperation,
 ): ReviewLog & { duration: number } {
   return {

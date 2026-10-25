@@ -11,7 +11,7 @@ function normalizeWhitespace(markdown: string) {
     .trim();
 }
 
-export function normalizeFlashcardContent(markdown: string) {
+function normalizeFlashcardContent(markdown: string) {
   return normalizeWhitespace(normalizeImageUrls(markdown));
 }
 
