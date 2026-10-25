@@ -18,6 +18,8 @@ import {
   DownloadForOfflineItem,
   LibraryCoverActivity,
 } from "@/features/background-activity/LibraryActivity";
+import { useBookArrival } from "@/features/arrivals/arrival-store";
+import { LazyArrivingCover } from "@/features/arrivals/LazyArrivingCover";
 import { useSetReadingStatus } from "@/hooks/use-reading-status";
 import { useToast } from "@/hooks/use-toast";
 import type { Book, ReadingStatus } from "@/lib/db";
@@ -72,20 +74,38 @@ export function useCoverRequest(
   }, [book, coverUrl, element, onCoverRequest]);
 }
 
-/** The cover image, its blurred placeholder, or the title set in type. */
-export function BookCover({
-  book,
-  coverUrl,
-  compact = false,
-  living = false,
-  className,
-}: {
+interface BookCoverProps {
   book: Book;
   coverUrl: string | undefined;
   compact?: boolean;
   living?: boolean;
   className?: string;
-}) {
+}
+
+/**
+ * The cover image, its blurred placeholder, or the title set in type. A
+ * book that is still arriving draws its arrival until it comes to rest.
+ */
+export function BookCover(props: BookCoverProps) {
+  const arrival = useBookArrival(props.book.sourceFileId);
+  if (!arrival) return <StillBookCover {...props} />;
+  return (
+    <LazyArrivingCover
+      arrival={arrival}
+      plain={<StillBookCover {...props} className="size-full" />}
+      plainReady={Boolean(props.coverUrl) || !props.book.cover}
+      className={props.className}
+    />
+  );
+}
+
+function StillBookCover({
+  book,
+  coverUrl,
+  compact = false,
+  living = false,
+  className,
+}: BookCoverProps) {
   if (coverUrl && living) {
     const plain = (
       <BookCover book={book} coverUrl={coverUrl} className={className} />

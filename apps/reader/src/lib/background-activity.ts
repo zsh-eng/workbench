@@ -4,6 +4,11 @@ import {
   subscribeRuntimeOnline,
 } from "@/features/sync-lab/runtime";
 import { getAppUpdate, holdUpdatesWhile } from "@/lib/app-update";
+import {
+  appArrivals,
+  BOOK_IMPORT_KIND,
+  bookImportKind,
+} from "@/lib/book-arrivals";
 import { prepareBook } from "@/lib/book-preparation";
 import { getBook, type Book } from "@/lib/db";
 import { files } from "@/lib/files";
@@ -59,8 +64,12 @@ const bookDownload: JobKind<BookDownloadInput> = {
  * runs after the first paint (`startBackgroundActivity`).
  */
 export const activity = createActivityManager({
-  kinds: { "book-download": bookDownload },
-  lanes: { network: 2 },
+  kinds: {
+    "book-download": bookDownload,
+    [BOOK_IMPORT_KIND]: bookImportKind(appArrivals),
+  },
+  // Imports run one at a time, in the order the files were chosen.
+  lanes: { network: 2, import: 1 },
   network: { isOnline: getRuntimeOnline, subscribe: subscribeRuntimeOnline },
   persist: {
     storage: getRuntimeStorage(),
@@ -77,6 +86,28 @@ export function downloadBooks(books: readonly Book[]): void {
       { bookId: book.id, title: book.title },
       { id: bookJobId(book.id), origin: "user" },
     );
+}
+
+/**
+ * Add books from files as import jobs, behind Debug → Arriving books. Each
+ * file holds its place in the Library at once; the outcomes settle in order.
+ */
+export function importBooks(files: readonly File[]) {
+  const { batch, keys } = appArrivals.start(files.map((file) => file.name));
+  const startedAt = Date.now();
+  files.forEach((file, order) =>
+    activity.start(
+      BOOK_IMPORT_KIND,
+      { key: keys[order]!, file, dateAdded: startedAt - order },
+      { id: keys[order]!, origin: "user" },
+    ),
+  );
+  return {
+    outcomes: keys.map((key) => appArrivals.outcome(key)),
+    /** Every added book has come to rest on the shelf, or 4 s have passed. */
+    rested: () => appArrivals.rested(batch, 4000),
+    end: () => appArrivals.end(batch),
+  };
 }
 
 /** A download you asked for holds a calm update until it ends. */
