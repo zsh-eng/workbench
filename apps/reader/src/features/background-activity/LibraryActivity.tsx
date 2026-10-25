@@ -7,11 +7,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { downloadBooks } from "@/lib/background-activity";
 import type { Book } from "@/lib/db";
-import {
-  calmUpdates,
-  offlineDownloads,
-  useDebugSwitch,
-} from "@/lib/debug-switch";
+import { offlineDownloads, useDebugSwitch } from "@/lib/debug-switch";
 import { files } from "@/lib/files";
 import { CloudDownload } from "lucide-react";
 import { useSyncExternalStore } from "react";
@@ -20,21 +16,20 @@ import { CoverActivity } from "./CoverActivity";
 import { UpdateChip } from "./UpdateChip";
 
 /**
- * The Library's background parts, each behind its Debug switch: the update
- * chip (Calm updates) and the activity glyph (Offline downloads). With room,
+ * The Library's background parts: the update chip, and the activity glyph
+ * (Debug → Offline downloads). With room,
  * both sit in the header. A phone's header is full with the places, so the
  * glyph joins Sort and layout in the filter row, where Download all starts,
  * and the chip floats at the bottom of the page.
  */
 export function LibraryActivity({ place }: { place: "header" | "row" }) {
-  const calm = useDebugSwitch(calmUpdates);
   const downloads = useDebugSwitch(offlineDownloads);
   const phone = usePhoneLayout();
   if (place === "row") return downloads && phone ? <ActivityGlyph /> : null;
-  if (phone) return calm ? <UpdateChip floating /> : null;
+  if (phone) return <UpdateChip floating />;
   return (
     <>
-      {calm && <UpdateChip className="mr-1" />}
+      <UpdateChip className="mr-1" />
       {downloads && <ActivityGlyph />}
     </>
   );

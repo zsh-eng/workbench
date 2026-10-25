@@ -97,23 +97,7 @@ const pageHas = (page: Page, label: string) =>
     label,
   );
 
-test("an update switches and reloads at once by default", async ({ page }) => {
-  await openControlled(page);
-  const label = publishVersion();
-  const reloaded = page.waitForEvent("load");
-  await checkForUpdate(page);
-  await reloaded;
-  await expect.poll(() => pageHas(page, label)).toBe(true);
-});
-
-test("with Calm updates, an update waits for Restart and then says Updated", async ({
-  page,
-  context,
-}) => {
-  await context.addInitScript(() => {
-    localStorage.setItem("reader-debug-enabled-v1", "true");
-    localStorage.setItem("reader-calm-updates-v1", "true");
-  });
+test("an update waits for Restart and then says Updated", async ({ page }) => {
   await openControlled(page);
   // A page that has just started switches at once; this one is in use.
   await page.waitForTimeout(5_500);

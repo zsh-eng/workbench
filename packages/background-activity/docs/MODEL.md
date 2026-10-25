@@ -101,9 +101,7 @@ The update has its own small moment:
 
 ## A safe moment for an update
 
-With Debug → Calm updates, an update downloads in the background and waits.
-Without it, the app still reloads as soon as the update is ready. The page
-keeps the version
+An update downloads in the background and waits. The page keeps the version
 it loaded until the switch, and the waiting service worker keeps that
 version's files, so nothing breaks while it waits.
 

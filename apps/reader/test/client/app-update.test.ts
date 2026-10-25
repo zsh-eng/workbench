@@ -9,7 +9,6 @@ import {
 import { describe, expect, it } from "vitest";
 
 const library: UpdateMomentContext = {
-  calm: true,
   pathname: "/",
   busy: false,
   pageAgeMs: 60_000,
@@ -19,19 +18,7 @@ const ready = { status: "ready", takenOver: false } as const;
 const idle = { status: "idle", takenOver: false } as const;
 const away = (awayMs: number) => ({ type: "visible", awayMs }) as const;
 
-describe("without Calm updates", () => {
-  it("switches as soon as an update is ready, as the app always has", () => {
-    expect(updatePolicy({ ...reading, calm: false })).toBe("now");
-    expect(
-      updateMoment(ready, away(AWAY_FOR_UPDATE_MS), {
-        ...library,
-        calm: false,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("with Calm updates", () => {
+describe("an update that is ready", () => {
   it("waits for a safe moment once the page is in use", () => {
     expect(updatePolicy(library)).toBe("wait");
   });

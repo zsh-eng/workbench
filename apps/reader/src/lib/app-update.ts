@@ -1,5 +1,4 @@
 import { getLabRuntime } from "@/features/sync-lab/runtime";
-import { calmUpdates } from "@/lib/debug-switch";
 import {
   createAppUpdate,
   type AppUpdate,
@@ -22,7 +21,6 @@ export function isReadingPath(pathname: string): boolean {
 }
 
 export interface UpdateMomentContext {
-  calm: boolean;
   pathname: string;
   /** Work you asked for is running, such as a download. */
   busy: boolean;
@@ -31,12 +29,10 @@ export interface UpdateMomentContext {
 }
 
 /**
- * Whether a ready update switches at once. Without Calm updates it does, as
- * the auto-updating app always has. With it, only on a page that has just
- * started away from a book; everything else waits for `updateMoment`.
+ * Whether a ready update switches at once: only on a page that has just
+ * started away from a book. Everything else waits for `updateMoment`.
  */
 export function updatePolicy(context: UpdateMomentContext): "now" | "wait" {
-  if (!context.calm) return "now";
   if (context.pageAgeMs < LAUNCH_MS && !isReadingPath(context.pathname))
     return "now";
   return "wait";
@@ -47,7 +43,7 @@ export type UpdateMomentEvent =
   | { type: "route"; from: string };
 
 /**
- * What a calm update does at a moment: switch (`apply`), look for a new
+ * What a waiting update does at a moment: switch (`apply`), look for a new
  * version (`check`), or nothing. Never on the Reader.
  */
 export function updateMoment(
@@ -55,7 +51,6 @@ export function updateMoment(
   event: UpdateMomentEvent,
   context: UpdateMomentContext,
 ): "apply" | "check" | null {
-  if (!context.calm) return null;
   const reading = isReadingPath(context.pathname);
   if (update.status === "ready" && !reading) {
     // Another tab switched: this page runs old code on the new files, so
@@ -79,7 +74,7 @@ export function updateMoment(
 
 const busyChecks = new Set<() => boolean>();
 
-/** Hold a calm update while `check` is true, for example during a download. */
+/** Hold a waiting update while `check` is true, for example during a download. */
 export function holdUpdatesWhile(check: () => boolean): () => void {
   busyChecks.add(check);
   return () => {
@@ -91,7 +86,6 @@ const pageStartedAt = Date.now();
 
 export function updateContext(): UpdateMomentContext {
   return {
-    calm: calmUpdates.get(),
     pathname: window.location.pathname,
     busy: [...busyChecks].some((check) => check()),
     pageAgeMs: Date.now() - pageStartedAt,

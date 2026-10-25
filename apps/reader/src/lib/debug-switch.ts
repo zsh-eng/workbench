@@ -68,9 +68,6 @@ export function useDebugSwitch(debugSwitch: DebugSwitch): boolean {
   );
 }
 
-/** Updates wait for a safe moment instead of reloading the page at once. */
-export const calmUpdates = createDebugSwitch("reader-calm-updates-v1");
-
 /** Books download for offline from the Library, with progress on covers. */
 export const offlineDownloads = createDebugSwitch(
   "reader-offline-downloads-v1",

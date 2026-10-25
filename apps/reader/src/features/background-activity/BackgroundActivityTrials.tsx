@@ -1,6 +1,5 @@
 import { Switch } from "@/components/ui/switch";
 import {
-  calmUpdates,
   offlineDownloads,
   useDebugSwitch,
   type DebugSwitch,
@@ -12,13 +11,6 @@ const TRIALS: {
   description: string;
   switch: DebugSwitch;
 }[] = [
-  {
-    id: "calm-updates",
-    title: "Calm updates",
-    description:
-      "A new version waits instead of reloading the page. The Library shows Restart to update, and it switches when you come back after two minutes away, never on a book.",
-    switch: calmUpdates,
-  },
   {
     id: "offline-downloads",
     title: "Offline downloads",
