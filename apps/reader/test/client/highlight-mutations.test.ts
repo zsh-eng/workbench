@@ -30,15 +30,15 @@ const highlight = {
   color: "yellow" as const,
   createdAt: 1,
 };
-const chapterKey = highlightKeys.chapter("book", "chapter");
+const bookKey = highlightKeys.book("book");
 function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client }, children);
 }
 function useMutations() {
   return {
-    add: useAddHighlightMutation("book", "chapter"),
-    update: useUpdateHighlightMutation("book", "chapter"),
-    remove: useDeleteHighlightMutation("book", "chapter"),
+    add: useAddHighlightMutation("book"),
+    update: useUpdateHighlightMutation("book"),
+    remove: useDeleteHighlightMutation("book"),
   };
 }
 beforeEach(async () => {
@@ -90,8 +90,7 @@ it.each(["add", "update", "remove"] as const)(
   "reports a failed %s and restores the saved data",
   async (operation) => {
     await database.addHighlight(highlight);
-    client.setQueryData(chapterKey, [highlight]);
-    client.setQueryData(highlightKeys.book("book"), [highlight]);
+    client.setQueryData(bookKey, [highlight]);
     const method = {
       add: "addHighlight",
       update: "updateHighlight",
@@ -114,7 +113,7 @@ it.each(["add", "update", "remove"] as const)(
     });
     await waitFor(() => expect(result.current[operation].isError).toBe(true));
     expect(toast.error).toHaveBeenCalledOnce();
-    expect(client.getQueryData(chapterKey)).toEqual([highlight]);
+    expect(client.getQueryData(bookKey)).toEqual([highlight]);
     expect(await database.getBookHighlights("book")).toMatchObject([highlight]);
   },
 );

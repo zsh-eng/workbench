@@ -21,7 +21,6 @@ interface HighlightToolbarContainerProps {
    */
   placement: "island" | "floating";
   bookId: string | undefined;
-  spineItemId: string | undefined;
   highlights: Highlight[];
 
   // For creating new highlights (text selection mode)
@@ -46,7 +45,6 @@ interface HighlightToolbarContainerProps {
 export function HighlightToolbarContainer({
   placement,
   bookId,
-  spineItemId,
   highlights,
   isCreatingHighlight,
   creationPosition,
@@ -62,14 +60,8 @@ export function HighlightToolbarContainer({
   onEditClose,
 }: HighlightToolbarContainerProps) {
   // Get mutations for editing highlights
-  const updateHighlightMutation = useUpdateHighlightMutation(
-    bookId,
-    spineItemId,
-  );
-  const deleteHighlightMutation = useDeleteHighlightMutation(
-    bookId,
-    spineItemId,
-  );
+  const updateHighlightMutation = useUpdateHighlightMutation(bookId);
+  const deleteHighlightMutation = useDeleteHighlightMutation(bookId);
 
   // Find the active highlight data
   const activeHighlightData = activeHighlight

@@ -174,7 +174,6 @@ export function ReaderDebug() {
   const {
     state: annotationState,
     activeHighlight,
-    activeHighlightData,
     isCreatingHighlight,
     creationPosition,
     creationText,
@@ -389,7 +388,6 @@ export function ReaderDebug() {
         <HighlightToolbarContainer
           placement={isMobile ? "island" : "floating"}
           bookId={bookId}
-          spineItemId={activeHighlightData?.spineItemId ?? undefined}
           highlights={bookHighlights}
           isCreatingHighlight={isCreatingHighlight}
           creationPosition={creationPosition}

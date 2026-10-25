@@ -985,7 +985,6 @@ export function Reader() {
                               <HighlightToolbarContainer
                                 placement="island"
                                 bookId={bookId}
-                                spineItemId={activeHighlightData?.spineItemId}
                                 highlights={sessionState.highlights}
                                 isCreatingHighlight={isCreatingHighlight}
                                 creationPosition={creationPosition}
@@ -1175,9 +1174,6 @@ export function Reader() {
                     <HighlightToolbarContainer
                       placement="floating"
                       bookId={bookId}
-                      spineItemId={
-                        activeHighlightData?.spineItemId ?? undefined
-                      }
                       highlights={sessionState.highlights}
                       isCreatingHighlight={
                         isCreatingHighlight && !selectAcross.handingOver
