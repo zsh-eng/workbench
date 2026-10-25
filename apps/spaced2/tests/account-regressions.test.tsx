@@ -2,8 +2,9 @@ import { createSyncClientState } from "@zsh-eng/local-sync";
 import { deckRecord, streamResponse } from "./sync-fixtures";
 import { beforeEach, afterEach, expect, test, spyOn } from "bun:test";
 import { act } from "react";
-import { MemoryRouter } from "react-router";
-import { render, click, input } from "./dom";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { render, click, input, until } from "./dom";
+import * as utils from "@/lib/utils";
 import { LoginForm } from "@/components/form/login-form";
 import { RegisterForm } from "@/components/form/register-form";
 import VerifyOtpForm from "@/components/form/verify-otp-form";
@@ -115,9 +116,9 @@ afterEach(async () => {
 });
 
 test("the first pull returns the active promise and resolves only after local application", async () => {
-  await setClientId("pull-client");
   // A first pull starts from cursor 0, even when a rerun left a cursor.
   stateStore.write(createSyncClientState(crypto.randomUUID()));
+  await setClientId("pull-client");
   const response = deferred<Response>();
   globalThis.fetch = (async (url) =>
     String(url).endsWith("/me")
@@ -301,7 +302,7 @@ test("the session-expired notice follows the server: a refused session shows it,
   expect(notice()).toBe(false);
 });
 
-test("callback sync is a named native button and the button itself starts sync", async () => {
+test("the login callback's sync button registers this device, syncs and goes home", async () => {
   const calls: string[] = [];
   globalThis.fetch = (async (url) => {
     calls.push(String(url));
@@ -316,18 +317,26 @@ test("callback sync is a named native button and the button itself starts sync",
   }) as typeof fetch;
   const view = await mount(
     <MemoryRouter initialEntries={["/login-success?clientId=callback-client"]}>
-      <LoginSuccessRoute />
+      <Routes>
+        <Route path="/login-success" element={<LoginSuccessRoute />} />
+        <Route path="/" element={<p>Home</p>} />
+      </Routes>
     </MemoryRouter>,
   );
   const button = view.container.querySelector<HTMLButtonElement>(
     'button[aria-label="Sync account data"]',
   );
   expect(button).not.toBeNull();
-  await click(button!);
-  await settle();
+  // The route holds its toast for a second after the sync; skip the wait.
+  const hold = spyOn(utils, "delayAfter").mockImplementation((sync) => sync);
+  try {
+    await click(button!);
+    await until(() => view.container.textContent === "Home");
+  } finally {
+    hold.mockRestore();
+  }
   expect(await getClientId()).toBe(stateStore.read()?.deviceId);
   expect(calls.some((url) => url.includes("/sync/v2/pull-stream?"))).toBe(true);
-  await settle(1050);
 });
 
 test("offline account triggers are disabled native buttons", async () => {

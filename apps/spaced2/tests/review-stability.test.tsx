@@ -70,11 +70,12 @@ test("keeps the active card when an earlier-sorted due card arrives", async () =
 });
 test("keeps the active card when another card becomes due", async () => {
   MemoryDB.putCard(card("Y"));
-  MemoryDB.putCard(card("X", Date.now() + 300));
+  MemoryDB.putCard(card("X", Date.now() + 50));
   MemoryDB.notify();
   const v = await mount();
+  // The queue's clock fires at X's due time, before this later timer.
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
   expect(v.container.textContent).toContain("Question Y");
   expect(v.container.textContent).not.toContain("Question X");
