@@ -139,7 +139,9 @@ test("Notes Island annotation and retained draft", async ({
   const attachedQuote = await quote.locator("span").first().innerText();
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(panel).toHaveCount(0);
-  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+  ).toBeVisible();
   await expect(island).toHaveCount(0);
   const saved = await page.evaluate(async () => {
     const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
@@ -237,14 +239,18 @@ test("a noted highlight opens its note on the island, with Undo for deletion", a
     .getByRole("textbox", { name: "Write a note" })
     .fill("Worth rereading.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+  ).toBeVisible();
   await expect(page.locator("[data-notes-island]")).toHaveCount(0);
   await mark.click();
   const note = page.getByRole("region", { name: "Note", exact: true });
   await expect(note).toContainText("Worth rereading.");
   await expect(note).toContainText(/p\. \d+ · Today/);
   await note.getByRole("button", { name: "Delete note" }).click();
-  await expect(page.getByRole("status")).toContainText("Note deleted");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Note deleted" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect
     .poll(() =>
@@ -404,6 +410,129 @@ test("a notebook highlight has the note menu on phones too", async ({
   await expect(entry).toHaveCount(0);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(entry).toHaveCount(1);
+});
+
+/**
+ * Saves a highlight over a page break: the current page's last line runs on
+ * to the next page's first line. Returns the passage as the book has it.
+ */
+async function highlightAcrossPageBreak(page: Page, bookId: string) {
+  const findCut = () =>
+    page.evaluate(() => {
+      const paragraph = (layer: string, which: "first" | "last") => {
+        const all = document.querySelectorAll(
+          `[data-reader-spread-layer="${layer}"] p[data-reader-block-id]`,
+        );
+        return which === "first" ? all[0] : all[all.length - 1];
+      };
+      const last = paragraph("current", "last");
+      const first = paragraph("next", "first");
+      const id = last?.getAttribute("data-reader-block-id");
+      if (!id || id !== first?.getAttribute("data-reader-block-id"))
+        return null;
+      // Whole words only: a line can end or start inside a broken word.
+      const words = (line: Element | undefined) =>
+        (line?.textContent ?? "").trim().split(/\s+/);
+      const tail = words([...last!.querySelectorAll(":scope > span")].at(-1));
+      const head = words(first!.querySelector(":scope > span") ?? undefined);
+      if (tail.length < 4 || head.length < 4) return null;
+      return {
+        from: tail.slice(1, -1).join(" "),
+        to: head.slice(1, -1).join(" "),
+      };
+    });
+  let cut = await findCut();
+  for (let turn = 0; turn < 20 && !cut; turn++) {
+    await nextSpread(page);
+    cut = await findCut();
+  }
+  if (!cut) throw new Error("No paragraph runs on to the next page");
+  return page.evaluate(
+    async ({ bookId, from, to }) => {
+      const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+      const book = await db.books.get(bookId);
+      const files = await db.bookFiles.where("bookId").equals(bookId).toArray();
+      // Source whitespace can differ from the page's single spaces.
+      const pattern = (words: string) =>
+        new RegExp(
+          words
+            .split(" ")
+            .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("\\s+"),
+        );
+      for (const item of book.spine) {
+        const href = book.manifest.find(
+          (entry: { id: string }) => entry.id === item.idref,
+        ).href;
+        const file = files.find(
+          (entry: { path: string }) => entry.path === href,
+        );
+        if (!file) continue;
+        const text =
+          new DOMParser().parseFromString(
+            await file.content.text(),
+            "text/html",
+          ).body.textContent ?? "";
+        const start = text.match(pattern(from));
+        if (start?.index === undefined) continue;
+        const rest = text.slice(start.index).match(pattern(to));
+        if (rest?.index === undefined) continue;
+        const endOffset = start.index + rest.index + rest[0].length;
+        const selectedText = text.slice(start.index, endOffset);
+        await db.highlights.put({
+          id: "across-pages",
+          bookId,
+          spineItemId: item.idref,
+          startOffset: start.index,
+          endOffset,
+          selectedText,
+          textBefore: "",
+          textAfter: "",
+          color: "blue",
+          createdAt: Date.now(),
+          isDeleted: false,
+        });
+        return { passage: selectedText.replace(/\s+/g, " ").trim(), to };
+      }
+      throw new Error("Passage not found in the book");
+    },
+    { bookId, ...cut },
+  );
+}
+
+test("Copy writes a highlight's whole passage, past the page break", async ({
+  page,
+  localBook,
+}) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+  await openLocalBook(page, localBook.id);
+  const { passage, to } = await highlightAcrossPageBreak(page, localBook.id);
+  // Only the passage's first part is on this page.
+  const mark = page
+    .locator(
+      '[data-reader-spread-layer="current"] mark[data-highlight-id="across-pages"]',
+    )
+    .first();
+  await expect(mark).toBeVisible();
+  await expect(
+    page.locator('[data-reader-spread-layer="current"]'),
+  ).not.toContainText(to);
+  await mark.tap();
+  const copy = page.getByRole("button", { name: "Copy text", exact: true });
+  await copy.tap();
+  await expect.poll(clipboard).toBe(passage);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Copied to clipboard" }),
+  ).toHaveCount(1);
+
+  // A fresh selection offers the same Copy, beside its colours.
+  await page.touchscreen.tap(195, 120);
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await selectPassage(page);
+  const selected = await page.evaluate(() => getSelection()!.toString());
+  await copy.tap();
+  await expect.poll(clipboard).toBe(selected.replace(/\s+/g, " ").trim());
 });
 
 test("tapping a highlight and closing its tools moves nothing on the page", async ({

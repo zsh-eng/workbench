@@ -46,7 +46,9 @@ test("failed note save preserves the mobile draft and retry saves exactly once",
   await page.context().setOffline(true);
   await save.click();
   await expect(input).not.toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+  ).toBeVisible();
   await showNotesCapsule(page);
   await expect(notebook).toHaveAttribute(
     "aria-description",

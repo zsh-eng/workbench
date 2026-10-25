@@ -102,6 +102,9 @@ export function ReaderNotesPrototype({
     dock?: "top" | "bottom";
     /** The existing highlight being edited, if any. */
     highlightId?: string;
+    /** The whole passage as Copy writes it: canonical chapter text, which
+     * runs past the page when the passage does. */
+    copyText: string;
     captureTarget: () => NoteTarget | null;
     close: () => void;
   };
@@ -1471,6 +1474,7 @@ export function ReaderNotesPrototype({
                   {islandState === "tools" && mobileAnnotation && (
                     <IslandTools
                       tools={mobileAnnotation.tools}
+                      copyText={mobileAnnotation.copyText}
                       actionLabel={composeHasText ? "Attach" : "Note"}
                       onNote={() => void noteOnPassage()}
                     />

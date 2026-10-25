@@ -20,6 +20,8 @@ import type { Note } from "@/types/note";
 import { useBookNotesQuery } from "@/hooks/use-notes-query";
 import { MOTION } from "@/lib/motion";
 import { UndoCountdown } from "@/components/UndoToast";
+import { CopyFeedbackIcon } from "@/components/ui/copy-feedback-icon";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 
 /**
@@ -209,7 +211,8 @@ export function IslandSurface({
 }
 
 /** One state of the surface. Only the present layer sizes the surface: a
- * leaving layer shares the space while it fades and must not report. */
+ * leaving layer shares the space while it fades and must not report. It is
+ * inert too, so its buttons take no tap and its status is not read. */
 function IslandLayer({
   onSize,
   children,
@@ -231,6 +234,7 @@ function IslandLayer({
   return (
     <motion.div
       ref={layer}
+      inert={!present}
       className="absolute bottom-0 left-1/2 w-max -translate-x-1/2"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -242,30 +246,50 @@ function IslandLayer({
   );
 }
 
-/** The colour tools for a passage, followed by Note. */
+/** The colour tools for a passage, then Copy and Note. A fresh selection
+ * and a saved highlight get the same tools, so each sits in one place. */
 export function IslandTools({
   tools,
+  copyText,
   actionLabel,
   onNote,
 }: {
   tools: ReactNode;
+  /** The whole passage, from the chapter text, as Copy writes it. */
+  copyText: string;
   actionLabel: "Note" | "Attach";
   onNote: () => void;
 }) {
+  const { copied, copy } = useCopyFeedback("Could not copy the passage.");
   return (
     <div className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap">
       {tools}
       <span aria-hidden="true" className="h-5 w-px bg-border" />
-      <button
-        type="button"
-        aria-label={actionLabel === "Attach" ? "Attach to draft" : "Add note"}
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={onNote}
-        className="flex h-10 items-center gap-1.5 rounded-full bg-secondary px-4 text-[13px] font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <PencilLine className="size-4" aria-hidden="true" />
-        {actionLabel}
-      </button>
+      <div className="-ml-1.5 flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="Copy text"
+          // Keep the page selection and focus where they are.
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => copy(copyText)}
+          className={cn(
+            "flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
+            copied && "text-foreground",
+          )}
+        >
+          <CopyFeedbackIcon copied={copied} className="size-[18px]" />
+        </button>
+        <button
+          type="button"
+          aria-label={actionLabel === "Attach" ? "Attach to draft" : "Add note"}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={onNote}
+          className="flex h-10 items-center gap-1.5 rounded-full bg-secondary px-4 text-[13px] font-medium text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <PencilLine className="size-4" aria-hidden="true" />
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }

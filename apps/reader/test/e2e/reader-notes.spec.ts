@@ -116,7 +116,9 @@ test("captures thoughts over a stable book and browses both notebook orders", as
   await page.context().setOffline(true);
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(input).not.toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Saved to notebook");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+  ).toBeVisible();
   await page.context().setOffline(false);
   expect(await currentPages(page)).toEqual(before);
   // Saving returns to plain reading; the chrome comes back with a tap.

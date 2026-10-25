@@ -957,6 +957,9 @@ export function Reader() {
                             identity: annotationState,
                             dock: selectAcross.islandDock,
                             highlightId: activeHighlightData?.id,
+                            copyText: activeHighlightData
+                              ? activeHighlightCopyText
+                              : creationText,
                             tools: (
                               <HighlightToolbarContainer
                                 placement="island"
