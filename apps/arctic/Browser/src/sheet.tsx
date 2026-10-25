@@ -5,7 +5,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { springSheetScroller } from "@workbench/elements/sheet-motion";
+import { fitSheetHeight, trackSheetShape } from "@workbench/elements/sheet-fit";
+import {
+  sheetSnaps,
+  springSheetScroller,
+  springSheetTo,
+} from "@workbench/elements/sheet-motion";
+import { SPRINGS } from "@workbench/elements/spring";
+import "@workbench/elements/sheet.css";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet as AriaSheet,
@@ -31,6 +38,13 @@ export type SheetProps = {
    * away when it is dragged lower.
    */
   snapPoints?: (number | string)[];
+  /**
+   * Holds the sheet's height for its content (fitSheetHeight in
+   * @workbench/elements): the height follows the content without chasing
+   * its animations. On by default for a sheet without detents; a sheet with
+   * detents whose content changes, as Notes does, turns it on.
+   */
+  fit?: boolean;
   /** Dims the page. A sheet that changes the page, as Text does, leaves it in view. */
   dim?: boolean;
   children: ReactNode;
@@ -41,8 +55,10 @@ export type SheetProps = {
  * (apps/reader/src/components/ui/detent-sheet.tsx). The browser's own
  * scrolling moves it, so a drag follows the finger, keeps its momentum, and
  * rests on detents. Opening, closing and a new detent run UIKit's sheet
- * spring. It is modal: the page turns inert, focus stays inside,
- * and a press outside or Escape closes it.
+ * spring. Below full height it floats, inset from the screen's edges, and
+ * its height follows its content as "Sheet behaviour" in
+ * packages/elements/docs/MOTION.md describes. It is modal: the page turns
+ * inert, focus stays inside, and a press outside or Escape closes it.
  */
 export function Sheet({
   isOpen,
@@ -50,16 +66,18 @@ export function Sheet({
   title,
   heading = false,
   snapPoints,
+  fit,
   dim = true,
   children,
 }: SheetProps) {
   const hasDetents = !!snapPoints?.length;
+  const fits = fit ?? !hasDetents;
   return (
     <SheetOverlay
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       snapPoints={snapPoints}
-      className="sheet-overlay"
+      className="sheet-overlay wb-sheet-overlay"
     >
       {({ isExpanded, isExiting, isEntering }) => (
         <>
@@ -75,7 +93,7 @@ export function Sheet({
             />
           )}
           <AriaSheet
-            className="sheet"
+            className="sheet wb-sheet"
             stackAnimation="sheet-recede"
             overscrollPadding
           >
@@ -93,7 +111,7 @@ export function Sheet({
                 isExiting={isExiting}
                 isEntering={isEntering}
               >
-                {children}
+                {fits ? <FitHeight>{children}</FitHeight> : children}
               </SheetBody>
             </SheetContent>
           </AriaSheet>
@@ -175,8 +193,20 @@ function SheetBody({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  /** Where a field took the sheet from, to return there when it lets go. */
+  const raisedFrom = useRef<number | null>(null);
 
   useEdgeEntrance(ref, isEntering);
+
+  // The sheet floats below full height and meets the screen's edges at
+  // the large detent (@workbench/elements/sheet.css).
+  useLayoutEffect(() => {
+    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    const overlay = scroller?.closest<HTMLElement>(".wb-sheet-overlay");
+    const sheet = ref.current?.closest<HTMLElement>(".wb-sheet");
+    if (!scroller || !overlay || !sheet) return;
+    return trackSheetShape(overlay, scroller, sheet);
+  }, []);
 
   // React Aria opens, closes and changes detents with smooth scrolls; UIKit's
   // sheet spring runs them instead (packages/elements/docs/MOTION.md). The
@@ -206,6 +236,7 @@ function SheetBody({
   useEffect(() => {
     const collapsed = wasExpanded.current && !isExpanded;
     wasExpanded.current = isExpanded;
+    if (collapsed) raisedFrom.current = null;
     const field = document.activeElement;
     if (
       collapsed &&
@@ -233,15 +264,73 @@ function SheetBody({
           sheet.getBoundingClientRect().top >= innerHeight
         )
           return;
-        scroller.scrollTo({
-          top: scroller.scrollHeight - scroller.clientHeight,
-          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "auto"
-            : "smooth",
-        });
+        // The sheet rises with the keyboard, on the keyboard's spring, as
+        // UIKit's does.
+        raisedFrom.current = scroller.scrollTop;
+        springSheetTo(
+          scroller,
+          scroller.scrollHeight - scroller.clientHeight,
+          SPRINGS.snappy,
+        );
+      }}
+      onBlur={(event) => {
+        const from = raisedFrom.current;
+        if (from === null || !isTextField(event.target)) return;
+        // Focus that moves to another field keeps the keyboard up.
+        if (
+          isTextField(event.relatedTarget as Element | null) &&
+          event.currentTarget.contains(event.relatedTarget as Node)
+        )
+          return;
+        raisedFrom.current = null;
+        const scroller = event.currentTarget.closest<HTMLElement>(
+          "[data-sheet-scroll]",
+        );
+        if (!scroller || isExiting) return;
+        // The keyboard goes, and the sheet goes back to the detent nearest
+        // where the field took it from, never the closed place.
+        const rests = sheetSnaps(scroller).filter(
+          (snap) => snap.full || snap.marker.hasAttribute("data-sheet-detent"),
+        );
+        if (!rests.length) return;
+        const home = rests.reduce((best, snap) =>
+          Math.abs(snap.position - from) < Math.abs(best.position - from)
+            ? snap
+            : best,
+        ).position;
+        springSheetTo(scroller, home, SPRINGS.snappy);
       }}
     >
       {children}
+    </div>
+  );
+}
+
+/**
+ * Holds a sheet's height for its content (fitSheetHeight): a change in one
+ * frame moves the sheet at once on its spring, rows that collapse leave
+ * their space at `[data-sheet-slack]` until the content is still, and then
+ * the sheet settles once. `[data-sheet-fit-state]` names what the height is
+ * doing: `rest`, `held` or `settling`.
+ */
+function FitHeight({ children }: { children: ReactNode }) {
+  const fit = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const scroller = fit.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (!fit.current || !content.current || !scroller) return;
+    return fitSheetHeight({
+      fit: fit.current,
+      content: content.current,
+      scroller,
+    });
+  }, []);
+  return (
+    <div ref={fit} data-sheet-fit="">
+      <div ref={content} data-sheet-fit-content="">
+        {children}
+        <div data-sheet-slack="end" aria-hidden="true" />
+      </div>
     </div>
   );
 }
