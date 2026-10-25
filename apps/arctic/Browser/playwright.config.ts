@@ -17,8 +17,8 @@ const preview = `http://localhost:${previewPort}`;
 
 export default defineConfig({
   testDir: "./tests",
-  fullyParallel: false,
-  workers: 1,
+  // Each test signs up its own account, so tests run in parallel.
+  fullyParallel: true,
   timeout: 60_000,
   use: {
     baseURL: `http://localhost:${port}`,
