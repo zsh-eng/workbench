@@ -62,7 +62,7 @@ function unescapeMarkers(text: string) {
 
 // --- Cloze parsing and expansion ---
 
-export type ClozeMatch = {
+type ClozeMatch = {
   fullMatch: string;
   index: number;
   answer: string;
@@ -71,7 +71,7 @@ export type ClozeMatch = {
 
 const CLOZE_PATTERN = /\{\{c(\d+)::([^:}]+?)(?:::([^}]+?))?\}\}/g;
 
-export function parseClozeMarkers(text: string): ClozeMatch[] {
+function parseClozeMarkers(text: string): ClozeMatch[] {
   const matches: ClozeMatch[] = [];
   for (const match of text.matchAll(CLOZE_PATTERN)) {
     matches.push({
@@ -87,7 +87,7 @@ export function parseClozeMarkers(text: string): ClozeMatch[] {
 /**
  * Returns the unique cloze indices found in the text, sorted ascending.
  */
-export function getClozeIndices(text: string): number[] {
+function getClozeIndices(text: string): number[] {
   const matches = parseClozeMarkers(text);
   const indices = [...new Set(matches.map((m) => m.index))];
   return indices.sort((a, b) => a - b);
@@ -100,7 +100,7 @@ export function getClozeIndices(text: string): number[] {
  *   shown as **answer** (bold) on back
  * - Inactive clozes: markers stripped, answer text shown normally on both sides
  */
-export function expandClozeText(
+function expandClozeText(
   text: string,
   activeIndex: number,
 ): { front: string; back: string } {

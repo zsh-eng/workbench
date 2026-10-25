@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { bundleManifestSchema } from "../src/lib/import/bundle";
 import {
-  expandClozeText,
   findImageLinks,
-  getClozeIndices,
-  parseClozeMarkers,
   parseFlashcardBlocks,
 } from "../src/lib/import/compiler-core";
 import { replacePlaceholderLinks } from "../src/lib/import/browser";
@@ -20,23 +17,22 @@ describe("parseFlashcardBlocks", () => {
     "Q: Missing answer",
     "Q: Missing answer\n===",
     "Q: Missing answer\n===\n",
-  ])(
-    "reports one missing-answer error for %j",
-    (input) => {
-      const result = parseFlashcardBlocks(input, "note.md");
-      expect(
-        result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
-      ).toEqual([
-        {
-          code: "MISSING_ANSWER",
-          message: "Card block is missing an A: answer marker.",
-          file: "note.md",
-          line: 1,
-          severity: "error",
-        },
-      ]);
-    },
-  );
+  ])("reports one missing-answer error for %j", (input) => {
+    const result = parseFlashcardBlocks(input, "note.md");
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) => diagnostic.severity === "error",
+      ),
+    ).toEqual([
+      {
+        code: "MISSING_ANSWER",
+        message: "Card block is missing an A: answer marker.",
+        file: "note.md",
+        line: 1,
+        severity: "error",
+      },
+    ]);
+  });
 
   test("parses multiline cards", () => {
     const input = `Q: What is TL2?\nLine 2\nA: An STM\nLine B\n===`;
@@ -95,25 +91,34 @@ describe("parseFlashcardBlocks", () => {
     );
   });
 
-  test("cloze markers produce one card per unique index", () => {
-    const input = `Q: {{c1::Canberra}} was founded in {{c2::1913}}\nA: Review the facts.\n\n===`;
+  test("cloze markers produce one card per index, in index order", () => {
+    const input = `Q: {{c2::Canberra}} was founded in {{c1::1913}}\nA: Review the facts.\n\n===`;
     const result = parseFlashcardBlocks(input, "note.md");
 
     expect(
       result.diagnostics.filter((d) => d.severity === "error"),
     ).toHaveLength(0);
-    expect(result.cards).toHaveLength(2);
-
-    // c1 card
-    expect(result.cards[0]?.front).toBe("[...] was founded in 1913");
+    // Each card blanks its own cloze, shows the others as text, and backs
+    // the question with that answer in bold, then the A: text.
+    expect(
+      result.cards.map((card) => [
+        card.origin?.variantKey,
+        card.front,
+        card.back,
+      ]),
+    ).toEqual([
+      [
+        "c1",
+        "Canberra was founded in [...]",
+        "Canberra was founded in **1913**\n\nReview the facts.",
+      ],
+      [
+        "c2",
+        "[...] was founded in 1913",
+        "**Canberra** was founded in 1913\n\nReview the facts.",
+      ],
+    ]);
     expect(result.cards[0]?.origin?.noteType).toBe("cloze");
-    expect(result.cards[0]?.origin?.variantKey).toBe("c1");
-
-    // c2 card
-    expect(result.cards[1]?.front).toBe("Canberra was founded in [...]");
-    expect(result.cards[1]?.origin?.variantKey).toBe("c2");
-
-    // Both share the same noteId
     expect(result.cards[0]?.origin?.noteId).toBe(
       result.cards[1]?.origin?.noteId,
     );
@@ -126,17 +131,6 @@ describe("parseFlashcardBlocks", () => {
     expect(result.cards).toHaveLength(1);
     expect(result.cards[0]?.front).toBe(
       "The [hint: organelle] is the powerhouse.",
-    );
-  });
-
-  test("cloze back shows revealed text with answer bolded, followed by A: text", () => {
-    const input = `Q: {{c1::Canberra}} is the capital.\nA: Review.\n\n===`;
-    const result = parseFlashcardBlocks(input, "note.md");
-
-    expect(result.cards).toHaveLength(1);
-    // Back = Q text with cloze revealed + A text
-    expect(result.cards[0]?.back).toBe(
-      "**Canberra** is the capital.\n\nReview.",
     );
   });
 
@@ -198,75 +192,6 @@ describe("parseFlashcardBlocks", () => {
     expect(result.cards[1]?.origin?.noteId).not.toBe(
       result.cards[3]?.origin?.noteId,
     );
-  });
-});
-
-describe("parseClozeMarkers", () => {
-  test("parses basic cloze markers", () => {
-    const matches = parseClozeMarkers("{{c1::hello}} world {{c2::foo}}");
-    expect(matches).toHaveLength(2);
-    expect(matches[0]?.index).toBe(1);
-    expect(matches[0]?.answer).toBe("hello");
-    expect(matches[0]?.hint).toBeUndefined();
-    expect(matches[1]?.index).toBe(2);
-    expect(matches[1]?.answer).toBe("foo");
-  });
-
-  test("parses cloze with hint", () => {
-    const matches = parseClozeMarkers("{{c1::answer::hint text}}");
-    expect(matches).toHaveLength(1);
-    expect(matches[0]?.answer).toBe("answer");
-    expect(matches[0]?.hint).toBe("hint text");
-  });
-
-  test("returns empty for no cloze markers", () => {
-    const matches = parseClozeMarkers("Just plain text");
-    expect(matches).toHaveLength(0);
-  });
-});
-
-describe("getClozeIndices", () => {
-  test("returns sorted unique indices", () => {
-    const indices = getClozeIndices("{{c2::b}} {{c1::a}} {{c2::c}}");
-    expect(indices).toEqual([1, 2]);
-  });
-
-  test("returns empty for no cloze", () => {
-    const indices = getClozeIndices("No cloze here");
-    expect(indices).toEqual([]);
-  });
-});
-
-describe("expandClozeText", () => {
-  test("replaces active cloze with blank on front", () => {
-    const { front } = expandClozeText("{{c1::hello}} world", 1);
-    expect(front).toBe("[...] world");
-  });
-
-  test("shows inactive cloze text normally on front", () => {
-    const { front } = expandClozeText("{{c1::hello}} {{c2::world}}", 1);
-    expect(front).toBe("[...] world");
-  });
-
-  test("shows hint in brackets when present", () => {
-    const { front } = expandClozeText("{{c1::answer::my hint}}", 1);
-    expect(front).toBe("[hint: my hint]");
-  });
-
-  test("bolds active cloze answer on back", () => {
-    const { back } = expandClozeText("{{c1::hello}} world", 1);
-    expect(back).toBe("**hello** world");
-  });
-
-  test("shows inactive cloze text normally on back", () => {
-    const { back } = expandClozeText("{{c1::hello}} {{c2::world}}", 1);
-    expect(back).toBe("**hello** world");
-  });
-
-  test("handles multiple same-index clozes", () => {
-    const { front, back } = expandClozeText("{{c1::A}} and {{c1::B}}", 1);
-    expect(front).toBe("[...] and [...]");
-    expect(back).toBe("**A** and **B**");
   });
 });
 
