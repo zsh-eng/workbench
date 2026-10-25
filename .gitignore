@@ -44,3 +44,4 @@ apps/arctic/Sync/.build/
 apps/reader/living-covers.local/
 apps/reader/scripts/living-covers/scenes/*/work/
 apps/reader/scripts/living-covers/scenes/*/preview.png
+apps/reader/scripts/living-covers/scenes/*/*.webp
