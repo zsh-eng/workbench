@@ -7,6 +7,7 @@ import {
   currentPages,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 test.use({
@@ -59,6 +60,8 @@ const openReadingSettings = (page: Page) =>
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
   const settings = await openReadingSettings(page);
   await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  // The sheet grows to fit the tab on its spring; tap once it rests.
+  await waitForSheetToRest(settings);
   await settings
     .locator("[data-reading-layout-row]")
     .getByRole("button", { name: layout, exact: true })
@@ -755,8 +758,9 @@ test("A typography change in scroll mode keeps the reading line in place", async
     });
   const before = await readingLine();
 
-  await openReadingSettings(page);
+  const settings = await openReadingSettings(page);
   await page.getByRole("tab", { name: "Type" }).tap();
+  await waitForSheetToRest(settings);
   await page
     .getByRole("button", { name: /increase|larger/i })
     .first()
