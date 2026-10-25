@@ -38,6 +38,7 @@ import {
   readingLineOffset,
   resolveSnapPage,
   type ScrollRow,
+  type SpreadSlotPlace,
 } from "./scroll-model";
 import {
   createColumnTextPoints,
@@ -57,6 +58,8 @@ const CHROME_SCROLL_TRAVEL_PX = 24;
 const SETTLE_DELAY_MS = 180;
 const FADE_IN_MS = 320;
 const FADE_OUT_MS = 200;
+/** How long a leaving stage takes to fade out over the pages. */
+export const SCROLL_STAGE_LEAVE_MS = FADE_OUT_MS;
 const END_CARD_GAP_PX = 48;
 const END_CARD_HEIGHT_PX = 112;
 const MAX_IMAGE_WAIT_FRAMES = 30;
@@ -133,9 +136,15 @@ export interface ScrollStageHandle {
   /**
    * Stops any fling and moves the reading line's page into its paged
    * position, or the given page. Lines of other pages fade out. A sideways
-   * velocity carries a swipe back to centre in the same spring.
+   * velocity carries a swipe back to centre in the same spring. On a spread
+   * of several pages, `slot` is the page's place in it: the column moves
+   * there, so the pages take over without a sideways cut.
    */
-  snapToPage: (options?: { velocityX?: number; pageIndex?: number }) => {
+  snapToPage: (options?: {
+    velocityX?: number;
+    pageIndex?: number;
+    slot?: (pageIndex: number) => SpreadSlotPlace | null;
+  }) => {
     pageIndex: number;
     finished: Promise<void>;
   };
@@ -203,6 +212,11 @@ interface ScrollStageProps {
    * edges, so the edges' blur stands down under them.
    */
   chromeVisible?: boolean;
+  /**
+   * The pages show under the stage: it fades out, so the other pages of a
+   * spread fade in beside the one that snapped into place.
+   */
+  leaving?: boolean;
 }
 
 type Phase =
@@ -416,6 +430,7 @@ export function ScrollStage({
   onLinkActivate,
   onRowsChange,
   chromeVisible = false,
+  leaving = false,
 }: ScrollStageProps) {
   const rows = useMemo(() => buildScrollRows(column), [column]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1166,6 +1181,22 @@ export function ScrollStage({
     }
   }, [phase.kind]);
 
+  // The page's left edge in its spread, less the column's: the paged stage
+  // has the same box and side padding, and its slots are as wide as the
+  // column, with the rest of the width between them.
+  const slotOffset = (slot: SpreadSlotPlace | null): number => {
+    const root = rootRef.current;
+    const content = contentRef.current;
+    if (!slot || slot.columns < 2 || !root || !content) return 0;
+    const box = root.getBoundingClientRect();
+    const inner = box.width - paddingLeftPx - paddingRightPx;
+    const gap = (inner - slot.columns * column.width) / (slot.columns - 1);
+    const pageLeft =
+      box.left + paddingLeftPx + slot.index * (column.width + Math.max(0, gap));
+    const columnLeft = content.getBoundingClientRect().left - swipeX.get();
+    return pageLeft - columnLeft;
+  };
+
   useImperativeHandle(handleRef, () => ({
     snapToPage: (options = {}) => {
       const scroller = scrollerRef.current;
@@ -1202,13 +1233,14 @@ export function ScrollStage({
       // paddingTop + (y - pageStart); in the column it sits at
       // paddingTop + y - scrollTop. One translation moves every row.
       const target = scrollTop - pageStart;
+      const targetX = slotOffset(options.slot?.(pageIndex) ?? null);
       if (prefersReducedMotion) {
         snapOffset.set(target);
-        swipeX.set(0);
+        swipeX.set(targetX);
         return { pageIndex, finished: Promise.resolve() };
       }
       const vertical = animate(snapOffset, target, SWIPE_SETTLE_SPRING);
-      const sideways = animate(swipeX, 0, {
+      const sideways = animate(swipeX, targetX, {
         ...SWIPE_SETTLE_SPRING,
         velocity: options.velocityX ?? 0,
       });
@@ -1318,11 +1350,17 @@ export function ScrollStage({
           ? 0
           : "calc(-1 * max(env(safe-area-inset-bottom), 0.625rem))",
         visibility: phase.kind === "mounting" ? "hidden" : "visible",
+        opacity: leaving ? 0 : 1,
+        transition: leaving ? `opacity ${FADE_OUT_MS}ms ease-out` : undefined,
+        pointerEvents: leaving ? "none" : undefined,
       }}
     >
       <div
         ref={scrollerRef}
         data-reader-scroll-stage={phase.kind}
+        data-reader-snap-page={
+          phase.kind === "snapping" ? phase.pageIndex : undefined
+        }
         onClick={handleClick}
         className="absolute inset-0 overflow-x-hidden overflow-y-auto bg-background"
         style={{

@@ -20,6 +20,7 @@ import type { ChapterEntry } from "../types";
 import type { ReaderSessionChapterAccess } from "../hooks/use-reader-session";
 import {
   pullResistance,
+  SCROLL_STAGE_LEAVE_MS,
   type ScrollPosition,
   type SelectionHandoff,
   type ScrollStageEnter,
@@ -39,6 +40,7 @@ import {
   countChapterWords,
   formatMinutes,
   READING_WORDS_PER_MINUTE,
+  spreadSlotFor,
 } from "./scroll-model";
 import { captureSelection, type SelectionLocators } from "./selection-transfer";
 
@@ -109,6 +111,9 @@ type ScrollPhase =
       pageIndex: number;
       animationDone: boolean;
       swapping: boolean;
+      /** A spread of several pages: the stage fades out over the others. */
+      fade: boolean;
+      leaving: boolean;
       generation: number;
     };
 
@@ -305,9 +310,13 @@ export function useReaderScrollMode({
       if (phase.kind !== "on" || !phase.entered || !stageColumn) return;
       const handle = handleRef.current;
       if (!handle) return;
+      const columns = spread?.slots.length ?? 1;
+      const firstPage = chapterStartPages[stageColumn.chapterIndex] ?? null;
       const { pageIndex, finished } = handle.snapToPage({
         velocityX,
         pageIndex: targetPage,
+        slot: (index) =>
+          spreadSlotFor(columns, firstPage === null ? null : firstPage + index),
       });
       const anchor = stageColumn.pageAnchors[pageIndex];
       // The pages own the place again: the engine's move to the snapped page
@@ -328,6 +337,8 @@ export function useReaderScrollMode({
         pageIndex,
         animationDone: false,
         swapping: false,
+        fade: columns > 1,
+        leaving: false,
         generation: phase.generation,
       });
       void finished.then(() =>
@@ -338,7 +349,14 @@ export function useReaderScrollMode({
         ),
       );
     },
-    [goToAnchor, onLocationChange, phase, stageColumn],
+    [
+      chapterStartPages,
+      goToAnchor,
+      onLocationChange,
+      phase,
+      spread,
+      stageColumn,
+    ],
   );
 
   const setMode = useCallback(
@@ -463,17 +481,36 @@ export function useReaderScrollMode({
   }, [phase, spread]);
 
   // Keep the scroll stage over the new spread for two frames, so the spread
-  // paints (and its images decode) before the stage goes.
+  // paints (and its images decode) before the stage goes. Over a spread of
+  // several pages it fades out, so the snapped page's neighbours fade in.
   useEffect(() => {
-    if (phase.kind !== "closing" || !phase.swapping) return;
+    if (phase.kind !== "closing" || !phase.swapping || phase.leaving) return;
+    const fade = phase.fade;
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
+        if (fade) {
+          setPhase((current) =>
+            current.kind === "closing"
+              ? { ...current, leaving: true }
+              : current,
+          );
+          return;
+        }
         setPosition(null);
         setPhase({ kind: "off" });
         onLocationChange(null);
       });
     });
     return () => cancelAnimationFrame(frame);
+  }, [onLocationChange, phase]);
+  useEffect(() => {
+    if (phase.kind !== "closing" || !phase.leaving) return;
+    const timer = window.setTimeout(() => {
+      setPosition(null);
+      setPhase({ kind: "off" });
+      onLocationChange(null);
+    }, SCROLL_STAGE_LEAVE_MS);
+    return () => window.clearTimeout(timer);
   }, [onLocationChange, phase]);
 
   // Contents, scrubber, links, notes, chapter keys and history move the
@@ -905,6 +942,7 @@ export function useReaderScrollMode({
             onPositionSettled,
             onSwipeToPages: (velocityX: number) =>
               setMode("pages", { velocityX }),
+            leaving: phase.kind === "closing" && phase.leaving,
           }
         : null,
     /** Remounts the stage for each chapter and each entry into scroll. */

@@ -638,6 +638,93 @@ test.describe("on a desktop", () => {
     hasTouch: false,
   });
 
+  /** Pages or Scroll from the Reader tools sidebar. */
+  async function chooseDesktopLayout(page: Page, layout: "Pages" | "Scroll") {
+    const sidebar = page.locator('aside[aria-label="Reader tools"]');
+    if ((await sidebar.getAttribute("aria-hidden")) === "true") {
+      const tools = page.getByRole("button", {
+        name: "Open reader tools",
+        exact: true,
+      });
+      const bounds = await tools.boundingBox();
+      if (!bounds || bounds.y < 0) {
+        await page.locator('[data-reader-chrome-rail="top"]').hover();
+      }
+      await expect(tools).toBeInViewport();
+      await tools.click();
+    }
+    await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+    const row = sidebar.locator("[data-reading-layout-row]");
+    if (!(await row.isVisible())) {
+      await sidebar
+        .getByRole("button", { name: "Reading appearance", exact: true })
+        .click();
+    }
+    await row.getByRole("button", { name: layout, exact: true }).click();
+  }
+
+  test("Scroll to Pages slides the page into its place in a two-page spread", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    for (let index = 0; index < 3; index++) await nextSpread(page);
+    await chooseDesktopLayout(page, "Scroll");
+    await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+    await scrollStageTo(page, (await stageScrollTop(page)) + 300);
+
+    // Follow the snapping page's first line until the pages take over.
+    const lastSeen = page.evaluate(
+      () =>
+        new Promise<{ anchor: string; left: number; top: number } | null>(
+          (resolve) => {
+            let last: { anchor: string; left: number; top: number } | null =
+              null;
+            const sample = () => {
+              const stage = document.querySelector<HTMLElement>(
+                "[data-reader-scroll-stage]",
+              );
+              if (!stage) return resolve(last);
+              const snapPage = stage.dataset.readerSnapPage;
+              const line =
+                snapPage === undefined
+                  ? null
+                  : stage.querySelector(
+                      `[data-page-index="${snapPage}"] [data-content-anchor-start]`,
+                    );
+              if (line) {
+                const box = line.getBoundingClientRect();
+                last = {
+                  anchor: line.getAttribute("data-content-anchor-start") ?? "",
+                  left: box.left,
+                  top: box.top,
+                };
+              }
+              requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          },
+        ),
+    );
+    await chooseDesktopLayout(page, "Pages");
+    const seen = await lastSeen;
+    expect(seen).not.toBeNull();
+
+    // The same line on the page sits where the column left it.
+    const line = page
+      .locator(
+        `${CURRENT_SPREAD} [data-content-anchor-start="${seen!.anchor}"]`,
+      )
+      .first();
+    const box = await line.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs(box!.x - seen!.left)).toBeLessThan(2);
+    expect(Math.abs(box!.y - seen!.top)).toBeLessThan(2);
+    // The page went to the spread's first place, beside the next page.
+    const slots = page.locator(`${CURRENT_SPREAD} [data-reader-page-slot]`);
+    await expect(slots).toHaveCount(2);
+  });
+
   test("Only the spread's outer edges offer the spill tab, clear of the highlight pill", async ({
     page,
     localBook,
