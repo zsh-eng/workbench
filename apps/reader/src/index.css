@@ -389,17 +389,6 @@
 }
 
 @layer utilities {
-  /* Floating animation for empty state books */
-  @keyframes float {
-    0%,
-    100% {
-      transform: translateY(0) rotate(var(--tw-rotate, 0deg));
-    }
-    50% {
-      transform: translateY(-8px) rotate(var(--tw-rotate, 0deg));
-    }
-  }
-
   /* Section divider with decorative flair */
   .section-divider {
     position: relative;
