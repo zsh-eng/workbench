@@ -75,3 +75,6 @@ export const calmUpdates = createDebugSwitch("reader-calm-updates-v1");
 export const offlineDownloads = createDebugSwitch(
   "reader-offline-downloads-v1",
 );
+
+/** Books arrive in the Library with their covers drawn as they are prepared. */
+export const arrivingBooks = createDebugSwitch("reader-arriving-books-v1");

@@ -1,5 +1,6 @@
 import { Switch } from "@/components/ui/switch";
 import {
+  arrivingBooks,
   calmUpdates,
   offlineDownloads,
   useDebugSwitch,
@@ -25,6 +26,13 @@ const TRIALS: {
     description:
       "Library → Sort and layout → Download all for offline. Each cover fills as its book downloads, and a glyph beside your account opens the activity sheet.",
     switch: offlineDownloads,
+  },
+  {
+    id: "arriving-books",
+    title: "Arriving books",
+    description:
+      "Books you add hold their place in the Library at once, and each cover develops from black and white as the book is prepared. Design ideas → Arriving books compares the looks.",
+    switch: arrivingBooks,
   },
 ];
 
