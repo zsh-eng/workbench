@@ -1,4 +1,9 @@
-import { z } from "zod/v4";
+import { z } from "zod/mini";
+import { en } from "zod/locales";
+
+// zod/mini ships without messages; English keeps the issue text that
+// classic zod gave (it appears in rejected-record failures).
+z.config(en());
 
 export const SYNC_PROTOCOL_VERSION = 2;
 export const SYNC_DEVICE_ID_HEADER = "X-Device-ID";
@@ -13,34 +18,28 @@ export const MAX_SYNC_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 const textEncoder = new TextEncoder();
 const safeNonNegativeInteger = z
-  .number()
   .int()
-  .nonnegative()
-  .max(Number.MAX_SAFE_INTEGER);
+  .check(z.nonnegative(), z.maximum(Number.MAX_SAFE_INTEGER));
 const safePositiveInteger = z
-  .number()
   .int()
-  .positive()
-  .max(Number.MAX_SAFE_INTEGER);
+  .check(z.positive(), z.maximum(Number.MAX_SAFE_INTEGER));
 
 export const syncDeviceIdSchema = z
   .string()
-  .min(1)
-  .max(128)
-  .regex(/^[A-Za-z0-9_-]+$/);
+  .check(z.minLength(1), z.maxLength(128), z.regex(/^[A-Za-z0-9_-]+$/));
 
-export const syncKeySchema = z
-  .string()
-  .min(1)
-  .refine((key) => utf8ByteLength(key) <= MAX_SYNC_KEY_BYTES, {
+export const syncKeySchema = z.string().check(
+  z.minLength(1),
+  z.refine((key) => utf8ByteLength(key) <= MAX_SYNC_KEY_BYTES, {
     message: `key must not exceed ${MAX_SYNC_KEY_BYTES} UTF-8 bytes`,
-  });
+  }),
+);
 
-export const syncValueSchema = z
-  .string()
-  .refine((value) => utf8ByteLength(value) <= MAX_SYNC_VALUE_BYTES, {
+export const syncValueSchema = z.string().check(
+  z.refine((value) => utf8ByteLength(value) <= MAX_SYNC_VALUE_BYTES, {
     message: `value must not exceed ${MAX_SYNC_VALUE_BYTES} UTF-8 bytes`,
-  });
+  }),
+);
 
 export const syncHlcSchema = z.strictObject({
   wallTimeMs: safeNonNegativeInteger,
@@ -57,32 +56,36 @@ export const syncPushChangeSchema = z.strictObject({
 
 export const syncPushBodySchema = z
   .strictObject({
-    changes: z.array(syncPushChangeSchema).max(MAX_SYNC_PUSH_CHANGES),
+    changes: z
+      .array(syncPushChangeSchema)
+      .check(z.maxLength(MAX_SYNC_PUSH_CHANGES)),
   })
-  .superRefine((body, context) => {
-    const keys = new Set<string>();
+  .check(
+    z.superRefine((body, context) => {
+      const keys = new Set<string>();
 
-    body.changes.forEach((change, index) => {
-      if (keys.has(change.key)) {
+      body.changes.forEach((change, index) => {
+        if (keys.has(change.key)) {
+          context.addIssue({
+            code: "custom",
+            message: "push batch contains a duplicate key",
+            path: ["changes", index, "key"],
+          });
+        }
+        keys.add(change.key);
+      });
+
+      if (utf8ByteLength(JSON.stringify(body)) > MAX_SYNC_PUSH_BODY_BYTES) {
         context.addIssue({
           code: "custom",
-          message: "push batch contains a duplicate key",
-          path: ["changes", index, "key"],
+          message: `push body must not exceed ${MAX_SYNC_PUSH_BODY_BYTES} encoded bytes`,
+          path: ["changes"],
         });
       }
-      keys.add(change.key);
-    });
+    }),
+  );
 
-    if (utf8ByteLength(JSON.stringify(body)) > MAX_SYNC_PUSH_BODY_BYTES) {
-      context.addIssue({
-        code: "custom",
-        message: `push body must not exceed ${MAX_SYNC_PUSH_BODY_BYTES} encoded bytes`,
-        path: ["changes"],
-      });
-    }
-  });
-
-export const syncRecordSchema = syncPushChangeSchema.extend({
+export const syncRecordSchema = z.extend(syncPushChangeSchema, {
   deviceId: syncDeviceIdSchema,
   serverSeq: safePositiveInteger,
 });
@@ -95,109 +98,116 @@ export const syncPushResponseSchema = z.strictObject({
         winner: syncRecordSchema,
       }),
     )
-    .max(MAX_SYNC_PUSH_CHANGES),
+    .check(z.maxLength(MAX_SYNC_PUSH_CHANGES)),
 });
 
 export const syncPullBodySchema = z
   .strictObject({
     cursor: safeNonNegativeInteger,
-    head: safeNonNegativeInteger.optional(),
-    limit: safePositiveInteger.max(MAX_SYNC_PULL_LIMIT).optional(),
+    head: z.optional(safeNonNegativeInteger),
+    limit: z.optional(
+      safePositiveInteger.check(z.maximum(MAX_SYNC_PULL_LIMIT)),
+    ),
     excludeOwnDevice: z.boolean(),
   })
-  .refine((body) => body.head === undefined || body.cursor <= body.head, {
-    message: "cursor must not exceed head",
-    path: ["cursor"],
-  });
+  .check(
+    z.refine((body) => body.head === undefined || body.cursor <= body.head, {
+      message: "cursor must not exceed head",
+      path: ["cursor"],
+    }),
+  );
 
-const syncQueryIntegerSchema = z
-  .string()
-  .regex(/^(0|[1-9]\d*)$/)
-  .transform(Number)
-  .pipe(safeNonNegativeInteger);
+const syncQueryIntegerSchema = z.pipe(
+  z.pipe(z.string().check(z.regex(/^(0|[1-9]\d*)$/)), z.transform(Number)),
+  safeNonNegativeInteger,
+);
 
 /** Parse the read-only pull contract from HTTP query parameters. */
-export const syncPullQuerySchema = z
-  .strictObject({
+export const syncPullQuerySchema = z.pipe(
+  z.strictObject({
     cursor: syncQueryIntegerSchema,
-    head: syncQueryIntegerSchema.optional(),
-    limit: syncQueryIntegerSchema.optional(),
-    excludeOwnDevice: z
-      .enum(["true", "false"])
-      .transform((value) => value === "true"),
-  })
-  .pipe(syncPullBodySchema);
+    head: z.optional(syncQueryIntegerSchema),
+    limit: z.optional(syncQueryIntegerSchema),
+    excludeOwnDevice: z.pipe(
+      z.enum(["true", "false"]),
+      z.transform((value) => value === "true"),
+    ),
+  }),
+  syncPullBodySchema,
+);
 
 export const syncPullResponseSchema = z
   .strictObject({
-    records: z.array(syncRecordSchema).max(MAX_SYNC_PULL_LIMIT),
+    records: z.array(syncRecordSchema).check(z.maxLength(MAX_SYNC_PULL_LIMIT)),
     cursor: safeNonNegativeInteger,
     head: safeNonNegativeInteger,
     hasMore: z.boolean(),
   })
-  .superRefine((response, context) => {
-    if (response.cursor > response.head) {
-      context.addIssue({
-        code: "custom",
-        message: "cursor must not exceed head",
-        path: ["cursor"],
-      });
-    }
-
-    for (let index = 0; index < response.records.length; index += 1) {
-      const record = response.records[index];
-      const previous = response.records[index - 1];
-
-      if (record !== undefined && record.serverSeq > response.head) {
+  .check(
+    z.superRefine((response, context) => {
+      if (response.cursor > response.head) {
         context.addIssue({
           code: "custom",
-          message: "record serverSeq must not exceed head",
-          path: ["records", index, "serverSeq"],
-        });
-      }
-
-      if (
-        record !== undefined &&
-        previous !== undefined &&
-        record.serverSeq <= previous.serverSeq
-      ) {
-        context.addIssue({
-          code: "custom",
-          message: "records must have ascending unique serverSeq values",
-          path: ["records", index, "serverSeq"],
-        });
-      }
-    }
-
-    const lastRecord = response.records.at(-1);
-    if (response.hasMore) {
-      if (
-        lastRecord === undefined ||
-        response.cursor !== lastRecord.serverSeq
-      ) {
-        context.addIssue({
-          code: "custom",
-          message: "a partial page cursor must equal its last serverSeq",
+          message: "cursor must not exceed head",
           path: ["cursor"],
         });
       }
-      return;
-    }
 
-    if (response.cursor !== response.head) {
-      context.addIssue({
-        code: "custom",
-        message: "a complete page must advance its cursor to head",
-        path: ["cursor"],
-      });
-    }
-  });
+      for (let index = 0; index < response.records.length; index += 1) {
+        const record = response.records[index];
+        const previous = response.records[index - 1];
+
+        if (record !== undefined && record.serverSeq > response.head) {
+          context.addIssue({
+            code: "custom",
+            message: "record serverSeq must not exceed head",
+            path: ["records", index, "serverSeq"],
+          });
+        }
+
+        if (
+          record !== undefined &&
+          previous !== undefined &&
+          record.serverSeq <= previous.serverSeq
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "records must have ascending unique serverSeq values",
+            path: ["records", index, "serverSeq"],
+          });
+        }
+      }
+
+      const lastRecord = response.records.at(-1);
+      if (response.hasMore) {
+        if (
+          lastRecord === undefined ||
+          response.cursor !== lastRecord.serverSeq
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "a partial page cursor must equal its last serverSeq",
+            path: ["cursor"],
+          });
+        }
+        return;
+      }
+
+      if (response.cursor !== response.head) {
+        context.addIssue({
+          code: "custom",
+          message: "a complete page must advance its cursor to head",
+          path: ["cursor"],
+        });
+      }
+    }),
+  );
 
 export const syncScopeSchema = z.strictObject({
-  origin: z.string().url(),
-  userId: z.string().min(1),
-  namespace: z.string().regex(/^[a-z][a-z0-9-]*$/),
-  epoch: z.string().min(1),
+  origin: z.url(),
+  userId: z.string().check(z.minLength(1)),
+  namespace: z.string().check(z.regex(/^[a-z][a-z0-9-]*$/)),
+  epoch: z.string().check(z.minLength(1)),
 });
 export type SyncScope = z.infer<typeof syncScopeSchema>;
 
@@ -206,7 +216,7 @@ export const syncClientStateSchema = z.strictObject({
   hlc: syncHlcSchema,
   pullCursor: safeNonNegativeInteger,
   bootstrapped: z.boolean(),
-  scope: syncScopeSchema.optional(),
+  scope: z.optional(syncScopeSchema),
 });
 
 export type SyncHlc = z.infer<typeof syncHlcSchema>;

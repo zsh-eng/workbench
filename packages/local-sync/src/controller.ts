@@ -4,7 +4,7 @@
  * the controller what its auth client learns; it keeps its own transport,
  * storage and UI. See docs/SYNC_STATES.md for the states and rules.
  */
-import { z } from "zod";
+import { z } from "zod/mini";
 import type { SyncKeyValueStorage } from "./client-state.js";
 import {
   classifySyncFailure,
@@ -112,18 +112,18 @@ export interface SyncController {
 }
 
 const savedSchema = z.object({
-  user: z
-    .object({
-      userId: z.string().min(1),
-      name: z.string().optional(),
-      email: z.string().optional(),
-      image: z.string().optional(),
-    })
-    .optional(),
-  expired: z.boolean().optional(),
-  lastSyncedAt: z.number().optional(),
+  user: z.optional(
+    z.object({
+      userId: z.string().check(z.minLength(1)),
+      name: z.optional(z.string()),
+      email: z.optional(z.string()),
+      image: z.optional(z.string()),
+    }),
+  ),
+  expired: z.optional(z.boolean()),
+  lastSyncedAt: z.optional(z.number()),
   /** When beginSignIn() last ran, until the server answers. */
-  signInAt: z.number().optional(),
+  signInAt: z.optional(z.number()),
 });
 type Saved = z.infer<typeof savedSchema>;
 
