@@ -189,17 +189,7 @@ export class Session {
       const cached = await transact(this.db, ["files"], "readonly", (tx) =>
         promised<{ html: string } | undefined>(tx.objectStore("files").get(id)),
       );
-      if (cached) return cached.html;
-      const response = await this.channels.content.request(
-        `/files/${id}`,
-        {},
-        false,
-      );
-      const html = await response.text();
-      await transact(this.db, ["files"], "readwrite", async (tx) => {
-        tx.objectStore("files").put({ id, html, savedAt: Date.now() });
-      });
-      return html;
+      return cached ? cached.html : this.download(id);
     })();
     this.files.set(id, work);
     // The reader keeps its own cleaned copies (src/text.ts); a few raw ones
@@ -220,15 +210,7 @@ export class Session {
 
   /** Downloads a copy into this browser for offline reading, without holding it in memory. */
   async keepFile(id: string, signal?: AbortSignal) {
-    const response = await this.channels.content.request(
-      `/files/${id}`,
-      { signal },
-      false,
-    );
-    const html = await response.text();
-    await transact(this.db, ["files"], "readwrite", async (tx) => {
-      tx.objectStore("files").put({ id, html, savedAt: Date.now() });
-    });
+    await this.download(id, signal);
   }
 
   /** Uploads cleaned HTML; the server checks its hash, type and size. */
@@ -248,11 +230,26 @@ export class Session {
       },
       false,
     );
-    await transact(this.db, ["files"], "readwrite", async (tx) => {
-      tx.objectStore("files").put({ id, html, savedAt: Date.now() });
-    });
+    await this.storeFile(id, html);
     this.files.set(id, Promise.resolve(html));
     return { id, bytes: bytes.byteLength };
+  }
+
+  private async download(id: string, signal?: AbortSignal) {
+    const response = await this.channels.content.request(
+      `/files/${id}`,
+      { signal },
+      false,
+    );
+    const html = await response.text();
+    await this.storeFile(id, html);
+    return html;
+  }
+
+  private storeFile(id: string, html: string) {
+    return transact(this.db, ["files"], "readwrite", async (tx) => {
+      tx.objectStore("files").put({ id, html, savedAt: Date.now() });
+    });
   }
 
   close() {
