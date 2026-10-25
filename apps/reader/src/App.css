@@ -462,9 +462,10 @@ mark {
   mask-position: 37px 91px;
 }
 
+/* Over the text column, which is a layer of its own (z-index 10). */
 [data-ink="in"] .reader-paper-grain,
 [data-ink="in"] .reader-paper-tooth {
-  z-index: 1;
+  z-index: 11;
 }
 
 [data-ink="in"] .reader-paper-tooth {
