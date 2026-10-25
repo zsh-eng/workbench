@@ -11,7 +11,15 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "types": ["node", "vite/client", "bun"]
+    "types": ["node", "vite/client", "bun"],
+    // Shared packages' source (activity-time, elements) checks against this
+    // app's React types, whatever the install layout.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
   },
   "include": ["src", "scripts", "tests", "*.config.ts", "server"]
 }
