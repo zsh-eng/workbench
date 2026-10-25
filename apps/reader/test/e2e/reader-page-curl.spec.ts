@@ -508,16 +508,17 @@ test("a page comes back from anywhere, held until let go", async ({
   localBook,
 }) => {
   await openWithCurl(page, localBook.id);
-  await turnPages(page, 3);
+  const first = await currentPages(page);
+  await turnPages(page, 1);
   const start = await currentPages(page);
 
   // Drawn back from the middle and returned, it lies down where it was.
   let hand = await finger(page);
   await hand.down(110, 430);
-  await hand.move(300, 434, { steps: 12, stepMs: 20 });
+  await hand.move(300, 434, { steps: 6, stepMs: 20 });
   await page.waitForTimeout(300);
   await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
-  await hand.move(110, 430, { steps: 10, stepMs: 24 });
+  await hand.move(110, 430, { steps: 6, stepMs: 20 });
   await page.waitForTimeout(150);
   await hand.up();
   await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
@@ -526,17 +527,14 @@ test("a page comes back from anywhere, held until let go", async ({
   // Drawn up and over by its foot, it stays in hand, then comes back.
   hand = await finger(page);
   await hand.down(110, 720);
-  await hand.move(200, 670, { steps: 8, stepMs: 20 });
-  await hand.move(300, 610, { steps: 8, stepMs: 20 });
+  await hand.move(200, 670, { steps: 5, stepMs: 20 });
+  await hand.move(300, 610, { steps: 5, stepMs: 20 });
   await page.waitForTimeout(500);
   await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
   expect(await currentPages(page)).toEqual(start);
-  await hand.move(370, 560, { steps: 6, stepMs: 16 });
+  await hand.move(370, 560, { steps: 4, stepMs: 16 });
   await hand.up();
-  await expect.poll(() => currentPages(page)).not.toEqual(start);
-  await waitForReaderReady(page);
-  await page.touchscreen.tap(360, 420);
-  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => currentPages(page)).toEqual(first);
 });
 
 test("the fore-edge itself takes the page", async ({ page, localBook }) => {
