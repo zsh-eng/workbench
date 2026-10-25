@@ -4,7 +4,8 @@ The moment a book you add comes into the Library, for one book and for
 many at once. This is an experiment. It is off by default.
 
 - **Compare the looks:** Settings → Debug tools → Design ideas → Arriving
-  books. Each look opens full screen at
+  books (or the Debug lightbulb in the Library, which opens the newest
+  topic). Each look opens full screen at
   `/debug/ideas/arriving-books?look=<look>&state=<one|five|trouble>`. The
   demo runs the real job queue and the real tiles on simulated imports,
   with public-domain covers.
