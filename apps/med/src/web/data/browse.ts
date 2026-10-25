@@ -256,6 +256,17 @@ export function createDefaultBrowseApi(): BrowseApi {
 }
 
 const emptyEntries: BrowseEntry[] = [];
+/** Whether two lists name the same entries in the same order. A checkout's
+ * list can hold 50,000 entries, too many to turn into JSON on each update. */
+function sameEntries(a: BrowseEntry[], b: BrowseEntry[]) {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) {
+    const x = a[index]!;
+    const y = b[index]!;
+    if (x.path !== y.path || x.kind !== y.kind || x.status !== y.status) return false;
+  }
+  return true;
+}
 export function useBrowseFiles(
   source: BrowseSource | null,
   enabled: boolean,
@@ -300,8 +311,7 @@ export function useBrowseFiles(
             listKey,
             // The same files keep the same array, so the tree is not rebuilt.
             entries:
-              previous.listKey === listKey &&
-              JSON.stringify(previous.entries) === JSON.stringify(result.entries)
+              previous.listKey === listKey && sameEntries(previous.entries, result.entries)
                 ? previous.entries
                 : result.entries,
             truncated: result.truncated,
