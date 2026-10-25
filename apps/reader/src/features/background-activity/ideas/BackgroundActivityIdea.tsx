@@ -7,11 +7,13 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ActivityEnvironmentProvider } from "../ActivityContext";
+import {
+  ActivityEnvironmentProvider,
+  type ActivityEnvironment,
+} from "../ActivityContext";
 import { ActivityGlyph } from "../ActivityGlyph";
 import { CoverActivity } from "../CoverActivity";
 import { UpdateChip } from "../UpdateChip";
-import { ActivityIsland } from "./ActivityIsland";
 import { SAMPLE_BOOKS } from "./sample-books";
 import { SimCover, Ticks } from "./SimCover";
 import {
@@ -22,7 +24,7 @@ import {
   type Simulation,
 } from "./simulation";
 
-export type BackgroundIdeaId = "covers" | "island" | "glyph";
+export type BackgroundIdeaId = "covers" | "glyph" | "together";
 
 interface Look {
   title: string;
@@ -87,17 +89,6 @@ const AUTO_RUN: Record<
     [29.5, "failure"],
     [34.0, "tap:[aria-label^='Retry ']"],
   ],
-  island: [
-    [0.6, "new-device"],
-    [5.0, "download"],
-    [7.5, "tap:[aria-label='Open activity']"],
-    [9.5, "tap:[data-activity-island] button:not([aria-label])"],
-    [11.5, "offline"],
-    [21.0, "update"],
-    [25.5, "tap:[data-island-restart]"],
-    [29.5, "failure"],
-    [34.0, "tap:[data-island-retry]"],
-  ],
   glyph: [
     [0.6, "new-device"],
     [5.0, "download"],
@@ -112,19 +103,28 @@ const AUTO_RUN: Record<
     [34.2, "tap:[aria-label^='Retry ']"],
     [36.0, "escape"],
   ],
+  // Books finish in the open sheet without a row moving; the next opening
+  // files the finished ones under Done, and the rest finish there.
+  together: [
+    [0.6, "download"],
+    [1.6, "tap:[data-activity-glyph]"],
+    [6.2, "escape"],
+    [7.4, "tap:[data-activity-glyph]"],
+    [15.0, "escape"],
+  ],
 };
 
 /**
  * Design ideas → Background activity. The Library at phone size, with the
  * real engine on simulated jobs: `covers` keeps progress on each book's
- * cover, `island` gathers it into one floating island, and `glyph` puts it
- * behind a glyph and a sheet. `?run=auto` taps through every scenario.
+ * cover, `glyph` puts it behind a glyph and a sheet, and `together` is the
+ * recommendation, both at once. `?run=auto` taps through the scenarios.
  */
 export function BackgroundActivityIdea() {
   const [params] = useSearchParams();
   const raw = params.get("idea");
   const idea: BackgroundIdeaId =
-    raw === "island" || raw === "glyph" ? raw : "covers";
+    raw === "glyph" || raw === "together" ? raw : "covers";
   const { books, looks } = useIdeaBooks();
   const [sim, setSim] = useState<Simulation | null>(null);
   useEffect(() => {
@@ -140,7 +140,9 @@ export function BackgroundActivityIdea() {
     const timers = AUTO_RUN[idea].map(([at, step]) =>
       window.setTimeout(() => {
         if (step === "escape")
-          document.dispatchEvent(
+          // From the focused element, as a key press is, so the sheet
+          // that holds focus hears it.
+          (document.activeElement ?? document).dispatchEvent(
             new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
           );
         else if (step.startsWith("tap:"))
@@ -151,14 +153,28 @@ export function BackgroundActivityIdea() {
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [auto, idea, sim]);
 
-  if (!sim)
+  const environment = useMemo(
+    (): ActivityEnvironment | null =>
+      sim && {
+        ...sim.environment,
+        renderCover(job) {
+          const bookId = (job.input as { bookId?: string } | null)?.bookId;
+          const look = bookId ? looks.get(bookId) : undefined;
+          return look ? (
+            <SimCover {...look} compact className="size-full" />
+          ) : null;
+        },
+      },
+    [looks, sim],
+  );
+
+  if (!sim || !environment)
     return (
       <p className="p-8 text-sm text-muted-foreground">Loading your books…</p>
     );
   return (
-    <ActivityEnvironmentProvider value={sim.environment}>
+    <ActivityEnvironmentProvider value={environment}>
       <IdeaLibrary sim={sim} idea={idea} looks={looks} />
-      {idea === "island" && <ActivityIsland sim={sim} looks={looks} />}
     </ActivityEnvironmentProvider>
   );
 }
@@ -213,15 +229,15 @@ function IdeaLibrary({
     ? sim.books.filter((book) => world.arrived!.includes(book.id))
     : sim.books;
   const here = sim.books.filter((book) => world.onDevice.has(book.id)).length;
+  const covers = idea !== "glyph";
   // On the covers, the page itself says what the shelf can do right now.
-  const subline =
-    idea !== "covers"
-      ? null
-      : world.arrived
-        ? `Restoring your library · ${world.arrived.length} ${world.arrived.length === 1 ? "book" : "books"}`
-        : !world.online
-          ? `Offline · ${here} ${here === 1 ? "book" : "books"} on this device`
-          : null;
+  const subline = !covers
+    ? null
+    : world.arrived
+      ? `Restoring your library · ${world.arrived.length} ${world.arrived.length === 1 ? "book" : "books"}`
+      : !world.online
+        ? `Offline · ${here} ${here === 1 ? "book" : "books"} on this device`
+        : null;
 
   return (
     <div className="min-h-dvh bg-background pb-28">
@@ -230,8 +246,8 @@ function IdeaLibrary({
         <div className="flex h-10 items-center justify-between gap-3">
           <h1 className={cn(APP_TITLE_TYPE, "text-foreground")}>Library</h1>
           <div className="flex items-center gap-0.5">
-            {idea === "covers" && <UpdateChip className="mr-1" />}
-            {idea === "glyph" && <ActivityGlyph includeUpdate />}
+            {covers && <UpdateChip className="mr-1" />}
+            {idea !== "covers" && <ActivityGlyph includeUpdate={!covers} />}
             <span
               aria-hidden="true"
               className="ml-1 grid size-8 place-items-center rounded-full bg-secondary text-[12px] font-medium text-secondary-foreground"
@@ -259,7 +275,7 @@ function IdeaLibrary({
             const onDevice = world.onDevice.has(book.id);
             const pending = world.pending.get(book.id) ?? 0;
             const synced = world.synced.has(book.id);
-            const faded = idea === "covers" && !world.online && !onDevice;
+            const faded = covers && !world.online && !onDevice;
             return (
               <motion.li
                 key={book.id}
@@ -293,13 +309,13 @@ function IdeaLibrary({
                     {book.author}
                   </span>
                 </button>
-                {idea === "covers" && (
+                {covers && (
                   <CoverActivity
                     bookId={book.id}
                     className="inset-x-0 top-0 aspect-[2/3] overflow-hidden rounded-[3px]"
                   />
                 )}
-                {idea === "covers" && (pending > 0 || synced) && (
+                {covers && (pending > 0 || synced) && (
                   <span className="pointer-events-none absolute inset-x-0 top-0 flex aspect-[2/3] items-end p-1.5">
                     <Ticks synced={synced} />
                   </span>

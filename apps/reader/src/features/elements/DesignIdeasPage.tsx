@@ -326,23 +326,23 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "background-current",
       title: "Covers with a glyph",
       description:
-        "The recommendation, wired in the real Library behind Settings → Debug tools → Try on this device → Offline downloads: each cover fills as its book downloads, and a glyph opens the activity sheet (beside the account, or beside Sort and layout on a phone). Turn the switch on, then Sort and layout → Download all for offline.",
+        "The choice, in the real Library behind Settings → Debug tools → Try on this device → Offline downloads: each cover fills as its book downloads, and a glyph opens the activity sheet (beside the account, or beside Sort and layout on a phone). Turn the switch on, then Sort and layout → Download all for offline.",
       src: "/",
     },
     ideas: [
       {
+        id: "background-together",
+        title: "Covers and a sheet",
+        description:
+          "The choice on simulated downloads. Tap Download 5, then the glyph: each row has its book's cover, finishes where it is, and nothing moves while the sheet is open. Open it again and the finished books are under Done.",
+        src: "/debug/ideas/background?idea=together",
+      },
+      {
         id: "background-covers",
         title: "On the covers",
         description:
-          "Progress lives on each book's cover; one and two ticks for changes made offline; offline, books not on this device fade; the update is a chip in the header. A download scrolled off screen has no place to show, which is why the recommendation adds the glyph. Use the Try row.",
+          "Progress lives on each book's cover; one and two ticks for changes made offline; offline, books not on this device fade; the update is a chip in the header. A download scrolled off screen has no place to show, which is why the choice adds the glyph. Use the Try row.",
         src: "/debug/ideas/background?idea=covers",
-      },
-      {
-        id: "background-island",
-        title: "The island",
-        description:
-          "One floating island at the bottom of the Library. A cover flies into it when its download starts; it shows the stack and one ring, takes the update, a restore, offline changes and a failure in turn, and opens into the list.",
-        src: "/debug/ideas/background?idea=island",
       },
       {
         id: "background-glyph",
