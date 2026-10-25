@@ -3,6 +3,7 @@ import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { useState } from "react";
 import { PageSliceView } from "./PageSliceView";
+import type { PaperGrain } from "./paper/paper-grain";
 import { getPageContentKey } from "./spread-identity";
 
 export type NavDirection = "forward" | "backward" | "instant";
@@ -17,6 +18,8 @@ export interface SpreadViewProps {
   paddingBottomPx: number;
   paddingLeftPx: number;
   paddingRightPx: number;
+  /** Paper grain under the text (Debug); see paper/paper-grain.ts. */
+  paper?: PaperGrain;
 }
 
 interface AnimatedSpreadProps extends SpreadViewProps {
@@ -44,10 +47,11 @@ export function SpreadView({
   paddingBottomPx,
   paddingLeftPx,
   paddingRightPx,
+  paper = "off",
 }: SpreadViewProps) {
   return (
     <div
-      className="h-full w-full overflow-hidden"
+      className="relative h-full w-full overflow-hidden"
       style={{
         paddingTop: `${paddingTopPx}px`,
         paddingBottom: `${paddingBottomPx}px`,
@@ -55,12 +59,18 @@ export function SpreadView({
         paddingRight: `${paddingRightPx}px`,
       }}
     >
+      {paper !== "off" && (
+        <div className="reader-paper-grain" aria-hidden="true" />
+      )}
+      {paper === "rich" && (
+        <div className="reader-paper-vignette" aria-hidden="true" />
+      )}
       {/* Pages clip only vertically. Glyph ink can extend past the text
           column, such as a line-initial "j" or a line-final italic "f", and
           the page margin must show it. The spread still clips at the stage
           edge above. */}
       <div
-        className="grid h-full w-full overflow-x-visible overflow-y-clip"
+        className="relative grid h-full w-full overflow-x-visible overflow-y-clip"
         style={{
           gridTemplateColumns: `repeat(${spreadConfig.columns}, minmax(0, 1fr))`,
           columnGap: `${columnSpacingPx}px`,
@@ -147,6 +157,7 @@ export function AnimatedSpread({
   paddingBottomPx,
   paddingLeftPx,
   paddingRightPx,
+  paper,
 }: AnimatedSpreadProps) {
   const rawDirection =
     (usePresenceData() as NavDirection | undefined) ?? "instant";
@@ -223,6 +234,7 @@ export function AnimatedSpread({
         paddingBottomPx={paddingBottomPx}
         paddingLeftPx={paddingLeftPx}
         paddingRightPx={paddingRightPx}
+        paper={paper}
       />
     </motion.div>
   );
