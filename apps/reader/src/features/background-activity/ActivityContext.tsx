@@ -1,6 +1,7 @@
 import { appUpdateStore, getAppUpdate } from "@/lib/app-update";
+import { JobCover } from "./JobCover";
 import { activity } from "@/lib/background-activity";
-import type { ActivityManager } from "@workbench/background-activity";
+import type { ActivityManager, Job } from "@workbench/background-activity";
 import type { AppUpdateState } from "@workbench/background-activity/service-worker";
 import {
   createContext,
@@ -30,12 +31,15 @@ export interface ActivityEnvironment {
   source: ActivityControls;
   update: UpdateStore;
   restart(): void;
+  /** A book's cover for its row in the activity sheet. */
+  renderCover?(job: Job): ReactNode;
 }
 
 const appEnvironment: ActivityEnvironment = {
   source: activity,
   update: { ...appUpdateStore, startedAt: Date.now() },
   restart: () => getAppUpdate()?.apply(),
+  renderCover: (job) => <JobCover job={job} />,
 };
 
 const ActivityEnvironmentContext =

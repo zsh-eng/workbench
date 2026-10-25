@@ -71,6 +71,16 @@
   }
 }
 
+.ba-check[data-drawn] path {
+  animation: none;
+}
+
+/* The activity sheet: a hairline between rows of one section, inside each
+   row's fixed height. */
+.ba-sheet-row + .ba-sheet-row {
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--border) 60%, transparent);
+}
+
 /* A cover downloading for offline: it rests dim while queued, and the
    download fills it from the bottom, under a veil that recedes. */
 .ba-cover-veil {

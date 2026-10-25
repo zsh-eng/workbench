@@ -1,5 +1,5 @@
 import { APP_HEADER_BUTTON } from "@/components/app-header-styles";
-import { BottomSheet } from "@/components/ui/bottom-sheet";
+import { DetentSheet } from "@/components/ui/detent-sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { Popover } from "@base-ui/react/popover";
@@ -135,11 +135,14 @@ export function ActivityGlyph({
         <AnimatePresence initial={false}>
           {visible && button({ onClick: () => setOpen(true) })}
         </AnimatePresence>
-        <BottomSheet open={open} onOpenChange={setOpen} title="Activity">
+        {/* The sheet fits its rows: it follows a row that joins, and holds
+            while one leaves, then settles once (MOTION.md, "Sheet
+            behaviour"). */}
+        <DetentSheet isOpen={open} onOpenChange={setOpen} title="Activity">
           <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
             <ActivitySheetBody />
           </div>
-        </BottomSheet>
+        </DetentSheet>
       </>
     );
 
