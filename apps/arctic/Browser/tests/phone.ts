@@ -41,7 +41,7 @@ export const sorted = (value: Record<string, unknown>) =>
   );
 export const identity = (url: string) =>
   createHash("sha256").update(url).digest("hex");
-export const swiftDate = (ms: number) => (ms - 978_307_200_000) / 1000;
+const swiftDate = (ms: number) => (ms - 978_307_200_000) / 1000;
 
 type PulledRecord = {
   key: string;
@@ -86,7 +86,7 @@ export function phone(request: APIRequestContext, namespace = "arctic") {
     /**
      * The latest record of each key. A pull pages up to the head it read
      * first, so a record that the app pushes meanwhile moves past that head
-     * and arrives in the next pull; pull until one returns nothing.
+     * and arrives in the next pull; pull until the cursor stays.
      */
     async records() {
       const latest = new Map<string, PulledRecord>();
@@ -107,7 +107,7 @@ export function phone(request: APIRequestContext, namespace = "arctic") {
           cursor: number;
         };
         for (const record of page.records) latest.set(record.key, record);
-        if (page.records.length === 0) break;
+        if (page.cursor === cursor) break;
         cursor = page.cursor;
       }
       return latest;
