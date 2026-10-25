@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useLayoutEffect, useRef } from "react";
+import { ENTRY_PITCH_REM, useHistoryScrub } from "./use-history-scrub";
 import type { DeviceType } from "@/types/session";
 import { FooterPageIndicator } from "./FooterPageIndicator";
 import type { ReaderVisitKind } from "../jump-history";
@@ -24,8 +25,6 @@ const DEVICE_ICONS: Record<DeviceType, LucideIcon> = {
   tablet: Tablet,
   desktop: Laptop,
 };
-// Compact, stable cells prevent grouped replacements from shifting the strip.
-const ENTRY_PITCH_REM = 4.5;
 const VISIT_LABELS: Record<ReaderVisitKind, string> = {
   normal: "Reading",
   highlight: "Highlight",
@@ -54,11 +53,16 @@ interface ReaderHistoryStripProps {
   animate: boolean;
   onSelect: (index: number, animate: boolean) => void;
   onExpandedChange: (expanded: boolean, animate: boolean) => void;
+  /** Shows a visit under a scrubbing finger without taking it. */
+  onPreview?: (index: number) => void;
+  /** Puts the reader back at the current visit after a preview. */
+  onRestore?: () => void;
 }
 
 /** The current visit stays centred while the trail translates beneath it.
  * Slots belong to array positions, so grouped replacements do not move the track.
  * Quiet mode uses the original footer indicator, including its typography.
+ * A drag along the strip, from either mode, scrubs the trail.
  */
 export function ReaderHistoryStrip({
   entries,
@@ -69,10 +73,23 @@ export function ReaderHistoryStrip({
   animate,
   onSelect,
   onExpandedChange,
+  onPreview,
+  onRestore,
 }: ReaderHistoryStripProps) {
   const reduceMotion = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
   const moveFocus = useRef(false);
+  const scrub = useHistoryScrub({
+    root: rootRef,
+    entries,
+    cursor,
+    expanded,
+    hopDuration: reduceMotion || !animate || !expanded ? 0 : 0.18,
+    onSelect,
+    onExpandedChange,
+    onPreview,
+    onRestore,
+  });
   useLayoutEffect(() => {
     if (!moveFocus.current) return;
     moveFocus.current = false;
@@ -82,15 +99,15 @@ export function ReaderHistoryStrip({
       )
       ?.focus({ preventScroll: true });
   }, [cursor, expanded]);
-  const activeSlot = entries[cursor].slot;
-  const duration = reduceMotion || !animate || !expanded ? 0 : 0.18;
   return (
     <div
       ref={rootRef}
       className="reader-history-strip font-numeric text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums"
       data-testid="history-strip"
       data-mode={expanded ? "history" : "quiet"}
+      data-scrubbing={scrub.scrubbing ? "" : undefined}
       data-current-page={page}
+      {...scrub.handlers}
       onKeyDown={(event) => {
         if (!expanded) return;
         if (event.key === "Escape") {
@@ -125,12 +142,8 @@ export function ReaderHistoryStrip({
         <motion.div
           className="history-strip-track"
           data-testid="history-strip-track"
-          data-active-slot={activeSlot}
-          initial={false}
-          animate={{
-            transform: `translateX(${-activeSlot * ENTRY_PITCH_REM}rem)`,
-          }}
-          transition={{ duration, ease: [0.77, 0, 0.175, 1] }}
+          data-active-slot={scrub.activeSlot}
+          style={{ transform: scrub.trackTransform }}
         >
           {entries.map((entry, index) => {
             const Icon =
@@ -148,6 +161,9 @@ export function ReaderHistoryStrip({
                   transform: `translateX(${entry.slot * ENTRY_PITCH_REM}rem)`,
                 }}
                 aria-current={current ? "location" : undefined}
+                data-selected={index === scrub.shown ? "" : undefined}
+                // Marks where letting go of a scrub stays put.
+                data-origin={index === scrub.origin ? "" : undefined}
                 aria-label={label}
                 title={label}
                 tabIndex={Math.abs(index - cursor) <= 1 ? 0 : -1}

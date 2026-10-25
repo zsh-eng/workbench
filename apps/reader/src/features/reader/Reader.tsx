@@ -873,6 +873,8 @@ export function Reader() {
                     state={sessionState}
                     locateAnchors={sessionResources.locateAnchors}
                     onSelect={sessionActions.selectHistoryVisit}
+                    onPreview={sessionActions.previewHistoryVisit}
+                    onRestore={sessionActions.restoreHistoryVisit}
                     onExpandedChange={sessionActions.setHistoryExpanded}
                   />
                 }

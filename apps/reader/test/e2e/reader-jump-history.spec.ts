@@ -213,4 +213,148 @@ test.describe("history footer", () => {
     await expect(peek.getByTestId("history-strip")).toHaveCount(0);
     await expect(peek.getByTestId("reader-peek-page-indicator")).toHaveCount(1);
   });
+
+  test("a drag along the strip scrubs the trail, previewing each visit until it lets go", async ({
+    page,
+    localBook,
+  }) => {
+    const readPosition = () =>
+      page.evaluate(async (bookId) => {
+        const modulePath = "/src/lib/db.ts";
+        const checkpoint = await (
+          await import(modulePath)
+        ).getCurrentDeviceReadingCheckpoint(bookId);
+        return (
+          checkpoint && [
+            checkpoint.currentSpineIndex,
+            checkpoint.scrollProgress,
+          ]
+        );
+      }, localBook.id);
+    const strip = page.getByTestId("history-strip");
+    const reveal = async () => {
+      if (!(await strip.isVisible())) await page.touchscreen.tap(195, 350);
+      await expect(strip).toBeInViewport();
+    };
+    await openLocalBook(page, localBook.id);
+    await nextSpread(page);
+    const start = (await currentPages(page))[0];
+    await expect.poll(readPosition).toBeTruthy();
+    const startPosition = await readPosition();
+    // A trail of three visits: here, the next chapter, and a page on.
+    await reveal();
+    await page
+      .locator("[data-reader-footer]")
+      .getByRole("button", { name: "Next chapter", exact: true })
+      .click();
+    await expect
+      .poll(async () => (await currentPages(page))[0])
+      .not.toBe(start);
+    const chapter = (await currentPages(page))[0];
+    await page.touchscreen.tap(195, 350);
+    await expect(strip).toHaveCount(0);
+    await nextSpread(page);
+    const here = (await currentPages(page))[0];
+    await expect
+      .poll(async () => (await history(page, localBook.id)).entries.length)
+      .toBe(3);
+    const trail = await history(page, localBook.id);
+    await expect.poll(readPosition).not.toEqual(startPosition);
+    const herePosition = await readPosition();
+    await reveal();
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+
+    // Real touches: a drag to the right brings earlier visits to the centre.
+    // Aim once the footer has finished rising.
+    await expect
+      .poll(() =>
+        strip.evaluate(
+          (element) =>
+            new Promise<boolean>((resolve) => {
+              const top = element.getBoundingClientRect().top;
+              requestAnimationFrame(() =>
+                resolve(element.getBoundingClientRect().top === top),
+              );
+            }),
+        ),
+      )
+      .toBe(true);
+    const cdp = await page.context().newCDPSession(page);
+    const box = (await strip.boundingBox())!;
+    const y = box.y + box.height / 2;
+    const from = box.x + box.width / 2;
+    let x = from;
+    const touch = (type: "touchStart" | "touchMove") =>
+      cdp.send("Input.dispatchTouchEvent", {
+        type,
+        touchPoints: [{ x, y }],
+      });
+    const dragTo = async (to: number) => {
+      while (x !== to) {
+        x += Math.sign(to - x) * Math.min(6, Math.abs(to - x));
+        await touch("touchMove");
+      }
+    };
+    const lift = (type: "touchEnd" | "touchCancel") =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: [] });
+    const pitch = 72;
+
+    // Each visit shows while the finger holds it, and nothing is saved.
+    await touch("touchStart");
+    await dragTo(from + pitch + 20);
+    await expect(strip).toHaveAttribute("data-mode", "history");
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(chapter);
+    await dragTo(from + 2 * pitch + 20);
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(start);
+    expect(await history(page, localBook.id)).toEqual(trail);
+    expect(await readPosition()).toEqual(herePosition);
+    // A cancelled touch returns to where the reader was.
+    await lift("touchCancel");
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(here);
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+    expect(await history(page, localBook.id)).toEqual(trail);
+
+    // So does letting go back on the visit the drag began from.
+    x = from;
+    await touch("touchStart");
+    await dragTo(from + pitch + 20);
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(chapter);
+    await dragTo(from - 10);
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(here);
+    await lift("touchEnd");
+    await expect(strip).toHaveAttribute("data-mode", "quiet");
+    expect(await history(page, localBook.id)).toEqual(trail);
+    expect(await readPosition()).toEqual(herePosition);
+
+    // Letting go on a visit takes it: history moves there and it is saved.
+    x = from;
+    await touch("touchStart");
+    await dragTo(from + 2 * pitch + 10);
+    await lift("touchEnd");
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(start);
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(0);
+    expect((await history(page, localBook.id)).entries).toEqual(trail.entries);
+    await expect.poll(readPosition).toEqual(startPosition);
+    await expect(strip.locator("[data-selected]")).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
+
+    // A tap still hops.
+    const later = strip.getByRole("button", {
+      name: `Later visit: page ${chapter}, Chapter`,
+      exact: true,
+    });
+    const target = (await later.boundingBox())!;
+    await page.touchscreen.tap(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+    );
+    await expect.poll(async () => (await currentPages(page))[0]).toBe(chapter);
+    await expect
+      .poll(async () => (await history(page, localBook.id)).cursor)
+      .toBe(1);
+  });
 });

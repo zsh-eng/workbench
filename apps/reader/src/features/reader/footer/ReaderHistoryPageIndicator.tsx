@@ -11,6 +11,8 @@ interface ReaderHistoryPageIndicatorProps {
   state: ReaderSessionState;
   locateAnchors: ReaderSessionResources["locateAnchors"];
   onSelect: ReaderSessionActions["selectHistoryVisit"];
+  onPreview: ReaderSessionActions["previewHistoryVisit"];
+  onRestore: ReaderSessionActions["restoreHistoryVisit"];
   onExpandedChange: ReaderSessionActions["setHistoryExpanded"];
 }
 
@@ -21,6 +23,8 @@ export function ReaderHistoryPageIndicator({
   state,
   locateAnchors,
   onSelect,
+  onPreview,
+  onRestore,
   onExpandedChange,
 }: ReaderHistoryPageIndicatorProps) {
   const [animate, setAnimate] = useState(true);
@@ -81,6 +85,8 @@ export function ReaderHistoryPageIndicator({
         setAnimate(true);
         onExpandedChange(expanded);
       }}
+      onPreview={onPreview}
+      onRestore={onRestore}
     />
   );
 }

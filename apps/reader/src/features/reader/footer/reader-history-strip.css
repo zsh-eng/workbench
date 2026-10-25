@@ -7,6 +7,11 @@
   margin-inline: auto;
   /* Match the original footer line height in both modes. */
   line-height: 1.5;
+  /* A drag along the strip scrubs the trail; it never pans or selects. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .history-strip-focus,
 .history-strip-track {
@@ -56,8 +61,19 @@
   cursor: pointer;
   transition: color 150ms;
 }
-.history-strip-entry[aria-current] {
+.history-strip-entry[data-selected] {
   color: var(--foreground);
+}
+/* Where letting go of a scrub stays put. */
+.history-strip-entry[data-origin]::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  left: calc(50% - 2px);
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
 }
 /* The icon and number form one centred label; plain numbers centre alone. */
 .history-strip-value {
