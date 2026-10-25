@@ -90,6 +90,10 @@ const LivingCoversIdea = lazyPage(
   () => import("@/features/living-covers/LivingCoversIdea"),
   "LivingCoversIdea",
 );
+const ArrivingBooksIdea = lazyPage(
+  () => import("@/features/arrivals/ArrivingBooksIdea"),
+  "ArrivingBooksIdea",
+);
 const FeedbackIdea = lazyPage(
   () => import("@/features/elements/FeedbackIdea"),
   "FeedbackIdea",
@@ -280,6 +284,14 @@ function App() {
                       element={
                         <DebugPage>
                           <LivingCoversIdea />
+                        </DebugPage>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/arriving-books"
+                      element={
+                        <DebugPage>
+                          <ArrivingBooksIdea />
                         </DebugPage>
                       }
                     />

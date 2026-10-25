@@ -7,6 +7,7 @@ export const IDEA_TOPICS = [
   { id: "paper", label: "Paper" },
   { id: "dark", label: "Dark mode" },
   { id: "covers", label: "Living covers" },
+  { id: "arriving", label: "Arriving books" },
   { id: "sheets", label: "Sheet motion" },
   { id: "feedback", label: "Feedback" },
   { id: "background", label: "Background activity" },
