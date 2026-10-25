@@ -34,6 +34,7 @@ import type {
   LeafGrip,
   PageTurnStyle,
   PaperInk,
+  PaperMarks,
 } from "./paper/paper-preference";
 import { useLeafCurl } from "./paper/use-leaf-curl";
 import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
@@ -71,6 +72,8 @@ interface SpreadStageProps {
   paper?: PaperGrain;
   /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
   ink?: PaperInk;
+  /** How highlights look on paper with grain (Debug). */
+  marks?: PaperMarks;
   /** Where a hand holds the leaf (Debug curl). */
   grip?: LeafGrip;
   /** The book's stacks either side of the leaf (Debug curl). */
@@ -117,6 +120,7 @@ export function SpreadStage({
   pageTurn = "slide",
   paper = "off",
   ink = "on",
+  marks = "flat",
   grip = "anywhere",
   bookBlock = false,
   showThrough = true,
@@ -287,6 +291,7 @@ export function SpreadStage({
     paddingRightPx,
     paper,
     ink,
+    marks,
   };
 
   const handlePageContentClick: MouseEventHandler<HTMLDivElement> = (event) => {

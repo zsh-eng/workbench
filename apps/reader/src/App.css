@@ -497,6 +497,29 @@ mark {
   -webkit-text-fill-color: transparent;
 }
 
+/* Highlights as pigment in the paper (see paper/PaperMarks.tsx): once the
+   strokes are drawn they stand in for the marks' fill, multiplied into a
+   light sheet under the text, or glowing faintly on a dark one. The marks
+   keep their place for selection and the highlight tools. */
+.reader-marks-canvas {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+:root:is(.dark, .night, .flexoki-dark) .reader-marks-canvas {
+  mix-blend-mode: screen;
+}
+
+.reader-marks-canvas:not([data-ready]) {
+  visibility: hidden;
+}
+
+[data-marks-ready] .epub-highlight[data-color] {
+  background-color: transparent;
+}
+
 /* The book around the page (Debug curl; see paper/BookBlock.tsx). At the
    fore-edge, the edges of the leaves still to read, seen a little from the
    side: fine lines in the paper's colour, the top leaf's edge darkest. In

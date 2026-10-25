@@ -4,8 +4,12 @@ import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { useState } from "react";
 import { PageSliceView } from "./PageSliceView";
 import { PaperInk } from "./paper/PaperInk";
+import { PaperMarks } from "./paper/PaperMarks";
 import type { PaperGrain } from "./paper/paper-grain";
-import type { PaperInk as PaperInkPlace } from "./paper/paper-preference";
+import type {
+  PaperInk as PaperInkPlace,
+  PaperMarks as PaperMarksStyle,
+} from "./paper/paper-preference";
 import { getPageContentKey } from "./spread-identity";
 
 export type NavDirection = "forward" | "backward" | "instant";
@@ -24,6 +28,8 @@ export interface SpreadViewProps {
   paper?: PaperGrain;
   /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
   ink?: PaperInkPlace;
+  /** How highlights look on paper with grain (Debug). */
+  marks?: PaperMarksStyle;
 }
 
 interface AnimatedSpreadProps extends SpreadViewProps {
@@ -53,6 +59,7 @@ export function SpreadView({
   paddingRightPx,
   paper = "off",
   ink = "on",
+  marks = "flat",
 }: SpreadViewProps) {
   return (
     <div
@@ -74,6 +81,9 @@ export function SpreadView({
       )}
       {paper === "rich" && (
         <div className="reader-paper-vignette" aria-hidden="true" />
+      )}
+      {paper !== "off" && marks !== "flat" && (
+        <PaperMarks grain={paper} style={marks} content={spread} />
       )}
       {paper !== "off" && ink === "gl" && (
         <PaperInk grain={paper} content={spread} />
@@ -172,6 +182,7 @@ export function AnimatedSpread({
   paddingRightPx,
   paper,
   ink,
+  marks,
 }: AnimatedSpreadProps) {
   const rawDirection =
     (usePresenceData() as NavDirection | undefined) ?? "instant";
@@ -250,6 +261,7 @@ export function AnimatedSpread({
         paddingRightPx={paddingRightPx}
         paper={paper}
         ink={ink}
+        marks={marks}
       />
     </motion.div>
   );

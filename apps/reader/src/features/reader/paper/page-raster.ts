@@ -9,6 +9,9 @@
  * shaping and the fonts the page has loaded, so a raster matches the page to
  * within antialiasing; it is only ever seen bent and shaded.
  *
+ * Highlights drawn as pigment (`PaperMarks`) are copied in from their
+ * canvas with the blend the page gives them, under the text.
+ *
  * Not drawn: CSS gradients and filters other than an image's invert,
  * text shadows, pseudo-element content, and search marks (the Custom
  * Highlight API keeps them outside the DOM).
@@ -35,9 +38,11 @@ export interface PageRasterOptions {
 
 const TRANSPARENT = /^(transparent|rgba\(0, 0, 0, 0\)|rgba\(0,0,0,0\))$/;
 const SKIPPED =
-  ".reader-paper-grain, .reader-paper-vignette, .reader-paper-tooth, .reader-ink-canvas";
+  ".reader-paper-grain, .reader-paper-vignette, .reader-paper-tooth, .reader-ink-canvas, .reader-marks-canvas";
 /** A page whose ink WebGL has drawn: its canvas stands in for its text. */
 const INKED = ".reader-ink-canvas[data-ready]";
+/** A page whose highlights are pigment: its canvas stands in for their fill. */
+const MARKED = ".reader-marks-canvas[data-ready]";
 /** Where App.css puts the tooth's mask, so it does not sit on the grain. */
 const TOOTH_OFFSET = [37, 91] as const;
 
@@ -255,9 +260,10 @@ export function rasterizePage(
   const context = canvas.getContext("2d", { alpha: inkOnly });
   if (!context) return canvas;
   context.scale(pixelRatio, pixelRatio);
-  const inked = inkOnly
+  const inked = inkOnly ? null : layer.querySelector<HTMLCanvasElement>(INKED);
+  const marked = inkOnly
     ? null
-    : layer.querySelector<HTMLCanvasElement>(INKED);
+    : layer.querySelector<HTMLCanvasElement>(MARKED);
 
   // The page's own paper: the layer or the spread inside it.
   const paperElements = new Set<Element>();
@@ -296,6 +302,23 @@ export function rasterizePage(
     gradient.addColorStop(1, options.vignette);
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
+  }
+
+  if (marked) {
+    const box = marked.getBoundingClientRect();
+    context.save();
+    context.globalCompositeOperation =
+      getComputedStyle(marked).mixBlendMode === "screen"
+        ? "screen"
+        : "multiply";
+    context.drawImage(
+      marked,
+      box.left - origin.left,
+      box.top - origin.top,
+      box.width,
+      box.height,
+    );
+    context.restore();
   }
 
   const range = document.createRange();
