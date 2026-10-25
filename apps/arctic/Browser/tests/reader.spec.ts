@@ -47,20 +47,30 @@ test("shows the cover image once when the text starts with it", async ({
   await page.goto("/");
   // The cards show reading times once the text records arrive.
   await expect(page.locator(".card[data-copy]")).toHaveCount(2);
-  await page.locator(".card-title", { hasText: "A floe at dawn" }).click();
-  await expect(page.locator(".prose")).toContainText("Paragraph 12.");
-  // The text's own image, with its caption, takes the cover's place.
+  const prose = page.locator(".prose");
+  const open = async (title: string) => {
+    await page.locator(".card-title", { hasText: title }).click();
+    await expect(prose).toContainText("Paragraph 12.");
+  };
+
+  // The picture shows once. The page waits only a moment for its text; a
+  // text that arrives later keeps the cover and drops its own copy.
+  await open("A floe at dawn");
+  await expect(page.locator(".hero img, .prose img")).toHaveCount(1);
+  // With the text ready, its own image and caption take the cover's place.
+  await page.goBack();
+  await open("A floe at dawn");
   await expect(page.locator(".hero")).toHaveCount(0);
-  await expect(page.locator(".prose img")).toHaveCount(1);
-  await expect(page.locator(".prose figcaption")).toHaveText(
+  await expect(prose.locator("img")).toHaveCount(1);
+  await expect(prose.locator("figcaption")).toHaveText(
     "The floe, from the ship.",
   );
 
+  // Another picture in the text shows with the cover.
   await page.goBack();
-  await page.locator(".card-title", { hasText: "The tundra" }).click();
-  await expect(page.locator(".prose")).toContainText("Paragraph 12.");
+  await open("The tundra");
   await expect(page.locator(".hero img")).toHaveCount(1);
-  await expect(page.locator(".prose img")).toHaveCount(1);
+  await expect(prose.locator("img")).toHaveCount(1);
 });
 
 test("counts reading time as the phone does and syncs it in the phone's format", async ({
@@ -76,6 +86,9 @@ test("counts reading time as the phone does and syncs it in the phone's format",
   await page.goto("/");
   await page.locator(".card-title", { hasText: "sea ice" }).click();
   await expect(page.locator(".prose")).toContainText("Paragraph 40.");
+  // Read offline: a jump of the clock would time out a sync in flight. The
+  // time counts all the same and uploads when the network returns.
+  await context.setOffline(true);
 
   // 50 s between two actions counts; a 3-minute pause counts for nothing.
   let x = 100;
@@ -89,13 +102,12 @@ test("counts reading time as the phone does and syncs it in the phone's format",
   await act();
   await expect(page.locator(".byline")).toContainText("Read for 1 min");
 
-  // Leaving the article ends the visit; its upload follows a moment later.
+  // Leaving the article ends the visit. Back online, it uploads: 70 s and
+  // the moments around the actions, without the pause.
   await page.keyboard.press("Escape");
   await expect(page.locator(".card")).toHaveCount(1);
-  await page.clock.runFor(5_000);
+  await context.setOffline(false);
   const reading = phone(context.request, "arctic-reading");
-  // A checkpoint during the long pause uploaded 50 s; leaving uploads the
-  // rest: 70 s and the moments around the actions, without the pause.
   await eventually(
     async () =>
       [...(await reading.records()).values()].map(
