@@ -740,6 +740,7 @@ export function Reader() {
                         pageTurn={paper.pageTurn}
                         paper={paper.grain}
                         ink={paper.ink}
+                        grip={paper.grip}
                         showThrough={paper.showThrough}
                         haptics={paper.haptics}
                         sound={paper.sound}

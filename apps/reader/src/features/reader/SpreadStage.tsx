@@ -29,7 +29,11 @@ import {
   type SwipeDirection,
 } from "./hooks/use-spread-swipe-navigation";
 import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
-import type { PageTurnStyle, PaperInk } from "./paper/paper-preference";
+import type {
+  LeafGrip,
+  PageTurnStyle,
+  PaperInk,
+} from "./paper/paper-preference";
 import { useLeafCurl } from "./paper/use-leaf-curl";
 import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
 import { usePageFeel } from "./paper/use-page-feel";
@@ -66,6 +70,8 @@ interface SpreadStageProps {
   paper?: PaperGrain;
   /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
   ink?: PaperInk;
+  /** Where a hand holds the leaf (Debug curl). */
+  grip?: LeafGrip;
   showThrough?: boolean;
   haptics?: boolean;
   sound?: boolean;
@@ -108,6 +114,7 @@ export function SpreadStage({
   pageTurn = "slide",
   paper = "off",
   ink = "on",
+  grip = "anywhere",
   showThrough = true,
   haptics = false,
   sound = false,
@@ -140,6 +147,7 @@ export function SpreadStage({
   const leaf = pageTurn === "curl" && curlAllowed;
   const curl = pageTurn === "curl-v1" && curlAllowed;
   const curled = leaf || curl;
+  const foreEdge = 0;
 
   const feel = usePageFeel({
     haptics: curled && haptics,
@@ -169,6 +177,8 @@ export function SpreadStage({
   const leafTurn = useLeafTurn({
     containerRef: internalStageRef,
     enabled: swipeEnabled && leaf,
+    grip,
+    foreEdge,
     currentSpreadId: spread?.currentSpread ?? null,
     previousSpreadId: previousSpread?.currentSpread ?? null,
     nextSpreadId: nextSpread?.currentSpread ?? null,
@@ -220,6 +230,7 @@ export function SpreadStage({
     layers,
     keys,
     idle: phase === "idle",
+    foreEdge,
     grain: paper,
     showThrough,
     presenterRef: leafPresenter,

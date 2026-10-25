@@ -21,6 +21,19 @@ export function isPaperInk(value: unknown): value is PaperInk {
 }
 
 /**
+ * Where a hand holds the leaf (Debug curl). `anywhere` holds the paper
+ * under the finger and turns the fold with the pull: a roll from the middle
+ * of the edge, a cone from a corner. `edge` is the first leaf: the
+ * fore-edge carried ahead of the finger round a roll that tilts only near a
+ * corner.
+ */
+export type LeafGrip = "anywhere" | "edge";
+
+export function isLeafGrip(value: unknown): value is LeafGrip {
+  return value === "anywhere" || value === "edge";
+}
+
+/**
  * Paper in the Reader, a prototype: how a swipe turns the page, the grain
  * under the text, and the turn's feel. One choice for this device, applied
  * only while Debug mode is on.
@@ -29,6 +42,7 @@ export interface PaperPreference {
   pageTurn: PageTurnStyle;
   grain: PaperGrain;
   ink: PaperInk;
+  grip: LeafGrip;
   /** The front's ink shows faintly through the back of a curling page. */
   showThrough: boolean;
   haptics: boolean;
@@ -39,6 +53,7 @@ export const PLAIN_PAPER: PaperPreference = {
   pageTurn: "slide",
   grain: "off",
   ink: "in",
+  grip: "anywhere",
   showThrough: true,
   haptics: true,
   sound: false,
@@ -54,6 +69,7 @@ function readPaperPreference(): PaperPreference {
       pageTurn: isPageTurnStyle(saved.pageTurn) ? saved.pageTurn : "slide",
       grain: isPaperGrain(saved.grain) ? saved.grain : PLAIN_PAPER.grain,
       ink: isPaperInk(saved.ink) ? saved.ink : PLAIN_PAPER.ink,
+      grip: isLeafGrip(saved.grip) ? saved.grip : PLAIN_PAPER.grip,
       showThrough: saved.showThrough !== false,
       haptics: saved.haptics !== false,
       sound: saved.sound === true,
@@ -104,7 +120,8 @@ export function usePaperPreference(): PaperPreference {
 
 /**
  * The paper the Reader shows. Design ideas pass `?turn=`, `?paper=`,
- * `?ink=` and `?showThrough=` to preview an idea without saving it.
+ * `?ink=`, `?grip=` and `?showThrough=` to preview an idea without saving
+ * it.
  */
 export function resolvePaper(
   debugEnabled: boolean,
@@ -115,12 +132,14 @@ export function resolvePaper(
   const turn = params.get("turn");
   const grain = params.get("paper");
   const ink = params.get("ink");
+  const grip = params.get("grip");
   const showThrough = params.get("showThrough");
   return {
     ...saved,
     pageTurn: isPageTurnStyle(turn) ? turn : saved.pageTurn,
     grain: isPaperGrain(grain) ? grain : saved.grain,
     ink: isPaperInk(ink) ? ink : saved.ink,
+    grip: isLeafGrip(grip) ? grip : saved.grip,
     showThrough:
       showThrough === "off"
         ? false

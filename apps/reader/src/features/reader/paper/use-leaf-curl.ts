@@ -41,6 +41,8 @@ interface UseLeafCurlOptions {
   };
   /** True while no turn is in hand, so rasters can be prepared. */
   idle: boolean;
+  /** Px at the right of the stage that the book's fore-edge takes. */
+  foreEdge: number;
   grain: PaperGrain;
   showThrough: boolean;
   /** Set to the function that shows a turn; `useLeafTurn` calls it. */
@@ -66,6 +68,7 @@ export function useLeafCurl(options: UseLeafCurlOptions): void {
     layers,
     keys,
     idle,
+    foreEdge,
     grain,
     showThrough,
     presenterRef,
@@ -167,16 +170,16 @@ export function useLeafCurl(options: UseLeafCurlOptions): void {
     renderer.resize(width, height, pixelRatio());
     const key = ensureRaster(turning, contentKey);
     if (!key) return;
-    const geometry = leafGeometry(view, width, height);
-    if (view.page === "current" && geometry.lift >= width - 0.5) {
+    const geometry = leafGeometry(view, Math.max(1, width - foreEdge), height);
+    if (view.page === "current" && geometry.lift >= view.frame.length - 0.5) {
       return show({ previous: "", current: "", canvas: false });
     }
     const clip = flatPartPolygon(
       {
-        originX: geometry.dirX * geometry.lift,
-        originY: geometry.pivotY + geometry.dirY * geometry.lift,
-        normalX: geometry.dirX,
-        normalY: geometry.dirY,
+        originX: geometry.liftX,
+        originY: geometry.liftY,
+        normalX: geometry.liftNormalX,
+        normalY: geometry.liftNormalY,
         radius: 0,
       },
       width,
