@@ -222,51 +222,78 @@ test("attaching, quote removal and highlight deletion preserve note intent", asy
   expect(saved[0]).not.toHaveProperty("quote");
 });
 
-test("a noted highlight opens its note on the island, with Undo for deletion", async ({
-  page,
-  localBook,
-}) => {
-  await openLocalBook(page, localBook.id);
-  for (let i = 0; i < 8; i++) await nextSpread(page);
-  await selectPassage(page);
-  await page.getByRole("button", { name: "Highlight with green" }).click();
-  const mark = page
-    .locator('[data-reader-spread-layer="current"] mark')
-    .first();
-  await mark.click();
-  await page.getByRole("button", { name: "Add note" }).click();
-  await page
-    .getByRole("textbox", { name: "Write a note" })
-    .fill("Worth rereading.");
-  await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
-  ).toBeVisible();
-  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
-  await mark.click();
-  const note = page.getByRole("region", { name: "Note", exact: true });
-  await expect(note).toContainText("Worth rereading.");
-  await expect(note).toContainText(/p\. \d+ · Today/);
-  await note.getByRole("button", { name: "Delete note" }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Note deleted" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
-        return (await db.notes.toArray()).filter((item) => !item.isDeleted)
-          .length;
-      }),
-    )
-    .toBe(1);
-  await mark.click();
-  await note.getByRole("button", { name: "Show highlight tools" }).click();
-  await expect(
-    page.getByRole("button", { name: "Remove highlight", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-});
+/** Counts the saved words that fly into the island from here on. */
+async function countFlights(page: Page) {
+  await page.evaluate(() => {
+    const counted = window as Window & { flights?: number };
+    counted.flights = 0;
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (
+            node instanceof Element &&
+            node.hasAttribute("data-feedback-flight")
+          )
+            counted.flights!++;
+    }).observe(document.body, { childList: true });
+  });
+  return () =>
+    page.evaluate(() => (window as Window & { flights?: number }).flights);
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const)
+  test(`a noted highlight opens its note on the island, with Undo for deletion${reducedMotion === "reduce" ? ", in place with reduced motion" : ""}`, async ({
+    page,
+    localBook,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await openLocalBook(page, localBook.id);
+    for (let i = 0; i < 8; i++) await nextSpread(page);
+    await selectPassage(page);
+    await page.getByRole("button", { name: "Highlight with green" }).click();
+    const mark = page
+      .locator('[data-reader-spread-layer="current"] mark')
+      .first();
+    await mark.click();
+    await page.getByRole("button", { name: "Add note" }).click();
+    await page
+      .getByRole("textbox", { name: "Write a note" })
+      .fill("Worth rereading.");
+    const flights = await countFlights(page);
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+    ).toBeVisible();
+    await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+    // The words fly into the notice; with reduced motion, nothing moves.
+    expect(await flights()).toBe(reducedMotion === "reduce" ? 0 : 1);
+    await mark.click();
+    const note = page.getByRole("region", { name: "Note", exact: true });
+    await expect(note).toContainText("Worth rereading.");
+    await expect(note).toContainText(/p\. \d+ · Today/);
+    await note.getByRole("button", { name: "Delete note" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Note deleted" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Note restored" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+          return (await db.notes.toArray()).filter((item) => !item.isDeleted)
+            .length;
+        }),
+      )
+      .toBe(1);
+    await mark.click();
+    await note.getByRole("button", { name: "Show highlight tools" }).click();
+    await expect(
+      page.getByRole("button", { name: "Remove highlight", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
 
 test("the notebook gathers highlights and filters them by type and colour", async ({
   page,
@@ -629,3 +656,25 @@ test("tapping a highlight and closing its tools moves nothing on the page", asyn
     ),
   ).toEqual([]);
 });
+
+for (const reducedMotion of ["no-preference", "reduce"] as const)
+  test(`the Undo toast is announced and takes its change back${reducedMotion === "reduce" ? ", and only fades with reduced motion" : ""}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/debug/ideas/feedback");
+    await page.getByRole("button", { name: "Show the Undo toast" }).tap();
+    const toast = page
+      .getByRole("status")
+      .filter({ hasText: "Highlight deleted" });
+    await expect(toast).toBeVisible();
+    // It opens out of a pill; with reduced motion it does not change shape.
+    const opening = await toast.evaluate(
+      (element) => getComputedStyle(element).animationName,
+    );
+    if (reducedMotion === "reduce") expect(opening).toBe("none");
+    else expect(opening).toContain("wb-toast-open");
+    await toast.getByRole("button", { name: "Undo" }).tap();
+    await expect(page.getByText("Highlight restored")).toBeVisible();
+    await expect(toast).toHaveCount(0);
+  });

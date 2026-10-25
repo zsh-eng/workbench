@@ -26,6 +26,7 @@ export function flyWords(
     const height = Math.min(box.height, 56);
     ghost = document.createElement("div");
     ghost.setAttribute("aria-hidden", "true");
+    ghost.setAttribute("data-feedback-flight", "");
     ghost.textContent = from.text.slice(0, 160);
     Object.assign(ghost.style, {
       position: "fixed",

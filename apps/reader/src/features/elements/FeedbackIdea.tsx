@@ -168,12 +168,16 @@ export function FeedbackIdea() {
         </p>
         <button
           type="button"
-          onClick={() =>
-            showUndoToast({
+          onClick={() => {
+            // Undo takes the toast away, as the notebook's does.
+            const dismiss = showUndoToast({
               message: "Highlight deleted",
-              onUndo: () => toast.success("Highlight restored"),
-            })
-          }
+              onUndo: () => {
+                dismiss();
+                toast.success("Highlight restored");
+              },
+            });
+          }}
           className="mt-4 h-9 rounded-full bg-secondary px-4 font-sans text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring"
         >
           Show the Undo toast
