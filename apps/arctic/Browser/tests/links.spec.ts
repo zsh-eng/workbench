@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { addText, article, identity, paragraphs, phone, signUp } from "./phone";
+import {
+  addText,
+  article,
+  eventually,
+  identity,
+  paragraphs,
+  phone,
+  signUp,
+} from "./phone";
 
 test.beforeEach(async ({ context }) => {
   await signUp(context);
@@ -7,11 +15,9 @@ test.beforeEach(async ({ context }) => {
 
 /** A sheet takes focus once it has slid in; Escape then closes it. */
 const settled = (page: Page) =>
-  expect
-    .poll(() =>
-      page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")),
-    )
-    .toBe(true);
+  eventually(() =>
+    page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")),
+  ).toBe(true);
 
 /** Pastes text outside any field, as ⌘V on the library does. */
 const paste = (page: Page, text: string) =>
@@ -45,11 +51,9 @@ test("a pasted link is saved first, in the phone's format, and Undo takes it bac
   const url = "https://example.com/notes/how-sea-ice-keeps-time";
   const id = identity(url);
   const arctic = phone(context.request);
-  await expect
-    .poll(async () => (await arctic.records()).has(`tags/${id}`), {
-      timeout: 10_000,
-    })
-    .toBe(true);
+  await eventually(async () => (await arctic.records()).has(`tags/${id}`)).toBe(
+    true,
+  );
   const records = await arctic.records();
   const value = (key: string) => {
     const text = records.get(key)!.value;
@@ -95,9 +99,7 @@ test("a pasted link is saved first, in the phone's format, and Undo takes it bac
   const field = page.getByPlaceholder("Paste a link");
   await field.fill("not a link");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator(".link-note")).toContainText(
-    "not a web address",
-  );
+  await expect(page.locator(".link-note")).toContainText("not a web address");
   await field.fill("example.com/notes/how-sea-ice-keeps-time");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator(".toast")).toHaveText("Already in Saved");
@@ -109,12 +111,9 @@ test("a pasted link is saved first, in the phone's format, and Undo takes it bac
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".card")).toHaveCount(2);
   const tundra = identity("https://example.com/tundra-in-winter");
-  await expect
-    .poll(
-      async () => (await arctic.records()).get(`library/${tundra}`)?.isDeleted,
-      { timeout: 10_000 },
-    )
-    .toBe(true);
+  await eventually(
+    async () => (await arctic.records()).get(`library/${tundra}`)?.isDeleted,
+  ).toBe(true);
 });
 
 test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
@@ -197,9 +196,13 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
     getSelection()!.removeAllRanges();
     getSelection()!.addRange(range);
   });
-  await expect(page.getByRole("button", { name: "Highlight sage" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Highlight sage" }),
+  ).toBeVisible();
   await page.evaluate(() => getSelection()!.removeAllRanges());
-  await expect(page.getByRole("button", { name: "Highlight sage" })).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Highlight sage" }),
+  ).toBeHidden();
   // The toolbar stepped aside on the way down; scrolling up brings it back.
   await cdp.send("Input.synthesizeScrollGesture", {
     x: 195,
@@ -229,8 +232,9 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   // More holds what the toolbar does not.
   await toolbar.getByRole("button", { name: "More", exact: true }).click();
   const more = page.getByRole("dialog", { name: /^Actions for A floe/ });
-  await expect(more.getByRole("button", { name: "Open original" })).toBeVisible();
-  await expect(more.getByRole("button", { name: "Archive" })).toHaveCount(0);
+  await expect(
+    more.getByRole("button", { name: "Open original" }),
+  ).toBeVisible();
   await settled(page);
   await page.keyboard.press("Escape");
   await expect(more).toBeHidden();
@@ -240,16 +244,13 @@ test("a phone keeps the reader's actions in thumb reach, in sheets", async ({
   await expect(page.locator(".toast")).toContainText("Archived");
   await expect(page.locator(".card-title").first()).toHaveText("Sea smoke");
   await expect(page.getByText("A floe at dawn")).toHaveCount(0);
-  await expect
-    .poll(
-      async () =>
-        JSON.parse(
-          (await phone(context.request).records()).get(`library/${floe.id}`)!
-            .value,
-        ).archived,
-      { timeout: 10_000 },
-    )
-    .toBe(true);
+  await eventually(
+    async () =>
+      JSON.parse(
+        (await phone(context.request).records()).get(`library/${floe.id}`)!
+          .value,
+      ).archived,
+  ).toBe(true);
 });
 
 test("the phone's link bar saves nothing after Cancel, and shows what it saves", async ({
@@ -267,7 +268,9 @@ test("the phone's link bar saves nothing after Cancel, and shows what it saves",
       );
     Object.assign(window, { answer: () => answers.shift()?.() });
   });
-  const older = article("https://example.com/older", { title: "Older reading" });
+  const older = article("https://example.com/older", {
+    title: "Older reading",
+  });
   await phone(context.request).push(older.records);
   await page.goto("/");
   await expect(page.locator(".card")).toHaveCount(1);

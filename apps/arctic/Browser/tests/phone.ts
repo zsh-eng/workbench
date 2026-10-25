@@ -22,6 +22,14 @@ export async function signUp(context: BrowserContext) {
   expect(response.ok()).toBeTruthy();
 }
 
+/**
+ * Polls until a value matches. The app uploads a moment after each change
+ * and a sheet settles within a second, so this asks every 100 ms instead of
+ * backing off to a second as expect.poll does.
+ */
+export const eventually = <T>(read: () => Promise<T> | T, timeout = 15_000) =>
+  expect.poll(read, { intervals: [100], timeout });
+
 /** Swift JSONEncoder with .sortedKeys, as the phone writes records. */
 export const sorted = (value: Record<string, unknown>) =>
   JSON.stringify(

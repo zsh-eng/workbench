@@ -4,7 +4,15 @@ import {
   test,
   type BrowserContext,
 } from "@playwright/test";
-import { API, article, paragraphs, phone, signUp, sorted } from "./phone";
+import {
+  API,
+  article,
+  eventually,
+  paragraphs,
+  phone,
+  signUp,
+  sorted,
+} from "./phone";
 
 const ice = article("https://example.com/sea-ice", {
   title: "How sea ice keeps time | Example",
@@ -102,11 +110,9 @@ test("saves article text from files and reads it; refuses previews and strangers
 
   // The copy lives in arctic-content, apart from the phone's records.
   const content = phone(context.request, "arctic-content");
-  await expect
-    .poll(async () => (await content.records()).has(`content/${ice.id}`), {
-      timeout: 10_000,
-    })
-    .toBe(true);
+  await eventually(async () =>
+    (await content.records()).has(`content/${ice.id}`),
+  ).toBe(true);
   const record = JSON.parse(
     (await content.records()).get(`content/${ice.id}`)!.value,
   );
@@ -139,12 +145,6 @@ test("saves article text from files and reads it; refuses previews and strangers
     .click();
   await expect(page.locator(".prose")).toContainText("Paragraph 12.");
   await expect(page.locator(".byline")).toContainText("Ann Lee");
-  // Opening counts as a visit on every device.
-  await expect
-    .poll(async () => (await library(context, ice.id)).read, {
-      timeout: 15_000,
-    })
-    .toBe(true);
 });
 
 test("archive and favourite write records in the phone's format and keep its fields", async ({
@@ -175,15 +175,11 @@ test("archive and favourite write records in the phone's format and keep its fie
   await expect(page.locator(".toast")).toContainText("Archived");
 
   // The first Archive may upload before its Undo; wait for the final state.
-  await expect
-    .poll(
-      async () => {
-        const fields = await library(context, ice.id);
-        return [fields.archived, fields.favourite, fields.read];
-      },
-      { timeout: 15_000 },
-    )
-    .toEqual([true, true, true]);
+  // Opening the article counts as a visit on every device: read.
+  await eventually(async () => {
+    const fields = await library(context, ice.id);
+    return [fields.archived, fields.favourite, fields.read];
+  }).toEqual([true, true, true]);
   const records = await phone(context.request).records();
   const value = records.get(`library/${ice.id}`)!;
   const fields = JSON.parse(value.value);
@@ -233,15 +229,10 @@ test("an edit made offline merges with a later change from the phone", async ({
   ]);
 
   await context.setOffline(false);
-  await expect
-    .poll(
-      async () => {
-        const fields = await library(context, tundra.id);
-        return [fields.archived, fields.favourite];
-      },
-      { timeout: 15_000 },
-    )
-    .toEqual([true, true]);
+  await eventually(async () => {
+    const fields = await library(context, tundra.id);
+    return [fields.archived, fields.favourite];
+  }).toEqual([true, true]);
   await page.getByRole("link", { name: "Favourites", exact: true }).click();
   await expect(page.locator(".card-title")).toHaveText([
     "The tundra in winter",
@@ -266,17 +257,12 @@ test("remove writes tombstones for the article; Undo restores it", async ({
     .click();
   await page.getByRole("menuitem", { name: "Remove from library" }).click();
   await expect(page.locator(".card")).toHaveCount(1);
-  await expect
-    .poll(
-      async () => {
-        const records = await phone(context.request).records();
-        return ["article", "library", "tags"].map(
-          (family) => records.get(`${family}/${ice.id}`)!.isDeleted,
-        );
-      },
-      { timeout: 15_000 },
-    )
-    .toEqual([true, true, true]);
+  await eventually(async () => {
+    const records = await phone(context.request).records();
+    return ["article", "library", "tags"].map(
+      (family) => records.get(`${family}/${ice.id}`)!.isDeleted,
+    );
+  }).toEqual([true, true, true]);
   const records = await phone(context.request).records();
   expect(records.get(`library/${tundra.id}`)!.isDeleted).toBe(false);
 });

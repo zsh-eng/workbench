@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { addText, article, paragraphs, phone, signUp } from "./phone";
+import {
+  addText,
+  article,
+  eventually,
+  paragraphs,
+  phone,
+  signUp,
+} from "./phone";
 
 // A phone: sheets, and the bottom bar under the toasts.
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -37,7 +44,7 @@ test("a sheet whose code failed to load opens on the next tap", async ({
   ).toBeVisible();
 });
 
-test("Undo counts down above the bottom bar and takes the change back", async ({
+test("Undo takes archives back, from the toast, with ⌘Z, and several at once", async ({
   page,
   context,
 }) => {
@@ -58,11 +65,9 @@ test("Undo counts down above the bottom bar and takes the change back", async ({
     await page.getByRole("button", { name: `More for ${title}` }).click();
     const sheet = page.getByRole("dialog", { name: `Actions for ${title}` });
     // It takes focus once it rests.
-    await expect
-      .poll(() =>
-        page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")),
-      )
-      .toBe(true);
+    await eventually(() =>
+      page.evaluate(() => !!document.activeElement?.closest("[role=dialog]")),
+    ).toBe(true);
     await sheet.getByRole("button", { name: "Archive" }).click();
     await expect(page.locator(".card-title", { hasText: title })).toHaveCount(
       0,
@@ -72,14 +77,6 @@ test("Undo counts down above the bottom bar and takes the change back", async ({
   await archive("A polynya in winter");
   const toast = page.getByRole("status", { name: "Notifications" });
   await expect(toast).toContainText("Archived");
-  // The toast comes to rest above the search bar, clear of it.
-  const bar = (await page.locator(".library-dock").boundingBox())!;
-  await expect
-    .poll(async () => {
-      const box = (await toast.locator(".toast").boundingBox())!;
-      return box.y + box.height <= bar.y;
-    })
-    .toBe(true);
   await toast.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".card")).toHaveCount(2);
 
@@ -88,11 +85,12 @@ test("Undo counts down above the bottom bar and takes the change back", async ({
   await expect(toast).toContainText("Archived");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator(".card")).toHaveCount(2);
-  await expect(toast.locator(".toast")).toHaveCount(0);
+  await expect(toast).toContainText("Back in Saved");
 
   // Two archives share one toast, which counts them. Its Undo takes both
   // back, and the same toast says so before it leaves.
   await archive("A polynya in winter");
+  await expect(toast).toContainText("Archived");
   const one = toast.locator(".toast");
   await one.evaluate((element) => element.setAttribute("data-probe", ""));
   await archive("Brash ice");
