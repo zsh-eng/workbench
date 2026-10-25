@@ -23,7 +23,10 @@ export function HighlightsPage() {
       const article = byURL.get(item.articleURL);
       const text = `${item.quote?.exact ?? ""}\n${item.note}\n${article?.title ?? item.articleURL}`;
       if (search && !text.toLowerCase().includes(search)) continue;
-      groups.set(item.articleURL, [...(groups.get(item.articleURL) ?? []), item]);
+      groups.set(item.articleURL, [
+        ...(groups.get(item.articleURL) ?? []),
+        item,
+      ]);
     }
     return [...groups]
       .map(([url, items]) => ({
@@ -75,7 +78,10 @@ export function HighlightsPage() {
           <section key={url} className="section highlight-list">
             <h2>
               {article ? (
-                <Link to={`/read/${article.id}`} state={{ from: "/highlights" }}>
+                <Link
+                  to={`/read/${article.id}`}
+                  state={{ from: "/highlights" }}
+                >
                   {article.title}
                 </Link>
               ) : (
@@ -100,7 +106,9 @@ export function HighlightsPage() {
                       <Quote item={item} />
                     </a>
                   ) : (
-                    <div className="article-note-label">Note on the article</div>
+                    <div className="article-note-label">
+                      Note on the article
+                    </div>
                   )}
                   {item.note && <p className="note">{item.note}</p>}
                 </li>

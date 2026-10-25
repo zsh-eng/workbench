@@ -16,7 +16,10 @@ const settled = new Map<string, Text>();
 // session of opening, returning, and prefetching what is on screen.
 const KEEP = 24;
 // The image objects stay referenced, so their decoded pictures stay in memory.
-const images = new Map<string, { image: HTMLImageElement; decoded: Promise<void> }>();
+const images = new Map<
+  string,
+  { image: HTMLImageElement; decoded: Promise<void> }
+>();
 
 const keyOf = (article: Article) =>
   `${article.id} ${article.copy?.file} ${article.image ?? ""}`;
@@ -74,7 +77,10 @@ export function prefetch(session: Session, article: Article) {
     image.referrerPolicy = "no-referrer";
     image.decoding = "async";
     image.src = article.image;
-    images.set(article.image, { image, decoded: image.decode().catch(() => {}) });
+    images.set(article.image, {
+      image,
+      decoded: image.decode().catch(() => {}),
+    });
     for (const old of [...images.keys()].slice(0, -KEEP)) images.delete(old);
   }
 }

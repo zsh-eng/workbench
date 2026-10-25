@@ -153,7 +153,12 @@ function textOf(root: Element): TextNodes {
   return { nodes, text };
 }
 
-function rangeAt(root: Element, { nodes }: TextNodes, start: number, end: number) {
+function rangeAt(
+  root: Element,
+  { nodes }: TextNodes,
+  start: number,
+  end: number,
+) {
   const first = nodes.find((item) => item.start + item.node.length > start);
   const last = nodes.find((item) => item.start + item.node.length >= end);
   if (!first || !last) return null;
@@ -207,7 +212,8 @@ function locate(text: string, quote: Quote) {
         bare(text.slice(Math.max(0, index - 160), index)).endsWith(before)
           ? 1
           : 0) +
-        (after && bare(text.slice(end(index), end(index) + 160)).startsWith(after)
+        (after &&
+        bare(text.slice(end(index), end(index) + 160)).startsWith(after)
           ? 1
           : 0),
     );
@@ -221,7 +227,10 @@ function locate(text: string, quote: Quote) {
 
 /** The quote of a selection inside the root, with 48 characters of context. */
 export function quoteOf(root: Element, range: Range): Quote | null {
-  if (!root.contains(range.startContainer) || !root.contains(range.endContainer))
+  if (
+    !root.contains(range.startContainer) ||
+    !root.contains(range.endContainer)
+  )
     return null;
   const exact = range.toString();
   if (!exact.trim()) return null;
@@ -231,10 +240,7 @@ export function quoteOf(root: Element, range: Range): Quote | null {
     exact,
     start,
     prefix: content.text.slice(Math.max(0, start - 48), start),
-    suffix: content.text.slice(
-      start + exact.length,
-      start + exact.length + 48,
-    ),
+    suffix: content.text.slice(start + exact.length, start + exact.length + 48),
   };
 }
 
@@ -289,7 +295,12 @@ export function clearPaint() {
 export function passageAt(ranges: Map<string, Range>, x: number, y: number) {
   for (const [id, range] of [...ranges].reverse())
     for (const rect of range.getClientRects())
-      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+      if (
+        x >= rect.left &&
+        x <= rect.right &&
+        y >= rect.top &&
+        y <= rect.bottom
+      )
         return id;
   return undefined;
 }
