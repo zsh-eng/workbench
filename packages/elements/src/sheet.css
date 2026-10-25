@@ -1,0 +1,213 @@
+/* The shape of an iOS 26+ sheet on React Aria's Sheet (docs/MOTION.md,
+   "Sheet behaviour"). Below full height a sheet floats: inset from the
+   sides and the bottom, its bottom corners concentric with the screen's.
+   At the large detent it meets the edges. Between its highest detent and
+   full view the inset follows the scroll position.
+
+   Mark the overlay `wb-sheet-overlay` and the sheet `wb-sheet`, and run
+   `trackSheetShape` (sheet-fit.ts) on them. The app colours the surface:
+
+     --wb-sheet-surface   background
+     --wb-sheet-edge      hairline border
+     --wb-sheet-shadow    box shadow
+     --wb-sheet-max-width widest sheet (default 28rem)
+
+   The sheet's own box keeps one width, so its content never reflows while
+   the shape changes: the surface behind it widens, and the scroller's clip
+   rounds and lifts the bottom edge. Neither moves with the scroll, so a
+   drag keeps them in step. */
+
+@property --wb-sheet-float {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+/* The mask's measures, worked out on the scroller alone: registered so
+   that a change each frame does not restyle the sheet's content. */
+@property --wb-sheet-spread {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --wb-sheet-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --wb-sheet-span {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --wb-sheet-corner {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --wb-sheet-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.wb-sheet-overlay {
+  /* iOS 27, iPhone 17e (390 × 844 pt): 8 pt inset, 38 pt top corners,
+     bottom corners concentric with the 47.33 pt display corner. */
+  --wb-sheet-inset: 8px;
+  --wb-sheet-radius: 38px;
+  --wb-sheet-display-radius: 47.33px;
+  /* The sheet's box: the stage and the scroller are a screen wide. */
+  --wb-sheet-width: min(
+    100dvw - 2 * var(--wb-sheet-inset),
+    var(--wb-sheet-max-width, 28rem)
+  );
+}
+
+/* The scroller is two screens tall and does not move, so its mask stays on
+   the screen while the sheet scrolls under it: the visible sheet ends
+   `inset × float` above the screen's bottom edge, with rounded corners.
+   The mask's pieces overlap by a pixel, so no seam shows where they meet.
+   A mask, not a clip-path: IntersectionObserver applies an ancestor's
+   clip-path, and React Aria reads full view from it. */
+.wb-sheet-overlay [data-sheet-scroll] {
+  --wb-sheet-spread: calc(var(--wb-sheet-inset) * (1 - var(--wb-sheet-float)));
+  --wb-sheet-left: calc(
+    (100dvw - var(--wb-sheet-width)) / 2 - var(--wb-sheet-spread)
+  );
+  --wb-sheet-span: calc(var(--wb-sheet-width) + 2 * var(--wb-sheet-spread));
+  --wb-sheet-corner: calc(
+    (var(--wb-sheet-display-radius) - var(--wb-sheet-inset)) *
+      var(--wb-sheet-float)
+  );
+  --wb-sheet-bottom: calc(
+    100dvh - var(--wb-sheet-inset) * var(--wb-sheet-float) -
+      var(--wb-sheet-corner)
+  );
+  scroll-timeline: --wb-sheet-scroll block;
+  mask:
+    linear-gradient(#000 0 0) var(--wb-sheet-left) 0 / var(--wb-sheet-span)
+      calc(var(--wb-sheet-bottom) + 1px) no-repeat,
+    linear-gradient(#000 0 0)
+      calc(var(--wb-sheet-left) + var(--wb-sheet-corner) - 1px)
+      var(--wb-sheet-bottom) /
+      calc(var(--wb-sheet-span) - 2 * var(--wb-sheet-corner) + 2px)
+      var(--wb-sheet-corner) no-repeat,
+    radial-gradient(
+        circle at 100% 0,
+        #000 calc(var(--wb-sheet-corner) - 0.5px),
+        #0000 var(--wb-sheet-corner)
+      )
+      var(--wb-sheet-left) var(--wb-sheet-bottom) / var(--wb-sheet-corner)
+      var(--wb-sheet-corner) no-repeat,
+    radial-gradient(
+        circle at 0 0,
+        #000 calc(var(--wb-sheet-corner) - 0.5px),
+        #0000 var(--wb-sheet-corner)
+      )
+      calc(var(--wb-sheet-left) + var(--wb-sheet-span) - var(--wb-sheet-corner))
+      var(--wb-sheet-bottom) / var(--wb-sheet-corner) var(--wb-sheet-corner)
+      no-repeat;
+}
+
+.wb-sheet {
+  box-sizing: content-box;
+  width: var(--wb-sheet-width);
+  max-width: none;
+  isolation: isolate;
+  background: none;
+  border: 0;
+  border-radius: var(--wb-sheet-radius) var(--wb-sheet-radius) 0 0;
+  box-shadow: none;
+}
+
+/* The surface: it widens to the screen's edges as the sheet attaches. Its
+   bottom runs into the overscroll padding below the sheet. */
+.wb-sheet::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 calc(var(--wb-sheet-inset) * (var(--wb-sheet-float) - 1));
+  border: 1px solid var(--wb-sheet-edge, transparent);
+  border-bottom: 0;
+  border-radius: var(--wb-sheet-radius) var(--wb-sheet-radius) 0 0;
+  background: var(--wb-sheet-surface, Canvas);
+  box-shadow: var(--wb-sheet-shadow, none);
+  pointer-events: none;
+}
+
+/* Floating content keeps clear of the lifted bottom edge. */
+.wb-sheet-overlay [data-sheet-fit-content] {
+  padding-bottom: var(--wb-sheet-inset);
+}
+
+/* A sheet that reaches the large detent attaches by scroll position. */
+@keyframes wb-sheet-attach {
+  from {
+    --wb-sheet-float: 1;
+  }
+  to {
+    --wb-sheet-float: 0;
+  }
+}
+.wb-sheet-overlay[data-sheet-shape="attach"] [data-sheet-scroll],
+.wb-sheet-overlay[data-sheet-shape="attach"] .wb-sheet::before {
+  animation: wb-sheet-attach linear both;
+  animation-timeline: --wb-sheet-scroll;
+  animation-range: var(--wb-sheet-attach-start) var(--wb-sheet-attach-end);
+}
+.wb-sheet-overlay[data-sheet-shape="attached"] [data-sheet-scroll],
+.wb-sheet-overlay[data-sheet-shape="attached"] .wb-sheet::before {
+  --wb-sheet-float: 0;
+}
+
+/* In landscape on a phone a sheet covers the screen's height, as iOS's
+   does in compact height: no float. */
+@media (orientation: landscape) and (max-height: 30rem) {
+  .wb-sheet-overlay [data-sheet-scroll],
+  .wb-sheet-overlay .wb-sheet::before {
+    animation: none !important;
+    --wb-sheet-float: 0;
+  }
+}
+
+/* A sheet that fits its content (fitSheetHeight in sheet-fit.ts): the fit
+   box has the sheet's height, and its content is at least that tall. Free
+   space goes to `[data-sheet-slack]`: a screen puts one where the space
+   belongs, as a list's end above a pinned field. Without one, the space
+   goes to the end. */
+[data-sheet-fit] {
+  flex: none;
+  overflow: hidden;
+}
+[data-sheet-fit-content] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+[data-sheet-fit-content] > * {
+  flex: none;
+}
+[data-sheet-fit-content] > :has([data-sheet-slack]) {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+[data-sheet-fit-content] [data-sheet-slack] {
+  flex: 1 0 0;
+  min-height: 0;
+}
+[data-sheet-fit-content]:has([data-sheet-slack]:not([data-sheet-slack="end"]))
+  > [data-sheet-slack="end"] {
+  display: none;
+}
+
+/* While the sheet grows towards its content, the content runs on below its
+   bottom edge. A footer (a field, a toolbar) stays on that edge, over the
+   content, as a UIKit view pinned to the sheet's bottom does. */
+[data-sheet-fit] [data-sheet-footer] {
+  position: sticky;
+  z-index: 1;
+  bottom: var(--wb-sheet-inset, 0px);
+  background: var(--wb-sheet-surface, Canvas);
+  box-shadow: 0 var(--wb-sheet-inset, 0px) 0 var(--wb-sheet-surface, Canvas);
+}

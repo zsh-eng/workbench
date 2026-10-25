@@ -9,7 +9,9 @@
     "./toast": "./src/toast.tsx",
     "./toast.css": "./src/toast.css",
     "./spring": "./src/spring.ts",
-    "./sheet-motion": "./src/sheet-motion.ts"
+    "./sheet-motion": "./src/sheet-motion.ts",
+    "./sheet-fit": "./src/sheet-fit.ts",
+    "./sheet.css": "./src/sheet.css"
   },
   "peerDependencies": {
     "react": ">=18"

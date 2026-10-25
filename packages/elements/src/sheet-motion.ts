@@ -1,5 +1,8 @@
 import { SPRINGS, settleTime, springDisplacement, type Spring } from "./spring";
 
+/** A spring asked for the scroller's next smooth scroll only. */
+const nextSprings = new WeakMap<HTMLElement, Spring>();
+
 /**
  * Moves a React Aria Sheet on a spring, as a UIKit sheet moves.
  *
@@ -12,6 +15,10 @@ import { SPRINGS, settleTime, springDisplacement, type Spring } from "./spring";
  * scroll offset frame by frame. Everything that React Aria drives from the
  * scroll offset (the dimming, the lower sheet's step back, closing once the
  * sheet is out of view) follows the spring with it.
+ *
+ * The spring heads for a snap marker, not a fixed offset: when the sheet's
+ * height changes during the move (content that arrives while it opens), its
+ * detent moves and the spring follows, so the sheet still lands on it.
  *
  * A drag, a wheel or an instant scroll stops the spring where it is; a tap
  * lets it settle. A new smooth scroll starts from the current place and
@@ -27,26 +34,41 @@ export function springSheetScroller(
   let run: Run | null = null;
   let snap = "";
   let userScroll = false;
+  /** A sheet that left keeps snapping off until it moves again. */
+  let parked = false;
 
   type Run = {
     frame: number;
     position: () => number;
     velocity: () => number;
+    leaving: boolean;
+  };
+
+  const restoreSnap = () => {
+    parked = false;
+    scroller.style.scrollSnapType = snap;
   };
 
   const finish = (dispatch: boolean) => {
     if (!run) return;
+    const { leaving } = run;
     cancelAnimationFrame(run.frame);
     run = null;
     scroller.removeAttribute("data-sheet-spring");
-    scroller.style.scrollSnapType = snap;
+    // Snapping would pull a sheet that left back to its nearest detent
+    // before React Aria sees it out of view, and it would not close.
+    if (leaving && dispatch) parked = true;
+    else restoreSnap();
     // React Aria waits for the scroll to end before the sheet counts as
     // open or closed.
     if (dispatch) scroller.dispatchEvent(new Event("scrollend"));
   };
 
   const springTo = (top: number) => {
-    const goal = snapTarget(scroller, top);
+    const moveSpring = nextSprings.get(scroller) ?? spring;
+    nextSprings.delete(scroller);
+    const resting = snapTarget(scroller, top);
+    const goal = resting.position;
     let from = scroller.scrollTop;
     let speed = 0;
     if (run) {
@@ -54,9 +76,11 @@ export function springSheetScroller(
       speed = run.velocity();
       cancelAnimationFrame(run.frame);
     } else {
-      // A drag that interrupted the last spring has snapping off still.
-      if (!userScroll) snap = scroller.style.scrollSnapType;
+      // A drag that interrupted the last spring, or a sheet that left, has
+      // snapping off still.
+      if (!userScroll && !parked) snap = scroller.style.scrollSnapType;
       userScroll = false;
+      parked = false;
     }
     // React Aria rests a closed sheet a screen below. The spring covers
     // only the part that you see, as UIKit's does: an entering sheet starts
@@ -67,29 +91,42 @@ export function springSheetScroller(
       ? scroller.scrollTop + sheet.getBoundingClientRect().top - screenBottom()
       : -Infinity;
     if (goal > from && from < edge) from = Math.min(edge, goal);
-    const target = goal < from && goal < edge ? Math.min(edge, from) : goal;
+    const leaving = goal < from && goal < edge;
+    // A leaving sheet stops a pixel past the edge, where React Aria's
+    // IntersectionObserver sees none of it.
+    const target = leaving ? Math.max(goal, Math.min(edge - 1, from)) : goal;
+    // A detent can move while the sheet heads for it, when the sheet's
+    // height changes. A leaving sheet heads for the screen's edge, which
+    // stays where it is.
+    const marker = leaving ? null : resting.marker;
+    const targetNow = () =>
+      marker?.isConnected
+        ? target + snapPosition(scroller, marker) - goal
+        : target;
     // Snapping would pull each frame's offset to a detent.
     scroller.style.scrollSnapType = "none";
     const distance = target - from;
     if (Math.abs(distance) < 0.5) {
-      scroller.scrollTop = goal;
-      run = { frame: 0, position: () => goal, velocity: () => 0 };
+      scroller.scrollTop = targetNow();
+      run = { frame: 0, position: () => goal, velocity: () => 0, leaving };
       finish(true);
       return;
     }
     // Spring time is in seconds; its velocity is in distances per second.
     const velocity = speed / distance;
-    const seconds = settleTime(spring, distance, { velocity });
+    const seconds = settleTime(moveSpring, distance, { velocity });
     const start = performance.now();
-    const at = (t: number) =>
-      target - distance * springDisplacement(spring, t, velocity);
+    const at = (t: number, end: number) =>
+      end - distance * springDisplacement(moveSpring, t, velocity);
     const elapsed = () => Math.min((performance.now() - start) / 1000, seconds);
     const current: Run = {
       frame: 0,
-      position: () => at(elapsed()),
+      leaving,
+      position: () => at(elapsed(), targetNow()),
       velocity: () => {
         const t = elapsed();
-        return (at(t + 0.004) - at(t)) / 0.004;
+        const end = targetNow();
+        return (at(t + 0.004, end) - at(t, end)) / 0.004;
       },
     };
     run = current;
@@ -102,7 +139,8 @@ export function springSheetScroller(
         return;
       }
       const t = elapsed();
-      scroller.scrollTop = t >= seconds ? goal : at(t);
+      const end = targetNow();
+      scroller.scrollTop = t >= seconds ? end : at(t, end);
       if (t >= seconds) finish(true);
       else current.frame = requestAnimationFrame(step);
     };
@@ -123,7 +161,9 @@ export function springSheetScroller(
       springTo(options.top);
       return;
     }
+    nextSprings.delete(scroller);
     finish(false);
+    if (parked) restoreSnap();
     Reflect.apply(nativeScrollTo, this, args);
   } as typeof scroller.scrollTo;
 
@@ -163,18 +203,37 @@ export function springSheetScroller(
 }
 
 /**
- * Where a smooth scroll to `top` comes to rest. The sheet's scroller snaps
- * to the nearest snap position, as the browser does at the end of a smooth
- * scroll: React Aria's exit and rest markers are its children, and its
- * detents are `[data-sheet-detent]`. On iOS Safari the scroll range runs
- * past full height, under the toolbar, so the end of the range is not a
- * rest.
+ * Moves a sheet that `springSheetScroller` drives to `top` on another
+ * spring than its own, once: the keyboard's, when a field raises the sheet.
  */
-function snapTarget(scroller: HTMLElement, top: number): number {
-  const max = scroller.scrollHeight - scroller.clientHeight;
-  const box = scroller.getBoundingClientRect();
-  let best = Math.min(Math.max(top, 0), max);
-  let bestDistance = Infinity;
+export function springSheetTo(
+  scroller: HTMLElement,
+  top: number,
+  spring: Spring,
+): void {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    scroller.scrollTo({ top, behavior: "instant" });
+    return;
+  }
+  nextSprings.set(scroller, spring);
+  scroller.scrollTo({ top, behavior: "smooth" });
+}
+
+export type SheetSnap = {
+  marker: HTMLElement;
+  /** The scroll offset where the marker holds the sheet. */
+  position: number;
+  /** React Aria's marker for the sheet in full view. */
+  full: boolean;
+};
+
+/**
+ * The scroll offsets where a sheet can rest, and the markers that make
+ * them: React Aria's exit and full-view markers are the scroller's
+ * children, and its detents are `[data-sheet-detent]`.
+ */
+export function sheetSnaps(scroller: HTMLElement): SheetSnap[] {
+  const snaps: SheetSnap[] = [];
   const markers = [
     ...scroller.children,
     ...scroller.querySelectorAll("[data-sheet-detent]"),
@@ -183,23 +242,59 @@ function snapTarget(scroller: HTMLElement, top: number): number {
     if (!(marker instanceof HTMLElement)) continue;
     const align = marker.style.scrollSnapAlign.split(" ")[0];
     if (align !== "start" && align !== "end") continue;
-    const rect = marker.getBoundingClientRect();
-    const style = getComputedStyle(marker);
-    const position =
-      align === "start"
-        ? rect.top -
-          box.top +
-          scroller.scrollTop -
-          (parseFloat(style.scrollMarginTop) || 0)
-        : rect.bottom -
-          box.top +
-          scroller.scrollTop +
-          (parseFloat(style.scrollMarginBottom) || 0) -
-          scroller.clientHeight;
-    const snapped = Math.min(Math.max(position, 0), max);
-    const distance = Math.abs(snapped - top);
+    snaps.push({
+      marker,
+      position: snapPosition(scroller, marker),
+      full: align === "end" && marker.parentElement === scroller,
+    });
+  }
+  return snaps;
+}
+
+/** The scroll offset where `marker` holds the sheet, within the scroll range. */
+export function snapPosition(
+  scroller: HTMLElement,
+  marker: HTMLElement,
+): number {
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  const box = scroller.getBoundingClientRect();
+  const rect = marker.getBoundingClientRect();
+  const style = getComputedStyle(marker);
+  const align = marker.style.scrollSnapAlign.split(" ")[0];
+  const position =
+    align === "start"
+      ? rect.top -
+        box.top +
+        scroller.scrollTop -
+        (parseFloat(style.scrollMarginTop) || 0)
+      : rect.bottom -
+        box.top +
+        scroller.scrollTop +
+        (parseFloat(style.scrollMarginBottom) || 0) -
+        scroller.clientHeight;
+  return Math.min(Math.max(position, 0), max);
+}
+
+/**
+ * Where a smooth scroll to `top` comes to rest, and the marker that holds
+ * it there, as the browser snaps at the end of a smooth scroll. On iOS
+ * Safari the scroll range runs past full height, under the toolbar, so the
+ * end of the range is not a rest.
+ */
+function snapTarget(
+  scroller: HTMLElement,
+  top: number,
+): { position: number; marker: HTMLElement | null } {
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  let best: { position: number; marker: HTMLElement | null } = {
+    position: Math.min(Math.max(top, 0), max),
+    marker: null,
+  };
+  let bestDistance = Infinity;
+  for (const snap of sheetSnaps(scroller)) {
+    const distance = Math.abs(snap.position - top);
     if (distance < bestDistance) {
-      best = snapped;
+      best = snap;
       bestDistance = distance;
     }
   }
