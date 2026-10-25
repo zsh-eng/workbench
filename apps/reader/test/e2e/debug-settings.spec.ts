@@ -79,3 +79,31 @@ test("persists the switch and gates navigation, Reader tools, and diagnostic rou
     page.getByRole("button", { name: /copy debug dump/i }),
   ).toBeVisible();
 });
+
+test("In Debug mode the Library opens Design ideas on the newest topic", async ({
+  page,
+  // A book in the Library shows the phone's row of Library controls.
+  localBook: _book,
+}) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Design ideas", exact: true }).click();
+  // The tabs run newest first after Elements, and the newest is open.
+  const tabs = page
+    .getByRole("navigation", { name: "Design pages" })
+    .getByRole("link");
+  await expect(tabs.first()).toHaveText("Elements");
+  const newest = tabs.nth(1);
+  await expect(newest).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveTitle(`${await newest.textContent()} · Reader`);
+  await expect(page.getByRole("heading", { name: "Compare" })).toBeVisible();
+
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: "Debug mode" }).uncheck();
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Sort and layout" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Design ideas", exact: true }),
+  ).toHaveCount(0);
+});
