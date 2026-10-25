@@ -21,6 +21,7 @@ import {
   SpreadView,
   type NavDirection,
 } from "./AnimatedSpread";
+import { useLeafTurn, type LeafView } from "./hooks/use-leaf-turn";
 import {
   CURL_SETTLE_SPRING,
   SWIPE_SETTLE_SPRING,
@@ -28,7 +29,8 @@ import {
   type SwipeDirection,
 } from "./hooks/use-spread-swipe-navigation";
 import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
-import type { PageTurnStyle } from "./paper/paper-preference";
+import type { PageTurnStyle, PaperInk } from "./paper/paper-preference";
+import { useLeafCurl } from "./paper/use-leaf-curl";
 import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
 import { usePageFeel } from "./paper/use-page-feel";
 import { getSpreadContentKey } from "./spread-identity";
@@ -56,9 +58,14 @@ interface SpreadStageProps {
   paddingBottomPx: number;
   paddingLeftPx: number;
   paddingRightPx: number;
-  /** How a swipe moves the page (Debug): slide, or curl like paper. */
+  /**
+   * How a swipe moves the page (Debug): slide, the leaf you can hold
+   * (`curl`), or the first curl (`curl-v1`).
+   */
   pageTurn?: PageTurnStyle;
   paper?: PaperGrain;
+  /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
+  ink?: PaperInk;
   showThrough?: boolean;
   haptics?: boolean;
   sound?: boolean;
@@ -100,6 +107,7 @@ export function SpreadStage({
   paddingRightPx,
   pageTurn = "slide",
   paper = "off",
+  ink = "on",
   showThrough = true,
   haptics = false,
   sound = false,
@@ -121,59 +129,100 @@ export function SpreadStage({
     [stageContentRef],
   );
 
-  // The curl replaces the slide only where it can run as designed: a
-  // touch screen, one page at a time, motion allowed and WebGL present.
-  const curl =
-    pageTurn === "curl" &&
+  // A curl replaces the slide only where it can run as designed: a touch
+  // screen, one page at a time, motion allowed and WebGL present.
+  const curlAllowed =
     renderAdjacentSpreads &&
     spreadConfig.columns === 1 &&
     !disableAnimations &&
     !prefersReducedMotion &&
     isPageCurlSupported();
+  const leaf = pageTurn === "curl" && curlAllowed;
+  const curl = pageTurn === "curl-v1" && curlAllowed;
+  const curled = leaf || curl;
 
-  const feel = usePageFeel({ haptics: curl && haptics, sound: curl && sound });
+  const feel = usePageFeel({
+    haptics: curled && haptics,
+    sound: curled && sound,
+  });
 
-  const { dragOffset, dragY, grabY, phase, isInteractionActive, turn } =
-    useSpreadSwipeNavigation({
-      containerRef: internalStageRef,
-      enabled: swipeEnabled,
-      currentSpreadId: spread?.currentSpread ?? null,
-      previousSpreadId: previousSpread?.currentSpread ?? null,
-      nextSpreadId: nextSpread?.currentSpread ?? null,
-      onPrevious: onSwipePrevious,
-      onNext: onSwipeNext,
-      onSwipeStart: () => {
-        feel.start();
-        onSwipeStart?.();
-      },
-      onRelease: feel.release,
-      onSettled: feel.settled,
-      disableMotion: disableAnimations,
-      settleSpring: curl ? CURL_SETTLE_SPRING : SWIPE_SETTLE_SPRING,
-    });
+  const swipe = useSpreadSwipeNavigation({
+    containerRef: internalStageRef,
+    enabled: swipeEnabled && !leaf,
+    currentSpreadId: spread?.currentSpread ?? null,
+    previousSpreadId: previousSpread?.currentSpread ?? null,
+    nextSpreadId: nextSpread?.currentSpread ?? null,
+    onPrevious: onSwipePrevious,
+    onNext: onSwipeNext,
+    onSwipeStart: () => {
+      feel.start();
+      onSwipeStart?.();
+    },
+    onRelease: feel.release,
+    onSettled: feel.settled,
+    disableMotion: disableAnimations,
+    settleSpring: curl ? CURL_SETTLE_SPRING : SWIPE_SETTLE_SPRING,
+  });
+  const { dragOffset, dragY, grabY } = swipe;
 
-  if (turnRef) turnRef.current = curl && swipeEnabled ? turn : null;
+  const leafPresenter = useRef<(view: LeafView | null) => void>(() => {});
+  const leafTurn = useLeafTurn({
+    containerRef: internalStageRef,
+    enabled: swipeEnabled && leaf,
+    currentSpreadId: spread?.currentSpread ?? null,
+    previousSpreadId: previousSpread?.currentSpread ?? null,
+    nextSpreadId: nextSpread?.currentSpread ?? null,
+    onPrevious: onSwipePrevious,
+    onNext: onSwipeNext,
+    onSwipeStart: () => {
+      feel.start();
+      onSwipeStart?.();
+    },
+    onRelease: (turns, speed) => feel.release(turns ? 1 : 0, speed),
+    onMove: feel.drag,
+    onSettled: feel.settled,
+    present: (view) => leafPresenter.current(view),
+  });
+
+  const { phase, isInteractionActive, turn } = leaf ? leafTurn : swipe;
+
+  if (turnRef) turnRef.current = curled && swipeEnabled ? turn : null;
+
+  const keys = {
+    previous: previousSpread ? getSpreadContentKey(previousSpread) : null,
+    current: spread ? getSpreadContentKey(spread) : null,
+    next: nextSpread ? getSpreadContentKey(nextSpread) : null,
+  };
+  const layers = {
+    previous: previousLayerRef,
+    current: currentLayerRef,
+    next: nextLayerRef,
+  };
 
   usePageCurl({
     enabled: curl,
     stageRef: internalStageRef,
     canvasRef: curlCanvasRef,
-    layers: {
-      previous: previousLayerRef,
-      current: currentLayerRef,
-      next: nextLayerRef,
-    },
+    layers,
     dragOffset,
     dragY,
     grabY,
-    keys: {
-      previous: previousSpread ? getSpreadContentKey(previousSpread) : null,
-      current: spread ? getSpreadContentKey(spread) : null,
-      next: nextSpread ? getSpreadContentKey(nextSpread) : null,
-    },
+    keys,
     idle: phase === "idle",
     grain: paper,
     showThrough,
+  });
+
+  useLeafCurl({
+    enabled: leaf,
+    stageRef: internalStageRef,
+    canvasRef: curlCanvasRef,
+    layers,
+    keys,
+    idle: phase === "idle",
+    grain: paper,
+    showThrough,
+    presenterRef: leafPresenter,
   });
 
   useLayoutEffect(() => {
@@ -218,6 +267,7 @@ export function SpreadStage({
     paddingLeftPx,
     paddingRightPx,
     paper,
+    ink,
   };
 
   const handlePageContentClick: MouseEventHandler<HTMLDivElement> = (event) => {
@@ -238,10 +288,11 @@ export function SpreadStage({
   };
 
   // In a curl the pages do not move: the adjacent pages wait under the
-  // current one and the curl decides what shows (see usePageCurl).
+  // current one and the curl decides what shows (see usePageCurl and
+  // useLeafCurl).
   const willChange = isInteractionActive ? "transform" : "auto";
   const layerStyle = (transform: typeof currentTransform) =>
-    curl ? { transform: "none", willChange } : { transform, willChange };
+    curled ? { transform: "none", willChange } : { transform, willChange };
 
   return (
     <MotionConfig reducedMotion="user">
@@ -249,8 +300,9 @@ export function SpreadStage({
       <div
         ref={setStageRef}
         onClick={handlePageContentClick}
-        data-page-turn={curl ? "curl" : "slide"}
+        data-page-turn={leaf ? "curl" : curl ? "curl-v1" : "slide"}
         data-paper={paper}
+        data-ink={paper === "off" ? undefined : ink}
         className="relative h-full w-full overflow-hidden"
         style={
           {
@@ -299,7 +351,7 @@ export function SpreadStage({
             aria-hidden="true"
             inert
             className={
-              curl
+              curled
                 ? "pointer-events-none absolute inset-0 z-0 h-full w-full select-none overflow-hidden bg-background"
                 : "pointer-events-none absolute inset-0 z-[2] h-full w-full select-none overflow-hidden bg-background"
             }
@@ -309,8 +361,10 @@ export function SpreadStage({
           </motion.div>
         )}
 
-        {curl && (
+        {curled && (
+          // One canvas per kind of curl: each owns its WebGL context.
           <canvas
+            key={leaf ? "leaf" : "curl"}
             ref={curlCanvasRef}
             data-reader-page-curl
             aria-hidden="true"

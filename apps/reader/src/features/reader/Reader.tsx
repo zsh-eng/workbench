@@ -739,6 +739,7 @@ export function Reader() {
                         onSwipePrevious={sessionActions.prevSpread}
                         pageTurn={paper.pageTurn}
                         paper={paper.grain}
+                        ink={paper.ink}
                         showThrough={paper.showThrough}
                         haptics={paper.haptics}
                         sound={paper.sound}

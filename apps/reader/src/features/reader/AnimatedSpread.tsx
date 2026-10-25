@@ -3,7 +3,9 @@ import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { useState } from "react";
 import { PageSliceView } from "./PageSliceView";
+import { PaperInk } from "./paper/PaperInk";
 import type { PaperGrain } from "./paper/paper-grain";
+import type { PaperInk as PaperInkPlace } from "./paper/paper-preference";
 import { getPageContentKey } from "./spread-identity";
 
 export type NavDirection = "forward" | "backward" | "instant";
@@ -20,6 +22,8 @@ export interface SpreadViewProps {
   paddingRightPx: number;
   /** Paper grain under the text (Debug); see paper/paper-grain.ts. */
   paper?: PaperGrain;
+  /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
+  ink?: PaperInkPlace;
 }
 
 interface AnimatedSpreadProps extends SpreadViewProps {
@@ -48,6 +52,7 @@ export function SpreadView({
   paddingLeftPx,
   paddingRightPx,
   paper = "off",
+  ink = "on",
 }: SpreadViewProps) {
   return (
     <div
@@ -59,11 +64,19 @@ export function SpreadView({
         paddingRight: `${paddingRightPx}px`,
       }}
     >
+      {/* With the ink in the paper, both lie over the text, the tooth
+          first (App.css). */}
+      {paper !== "off" && (
+        <div className="reader-paper-tooth" aria-hidden="true" />
+      )}
       {paper !== "off" && (
         <div className="reader-paper-grain" aria-hidden="true" />
       )}
       {paper === "rich" && (
         <div className="reader-paper-vignette" aria-hidden="true" />
+      )}
+      {paper !== "off" && ink === "gl" && (
+        <PaperInk grain={paper} content={spread} />
       )}
       {/* Pages clip only vertically. Glyph ink can extend past the text
           column, such as a line-initial "j" or a line-final italic "f", and
@@ -158,6 +171,7 @@ export function AnimatedSpread({
   paddingLeftPx,
   paddingRightPx,
   paper,
+  ink,
 }: AnimatedSpreadProps) {
   const rawDirection =
     (usePresenceData() as NavDirection | undefined) ?? "instant";
@@ -235,6 +249,7 @@ export function AnimatedSpread({
         paddingLeftPx={paddingLeftPx}
         paddingRightPx={paddingRightPx}
         paper={paper}
+        ink={ink}
       />
     </motion.div>
   );

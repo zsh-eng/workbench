@@ -157,7 +157,7 @@ void main() {
 }
 `;
 
-function compile(
+export function compile(
   gl: WebGLRenderingContext,
   type: number,
   source: string,
@@ -171,7 +171,7 @@ function compile(
   return shader;
 }
 
-function link(
+export function link(
   gl: WebGLRenderingContext,
   vertex: string,
   fragment: string,
@@ -187,7 +187,7 @@ function link(
   return program;
 }
 
-function uniforms<Name extends string>(
+export function uniforms<Name extends string>(
   gl: WebGLRenderingContext,
   program: WebGLProgram,
   names: readonly Name[],

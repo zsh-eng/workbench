@@ -62,6 +62,61 @@ async function drag(
   return lift;
 }
 
+/** One finger on the glass, moved step by step. */
+async function finger(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  let at: [number, number] = [0, 0];
+  const send = (type: string, points: [number, number][]) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: points.map(([x, y]) => ({ x, y })),
+    });
+  return {
+    down: async (x: number, y: number) => {
+      at = [x, y];
+      await send("touchStart", [at]);
+    },
+    move: async (x: number, y: number, { steps = 8, stepMs = 16 } = {}) => {
+      const [fromX, fromY] = at;
+      for (let step = 1; step <= steps; step++) {
+        await page.waitForTimeout(stepMs);
+        at = [
+          fromX + ((x - fromX) * step) / steps,
+          fromY + ((y - fromY) * step) / steps,
+        ];
+        await send("touchMove", [at]);
+      }
+    },
+    up: async () => {
+      await send("touchEnd", []);
+      await cdp.detach();
+    },
+  };
+}
+
+/**
+ * A quick flick, its events stamped with the times a finger would make
+ * them, so the speed holds however slowly the browser takes them.
+ */
+async function flick(page: Page, from: number, to: number, y = 520) {
+  const cdp = await page.context().newCDPSession(page);
+  let clock = Date.now() / 1000;
+  const send = (type: string, x?: number) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      timestamp: clock,
+      touchPoints: x === undefined ? [] : [{ x, y }],
+    });
+  await send("touchStart", from);
+  for (let step = 1; step <= 4; step++) {
+    clock += 0.016;
+    await send("touchMove", from + ((to - from) * step) / 4);
+  }
+  clock += 0.008;
+  await send("touchEnd");
+  await cdp.detach();
+}
+
 async function savedPlace(page: Page, bookId: string) {
   return page.evaluate(async (id) => {
     const modulePath = "/src/lib/db.ts";
@@ -125,6 +180,88 @@ test("a curl turn saves the same place as a plain turn", async ({
   await expect.poll(() => savedPlace(page, localBook.id)).toBe(curledPlace);
 });
 
+test("a quick flick turns the page either way", async ({ page, localBook }) => {
+  await openWithCurl(page, localBook.id);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(["1"]);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  const start = await currentPages(page);
+
+  // Seventy pixels in a sixteenth of a second turns it on.
+  await flick(page, 320, 250);
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+
+  // And back.
+  await flick(page, 60, 130);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+});
+
+test("a falling page can be caught and carried back", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  // Past the cover, onto a page of text.
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(["1"]);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  const start = await currentPages(page);
+  const startPlace = await savedPlace(page, localBook.id);
+
+  // Let a page go past the hill, then catch it as it falls and bring it
+  // back: it lies down again and nothing turns.
+  const lift = await drag(page, [330, 480], [170, 480], {
+    steps: 10,
+    stepMs: 20,
+    hold: true,
+  });
+  await page.waitForTimeout(120);
+  const hand = await finger(page);
+  await lift();
+  await page.waitForTimeout(40);
+  await hand.down(200, 520);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
+  await hand.move(380, 520, { steps: 12, stepMs: 24 });
+  await page.waitForTimeout(150);
+  await hand.up();
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  expect(await currentPages(page)).toEqual(start);
+  expect(await savedPlace(page, localBook.id)).toBe(startPlace);
+});
+
+test("a page caught and carried on turns once and saves its place", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(["1"]);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  const start = await currentPages(page);
+  const startPlace = await savedPlace(page, localBook.id);
+
+  // A short pull, let go so it starts back, caught, and carried over.
+  await drag(page, [330, 480], [270, 480], { steps: 6, stepMs: 20 });
+  const hand = await finger(page);
+  await hand.down(300, 500);
+  await hand.move(80, 500, { steps: 10, stepMs: 20 });
+  await hand.up();
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  await expect.poll(() => savedPlace(page, localBook.id)).not.toBe(startPlace);
+
+  // One page on: a tap on the left brings back exactly the start.
+  await page.touchscreen.tap(30 + 20, 420);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => savedPlace(page, localBook.id)).toBe(startPlace);
+});
+
 /** Selects one whole run of text below the header. */
 async function selectPassage(page: Page) {
   await page.evaluate((spread) => {
@@ -178,6 +315,39 @@ test("selection still works after a curl turn", async ({ page, localBook }) => {
   await expect(
     page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`),
   ).not.toHaveCount(0);
+});
+
+test("the WebGL ink stands in for the text and keeps selection", async ({
+  page,
+  localBook,
+}) => {
+  await page.goto(`/reader/${localBook.id}?turn=curl&paper=fine&ink=gl`);
+  await waitForReaderReady(page);
+  for (let turn = 0; turn < 6; turn++) {
+    await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+    const before = await currentPages(page);
+    await page.touchscreen.tap(360, 420);
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    await waitForReaderReady(page);
+  }
+  const ink = page.locator(`${CURRENT_SPREAD} .reader-ink-canvas`);
+  await expect(ink).toHaveAttribute("data-ready", "");
+  await expect(
+    page.locator(`${CURRENT_SPREAD} [data-reader-page-slice]`).first(),
+  ).toHaveCSS("-webkit-text-fill-color", "rgba(0, 0, 0, 0)");
+
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+  await expect(
+    page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`),
+  ).not.toHaveCount(0);
+
+  // The next page gets its own ink.
+  const before = await currentPages(page);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(before);
+  await waitForReaderReady(page);
+  await expect(ink).toHaveAttribute("data-ready", "");
 });
 
 test("reduced motion keeps the plain turn", async ({ page, localBook }) => {

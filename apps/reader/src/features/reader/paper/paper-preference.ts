@@ -2,7 +2,23 @@ import { getRuntimeStorage } from "@/features/sync-lab/runtime";
 import { useSyncExternalStore } from "react";
 import { isPaperGrain, type PaperGrain } from "./paper-grain";
 
-export type PageTurnStyle = "slide" | "curl";
+/** `curl` is the leaf you can hold; `curl-v1` the first curl, kept to compare. */
+export type PageTurnStyle = "slide" | "curl" | "curl-v1";
+
+export function isPageTurnStyle(value: unknown): value is PageTurnStyle {
+  return value === "slide" || value === "curl" || value === "curl-v1";
+}
+
+/**
+ * Where the ink sits: `on` the grain, as first built; `in` it, the grain
+ * multiplied over the text and the ink thinned on the tooth; or `gl`, the
+ * page's ink drawn into the paper by WebGL under transparent live text.
+ */
+export type PaperInk = "on" | "in" | "gl";
+
+export function isPaperInk(value: unknown): value is PaperInk {
+  return value === "on" || value === "in" || value === "gl";
+}
 
 /**
  * Paper in the Reader, a prototype: how a swipe turns the page, the grain
@@ -12,6 +28,7 @@ export type PageTurnStyle = "slide" | "curl";
 export interface PaperPreference {
   pageTurn: PageTurnStyle;
   grain: PaperGrain;
+  ink: PaperInk;
   /** The front's ink shows faintly through the back of a curling page. */
   showThrough: boolean;
   haptics: boolean;
@@ -21,6 +38,7 @@ export interface PaperPreference {
 export const PLAIN_PAPER: PaperPreference = {
   pageTurn: "slide",
   grain: "off",
+  ink: "in",
   showThrough: true,
   haptics: true,
   sound: false,
@@ -33,8 +51,9 @@ function readPaperPreference(): PaperPreference {
     const raw = getRuntimeStorage().getItem(PAPER_STORAGE_KEY);
     const saved: Partial<PaperPreference> = raw ? JSON.parse(raw) : {};
     return {
-      pageTurn: saved.pageTurn === "curl" ? "curl" : "slide",
+      pageTurn: isPageTurnStyle(saved.pageTurn) ? saved.pageTurn : "slide",
       grain: isPaperGrain(saved.grain) ? saved.grain : PLAIN_PAPER.grain,
+      ink: isPaperInk(saved.ink) ? saved.ink : PLAIN_PAPER.ink,
       showThrough: saved.showThrough !== false,
       haptics: saved.haptics !== false,
       sound: saved.sound === true,
@@ -84,8 +103,8 @@ export function usePaperPreference(): PaperPreference {
 }
 
 /**
- * The paper the Reader shows. Design ideas pass `?turn=`, `?paper=` and
- * `?showThrough=` to preview an idea without saving it.
+ * The paper the Reader shows. Design ideas pass `?turn=`, `?paper=`,
+ * `?ink=` and `?showThrough=` to preview an idea without saving it.
  */
 export function resolvePaper(
   debugEnabled: boolean,
@@ -95,11 +114,13 @@ export function resolvePaper(
   if (!debugEnabled) return PLAIN_PAPER;
   const turn = params.get("turn");
   const grain = params.get("paper");
+  const ink = params.get("ink");
   const showThrough = params.get("showThrough");
   return {
     ...saved,
-    pageTurn: turn === "curl" || turn === "slide" ? turn : saved.pageTurn,
+    pageTurn: isPageTurnStyle(turn) ? turn : saved.pageTurn,
     grain: isPaperGrain(grain) ? grain : saved.grain,
+    ink: isPaperInk(ink) ? ink : saved.ink,
     showThrough:
       showThrough === "off"
         ? false
