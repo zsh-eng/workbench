@@ -13,6 +13,9 @@
     "./sheet-fit": "./src/sheet-fit.ts",
     "./sheet.css": "./src/sheet.css"
   },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  },
   "peerDependencies": {
     "react": ">=18"
   }
