@@ -2,15 +2,6 @@ import { defineProject } from "vitest/config";
 import path from "path";
 
 export default defineProject({
-  // Let tests mock registration callbacks without starting a service worker.
-  plugins: [
-    {
-      name: "test-pwa-register",
-      resolveId(id) {
-        if (id === "virtual:pwa-register/react") return id;
-      },
-    },
-  ],
   resolve: {
     // One React for workspace packages with a React peer (see vite.config.ts).
     dedupe: ["react", "react-dom"],

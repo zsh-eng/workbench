@@ -1,11 +1,49 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { mkdirSync, writeFileSync } from "fs";
 import path from "path";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { readerBackupApi } from "./scripts/local-data/backup-api";
 import { livingCoversDev } from "./scripts/living-covers/dev-plugin";
+
+/**
+ * The service worker's precache list with sizes, written beside it on build
+ * as `sw-precache.json`. While a new version installs, the page counts these
+ * entries in Cache Storage to show the update's progress.
+ */
+function precacheList(): {
+  plugin: Plugin;
+  transform: (
+    entries: { url: string; revision: string | null; size: number }[],
+  ) => Promise<{ manifest: typeof entries }>;
+} {
+  let outDir: string | null = null;
+  return {
+    plugin: {
+      name: "reader-precache-list",
+      apply: "build",
+      configResolved(config) {
+        outDir = path.resolve(config.root, config.build.outDir);
+      },
+    },
+    async transform(entries) {
+      if (outDir) {
+        mkdirSync(outDir, { recursive: true });
+        writeFileSync(
+          path.join(outDir, "sw-precache.json"),
+          JSON.stringify(
+            entries.map(({ url, revision, size }) => ({ url, revision, size })),
+          ),
+        );
+      }
+      return { manifest: entries };
+    },
+  };
+}
+
+const precache = precacheList();
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => ({
@@ -26,9 +64,12 @@ export default defineConfig(({ command, mode }) => ({
       },
     }),
     tailwindcss(),
+    precache.plugin,
     VitePWA({
-      registerType: "autoUpdate",
-      // App owns registration. Isolated debug frames must never register a worker.
+      // The app registers the worker itself (src/lib/app-update.ts) and
+      // decides when a new version takes over. Isolated debug frames never
+      // register one.
+      registerType: "prompt",
       injectRegister: false,
       devOptions: {
         enabled: true,
@@ -39,9 +80,12 @@ export default defineConfig(({ command, mode }) => ({
         // Every browser that runs the service worker takes the woff2 source,
         // so the woff fallbacks Fontsource also emits stay out.
         globPatterns: ["**/*.{js,css,html,woff2}"],
-        // Explicit registration must retain the existing auto-update lifecycle.
-        skipWaiting: true,
+        // A new version waits after it installs, keeping this version's files,
+        // and takes over when the page posts SKIP_WAITING: at once by
+        // default, at a safe moment with Debug -> Calm updates.
+        skipWaiting: false,
         clientsClaim: true,
+        manifestTransforms: [precache.transform],
         navigateFallbackDenylist: [/^\/api\//],
         globIgnores: [
           "**/assets/encode-*.js",

@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-reader-settings";
 import { SyncUnavailableError, useSync } from "@/hooks/use-sync";
 import { useToast } from "@/hooks/use-toast";
+import { reloadToLatest } from "@/lib/app-update";
 import { authClient } from "@/lib/auth-client";
 import { useDebugEnabled } from "@/lib/debug-preference";
 import { files } from "@/lib/files";
@@ -189,7 +190,7 @@ export function AccountMenu() {
             }
             title={syncStatus.detail}
             onClick={() => {
-              if (syncStatus.action === "reload") location.reload();
+              if (syncStatus.action === "reload") reloadToLatest();
               else if (syncStatus.action === "sign-in")
                 void handleGoogleSignIn();
               else void handleSync();

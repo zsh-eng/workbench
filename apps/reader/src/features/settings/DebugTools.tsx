@@ -1,4 +1,5 @@
 import { BackToLibrary } from "@/components/ui/back-to-library";
+import { BackgroundActivityTrials } from "@/features/background-activity/BackgroundActivityTrials";
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -107,6 +108,7 @@ export function DebugTools() {
             hide them.
           </p>
         </header>
+        <BackgroundActivityTrials />
         {GROUPS.map((group) => {
           const tools = group.tools.filter((tool) => !(tool.reload && inLab));
           return (

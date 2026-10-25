@@ -52,6 +52,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.10",
     "@workbench/activity-time": "workspace:*",
+    "@workbench/background-activity": "workspace:*",
     "@workbench/arctic-sync-server": "workspace:*",
     "@workbench/elements": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",

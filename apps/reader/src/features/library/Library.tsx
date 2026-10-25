@@ -62,6 +62,7 @@ import {
   type LibraryViewPreferences,
 } from "./library-view";
 import { useEpubImport } from "./use-epub-import";
+import { UpdateChip } from "@/features/background-activity/UpdateChip";
 
 // A new filter shows its books at once: the old list goes without a fade, so
 // the switch does not wait for it.
@@ -381,10 +382,13 @@ export function Library() {
         count={`${found.length} of ${data?.books.length ?? 0}`}
         onSubmit={openFirstMatch}
         actions={
-          <div className="flex items-center gap-0.5 max-md:hidden">
-            {addBooks(false)}
-            {viewMenu}
-          </div>
+          <>
+            <UpdateChip />
+            <div className="flex items-center gap-0.5 max-md:hidden">
+              {addBooks(false)}
+              {viewMenu}
+            </div>
+          </>
         }
       />
 
