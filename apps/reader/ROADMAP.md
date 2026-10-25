@@ -206,7 +206,7 @@ Notetaking flow
 - [x] Find better placement for prompts (the chrome accessories)
 - [x] Jump history - persistent ?
 - [x] Check for recent improvements to pretext and whether they are relevant to us
-- [x] Update toast design and  copy for consistency
+- [x] Update toast design and copy for consistency
 - [x] Add time read for the day / for the book more prominently somewhere?
 
 - [ ] Remove unnecessary sheet items
@@ -319,7 +319,7 @@ Notetaking flow
       image/font/worker timing and compare first settled content on the same book.
 - [x] Offer Open book after exactly one new import, including mixed batches;
       multiple successes remain in Library. Unit tests preserve duplicate/error
-      summaries; `import-feedback.spec.ts` verifies the mobile handoff.
+      summaries; `library.spec.ts` verifies the mobile handoff.
 - [ ] Decide the mobile Continue Reading entry point. Wire the existing
       `ContinueReadingCarousel` only if it is the chosen surface; otherwise
       remove the unused component and keep the current card design. Gate: compare
@@ -487,3 +487,34 @@ specific implementation decision. These groups cover the original topic list.
 - CRDT rewrite before the simpler HLC/log model has been evaluated.
 - Full design-system migration unless it directly supports the mobile shell or
   reader workflows.
+
+## Earlier lists
+
+These lists come from the first README. Some items have shipped since.
+
+v0.3:
+
+- [ ] Better book text styles
+- [ ] Text notes
+- [ ] Reading stats over time
+- [ ] Book shelves (DNF, completed, etc.)
+- [x] Full text search
+- [ ] Add multiple EPUBs at once
+
+Future:
+
+- [ ] Voice notes
+- [ ] Audio notes
+- [ ] Quote sharing
+- [ ] Read articles
+- [ ] Read PDFs
+- [ ] LLM (ask questions)
+- [ ] Flashcard integration
+- [ ] Chinese learning (show pinyin, translation of words)
+- [ ] Desktop / Mobile App (Tauri)
+
+Not on the roadmap:
+
+- Paginated view
+- RTL or Top to bottom layout
+- EPUB CFI for reading progress

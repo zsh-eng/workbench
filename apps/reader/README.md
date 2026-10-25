@@ -16,61 +16,27 @@ current design decisions and validation approach.
 These guides describe transferable patterns. They distinguish the web Reader's
 sync from Arctic's native sync, which covers library state, titles and tags only.
 
-Roadmap (v0.1):
+Plans are in [ROADMAP.md](ROADMAP.md).
 
-- [x] Read books
-- [x] Themes
-- [x] Highlights
-- [x] Navigation
-- [x] Mobile view
-- [x] Reading progress
+## Commands
 
-Roadmap (v0.2):
+| Command                  | What it does                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `bun run dev`            | Starts the dev server.                                                                       |
+| `bun run dev:local-data` | Starts it with your own library (see below).                                                 |
+| `bun run build`          | Type-checks and builds the app and Worker.                                                   |
+| `bun run lint`           | Runs oxlint.                                                                                 |
+| `bun run test:client`    | Runs the client tests (Vitest with happy-dom and fake IndexedDB).                            |
+| `bun run test:server`    | Runs the Worker tests (Cloudflare Vitest integration).                                       |
+| `bun run test:e2e`       | Runs the Playwright tests on their own dev server, port 5190. Set `E2E_PORT` to use another. |
 
-- [x] Login
-- [x] Sync books
-- [x] Sync Engine
-- [x] Sync reading progress
-- [x] Sync highlights
-- [x] Sync log (for debugging)
+`dev`, `build` and the Vitest commands first build `text-highlighter` and
+`local-sync`, which the Reader imports from their `dist`. A package whose
+`dist` is newer than its source is skipped; `FORCE=1` builds it anyway.
 
-Testing:
-
-- Playwright tests for
-  - Adding books
-  - Deleting books
-  - Reading and navigating
-  - Changing settings
-  - Sync of books
-  - Sync of highlights
-  - Offline usage and support
-
-Roadmap (v0.3):
-
-- [ ] Better book text styles
-- [ ] Text notes
-- [ ] Reading stats over time
-- [ ] Book shelves (DNF, completed, etc.)
-- [x] Full text search
-- [ ] Add multiple EPUBs at once
-
-Future:
-
-- [ ] Voice notes
-- [ ] Audio notes
-- [ ] Quote sharing
-- [ ] Read articles
-- [ ] Read PDFs
-- [ ] LLM (ask questions)
-- [ ] Flashcard integration
-- [ ] Chinese learning (show pinyin, translation of words)
-- [ ] Desktop / Mobile App (Tauri)
-
-Not on roadmap:
-
-- Paginated view
-- RTL or Top to bottom layout
-- EPUB CFI for reading progress
+The e2e global setup loads the app once, so no test meets a cold Vite
+server, and imports the sample book once through the real importer. The
+`localBook` fixture restores those rows into each test's own database.
 
 ## Local real data
 
@@ -108,14 +74,13 @@ for design checks on desktop.
   specimen; both frames change without a reload. Choose it again to replay it.
 - **Reader** and **Library** run the whole app in the frames. With
   `bun run dev:local-data`, they show your own books.
-- **Library ideas** (`/debug/elements/library`) puts the current Library next
-  to an idea, on desktop, phone or both. To add an idea, give it a route that
-  renders it full-window and add it to `IDEAS` in
-  `src/features/elements/LibraryIdeasPage.tsx`.
-
-- **Living covers** (`/debug/elements/covers`) shows covers as lit
-  objects with hand-made depth, foil and light. See
-  [Living covers](docs/LIVING_COVERS.md).
+- **Design ideas** (`/debug/elements/:topic`, for example
+  `/debug/elements/library`) put a part of the app as it ships next to its
+  ideas, on desktop, phone or both. To add an idea, give it a route that
+  renders it full-window and add it to `TOPICS` in
+  `src/features/elements/DesignIdeasPage.tsx`. **Living covers**
+  (`/debug/elements/covers`) shows covers as lit objects with hand-made
+  depth, foil and light; see [Living covers](docs/LIVING_COVERS.md).
 
 The frame theme previews the frames only. To add a specimen, add a component
 that takes `state` and `nonce` to `src/features/elements/specimens.tsx`.
