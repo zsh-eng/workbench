@@ -14,7 +14,7 @@ import { ReaderJumpHistoryDebug } from "@/features/reader/debug/ReaderJumpHistor
 import { ReaderDiagnostics } from "@/features/reader/diagnostics/ReaderDiagnostics";
 import { ReadingSessions } from "@/features/reading-sessions/ReadingSessions";
 import { ReaderTraceViewer } from "@/features/reader/diagnostics/ReaderTraceViewer";
-import { AppUpdateHost } from "@/features/background-activity/AppUpdateHost";
+import { BackgroundActivityHost } from "@/features/background-activity/BackgroundActivityHost";
 import { Devices } from "@/features/devices/Devices";
 import { Toaster } from "@/components/ui/sonner";
 import { EpubImportProvider } from "@/features/library/use-epub-import";
@@ -347,7 +347,7 @@ function App() {
                   {/* Specimen frames show one part; offline notices are noise there. */}
                   {!getLabRuntime() &&
                     !location.pathname.startsWith("/debug/elements/frame/") && (
-                      <AppUpdateHost />
+                      <BackgroundActivityHost />
                     )}
                 </EpubImportProvider>
               </AppRouter>

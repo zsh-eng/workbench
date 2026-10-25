@@ -182,6 +182,9 @@ function subscribe(listener: () => void): () => void {
 
 const getSnapshot = () => instance?.getSnapshot() ?? IDLE;
 
+/** The update's state before and after the worker registers. */
+export const appUpdateStore = { subscribe, getSnapshot };
+
 export function useAppUpdate(): AppUpdateState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

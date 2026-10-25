@@ -34,9 +34,20 @@ export interface FileUploadOperation {
   lastFailure: FileUploadFailure;
 }
 
+/** For a download that shows its progress, and that its caller can stop. */
+export interface FileDownloadOptions {
+  /**
+   * Stops waiting. A download shared with another caller continues until
+   * every caller has stopped.
+   */
+  signal?: AbortSignal;
+  /** Bytes received, and the total when the server sends one. */
+  onProgress?: (bytes: number, totalBytes: number | null) => void;
+}
+
 export interface Files {
   put(blob: Blob, metadata?: FileMetadata): Promise<FileId>;
-  get(id: FileId): Promise<Blob>;
+  get(id: FileId, options?: FileDownloadOptions): Promise<Blob>;
   hasLocal(id: FileId): Promise<boolean>;
   ensureLocal(id: FileId): Promise<void>;
   listLocal(): Promise<LocalFile[]>;

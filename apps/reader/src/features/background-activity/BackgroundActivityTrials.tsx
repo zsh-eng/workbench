@@ -1,6 +1,7 @@
 import { Switch } from "@/components/ui/switch";
 import {
   calmUpdates,
+  offlineDownloads,
   useDebugSwitch,
   type DebugSwitch,
 } from "@/lib/debug-switch";
@@ -17,6 +18,13 @@ const TRIALS: {
     description:
       "A new version waits instead of reloading the page. The Library shows Restart to update, and it switches when you come back after two minutes away, never on a book.",
     switch: calmUpdates,
+  },
+  {
+    id: "offline-downloads",
+    title: "Offline downloads",
+    description:
+      "Library → Sort and layout → Download all for offline. Each cover fills as its book downloads, and a glyph beside your account opens the activity sheet.",
+    switch: offlineDownloads,
   },
 ];
 

@@ -14,6 +14,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  DownloadForOfflineItem,
+  LibraryCoverActivity,
+} from "@/features/background-activity/LibraryActivity";
 import { useSetReadingStatus } from "@/hooks/use-reading-status";
 import { useToast } from "@/hooks/use-toast";
 import type { Book, ReadingStatus } from "@/lib/db";
@@ -238,6 +242,7 @@ function BookActions({
           >
             {displayStatus === "reading" ? "Continue reading" : "Open"}
           </DropdownMenuItem>
+          <DownloadForOfflineItem book={book} />
           <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
             value={displayStatus ?? ""}
@@ -389,6 +394,10 @@ export function ShelfBook({
           </span>
         </span>
       </BookLink>
+      <LibraryCoverActivity
+        bookId={book.id}
+        className="top-0 left-0 h-[138px] w-[92px] overflow-hidden rounded-[3px] md:h-[126px] md:w-[84px]"
+      />
       {/* On a narrow window with a pointer, the button sits on the cover. */}
       <div className="absolute top-1 right-1 md:top-0 md:right-0">
         <BookActions
@@ -443,6 +452,10 @@ export function BookTile({
           {book.author}
         </span>
       </BookLink>
+      <LibraryCoverActivity
+        bookId={book.id}
+        className="inset-x-0 top-0 aspect-[2/3] overflow-hidden rounded-[3px] transition-transform duration-200 ease-out [@media(hover:hover)]:group-hover:-translate-y-0.5 [@media(hover:hover)]:group-has-[[data-popup-open]]:-translate-y-0.5"
+      />
       <div className="absolute top-1.5 right-1.5">
         <BookActions
           book={book}
@@ -491,6 +504,11 @@ export function BookRow({
           <span className="text-muted-foreground"> · {book.author}</span>
         </span>
       </BookLink>
+      <LibraryCoverActivity
+        bookId={book.id}
+        compact
+        className="top-[10px] left-0 h-9 w-6"
+      />
       <span className="w-28 text-[12.5px] text-muted-foreground max-md:hidden">
         {READING_STATUS_LABELS[status ?? "want-to-read"]}
       </span>

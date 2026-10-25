@@ -1,10 +1,14 @@
 import { readerApiFetch } from "../shared-fetch";
 import { parseFileId } from "@/lib/files/file-id";
-import type { FileId, RemoteFile } from "@/lib/files/types";
+import type {
+  FileDownloadOptions,
+  FileId,
+  RemoteFile,
+} from "@/lib/files/types";
 
 export interface FileRemoteApi {
   put(id: FileId, blob: Blob, mediaType: string): Promise<RemoteFile>;
-  get(id: FileId): Promise<Blob>;
+  get(id: FileId, options?: FileDownloadOptions): Promise<Blob>;
   list(): Promise<RemoteFile[]>;
   delete(id: FileId): Promise<void>;
 }
@@ -56,6 +60,29 @@ function parseRemoteFile(value: unknown): RemoteFile {
   };
 }
 
+/** Reads a response body in chunks, reporting the bytes as they arrive. */
+async function readWithProgress(
+  response: Response,
+  onProgress: NonNullable<FileDownloadOptions["onProgress"]>,
+): Promise<Blob> {
+  const length = Number(response.headers.get("Content-Length"));
+  const total = Number.isFinite(length) && length > 0 ? length : null;
+  const reader = response.body!.getReader();
+  const chunks: BlobPart[] = [];
+  let bytes = 0;
+  onProgress(0, total);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    bytes += value.byteLength;
+    onProgress(bytes, total);
+  }
+  return new Blob(chunks, {
+    type: response.headers.get("Content-Type") ?? "",
+  });
+}
+
 /** Fetch implementation for the authenticated generic server files API. */
 export class FetchFileRemoteApi implements FileRemoteApi {
   async put(id: FileId, blob: Blob, mediaType: string): Promise<RemoteFile> {
@@ -71,12 +98,14 @@ export class FetchFileRemoteApi implements FileRemoteApi {
     return parseRemoteFile(await response.json());
   }
 
-  async get(id: FileId): Promise<Blob> {
+  async get(id: FileId, options: FileDownloadOptions = {}): Promise<Blob> {
     const response = await readerApiFetch(`/api/files/${id}`, {
       credentials: "include",
+      signal: options.signal,
     });
     await requireSuccessfulResponse(response, "File download");
-    return response.blob();
+    if (!options.onProgress || !response.body) return response.blob();
+    return readWithProgress(response, options.onProgress);
   }
 
   async list(): Promise<RemoteFile[]> {

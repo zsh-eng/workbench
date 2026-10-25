@@ -9,7 +9,11 @@ const port = Number(process.env.E2E_PORT ?? 5190);
  */
 export default defineConfig({
   testDir: "./test/e2e",
-  testIgnore: ["reader-pwa.spec.ts", "startup-network.spec.ts"],
+  testIgnore: [
+    "reader-pwa.spec.ts",
+    "reader-pwa-update.spec.ts",
+    "startup-network.spec.ts",
+  ],
 
   /* Run tests in files in parallel */
   fullyParallel: true,

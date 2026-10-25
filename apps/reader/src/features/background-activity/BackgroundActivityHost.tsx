@@ -5,6 +5,7 @@ import {
   updateMoment,
   type UpdateMomentEvent,
 } from "@/lib/app-update";
+import { startBackgroundActivity } from "@/lib/background-activity";
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
@@ -18,11 +19,12 @@ function atMoment(event: UpdateMomentEvent) {
 }
 
 /**
- * Registers the service worker, says once that the app works offline, and
- * gives a calm update its safe moments: coming back to the app, and leaving
- * a book. See packages/background-activity/docs/MODEL.md.
+ * Registers the service worker, says once that the app works offline, runs
+ * the background queue after the first paint, and gives a calm update its
+ * safe moments: coming back to the app, and leaving a book. See
+ * packages/background-activity/docs/MODEL.md.
  */
-export function AppUpdateHost() {
+export function BackgroundActivityHost() {
   const { pathname } = useLocation();
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export function AppUpdateHost() {
           duration: 3000,
         }),
     });
+    startBackgroundActivity();
   }, []);
 
   useEffect(() => {
