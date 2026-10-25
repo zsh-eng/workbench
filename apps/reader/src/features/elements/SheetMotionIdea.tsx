@@ -34,12 +34,16 @@ function topScroller(): HTMLElement | null {
 }
 
 /** Moves a sheet to full height, or back to its first detent, as a field's
- * focus does: with a smooth scroll that the sheet's spring takes over. */
+ * focus does: with a smooth scroll that the sheet's spring takes over. With
+ * reduced motion it jumps, as React Aria's own moves do. */
 function scrollToDetent(scroller: HTMLElement, detent: "full" | "medium") {
+  const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "instant"
+    : "smooth";
   if (detent === "full") {
     scroller.scrollTo({
       top: scroller.scrollHeight - scroller.clientHeight,
-      behavior: "smooth",
+      behavior,
     });
     return;
   }
@@ -52,7 +56,7 @@ function scrollToDetent(scroller: HTMLElement, detent: "full" | "medium") {
       scroller.getBoundingClientRect().top +
       scroller.scrollTop -
       margin,
-    behavior: "smooth",
+    behavior,
   });
 }
 

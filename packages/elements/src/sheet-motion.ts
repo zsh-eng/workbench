@@ -15,9 +15,9 @@ import { SPRINGS, settleTime, springDisplacement, type Spring } from "./spring";
  *
  * A drag, a wheel or an instant scroll stops the spring where it is; a tap
  * lets it settle. A new smooth scroll starts from the current place and
- * speed. With reduced
- * motion, React Aria scrolls instantly and this does nothing. Returns a
- * function that gives the scroller back.
+ * speed. The scroller has `data-sheet-spring` while the spring runs. With
+ * reduced motion, React Aria scrolls instantly and this does nothing.
+ * Returns a function that gives the scroller back.
  */
 export function springSheetScroller(
   scroller: HTMLElement,
@@ -38,6 +38,7 @@ export function springSheetScroller(
     if (!run) return;
     cancelAnimationFrame(run.frame);
     run = null;
+    scroller.removeAttribute("data-sheet-spring");
     scroller.style.scrollSnapType = snap;
     // React Aria waits for the scroll to end before the sheet counts as
     // open or closed.
@@ -92,6 +93,7 @@ export function springSheetScroller(
       },
     };
     run = current;
+    scroller.setAttribute("data-sheet-spring", "");
     scroller.scrollTop = from;
     const step = () => {
       if (run !== current) return;
@@ -144,6 +146,7 @@ export function springSheetScroller(
     if (!run) return;
     cancelAnimationFrame(run.frame);
     run = null;
+    scroller.removeAttribute("data-sheet-spring");
     userScroll = true;
   };
   window.addEventListener("scrollend", onScrollEnd, true);
