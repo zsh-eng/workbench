@@ -3,6 +3,84 @@
 How sheets and feedback move in Reader and Arctic for the web, and the
 measurements behind the springs in `src/spring.ts`.
 
+## Motion principles
+
+Motion is for connecting things. Each movement answers one question: where
+did this come from, where did it go, which way are we going, or is this
+still the same thing? A movement that answers none of them is left out.
+
+**1. Connect, or stay still.**
+
+- Do: the page slides the way you turn it. A sheet rises from the edge it
+  goes back to. A saved note's words fly into the notice that confirms them.
+  The spill tab unrolls from the cut in the selection.
+- Don't: fade a list out and in after a sort, float a decoration on a loop,
+  or nudge a button that did not change.
+
+**2. One subject, one element.** A toast, notice or button keeps its
+element for its whole life. A change to it changes its content in place.
+
+- Do: delete, and "Highlight deleted · Undo" appears. Tap Undo, and the
+  same toast draws a check, says "Restored" and leaves. Delete three
+  highlights in a row and one toast says "3 highlights deleted". Each
+  deletion that joins it starts the countdown again, and its Undo brings
+  back all three. The keyboard's Undo takes back one at a time, and the toast
+  counts down what is left.
+- Don't: dismiss the Undo toast and show a new "Restored" toast, or stack a
+  toast per deletion. A second "Link copied" is the same toast staying, not
+  a new one arriving.
+- In code: `Toast` takes `undo.round` and `done`. In Reader,
+  `showUndoToast` returns `update` and `done`, which re-render the same
+  sonner id. In Arctic, `showToast(message, action, { key })` keeps the
+  element for the same key.
+
+**3. Icons morph, cross-fade or swap.**
+
+- Morph when a control changes state because you used it, and the two
+  shapes belong together. Copy becomes a check that draws itself, and the
+  Undo countdown's ring becomes a check. A play/pause toggle would morph too.
+  This is SF Symbols' replace transition.
+- Cross-fade (150 ms, no movement) when the meaning changes in the same
+  place while you watch, such as a status icon on a control you're looking at.
+- Swap at once when the context changed the control and you didn't. The
+  composer shows Send for a new note and a check for an edit. The swipe
+  action shows Edit or Delete by direction. Jot becomes Draft while the
+  composer closes over it.
+- Never: morph shapes that have nothing in common, spin an icon to celebrate,
+  or loop an icon. A spinner while waiting is the one exception.
+
+**4. Floating buttons** (the notes bubble, the Notebook entry, the spill
+tab, the history pill, the island):
+
+- Arrive with their parent. The notes bubble is docked on the footer and
+  slides with it, without an entrance of its own. The history pill belongs
+  to the footer's strip and grows in place there.
+- Change in place. A count or a label changes without the button moving.
+- Become what they open. A toast opens out of a pill, the island changes
+  shape for each layer, and the spill tab unrolls from the cut. One floating
+  surface per place: while the island is open, the bubble steps aside.
+- Leave the way they came, faster: surfaces enter in 0.18 s and leave in
+  0.14 s.
+
+**5. Restraint.**
+
+- Durations: feedback takes 150–250 ms and surfaces 0.14–0.18 s. Shape
+  changes and sheets run on springs that rest in 0.3–0.5 s. Nothing takes
+  longer, except the countdown, which is a clock.
+- Never animate: page text while you read (chrome never moves it), a scroll
+  you didn't ask for, a layout change that a count causes, anything on load
+  that you didn't cause, or a loop that isn't a wait.
+- Interruptible: a new action starts from where things are. A spring takes
+  the current position and speed, and a toast takes the new words. Nothing
+  waits for an animation to finish before taking a tap.
+- Reduced motion: no movement, no change of shape, no drawing. Things
+  cross-fade, and state changes happen at once.
+
+**6. References.** On iOS: SF Symbols' replace transitions, and the Dynamic
+Island, one surface that changes shape and content for each activity and
+never stacks. In Telegram: the undo bar, which counts down and changes in
+place, and the message ticks, which change from one to two in place.
+
 A spring here is a **response** (seconds for one undamped swing, UIKit's
 `perceptualDuration`) and a **damping ratio** (1 settles without overshoot).
 In stiffness terms, with mass 1: `stiffness = (2π / response)²` and
