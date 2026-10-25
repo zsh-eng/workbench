@@ -105,6 +105,7 @@ export function LivingCoversIdea() {
         <GridVariant items={[...showcase.scened, ...showcase.rest]} />
       ) : (
         <HeroVariant
+          initial={params.get("scene")}
           items={
             showcase.scened.length > 0
               ? [...showcase.scened, ...showcase.rest.slice(0, 2)]
@@ -126,11 +127,15 @@ const VIEWS: { id: DebugView; label: string }[] = [
 function HeroVariant({
   items,
   detail,
+  initial,
 }: {
   items: ShowcaseItem[];
   detail: boolean;
+  /** `?scene=` opens on that scene, for links and recordings. */
+  initial: string | null;
 }) {
-  const [index, setIndex] = useState(0);
+  // Keep the chosen book by key: the order settles as the library loads.
+  const [chosen, setChosen] = useState(initial);
   const [view, setView] = useState<DebugView>("lit");
   if (items.length === 0) {
     return (
@@ -139,10 +144,15 @@ function HeroVariant({
       </p>
     );
   }
-  const item = items[Math.min(index, items.length - 1)]!;
+  const index = Math.max(
+    0,
+    items.findIndex((item) => item.key === chosen),
+  );
+  const item = items[index]!;
   const handMade = item.scene !== DEFAULT_SCENE;
+  const setIndex = (next: number) => setChosen(items[next]!.key);
   const step = (delta: number) =>
-    setIndex((current) => (current + delta + items.length) % items.length);
+    setIndex((index + delta + items.length) % items.length);
 
   return (
     <div

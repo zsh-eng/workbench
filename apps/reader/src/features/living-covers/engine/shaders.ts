@@ -224,10 +224,10 @@ void main() {
   if (foil > 0.0) {
     vec2 grain = hash22(floor(px * 0.7)) - 0.5;
     vec3 nf = normalize(N + (uT * grain.x + uB * grain.y) * uFoil.z * 0.5);
-    vec3 rf = reflect(-V, nf);
     vec3 hf = normalize(L + V);
-    vec3 tint = mix(vec3(dot(lin, vec3(0.333))), lin, 1.35);
-    tint = max(tint, vec3(0.0)) * 1.6 + 0.03;
+    // Foil's own colour, a little richer and warmer, as metal reflects.
+    vec3 tint = mix(vec3(dot(lin, vec3(0.333))), lin, 1.15);
+    tint = max(tint, vec3(0.0)) * vec3(1.6, 1.5, 1.3) + 0.03;
     // The studio reflects in the smooth foil; the grain only breaks up the
     // highlight itself into sparkle.
     vec3 env = studio(R, L, uFoil.x);
@@ -353,7 +353,8 @@ void main() {
   vec3 color;
   if (vFace.x < 0.5) {
     // The spine continues the cover's own edge, darker where it rounds.
-    vec3 c = texture(uCover, vec2(0.004 + 0.01 * (1.0 - vFace.y), vFace.z)).rgb;
+    // A blurred mip level, so type that touches the edge does not streak.
+    vec3 c = textureLod(uCover, vec2(0.02, vFace.z), 4.0).rgb;
     c *= c;
     float round = 1.0 - pow(abs(vFace.y * 2.0 - 1.0), 3.0) * 0.45;
     color = c * (0.42 + 0.5 * nl) * round;

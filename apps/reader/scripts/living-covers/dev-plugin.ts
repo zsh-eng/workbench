@@ -66,11 +66,14 @@ function listScenes(dir: string) {
         entry.isDirectory() &&
         existsSync(path.join(dir, entry.name, "scene.json")),
     )
-    .map((entry) => ({
-      id: entry.name,
-      url: `/__living-covers/${entry.name}/scene.json`,
-      cover: existsSync(path.join(dir, entry.name, "cover.webp"))
-        ? `/__living-covers/${entry.name}/cover.webp`
-        : null,
-    }));
+    .map((entry) => {
+      const cover = ["cover.webp", "cover.jpg", "cover.png"].find((name) =>
+        existsSync(path.join(dir, entry.name, name)),
+      );
+      return {
+        id: entry.name,
+        url: `/__living-covers/${entry.name}/scene.json`,
+        cover: cover ? `/__living-covers/${entry.name}/${cover}` : null,
+      };
+    });
 }

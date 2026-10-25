@@ -351,17 +351,24 @@ function writePreview(
     tile("relief"),
   ]);
   const overlay = (name: string, file: string, colors: string[]) => {
+    // Each channel becomes its colour, with the channel as its opacity.
     const parts = colors.map((color, index) => [
+      "(",
+      "-size",
+      `${width}x${height}`,
+      `xc:${color}`,
       "(",
       file,
       "-channel",
       "RGB"[index]!,
       "-separate",
       "+channel",
-      "-background",
-      color,
+      ")",
       "-alpha",
-      "shape",
+      "off",
+      "-compose",
+      "CopyOpacity",
+      "-composite",
       ")",
     ]);
     magick([
@@ -369,6 +376,8 @@ function writePreview(
       "-modulate",
       "35",
       ...parts.flat(),
+      "-compose",
+      "Over",
       "-background",
       "none",
       "-flatten",
