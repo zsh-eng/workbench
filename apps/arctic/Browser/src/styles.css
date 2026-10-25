@@ -252,8 +252,14 @@ button {
 .icon-button[aria-pressed="true"] {
   color: var(--accent);
 }
-.icon-button[aria-pressed="true"] svg {
+/* A toggle's icon fills in where it is, as the tap's answer; nothing moves. */
+.icon-button[aria-pressed] svg {
   fill: currentColor;
+  fill-opacity: 0;
+  transition: fill-opacity 0.15s;
+}
+.icon-button[aria-pressed="true"] svg {
+  fill-opacity: 1;
 }
 .avatar {
   display: grid;
