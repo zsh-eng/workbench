@@ -193,6 +193,31 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  feedback: {
+    current: {
+      id: "feedback-island",
+      title: "The island takes it in",
+      description:
+        "What ships: a saved note's words fly into the island's mark and its check draws itself; Copy draws its check; a deleted note dissolves into Undo, and Undo turns into a check. Tap the green passage.",
+      src: "/debug/ideas/feedback?idea=island",
+    },
+    ideas: [
+      {
+        id: "feedback-bubble",
+        title: "Into the notes bubble",
+        description:
+          "No notice at all: the words fly into the notes bubble, which swells as its count rolls on.",
+        src: "/debug/ideas/feedback?idea=bubble",
+      },
+      {
+        id: "feedback-pill",
+        title: "Out of the button",
+        description:
+          "A pill grows out of the button you tapped, says Copied or Saved, and folds back into it, as the Dynamic Island does.",
+        src: "/debug/ideas/feedback?idea=pill",
+      },
+    ],
+  },
 };
 
 const SECTIONS = [
