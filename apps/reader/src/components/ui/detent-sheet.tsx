@@ -1,18 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
-import { fitSheetHeight, trackSheetShape } from "@workbench/elements/sheet-fit";
-import {
-  sheetSnaps,
-  springSheetScroller,
-  springSheetTo,
-} from "@workbench/elements/sheet-motion";
+import { SheetFitHeight, useSheetBody } from "@workbench/elements/sheet-body";
 import { SPRINGS, type Spring } from "@workbench/elements/spring";
 import "@workbench/elements/sheet.css";
 import {
   createContext,
   useContext,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -184,23 +178,10 @@ export function DetentSheet({
   );
 }
 
-/** Fields that open the phone keyboard. */
-const TEXT_FIELD =
-  "input:not([type=button],[type=checkbox],[type=radio],[type=range],[type=submit],[type=reset],[type=file],[type=color]), textarea, [contenteditable]:not([contenteditable=false])";
-
-function isTextField(element: Element | null): element is HTMLElement {
-  return element instanceof HTMLElement && element.matches(TEXT_FIELD);
-}
-
-function reducedMotion() {
-  return matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /**
- * The sheet's content. In a sheet with detents it keeps the keyboard and
- * the detents apart: the keyboard covers the lower part of the screen
- * without resizing the page, so a field below full height would sit under
- * it.
+ * The sheet's content: its moves, its shape, and the keyboard kept clear
+ * of its detents (useSheetBody). A sheet with detents whose page names a
+ * field to focus opens at full height.
  */
 function SheetBody({
   hasDetents,
@@ -217,46 +198,12 @@ function SheetBody({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const spring = useContext(SheetSpringContext);
-  /** Where a field took the sheet from, to return there when it lets go. */
-  const raisedFrom = useRef<number | null>(null);
-
-  // React Aria opens, closes and changes detents with smooth scrolls. The
-  // sheet's spring runs them instead, from the bottom edge of the screen.
-  // The body mounts with the sheet, before React Aria's first scroll.
-  useLayoutEffect(() => {
-    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
-    if (!scroller || !spring) return;
-    return springSheetScroller(scroller, spring);
-  }, [spring]);
-
-  // The sheet floats below full height and meets the screen's edges at
-  // the large detent (sheet.css).
-  useLayoutEffect(() => {
-    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
-    const overlay = scroller?.closest<HTMLElement>(".wb-sheet-overlay");
-    const sheet = ref.current?.closest<HTMLElement>(".wb-sheet");
-    if (!scroller || !overlay || !sheet) return;
-    return trackSheetShape(overlay, scroller, sheet);
-  }, []);
-
-  // A closing sheet scrolls out of view, and React Aria unmounts it once it
-  // is gone. Writing the sheet's scroll offset stops that scroll, and React
-  // does write it: when a commit takes focus from a control, as when the
-  // control becomes disabled, React focuses it again and puts back every
-  // ancestor's scroll offset. Appearance's Pages or Scroll does this. The
-  // sheet then stays on screen, closed. Scroll it out again.
-  useEffect(() => {
-    if (!isExiting) return;
-    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
-    if (!scroller) return;
-    // A bottom sheet is out of view at the start of its scroll range.
-    const leave = () => {
-      if (scroller.scrollTop > 0)
-        scroller.scrollTo({ top: 0, behavior: "smooth" });
-    };
-    scroller.addEventListener("scrollend", leave);
-    return () => scroller.removeEventListener("scrollend", leave);
-  }, [isExiting]);
+  const focusHandlers = useSheetBody(ref, {
+    hasDetents,
+    isExpanded,
+    isExiting,
+    spring,
+  });
 
   // The body mounts each time the sheet opens, before React Aria scrolls the
   // sheet to its first detent, so this runs once per opening.
@@ -265,107 +212,17 @@ function SheetBody({
       setOpensFull(true);
   }, [hasDetents, setOpensFull]);
 
-  // Dragged below full height, the sheet puts the keyboard away instead of
-  // leaving the field under it.
-  const wasExpanded = useRef(isExpanded);
-  useEffect(() => {
-    const collapsed = wasExpanded.current && !isExpanded;
-    wasExpanded.current = isExpanded;
-    if (!collapsed) return;
-    raisedFrom.current = null;
-    const field = document.activeElement;
-    if (hasDetents && isTextField(field) && ref.current?.contains(field))
-      field.blur();
-  }, [hasDetents, isExpanded]);
-
   return (
-    <div
-      ref={ref}
-      className="reader-sheet-body"
-      onFocus={(event) => {
-        if (!hasDetents || isExpanded || !isTextField(event.target)) return;
-        const sheet = event.currentTarget.closest<HTMLElement>(".reader-sheet");
-        const scroller = event.currentTarget.closest<HTMLElement>(
-          "[data-sheet-scroll]",
-        );
-        // A sheet still below the screen is entering; it settles itself.
-        if (
-          !sheet ||
-          !scroller ||
-          sheet.getBoundingClientRect().top >= innerHeight
-        )
-          return;
-        // Full height is the end of the sheet's scroll range. The sheet
-        // rises with the keyboard, on its spring, as UIKit's does.
-        raisedFrom.current = scroller.scrollTop;
-        springSheetTo(
-          scroller,
-          scroller.scrollHeight - scroller.clientHeight,
-          SPRINGS.snappy,
-        );
-      }}
-      onBlur={(event) => {
-        const from = raisedFrom.current;
-        if (from === null || !isTextField(event.target)) return;
-        // Focus that moves to another field keeps the keyboard up.
-        if (
-          isTextField(event.relatedTarget as Element | null) &&
-          event.currentTarget.contains(event.relatedTarget as Node)
-        )
-          return;
-        raisedFrom.current = null;
-        const scroller = event.currentTarget.closest<HTMLElement>(
-          "[data-sheet-scroll]",
-        );
-        if (!scroller || isExiting) return;
-        // The keyboard goes, and the sheet goes back to its detent with it:
-        // the one nearest where the field took it from, which may have been
-        // mid-move. Never the closed place.
-        const rests = sheetSnaps(scroller).filter(
-          (snap) => snap.full || snap.marker.hasAttribute("data-sheet-detent"),
-        );
-        if (!rests.length) return;
-        const home = rests.reduce((best, snap) =>
-          Math.abs(snap.position - from) < Math.abs(best.position - from)
-            ? snap
-            : best,
-        ).position;
-        if (reducedMotion()) scroller.scrollTo({ top: home });
-        else springSheetTo(scroller, home, SPRINGS.snappy);
-      }}
-    >
+    <div ref={ref} className="reader-sheet-body" {...focusHandlers}>
       {children}
     </div>
   );
 }
 
-/**
- * Holds a sheet's height for its content (fitSheetHeight): a new tab
- * moves the sheet at once on its spring, rows that collapse leave their
- * space at `[data-sheet-slack]` until the content is still, and then the
- * sheet settles once. `[data-sheet-fit-state]` names what the height is
- * doing: `rest`, `held` or `settling`.
- */
+/** The sheet's height follows its content, on the sheet's spring. */
 function FitHeight({ children }: { children: ReactNode }) {
-  const fit = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
   const spring = useContext(SheetSpringContext);
-  useLayoutEffect(() => {
-    const scroller = fit.current?.closest<HTMLElement>("[data-sheet-scroll]");
-    if (!fit.current || !content.current || !scroller) return;
-    return fitSheetHeight({
-      fit: fit.current,
-      content: content.current,
-      scroller,
-      spring: spring ?? SPRINGS.sheet,
-    });
-  }, [spring]);
   return (
-    <div ref={fit} data-sheet-fit="">
-      <div ref={content} data-sheet-fit-content="">
-        {children}
-        <div data-sheet-slack="end" aria-hidden="true" />
-      </div>
-    </div>
+    <SheetFitHeight spring={spring ?? SPRINGS.sheet}>{children}</SheetFitHeight>
   );
 }
