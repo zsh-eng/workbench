@@ -1,6 +1,4 @@
-import { ChevronLeft } from "lucide-react";
 import { useEffect, useId, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
 import { countKept, downloadAll, stopDownload, useOffline } from "./offline";
 import {
   FONTS,
@@ -10,26 +8,14 @@ import {
   type Settings,
 } from "./settings";
 import { useArticles, useSession } from "./state";
-import { AccountMenu } from "./ui";
+import { PageBar, usePageTitle } from "./ui";
 
 export function SettingsPage() {
-  const navigate = useNavigate();
   const settings = useSettings();
-  useEffect(() => {
-    document.title = "Settings – Arctic";
-    return () => {
-      document.title = "Arctic";
-    };
-  }, []);
+  usePageTitle("Settings");
   return (
     <>
-      <div className="bar">
-        <button type="button" className="back" onClick={() => navigate("/")}>
-          <ChevronLeft size={20} /> Library
-        </button>
-        <span className="spacer" />
-        <AccountMenu />
-      </div>
+      <PageBar />
       <main className="page settings">
         <h1>Settings</h1>
         <p>These settings belong to this browser.</p>

@@ -23,7 +23,7 @@ import { articleText, isCover, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
 import { NotesPanel, Passages } from "./Passages";
 import { Sheet, useCompact } from "./surface";
-import { ArticleMenu, Tip, useActions } from "./ui";
+import { ArticleMenu, Tip, useActions, usePageTitle } from "./ui";
 
 export function Reader() {
   const { id = "" } = useParams();
@@ -47,13 +47,7 @@ export function Reader() {
     );
   }, [article, session]);
 
-  const title = article?.title;
-  useEffect(() => {
-    document.title = title ? `${title} – Arctic` : "Arctic";
-    return () => {
-      document.title = "Arctic";
-    };
-  }, [title]);
+  usePageTitle(article?.title);
 
   if (!article)
     return (

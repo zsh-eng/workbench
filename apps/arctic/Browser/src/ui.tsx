@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   ArrowUpRight,
   BookmarkPlus,
+  ChevronLeft,
   Clock,
   Highlighter,
   FileText,
@@ -18,6 +19,7 @@ import {
   Share,
   Star,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { Toast } from "@workbench/elements/toast";
 import "@workbench/elements/toast.css";
@@ -49,6 +51,30 @@ import { Sheet, useCompact } from "./surface";
 import { listMotion } from "./motion";
 import type { Session } from "./sync/session";
 import type { Fields } from "./sync/storage";
+
+/** A page's bar: back to the library, and the account. */
+export function PageBar() {
+  const navigate = useNavigate();
+  return (
+    <div className="bar">
+      <button type="button" className="back" onClick={() => navigate("/")}>
+        <ChevronLeft size={20} /> Library
+      </button>
+      <span className="spacer" />
+      <AccountMenu />
+    </div>
+  );
+}
+
+/** Names the browser tab after the page while it is open. */
+export function usePageTitle(title: string | undefined) {
+  useEffect(() => {
+    document.title = title ? `${title} – Arctic` : "Arctic";
+    return () => {
+      document.title = "Arctic";
+    };
+  }, [title]);
+}
 
 export function Tip({
   label,
@@ -211,6 +237,72 @@ export function ActionSheet({
   );
 }
 
+type ArticleAction = {
+  icon: LucideIcon;
+  label: string;
+  /** The reader's shortcut, shown in menus. */
+  keys?: string;
+  run: () => void;
+  danger?: boolean;
+};
+
+/**
+ * What an article's menu and a phone's action sheet offer: its place in the
+ * library, the original, and removal.
+ */
+function articleActions(
+  article: Article,
+  actions: ReturnType<typeof useActions>,
+  onRemoved?: () => void,
+) {
+  const library: ArticleAction[] = article.saved
+    ? [
+        {
+          icon: Star,
+          label: article.favourite ? "Remove from Favourites" : "Favourite",
+          keys: "F",
+          run: () => void actions.favourite(article),
+        },
+        {
+          icon: article.archived ? ArchiveRestore : Archive,
+          label: article.archived ? "Move to Saved" : "Archive",
+          keys: "E",
+          run: () => void actions.archive(article),
+        },
+      ]
+    : [
+        {
+          icon: BookmarkPlus,
+          label: "Save to library",
+          run: () => void actions.save(article),
+        },
+      ];
+  const original: ArticleAction = {
+    icon: ArrowUpRight,
+    label: "Open original",
+    keys: "O",
+    run: () => window.open(article.url, "_blank", "noopener,noreferrer"),
+  };
+  const copyLink: ArticleAction = {
+    icon: Link2,
+    label: "Copy link",
+    run: () =>
+      void navigator.clipboard
+        .writeText(article.url)
+        .then(() => showToast("Link copied"), reportError),
+  };
+  const remove: ArticleAction = {
+    icon: Trash2,
+    label: "Remove from library",
+    danger: true,
+    run: () => {
+      void actions.remove(article);
+      onRemoved?.();
+    },
+  };
+  return { library, original, copyLink, remove };
+}
+
 function ActionRows({
   article,
   onClose,
@@ -222,32 +314,37 @@ function ActionRows({
   onRemoved?: () => void;
   inToolbar: boolean;
 }) {
-  const actions = useActions();
-  const row = (
-    icon: ReactNode,
-    label: string,
-    run: () => void,
-    danger = false,
-  ) => (
+  const { library, original, copyLink, remove } = articleActions(
+    article,
+    useActions(),
+    onRemoved,
+  );
+  // A phone shares the link where it can.
+  const share: ArticleAction | undefined =
+    typeof navigator.share === "function"
+      ? {
+          icon: Share,
+          label: "Share",
+          run: () =>
+            void navigator
+              .share({ title: article.title, url: article.url })
+              .catch(() => {}),
+        }
+      : undefined;
+  const row = (action: ArticleAction) => (
     <button
+      key={action.label}
       type="button"
-      className={danger ? "action-row danger" : "action-row"}
+      className={action.danger ? "action-row danger" : "action-row"}
       onClick={() => {
         onClose();
-        run();
+        action.run();
       }}
     >
-      {icon}
-      {label}
+      <action.icon size={20} />
+      {action.label}
     </button>
   );
-  const share =
-    typeof navigator.share === "function"
-      ? () =>
-          void navigator
-            .share({ title: article.title, url: article.url })
-            .catch(() => {})
-      : undefined;
   return (
     <div className="action-sheet">
       <header className="action-head">
@@ -255,54 +352,13 @@ function ActionRows({
         <strong>{article.title}</strong>
       </header>
       <div className="action-group" hidden={inToolbar && article.saved}>
-        {article.saved ? (
-          <>
-            {row(
-              <Star size={20} />,
-              article.favourite ? "Remove from Favourites" : "Favourite",
-              () => void actions.favourite(article),
-            )}
-            {row(
-              article.archived ? (
-                <ArchiveRestore size={20} />
-              ) : (
-                <Archive size={20} />
-              ),
-              article.archived ? "Move to Saved" : "Archive",
-              () => void actions.archive(article),
-            )}
-          </>
-        ) : (
-          row(
-            <BookmarkPlus size={20} />,
-            "Save to library",
-            () => void actions.save(article),
-          )
-        )}
+        {library.map(row)}
       </div>
       <div className="action-group">
-        {row(<ArrowUpRight size={20} />, "Open original", () =>
-          window.open(article.url, "_blank", "noopener,noreferrer"),
-        )}
-        {share
-          ? row(<Share size={20} />, "Share", share)
-          : row(<Link2 size={20} />, "Copy link", () =>
-              navigator.clipboard
-                .writeText(article.url)
-                .then(() => showToast("Link copied"), reportError),
-            )}
+        {row(original)}
+        {row(share ?? copyLink)}
       </div>
-      <div className="action-group">
-        {row(
-          <Trash2 size={20} />,
-          "Remove from library",
-          () => {
-            void actions.remove(article);
-            onRemoved?.();
-          },
-          true,
-        )}
-      </div>
+      <div className="action-group">{row(remove)}</div>
     </div>
   );
 }
@@ -390,7 +446,22 @@ function ArticleMenuPopup({
   anchor?: HTMLElement;
   onRemoved?: () => void;
 }) {
-  const actions = useActions();
+  const { library, original, copyLink, remove } = articleActions(
+    article,
+    useActions(),
+    onRemoved,
+  );
+  const item = (action: ArticleAction) => (
+    <Item
+      key={action.label}
+      icon={<action.icon size={16} />}
+      keys={action.keys}
+      danger={action.danger}
+      onClick={action.run}
+    >
+      {action.label}
+    </Item>
+  );
   return (
     <Menu.Portal>
       <Menu.Positioner sideOffset={6} align="end" anchor={anchor}>
@@ -400,67 +471,9 @@ function ArticleMenuPopup({
             anchor && ((type) => (type === "keyboard" ? anchor : true))
           }
         >
-          {article.saved ? (
-            <>
-              <Item
-                icon={<Star size={16} />}
-                keys="F"
-                onClick={() => actions.favourite(article)}
-              >
-                {article.favourite ? "Remove from Favourites" : "Favourite"}
-              </Item>
-              <Item
-                icon={
-                  article.archived ? (
-                    <ArchiveRestore size={16} />
-                  ) : (
-                    <Archive size={16} />
-                  )
-                }
-                keys="E"
-                onClick={() => actions.archive(article)}
-              >
-                {article.archived ? "Move to Saved" : "Archive"}
-              </Item>
-            </>
-          ) : (
-            <Item
-              icon={<BookmarkPlus size={16} />}
-              onClick={() => actions.save(article)}
-            >
-              Save to library
-            </Item>
-          )}
-          <Item
-            icon={<ArrowUpRight size={16} />}
-            keys="O"
-            onClick={() =>
-              window.open(article.url, "_blank", "noopener,noreferrer")
-            }
-          >
-            Open original
-          </Item>
-          <Item
-            icon={<Link2 size={16} />}
-            onClick={() =>
-              navigator.clipboard
-                .writeText(article.url)
-                .then(() => showToast("Link copied"), reportError)
-            }
-          >
-            Copy link
-          </Item>
+          {[...library, original, copyLink].map(item)}
           <Menu.Separator className="menu-separator" />
-          <Item
-            icon={<Trash2 size={16} />}
-            danger
-            onClick={() => {
-              void actions.remove(article);
-              onRemoved?.();
-            }}
-          >
-            Remove from library
-          </Item>
+          {item(remove)}
         </Menu.Popup>
       </Menu.Positioner>
     </Menu.Portal>

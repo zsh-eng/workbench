@@ -1,13 +1,12 @@
-import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { readCopyFile } from "./content";
 import { MIN_WORDS, articleFinder, better, saveCopy } from "./copy";
 import { extractPage } from "./extract";
 import type { Article } from "./articles";
 import { localID } from "./links";
 import { useArticles, useSession } from "./state";
-import { AccountMenu } from "./ui";
+import { PageBar } from "./ui";
 
 type PageMessage = { type: "arctic:page"; url: string; html: string };
 const isPage = (data: unknown): data is PageMessage =>
@@ -25,19 +24,12 @@ const bookmarklet = (origin: string) =>
 export function Copies() {
   const articles = useArticles();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
   const saved = articles.filter((article) => article.saved);
   const withCopy = saved.filter((article) => article.copy).length;
   if (params.has("receive")) return <Receive articles={articles} />;
   return (
     <>
-      <div className="bar">
-        <button type="button" className="back" onClick={() => navigate("/")}>
-          <ChevronLeft size={20} /> Library
-        </button>
-        <span className="spacer" />
-        <AccountMenu />
-      </div>
+      <PageBar />
       <main className="page">
         <h1>Article text</h1>
         <p>

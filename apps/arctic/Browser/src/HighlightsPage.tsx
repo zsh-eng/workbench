@@ -1,14 +1,13 @@
-import { ChevronLeft, Search } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Search } from "lucide-react";
+import { useDeferredValue, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { Annotation } from "./annotations";
 import { useAnnotations } from "./Passages";
 import { useArticles } from "./state";
-import { AccountMenu } from "./ui";
+import { PageBar, usePageTitle } from "./ui";
 
 /** Every highlight and note, by article, most recent first. */
 export function HighlightsPage() {
-  const navigate = useNavigate();
   const annotations = useAnnotations();
   const articles = useArticles();
   const [query, setQuery] = useState("");
@@ -39,22 +38,11 @@ export function HighlightsPage() {
       }))
       .sort((a, b) => b.latest - a.latest);
   }, [annotations, byURL, search]);
-  useEffect(() => {
-    document.title = "Highlights – Arctic";
-    return () => {
-      document.title = "Arctic";
-    };
-  }, []);
+  usePageTitle("Highlights");
 
   return (
     <>
-      <div className="bar">
-        <button type="button" className="back" onClick={() => navigate("/")}>
-          <ChevronLeft size={20} /> Library
-        </button>
-        <span className="spacer" />
-        <AccountMenu />
-      </div>
+      <PageBar />
       <main className="page highlights">
         <h1>Highlights</h1>
         <p>

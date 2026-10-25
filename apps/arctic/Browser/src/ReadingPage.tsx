@@ -1,13 +1,11 @@
-import { ChevronLeft } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { duration, readingSessions, readingStats } from "./reading";
 import { useArticles, useDerived, useSession } from "./state";
-import { AccountMenu } from "./ui";
+import { PageBar, usePageTitle } from "./ui";
 
 /** Reading time from every device, as the phone's Reading stats show it. */
 export function ReadingPage() {
-  const navigate = useNavigate();
   const sessions = useDerived(useSession().reading, readingSessions);
   const articles = useArticles();
   const stats = useMemo(() => readingStats(sessions), [sessions]);
@@ -18,22 +16,11 @@ export function ReadingPage() {
     () => new Map(articles.map((article) => [article.url, article])),
     [articles],
   );
-  useEffect(() => {
-    document.title = "Reading – Arctic";
-    return () => {
-      document.title = "Arctic";
-    };
-  }, []);
+  usePageTitle("Reading");
 
   return (
     <>
-      <div className="bar">
-        <button type="button" className="back" onClick={() => navigate("/")}>
-          <ChevronLeft size={20} /> Library
-        </button>
-        <span className="spacer" />
-        <AccountMenu />
-      </div>
+      <PageBar />
       <main className="page reading">
         <h1>Reading</h1>
         <p>Time spent reading articles, from each device that counts it.</p>
