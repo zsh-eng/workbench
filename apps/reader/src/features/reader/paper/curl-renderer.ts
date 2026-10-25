@@ -88,7 +88,7 @@ void main() {
     colour = texture2D(uPage, vUv).rgb * lit;
   } else {
     // Ink seen through the sheet spreads in its fibres: a small blur.
-    vec2 spread = uTexel * 2.2;
+    vec2 spread = uTexel * 3.6;
     vec3 ink = texture2D(uPage, vUv).rgb * 0.36
       + texture2D(uPage, vUv + vec2(spread.x, spread.y)).rgb * 0.16
       + texture2D(uPage, vUv + vec2(-spread.x, spread.y)).rgb * 0.16

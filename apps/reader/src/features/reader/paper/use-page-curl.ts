@@ -51,7 +51,7 @@ interface UsePageCurlOptions {
 }
 
 const DARK_THEMES = ["dark", "night", "flexoki-dark"];
-const SHOW_THROUGH = { light: 0.17, dark: 0.22 };
+const SHOW_THROUGH = { light: 0.12, dark: 0.15 };
 
 let support: boolean | null = null;
 
