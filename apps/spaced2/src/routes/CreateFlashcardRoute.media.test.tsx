@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { act } from "react";
-import { click, input, render } from "../../tests/dom";
+import { click, input, render, until } from "../../tests/dom";
 import CreateFlashcardRoute from "./CreateFlashcardRoute";
 
 Object.assign(globalThis, { NodeFilter: window.NodeFilter });
@@ -49,27 +49,26 @@ test("upload and clipboard failures retain preview and retry without uploading a
         );
       });
     };
+    const alert = () => document.querySelector('[role="alert"]')?.textContent;
+    const closed = () =>
+      !document.querySelector('[aria-label="Image description"]');
+    // The first upload compiles the hash's WebAssembly, after act() returns.
     await submit();
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-      "Upload offline",
-    );
+    await until(() => !!alert());
+    expect(alert()).toContain("Upload offline");
     expect(description.value).toBe("Description retained");
     expect(upload).toHaveBeenCalledTimes(1);
     await submit();
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-      "link could not be copied",
-    );
+    await until(() => !!alert()?.includes("link could not be copied"));
     expect(description.value).toBe("Description retained");
     expect(upload).toHaveBeenCalledTimes(2);
     await submit();
+    await until(closed);
     expect(upload).toHaveBeenCalledTimes(2);
     expect(clipboard).toHaveBeenCalledTimes(2);
     expect(clipboard).toHaveBeenLastCalledWith(
       expect.stringContaining("![Description retained]"),
     );
-    expect(
-      document.querySelector('[aria-label="Image description"]'),
-    ).toBeNull();
   } finally {
     await view.unmount();
     upload.mockRestore();
@@ -132,6 +131,9 @@ test("cancelled paste stays local and the next preview uploads only its own file
     await click(
       document.querySelector('[aria-label="Upload image and copy link"]')!,
     );
+    await until(
+      () => !document.querySelector('[aria-label="Image description"]'),
+    );
     expect(upload).toHaveBeenCalledTimes(1);
     const request = upload.mock.calls[0][1]!;
     expect(request.method).toBe("PUT");
@@ -145,9 +147,6 @@ test("cancelled paste stays local and the next preview uploads only its own file
     expect(clipboard).toHaveBeenLastCalledWith(
       expect.stringContaining("![Confirmed description]"),
     );
-    expect(
-      document.querySelector('[aria-label="Image description"]'),
-    ).toBeNull();
   } finally {
     await view.unmount();
     upload.mockRestore();
