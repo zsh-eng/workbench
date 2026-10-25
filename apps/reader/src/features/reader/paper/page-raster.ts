@@ -37,7 +37,7 @@ const TRANSPARENT = /^(transparent|rgba\(0, 0, 0, 0\)|rgba\(0,0,0,0\))$/;
 const SKIPPED =
   ".reader-paper-grain, .reader-paper-vignette, .reader-paper-tooth, .reader-ink-canvas";
 /** A page whose ink WebGL has drawn: its canvas stands in for its text. */
-const INKED = ":scope > .reader-ink-canvas[data-ready]";
+const INKED = ".reader-ink-canvas[data-ready]";
 /** Where App.css puts the tooth's mask, so it does not sit on the grain. */
 const TOOTH_OFFSET = [37, 91] as const;
 
@@ -257,9 +257,7 @@ export function rasterizePage(
   context.scale(pixelRatio, pixelRatio);
   const inked = inkOnly
     ? null
-    : (layer.querySelector<HTMLCanvasElement>(INKED) ??
-      layer.firstElementChild?.querySelector<HTMLCanvasElement>(INKED) ??
-      null);
+    : layer.querySelector<HTMLCanvasElement>(INKED);
 
   // The page's own paper: the layer or the spread inside it.
   const paperElements = new Set<Element>();
