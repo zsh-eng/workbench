@@ -1417,13 +1417,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const checkout = repository.worktrees.some((worktree) => worktree.path === target.repo)
       ? target.repo
       : repository.path;
-    // Another iteration in the same checkout keeps the session, history, and
-    // open files; only the comparison loads, so the view never goes blank.
+    // Another iteration in the same checkout, or the Review after its Changes,
+    // keeps the session, history, and open files; only the comparison loads,
+    // so the view never goes blank and the checkout's file list stays.
     const current = snapshot.savedReview?.targets.find(
       (entry) => entry.id === snapshot.savedTargetId,
     );
     if (
-      snapshot.savedView &&
       snapshot.session?.repository.path === checkout &&
       current?.repositoryId === target.repositoryId &&
       current.repo === target.repo &&
