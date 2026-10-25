@@ -66,7 +66,7 @@ const entryIds = (sheet: Locator) =>
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-note-id")));
 
 for (const place of ["medium", "full"] as const)
-  test(`Entries swiped away one after another ${place === "full" ? "move the Notebook once in full view" : "leave the Notebook at its detent"}, and Undo puts one back in place`, async ({
+  test(`Entries swiped away one after another ${place === "full" ? "move the Notebook once in full view" : "leave the Notebook at its detent"}, and Undo puts them back in place`, async ({
     page,
     localBook,
   }) => {
@@ -139,17 +139,10 @@ for (const place of ["medium", "full"] as const)
       expect(tops.at(-1)!).toBeGreaterThan(tops[0]!);
     }
 
-    // Undo brings an entry back where it was. The newest notice is in
-    // front.
-    await page
-      .getByRole("button", { name: "Undo", exact: true })
-      .first()
-      .click();
-    await expect
-      .poll(async () => (await entryIds(notebook)).length)
-      .toBe(before.length - 1);
-    const after = await entryIds(notebook);
-    expect(after).toEqual(before.filter((id) => after.includes(id)));
+    // Both swipes joined one toast, so its Undo brings both entries back
+    // where they were.
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect.poll(() => entryIds(notebook)).toEqual(before);
     await waitForSheetToRest(notebook);
     if (place === "full")
       await expect(
