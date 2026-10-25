@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import {
@@ -65,7 +66,7 @@ import {
   useWorkspaceEntry,
   useWorkspaceShown,
 } from "./components/Workspaces";
-import { whenIdle } from "./data/idle";
+import { whenFree, whenIdle } from "./data/idle";
 import type { BranchEntry } from "./components/BranchPicker";
 import { visibleElement } from "./data/palette-focus";
 import { setFilePreviewShown, useFilePreviewShown } from "./data/picker-preferences";
@@ -91,7 +92,12 @@ import { subscribeFileOpens, takeFileOpen, takeSearchOpen } from "./data/file-op
 import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
 import { useTurnRecap } from "./data/turn-recap";
 import { SymbolPicker } from "./components/SymbolPicker";
-import { FullFileView, type BeginFileSymbolPreview } from "./components/FullFileView";
+import {
+  FullFileView,
+  preloadFileEditor,
+  type BeginFileSymbolPreview,
+} from "./components/FullFileView";
+import { preloadable } from "./components/preloadable";
 import { FileViewTabs } from "./components/FileViewTabs";
 import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
@@ -149,7 +155,7 @@ import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
-import { ChangesRail } from "./components/ChangesRail";
+import { ChangesRail, RangeCommits } from "./components/ChangesRail";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
 import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
@@ -173,11 +179,21 @@ import type { FileRefs } from "./components/FileRefs";
 const BriefView = lazy(() => import("./components/BriefView"));
 // Memoized: the tab stays mounted once shown, and the review around it
 // renders again for unrelated state, such as an open palette.
-const CommitView = lazy(() =>
-  import("./components/CommitView").then((module) => ({
-    default: memo(module.default),
-  })),
+const CommitView = preloadable<ComponentProps<typeof import("./components/CommitView").default>>(
+  () =>
+    import("./components/CommitView").then((module) => ({
+      default: memo(module.default),
+    })),
 );
+// The editor and the Commit tab load while the window is free, so the first
+// file or Commit tab opens at once rather than after React's 300 ms hold.
+let panesPreloaded = false;
+function preloadPanes() {
+  if (panesPreloaded) return;
+  panesPreloaded = true;
+  preloadFileEditor();
+  CommitView.preload();
+}
 const SessionPanel = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({
     default: module.SessionPanel,
@@ -1143,6 +1159,7 @@ export function App({
     if (sessionReady || !hasSessions) return;
     return whenIdle(() => setSessionReady(true));
   }, [sessionReady, hasSessions]);
+  useEffect(() => (panesPreloaded ? undefined : whenFree(preloadPanes)), []);
   // The agents that Med can start in a saved review's repository, or in a
   // pull request's worktree from the branch picker.
   const agentPresets = useAgentPresets(!!state.savedReview || branchPickerOpen, sessionFetch);
@@ -3246,6 +3263,18 @@ export function App({
     pendingSavedChanges.current = state.savedTargetId;
     fileWorkspace.select("changes");
     void controller.showReview();
+  };
+  // The Review's commits beside its diff, in the rail or the Changed files
+  // pane; Changes are live and list files only. A commit opens as part of the
+  // Review, and one that showed before shows again from the cache.
+  const rangeCommits = {
+    commits: reviewShown && fileState.active === "changes" ? guideCommits : NO_COMMITS,
+    moreCommits: reviewShown ? guideTarget?.moreCommits : undefined,
+    commit: state.comparison.kind === "commit" ? state.comparison.commit : null,
+    whole: state.savedView,
+    onCommit: (commit: string) =>
+      void controller.selectComparison({ kind: "commit", commit }, true),
+    onWhole: showReviewDiff,
   };
   const actionRepo = state.review?.repo ?? state.session?.repository.path;
   const actionBranch = state.savedView
@@ -5391,15 +5420,7 @@ export function App({
                     onPrefetch={prefetchFile}
                     onOpen={browseSource ? openChangedFile : undefined}
                     filterRef={filterRef}
-                    // The Review's commits; Changes are live and list files only.
-                    commits={reviewShown ? guideCommits : NO_COMMITS}
-                    moreCommits={reviewShown ? guideTarget?.moreCommits : undefined}
-                    commit={state.comparison.kind === "commit" ? state.comparison.commit : null}
-                    whole={state.savedView}
-                    onCommit={(commit) =>
-                      void controller.selectComparison({ kind: "commit", commit }, true)
-                    }
-                    onWhole={showReviewDiff}
+                    {...rangeCommits}
                   />
                 )}
                 {guideOverview && (
@@ -5914,20 +5935,23 @@ export function App({
             ariaLabel: "Changed files",
             icon: "diff" as const,
             render: (controls: ReactNode) => (
-              <FileSidebar
-                controls={controls}
-                repo={state.session?.repository.path ?? null}
-                pathActions={pathActions}
-                files={files}
-                total={state.files.length}
-                selected={state.selectedFileId}
-                filter={state.filter}
-                onFilter={controller.setFilter}
-                onSelect={reveal}
-                onPrefetch={prefetchFile}
-                onOpen={browseSource ? openChangedFile : undefined}
-                filterRef={filterRef}
-              />
+              <>
+                <FileSidebar
+                  controls={controls}
+                  repo={state.session?.repository.path ?? null}
+                  pathActions={pathActions}
+                  files={files}
+                  total={state.files.length}
+                  selected={state.selectedFileId}
+                  filter={state.filter}
+                  onFilter={controller.setFilter}
+                  onSelect={reveal}
+                  onPrefetch={prefetchFile}
+                  onOpen={browseSource ? openChangedFile : undefined}
+                  filterRef={filterRef}
+                />
+                <RangeCommits {...rangeCommits} />
+              </>
             ),
           },
         ]

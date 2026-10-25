@@ -1,5 +1,5 @@
 import { codexReviewsSchema, type CodexReviewRun } from "../../shared/codex-review";
-import type { ReviewGuide } from "../../shared/review-guide";
+import type { ReviewGuide, SavedCommit } from "../../shared/review-guide";
 import { readBrowserToken } from "./auth";
 import { REVIEW_UPDATED } from "./workspaces";
 import {
@@ -634,6 +634,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const cached = !force && immutableComparison(comparison) ? reviewCache.get(key) : undefined;
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
+      if (reviewSide && comparison.kind === "commit") prefetchIterations();
       return;
     }
     const start = performance.now();
@@ -671,6 +672,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         parseMs: performance.now() - parseStart,
         cacheHit: false,
       });
+      if (reviewSide && comparison.kind === "commit") prefetchIterations();
     } catch (error) {
       if (waitsForMed(error) && !immutableComparison(comparison)) return;
       if (isCurrent(generation)) update({ status: "error", error: message(error) });
@@ -1299,16 +1301,22 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   }
 
   // Other iterations load one at a time while the review is idle, so choosing
-  // one in the brief shows it at once. A load that the reviewer starts
-  // stops this one, because the parser keeps only the latest request.
+  // one in the brief shows it at once, and then the shown range's commits, so
+  // a commit picked beside the diff shows at once too. A load that the
+  // reviewer starts stops this one, because the parser keeps only the latest
+  // request.
   let iterationAbort: AbortController | undefined;
   function prefetchIterations() {
     iterationAbort?.abort();
     const saved = snapshot.savedReview;
-    if (!saved?.iterations?.length || suspended || disposed) return;
+    const repo = snapshot.session?.repository.path;
+    const commits = rangeCommitsAhead(
+      saved?.targets.find((entry) => entry.id === snapshot.savedTargetId)?.commits,
+    );
+    if (!saved || (!saved.iterations?.length && !commits.length) || suspended || disposed) return;
     const abort = new AbortController();
     iterationAbort = abort;
-    const targets = saved.iterations
+    const targets = (saved.iterations ?? [])
       .toReversed()
       .slice(0, 6)
       .flatMap((iteration) => saved.targets.filter((entry) => entry.id === iteration.targetIds[0]));
@@ -1339,7 +1347,63 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           return;
         }
       }
+      for (const commit of commits) {
+        await idle();
+        const ready = () =>
+          !abort.signal.aborted &&
+          !suspended &&
+          snapshot.status === "ready" &&
+          snapshot.savedReview?.id === saved.id &&
+          snapshot.session?.repository.path === repo;
+        if (!repo || !ready()) return;
+        try {
+          await prefetchCommit(repo, commit, abort.signal, ready);
+        } catch {
+          return;
+        }
+      }
     })();
+  }
+
+  /** The range's commits to read ahead: those after the one that shows, then
+   * those before it, at most ten. A range of one commit has none to pick. */
+  function rangeCommitsAhead(commits: readonly SavedCommit[] | undefined): string[] {
+    if (!commits || commits.length < 2) return [];
+    const shown = snapshot.comparison.kind === "commit" ? snapshot.comparison.commit : null;
+    const at = commits.findIndex((commit) => commit.id === shown);
+    return [...commits.slice(at + 1), ...commits.slice(0, Math.max(0, at))]
+      .map((commit) => commit.id)
+      .slice(0, 10);
+  }
+
+  /** Reads one commit of the open checkout into the cache, as selectComparison
+   * would show it. */
+  async function prefetchCommit(
+    repo: string,
+    commit: string,
+    signal: AbortSignal,
+    mayParse: () => boolean,
+  ) {
+    const comparison: Comparison = { kind: "commit", commit };
+    const key = JSON.stringify([repo, comparisonKey(comparison)]);
+    if (!immutableComparison(comparison) || reviewCache.get(key)) return;
+    const response = await api.json("/api/review", reviewSchema, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo, comparison }),
+      signal,
+    });
+    if (
+      response.repo !== repo ||
+      comparisonKey(response.comparison) !== comparisonKey(comparison) ||
+      !mayParse()
+    )
+      return;
+    const parsed = await parse(response.patch);
+    if (signal.aborted) return;
+    const { files, document } = projectResponse(response, parsed);
+    const entry = { response, files, document };
+    reviewCache.set(key, entry, estimateRetainedBytes(entry));
   }
 
   /** Resolves true when the diff shows. A `quiet` load keeps its failure off
@@ -1417,13 +1481,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const checkout = repository.worktrees.some((worktree) => worktree.path === target.repo)
       ? target.repo
       : repository.path;
-    // Another iteration in the same checkout keeps the session, history, and
-    // open files; only the comparison loads, so the view never goes blank.
+    // Another iteration in the same checkout, or the Review after its Changes,
+    // keeps the session, history, and open files; only the comparison loads,
+    // so the view never goes blank and the checkout's file list stays.
     const current = snapshot.savedReview?.targets.find(
       (entry) => entry.id === snapshot.savedTargetId,
     );
     if (
-      snapshot.savedView &&
       snapshot.session?.repository.path === checkout &&
       current?.repositoryId === target.repositoryId &&
       current.repo === target.repo &&
