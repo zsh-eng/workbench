@@ -58,7 +58,8 @@ Appearance → Layout → Reading view chooses Pages or Scroll, for every book o
 
 - The engine builds the column from the chapter's paged layout (`shared/layout-column.ts`), so lines break exactly as on the pages. Each page's start is a column offset, and its anchor comes from `pickAnchorForPage`.
 - `ScrollStage` positions rows at exact offsets and mounts only the rows near the view. Long blocks split into chunks of 8 lines. The rows of a text selection stay mounted.
-- Pages → Scroll opens at the current page's offset. Scroll → Pages snaps to the page of the first fully visible line, or to the next page when it starts within two lines of the top.
+- Pages → Scroll opens at the current page's offset. Scroll → Pages snaps to the page of the first fully visible line, or to the next page when it starts within two lines of the top. In a two-page spread the page also slides to its place on the left, and the column fades out so the facing page fades in.
+- History keeps a line from scroll mode as an exact place (`exact` on the visit). A page's own anchor is a line from its middle, so without the mark such a line would reopen at the page's top.
 - The settled scroll position goes to pagination as a linear move, so checkpoints and reading sessions follow it. Highlights resolve against a one-page spread of the whole column and save the same offsets as on a page.
 - `?scrollWindow=off` mounts every row, for comparing frame times.
 
