@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { PencilLine, Trash2, Palette, X, Check } from "lucide-react";
+import { PencilLine, Trash2, Palette, X } from "lucide-react";
 import {
   AnimatePresence,
   motion,
@@ -22,6 +22,8 @@ import { MOTION } from "@/lib/motion";
 import { UndoCountdown } from "@/components/UndoToast";
 import { CopyFeedbackIcon } from "@/components/ui/copy-feedback-icon";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
+import { flyWords } from "@/lib/feedback-motion";
+import { SPRINGS, springTransition } from "@workbench/elements/spring";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 
 /**
@@ -129,11 +131,15 @@ export function NotesCapsule({
 export function IslandSurface({
   layerKey,
   radius,
+  exit = "fade",
   className,
   children,
 }: {
   layerKey: string;
   radius: number;
+  /** How the leaving layer goes: it fades, or it dissolves into the next
+   * one, as a deleted note does into its Undo. */
+  exit?: IslandExit;
   className?: string;
   children: ReactNode;
 }) {
@@ -199,9 +205,14 @@ export function IslandSurface({
           ? { width: size.width, height: size.height, borderRadius: radius }
           : { borderRadius: radius }
       }
-      transition={!settled || reduceMotion ? { duration: 0 } : MOTION.shape}
+      // The island lands with a little give, as the Dynamic Island does.
+      transition={
+        !settled || reduceMotion
+          ? { duration: 0 }
+          : springTransition(SPRINGS.morph)
+      }
     >
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} custom={reduceMotion ? "fade" : exit}>
         <IslandLayer key={layerKey} onSize={measure}>
           {children}
         </IslandLayer>
@@ -209,6 +220,22 @@ export function IslandSurface({
     </motion.div>
   );
 }
+
+export type IslandExit = "fade" | "dissolve";
+
+const LAYER = {
+  hidden: { opacity: 0 },
+  shown: { opacity: 1, filter: "blur(0px)", scale: 1 },
+  gone: (exit: IslandExit) =>
+    exit === "dissolve"
+      ? {
+          opacity: 0,
+          filter: "blur(6px)",
+          scale: 0.94,
+          transition: { duration: 0.26, ease: [0.4, 0, 1, 1] as const },
+        }
+      : { opacity: 0, transition: MOTION.exit },
+};
 
 /** One state of the surface. Only the present layer sizes the surface: a
  * leaving layer shares the space while it fades and must not report. It is
@@ -235,10 +262,11 @@ function IslandLayer({
     <motion.div
       ref={layer}
       inert={!present}
-      className="absolute bottom-0 left-1/2 w-max -translate-x-1/2"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: MOTION.exit }}
+      className="absolute bottom-0 left-1/2 w-max origin-bottom -translate-x-1/2"
+      variants={LAYER}
+      initial="hidden"
+      animate="shown"
+      exit="gone"
       transition={{ ...MOTION.enter, delay: 0.04 }}
     >
       {children}
@@ -394,9 +422,14 @@ export interface IslandNoticeState {
   label: string;
   color?: AnnotationColor;
   undo?: () => void;
+  /** Where the saved words were on screen. They fly into the notice's mark,
+   * and the mark takes them in. */
+  from?: { rect: DOMRect; text: string };
 }
 
-/** A short confirmation, or a deletion with Undo. */
+/** A short confirmation, or a deletion with Undo. A confirmation's mark
+ * pops and its check draws itself; after a save, the note's words fly into
+ * it first. */
 export function IslandNotice({
   notice,
   onUndo,
@@ -404,6 +437,16 @@ export function IslandNotice({
   notice: IslandNoticeState;
   onUndo: () => void;
 }) {
+  const reduceMotion = useReducedMotion() ?? false;
+  const mark = useRef<HTMLSpanElement>(null);
+  const flies = Boolean(notice.from) && !reduceMotion;
+  const [arrived, setArrived] = useState(!flies);
+  const from = notice.from;
+  useLayoutEffect(() => {
+    const target = mark.current;
+    if (!flies || !from || !target) return;
+    return flyWords(from, target, () => setArrived(true));
+  }, [flies, from]);
   return (
     <div
       role="status"
@@ -415,8 +458,10 @@ export function IslandNotice({
           <UndoCountdown key={notice.key} />
         </span>
       ) : (
-        <span
+        <motion.span
+          ref={mark}
           aria-hidden="true"
+          data-notice-mark=""
           className="flex size-7 items-center justify-center rounded-full"
           style={{
             background:
@@ -424,9 +469,27 @@ export function IslandNotice({
                 ? "var(--secondary)"
                 : `var(--${notice.color}-secondary)`,
           }}
+          initial={reduceMotion ? false : { scale: 0.5, opacity: 0 }}
+          animate={arrived ? { scale: 1, opacity: 1 } : undefined}
+          transition={springTransition(SPRINGS.pop)}
         >
-          <Check className="size-3.5" strokeWidth={2.4} />
-        </span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-3.5"
+          >
+            <motion.path
+              d="M4.5 12.5 9.5 17.5 19.5 6.5"
+              initial={{ pathLength: reduceMotion ? 1 : 0 }}
+              animate={arrived ? { pathLength: 1 } : undefined}
+              transition={{ ...springTransition(SPRINGS.snappy), delay: 0.08 }}
+            />
+          </svg>
+        </motion.span>
       )}
       {notice.label}
       {notice.undo ? (

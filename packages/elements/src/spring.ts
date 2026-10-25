@@ -32,6 +32,11 @@ export const SPRINGS = {
   release: { response: 0.32, dampingRatio: 0.92 },
   /** Small feedback that pops: pills and counters. */
   pop: { response: 0.32, dampingRatio: 0.72 },
+  /**
+   * A surface that changes shape, as the Dynamic Island does: it lands with
+   * a little give (1.5% overshoot).
+   */
+  morph: { response: 0.4, dampingRatio: 0.8 },
 } as const satisfies Record<string, Spring>;
 
 /**
