@@ -90,9 +90,10 @@ function handleOrientation(event: DeviceOrientationEvent) {
 
 function handlePointer(event: PointerEvent) {
   if (state.live || event.pointerType === "touch") return;
+  // The eye follows the pointer, as if the phone turned away from it.
   state.target = {
-    x: clamp((event.clientX / window.innerWidth - 0.5) * 1.6),
-    y: clamp((event.clientY / window.innerHeight - 0.5) * 1.6),
+    x: clamp((0.5 - event.clientX / window.innerWidth) * 1.6),
+    y: clamp((0.5 - event.clientY / window.innerHeight) * 1.6),
   };
   publish();
 }

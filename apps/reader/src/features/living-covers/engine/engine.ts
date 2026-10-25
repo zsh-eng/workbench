@@ -336,7 +336,14 @@ class Engine {
     const renderer = view.renderer;
     if (!renderer) return;
     renderer.canvas.remove();
-    this.owners.set(renderer, null);
+    // A lost context (iOS drops them in the background) leaves the pool, so
+    // a fresh one can take its place.
+    if (renderer.lost) {
+      this.owners.delete(renderer);
+      this.renderers = this.renderers.filter((item) => item !== renderer);
+    } else {
+      this.owners.set(renderer, null);
+    }
     view.renderer = null;
     view.uploaded = false;
     view.setState("idle");
@@ -469,7 +476,7 @@ class Engine {
       eye = [0, 0, distance];
       light = [-rect.width * 1.1, rect.height * 1.5, distance * 0.8];
       yaw = -turnX * 1.25;
-      pitch = -turnY * 1.0;
+      pitch = turnY;
     } else {
       // The eye and the lamp are in the room; the phone turns under them.
       const distance = Math.max(vw, vh) * 1.6;
@@ -479,8 +486,9 @@ class Engine {
       const lampHome: [number, number, number] = reduced
         ? [-rect.width * 2.2, rect.height * 2.6, distance * 0.75]
         : [vw * 0.22 - centerX, -(-vh * 0.32 - centerY), distance * 0.75];
-      eye = turn(eyeHome, turnX * 0.55, turnY * 0.55);
-      light = turn(lampHome, turnX * 1.3, turnY * 1.3);
+      // Tipping the top toward you lifts the eye toward the top of the page.
+      eye = turn(eyeHome, turnX * 0.55, -turnY * 0.55);
+      light = turn(lampHome, turnX * 1.3, -turnY * 1.3);
       yaw = 0;
       pitch = 0;
     }
@@ -503,7 +511,7 @@ class Engine {
   }
 }
 
-/** Rotate a point about the screen's centre line, as the phone turns. */
+/** Turn a point about the book, as the phone turns under the room. */
 function turn(
   point: [number, number, number],
   aroundY: number,
