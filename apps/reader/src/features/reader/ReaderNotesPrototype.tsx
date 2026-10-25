@@ -161,7 +161,9 @@ export function ReaderNotesPrototype({
       try {
         await deleteHighlight(entry.id);
       } catch {
-        toast.error("Could not delete the highlight.");
+        toast.error("Could not delete the highlight.", {
+          id: "highlight-delete-failed",
+        });
         return false;
       }
       await queryClient.invalidateQueries({

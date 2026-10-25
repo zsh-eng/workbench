@@ -88,7 +88,8 @@ describe("getReaderStatusPrompt", () => {
     expect(renderToStaticMarkup(mocks.success.mock.calls[0][0])).toBe(
       "Changed status to <strong>Reading</strong>.",
     );
-    expect(mocks.success.mock.calls[0][1]).toBeUndefined();
+    // One toast for the book's status, which a second change updates.
+    expect(mocks.success.mock.calls[0][1]).toEqual({ id: "reading-status" });
     expect(mocks.prompt).not.toHaveBeenCalled();
   });
 

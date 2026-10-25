@@ -99,15 +99,17 @@ export function useReaderStatusPrompt({
               previousStatus: status,
               status: prompt.targetStatus,
             }),
+            // One toast for the book's status: a second change updates it.
             prompt.targetStatus === "finished"
               ? {
+                  id: "reading-status",
                   duration: 8000,
                   action: {
                     label: "Back to library",
                     onClick: () => navigate("/"),
                   },
                 }
-              : undefined,
+              : { id: "reading-status" },
           );
           dismiss();
           setOperation({ key, pending: false, error: "" });

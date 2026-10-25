@@ -21,7 +21,7 @@ export function useCopyFeedback(failureMessage: string) {
     (text: string) => {
       void copyText(text).then((copied) => {
         if (copied) setCopiedAt(Date.now());
-        else toast.error(failureMessage);
+        else toast.error(failureMessage, { id: "copy-failed" });
       });
     },
     [failureMessage],
