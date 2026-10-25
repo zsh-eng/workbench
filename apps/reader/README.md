@@ -113,6 +113,10 @@ for design checks on desktop.
   renders it full-window and add it to `IDEAS` in
   `src/features/elements/LibraryIdeasPage.tsx`.
 
+- **Living covers** (`/debug/elements/covers`) shows covers as lit
+  objects with hand-made depth, foil and light. See
+  [Living covers](docs/LIVING_COVERS.md).
+
 The frame theme previews the frames only. To add a specimen, add a component
 that takes `state` and `nonce` to `src/features/elements/specimens.tsx`.
 

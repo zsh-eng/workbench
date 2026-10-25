@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "title": "Pride and Prejudice",
+  "covers": [],
+  "maps": {
+    "depth": "depth.webp",
+    "materials": "materials.webp"
+  },
+  "parallax": 0.006,
+  "relief": 0.006,
+  "shading": 0.35,
+  "paper": {
+    "gloss": 0.12,
+    "roughness": 0.78,
+    "grain": 0.25,
+    "weave": 0.55
+  },
+  "foil": {
+    "roughness": 0.3,
+    "iridescence": 0,
+    "grain": 0.55,
+    "strength": 1.25
+  },
+  "object": {
+    "pages": 391,
+    "edge": [
+      0.88,
+      0.8,
+      0.62
+    ]
+  }
+}

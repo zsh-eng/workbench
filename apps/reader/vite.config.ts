@@ -5,6 +5,7 @@ import path from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { readerBackupApi } from "./scripts/local-data/backup-api";
+import { livingCoversDev } from "./scripts/living-covers/dev-plugin";
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => ({
@@ -80,6 +81,8 @@ export default defineConfig(({ command, mode }) => ({
         ],
       },
     }),
+    // Hand-made scenes for the user's own covers: dev only, never built.
+    livingCoversDev(),
     // `--mode local-data` serves the local backup in place of the Worker.
     ...(mode === "local-data"
       ? [readerBackupApi(process.env.READER_BACKUP_DIR)]

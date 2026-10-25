@@ -7,6 +7,7 @@ import { PlaceHeader, usePlaceSearch } from "@/components/PlaceHeader";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -22,6 +23,7 @@ import {
 import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
 import { useLocalBookPreparationRepair } from "@/hooks/use-local-book-preparation-repair";
+import { useDebugEnabled } from "@/lib/debug-preference";
 import { useReaderSettings } from "@/hooks/use-reader-settings";
 import { useSync } from "@/hooks/use-sync";
 import { useToast } from "@/hooks/use-toast";
@@ -108,6 +110,7 @@ export function Library() {
   const { importFiles, isProcessing, openFilePicker } = useEpubImport();
   const { deleteBook } = useSync();
   const { data } = useBooksWithStatuses();
+  const debugEnabled = useDebugEnabled();
 
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const filterRow = useMoreToTheRight();
@@ -327,6 +330,24 @@ export function Library() {
             <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
+        {debugEnabled && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="pt-2 pb-1 text-xs font-normal text-muted-foreground">
+                Debug
+              </DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={view.livingCovers}
+                onCheckedChange={(checked) =>
+                  setView({ livingCovers: checked })
+                }
+              >
+                Living covers
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuGroup>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -335,6 +356,7 @@ export function Library() {
     book,
     status: data?.statuses.get(book.id) ?? null,
     coverUrl: coverUrls.get(book.id),
+    living: debugEnabled && view.livingCovers,
     onCoverRequest: requestCover,
     onPrefetch: handlePrefetch,
     onRemove: handleRemove,

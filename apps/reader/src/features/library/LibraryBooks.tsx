@@ -21,14 +21,23 @@ import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNowStrict } from "date-fns";
 import { MoreHorizontal, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+
+// Living covers load their engine only when Debug mode turns them on.
+const LivingCover = lazy(() =>
+  import("@/features/living-covers/LivingCover").then((module) => ({
+    default: module.LivingCover,
+  })),
+);
 
 /** What each book part needs from the Library page. */
 export interface LibraryBookProps {
   book: Book;
   status: ReadingStatus | null;
   coverUrl: string | undefined;
+  /** Draw the cover as a lit object (Debug mode). */
+  living?: boolean;
   onCoverRequest: (book: Book) => void;
   onPrefetch: (book: Book) => void;
   onRemove: (bookId: string) => Promise<void>;
@@ -64,13 +73,30 @@ export function BookCover({
   book,
   coverUrl,
   compact = false,
+  living = false,
   className,
 }: {
   book: Book;
   coverUrl: string | undefined;
   compact?: boolean;
+  living?: boolean;
   className?: string;
 }) {
+  if (coverUrl && living) {
+    const plain = (
+      <BookCover book={book} coverUrl={coverUrl} className={className} />
+    );
+    return (
+      <Suspense fallback={plain}>
+        {/* The living cover draws its own shadow. */}
+        <LivingCover
+          coverUrl={coverUrl}
+          coverFileId={book.cover?.fileId}
+          className={cn(className, "shadow-none")}
+        />
+      </Suspense>
+    );
+  }
   if (coverUrl) {
     return (
       <span className={cn("block overflow-hidden bg-secondary", className)}>
@@ -322,6 +348,7 @@ export function ShelfBook({
   book,
   status,
   coverUrl,
+  living,
   progress,
   onCoverRequest,
   onPrefetch,
@@ -343,6 +370,7 @@ export function ShelfBook({
         <BookCover
           book={book}
           coverUrl={coverUrl}
+          living={living}
           className={cn(
             "h-[138px] w-[92px] shrink-0 rounded-[3px] md:h-[126px] md:w-[84px] transition-transform duration-200 ease-out [@media(hover:hover)]:group-hover:-translate-y-0.5 [@media(hover:hover)]:group-has-[[data-popup-open]]:-translate-y-0.5",
             COVER_SHADOW,
@@ -381,6 +409,7 @@ export function BookTile({
   book,
   status,
   coverUrl,
+  living,
   onCoverRequest,
   onPrefetch,
   onRemove,
@@ -401,6 +430,7 @@ export function BookTile({
         <BookCover
           book={book}
           coverUrl={coverUrl}
+          living={living}
           className={cn(
             "aspect-[2/3] w-full rounded-[3px] transition-transform duration-200 ease-out group-focus-visible:ring-2 group-focus-visible:ring-ring [@media(hover:hover)]:group-hover:-translate-y-0.5 [@media(hover:hover)]:group-has-[[data-popup-open]]:-translate-y-0.5",
             COVER_SHADOW,

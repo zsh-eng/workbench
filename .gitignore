@@ -39,3 +39,9 @@ test-results/
 # Native Arctic build products
 apps/arctic/.build/
 apps/arctic/Sync/.build/
+
+# Hand-made scenes for copyrighted covers: local only, never committed
+apps/reader/living-covers.local/
+apps/reader/scripts/living-covers/scenes/*/work/
+apps/reader/scripts/living-covers/scenes/*/preview.png
+apps/reader/scripts/living-covers/scenes/*/*.webp

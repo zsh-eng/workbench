@@ -5,6 +5,7 @@ export const IDEA_TOPICS = [
   { id: "search", label: "Reader search" },
   { id: "fonts", label: "Reading fonts" },
   { id: "dark", label: "Dark mode" },
+  { id: "covers", label: "Living covers" },
 ] as const;
 
 export type IdeaTopic = (typeof IDEA_TOPICS)[number]["id"];

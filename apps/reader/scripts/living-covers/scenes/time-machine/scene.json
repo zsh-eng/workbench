@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "The Time Machine",
+  "covers": [],
+  "maps": { "depth": "depth.webp" },
+  "parallax": 0.006,
+  "relief": 0.016,
+  "shading": 0.45,
+  "paper": { "gloss": 0.08, "roughness": 0.85, "grain": 0.3, "weave": 0.75 },
+  "object": { "pages": 105, "edge": [0.86, 0.8, 0.68] }
+}

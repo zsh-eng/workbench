@@ -168,6 +168,37 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  covers: {
+    current: {
+      id: "covers-current",
+      title: "Today's covers",
+      description: "What ships: each cover as a flat image with a soft shadow.",
+      src: "/",
+    },
+    ideas: [
+      {
+        id: "covers-hero",
+        title: "A book to hold",
+        description:
+          "One book as an object, lit from above. Tilt the phone or drag the book to turn it; foil catches the light and deep art moves behind the surface. Depth and Foil and life show the hand-made maps.",
+        src: "/debug/ideas/living-covers?variant=hero",
+      },
+      {
+        id: "covers-grid",
+        title: "Library with tilt",
+        description:
+          "Your Library's covers, lit by one lamp in the room. Scroll and each cover catches the light as it passes; tilt for more. Books without a scene get the automatic sheen.",
+        src: "/debug/ideas/living-covers?variant=grid",
+      },
+      {
+        id: "covers-detail",
+        title: "Book page",
+        description:
+          "A book's own page with its cover as the hero, above the title and a Read button.",
+        src: "/debug/ideas/living-covers?variant=detail",
+      },
+    ],
+  },
 };
 
 const SECTIONS = [

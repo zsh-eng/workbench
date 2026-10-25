@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="676" viewBox="0 0 480 676">
+  <!-- The binding itself: leave out the photographed fore-edge at the right. -->
+  <defs><filter id="soft"><feGaussianBlur stdDeviation="1.5"/></filter></defs>
+  <rect x="6" y="4" width="452" height="668" rx="6" fill="#fff" filter="url(#soft)"/>
+</svg>

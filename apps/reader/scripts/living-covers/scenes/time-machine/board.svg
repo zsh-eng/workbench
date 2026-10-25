@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="738" viewBox="0 0 480 738">
+  <!-- The cloth board: worn and rounded at its edges. -->
+  <defs><filter id="r"><feGaussianBlur stdDeviation="4"/></filter></defs>
+  <rect width="480" height="738" fill="#666"/>
+  <rect x="6" y="6" width="468" height="726" rx="10" fill="#fff" filter="url(#r)"/>
+</svg>
