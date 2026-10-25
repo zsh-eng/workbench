@@ -2,8 +2,16 @@ import { Button } from "@/components/ui/button";
 import { MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
+import { springSheetScroller } from "@workbench/elements/sheet-motion";
+import {
+  SPRINGS,
+  springTransition,
+  type Spring,
+} from "@workbench/elements/spring";
 import { motion, useReducedMotion } from "motion/react";
 import {
+  createContext,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -20,6 +28,13 @@ import {
 import "./detent-sheet.css";
 
 export type DetentSheetSnapPoint = number | string;
+
+/**
+ * The spring that opens, closes and changes the detent of every sheet below
+ * it: UIKit's sheet spring by default. `null` leaves those moves to the
+ * browser's smooth scrolling, for comparison in Design ideas.
+ */
+export const SheetSpringContext = createContext<Spring | null>(SPRINGS.sheet);
 
 export interface DetentSheetProps {
   isOpen: boolean;
@@ -52,6 +67,8 @@ export interface DetentSheetProps {
 /**
  * A bottom sheet on React Aria's Sheet. The browser's own scrolling moves
  * it, so a drag follows the finger, rests on detents, and keeps momentum.
+ * Opening, closing and a new detent run UIKit's sheet spring
+ * (`SheetSpringContext`; docs in packages/elements/docs/MOTION.md).
  * Sheets opened over it stack, and it steps back.
  *
  * The sheet is modal: the rest of the page turns inert, focus stays inside,
@@ -186,6 +203,16 @@ function SheetBody({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const spring = useContext(SheetSpringContext);
+
+  // React Aria opens, closes and changes detents with smooth scrolls. The
+  // sheet's spring runs them instead, from the bottom edge of the screen.
+  // The body mounts with the sheet, before React Aria's first scroll.
+  useLayoutEffect(() => {
+    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (!scroller || !spring) return;
+    return springSheetScroller(scroller, spring);
+  }, [spring]);
 
   // A closing sheet scrolls out of view, and React Aria unmounts it once it
   // is gone. Writing the sheet's scroll offset stops that scroll, and React
@@ -261,14 +288,15 @@ function SheetBody({
 }
 
 /**
- * Moves a sheet that fits its content to the content's new height, so the
- * top edge glides instead of jumping. The content keeps its own height; a
+ * Moves a sheet that fits its content to the content's new height on the
+ * sheet's spring, so the top edge glides instead of jumping. The content keeps its own height; a
  * sheet taller than the screen scrolls its body.
  */
 function FitHeight({ children }: { children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | "auto">("auto");
   const reduceMotion = useReducedMotion();
+  const spring = useContext(SheetSpringContext);
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) return;
@@ -281,7 +309,13 @@ function FitHeight({ children }: { children: ReactNode }) {
       className="shrink-0 overflow-hidden"
       initial={false}
       animate={{ height }}
-      transition={reduceMotion ? { duration: 0 } : MOTION.shape}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : spring
+            ? springTransition(spring)
+            : MOTION.shape
+      }
     >
       <div ref={content}>{children}</div>
     </motion.div>

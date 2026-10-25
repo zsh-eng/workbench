@@ -7,7 +7,9 @@
     "./react": "./src/react.ts",
     "./frames": "./src/frames.ts",
     "./toast": "./src/toast.tsx",
-    "./toast.css": "./src/toast.css"
+    "./toast.css": "./src/toast.css",
+    "./spring": "./src/spring.ts",
+    "./sheet-motion": "./src/sheet-motion.ts"
   },
   "peerDependencies": {
     "react": ">=18"
