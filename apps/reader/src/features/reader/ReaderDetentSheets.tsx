@@ -30,7 +30,7 @@ export const MEDIUM_DETENT = "min(55dvh, 100%)";
  * Reader tools, fits its tab, and does not dim, so the page stays in view
  * while it changes.
  */
-export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
+const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
   tools: { title: "Reader tools", stacks: false, dim: true },
   contents: {
     title: "Contents",

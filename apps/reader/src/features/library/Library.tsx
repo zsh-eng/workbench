@@ -35,7 +35,7 @@ import { getReadingFont } from "@/lib/reading-fonts";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, SlidersHorizontal } from "lucide-react";
+import { Lightbulb, Plus, SlidersHorizontal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
@@ -45,7 +45,7 @@ import {
   useState,
   type DragEvent,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { BookRow, BookTile, ReadingShelf, ShelfBook } from "./LibraryBooks";
 import {
   LIBRARY_FILTERS,
@@ -372,6 +372,19 @@ export function Library() {
     </DropdownMenu>
   );
 
+  // Debug mode: straight to the newest Design ideas. It goes first, so the
+  // other controls keep their places.
+  const designIdeas = debugEnabled && (
+    <Link
+      to="/debug/ideas"
+      aria-label="Design ideas"
+      title="Design ideas"
+      className={APP_HEADER_BUTTON}
+    >
+      <Lightbulb className="size-4" strokeWidth={1.6} />
+    </Link>
+  );
+
   const bookProps = (book: Book) => ({
     book,
     status: data?.statuses.get(book.id) ?? null,
@@ -404,6 +417,7 @@ export function Library() {
           <>
             <LibraryActivity place="header" />
             <div className="flex items-center gap-0.5 max-md:hidden">
+              {designIdeas}
               {addBooks(false)}
               {viewMenu}
             </div>
@@ -506,6 +520,7 @@ export function Library() {
                 {shown.length} {shown.length === 1 ? "book" : "books"}
               </span>
               <div className="flex shrink-0 items-center md:hidden">
+                {designIdeas}
                 <LibraryActivity place="row" />
                 {addBooks(true)}
                 {viewMenu}

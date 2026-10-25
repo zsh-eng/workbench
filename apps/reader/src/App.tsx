@@ -271,6 +271,15 @@ function App() {
                         </DebugPage>
                       }
                     />
+                    {/* Design ideas on the newest topic, from the Library. */}
+                    <Route
+                      path="/debug/ideas"
+                      element={
+                        <DebugPage>
+                          <DesignIdeasPage />
+                        </DebugPage>
+                      }
+                    />
                     <Route
                       path="/debug/ideas/dark-colours"
                       element={

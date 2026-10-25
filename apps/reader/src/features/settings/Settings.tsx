@@ -2,17 +2,12 @@ import { Card } from "@/components/ui/card";
 import { BackToLibrary } from "@/components/ui/back-to-library";
 import { Switch } from "@/components/ui/switch";
 import { setDebugEnabled, useDebugEnabled } from "@/lib/debug-preference";
-import {
-  setDetentSheetsEnabled,
-  useDetentSheetsEnabled,
-} from "@/lib/detent-sheets-preference";
-import { Bug, PanelBottom } from "lucide-react";
+import { Bug } from "lucide-react";
 import { Link } from "react-router-dom";
 
 /** Application preferences use the same compact page layout as Devices. */
 export function Settings() {
   const debugEnabled = useDebugEnabled();
-  const detentSheets = useDetentSheetsEnabled();
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-4 pt-16 pb-6 md:px-6 md:py-10">
@@ -61,34 +56,6 @@ export function Settings() {
                 onCheckedChange={setDebugEnabled}
               />
             </div>
-            {debugEnabled && (
-              <div className="flex items-center gap-4 border-t border-border/60 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-                  <PanelBottom className="h-5 w-5" aria-hidden="true" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <label
-                    htmlFor="detent-sheets"
-                    className="font-medium text-foreground text-sm"
-                  >
-                    Detent sheets
-                  </label>
-                  <p
-                    id="detent-sheets-description"
-                    className="text-xs text-muted-foreground mt-0.5"
-                  >
-                    The Reader's phone sheets rest on detents and stack. Turn
-                    off for the fixed-height sheets.
-                  </p>
-                </div>
-                <Switch
-                  id="detent-sheets"
-                  aria-describedby="detent-sheets-description"
-                  checked={detentSheets}
-                  onCheckedChange={setDetentSheetsEnabled}
-                />
-              </div>
-            )}
           </Card>
           {debugEnabled && (
             <Link

@@ -43,7 +43,6 @@ import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
 import { useSelectAcross } from "./scroll/use-select-across";
-import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { isReadingFontId } from "@/lib/reading-fonts";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
 
@@ -68,7 +67,6 @@ export function Reader() {
   const pageTurnerRef = useRef<PageTurner | null>(null);
   const isMobile = useIsMobile();
   const { toast } = useToast();
-  const [notebookOpen, setNotebookOpen] = useState(false);
   const [noteComposerPresent, setNoteComposerPresent] = useState(false);
   const [noteDraftPresent, setNoteDraftPresent] = useState(false);
   const [commentPosition, setCommentPosition] = useState({ top: 112, page: 1 });
@@ -87,7 +85,6 @@ export function Reader() {
 
   const { state: chromeState, actions: chromeActions } =
     useReaderChromeState(isMobile);
-  const detentSheets = useDetentSheetsEnabled();
   const { chromeInteractionMode } = useInputBehavior();
   useReaderPerformanceTraceRoute(bookId);
 
@@ -344,7 +341,6 @@ export function Reader() {
       isCreatingHighlight ||
       activeHighlightData ||
       noteViewportHeight !== null ||
-      notebookOpen ||
       noteComposerPresent ||
       chromeState.activeReaderSheet === "notes",
     );
@@ -753,15 +749,10 @@ export function Reader() {
                         sessionState.pagination.status !== "ready"
                       }
                       onJot={() => handleNotesActive(true)}
-                      onOpenNotebook={() => {
-                        // The same Notebook as Reader tools → Notebook.
-                        if (detentSheets) {
-                          chromeActions.openReaderSheet("notes");
-                          return;
-                        }
-                        handleNotesActive(true);
-                        setNotebookOpen(true);
-                      }}
+                      // The same Notebook as Reader tools → Notebook.
+                      onOpenNotebook={() =>
+                        chromeActions.openReaderSheet("notes")
+                      }
                     />
                   )
                 }
@@ -855,22 +846,9 @@ export function Reader() {
                         sessionState.navigation.currentPage,
                       chapter: currentChapterEntry?.title ?? "Current chapter",
                     }}
-                    notebook={
-                      isMobile
-                        ? notebookOpen ||
-                          chromeState.activeReaderSheet === "notes"
-                        : chromeState.activeReaderSheet === "notes"
-                    }
+                    notebook={chromeState.activeReaderSheet === "notes"}
                     setNotebook={(nextOpen) => {
-                      if (isMobile) {
-                        setNotebookOpen(nextOpen);
-                        if (
-                          !nextOpen &&
-                          chromeState.activeReaderSheet === "notes"
-                        )
-                          chromeActions.closeReaderSheet();
-                      } else if (nextOpen)
-                        chromeActions.openReaderSheet("notes");
+                      if (nextOpen) chromeActions.openReaderSheet("notes");
                       else if (chromeState.activeReaderSheet === "notes")
                         chromeActions.closeReaderSheet();
                     }}
