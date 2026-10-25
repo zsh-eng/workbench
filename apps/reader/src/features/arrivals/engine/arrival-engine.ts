@@ -127,10 +127,7 @@ interface View {
 
 type Presenter = OffscreenCanvas | HTMLCanvasElement;
 
-const reducedMotionQuery =
-  typeof window === "undefined"
-    ? null
-    : window.matchMedia("(prefers-reduced-motion: reduce)");
+let reducedMotionQuery: MediaQueryList | null | undefined;
 
 /** Whether arrivals may draw with WebGL here, before anything is created. */
 export function arrivalEngineSupported(): boolean {
@@ -642,6 +639,10 @@ function readPaper(slot: HTMLElement): [number, number, number] {
 }
 
 export function prefersReducedMotion(): boolean {
+  reducedMotionQuery ??=
+    typeof window === "undefined"
+      ? null
+      : window.matchMedia("(prefers-reduced-motion: reduce)");
   return reducedMotionQuery?.matches ?? false;
 }
 

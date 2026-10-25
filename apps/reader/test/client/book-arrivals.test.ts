@@ -1,4 +1,9 @@
-import type { Arrival } from "@/features/arrivals/arrival-store";
+import {
+  ArrivalProvider,
+  type Arrival,
+} from "@/features/arrivals/arrival-store";
+import { useArrivalGrid } from "@/features/arrivals/ArrivalTile";
+import { ArrivingCover } from "@/features/arrivals/ArrivingCover";
 import {
   ArrivalRecords,
   BOOK_IMPORT_KIND,
@@ -109,7 +114,6 @@ function importBatch(names: string[], fake: ReturnType<typeof fakeImport>) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  vi.resetModules();
 });
 
 describe("a batch of arriving books", () => {
@@ -161,10 +165,7 @@ describe("a batch of arriving books", () => {
 });
 
 describe("the covers grid while books arrive", () => {
-  async function grid(records: ArrivalRecords, shown: Book[], hold = true) {
-    const { ArrivalProvider } =
-      await import("@/features/arrivals/arrival-store");
-    const { useArrivalGrid } = await import("@/features/arrivals/ArrivalTile");
+  function grid(records: ArrivalRecords, shown: Book[], hold = true) {
     const manager = createActivityManager({ kinds: {} });
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(
@@ -190,7 +191,7 @@ describe("the covers grid while books arrive", () => {
     const second = book("two", 3);
     records.ready(keys[1]!, second);
 
-    const { result } = await grid(records, [second, older]);
+    const { result } = grid(records, [second, older]);
 
     expect(describeItems(result.current)).toEqual([
       keys[0],
@@ -205,12 +206,13 @@ describe("the covers grid while books arrive", () => {
     records.start(["one.epub"]);
     const older = book("older", 1);
 
-    const { result } = await grid(records, [older], false);
+    const { result } = grid(records, [older], false);
 
     expect(describeItems(result.current)).toEqual(["older"]);
   });
 });
 
+// The engine reads the media query the first time it is asked, here.
 describe("reduced motion", () => {
   it("never draws an arriving cover: the paper gives way to the cover once it is ready", async () => {
     vi.stubGlobal(
@@ -223,7 +225,6 @@ describe("reduced motion", () => {
           removeEventListener: () => {},
         }) as unknown as MediaQueryList,
     );
-    const { ArrivingCover } = await import("@/features/arrivals/ArrivingCover");
     const onSettled = vi.fn();
     const arrival = (stage: "preparing" | "ready"): Arrival => ({
       key: "import:1:0",
