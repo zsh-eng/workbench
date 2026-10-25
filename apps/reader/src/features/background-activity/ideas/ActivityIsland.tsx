@@ -1,10 +1,6 @@
 import { EASE_OUT, MOTION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import {
-  formatProgress,
-  jobFraction,
-  type Job,
-} from "@workbench/background-activity";
+import { jobFraction, type Job } from "@workbench/background-activity";
 import { useActivitySummary } from "@workbench/background-activity/react";
 import { RotateCcw } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -199,29 +195,27 @@ export function ActivityIsland({
         className={waiting ? "opacity-50" : undefined}
       />
     );
-    label =
-      active.length === 1 ? (
-        <>
-          <span className="font-medium">{active[0]!.title}</span>
-          <span className="text-white/60">
-            {" "}
-            · {waiting ? "waiting" : (formatProgress(active[0]!) ?? "")}
-          </span>
-        </>
+    // A count that changes every tick keeps a fixed width, so the island
+    // does not change shape while you watch it.
+    const percent =
+      fraction !== null ? (
+        <span className="inline-block w-[4ch] text-right">
+          {Math.round(fraction * 100)}%
+        </span>
       ) : (
-        <>
-          <span className="font-medium">{active.length} books</span>
-          <span className="text-white/60">
-            {" "}
-            ·{" "}
-            {waiting
-              ? "waiting for a connection"
-              : fraction !== null
-                ? `${Math.round(fraction * 100)}%`
-                : "downloading"}
-          </span>
-        </>
+        "downloading"
       );
+    label = (
+      <>
+        <span className="font-medium">
+          {active.length === 1 ? active[0]!.title : `${active.length} books`}
+        </span>
+        <span className="text-white/60">
+          {" "}
+          · {waiting ? "waiting for a connection" : percent}
+        </span>
+      </>
+    );
   } else if (restoring) {
     key = "restoring";
     mark = <ProgressRing fraction={null} size={18} />;
@@ -230,7 +224,11 @@ export function ActivityIsland({
         Restoring your library
         <span className="text-white/60">
           {" "}
-          · {world.arrived?.length ?? 0} books
+          ·{" "}
+          <span className="inline-block w-[2ch] text-right">
+            {world.arrived?.length ?? 0}
+          </span>{" "}
+          books
         </span>
       </>
     );

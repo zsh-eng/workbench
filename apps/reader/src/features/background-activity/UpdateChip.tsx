@@ -15,7 +15,17 @@ const shownFor = new Set<number>();
  * a ring while it restarts, and "Updated" with a check for two seconds
  * after the reload.
  */
-export function UpdateChip({ className }: { className?: string }) {
+export function UpdateChip({
+  className,
+  floating = false,
+}: {
+  className?: string;
+  /**
+   * A phone's header has no room: the chip floats at the bottom of the
+   * Library instead, the page's one floating surface.
+   */
+  floating?: boolean;
+}) {
   const { update: store, restart } = useActivityEnvironment();
   const update = useUpdateState();
   const [showUpdated, setShowUpdated] = useState(false);
@@ -40,7 +50,7 @@ export function UpdateChip({ className }: { className?: string }) {
           ? "updated"
           : null;
 
-  return (
+  const chip = (
     <AnimatePresence initial={false}>
       {phase && (
         <motion.button
@@ -48,17 +58,25 @@ export function UpdateChip({ className }: { className?: string }) {
           type="button"
           disabled={phase !== "ready"}
           onClick={restart}
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1, transition: MOTION.enter }}
-          exit={{ opacity: 0, scale: 0.96, transition: MOTION.exit }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: MOTION.enter }}
+          exit={{
+            opacity: 0,
+            scale: 0.96,
+            y: floating ? 6 : 0,
+            transition: MOTION.exit,
+          }}
           aria-live="polite"
           title={
             phase === "ready"
               ? "A new version is ready. Restart now, or it switches the next time you come back."
               : undefined
           }
+          initial={{ opacity: 0, scale: 0.96, y: floating ? 8 : 0 }}
           className={[
-            "flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.06] pr-3 pl-2 text-[13px] text-foreground outline-none transition-colors duration-150 hover:bg-foreground/[0.09] focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
+            "flex shrink-0 items-center gap-1.5 rounded-full text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
+            floating
+              ? "pointer-events-auto h-11 bg-[oklch(0.18_0.01_260)] pr-4 pl-3 text-white shadow-[0_18px_40px_-16px_rgb(0_0_0/0.55)]"
+              : "h-8 bg-foreground/[0.06] pr-3 pl-2 text-foreground hover:bg-foreground/[0.09]",
             className,
           ]
             .filter(Boolean)
@@ -84,5 +102,11 @@ export function UpdateChip({ className }: { className?: string }) {
         </motion.button>
       )}
     </AnimatePresence>
+  );
+  if (!floating) return chip;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-40 flex justify-center px-4">
+      {chip}
+    </div>
   );
 }

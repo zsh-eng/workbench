@@ -14,22 +14,43 @@ import {
 } from "@/lib/debug-switch";
 import { files } from "@/lib/files";
 import { CloudDownload } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { ActivityGlyph } from "./ActivityGlyph";
 import { CoverActivity } from "./CoverActivity";
 import { UpdateChip } from "./UpdateChip";
 
 /**
- * The Library header's background parts, each behind its Debug switch: the
- * update chip (Calm updates) and the activity glyph (Offline downloads).
+ * The Library's background parts, each behind its Debug switch: the update
+ * chip (Calm updates) and the activity glyph (Offline downloads). With room,
+ * both sit in the header. A phone's header is full with the places, so the
+ * glyph joins Sort and layout in the filter row, where Download all starts,
+ * and the chip floats at the bottom of the page.
  */
-export function LibraryActivity() {
+export function LibraryActivity({ place }: { place: "header" | "row" }) {
   const calm = useDebugSwitch(calmUpdates);
   const downloads = useDebugSwitch(offlineDownloads);
+  const phone = usePhoneLayout();
+  if (place === "row") return downloads && phone ? <ActivityGlyph /> : null;
+  if (phone) return calm ? <UpdateChip floating /> : null;
   return (
     <>
       {calm && <UpdateChip className="mr-1" />}
       {downloads && <ActivityGlyph />}
     </>
+  );
+}
+
+const PHONE_QUERY = "(max-width: 767px)";
+
+/** The phone layout, from the first render, so one chip mounts, not two. */
+function usePhoneLayout(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia(PHONE_QUERY);
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(PHONE_QUERY).matches,
   );
 }
 

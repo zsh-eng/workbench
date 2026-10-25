@@ -7,6 +7,8 @@ test.use({ viewport: { width: 390, height: 844 } });
 test("the island takes downloads, the update and a failure in turn", async ({
   page,
 }) => {
+  // Simulated downloads take a few seconds each, as they do on a phone.
+  test.setTimeout(90_000);
   await page.goto("/debug/ideas/background?idea=island");
   const scenarios = page.getByRole("group", { name: "Scenarios" });
   const island = page.locator("[data-activity-island]");

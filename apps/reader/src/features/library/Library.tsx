@@ -387,7 +387,7 @@ export function Library() {
         onSubmit={openFirstMatch}
         actions={
           <>
-            <LibraryActivity />
+            <LibraryActivity place="header" />
             <div className="flex items-center gap-0.5 max-md:hidden">
               {addBooks(false)}
               {viewMenu}
@@ -491,6 +491,7 @@ export function Library() {
                 {shown.length} {shown.length === 1 ? "book" : "books"}
               </span>
               <div className="flex shrink-0 items-center md:hidden">
+                <LibraryActivity place="row" />
                 {addBooks(true)}
                 {viewMenu}
               </div>
