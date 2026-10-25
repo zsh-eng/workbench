@@ -205,7 +205,7 @@ export function ArticleMenu({
  * A phone's article menu: a sheet that names the article, with rows a thumb
  * can reach. It keeps its article while it closes.
  */
-export function ActionSheet({
+function ActionSheet({
   article,
   onClose,
   onRemoved,
