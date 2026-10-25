@@ -350,7 +350,7 @@ Notetaking flow
 
 - [x] Create, edit, and delete notes from the Reader notebook, including notes
       attached to selected text. The old composer-wiring task is complete.
-      Source: `ReaderNotesPrototype.tsx`, `NotebookNote.tsx`, and
+      Source: `ReaderNotes.tsx`, `NotebookNote.tsx`, and
       `use-reader-annotations.ts`; regression coverage: `reader-notes.spec.ts`
       and the note storage/draft tests.
 - [x] Direct swipe navigation for previous and next spreads is implemented in

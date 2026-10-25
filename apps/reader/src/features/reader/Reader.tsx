@@ -22,7 +22,7 @@ import type {
   ResolvedLeafPage,
   ResolvedSpread,
 } from "@/lib/pagination-v2";
-import { ReaderNotesPrototype } from "./ReaderNotesPrototype";
+import { ReaderNotes } from "./ReaderNotes";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
 import { ReaderSheetHost } from "./ReaderSheetHost";
@@ -967,7 +967,7 @@ export function Reader() {
               {displayReady && (
                 <>
                   {selectAcross.overlay}
-                  <ReaderNotesPrototype
+                  <ReaderNotes
                     key={bookId}
                     bookId={bookId}
                     mobileAnnotation={
@@ -1168,7 +1168,7 @@ export function Reader() {
                         }
                       />
                     )}
-                  </ReaderNotesPrototype>
+                  </ReaderNotes>
 
                   {!isMobile && (
                     <HighlightToolbarContainer

@@ -65,7 +65,7 @@ interface Location {
   chapter: string;
 }
 /** Book-scoped notebook UI; durable capture is owned by useReaderNotes. */
-export function ReaderNotesPrototype({
+export function ReaderNotes({
   bookId,
   chapters,
   chapterAccess,

@@ -1,12 +1,12 @@
 import { useState, type ReactNode, type RefObject } from "react";
 import type { Book, TOCItem } from "@/lib/db";
 import type { ReaderSettings } from "@/types/reader.types";
-import { ReaderContentsPanel } from "./ReaderContentsSheet";
+import { ReaderContentsPanel } from "./ReaderContentsPanel";
 import { ReaderBookActionsSheet } from "./ReaderBookActionsSheet";
 import {
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
-} from "./ReaderSettingsSheet";
+} from "./ReaderSettingsPanel";
 import { ReaderDetentSheets } from "./ReaderDetentSheets";
 import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { ReaderControlMenu } from "./ReaderControlMenu";
