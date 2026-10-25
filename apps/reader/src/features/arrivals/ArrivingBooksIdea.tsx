@@ -187,7 +187,7 @@ function useDemo(
 ) {
   const [demo, setDemo] = useState<ArrivalDemo | null>(null);
   useEffect(() => {
-    const created = createArrivalDemo(scenario, assets);
+    const created = createArrivalDemo(scenario, assets, look !== "today");
     setDemo(created);
     return () => created.dispose();
   }, [assets, look, run, scenario]);

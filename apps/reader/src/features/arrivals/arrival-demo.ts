@@ -205,6 +205,8 @@ let nextDemo = 1;
 export function createArrivalDemo(
   scenario: ScenarioId,
   assets: Map<string, SceneAssets>,
+  /** Confirm when the covers rest, as arrivals do; today confirms at once. */
+  waitForRest = true,
 ): ArrivalDemo {
   const files = SCENARIO_FILES[scenario];
   const records = new ArrivalRecords();
@@ -292,7 +294,7 @@ export function createArrivalDemo(
   const finished = Promise.allSettled(
     keys.map((key) => records.outcome(key)),
   ).then(async (results) => {
-    await records.rested(batch, 4000);
+    if (waitForRest) await records.rested(batch, 4000);
     records.end(batch);
     return {
       added: results.filter((result) => result.status === "fulfilled").length,
