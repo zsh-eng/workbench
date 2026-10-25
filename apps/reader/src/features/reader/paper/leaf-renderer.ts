@@ -64,6 +64,7 @@ varying vec2 vPage;
 varying float vAlong;
 varying vec3 vNormal;
 varying float vHeight;
+varying float vGround;
 
 void strip(float s, out vec2 point, out vec2 tangent) {
   if (s <= 0.0) {
@@ -110,6 +111,7 @@ void main() {
   vAlong = along;
   vNormal = vec3(-uDir * tangent.y, tangent.x);
   vHeight = world.z;
+  vGround = point.x;
 }
 `;
 
@@ -117,6 +119,10 @@ const LEAF_FRAGMENT = `
 precision highp float;
 uniform sampler2D uPage;
 uniform sampler2D uGrain;
+uniform sampler2D uShade;
+uniform vec2 uRange;
+uniform float uStrength;
+uniform float uFill;
 uniform vec2 uTexel;
 uniform vec3 uPaper;
 uniform vec3 uInk;
@@ -130,6 +136,7 @@ varying vec2 vPage;
 varying float vAlong;
 varying vec3 vNormal;
 varying float vHeight;
+varying float vGround;
 const vec3 KEY = vec3(${KEY.map((value) => value.toFixed(5)).join(", ")});
 const vec3 WARM = ${WARM};
 
@@ -156,19 +163,37 @@ float light(vec3 normal) {
   return 0.7 * (sky + bounce) + 0.3 * max(dot(normal, KEY), 0.0) / KEY.z;
 }
 
+/**
+ * The room light the lifted leaf hides from a point on it near the stack:
+ * as the shade below works it out at the lift line, so the leaf leaves the
+ * live page in the same light, fading as the leaf rises into the open.
+ */
+vec3 hidden() {
+  // Just short of the lift line: the ground beyond it lies under the leaf.
+  float span = uRange.y - uRange.x;
+  float ground = min(vGround, uLift - 1.5 * span / ${SHADE_SAMPLES}.0);
+  float at = clamp((ground - uRange.x) / span, 0.0, 1.0);
+  vec2 shade = texture2D(uShade, vec2(at, 0.5)).rg;
+  float blocked = clamp((0.7 * shade.r + 0.3 * shade.g) * uStrength, 0.0, 0.95);
+  float near = 1.0 - smoothstep(0.0, 24.0, vHeight);
+  return mix(vec3(1.0), vec3(1.0 - blocked) + blocked * uFill * WARM, near);
+}
+
 void main() {
   if (vAlong < uLift - 0.5) discard;
   vec3 normal = normalize(vNormal);
   bool front = normal.z >= 0.0;
   vec3 seen = front ? normal : -normal;
   // Light reaching the far side comes through the sheet, once the leaf is
-  // high enough for light to get under it.
+  // high enough for light to get under it. A face is never lit brighter
+  // than the page lying flat, which would read as a different paper.
   float open = smoothstep(1.5, 40.0, vHeight);
-  float lit = light(seen);
+  float lit = min(light(seen), 1.0);
   float through = light(-seen) * open * uTransmit;
   vec3 colour;
   if (front) {
-    colour = texture2D(uPage, vUv).rgb * (lit + through * WARM);
+    vec3 gain = min(vec3(lit) + through * WARM, vec3(1.0));
+    colour = texture2D(uPage, vUv).rgb * gain * hidden();
   } else {
     vec2 spread = uTexel * 3.0;
     float behind = (ink(vUv) * 0.2
@@ -180,8 +205,8 @@ void main() {
       vec4 grain = texture2D(uGrain, fract(vPage / uGrainTile));
       sheet = mix(sheet, grain.rgb, grain.a);
     }
-    colour = sheet * lit * (1.0 - 0.035 * behind)
-      + sheet * through * WARM * (1.0 - 0.95 * behind);
+    colour = (sheet * lit * (1.0 - 0.035 * behind)
+      + sheet * through * WARM * (1.0 - 0.95 * behind)) * hidden();
   }
   gl_FragColor = vec4(colour, 1.0);
 }
@@ -238,6 +263,10 @@ const LEAF_UNIFORMS = [
   "uTransmit",
   "uGrainTile",
   "uHasGrain",
+  "uShade",
+  "uRange",
+  "uStrength",
+  "uFill",
 ] as const;
 const SHADE_UNIFORMS = [
   "uSize",
@@ -335,6 +364,26 @@ export function leafGeometry(
     shade[sample * 4] = Math.round(Math.min(1, Math.max(0, sky)) * 255);
     shade[sample * 4 + 1] = Math.round(key * 255);
     shade[sample * 4 + 3] = 255;
+  }
+  // The ground the leaf covers is never seen, but the texture blends into
+  // it: bridge it, so no dark line shows at the lift line.
+  let reach = lift;
+  for (let index = first; index <= LEAF_NODES; index++) {
+    reach = Math.max(reach, nodes[index * 2]!);
+  }
+  const step = (shadeTo - shadeFrom) / SHADE_SAMPLES;
+  const before = Math.floor((lift - shadeFrom) / step - 0.5);
+  const after = Math.ceil((reach - shadeFrom) / step - 0.5);
+  if (before >= 0 && after < SHADE_SAMPLES && after - before > 1) {
+    for (let sample = before + 1; sample < after; sample++) {
+      const t = (sample - before) / (after - before);
+      for (const channel of [0, 1]) {
+        shade[sample * 4 + channel] = Math.round(
+          shade[before * 4 + channel]! * (1 - t) +
+            shade[after * 4 + channel]! * t,
+        );
+      }
+    }
   }
   return {
     nodes,
@@ -579,8 +628,10 @@ export class LeafRenderer {
     gl.uniform2f(shade.uDir, geometry.dirX, geometry.dirY);
     gl.uniform2f(shade.uRange, geometry.shadeFrom, geometry.shadeTo);
     gl.uniform3f(shade.uPaper, ...look.paper);
-    gl.uniform1f(shade.uStrength, look.dark ? 1.1 : 0.6);
-    gl.uniform1f(shade.uFill, look.dark ? 0.08 : 0.2);
+    const strength = look.dark ? 1.1 : 0.6;
+    const fill = look.dark ? 0.08 : 0.2;
+    gl.uniform1f(shade.uStrength, strength);
+    gl.uniform1f(shade.uFill, fill);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -613,6 +664,12 @@ export class LeafRenderer {
     gl.uniform1f(leaf.uTransmit, look.dark ? 0.06 : 0.12);
     gl.uniform1f(leaf.uGrainTile, this.grainTile || 1);
     gl.uniform1f(leaf.uHasGrain, this.grainTile ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.shadeTexture);
+    gl.uniform1i(leaf.uShade, 2);
+    gl.uniform2f(leaf.uRange, geometry.shadeFrom, geometry.shadeTo);
+    gl.uniform1f(leaf.uStrength, strength);
+    gl.uniform1f(leaf.uFill, fill);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.gridBuffer);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
