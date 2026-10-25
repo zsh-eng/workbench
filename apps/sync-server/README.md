@@ -69,7 +69,9 @@ bun run build:sync-server
 ```
 
 Service tests exercise real Better Auth, D1, and R2 with namespace, user, file,
-epoch, CORS, and logout checks. The browser test uses both real app adapters and a fresh browser context to
+epoch, CORS, and logout checks. One test signs up; the others sign in an
+account with a migrated PBKDF2 password (`test/accounts.ts`), because a
+sign-up's scrypt hash takes seconds in workerd. The browser test uses both real app adapters and a fresh browser context to
 check shared sign-in, separate restore, EPUB/image downloads, an offline Spaced
 edit followed by sync, and repeated file deletion.
 

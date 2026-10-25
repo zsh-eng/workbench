@@ -15,6 +15,10 @@ bun run test:spaced2
 bun run build:spaced2
 ```
 
+Tests: `bun run test:spaced2` (Bun with happy-dom, about 6 s). The phone
+tab-bar check runs Vite in Chromium:
+`SPACED_BROWSER_PORT=<port> bun run --cwd apps/spaced2 test:browser`.
+
 The UI uses port 5180 and the local API uses port 8791. App-local environment
 files and Wrangler state stay in this directory and out of Git. Production
 remains `https://spaced2.zsheng.app`; `bun run deploy:spaced2` is an explicit

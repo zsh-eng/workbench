@@ -164,8 +164,9 @@ separate and remains in the application in this release.
 
 ## Development
 
-Run `bun run build` in this package to emit `dist`. Run `bun run test` after
-building; tests import the public package entry points. The tests use Node.js
+Tests: `bun run build && bun run test` in this package (tests import the
+public entry points in `dist`). The schemas use `zod/mini`, so an app bundles
+only the checks it uses; `protocol.ts` loads zod's English messages. The tests use Node.js
 with `node:sqlite` support. Reader also runs the server
 adapter in Cloudflare's D1 test runtime. Run `bun run build:packages` from the
 Reader root after a package edit when a development server is already running.

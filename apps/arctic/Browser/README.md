@@ -25,12 +25,16 @@ bun run --cwd apps/arctic/Browser scripts/local-library.ts <email> <password>
 
 This writes only to the local API. Checks:
 
-- `bun run build:arctic-browser` type-checks and builds.
-- `bun run test:arctic-browser` runs the Playwright tests in `tests/` against
-  the real app and a local API with a fresh database. A test acts as the phone
-  through the API and checks the records that the phone receives.
-  `E2E_PORT`, `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move the app, the API and
-  its inspector, so two worktrees can run the tests at once.
+- Tests: `bun run test:arctic-browser`.
+- `bun run build:arctic-browser` type-checks and builds;
+  `bun run --cwd apps/arctic/Browser lint` lints.
+- The Playwright tests in `tests/` run in parallel against the real app and a
+  local API with a fresh database; each test signs up its own account. A test
+  acts as the phone through the API and checks the records that the phone
+  receives. `tests/offline.spec.ts` runs against a production build, because
+  only that registers the service worker. `E2E_PORT`, `E2E_PREVIEW_PORT`,
+  `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move the app, the production build,
+  the API and its inspector, so two worktrees can run the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
   `scripts/copies.ts` uses.
 
@@ -223,7 +227,7 @@ sheet is, so a half-height sheet spent the first part of that scroll below the
 screen. Arctic starts the scroll with the sheet's top at the bottom edge, so it
 moves from the first frame. On a production build in a phone-sized window with
 a 4× CPU slowdown, a sheet now shows 53–67 ms after the tap (82–211 ms before),
-and More comes to rest in 293 ms (503 ms). The sheet code (72 kB, 23 kB gzip)
+and More comes to rest in 293 ms (503 ms). The sheet code (81 kB, 27 kB gzip)
 is a separate chunk that a phone loads just after the first page appears; the
 service worker keeps it, so a sheet opens offline. When the code cannot load,
 a toast says so, and the next tap tries again.
@@ -292,7 +296,7 @@ prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
 before). The first cards of any folder paint 14–36 ms after the click, and
 Back from the reader takes 56 ms.
 
-The first load is 687 kB of JavaScript (221 kB gzip): React, React Router,
-Base UI menus, popovers and tooltips, DOMPurify, zod (through local-sync) and
-the app. The sheet (72 kB, 23 kB gzip) and Defuddle (309 kB, 87 kB gzip, only
-to extract a page) load separately.
+The first load is 645 kB of JavaScript (211 kB gzip): React, React Router,
+Base UI menus, popovers and tooltips, DOMPurify, zod/mini (through local-sync)
+and the app. The sheet (81 kB, 27 kB gzip) and Defuddle (309 kB, 87 kB gzip,
+only to extract a page) load separately.
