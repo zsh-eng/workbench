@@ -497,7 +497,10 @@ export class LeafRenderer {
     if (canvas.height !== bufferHeight) canvas.height = bufferHeight;
     this.width = width;
     this.height = height;
-    const rows = Math.max(8, Math.round((COLUMNS * height) / Math.max(1, width)));
+    const rows = Math.max(
+      8,
+      Math.round((COLUMNS * height) / Math.max(1, width)),
+    );
     if (rows === this.gridRows) return;
     this.gridRows = rows;
     this.buildGrid(COLUMNS, rows);

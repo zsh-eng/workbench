@@ -34,8 +34,7 @@ const HAND_ROLL = 0.25;
  */
 const EDGE_LEAD = 1.6;
 /** Where the edge lies once a page has turned: a little short of flat. */
-const TURNED_CREASE =
-  (0.1 * LEAF_WIDTH - Math.PI * HAND_ROLL * LEAF_WIDTH) / 2;
+const TURNED_CREASE = (0.1 * LEAF_WIDTH - Math.PI * HAND_ROLL * LEAF_WIDTH) / 2;
 /** A backward turn lays the page down faster than the finger moves. */
 const BACKWARD_GAIN = 1.5;
 /**
@@ -253,8 +252,11 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     turn.canTurn = target !== null;
   });
 
-  /** Leans gravity away from the hilltop, whichever side the page is on. */
-  const lean = (turn: Turn) => {
+  /**
+   * Leans gravity away from the hilltop, whichever side the page is on;
+   * `leaf` may be a copy, to look ahead.
+   */
+  const lean = (turn: Turn, leaf: Leaf = turn.leaf) => {
     const forward = turn.page === "current";
     const hill = turn.canTurn
       ? forward
@@ -263,7 +265,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       : forward
         ? Math.PI
         : 0;
-    turn.leaf.tilt = LEAN * Math.tanh((turn.leaf.angle() - hill) / HILL_WIDTH);
+    leaf.tilt = LEAN * Math.tanh((leaf.angle() - hill) / HILL_WIDTH);
   };
 
   /** Starts a turn: the current page lifts, or the last one comes back. */
@@ -300,7 +302,10 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       const radius = HAND_ROLL * LEAF_WIDTH;
       const crease = forward
         ? creaseUnder(LEAF_WIDTH + EDGE_LEAD * distance * metres, radius)
-        : Math.min(LEAF_WIDTH, TURNED_CREASE + BACKWARD_GAIN * distance * metres);
+        : Math.min(
+            LEAF_WIDTH,
+            TURNED_CREASE + BACKWARD_GAIN * distance * metres,
+          );
       const [x, z, angle] = carriedEdge(crease, radius);
       turn.leaf.holdAt(LEAF_NODES, x, z + 0.0005, angle);
       const lean = Math.max(-1, Math.min(1, -rise / 240));
@@ -328,7 +333,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     const spin = (-FLICK_SPIN * speed) / width;
     const over = turn.page === "current" ? spin > 0 : spin < 0;
     if (turn.canTurn || !over) leaf.spin(spin);
-    const lands = leaf.predict();
+    const lands = leaf.predict((copy) => lean(turn, copy));
     const turns =
       turn.canTurn &&
       (turn.page === "current" ? lands === "left" : lands === "right");
@@ -459,8 +464,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       let best = Infinity;
       for (let index = 2; index <= LEAF_NODES; index++) {
         // The finger meets the topmost layer under it.
-        const score =
-          Math.abs(leaf.x[index]! - along) - leaf.z[index]! * 0.5;
+        const score = Math.abs(leaf.x[index]! - along) - leaf.z[index]! * 0.5;
         if (score < best) {
           best = score;
           node = index;
@@ -523,7 +527,11 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       };
     };
 
-    const lockFresh = (gesture: Gesture, deltaX: number, event: PointerEvent) => {
+    const lockFresh = (
+      gesture: Gesture,
+      deltaX: number,
+      event: PointerEvent,
+    ) => {
       gesture.axis = "locked";
       gesture.direction = deltaX < 0 ? "next" : "previous";
       const rect = container.getBoundingClientRect();
@@ -617,8 +625,10 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         Math.abs(event.clientX - gesture.startX) < SWIPE_DIRECTION_LOCK_PX;
       if (
         !tapped ||
-        getHorizontalTapZone(event.clientX, container.getBoundingClientRect()) !==
-          "center"
+        getHorizontalTapZone(
+          event.clientX,
+          container.getBoundingClientRect(),
+        ) !== "center"
       ) {
         event.preventDefault();
       }
@@ -657,7 +667,11 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       if (target === null) return false;
       const rect = measure();
       const turn = beginTurn(direction, holdY ?? rect.height * 0.6, 0);
-      turn.push = { direction, startedAt: performance.now(), width: rect.width };
+      turn.push = {
+        direction,
+        startedAt: performance.now(),
+        width: rect.width,
+      };
       notifyStart();
       setPhase("settling");
       ensureLoop();
@@ -694,4 +708,3 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     turn,
   };
 }
-

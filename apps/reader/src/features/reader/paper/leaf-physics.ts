@@ -309,10 +309,7 @@ export class Leaf {
   maxSpeed(): number {
     let fastest = 0;
     for (let index = 1; index <= LEAF_NODES; index++) {
-      fastest = Math.max(
-        fastest,
-        Math.hypot(this.vx[index]!, this.vz[index]!),
-      );
+      fastest = Math.max(fastest, Math.hypot(this.vx[index]!, this.vz[index]!));
     }
     return fastest;
   }
@@ -361,13 +358,15 @@ export class Leaf {
 
   /**
    * Where the leaf will come down if nothing touches it, found by running
-   * a copy forward.
+   * a copy forward; `lean` sets the copy's tilt each step, as the caller's
+   * gravity would.
    */
-  predict(): LeafSide {
+  predict(lean?: (leaf: Leaf) => void): LeafSide {
     const copy = new Leaf("right");
     copy.copyFrom(this);
     copy.release();
     for (let elapsed = 0; elapsed < 1.2; elapsed += 1 / 30) {
+      lean?.(copy);
       copy.advance(1 / 30);
       if (copy.reach() <= 0) return "left";
       if (copy.landedRight()) return "right";
