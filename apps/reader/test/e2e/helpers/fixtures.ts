@@ -1,128 +1,40 @@
 import {
   test as base,
   expect,
-  type BrowserContext,
   type Frame,
   type Locator,
   type Page,
 } from "@playwright/test";
-import { fileURLToPath } from "node:url";
-import type { SyncPushChange, SyncRecord } from "@zsh-eng/local-sync";
+import { readFile } from "node:fs/promises";
+import {
+  DATABASE_MODULE,
+  preparedLibraryPath,
+  SAMPLE_EPUB_PATH,
+  type PreparedLibrary,
+} from "./global-setup";
+import { mockApi, type MockApi } from "./mock-api";
 
-export const SAMPLE_EPUB_PATH = fileURLToPath(
-  new URL("../../fixtures/sample.epub", import.meta.url),
-);
+export { SAMPLE_EPUB_PATH };
 export const SAMPLE_BOOK_TITLE = /Alice.*Adventures.*Wonderland/i;
-const DATABASE_MODULE = "/src/lib/sync-v2/db.ts";
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 
-type PreparedLibrary = Record<string, Record<string, unknown>[]>;
+let preparedLibrary: Promise<PreparedLibrary> | undefined;
 
-/** A local, deterministic remote for UI tests. Protocol conflicts belong in integration tests. */
-async function mockApi(context: BrowserContext, signedIn = false) {
-  const records: SyncRecord[] = [];
-  const pushed: SyncPushChange[] = [];
-  const unexpected: string[] = [];
-  await context.route("**/api/**", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const path = url.pathname;
-    if (path === "/api/auth/get-session") {
-      const now = new Date().toISOString();
-      await route.fulfill({
-        json: signedIn
-          ? {
-              user: {
-                id: "test-user",
-                name: "Test Reader",
-                email: "reader@example.test",
-                emailVerified: true,
-                createdAt: now,
-                updatedAt: now,
-              },
-              session: {
-                id: "test-session",
-                userId: "test-user",
-                token: "local-test",
-                expiresAt: new Date(Date.now() + 3600000).toISOString(),
-                createdAt: now,
-                updatedAt: now,
-              },
-            }
-          : null,
-      });
-      return;
-    }
-    if (path === "/api/sync/v2/pull") {
-      const cursor = Number(url.searchParams.get("cursor"));
-      const head = url.searchParams.has("head")
-        ? Number(url.searchParams.get("head"))
-        : records.length;
-      await route.fulfill({
-        json: {
-          records: records.filter(
-            (record) =>
-              record.serverSeq > cursor &&
-              record.serverSeq <= head &&
-              (url.searchParams.get("excludeOwnDevice") !== "true" ||
-                record.deviceId !== request.headers()["x-device-id"]),
-          ),
-          cursor: head,
-          head,
-          hasMore: false,
-        },
-      });
-      return;
-    }
-    if (path === "/api/sync/v2/push") {
-      const { changes } = request.postDataJSON() as {
-        changes: SyncPushChange[];
-      };
-      pushed.push(...changes);
-      await route.fulfill({
-        json: {
-          results: changes.map((change) => {
-            const winner = {
-              ...change,
-              deviceId: request.headers()["x-device-id"],
-              serverSeq: records.length + 1,
-            };
-            records.push(winner);
-            return { accepted: true, winner };
-          }),
-        },
-      });
-      return;
-    }
-    unexpected.push(`${request.method()} ${path}`);
-    await route.fulfill({
-      status: 501,
-      json: { error: "Unexpected test API request" },
-    });
-  });
-  return {
-    pushed,
-    unexpected,
-    enqueue(change: SyncPushChange) {
-      records.push({
-        ...change,
-        deviceId: "remote-test-device",
-        serverSeq: records.length + 1,
-      });
-    },
-  };
+/** The rows the global setup imported once, through the real importer. */
+function loadPreparedLibrary(baseURL: string): Promise<PreparedLibrary> {
+  preparedLibrary ??= readFile(preparedLibraryPath(baseURL), "utf8").then(
+    (text) => JSON.parse(text) as PreparedLibrary,
+  );
+  return preparedLibrary;
 }
 
 /** Each test gets a fresh context. Only immutable imported data is shared between workers' tests. */
-export const test = base.extend<
-  {
-    signedIn: boolean;
-    remote: Awaited<ReturnType<typeof mockApi>>;
-    addSampleBook: () => Promise<void>;
-    localBook: { id: string };
-  },
-  { preparedLibrary: PreparedLibrary }
->({
+export const test = base.extend<{
+  signedIn: boolean;
+  remote: MockApi;
+  addSampleBook: () => Promise<void>;
+  localBook: { id: string };
+}>({
   signedIn: [false, { option: true }],
   remote: [
     async ({ context, signedIn }, use) => {
@@ -133,62 +45,8 @@ export const test = base.extend<
     { auto: true },
   ],
   addSampleBook: async ({ page }, use) => use(() => importSampleBook(page)),
-  preparedLibrary: [
-    async ({ browser }, use, workerInfo) => {
-      const context = await browser.newContext({ serviceWorkers: "block" });
-      let snapshot: PreparedLibrary;
-      try {
-        const remote = await mockApi(context);
-        const page = await context.newPage();
-        await page.goto(workerInfo.project.use.baseURL!);
-        // The first worker also loads Vite's cold application module graph.
-        // Wait for the actual Library control before starting the import flow.
-        await expect(
-          page.getByRole("button", { name: "Choose EPUB files", exact: true }),
-        ).toBeVisible({ timeout: 15_000 });
-        await importSampleBook(page);
-        // Blobs need an explicit encoding when crossing the Playwright boundary.
-        // Keep the stored rows, including their schema, generated by the real importer.
-        snapshot = await page.evaluate(async (modulePath) => {
-          const { syncV2Db: db } = await import(modulePath);
-          const tables = [
-            "books",
-            "files",
-            "bookFiles",
-            "bookMaterializations",
-          ];
-          return Object.fromEntries(
-            await Promise.all(
-              tables.map(async (table) => {
-                const rows = await db.table(table).toArray();
-                for (const row of rows) {
-                  for (const [key, value] of Object.entries(row)) {
-                    if (!(value instanceof Blob)) continue;
-                    const dataUrl = await new Promise<string>(
-                      (resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result as string);
-                        reader.onerror = () => reject(reader.error);
-                        reader.readAsDataURL(value);
-                      },
-                    );
-                    row[key] = { blobDataUrl: dataUrl };
-                  }
-                }
-                return [table, rows];
-              }),
-            ),
-          );
-        }, DATABASE_MODULE);
-        expect(remote.unexpected).toEqual([]);
-      } finally {
-        await context.close();
-      }
-      await use(snapshot);
-    },
-    { scope: "worker" },
-  ],
-  localBook: async ({ page, preparedLibrary }, use) => {
+  localBook: async ({ page, baseURL }, use) => {
+    const preparedLibrary = await loadPreparedLibrary(baseURL!);
     await page.goto("/");
     await page.evaluate(
       async ({ snapshot, modulePath }) => {
@@ -242,8 +100,6 @@ export async function importSampleBook(page: Page): Promise<void> {
     name: "Choose EPUB files",
     exact: true,
   });
-  // A test's first page can also load Vite's cold application module graph.
-  await expect(importButton).toBeVisible({ timeout: 15_000 });
   const [fileChooser] = await Promise.all([
     page.waitForEvent("filechooser"),
     importButton.click(),
@@ -304,9 +160,14 @@ export async function openLocalBook(page: Page, bookId: string): Promise<void> {
  * until then a tap meets a moving target and keys still go to the page. The
  * fixed-height sheet needs no wait.
  */
-export async function waitForSheet(page: Page, name: string): Promise<Locator> {
+export async function waitForSheet(
+  page: Page,
+  name: string,
+  { timeout }: { timeout?: number } = {},
+): Promise<Locator> {
   const dialog = page.getByRole("dialog", { name, exact: true });
-  await expect(dialog).toBeVisible();
+  // A Debug page loads on demand, which takes a while the first time.
+  await expect(dialog).toBeVisible({ timeout });
   await expect
     .poll(() =>
       dialog.evaluate((element) => {
@@ -355,12 +216,129 @@ export async function waitForSheetToRest(sheet: Locator): Promise<void> {
     .toBe(true);
 }
 
+/** What a sheet did while `recordSheetMotion` watched it. */
+export interface SheetMotion {
+  /** Each state its height went through (`data-sheet-fit-state`). */
+  states: string[];
+  /** Its top edge in every frame. */
+  tops: number[];
+  /** Its top edge in every frame of each hold. */
+  holds: number[][];
+}
+
+/**
+ * Records from now on what a sheet's height does and where its top edge
+ * is in every frame. Returns a function that reads the record.
+ */
+export async function recordSheetMotion(
+  sheet: Locator,
+): Promise<() => Promise<SheetMotion>> {
+  await sheet.evaluate((element) => {
+    const surface = element.closest<HTMLElement>(".reader-sheet") ?? element;
+    const fit = surface.querySelector<HTMLElement>("[data-sheet-fit]");
+    const record: SheetMotion = { states: [], tops: [], holds: [] };
+    (window as { __sheetMotion?: SheetMotion }).__sheetMotion = record;
+    if (fit)
+      new MutationObserver(() => {
+        const state = fit.dataset.sheetFitState!;
+        if (record.states.at(-1) === state) return;
+        record.states.push(state);
+        if (state === "held") record.holds.push([]);
+      }).observe(fit, { attributeFilter: ["data-sheet-fit-state"] });
+    const sample = () => {
+      const top = surface.getBoundingClientRect().top;
+      record.tops.push(top);
+      if (fit?.dataset.sheetFitState === "held") record.holds.at(-1)?.push(top);
+      if (surface.isConnected) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  return () =>
+    sheet
+      .page()
+      .evaluate(
+        () => (window as { __sheetMotion?: SheetMotion }).__sheetMotion!,
+      );
+}
+
 /** Opens Reader tools from the phone header once it shows, and waits for them. */
 export async function openReaderTools(page: Page): Promise<Locator> {
   await page
     .getByRole("button", { name: "Open reader tools", exact: true })
     .click();
   return waitForSheet(page, "Reader tools");
+}
+
+/**
+ * Opens one of the phone's Reader tools, such as Appearance or Notebook,
+ * and returns its sheet once it has come in. The header must show.
+ */
+export async function openReaderTool(
+  page: Page,
+  button: string | RegExp,
+  sheet: string,
+): Promise<Locator> {
+  const tools = await openReaderTools(page);
+  await tools
+    .getByRole("button", { name: button, exact: typeof button === "string" })
+    .click();
+  return waitForSheet(page, sheet);
+}
+
+/**
+ * Closes a phone sheet as a reader does: a tap on the dimmed page above
+ * it. The detent Notebook has no close button of its own.
+ */
+export async function closeSheet(page: Page, sheet: Locator): Promise<void> {
+  const top = await sheet.evaluate(
+    (element) =>
+      (element.closest(".reader-sheet") ?? element).getBoundingClientRect().top,
+  );
+  await page.touchscreen.tap(195, Math.max(8, top / 2));
+  await expect(sheet).not.toBeVisible();
+}
+
+/**
+ * Selects the first `length` characters of the `index`-th text run on the
+ * current spread that is long enough and clear of the header, then
+ * releases the pointer, which is when the Reader reads a selection.
+ */
+export async function selectPassage(
+  page: Page,
+  { index = 0, length = 20 }: { index?: number; length?: number } = {},
+): Promise<string> {
+  const text = await page.evaluate(
+    ({ index, length, spread }) => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const root = document.querySelector(spread)!;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let found = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        range.selectNodeContents(node);
+        if (
+          (node.textContent?.trim().length ?? 0) < length ||
+          range.getBoundingClientRect().top < 120 ||
+          found++ !== index
+        )
+          continue;
+        range.setStart(node, 0);
+        range.setEnd(node, length);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        return range.toString();
+      }
+      throw new Error("No sample passage");
+    },
+    { index, length, spread: CURRENT_SPREAD },
+  );
+  await expect
+    .poll(() => page.evaluate(() => getSelection()?.toString()))
+    .toBe(text);
+  await page.evaluate(() =>
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+  );
+  return text;
 }
 
 /** Shows the phone reading chrome, which carries the Notes Island capsule. */
