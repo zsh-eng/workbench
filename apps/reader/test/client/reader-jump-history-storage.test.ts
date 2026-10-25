@@ -14,6 +14,7 @@ const history: ReaderJumpHistory = {
     {
       kind: "normal",
       anchor: { type: "block", chapterIndex: 0, blockId: "A" },
+      exact: true,
     },
     {
       kind: "highlight",

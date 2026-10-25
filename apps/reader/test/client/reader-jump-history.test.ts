@@ -218,4 +218,25 @@ describe("Reader jump history", () => {
     );
     expect(history.getSnapshot().entries).toHaveLength(3);
   });
+
+  it("returns to a line from scroll mode as that line, and to a page as a page", () => {
+    const history = initial();
+    visit(history, "S", "search");
+    history.record(
+      anchor("Line"),
+      { kind: "linear", direction: "forward" },
+      true,
+    );
+    visit(history, "T", "search");
+    expect(history.getReturnTarget("back")?.intent).toEqual({
+      kind: "history",
+      targetIndex: 2,
+      exact: true,
+    });
+    travel(history, "back");
+    expect(history.getReturnTarget("back")?.intent).toEqual({
+      kind: "history",
+      targetIndex: 1,
+    });
+  });
 });

@@ -7,6 +7,12 @@ export type ReaderVisitKind =
 export interface ReaderVisit {
   kind: ReaderVisitKind;
   anchor: ContentAnchor;
+  /**
+   * The line at the top of a scroll view. A page's own anchor is a line
+   * from its middle, and a page opens at its top; this line opens where it
+   * is, even when it is a page's anchor.
+   */
+  exact?: true;
 }
 export interface ReaderJumpHistory {
   entries: ReaderVisit[];
@@ -31,6 +37,24 @@ export function sameReaderAnchor(a: ContentAnchor, b: ContentAnchor): boolean {
       a.offset.segmentIndex === b.offset.segmentIndex &&
       a.offset.graphemeIndex === b.offset.graphemeIndex)
   );
+}
+
+function visit(
+  kind: ReaderVisitKind,
+  anchor: ContentAnchor,
+  exact: boolean,
+): ReaderVisit {
+  return exact ? { kind, anchor, exact: true } : { kind, anchor };
+}
+
+/** The intent that returns to a visit. */
+export function historyIntent(
+  entry: ReaderVisit,
+  targetIndex: number,
+): Extract<SpreadIntent, { kind: "history" }> {
+  return entry.exact
+    ? { kind: "history", targetIndex, exact: true }
+    : { kind: "history", targetIndex };
 }
 
 /** Owns the active trail. Only confirmed locations enter history; previews and
@@ -59,11 +83,15 @@ export class ReaderJumpHistoryController {
     if (!entry) return null;
     return {
       anchor: entry.anchor,
-      intent: { kind: "history", targetIndex } as const,
+      intent: historyIntent(entry, targetIndex),
     };
   }
 
-  record = (anchor: ContentAnchor, intent: SpreadIntent): ReaderJumpHistory => {
+  record = (
+    anchor: ContentAnchor,
+    intent: SpreadIntent,
+    exact = false,
+  ): ReaderJumpHistory => {
     if (intent.kind === "preview") return this.state;
 
     if (intent.kind === "history") {
@@ -80,7 +108,7 @@ export class ReaderJumpHistoryController {
     const current = this.state.entries[this.state.cursor];
     if (!current) {
       const kind = intent.kind === "jump" ? intent.source : "normal";
-      this.state = { entries: [{ kind, anchor }], cursor: 0 };
+      this.state = { entries: [visit(kind, anchor, exact)], cursor: 0 };
       this.mergeKind = kind;
       return this.state;
     }
@@ -100,8 +128,8 @@ export class ReaderJumpHistoryController {
       current.kind === kind &&
       kind !== "internal-link" &&
       kind !== "handoff";
-    if (canMerge) entries[entries.length - 1] = { kind, anchor };
-    else entries.push({ kind, anchor });
+    if (canMerge) entries[entries.length - 1] = visit(kind, anchor, exact);
+    else entries.push(visit(kind, anchor, exact));
 
     const bounded = entries.slice(-READER_HISTORY_LIMIT);
     this.state = { entries: bounded, cursor: bounded.length - 1 };

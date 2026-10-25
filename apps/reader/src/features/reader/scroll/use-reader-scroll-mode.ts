@@ -524,10 +524,12 @@ export function useReaderScrollMode({
     const page = targetPage(spread, anchor);
     if (!page) return;
     const pageIndex = page.currentPageInChapter - 1;
-    // Settled against the column once it is the target chapter's.
+    // Settled against the column once it is the target chapter's. A visit
+    // that scroll mode recorded is a line, even on a page's own anchor.
+    const exact = spread.intent.kind === "history" && !!spread.intent.exact;
     const start: ScrollStageStart =
       anchor && anchor.chapterIndex === page.chapterIndex
-        ? { kind: "anchor", anchor }
+        ? { kind: "anchor", anchor, exact }
         : { kind: "page", pageIndex };
 
     if (page.chapterIndex === phase.chapterIndex && column) {
