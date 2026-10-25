@@ -35,6 +35,13 @@ export const identity = (url: string) =>
   createHash("sha256").update(url).digest("hex");
 export const swiftDate = (ms: number) => (ms - 978_307_200_000) / 1000;
 
+type PulledRecord = {
+  key: string;
+  value: string;
+  isDeleted: boolean;
+  deviceId: string;
+};
+
 /** Acts as the phone: pushes and pulls records through the shared API. */
 export function phone(request: APIRequestContext, namespace = "arctic") {
   let wallTimeMs = Date.now();
@@ -68,27 +75,34 @@ export function phone(request: APIRequestContext, namespace = "arctic") {
       );
       expect(response.ok()).toBeTruthy();
     },
+    /**
+     * The latest record of each key. A pull pages up to the head it read
+     * first, so a record that the app pushes meanwhile moves past that head
+     * and arrives in the next pull; pull until one returns nothing.
+     */
     async records() {
-      const response = await request.get(
-        `${API}/api/apps/${namespace}/sync/v3/pull?cursor=0&excludeOwnDevice=false&limit=500`,
-        {
-          headers: {
-            ...origin,
-            "X-Device-ID": "iphone",
-            "X-Sync-Scope": await scope(),
+      const latest = new Map<string, PulledRecord>();
+      for (let cursor = 0, pulls = 0; pulls < 20; pulls++) {
+        const response = await request.get(
+          `${API}/api/apps/${namespace}/sync/v3/pull?cursor=${cursor}&excludeOwnDevice=false&limit=500`,
+          {
+            headers: {
+              ...origin,
+              "X-Device-ID": "iphone",
+              "X-Sync-Scope": await scope(),
+            },
           },
-        },
-      );
-      expect(response.ok()).toBeTruthy();
-      const { records } = (await response.json()) as {
-        records: {
-          key: string;
-          value: string;
-          isDeleted: boolean;
-          deviceId: string;
-        }[];
-      };
-      return new Map(records.map((record) => [record.key, record]));
+        );
+        expect(response.ok()).toBeTruthy();
+        const page = (await response.json()) as {
+          records: PulledRecord[];
+          cursor: number;
+        };
+        for (const record of page.records) latest.set(record.key, record);
+        if (page.records.length === 0) break;
+        cursor = page.cursor;
+      }
+      return latest;
     },
   };
 }
