@@ -43,6 +43,11 @@ export interface PaperPreference {
   grain: PaperGrain;
   ink: PaperInk;
   grip: LeafGrip;
+  /**
+   * The book around the leaf: the unread leaves' fore-edges at the right,
+   * and the read leaves' stack shading the gutter.
+   */
+  bookBlock: boolean;
   /** The front's ink shows faintly through the back of a curling page. */
   showThrough: boolean;
   haptics: boolean;
@@ -54,6 +59,7 @@ export const PLAIN_PAPER: PaperPreference = {
   grain: "off",
   ink: "in",
   grip: "anywhere",
+  bookBlock: true,
   showThrough: true,
   haptics: true,
   sound: false,
@@ -70,6 +76,7 @@ function readPaperPreference(): PaperPreference {
       grain: isPaperGrain(saved.grain) ? saved.grain : PLAIN_PAPER.grain,
       ink: isPaperInk(saved.ink) ? saved.ink : PLAIN_PAPER.ink,
       grip: isLeafGrip(saved.grip) ? saved.grip : PLAIN_PAPER.grip,
+      bookBlock: saved.bookBlock !== false,
       showThrough: saved.showThrough !== false,
       haptics: saved.haptics !== false,
       sound: saved.sound === true,
@@ -120,8 +127,8 @@ export function usePaperPreference(): PaperPreference {
 
 /**
  * The paper the Reader shows. Design ideas pass `?turn=`, `?paper=`,
- * `?ink=`, `?grip=` and `?showThrough=` to preview an idea without saving
- * it.
+ * `?ink=`, `?grip=`, `?block=` and `?showThrough=` to preview an idea
+ * without saving it.
  */
 export function resolvePaper(
   debugEnabled: boolean,
@@ -133,6 +140,7 @@ export function resolvePaper(
   const grain = params.get("paper");
   const ink = params.get("ink");
   const grip = params.get("grip");
+  const block = params.get("block");
   const showThrough = params.get("showThrough");
   return {
     ...saved,
@@ -140,6 +148,8 @@ export function resolvePaper(
     grain: isPaperGrain(grain) ? grain : saved.grain,
     ink: isPaperInk(ink) ? ink : saved.ink,
     grip: isLeafGrip(grip) ? grip : saved.grip,
+    bookBlock:
+      block === "off" ? false : block === "on" ? true : saved.bookBlock,
     showThrough:
       showThrough === "off"
         ? false

@@ -496,3 +496,92 @@ mark {
 [data-ink-ready] [data-reader-page-slice] {
   -webkit-text-fill-color: transparent;
 }
+
+/* The book around the page (Debug curl; see paper/BookBlock.tsx). At the
+   fore-edge, the edges of the leaves still to read, seen a little from the
+   side: fine lines in the paper's colour, the top leaf's edge darkest. In
+   the gutter, the shade the stack of read leaves casts from the window. */
+.reader-book-fore-edge,
+.reader-book-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.reader-book-fore-edge {
+  right: 0;
+  width: var(--fore-edge);
+  background-color: color-mix(
+    in oklab,
+    var(--background) 91%,
+    var(--foreground)
+  );
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--foreground) 26%, transparent) 0 0.5px,
+      transparent 0.5px
+    ),
+    linear-gradient(
+      to right,
+      transparent 30%,
+      color-mix(in oklab, var(--foreground) 7%, transparent)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0 0.67px,
+      color-mix(in oklab, var(--foreground) 9%, transparent) 0.67px 1px
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0 1.67px,
+      color-mix(in oklab, var(--background) 70%, transparent) 1.67px 2px
+    );
+}
+
+:root:is(.dark, .night, .flexoki-dark) .reader-book-fore-edge {
+  background-color: color-mix(
+    in oklab,
+    var(--background) 92%,
+    var(--foreground)
+  );
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--foreground) 16%, transparent) 0 0.5px,
+      transparent 0.5px
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0 0.67px,
+      color-mix(in oklab, var(--foreground) 6%, transparent) 0.67px 1px
+    );
+}
+
+.reader-book-gutter {
+  left: 0;
+  width: var(--gutter-width);
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--foreground) var(--gutter-depth), transparent),
+    color-mix(
+        in oklab,
+        var(--foreground) calc(var(--gutter-depth) * 0.35),
+        transparent
+      )
+      35%,
+    transparent
+  );
+  mix-blend-mode: multiply;
+}
+
+:root:is(.dark, .night, .flexoki-dark) .reader-book-gutter {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklab, black var(--gutter-depth), transparent),
+    transparent
+  );
+  mix-blend-mode: normal;
+}

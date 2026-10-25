@@ -741,6 +741,7 @@ export function Reader() {
                         paper={paper.grain}
                         ink={paper.ink}
                         grip={paper.grip}
+                        bookBlock={paper.bookBlock}
                         showThrough={paper.showThrough}
                         haptics={paper.haptics}
                         sound={paper.sound}
