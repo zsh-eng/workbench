@@ -442,3 +442,56 @@ mark {
   box-shadow: inset 0 0 96px
     color-mix(in oklab, var(--foreground) 6%, transparent);
 }
+
+/* Ink in the paper: the grain lies over the text, multiplied on light
+   paper, and the ink thins where it meets the tooth, in the paper's own
+   colour (lighten leaves bare paper as it is). Dark pages keep the grain
+   as it was: multiplying light fibres would hide them. */
+.reader-paper-tooth {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in oklab, var(--background) 34%, transparent);
+  mix-blend-mode: lighten;
+  -webkit-mask-image: var(--paper-grain);
+  mask-image: var(--paper-grain);
+  -webkit-mask-size: var(--paper-tile) var(--paper-tile);
+  mask-size: var(--paper-tile) var(--paper-tile);
+  -webkit-mask-position: 37px 91px;
+  mask-position: 37px 91px;
+}
+
+[data-ink="in"] .reader-paper-grain,
+[data-ink="in"] .reader-paper-tooth {
+  z-index: 1;
+}
+
+[data-ink="in"] .reader-paper-tooth {
+  display: block;
+}
+
+:root:not(:is(.dark, .night, .flexoki-dark))
+  [data-ink="in"]
+  .reader-paper-grain {
+  mix-blend-mode: multiply;
+}
+
+/* The WebGL ink (see paper/PaperInk.tsx): once drawn, it stands in for
+   the live text, which keeps its place for selection and links. */
+.reader-ink-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.reader-ink-canvas:not([data-ready]) {
+  visibility: hidden;
+}
+
+[data-ink-ready] [data-reader-page-slice] {
+  -webkit-text-fill-color: transparent;
+}

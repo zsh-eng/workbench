@@ -21,6 +21,7 @@ import {
 } from "./paper-grain";
 import {
   DARK_THEMES,
+  pageRasterOptions,
   pixelRatio,
   rasterKey,
   themeName,
@@ -107,23 +108,9 @@ export function useLeafCurl(options: UseLeafCurlOptions): void {
     return next;
   });
 
-  const rasterOptions = useEffectEvent((layer: HTMLElement) => {
-    const grainLayer = layer.querySelector<HTMLElement>(".reader-paper-grain");
-    const vignette = layer.querySelector<HTMLElement>(".reader-paper-vignette");
-    const tile = grainRef.current;
-    return {
-      pixelRatio: pixelRatio(),
-      grain:
-        tile && grainLayer
-          ? { ...tile, colour: getComputedStyle(grainLayer).backgroundColor }
-          : null,
-      vignette: vignette
-        ? (/(rgba?\([^)]*\)|oklch\([^)]*\)|color\([^)]*\))/.exec(
-            getComputedStyle(vignette).boxShadow,
-          )?.[0] ?? null)
-        : null,
-    };
-  });
+  const rasterOptions = useEffectEvent((layer: HTMLElement) =>
+    pageRasterOptions(layer, grainRef.current),
+  );
 
   /** Makes sure the renderer holds this layer's raster; returns its key. */
   const ensureRaster = useEffectEvent(
@@ -146,7 +133,8 @@ export function useLeafCurl(options: UseLeafCurlOptions): void {
       const current = layers.current.current;
       if (previous) {
         previous.style.zIndex = state.previous ? "2" : "0";
-        previous.style.clipPath = state.previous === "all" ? "" : state.previous;
+        previous.style.clipPath =
+          state.previous === "all" ? "" : state.previous;
       }
       if (current) current.style.clipPath = state.current;
       const canvas = canvasRef.current;
@@ -167,7 +155,9 @@ export function useLeafCurl(options: UseLeafCurlOptions): void {
     }
     const renderer = rendererRef.current;
     const turning =
-      view.page === "current" ? layers.current.current : layers.previous.current;
+      view.page === "current"
+        ? layers.current.current
+        : layers.previous.current;
     const contentKey = view.page === "current" ? keys.current : keys.previous;
     if (!renderer || !turning || !contentKey) {
       return show({ previous: "", current: "", canvas: false });

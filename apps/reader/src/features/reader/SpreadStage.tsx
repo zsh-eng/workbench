@@ -29,7 +29,7 @@ import {
   type SwipeDirection,
 } from "./hooks/use-spread-swipe-navigation";
 import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
-import type { PageTurnStyle } from "./paper/paper-preference";
+import type { PageTurnStyle, PaperInk } from "./paper/paper-preference";
 import { useLeafCurl } from "./paper/use-leaf-curl";
 import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
 import { usePageFeel } from "./paper/use-page-feel";
@@ -64,6 +64,8 @@ interface SpreadStageProps {
    */
   pageTurn?: PageTurnStyle;
   paper?: PaperGrain;
+  /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
+  ink?: PaperInk;
   showThrough?: boolean;
   haptics?: boolean;
   sound?: boolean;
@@ -105,6 +107,7 @@ export function SpreadStage({
   paddingRightPx,
   pageTurn = "slide",
   paper = "off",
+  ink = "on",
   showThrough = true,
   haptics = false,
   sound = false,
@@ -264,6 +267,7 @@ export function SpreadStage({
     paddingLeftPx,
     paddingRightPx,
     paper,
+    ink,
   };
 
   const handlePageContentClick: MouseEventHandler<HTMLDivElement> = (event) => {
@@ -298,6 +302,7 @@ export function SpreadStage({
         onClick={handlePageContentClick}
         data-page-turn={leaf ? "curl" : curl ? "curl-v1" : "slide"}
         data-paper={paper}
+        data-ink={paper === "off" ? undefined : ink}
         className="relative h-full w-full overflow-hidden"
         style={
           {

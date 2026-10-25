@@ -17,6 +17,7 @@ import {
   cssColourToRgb,
   rasterizePage,
   type PageRasterGrain,
+  type PageRasterOptions,
 } from "./page-raster";
 import {
   loadPaperGrainImage,
@@ -98,6 +99,44 @@ function hash(text: string): string {
  * Identifies one raster: the page, plus what changes its pixels without
  * changing its text (theme, size, type, highlights, paper).
  */
+/** Whether App.css lays the grain over this layer's text. */
+function inkInPaper(layer: HTMLElement): boolean {
+  const tooth = layer.querySelector<HTMLElement>(".reader-paper-tooth");
+  return Boolean(tooth && getComputedStyle(tooth).display !== "none");
+}
+
+/** How to raster a layer: its grain, vignette and ink, as App.css shows them. */
+export function pageRasterOptions(
+  layer: HTMLElement,
+  tile: PageRasterGrain | null,
+): PageRasterOptions {
+  const grainLayer = layer.querySelector<HTMLElement>(".reader-paper-grain");
+  const vignette = layer.querySelector<HTMLElement>(".reader-paper-vignette");
+  const tooth = layer.querySelector<HTMLElement>(".reader-paper-tooth");
+  return {
+    pixelRatio: pixelRatio(),
+    grain:
+      tile && grainLayer
+        ? { ...tile, colour: getComputedStyle(grainLayer).backgroundColor }
+        : null,
+    vignette: vignette
+      ? (/(rgba?\([^)]*\)|oklch\([^)]*\)|color\([^)]*\))/.exec(
+          getComputedStyle(vignette).boxShadow,
+        )?.[0] ?? null)
+      : null,
+    inkInPaper:
+      grainLayer && tooth && inkInPaper(layer)
+        ? {
+            blend:
+              getComputedStyle(grainLayer).mixBlendMode === "multiply"
+                ? "multiply"
+                : "source-over",
+            tooth: getComputedStyle(tooth).backgroundColor,
+          }
+        : undefined,
+  };
+}
+
 export function rasterKey(
   layer: HTMLElement,
   contentKey: string,
@@ -118,6 +157,11 @@ export function rasterKey(
     themeName(),
     `${layer.offsetWidth}x${layer.offsetHeight}@${pixelRatio()}`,
     grain,
+    layer.querySelector(".reader-ink-canvas[data-ready]")
+      ? "gl"
+      : inkInPaper(layer)
+        ? "in"
+        : "on",
     layer.querySelectorAll("[data-reader-page-slice]").length,
     hash(type + marks),
   ].join("|");
@@ -181,23 +225,9 @@ export function usePageCurl(options: UsePageCurlOptions): void {
     return next;
   });
 
-  const rasterOptions = useEffectEvent((layer: HTMLElement) => {
-    const grainLayer = layer.querySelector<HTMLElement>(".reader-paper-grain");
-    const vignette = layer.querySelector<HTMLElement>(".reader-paper-vignette");
-    const tile = grainRef.current;
-    return {
-      pixelRatio: pixelRatio(),
-      grain:
-        tile && grainLayer
-          ? { ...tile, colour: getComputedStyle(grainLayer).backgroundColor }
-          : null,
-      vignette: vignette
-        ? (/(rgba?\([^)]*\)|oklch\([^)]*\)|color\([^)]*\))/.exec(
-            getComputedStyle(vignette).boxShadow,
-          )?.[0] ?? null)
-        : null,
-    };
-  });
+  const rasterOptions = useEffectEvent((layer: HTMLElement) =>
+    pageRasterOptions(layer, grainRef.current),
+  );
 
   /** Makes sure the renderer holds this layer's raster; returns its key. */
   const ensureRaster = useEffectEvent(

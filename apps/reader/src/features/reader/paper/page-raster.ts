@@ -24,10 +24,22 @@ export interface PageRasterOptions {
   pixelRatio: number;
   grain: PageRasterGrain | null;
   vignette: string | null;
+  /**
+   * Ink in the paper: the grain is drawn over the text with this blend, and
+   * the ink thinned on the tooth in `tooth`'s colour, as App.css does.
+   */
+  inkInPaper?: { blend: GlobalCompositeOperation; tooth: string | null };
+  /** Only the text, on a clear canvas, for the WebGL ink to soak in. */
+  inkOnly?: boolean;
 }
 
 const TRANSPARENT = /^(transparent|rgba\(0, 0, 0, 0\)|rgba\(0,0,0,0\))$/;
-const SKIPPED = ".reader-paper-grain, .reader-paper-vignette";
+const SKIPPED =
+  ".reader-paper-grain, .reader-paper-vignette, .reader-paper-tooth, .reader-ink-canvas";
+/** A page whose ink WebGL has drawn: its canvas stands in for its text. */
+const INKED = ":scope > .reader-ink-canvas[data-ready]";
+/** Where App.css puts the tooth's mask, so it does not sit on the grain. */
+const TOOTH_OFFSET = [37, 91] as const;
 
 function isTransparent(colour: string): boolean {
   return !colour || TRANSPARENT.test(colour.trim());
@@ -97,11 +109,14 @@ function tintedGrainPattern(
   context: CanvasRenderingContext2D,
   grain: PageRasterGrain,
   pixelRatio: number,
+  offset: readonly [number, number] = [0, 0],
 ): CanvasPattern | null {
   const tile = tintedGrainTile(grain, pixelRatio);
   if (!tile) return null;
   const pattern = context.createPattern(tile, "repeat");
-  pattern?.setTransform(new DOMMatrix().scale(1 / pixelRatio));
+  pattern?.setTransform(
+    new DOMMatrix().translate(offset[0], offset[1]).scale(1 / pixelRatio),
+  );
   return pattern;
 }
 
@@ -236,9 +251,15 @@ export function rasterizePage(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width * pixelRatio));
   canvas.height = Math.max(1, Math.round(height * pixelRatio));
-  const context = canvas.getContext("2d", { alpha: false });
+  const { inkOnly = false } = options;
+  const context = canvas.getContext("2d", { alpha: inkOnly });
   if (!context) return canvas;
   context.scale(pixelRatio, pixelRatio);
+  const inked = inkOnly
+    ? null
+    : (layer.querySelector<HTMLCanvasElement>(INKED) ??
+      layer.firstElementChild?.querySelector<HTMLCanvasElement>(INKED) ??
+      null);
 
   // The page's own paper: the layer or the spread inside it.
   const paperElements = new Set<Element>();
@@ -249,19 +270,22 @@ export function rasterizePage(
     paper = getComputedStyle(spread).backgroundColor;
     paperElements.add(spread);
   }
-  context.fillStyle = isTransparent(paper)
-    ? getComputedStyle(document.body).backgroundColor
-    : paper;
-  context.fillRect(0, 0, width, height);
+  if (!inkOnly) {
+    context.fillStyle = isTransparent(paper)
+      ? getComputedStyle(document.body).backgroundColor
+      : paper;
+    context.fillRect(0, 0, width, height);
+  }
 
-  if (options.grain) {
+  const { inkInPaper } = options;
+  if (options.grain && !inkInPaper && !inkOnly) {
     const pattern = tintedGrainPattern(context, options.grain, pixelRatio);
     if (pattern) {
       context.fillStyle = pattern;
       context.fillRect(0, 0, width, height);
     }
   }
-  if (options.vignette) {
+  if (options.vignette && !inkOnly) {
     const gradient = context.createRadialGradient(
       width / 2,
       height / 2,
@@ -308,7 +332,7 @@ export function rasterizePage(
       (rect.height - (font.ascent + font.descent)) / 2 +
       font.ascent;
     context.fillText(text, rect.left - origin.left, baseline);
-    if (!style.textDecorationLine.includes("underline")) return;
+    if (inkOnly || !style.textDecorationLine.includes("underline")) return;
     const thickness = Math.max(1, px(style.textDecorationThickness) || 1);
     const offset = px(style.textUnderlineOffset) || px(style.fontSize) * 0.12;
     const colour = style.textDecorationColor;
@@ -326,7 +350,7 @@ export function rasterizePage(
 
   const drawText = (node: Text) => {
     const text = node.data;
-    if (!text.trim()) return;
+    if (!text.trim() || inked) return;
     const parent = node.parentElement;
     if (!parent) return;
     let style = parentStyles.get(parent);
@@ -379,6 +403,7 @@ export function rasterizePage(
       continue;
     }
     if (!(node instanceof HTMLElement) || paperElements.has(node)) continue;
+    if (inkOnly) continue;
     const style = getComputedStyle(node);
     if (style.display === "none") {
       // Skip the subtree by stepping past its last descendant.
@@ -425,6 +450,40 @@ export function rasterizePage(
     }
   }
   range.detach();
+
+  if (inked) {
+    const box = inked.getBoundingClientRect();
+    context.drawImage(
+      inked,
+      box.left - origin.left,
+      box.top - origin.top,
+      box.width,
+      box.height,
+    );
+  }
+  if (options.grain && inkInPaper && !inkOnly) {
+    const grain = tintedGrainPattern(context, options.grain, pixelRatio);
+    const tooth = inkInPaper.tooth
+      ? tintedGrainPattern(
+          context,
+          { ...options.grain, colour: inkInPaper.tooth },
+          pixelRatio,
+          TOOTH_OFFSET,
+        )
+      : null;
+    context.save();
+    if (tooth) {
+      context.globalCompositeOperation = "lighten";
+      context.fillStyle = tooth;
+      context.fillRect(0, 0, width, height);
+    }
+    if (grain) {
+      context.globalCompositeOperation = inkInPaper.blend;
+      context.fillStyle = grain;
+      context.fillRect(0, 0, width, height);
+    }
+    context.restore();
+  }
   return canvas;
 }
 

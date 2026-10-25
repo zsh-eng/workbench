@@ -7,6 +7,7 @@ import { useId } from "react";
 import { isPaperGrain } from "./paper-grain";
 import {
   isPageTurnStyle,
+  isPaperInk,
   setPaperPreference,
   usePaperPreference,
   type PaperPreference,
@@ -94,6 +95,29 @@ export function PaperRow() {
           Laid
         </SegmentedToggleGroupItem>
       </SegmentedToggleGroup>
+      {paper.grain !== "off" && (
+        <>
+          <h4 className={labelClassName}>Ink</h4>
+          <SegmentedToggleGroup
+            aria-label="Ink"
+            value={paper.ink}
+            onValueChange={(next) => {
+              if (isPaperInk(next)) update({ ink: next });
+            }}
+            className="flex w-full rounded-full bg-secondary/40 p-1"
+          >
+            <SegmentedToggleGroupItem value="on" className={itemClassName}>
+              On paper
+            </SegmentedToggleGroupItem>
+            <SegmentedToggleGroupItem value="in" className={itemClassName}>
+              In paper
+            </SegmentedToggleGroupItem>
+            <SegmentedToggleGroupItem value="gl" className={itemClassName}>
+              WebGL
+            </SegmentedToggleGroupItem>
+          </SegmentedToggleGroup>
+        </>
+      )}
       {paper.pageTurn !== "slide" && (
         <div className="space-y-3 rounded-[1.25rem] border border-border/50 bg-secondary/20 px-3 py-3">
           <Toggle
