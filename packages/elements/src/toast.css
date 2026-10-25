@@ -13,7 +13,9 @@
  * A toast opens out of a pill at its centre, as the Dynamic Island does,
  * and its words fade in once there is room. An app that animates the toast
  * element itself adds `wb-toast-open` to its own animation list (Arctic).
- * `wb-toast-close` folds it back, for an app's exit.
+ * `wb-toast-close` folds it back, for an app's exit. A toast that takes in
+ * a new message (`data-again`) keeps its shape; only the new words fade in.
+ * Done, the countdown's place draws a check and Undo fades, keeping its room.
  */
 
 @property --wb-countdown-left {
@@ -257,6 +259,49 @@
 .wb-toast > * {
   animation: wb-toast-words 220ms 90ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
 }
+/* The toast is already open: new words and the check come in at once. */
+.wb-toast[data-again] > * {
+  animation-delay: 0ms;
+}
+
+/* Undone: a check draws where the countdown was, and Undo steps back. */
+.wb-toast-done {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+.wb-toast-done svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+}
+.wb-toast-done path {
+  stroke-dasharray: 1;
+  animation: wb-toast-check 0.3s 0.05s cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+@keyframes wb-toast-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.wb-toast[data-done] .wb-toast-action {
+  visibility: hidden;
+  opacity: 0;
+  cursor: default;
+  transition:
+    opacity 0.15s ease-in,
+    visibility 0s 0.15s;
+}
 @keyframes wb-toast-words {
   from {
     opacity: 0;
@@ -269,7 +314,8 @@
     animation: none;
   }
   /* A cross-fade: nothing changes shape or moves. */
-  .wb-toast {
+  .wb-toast,
+  .wb-toast-done path {
     animation: none;
   }
   @keyframes wb-toast-close {

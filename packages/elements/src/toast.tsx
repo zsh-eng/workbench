@@ -14,12 +14,22 @@ export type UndoOffer = {
   onDone?: () => void;
   seconds?: number;
   label?: string;
+  /**
+   * Counts the changes the toast has taken in. A new round starts the
+   * countdown again, as when a second deletion joins the first.
+   */
+  round?: number;
 };
 
 export type ToastProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   message: ReactNode;
   /** Offers Undo with a countdown, after Telegram's undo bar. */
   undo?: UndoOffer;
+  /**
+   * The change was undone. The countdown becomes a check and Undo goes, in
+   * the same toast: render the toast that offered Undo again with `done`.
+   */
+  done?: boolean;
 };
 
 /**
@@ -27,25 +37,72 @@ export type ToastProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
  * toast is the surface only: each app places it, moves it in and out, and
  * colours it with the custom properties in `toast.css`. Import that file once.
  *
+ * A toast keeps its identity. One subject is one toast for its whole life:
+ * the app renders the same element with a new message (and a new
+ * `undo.round`, or `done`) instead of showing another toast, and only the
+ * words change.
+ *
  * Pointing at the toast or focusing it holds the countdown, and so does a
  * hidden page. The component uses no hooks, so an app with another copy of
  * React can render it.
  */
-export function Toast({ message, undo, className, ...props }: ToastProps) {
+export function Toast({
+  message,
+  undo,
+  done,
+  className,
+  ...props
+}: ToastProps) {
   return (
     <div
       {...props}
       className={className ? `wb-toast ${className}` : "wb-toast"}
-      data-undo={undo ? "" : undefined}
+      data-undo={undo || done ? "" : undefined}
+      data-done={done ? "" : undefined}
+      data-again={undo?.round || done ? "" : undefined}
     >
-      {undo && <UndoCountdown seconds={undo.seconds} onDone={undo.onDone} />}
-      <span className="wb-toast-message">{message}</span>
+      {done ? (
+        <DoneMark />
+      ) : (
+        undo && (
+          <UndoCountdown
+            key={undo.round ?? 0}
+            seconds={undo.seconds}
+            onDone={undo.onDone}
+          />
+        )
+      )}
+      {/* New words come in as a new line; the toast around them stays. */}
+      <span
+        key={typeof message === "string" ? message : undefined}
+        className="wb-toast-message"
+      >
+        {message}
+      </span>
       {undo && (
-        <button type="button" className="wb-toast-action" onClick={undo.onUndo}>
+        <button
+          type="button"
+          className="wb-toast-action"
+          // Done, the button keeps its room so the toast keeps its shape.
+          disabled={done}
+          aria-hidden={done || undefined}
+          onClick={done ? undefined : undo.onUndo}
+        >
           <span>{undo.label ?? "Undo"}</span>
         </button>
       )}
     </div>
+  );
+}
+
+/** The check that takes the countdown's place once the change is undone. */
+function DoneMark() {
+  return (
+    <span aria-hidden="true" className="wb-toast-done">
+      <svg viewBox="0 0 24 24">
+        <path d="M6.5 12.5 10.5 16.5 17.5 8" pathLength={1} />
+      </svg>
+    </span>
   );
 }
 
