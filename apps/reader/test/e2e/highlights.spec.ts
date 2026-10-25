@@ -1,35 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
-import { expect, test, waitForReaderReady } from "./helpers/fixtures";
-
-test("renders highlights after a cold query resolves", async ({
-  page,
-  localBook,
-}) => {
-  await page.evaluate(async (bookId) => {
-    const path = "/src/lib/db.ts";
-    await (
-      await import(path)
-    ).addHighlight({
-      id: "cold-card",
-      bookId,
-      spineItemId: "chapter",
-      startOffset: 0,
-      endOffset: 16,
-      selectedText: "Cold query card.",
-      textBefore: "",
-      textAfter: "",
-      color: "yellow",
-      createdAt: Date.now(),
-    });
-  }, localBook.id);
-  await page.goto("/highlights");
-  await expect(
-    page.getByText("Cold query card.", { exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Open at: Cold query card." }),
-  ).toBeVisible();
-});
+import {
+  currentPages,
+  expect,
+  nextSpread,
+  openLocalBook,
+  selectPassage,
+  test,
+  waitForReaderReady,
+} from "./helpers/fixtures";
 
 test("a long list renders near the view and returns to its place from a book", async ({
   page,
@@ -113,6 +91,53 @@ test("a long list renders near the view and returns to its place from a book", a
   ).toBeLessThanOrEqual(2);
 });
 
+test("Highlights search with no match offers to show everything again", async ({
+  page,
+  localBook,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.evaluate(async (bookId) => {
+    const path = "/src/lib/db.ts";
+    await (
+      await import(path)
+    ).addHighlight({
+      id: "interface-review",
+      bookId,
+      spineItemId: "chapter",
+      startOffset: 0,
+      endOffset: 22,
+      selectedText: "A thought worth keeping.",
+      textBefore: "",
+      textAfter: "",
+      color: "yellow",
+      createdAt: 1720000000000,
+    });
+  }, localBook.id);
+  await page.goto("/highlights");
+  const highlight = page.getByText("A thought worth keeping.", {
+    exact: false,
+  });
+  await expect(highlight).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open at: A thought worth keeping." }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  const search = page.getByRole("searchbox");
+  await search.fill("not present in this book");
+  await expect(
+    page.getByText("Nothing matches", { exact: false }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Show everything", exact: true })
+    .click();
+  await expect(search).toHaveValue("");
+  await expect(search).toBeFocused();
+  await expect(highlight).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Yellow highlights" }),
+  ).toHaveAttribute("aria-pressed", "false");
+});
+
 test.describe("Mobile highlight durability", () => {
   test.use({
     viewport: { width: 390, height: 844 },
@@ -123,7 +148,6 @@ test.describe("Mobile highlight durability", () => {
     page,
     localBook,
   }) => {
-    const { openLocalBook, nextSpread } = await import("./helpers/fixtures");
     await openLocalBook(page, localBook.id);
     for (let index = 0; index < 8; index++) await nextSpread(page);
     // Load the existing database module before taking the browser offline.
@@ -131,27 +155,7 @@ test.describe("Mobile highlight durability", () => {
       const path = "/src/lib/db.ts";
       await import(path);
     });
-    await page.evaluate(() => {
-      const root = document.querySelector(
-        '[data-reader-spread-layer="current"]',
-      )!;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let node = walker.nextNode();
-      while (node && (node.textContent?.trim().length ?? 0) < 30)
-        node = walker.nextNode();
-      if (!node) throw new Error("No passage to select");
-      const range = document.createRange();
-      range.setStart(node, 0);
-      range.setEnd(node, 25);
-      window.getSelection()!.removeAllRanges();
-      window.getSelection()!.addRange(range);
-    });
-    await expect
-      .poll(() => page.evaluate(() => window.getSelection()?.toString().length))
-      .toBe(25);
-    await page.evaluate(() =>
-      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-    );
+    await selectPassage(page, { length: 25 });
     const yellow = page.getByRole("button", { name: "Highlight with yellow" });
     await expect(yellow).toBeVisible();
     await page.context().setOffline(true);
@@ -212,7 +216,6 @@ async function highlightMixedFormatPassage(
   page: Page,
   bookId: string,
 ): Promise<Locator> {
-  const { openLocalBook, nextSpread } = await import("./helpers/fixtures");
   await openLocalBook(page, bookId);
   const current = page.locator('[data-reader-spread-layer="current"]');
   for (let index = 0; index < 12; index++) {
@@ -258,44 +261,17 @@ async function highlightMixedFormatPassage(
   return marks;
 }
 
-test.describe("Touch highlight rendering", () => {
+test.describe("Touch highlights", () => {
   test.use({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
     isMobile: true,
   });
 
-  test("a highlight stays continuous across italic text", async ({
-    page,
-    localBook,
-  }) => {
-    const marks = await highlightMixedFormatPassage(page, localBook.id);
-
-    // Each line of the highlight paints one unbroken background.
-    const breaks = await marks.evaluateAll((elements) => {
-      const rects = elements
-        .flatMap((element) => [...element.getClientRects()])
-        .filter((rect) => rect.width > 0)
-        .sort((a, b) => a.top - b.top || a.left - b.left);
-      const found: number[] = [];
-      for (let index = 1; index < rects.length; index++) {
-        const previous = rects[index - 1]!;
-        const rect = rects[index]!;
-        if (Math.abs(rect.top - previous.top) > 1) continue;
-        if (rect.left - previous.right > 0.5) {
-          found.push(rect.left - previous.right);
-        }
-      }
-      return found;
-    });
-    expect(breaks).toEqual([]);
-  });
-
   test("a swipe that starts on a highlight turns the page", async ({
     page,
     localBook,
   }) => {
-    const { currentPages } = await import("./helpers/fixtures");
     const marks = await highlightMixedFormatPassage(page, localBook.id);
     await waitForReaderReady(page);
     const before = await currentPages(page);

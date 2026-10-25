@@ -5,8 +5,8 @@ import {
   openLocalBook,
   nextSpread,
   currentPages,
+  openReaderTool,
   waitForReaderReady,
-  waitForSheet,
   waitForSheetToRest,
 } from "./helpers/fixtures";
 
@@ -42,19 +42,11 @@ async function showChrome(page: Page) {
   await expect.poll(shown).toBe(true);
 }
 
-/** Opens a page of Reader tools and returns its sheet once it rests. */
-async function openTool(page: Page, button: string | RegExp, sheet: string) {
+/** Opens Appearance and returns its sheet once it has come in. */
+async function openReadingSettings(page: Page) {
   await showChrome(page);
-  await page.getByRole("button", { name: "Open reader tools" }).tap();
-  const tools = await waitForSheet(page, "Reader tools");
-  await tools
-    .getByRole("button", { name: button, exact: typeof button === "string" })
-    .tap();
-  return waitForSheet(page, sheet);
+  return openReaderTool(page, "Appearance", "Appearance");
 }
-
-const openReadingSettings = (page: Page) =>
-  openTool(page, "Appearance", "Appearance");
 
 /** The Reading view row, Pages or Scroll, leads Appearance's Layout tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
@@ -258,6 +250,9 @@ test("Scroll mode saves paged highlight offsets and snaps back to the passage's 
   await chooseLayout(page, "Pages");
   await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
   expect(await currentPages(page)).toEqual([target.pageNumber]);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).toBe("pages");
 
   // Pages place highlights from the stored canonical offsets, so the marked
   // text proves that scroll mode saved the same offsets as paged mode.
@@ -618,19 +613,6 @@ test("Without Debug mode, a visit to the column leaves no Scroll layout behind, 
   ).toBe("scroll");
 });
 
-test("Scroll and back to Pages keeps the page", async ({ page, localBook }) => {
-  await openLocalBook(page, localBook.id);
-  for (let index = 0; index < 5; index++) await nextSpread(page);
-  const before = await currentPages(page);
-  await enterScroll(page);
-  await chooseLayout(page, "Pages");
-  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
-  await expect.poll(() => currentPages(page)).toEqual(before);
-  expect(
-    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
-  ).toBe("pages");
-});
-
 test.describe("on a desktop", () => {
   test.use({
     viewport: { width: 1280, height: 800 },
@@ -908,7 +890,8 @@ test("Search marks its matches in the scroll column as rows mount", async ({
   await nextSpread(page);
   await enterScroll(page);
 
-  await openTool(page, /Search book/, "Search book");
+  await showChrome(page);
+  await openReaderTool(page, /Search book/, "Search book");
   const field = page.getByRole("searchbox", { name: "Search this book" });
   await field.fill("Dinah");
   await expect(page.locator("[data-search-status]")).toHaveAttribute(

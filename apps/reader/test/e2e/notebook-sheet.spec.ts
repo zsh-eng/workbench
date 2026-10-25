@@ -3,8 +3,8 @@ import {
   test,
   expect,
   openLocalBook,
-  openReaderTools,
-  waitForSheet,
+  openReaderTool,
+  recordSheetMotion,
   waitForSheetToRest,
 } from "./helpers/fixtures";
 
@@ -73,9 +73,7 @@ for (const place of ["medium", "full"] as const)
     await addHighlights(page, localBook.id, place === "medium" ? 6 : 4);
     await openLocalBook(page, localBook.id);
     await page.touchscreen.tap(195, 422);
-    const tools = await openReaderTools(page);
-    await tools.getByRole("button", { name: "Notebook", exact: true }).click();
-    const notebook = await waitForSheet(page, "Notebook");
+    const notebook = await openReaderTool(page, "Notebook", "Notebook");
     await waitForSheetToRest(notebook);
     const cdp = await page.context().newCDPSession(page);
     if (place === "full") {
@@ -96,27 +94,7 @@ for (const place of ["medium", "full"] as const)
 
     // The sheet's height goes through `data-sheet-fit-state` as it follows
     // the list; its top edge is sampled each frame.
-    await notebook.evaluate((element) => {
-      const surface = element.closest<HTMLElement>(".reader-sheet")!;
-      const fit = surface.querySelector<HTMLElement>("[data-sheet-fit]")!;
-      const record = { states: [] as string[], tops: [] as number[] };
-      (window as { __record?: typeof record }).__record = record;
-      new MutationObserver(() => {
-        const state = fit.dataset.sheetFitState!;
-        if (record.states.at(-1) !== state) record.states.push(state);
-      }).observe(fit, { attributeFilter: ["data-sheet-fit-state"] });
-      const sample = () => {
-        record.tops.push(surface.getBoundingClientRect().top);
-        if (surface.isConnected) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
-    });
-    const recorded = () =>
-      page.evaluate(
-        () =>
-          (window as { __record?: { states: string[]; tops: number[] } })
-            .__record!,
-      );
+    const recorded = await recordSheetMotion(notebook);
     for (const id of before.slice(0, 2)) {
       await swipeAway(page, cdp, id!);
       await page.waitForTimeout(120);

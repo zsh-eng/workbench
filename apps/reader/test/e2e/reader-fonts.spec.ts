@@ -3,10 +3,9 @@ import {
   expect,
   nextSpread,
   openLocalBook,
-  openReaderTools,
+  openReaderTool,
   test,
   waitForReaderReady,
-  waitForSheet,
 } from "./helpers/fixtures";
 
 test.use({
@@ -98,16 +97,14 @@ async function expectTextToFit(page: Page): Promise<number> {
   return overflow.lines;
 }
 
-test("a sans font chosen in Appearance lays out the book and stays chosen", async ({
+test("a sans font chosen in Appearance sets the book and stays chosen", async ({
   page,
   localBook,
 }) => {
   await openLocalBook(page, localBook.id);
   await turnToText(page);
   await page.touchscreen.tap(195, 422);
-  const tools = await openReaderTools(page);
-  await tools.getByRole("button", { name: "Appearance", exact: true }).click();
-  const sheet = await waitForSheet(page, "Appearance");
+  const sheet = await openReaderTool(page, "Appearance", "Appearance");
   await sheet.getByRole("button", { name: "Atkinson", exact: true }).click();
   await expect(
     sheet.getByRole("button", { name: "Atkinson", pressed: true }),
@@ -119,12 +116,6 @@ test("a sans font chosen in Appearance lays out the book and stays chosen", asyn
   await page.reload();
   await waitForReaderReady(page);
   expect(await pageFont(page)).toContain("Atkinson Hyperlegible Next");
-  let lines = 0;
-  for (let turn = 0; turn < 3; turn++) {
-    lines += await expectTextToFit(page);
-    await nextSpread(page);
-  }
-  expect(lines).toBeGreaterThan(20);
 });
 
 test("every sans font keeps justified pages inside their margins", async ({

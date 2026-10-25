@@ -7,6 +7,7 @@ import {
   nextSpread,
   currentPages,
   showNotesCapsule,
+  closeSheet,
   openReaderTools,
   waitForSheet,
   waitForSheetToRest,
@@ -29,19 +30,6 @@ async function tapSettled(control: Locator) {
     Promise.all(element.getAnimations().map((animation) => animation.finished)),
   );
   await control.click();
-}
-
-/**
- * Closes a phone sheet as a reader does: a tap on the dimmed page above
- * it. The detent Notebook has no close button of its own.
- */
-async function closeSheet(page: Page, sheet: Locator) {
-  const top = await sheet.evaluate(
-    (element) =>
-      (element.closest(".reader-sheet") ?? element).getBoundingClientRect().top,
-  );
-  await page.touchscreen.tap(195, Math.max(8, top / 2));
-  await expect(sheet).not.toBeVisible();
 }
 
 test("captures thoughts over a stable book and browses both notebook orders", async ({

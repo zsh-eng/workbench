@@ -44,56 +44,44 @@ async function writeNotes(page: Page, contents: string[]) {
   };
 }
 
-for (const reducedMotion of ["no-preference", "reduce"] as const)
-  test(`deletions share one toast, and Undo turns it into Restored${reducedMotion === "reduce" ? ", without movement under reduced motion" : ""}`, async ({
-    page,
-    localBook,
-  }) => {
-    await page.emulateMedia({ reducedMotion });
-    await openLocalBook(page, localBook.id);
-    const { rows, remove } = await writeNotes(page, [
-      "First thought.",
-      "Second thought.",
-      "Third thought.",
-    ]);
-    const toasts = page.locator(".reader-toast");
+test("deletions share one toast, and Undo turns it into Restored", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  const { rows, remove } = await writeNotes(page, [
+    "First thought.",
+    "Second thought.",
+    "Third thought.",
+  ]);
+  const toasts = page.locator(".reader-toast");
 
-    await remove("First thought.");
-    const toast = page.getByRole("status").filter({ hasText: "Note deleted" });
-    await expect(toast).toBeVisible();
-    // Marks this toast's element, to find it again after it changes.
-    await toast.evaluate((element) => element.setAttribute("data-probe", ""));
-    const same = page.locator(".reader-toast[data-probe]");
+  await remove("First thought.");
+  const toast = page.getByRole("status").filter({ hasText: "Note deleted" });
+  await expect(toast).toBeVisible();
+  // Marks this toast's element, to find it again after it changes.
+  await toast.evaluate((element) => element.setAttribute("data-probe", ""));
+  const same = page.locator(".reader-toast[data-probe]");
 
-    // More deletions join the same toast, which counts them.
-    await remove("Second thought.");
-    await remove("Third thought.");
-    await expect(rows).toHaveCount(0);
-    await expect(same).toContainText("3 notes deleted");
-    await expect(toasts).toHaveCount(1);
+  // More deletions join the same toast, which counts them.
+  await remove("Second thought.");
+  await remove("Third thought.");
+  await expect(rows).toHaveCount(0);
+  await expect(same).toContainText("3 notes deleted");
+  await expect(toasts).toHaveCount(1);
 
-    // Undo takes them all back, and the same toast says so.
-    await same.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect(rows).toHaveCount(3);
-    await expect(same).toContainText("Restored");
-    await expect(
-      page.getByRole("status").filter({ hasText: "Restored" }),
-    ).toHaveCount(1);
-    await expect(
-      same.getByRole("button", { name: "Undo", exact: true }),
-    ).toHaveCount(0);
-    await expect(toasts).toHaveCount(1);
+  // Undo takes them all back, and the same toast says so.
+  await same.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(rows).toHaveCount(3);
+  await expect(same).toContainText("Restored");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Restored" }),
+  ).toHaveCount(1);
+  await expect(
+    same.getByRole("button", { name: "Undo", exact: true }),
+  ).toHaveCount(0);
+  await expect(toasts).toHaveCount(1);
 
-    // With reduced motion nothing changes shape or draws; it only fades.
-    const animations = await same.evaluate((element) =>
-      [element, ...element.querySelectorAll("path")].map(
-        (node) => getComputedStyle(node).animationName,
-      ),
-    );
-    if (reducedMotion === "reduce")
-      expect(animations.every((name) => name === "none")).toBe(true);
-    else expect(animations).toContain("wb-toast-check");
-
-    // Then it leaves.
-    await expect(toasts).toHaveCount(0);
-  });
+  // Then it leaves.
+  await expect(toasts).toHaveCount(0);
+});

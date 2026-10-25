@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import {
   test,
   expect,
+  recordSheetMotion,
   waitForSheet,
   waitForSheetToRest,
 } from "./helpers/fixtures";
@@ -29,40 +30,6 @@ async function openScenario(page: Page, id: string, title: string) {
   const sheet = await waitForSheet(page, title);
   await waitForSheetToRest(sheet);
   return sheet;
-}
-
-/**
- * Records from now on each state the sheet's height goes through
- * (`data-sheet-fit-state`), and the sheet's top edge in each frame of each
- * hold.
- */
-async function recordHeight(sheet: Locator) {
-  await sheet.evaluate((element) => {
-    const surface = element.closest<HTMLElement>(".reader-sheet")!;
-    const fit = surface.querySelector<HTMLElement>("[data-sheet-fit]")!;
-    const record = { states: [] as string[], holds: [] as number[][] };
-    (window as { __height?: typeof record }).__height = record;
-    new MutationObserver(() => {
-      const state = fit.dataset.sheetFitState!;
-      if (record.states.at(-1) === state) return;
-      record.states.push(state);
-      if (state === "held") record.holds.push([]);
-    }).observe(fit, { attributeFilter: ["data-sheet-fit-state"] });
-    const sample = () => {
-      if (fit.dataset.sheetFitState === "held")
-        record.holds.at(-1)?.push(surface.getBoundingClientRect().top);
-      if (surface.isConnected) requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
-  });
-  return () =>
-    sheet
-      .page()
-      .evaluate(
-        () =>
-          (window as { __height?: { states: string[]; holds: number[][] } })
-            .__height!,
-      );
 }
 
 const rowIds = (sheet: Locator) =>
@@ -97,7 +64,7 @@ for (const reduce of [false, true])
     await expect(readout(page)).toHaveAttribute("data-detent", "full");
     await waitForSheetToRest(sheet);
     const before = await rowIds(sheet);
-    const height = await recordHeight(sheet);
+    const height = await recordSheetMotion(sheet);
 
     await sheet.getByRole("button", { name: "Remove 3 rows" }).click();
     await expect
@@ -137,17 +104,7 @@ test("A sheet at a fixed detent stays there while its content changes", async ({
   const sheet = await openScenario(page, "fixed", "Fixed detent");
   await expect(readout(page)).toHaveAttribute("data-detent", "detent 1");
   const top = await readout(page).getAttribute("data-top");
-  const tops = await sheet.evaluate(() => {
-    const record: number[] = [];
-    const surface = document.querySelector(".reader-sheet")!;
-    const sample = () => {
-      record.push(surface.getBoundingClientRect().top);
-      if (record.length < 600) requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
-    (window as { __tops?: number[] }).__tops = record;
-  });
-  void tops;
+  const motion = await recordSheetMotion(sheet);
   await sheet.getByRole("button", { name: "Add a section" }).click();
   await expect(sheet.locator("[data-lab-section]")).toHaveCount(2);
   await sheet.getByRole("button", { name: "Remove a section" }).click();
@@ -156,11 +113,9 @@ test("A sheet at a fixed detent stays there while its content changes", async ({
   await waitForSheetToRest(sheet);
   await expect(readout(page)).toHaveAttribute("data-detent", "detent 1");
   await expect(readout(page)).toHaveAttribute("data-top", top!);
-  const recorded = await page.evaluate(
-    () => (window as { __tops?: number[] }).__tops!,
-  );
+  const { tops } = await motion();
   // It never moved by a pixel.
-  expect(Math.max(...recorded) - Math.min(...recorded)).toBeLessThan(1);
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1);
 });
 
 test("A field raises the sheet with the keyboard and returns it to its detent", async ({
