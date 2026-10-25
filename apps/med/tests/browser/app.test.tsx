@@ -2818,6 +2818,49 @@ describe("review brief", () => {
     await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
   });
 
+  test("a pull request's Changed files pane lists its commits beside its files", async () => {
+    await page.viewport(1400, 900);
+    const { controller } = await mountApp({
+      savedReview: true,
+      rangeCommits: true,
+    });
+    const reviewTab = page.getByRole("tab", { name: "Review", exact: true });
+    await page
+      .getByRole("region", { name: "Guide overview" })
+      .getByRole("button", { name: "All files" })
+      .click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    // The pane is open, so the rail is not: the pane lists the files and,
+    // below them, the range's commits.
+    await expect
+      .element(page.getByRole("navigation", { name: "Files and commits" }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
+    const list = page.getByRole("list", { name: "Commits" });
+    await expect
+      .element(list.getByRole("button", { name: "Whole range" }))
+      .toHaveAttribute("aria-current", "page");
+    // A commit picked in the pane narrows the Review's diff to it.
+    await list.getByRole("button", { name: /Add the initial renderer/ }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: secondCommit });
+    await expect
+      .element(list.getByRole("button", { name: /Add the initial renderer/ }))
+      .toHaveAttribute("aria-current", "page");
+    await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
+    await list.getByRole("button", { name: /Improve the review stream/ }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: firstCommit });
+    await list.getByRole("button", { name: "Whole range" }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
+    // Changes are live and list files only.
+    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
+    expect(list.query()).toBeNull();
+  });
+
   test("a Review whose checkout changed offers a refresh or the live Changes", async () => {
     await page.viewport(1280, 800);
     const { controller } = await mountApp({
