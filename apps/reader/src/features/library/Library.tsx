@@ -63,6 +63,11 @@ import {
 } from "./library-view";
 import { useEpubImport } from "./use-epub-import";
 import {
+  ArrivalTile,
+  useArrivalGrid,
+  usePendingArrivalCount,
+} from "@/features/arrivals/ArrivalTile";
+import {
   DownloadAllForOffline,
   LibraryActivity,
 } from "@/features/background-activity/LibraryActivity";
@@ -247,7 +252,17 @@ export function Library() {
     navigate(`/reader/${first.id}`);
   };
 
-  const libraryEmpty = data !== undefined && data.books.length === 0;
+  // Arriving books hold their places where they will stay: newest first,
+  // among the books you want to read.
+  const gridItems = useArrivalGrid(
+    shown,
+    view.sort === "added" &&
+      (filter === "all" || filter === "want-to-read") &&
+      !terms,
+  );
+  const arriving = usePendingArrivalCount();
+  const libraryEmpty =
+    data !== undefined && data.books.length === 0 && arriving === 0;
   const nothingFound = terms !== "" && found.length === 0;
   const showShelf = reading.length > 0;
   const showRest =
@@ -503,7 +518,7 @@ export function Library() {
                 className="mt-6"
                 {...FADE}
               >
-                {shown.length === 0 ? (
+                {gridItems.length === 0 ? (
                   <p className="py-20 text-center text-[14px] text-muted-foreground">
                     {terms
                       ? "No books here match."
@@ -511,9 +526,19 @@ export function Library() {
                   </p>
                 ) : view.layout === "covers" ? (
                   <ul className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(128px,1fr))] md:gap-x-8">
-                    {shown.map((book) => (
-                      <BookTile key={book.id} {...bookProps(book)} />
-                    ))}
+                    {gridItems.map((item) =>
+                      "book" in item ? (
+                        <BookTile
+                          key={item.book.id}
+                          {...bookProps(item.book)}
+                        />
+                      ) : (
+                        <ArrivalTile
+                          key={item.arrivalKey}
+                          arrivalKey={item.arrivalKey}
+                        />
+                      ),
+                    )}
                   </ul>
                 ) : (
                   <ul>
