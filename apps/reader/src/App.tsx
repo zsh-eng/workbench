@@ -86,6 +86,12 @@ const FeedbackIdea = lazy(() =>
   })),
 );
 
+const BackgroundActivityIdea = lazy(() =>
+  import("@/features/background-activity/ideas/BackgroundActivityIdea").then(
+    (module) => ({ default: module.BackgroundActivityIdea }),
+  ),
+);
+
 const SheetMotionIdea = lazy(() =>
   import("@/features/elements/SheetMotionIdea").then((module) => ({
     default: module.SheetMotionIdea,
@@ -310,6 +316,16 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <SheetLab />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/background"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <BackgroundActivityIdea />
                           </Suspense>
                         </DebugGate>
                       }

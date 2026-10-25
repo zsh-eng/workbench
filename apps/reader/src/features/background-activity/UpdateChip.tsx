@@ -7,7 +7,8 @@ import { DrawnCheck, ProgressRing } from "./marks";
 const UPDATED_MS = 2_000;
 /** "Updated" belongs to the reload: a Library opened later stays quiet. */
 const UPDATED_WITHIN_MS = 10_000;
-const shownFor = new WeakSet<object>();
+/** Pages (by start time) that have said "Updated". */
+const shownFor = new Set<number>();
 
 /**
  * The update's one element: "Restart to update" while a new version waits,
@@ -19,9 +20,10 @@ export function UpdateChip({ className }: { className?: string }) {
   const update = useUpdateState();
   const [showUpdated, setShowUpdated] = useState(false);
   useEffect(() => {
-    if (!update.justUpdated || shownFor.has(store)) return;
-    shownFor.add(store);
-    if (Date.now() - store.startedAt < UPDATED_WITHIN_MS) setShowUpdated(true);
+    const startedAt = store.startedAt;
+    if (!update.justUpdated || shownFor.has(startedAt)) return;
+    shownFor.add(startedAt);
+    if (Date.now() - startedAt < UPDATED_WITHIN_MS) setShowUpdated(true);
   }, [store, update.justUpdated]);
   useEffect(() => {
     if (!showUpdated) return;

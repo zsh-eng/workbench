@@ -19,6 +19,9 @@ function JobMark({ job }: { job: Job }) {
         strokeWidth={1.8}
       />
     );
+  // A new version waits for you: the update's own blue dot.
+  if (job.state === "waiting" && job.waitingFor === "moment")
+    return <span className="size-2 rounded-full bg-[oklch(0.62_0.15_250)]" />;
   if (job.state === "waiting")
     return (
       <CloudOff
@@ -48,6 +51,7 @@ function JobRow({ job, now }: { job: Job; now: number }) {
     action = (
       <button
         type="button"
+        data-activity-restart=""
         onClick={restart}
         className="h-8 shrink-0 rounded-full bg-foreground px-3 text-[13px] font-medium text-background outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >

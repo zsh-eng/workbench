@@ -186,7 +186,11 @@ export function describeJob(job: Job, now: number): string {
           ? "This device is out of space"
           : job.failure?.reason === "network"
             ? "Couldn't reach the server"
-            : "Couldn't finish";
+            : job.failure?.reason === "server"
+              ? "The server had a problem"
+              : job.failure?.reason === "rejected"
+                ? "The server refused it"
+                : "Couldn't finish";
     case "done":
       return "Done";
     case "cancelled":

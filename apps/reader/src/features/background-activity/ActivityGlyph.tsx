@@ -12,7 +12,7 @@ import { useActivityEnvironment, useUpdateState } from "./ActivityContext";
 import { ActivitySheetBody } from "./ActivitySheet";
 import { DrawnCheck, ProgressRing } from "./marks";
 
-type GlyphKind = "attention" | "progress" | "waiting" | "done";
+type GlyphKind = "attention" | "progress" | "update" | "waiting" | "done";
 
 /**
  * Jobs the glyph speaks for. Sync has the account menu, and an update that
@@ -32,6 +32,7 @@ function glyphLabel(kind: GlyphKind, jobs: readonly Job[]): string {
   if (kind === "waiting")
     return `Activity: ${count} ${noun} waiting for a connection`;
   if (kind === "done") return "Activity: done";
+  if (kind === "update") return "Activity: an update is ready";
   return `Activity: ${count} ${noun} downloading`;
 }
 
@@ -40,28 +41,45 @@ function glyphLabel(kind: GlyphKind, jobs: readonly Job[]): string {
  * for runs or something needs you: a ring for downloads together, a cloud
  * for a wait, an alert for a failure, a check once. Tap for the sheet.
  */
-export function ActivityGlyph({ className }: { className?: string }) {
+export function ActivityGlyph({
+  className,
+  includeUpdate = false,
+}: {
+  className?: string;
+  /** No update chip on this page: the glyph carries a waiting update too. */
+  includeUpdate?: boolean;
+}) {
   const { source } = useActivityEnvironment();
   const update = useUpdateState();
   const summary = useActivitySummary(source);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const chip = update.status === "ready" || update.status === "applying";
-  const shown = summary.shown.filter((job) => forGlyph(job, chip));
-  const active = shown.filter(
+  const shown = summary.shown.filter((job) =>
+    forGlyph(job, chip && !includeUpdate),
+  );
+  const updateWaits = shown.some(
+    (job) => job.kind === "app-update" && job.state === "waiting",
+  );
+  const work = shown.filter(
+    (job) => job.kind !== "app-update" || job.state !== "waiting",
+  );
+  const active = work.filter(
     (job) => job.state !== "done" && job.state !== "failed",
   );
   const kind: GlyphKind | null = shown.some(
     (job) => job.state === "failed" || job.attention,
   )
     ? "attention"
-    : active.length > 0 && active.every((job) => job.state === "waiting")
-      ? "waiting"
-      : active.length > 0
-        ? "progress"
-        : shown.length > 0
-          ? "done"
-          : null;
+    : active.some((job) => job.state !== "waiting")
+      ? "progress"
+      : updateWaits
+        ? "update"
+        : active.length > 0
+          ? "waiting"
+          : work.length > 0
+            ? "done"
+            : null;
   // The glyph stays while its sheet is open, so the sheet has a place to
   // close back to.
   const visible = kind !== null || open;
@@ -76,6 +94,8 @@ export function ActivityGlyph({ className }: { className?: string }) {
       <CloudOff className="size-[18px]" strokeWidth={1.7} />
     ) : kind === "done" ? (
       <DrawnCheck size={18} />
+    ) : kind === "update" ? (
+      <span className="size-2 rounded-full bg-[oklch(0.62_0.15_250)]" />
     ) : (
       <ProgressRing fraction={summary.fraction} size={18} />
     );

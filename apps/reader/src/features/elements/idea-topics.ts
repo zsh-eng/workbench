@@ -9,6 +9,7 @@ export const IDEA_TOPICS = [
   { id: "covers", label: "Living covers" },
   { id: "sheets", label: "Sheet motion" },
   { id: "feedback", label: "Feedback" },
+  { id: "background", label: "Background activity" },
 ] as const;
 
 export type IdeaTopic = (typeof IDEA_TOPICS)[number]["id"];
