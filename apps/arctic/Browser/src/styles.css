@@ -984,7 +984,10 @@ a.article-source:hover {
   max-width: 440px;
   pointer-events: auto;
   transform-origin: 50% 100%;
-  animation: toast-in 0.45s cubic-bezier(0.2, 1.1, 0.3, 1) both;
+  /* It rises and opens out of a pill (toast.css). */
+  animation:
+    toast-in 0.45s cubic-bezier(0.2, 1.1, 0.3, 1) both,
+    wb-toast-open var(--wb-spring-pop-duration) var(--wb-spring-pop) backwards;
 }
 /* Undo spans the width, its message at the start and Undo at the end, as in
    Reader; a notice keeps to its words. */
@@ -993,7 +996,9 @@ a.article-source:hover {
   max-width: 356px;
 }
 .toast[data-leaving] {
-  animation: toast-out 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  animation:
+    toast-out 0.2s cubic-bezier(0.4, 0, 1, 1) both,
+    wb-toast-close 0.2s cubic-bezier(0.4, 0, 1, 1) both;
 }
 /* It rises from the bar and settles, as Arctic's toast does on iPhone. */
 @keyframes toast-in {
@@ -1013,10 +1018,11 @@ a.article-source:hover {
   .toaster {
     transition: none;
   }
-  .toast,
+  .toast {
+    animation: toast-in 0.15s linear both;
+  }
   .toast[data-leaving] {
-    animation-duration: 0.15s;
-    animation-timing-function: linear;
+    animation: toast-out 0.15s linear both;
   }
   @keyframes toast-in {
     from {

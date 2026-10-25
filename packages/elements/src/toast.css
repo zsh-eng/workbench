@@ -9,6 +9,11 @@
  *
  * Text centres on its capitals and baseline (text-box), so a line sits in the
  * middle of the toast in any font, and a second line keeps it there.
+ *
+ * A toast opens out of a pill at its centre, as the Dynamic Island does,
+ * and its words fade in once there is room. An app that animates the toast
+ * element itself adds `wb-toast-open` to its own animation list (Arctic).
+ * `wb-toast-close` folds it back, for an app's exit.
  */
 
 @property --wb-countdown-left {
@@ -17,8 +22,51 @@
   initial-value: 0;
 }
 
+/* SPRINGS.pop (response 0.32 s, damping 0.72) over a 160 px opening, from
+   packages/elements/src/spring.ts. */
+:root {
+  --wb-spring-pop: linear(
+    0,
+    0.026,
+    0.085,
+    0.17,
+    0.268,
+    0.371,
+    0.473,
+    0.57,
+    0.659,
+    0.738,
+    0.807,
+    0.864,
+    0.912,
+    0.95,
+    0.98,
+    1.002,
+    1.018,
+    1.029,
+    1.035,
+    1.038,
+    1.038,
+    1.037,
+    1.034,
+    1.031,
+    1.027,
+    1.023,
+    1.019,
+    1.015,
+    1.012,
+    1.009,
+    1.007,
+    1.005,
+    1
+  );
+  --wb-spring-pop-duration: 375ms;
+}
+
 .wb-toast {
   box-sizing: border-box;
+  animation: wb-toast-open var(--wb-spring-pop-duration) var(--wb-spring-pop)
+    backwards;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -190,8 +238,48 @@
   }
 }
 
+/* The clip ends at the toast's edge and then lets go, so its shadow returns
+   as it lands. */
+@keyframes wb-toast-open {
+  from {
+    clip-path: inset(0 calc(50% - 22px) round var(--wb-toast-radius, 24px));
+  }
+  to {
+    clip-path: inset(0 0 round var(--wb-toast-radius, 24px));
+  }
+}
+@keyframes wb-toast-close {
+  to {
+    clip-path: inset(0 calc(50% - 22px) round var(--wb-toast-radius, 24px));
+    opacity: 0;
+  }
+}
+.wb-toast > * {
+  animation: wb-toast-words 220ms 90ms cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+@keyframes wb-toast-words {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wb-countdown-digit {
     animation: none;
+  }
+  /* A cross-fade: nothing changes shape or moves. */
+  .wb-toast {
+    animation: none;
+  }
+  @keyframes wb-toast-close {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes wb-toast-words {
+    from {
+      opacity: 0;
+    }
   }
 }

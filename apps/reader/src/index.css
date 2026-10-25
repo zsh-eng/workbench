@@ -379,9 +379,13 @@
   --wb-toast-fill-hover: color-mix(in srgb, var(--secondary) 70%, transparent);
   --wb-toast-numerals: var(--font-numeric);
 }
-/* Sonner sizes the toast's slot; the toast fills it. */
+/* Sonner sizes the toast's slot; the toast fills it. It opens out of a pill
+   (toast.css) and folds back into one as Sonner lets it go. */
 .reader-toast {
   width: 100%;
+}
+[data-sonner-toast][data-removed="true"] .reader-toast {
+  animation: wb-toast-close 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 @layer utilities {
