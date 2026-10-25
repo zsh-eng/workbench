@@ -81,8 +81,9 @@ activity.track("sync", syncAsJob(syncController)); // a job owned elsewhere
   brings it back queued, or failed as it was. Two tabs each run a restored
   job; the app's own deduplication (for example by file id) must cope.
 - **Main thread.** The manager is bookkeeping and stays on the main thread.
-  A job moves its own heavy work off it where that helps: fflate already
-  unzips in workers, and Spaced makes thumbnails in a worker.
+  A job moves its own heavy work off it where that helps: the Reader's
+  fflate already unzips in workers. Spaced's images are network-bound; a
+  thumbnail worker is worth it only if a measurement shows decoding hurts.
 
 ## What to show
 

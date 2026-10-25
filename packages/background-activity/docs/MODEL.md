@@ -79,13 +79,13 @@ Sync is not a job that you start, so it shows only its exceptions:
 
 The update has its own small moment:
 
-| Update state | What you see                                                                                 |
-| ------------ | -------------------------------------------------------------------------------------------- |
-| Checking     | Nothing.                                                                                     |
-| Downloading  | Only in the activity sheet: "Downloading the update · 1.2 of 3.4 MB".                        |
-| Ready        | On the Library only: "Updated · Restart". It also applies by itself at the next safe moment. |
-| Restarting   | The same chip becomes a short ring, and the app reloads to the same screen.                  |
-| Updated      | After the reload, the chip's place shows a check and "Updated" for two seconds.              |
+| Update state | What you see                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Checking     | Nothing.                                                                                                                                          |
+| Downloading  | Only in the activity sheet: "Downloading the update · 1.2 of 3.4 MB".                                                                             |
+| Ready        | On the Library only: "Restart to update", in the header, or floating at the bottom on a phone. It also applies by itself at the next safe moment. |
+| Restarting   | The same chip becomes a short ring, and the app reloads to the same screen.                                                                       |
+| Updated      | After the reload, the chip's place shows a check and "Updated" for two seconds.                                                                   |
 
 ## One subject, one element
 
@@ -101,14 +101,17 @@ The update has its own small moment:
 
 ## A safe moment for an update
 
-An update downloads in the background and waits. The page keeps the version
+With Debug → Calm updates, an update downloads in the background and waits.
+Without it, the app still reloads as soon as the update is ready. The page
+keeps the version
 it loaded until the switch, and the waiting service worker keeps that
 version's files, so nothing breaks while it waits.
 
 - **Never on the Reader.** Nothing reloads a book that is open.
 - **By itself:** when the app comes back to the front on any other screen
   after two minutes or more away, with no download that you asked for in
-  progress and no import running. A fresh launch also gets the new version,
+  progress. (An import should hold it too; that is not wired yet.) A fresh
+  launch also gets the new version,
   because the browser switches when no page uses the old one.
 - **By a tap:** Restart on the chip or in the activity sheet. A download in
   progress continues after the reload.
@@ -152,7 +155,7 @@ Design ideas → Background activity compares three directions with the same
 scenarios, on the real engine with simulated jobs:
 
 1. **On the covers.** Progress lives on the subject; ticks for waiting work;
-   the offline shelf; the update chip in the header.
+   the offline shelf; the update chip.
 2. **The island.** One floating pill at the bottom of the Library. Covers
    fly into it; it shows a stack of mini covers and one ring; tap to open it
    into a list. It carries the update moment too.
@@ -162,4 +165,7 @@ scenarios, on the real engine with simulated jobs:
 
 The recommendation is 1 with 3: progress on the subject, and the glyph and
 sheet for what has no subject on screen. The Library wires that for books
-downloaded for offline, behind Debug → Offline downloads.
+downloaded for offline, behind Debug → Offline downloads. A phone's header
+is full with the places, so there the glyph sits in the filter row beside
+Sort and layout, where Download all starts, and the update chip floats at
+the bottom of the Library.
