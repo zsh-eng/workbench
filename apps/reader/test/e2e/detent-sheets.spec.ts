@@ -166,6 +166,8 @@ test("A menu and a toast opened from a sheet take taps", async ({
   await expect(input).toHaveValue("");
   const note = notebook.getByText("A note to delete", { exact: true });
   await expect(note).toBeVisible();
+  // The sheet grows to fit the new note.
+  await waitForSheetToRest(notebook);
 
   await note.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete note" }).click();

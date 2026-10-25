@@ -7,21 +7,21 @@
   z-index: 50;
 }
 
+.reader-sheet-overlay {
+  /* The surface that sheet.css draws: it floats below full height and
+     meets the screen's edges at the large detent. */
+  --wb-sheet-surface: var(--background);
+  --wb-sheet-edge: color-mix(in srgb, var(--border) 70%, transparent);
+  --wb-sheet-shadow: 0 -24px 60px
+    color-mix(in srgb, var(--foreground) 8%, transparent);
+  --wb-sheet-max-width: 28rem;
+}
+
 .reader-sheet {
-  /* content-box: overscroll padding extends the sheet below the screen. */
-  box-sizing: content-box;
-  /* The border sits outside a content box. */
-  width: calc(100% - 2px);
-  max-width: calc(28rem - 2px);
   max-height: calc(100dvh - max(env(safe-area-inset-top), 0.75rem) - 0.5rem);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-bottom: 0;
-  border-radius: 1.9rem 1.9rem 0 0;
-  background: var(--background);
   color: var(--foreground);
-  box-shadow: 0 -24px 60px color-mix(in srgb, var(--foreground) 8%, transparent);
   transform-origin: 50% 0;
   outline: none;
 }

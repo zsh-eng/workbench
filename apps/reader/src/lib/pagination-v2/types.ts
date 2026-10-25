@@ -93,7 +93,12 @@ export type ContentAnchor =
     };
 
 export type SpreadIntent =
-  | { kind: "history"; targetIndex: number }
+  | {
+      kind: "history";
+      targetIndex: number;
+      /** The visit is a line, not a page; see ReaderVisit. */
+      exact?: boolean;
+    }
   | {
       kind: "linear";
       direction: "forward" | "backward";

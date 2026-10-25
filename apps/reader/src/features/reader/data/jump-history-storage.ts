@@ -38,6 +38,7 @@ const historySchema = z
             "scrubber",
           ]),
           anchor,
+          exact: z.literal(true).optional(),
         }),
       )
       .max(READER_HISTORY_LIMIT),

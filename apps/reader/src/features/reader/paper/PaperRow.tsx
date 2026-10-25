@@ -42,7 +42,7 @@ function Toggle({
 /**
  * Appearance row: the page turn, the paper's grain and the turn's feel.
  * Debug mode only while the curl is a prototype; it follows the Reading
- * mode row in the Layout tab.
+ * view row in the Layout tab.
  */
 export function PaperRow() {
   const paper = usePaperPreference();

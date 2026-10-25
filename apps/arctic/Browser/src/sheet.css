@@ -5,29 +5,24 @@
 
 .sheet-overlay {
   z-index: 60;
+  /* The surface that @workbench/elements/sheet.css draws: it floats below
+     full height and meets the screen's edges at the large detent. */
+  --wb-sheet-surface: var(--raised);
+  --wb-sheet-edge: var(--edge);
+  --wb-sheet-shadow: 0 -12px 40px rgb(0 0 0 / 0.08);
+  --wb-sheet-max-width: 560px;
+}
+:root[data-mode="dark"] .sheet-overlay {
+  --wb-sheet-shadow: 0 -12px 40px rgb(0 0 0 / 0.4);
 }
 
 .sheet {
-  /* content-box: overscroll padding extends the sheet below the screen. */
-  box-sizing: content-box;
-  width: 100%;
-  max-width: 560px;
   max-height: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
   display: flex;
   flex-direction: column;
-  border-radius: 20px 20px 0 0;
-  background: var(--raised);
   color: var(--fg);
-  box-shadow:
-    0 0 0 1px var(--edge),
-    0 -12px 40px rgb(0 0 0 / 0.08);
   transform-origin: 50% 0;
   outline: none;
-}
-:root[data-mode="dark"] .sheet {
-  box-shadow:
-    0 0 0 1px var(--edge),
-    0 -12px 40px rgb(0 0 0 / 0.4);
 }
 
 .sheet-content {

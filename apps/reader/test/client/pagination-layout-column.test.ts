@@ -7,6 +7,7 @@ import {
   findTextPositionOffset,
   readingLineOffset,
   resolveSnapPage,
+  spreadSlotFor,
 } from "@/features/reader/scroll/scroll-model";
 import {
   layoutPages,
@@ -200,6 +201,15 @@ describe("resolveSnapPage", () => {
       expect(row.y).toBeGreaterThanOrEqual(start - 0.01);
       expect(row.y + row.height).toBeLessThanOrEqual(end + 0.01);
     }
+  });
+});
+
+describe("spreadSlotFor", () => {
+  it("puts a snapped page first in a two-page spread, and in page order in wider ones", () => {
+    expect(spreadSlotFor(1, 12)).toBeNull();
+    expect(spreadSlotFor(2, 13)).toEqual({ index: 0, columns: 2 });
+    expect(spreadSlotFor(3, 14)).toEqual({ index: 1, columns: 3 });
+    expect(spreadSlotFor(3, null)).toBeNull();
   });
 });
 

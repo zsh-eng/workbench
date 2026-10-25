@@ -3,6 +3,7 @@ import { getRuntimeStorage } from "@/features/sync-lab/runtime";
 import type { ContentAnchor, SpreadIntent } from "@/lib/pagination-v2";
 import {
   EMPTY_READER_HISTORY,
+  historyIntent,
   ReaderJumpHistoryController,
 } from "../jump-history";
 import {
@@ -54,10 +55,10 @@ export function useReaderJumpHistory(bookId: string, sourceFileId: string) {
           listeners.delete(listener);
         };
       },
-      record(anchor: ContentAnchor, intent: SpreadIntent) {
+      record(anchor: ContentAnchor, intent: SpreadIntent, exact = false) {
         if (!bookId || !sourceFileId) return;
         const previous = controller.getSnapshot();
-        const next = controller.record(anchor, intent);
+        const next = controller.record(anchor, intent, exact);
         const presentation = updateHistoryPresentation(
           snapshot.presentation,
           previous,
@@ -92,7 +93,9 @@ export function useReaderJumpHistory(bookId: string, sourceFileId: string) {
     ) => {
       const target = owner.controller.getSnapshot().entries[targetIndex];
       if (target)
-        navigate(target.anchor, { intent: { kind: "history", targetIndex } });
+        navigate(target.anchor, {
+          intent: historyIntent(target, targetIndex),
+        });
     },
     [owner],
   );

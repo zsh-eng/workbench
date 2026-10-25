@@ -324,9 +324,9 @@ export async function waitForSheet(page: Page, name: string): Promise<Locator> {
 }
 
 /**
- * Waits until a sheet holds still: it has taken its content's new height
- * (after a tab of another height) and its top edge has stopped (after a drag
- * or a detent change). A tap on a control that is still moving can miss, and
+ * Waits until a sheet holds still: its height rests at its content's
+ * (`data-sheet-fit-state`, after a tab of another height) and its top edge
+ * has stopped (after a drag or a detent change). A tap on a control that is still moving can miss, and
  * Playwright's retries then scroll React Aria's sheet scroller, which closes
  * the sheet.
  */
@@ -338,14 +338,7 @@ export async function waitForSheetToRest(sheet: Locator): Promise<void> {
           new Promise<boolean>((resolve) => {
             const surface = element.closest(".reader-sheet") ?? element;
             const fit = surface.querySelector<HTMLElement>("[data-sheet-fit]");
-            const content = fit?.firstElementChild as HTMLElement | null;
-            if (
-              fit &&
-              content &&
-              Math.abs(
-                fit.getBoundingClientRect().height - content.offsetHeight,
-              ) >= 0.5
-            )
+            if (fit && fit.dataset.sheetFitState !== "rest")
               return resolve(false);
             const top = surface.getBoundingClientRect().top;
             let frames = 0;

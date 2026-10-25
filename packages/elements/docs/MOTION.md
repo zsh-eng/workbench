@@ -175,10 +175,14 @@ frame:
 
 - Snapping is off while the spring runs and comes back after it.
 - The spring covers only the visible travel. An entering sheet starts at
-  the bottom of the screen (100 lvh, so under Safari's toolbar too), and a
-  leaving one stops there and drops to its closed place out of view.
+  the bottom of the screen (100 lvh, so under Safari's toolbar too). A
+  leaving one stops a pixel past it, where React Aria's
+  IntersectionObserver sees none of it, and snapping stays off until React
+  Aria closes it; snapping back on would pull it up to its detent.
 - The target is the nearest snap position, as the browser's own smooth
-  scroll does. In iOS Safari the range runs past full height.
+  scroll does. In iOS Safari the range runs past full height. The spring
+  heads for the snap marker, so a detent that moves during the move (the
+  sheet's height changed) still gets the sheet.
 - The browser's own `scrollend` events are held back while the spring runs,
   and one is sent when it ends, since React Aria waits for it.
 - A finger or a wheel stops the spring where it is and the browser's
@@ -207,6 +211,114 @@ a busy main thread drops frames.
 - A thrown sheet settles with the browser's snap, not UIKit's 0.8-ratio
   release spring.
 - 60 Hz on a 120 Hz phone.
+
+## Sheet behaviour
+
+The rules every sheet in Reader and Arctic follows, taken from UIKit. The
+shared sheet carries them (`src/sheet-fit.ts`, `src/sheet.css`), so a
+screen gets them by being in it. Debug tools → Sheet Lab shows each one.
+
+### What UIKit does
+
+Measured on the iOS 27 simulator (iPhone 17e, 390 × 844 pt, display corner
+47.33 pt) with `UISheetPresentationController`, frames read from the
+presentation layer.
+
+**Shape.**
+
+| Where the sheet is   | Inset (sides, bottom) | Top corners | Bottom corners       |
+| -------------------- | --------------------- | ----------- | -------------------- |
+| A partial detent     | 8 pt                  | 38 pt       | 39.33 pt (47.33 − 8) |
+| Between it and large | 8 → 0 pt, linear      | 38 pt       | 47.33 − inset        |
+| Large (top at 47 pt) | 0                     | 38 pt       | square, at rest      |
+| Landscape, compact   | 0 (covers the screen) | –           | –                    |
+
+- The bottom corners stay concentric with the display's. The surface is a
+  continuous curve with no shadow; the page dims 20% black at every detent
+  and does not scale back.
+- In a programmed move the inset follows the sheet's position, on the same
+  spring. Opening, the inset grows from 0 to 8 pt with the sheet; the web
+  keeps 8 pt.
+- **A sheet over a sheet.** Upper at medium: the lower sheet gets 12% more
+  dimming and the upper rests about 5.4 pt lower. Upper at large: the lower
+  sheet scales to 0.92 and moves up 32.7 pt; the upper's top is at 57 pt.
+
+**Height.**
+
+- A **fixed detent** (medium, large, a constant) never moves when the
+  content changes. Rows that animate in or out do so inside the sheet; the
+  table view absorbs the change and scrolls.
+- A **fitting detent** (a resolver that reads the content's height) moves
+  only when the app calls `invalidateDetents()`, once per call, on the
+  detent spring (response 0.344 s, critical) inside `animateChanges`.
+  Without the call the sheet stays where it is, however the content grows.
+- `UITableView` inserts and deletes rows on response 0.30 s, critical,
+  0.44 s. A pinned bottom bar stays on the sheet's bottom edge while the
+  sheet resizes.
+- **The keyboard.** A field at medium raises the sheet to large on the
+  keyboard's curve (response 0.267 s, critical, `SPRINGS.snappy`). The
+  selected detent stays medium, and the sheet returns there when the
+  keyboard goes.
+
+### The rules
+
+1. **A sheet changes height for a reason, once.** The person moves it, the
+   app asks (a tab, a page, a detent), or the content has settled. It never
+   follows the frames of a content animation.
+2. **Fixed detents hold.** At a partial detent the sheet runs on below
+   the screen, and only that part changes: its height changes at once and
+   it re-snaps in the same frame, so its top edge holds. A spring there
+   would shift it by a fraction of a pixel each frame, since scroll offsets
+   are whole pixels. Only a sheet that becomes shorter than its detent
+   moves its top edge, on the spring. A sheet shorter than its detent rests
+   at both the detent and full view, and keeps the one it was at, as UIKit
+   keeps the selected detent: content that grows again takes it back there.
+3. **A sheet that fits its content** (`fit`) follows it by kind of change:
+   - A change within one frame (a tab, a filter) moves the sheet at once on
+     `SPRINGS.sheet`.
+   - Growth over several frames is followed on `SPRINGS.sheet`. The
+     content runs on below the bottom edge meanwhile, and a footer
+     (`[data-sheet-footer]`, a field or a toolbar) stays on that edge.
+   - Shrinking over several frames (rows that collapse) is held. The freed
+     space shows at `[data-sheet-slack]`, where the screen puts it: in the
+     Notebook, below the list and above the field. Once the content has
+     been still for 250 ms, the sheet settles once.
+4. **Nothing resizes under a finger.** A touch, a mouse button, or a scroll
+   the person started less than 120 ms ago holds every height change until
+   it ends.
+5. **Content animates in place.** Rows collapse and expand on their own
+   curve inside the sheet. A height change never scrolls the content.
+6. **Scroll or move.** At a partial detent a swipe moves the sheet; the
+   content scrolls only at full height.
+7. **The keyboard.** A field at a partial detent raises the sheet to full
+   height on `SPRINGS.snappy`; when the field lets go the sheet returns to
+   the detent nearest where it was, never the closed place, on the same
+   spring. Dragged below full height, the sheet puts the keyboard away.
+8. **Shape follows position.** Below its highest partial detent a sheet
+   floats with the measured inset and corners. Between that detent and
+   full view the inset and the bottom corners follow the scroll position
+   (a scroll-driven animation, so a drag keeps them in step). A sheet
+   shorter than its maximum height floats in full view too. On a phone in
+   landscape, sheets meet the edges.
+9. **Reduced motion** makes every move instant, after the same waits, so
+   the content still does not jump twice.
+
+**Markup.** A fitting sheet renders `[data-sheet-fit]` (its height) around
+`[data-sheet-fit-content]`. The fit box has `data-sheet-fit-state`: `rest`,
+`held` or `settling`; tests wait for `rest`. The overlay has
+`data-sheet-shape`: `float`, `attach` or `attached`. The sheet's own box
+keeps one width, so its content never reflows while the shape changes: the
+surface behind it (`::before`) widens, and a mask on the scroller lifts and
+rounds the bottom edge. A mask, not a clip-path: React Aria reads full view
+from an IntersectionObserver, which applies an ancestor's clip-path.
+
+**Why the Notebook jumped.** Its full position is a fitting detent, and its
+height was the content's in every frame. Each swiped row collapsed on a
+height tween, and the sheet's top edge followed every frame of it, three or
+four times in a row; Undo grew it back in a frame or two. Main-thread
+stalls of 60–100 ms in development builds (the whole list renders again on
+each delete) dropped frames in the middle. Now the sheet holds while the
+rows collapse and settles once.
 
 ## Feedback
 

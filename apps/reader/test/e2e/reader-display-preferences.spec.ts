@@ -4,6 +4,7 @@ import {
   openLocalBook,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 for (const mobile of [true, false]) {
@@ -48,6 +49,8 @@ for (const mobile of [true, false]) {
               .click();
             const settings = await waitForSheet(page, "Appearance");
             await settings.getByRole("tab", { name: "Layout" }).click();
+            // The sheet grows to fit the tab on its spring; tap once it rests.
+            await waitForSheetToRest(settings);
           } else {
             await page
               .getByRole("button", { name: "Reading appearance", exact: true })

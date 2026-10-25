@@ -532,6 +532,7 @@ export function NotesPanel({
           title="Notes"
           heading
           snapPoints={["min(55dvh, 100%)"]}
+          fit
         >
           <div className="notes-panel">
             <NotesContent article={article} onReveal={reveal} />

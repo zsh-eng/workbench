@@ -4,6 +4,7 @@ import {
   openLocalBook,
   openReaderTools,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 test.use({
@@ -34,7 +35,7 @@ test("mobile settings expose choices and apply themes when preference storage is
   await page.touchscreen.tap(195, 422);
   const tools = await openReaderTools(page);
   await tools.getByRole("button", { name: "Appearance", exact: true }).click();
-  await waitForSheet(page, "Appearance");
+  const settings = await waitForSheet(page, "Appearance");
   await expect(
     page.getByRole("button", { name: "Lora", pressed: true }),
   ).toBeVisible();
@@ -46,6 +47,8 @@ test("mobile settings expose choices and apply themes when preference storage is
     page.getByRole("button", { name: "System", pressed: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Layout" }).click();
+  // The sheet grows to fit the tab on its spring; tap once it rests.
+  await waitForSheetToRest(settings);
   for (const name of ["Left", "Center", "Right", "Justify"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   }
@@ -54,6 +57,7 @@ test("mobile settings expose choices and apply themes when preference storage is
     page.getByRole("button", { name: "Center", pressed: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Theme" }).click();
+  await waitForSheetToRest(settings);
   await page.getByRole("button", { name: "Night", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Night", pressed: true }),

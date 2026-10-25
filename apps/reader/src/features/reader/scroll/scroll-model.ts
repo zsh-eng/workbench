@@ -383,6 +383,28 @@ export function buildColumnSelectionSpread(
   };
 }
 
+/** A page's place in a spread: slot `index` of `columns` pages. */
+export interface SpreadSlotPlace {
+  index: number;
+  columns: number;
+}
+
+/**
+ * Where a page lands in the spread that Scroll → Pages opens; the engine
+ * goes to the page's own anchor. A two-page spread keeps that anchor's page
+ * on the left. Wider spreads follow the book's page order, which needs the
+ * page's book page number (1-based).
+ */
+export function spreadSlotFor(
+  columns: number,
+  bookPage: number | null,
+): SpreadSlotPlace | null {
+  if (columns < 2) return null;
+  if (columns === 2) return { index: 0, columns };
+  if (bookPage === null) return null;
+  return { index: (bookPage - 1) % columns, columns };
+}
+
 /**
  * A one-page spread of what the view shows, from the top line down. Notes
  * capture a page target from the first line of a spread; in scroll mode

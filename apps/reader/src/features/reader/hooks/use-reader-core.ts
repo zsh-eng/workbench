@@ -255,7 +255,8 @@ export function useReaderCore(
     if (!scrollLocation?.anchor || scrollLocation.intent.kind !== "linear") {
       return;
     }
-    recordHistory(scrollLocation.anchor, scrollLocation.intent);
+    // The line at the top of the view, exactly; never read as a page.
+    recordHistory(scrollLocation.anchor, scrollLocation.intent, true);
   }, [recordHistory, scrollLocation]);
 
   usePaginationKeyboardNav({

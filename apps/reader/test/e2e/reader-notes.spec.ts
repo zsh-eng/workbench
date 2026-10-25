@@ -9,6 +9,7 @@ import {
   showNotesCapsule,
   openReaderTools,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 test.use({
@@ -856,6 +857,8 @@ test("swipes to edit without losing the compose draft or changing the note ancho
     createdAt: original.createdAt,
     content: "The revised thought.",
   });
+  // The sheet fits the field again once the edit strip goes.
+  await waitForSheetToRest(page.getByRole("dialog", { name: "Notebook" }));
   await row.locator("article").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit note" }).click();
   await expect(editor).toHaveValue("The revised thought.");

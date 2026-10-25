@@ -7,6 +7,7 @@ import {
   currentPages,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 test.use({
@@ -55,10 +56,12 @@ async function openTool(page: Page, button: string | RegExp, sheet: string) {
 const openReadingSettings = (page: Page) =>
   openTool(page, "Appearance", "Appearance");
 
-/** Debug mode's Pages or Scroll row leads Appearance's Layout tab. */
+/** The Reading view row, Pages or Scroll, leads Appearance's Layout tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
   const settings = await openReadingSettings(page);
   await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  // The sheet grows to fit the tab on its spring; tap once it rests.
+  await waitForSheetToRest(settings);
   await settings
     .locator("[data-reading-layout-row]")
     .getByRole("button", { name: layout, exact: true })
@@ -453,7 +456,7 @@ async function clearSelection(page: Page) {
 
 const SPILL_TAB = "[data-reader-spill-tab]";
 
-/** A reader without Debug mode, where Scroll is not a reading layout. */
+/** A reader without Debug mode: Scroll is offered; the pull is not. */
 const withoutDebugMode = (page: Page) =>
   page.addInitScript(() =>
     localStorage.setItem("reader-debug-enabled-v1", "false"),
@@ -575,7 +578,7 @@ test("The spill tab finishes the sentence on the next page, and the highlight re
   ).not.toBe("scroll");
 });
 
-test("Without Debug mode, a visit to the column leaves no Scroll layout behind, and Scroll is not offered", async ({
+test("Without Debug mode, a visit to the column leaves no Scroll layout behind, a pull stays on the page, and Appearance offers Scroll", async ({
   page,
   localBook,
 }) => {
@@ -607,11 +610,25 @@ test("Without Debug mode, a visit to the column leaves no Scroll layout behind, 
   });
   await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
 
-  // Appearance's Layout has no Pages or Scroll row.
-  const settings = await openReadingSettings(page);
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
-  await expect(settings.getByRole("tabpanel")).toBeVisible();
-  await expect(settings.locator("[data-reading-layout-row]")).toHaveCount(0);
+  // Appearance's Layout offers Pages or Scroll, and Scroll reads the
+  // chapter as one column.
+  await enterScroll(page);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).toBe("scroll");
+});
+
+test("Scroll and back to Pages keeps the page", async ({ page, localBook }) => {
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 5; index++) await nextSpread(page);
+  const before = await currentPages(page);
+  await enterScroll(page);
+  await chooseLayout(page, "Pages");
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+  await expect.poll(() => currentPages(page)).toEqual(before);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).toBe("pages");
 });
 
 test.describe("on a desktop", () => {
@@ -619,6 +636,93 @@ test.describe("on a desktop", () => {
     viewport: { width: 1280, height: 800 },
     isMobile: false,
     hasTouch: false,
+  });
+
+  /** Pages or Scroll from the Reader tools sidebar. */
+  async function chooseDesktopLayout(page: Page, layout: "Pages" | "Scroll") {
+    const sidebar = page.locator('aside[aria-label="Reader tools"]');
+    if ((await sidebar.getAttribute("aria-hidden")) === "true") {
+      const tools = page.getByRole("button", {
+        name: "Open reader tools",
+        exact: true,
+      });
+      const bounds = await tools.boundingBox();
+      if (!bounds || bounds.y < 0) {
+        await page.locator('[data-reader-chrome-rail="top"]').hover();
+      }
+      await expect(tools).toBeInViewport();
+      await tools.click();
+    }
+    await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+    const row = sidebar.locator("[data-reading-layout-row]");
+    if (!(await row.isVisible())) {
+      await sidebar
+        .getByRole("button", { name: "Reading appearance", exact: true })
+        .click();
+    }
+    await row.getByRole("button", { name: layout, exact: true }).click();
+  }
+
+  test("Scroll to Pages slides the page into its place in a two-page spread", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    for (let index = 0; index < 3; index++) await nextSpread(page);
+    await chooseDesktopLayout(page, "Scroll");
+    await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
+    await scrollStageTo(page, (await stageScrollTop(page)) + 300);
+
+    // Follow the snapping page's first line until the pages take over.
+    const lastSeen = page.evaluate(
+      () =>
+        new Promise<{ anchor: string; left: number; top: number } | null>(
+          (resolve) => {
+            let last: { anchor: string; left: number; top: number } | null =
+              null;
+            const sample = () => {
+              const stage = document.querySelector<HTMLElement>(
+                "[data-reader-scroll-stage]",
+              );
+              if (!stage) return resolve(last);
+              const snapPage = stage.dataset.readerSnapPage;
+              const line =
+                snapPage === undefined
+                  ? null
+                  : stage.querySelector(
+                      `[data-page-index="${snapPage}"] [data-content-anchor-start]`,
+                    );
+              if (line) {
+                const box = line.getBoundingClientRect();
+                last = {
+                  anchor: line.getAttribute("data-content-anchor-start") ?? "",
+                  left: box.left,
+                  top: box.top,
+                };
+              }
+              requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          },
+        ),
+    );
+    await chooseDesktopLayout(page, "Pages");
+    const seen = await lastSeen;
+    expect(seen).not.toBeNull();
+
+    // The same line on the page sits where the column left it.
+    const line = page
+      .locator(
+        `${CURRENT_SPREAD} [data-content-anchor-start="${seen!.anchor}"]`,
+      )
+      .first();
+    const box = await line.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs(box!.x - seen!.left)).toBeLessThan(2);
+    expect(Math.abs(box!.y - seen!.top)).toBeLessThan(2);
+    // The page went to the spread's first place, beside the next page.
+    const slots = page.locator(`${CURRENT_SPREAD} [data-reader-page-slot]`);
+    await expect(slots).toHaveCount(2);
   });
 
   test("Only the spread's outer edges offer the spill tab, clear of the highlight pill", async ({
@@ -755,8 +859,9 @@ test("A typography change in scroll mode keeps the reading line in place", async
     });
   const before = await readingLine();
 
-  await openReadingSettings(page);
+  const settings = await openReadingSettings(page);
   await page.getByRole("tab", { name: "Type" }).tap();
+  await waitForSheetToRest(settings);
   await page
     .getByRole("button", { name: /increase|larger/i })
     .first()

@@ -9,6 +9,8 @@ interface ReaderSheetPage {
   title: string;
   snapPoints?: DetentSheetSnapPoint[];
   height?: "content" | "tall";
+  /** Holds its height for content that changes (DetentSheet's `fit`). */
+  fit?: boolean;
   /** Opens over Reader tools. Otherwise it takes the place of the tools. */
   stacks: boolean;
   /** Dims the page under the sheet. */
@@ -47,9 +49,11 @@ export const READER_SHEET_PAGES: Record<ReaderSheetId, ReaderSheetPage> = {
     dim: true,
   },
   "book-actions": { title: "Reading status", stacks: true, dim: true },
+  // Entries come and go while it is open, so it holds its height for them.
   notes: {
     title: "Notebook",
     snapPoints: [MEDIUM_DETENT],
+    fit: true,
     stacks: true,
     dim: true,
   },
@@ -100,7 +104,8 @@ export function ReaderDetentSheets({
         {renderPage("tools")}
       </DetentSheet>
       {PAGES.map((page) => {
-        const { title, snapPoints, height, dim } = READER_SHEET_PAGES[page];
+        const { title, snapPoints, height, fit, dim } =
+          READER_SHEET_PAGES[page];
         const close = stacked ? () => onOpenSheet("tools") : onCloseSheet;
         return (
           <DetentSheet
@@ -112,6 +117,7 @@ export function ReaderDetentSheets({
             title={title}
             snapPoints={snapPoints}
             height={height}
+            fit={fit}
             dim={dim}
             stacked={stacked}
             onBack={stacked ? close : undefined}
