@@ -24,19 +24,13 @@ export function createReadingCheckpointId(
   return `resume:${deviceId}:${bookId}`;
 }
 
-function clampPercentage(value: number): number {
-  return Math.max(0, Math.min(100, value));
-}
-
+/**
+ * Every writer passes a percentage. Values from 0 to 1 are percentages too:
+ * page 2 of a 201-page chapter is 0.5% through it, not half way.
+ */
 function normalizeCheckpointScrollProgress(value: number): number {
   if (!Number.isFinite(value)) return 0;
-
-  // Accept fractional checkpoint values created by early clients.
-  if (value >= 0 && value <= 1) {
-    return clampPercentage(value * 100);
-  }
-
-  return clampPercentage(value);
+  return Math.max(0, Math.min(100, value));
 }
 
 export async function getReadingCheckpointForDevice(

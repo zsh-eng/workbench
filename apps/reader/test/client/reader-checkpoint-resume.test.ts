@@ -25,7 +25,11 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client }, children);
 }
 
-function spread(page: number, preview = false): ResolvedSpread {
+function spread(
+  page: number,
+  preview = false,
+  pagesInChapter = 5,
+): ResolvedSpread {
   return {
     intent: preview
       ? { kind: "preview", source: "scrubber" }
@@ -45,7 +49,7 @@ function spread(page: number, preview = false): ResolvedSpread {
           currentPage: page,
           totalPages: 5,
           currentPageInChapter: page,
-          totalPagesInChapter: 5,
+          totalPagesInChapter: pagesInChapter,
           content: [],
         },
       },
@@ -93,6 +97,29 @@ afterEach(async () => {
   vi.restoreAllMocks();
   client.clear();
   await syncV2Db.delete();
+});
+
+it("keeps chapter progress under 1% as a percentage", async () => {
+  // Page 2 of a 201-page chapter is 0.5% through it, not half way.
+  const writer = renderHook(
+    () =>
+      useReaderCheckpointController({
+        bookId,
+        spread: spread(2, false, 201),
+      }),
+    { wrapper },
+  );
+  await waitFor(async () => {
+    expect(
+      await database.getCurrentDeviceReadingCheckpoint(bookId),
+    ).toMatchObject({ currentSpineIndex: 2, scrollProgress: 0.5 });
+  });
+  writer.unmount();
+  expect(openReader().result.current).toEqual({
+    chapterIndex: 2,
+    chapterProgress: 0.5,
+    isRestore: true,
+  });
 });
 
 it("reopens at the committed location with a warm cache and durable checkpoint", async () => {
