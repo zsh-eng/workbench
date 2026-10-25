@@ -66,7 +66,8 @@ function scrollToDetent(scroller: HTMLElement, detent: "full" | "medium") {
  * opens at the medium detent, as Contents and the Notebook do, and its
  * buttons change the detent. `?run=auto` repeats a fixed sequence and
  * `?track=1` colours the page for frame-by-frame measurement, recording the
- * sheet's top edge in `window.__sheetTrace` (and posting it to `?collect=`).
+ * sheet's top edge in `window.__sheetTrace` (and posting it to `?collect=`),
+ * and flashes a square in the corner at each step of the script.
  */
 export function SheetMotionIdea() {
   const [params] = useSearchParams();
@@ -77,6 +78,7 @@ export function SheetMotionIdea() {
   const track = params.get("track") === "1";
   const framed = window.parent !== window;
   const [open, setOpen] = useState<Open>(null);
+  const [flash, setFlash] = useState(false);
 
   useEffect(() => {
     if (!auto) return;
@@ -85,6 +87,9 @@ export function SheetMotionIdea() {
     const mark = (step: string) => {
       const trace = (window as { __sheetTrace?: unknown[] }).__sheetTrace;
       trace?.push({ t: performance.now(), step });
+      // A square flashes at each step, so recordings line up.
+      setFlash(true);
+      timers.push(window.setTimeout(() => setFlash(false), 100));
     };
     const schedule = (offset: number) => {
       for (const { at, step } of SCRIPT)
@@ -165,6 +170,9 @@ export function SheetMotionIdea() {
       >
         {track && (
           <style>{`.reader-sheet { background: #fff !important; border-color: #fff !important; }`}</style>
+        )}
+        {track && flash && (
+          <div className="fixed top-0 left-0 z-[100] size-6 bg-black" />
         )}
         {!track && <SamplePage />}
         {!framed && !track && (

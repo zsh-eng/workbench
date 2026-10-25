@@ -56,6 +56,30 @@ export function FeedbackIdea() {
   const send = useRef<HTMLButtonElement>(null);
   const bubble = useRef<HTMLSpanElement>(null);
 
+  // `?run=auto` taps through the page once, for recordings: copy, write and
+  // save a note, delete it and Undo, then the Undo toast and its Undo.
+  const auto = params.get("run") === "auto";
+  useEffect(() => {
+    if (!auto) return;
+    const tap = (selector: string) =>
+      document.querySelector<HTMLElement>(selector)?.click();
+    const steps: [number, string][] = [
+      [0.8, "[data-feedback-passage]"],
+      [1.7, '[aria-label="Copy text"]'],
+      [3.0, "[data-feedback-note]"],
+      [4.0, '[aria-label="Save note"]'],
+      [6.2, "[data-feedback-passage]"],
+      [7.2, '[aria-label="Delete note"]'],
+      [8.8, "[data-feedback-island] [role=status] button"],
+      [10.6, "[data-feedback-toast]"],
+      [12.2, ".wb-toast-action"],
+    ];
+    const timers = steps.map(([at, selector]) =>
+      window.setTimeout(() => tap(selector), at * 1000),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [auto]);
+
   useEffect(() => {
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(false), 1400);
@@ -154,6 +178,7 @@ export function FeedbackIdea() {
         <p className="mb-4 indent-6">
           <button
             type="button"
+            data-feedback-passage=""
             onClick={() => setIsland(noted ? "note" : "tools")}
             className="rounded-[3px] bg-[var(--green-secondary)] text-left text-foreground focus-visible:outline-2 focus-visible:outline-ring"
           >
@@ -168,6 +193,7 @@ export function FeedbackIdea() {
         </p>
         <button
           type="button"
+          data-feedback-toast=""
           onClick={() => {
             // Undo takes the toast away, as the notebook's does.
             const dismiss = showUndoToast({
@@ -209,6 +235,7 @@ export function FeedbackIdea() {
           {island !== "none" && (
             <motion.div
               key="island"
+              data-feedback-island=""
               initial={{ opacity: 0, transform: "translateY(16px)" }}
               animate={{ opacity: 1, transform: "none" }}
               exit={{ opacity: 0, transform: "translateY(12px)" }}
@@ -249,6 +276,7 @@ export function FeedbackIdea() {
                       </button>
                       <button
                         type="button"
+                        data-feedback-note=""
                         onClick={() => setIsland("compose")}
                         className="flex h-10 items-center gap-1.5 rounded-full bg-secondary px-4 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring"
                       >
