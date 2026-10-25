@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="676" viewBox="0 0 480 676">
+  <!-- The board's rounded edge: it falls away over the last few pixels, worn at the corners. -->
+  <defs><filter id="round"><feGaussianBlur stdDeviation="3.2"/></filter></defs>
+  <rect width="480" height="676" fill="#555"/>
+  <rect x="5" y="4" width="455" height="668" rx="9" fill="#fff" filter="url(#round)"/>
+  <!-- The spine side at the right is a separate strip in the photograph. -->
+  <rect x="461" y="0" width="19" height="676" fill="#555"/>
+</svg>

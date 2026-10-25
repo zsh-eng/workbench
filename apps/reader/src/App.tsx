@@ -68,6 +68,12 @@ const DarkColoursIdea = lazy(() =>
   })),
 );
 
+const LivingCoversIdea = lazy(() =>
+  import("@/features/living-covers/LivingCoversIdea").then((module) => ({
+    default: module.LivingCoversIdea,
+  })),
+);
+
 const ElementsFrame = lazy(() =>
   import("@/features/elements/ElementsFrame").then((module) => ({
     default: module.ElementsFrame,
@@ -256,6 +262,16 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <DarkColoursIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/living-covers"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <LivingCoversIdea />
                           </Suspense>
                         </DebugGate>
                       }
