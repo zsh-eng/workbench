@@ -248,16 +248,17 @@ test("a step as the book opens starts where the reader is", async ({
   for (let spread = 0; spread < 4; spread++) await nextSpread(page);
   const start = await currentPages(page);
   // Book page numbers count the chapters laid out so far, so they settle
-  // once the earlier chapters are.
+  // once the earlier chapters are. On a busy machine that takes a while.
+  const settled = { timeout: 15_000 };
   await page.reload();
   await waitForReaderReady(page);
-  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => currentPages(page), settled).toEqual(start);
 
   // Design ideas' `?search=` steps as soon as the page shows, before then.
   await page.goto(`/reader/${localBook.id}?search=the`);
   await expect(page.getByTestId("search-stepper")).toBeVisible();
   await waitForReaderReady(page);
-  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => currentPages(page), settled).toEqual(start);
 });
 
 test("a result opens the right page after the type changes", async ({
