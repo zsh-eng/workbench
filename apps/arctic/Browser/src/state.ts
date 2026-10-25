@@ -66,31 +66,98 @@ export function useStatusText() {
 }
 
 export type Toast = {
+  /** The toast's element: it stays the same while the toast changes. */
   id: number;
   message: string;
   /** Undo, offered while its countdown runs (UNDO_SECONDS). */
-  action?: { label: string; run: () => void };
+  action?: ToastAction;
+  /** What the toast is about. A toast with the same key takes in the next
+   * change in place, instead of replacing it with a new one. */
+  key: string;
+  /** Changes it has taken in after the first. Each one starts the
+   * countdown again. */
+  round: number;
+  /** The change was undone: the toast says so with a check, then leaves. */
+  done?: boolean;
 };
+
+export type ToastAction = {
+  label: string;
+  run: () => void;
+  /** What the toast says once the change is undone. */
+  done?: string;
+};
+
 let toast: Toast | null = null;
 let toastId = 0;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const toastListeners = new Set<() => void>();
+const emit = () => toastListeners.forEach((listener) => listener());
 
-/** One notice at a time; a new one replaces the last. */
-export function showToast(message: string, action?: Toast["action"]) {
-  toast = { id: ++toastId, message, action };
-  toastListeners.forEach((listener) => listener());
+/**
+ * One notice at a time. A new subject replaces the last; the same subject
+ * (`key`, or else the same words) changes the toast in place. While Undo is
+ * on offer, another change of the same kind joins it: `message` can count
+ * them ("3 archived"), the countdown starts again, and Undo takes them all
+ * back, the newest first.
+ */
+export function showToast(
+  message: string | ((count: number) => string),
+  action?: ToastAction,
+  { key }: { key?: string } = {},
+) {
+  const words = (count: number) =>
+    typeof message === "string" ? message : message(count);
+  const subject = key ?? words(1);
+  const same = toast && !toast.done && toast.key === subject ? toast : null;
+  if (same && action && same.action) {
+    const earlier = same.action.run;
+    toast = {
+      ...same,
+      // The first change and each one that joined.
+      message: words(same.round + 2),
+      round: same.round + 1,
+      action: {
+        ...action,
+        run: () => {
+          action.run();
+          earlier();
+        },
+      },
+    };
+  } else if (same && !action && !same.action) {
+    toast = { ...same, message: words(1), round: same.round + 1 };
+  } else {
+    toast = {
+      id: ++toastId,
+      message: words(1),
+      action,
+      key: subject,
+      round: 0,
+    };
+  }
+  emit();
+  holdToast(false);
+}
+
+/** Undoes the toast's change and turns the same toast into its done state. */
+export function undoToast(id: number) {
+  if (!toast || toast.id !== id || !toast.action || toast.done) return;
+  toast.action.run();
+  toast = { ...toast, done: true, message: toast.action.done ?? "Undone" };
+  emit();
   holdToast(false);
 }
 
 /**
- * A notice stays while the pointer or focus is on it, then 6 s more. An
- * offer of Undo keeps its own time: the toast's countdown ends it.
+ * A notice stays while the pointer or focus is on it, then 6 s more, and a
+ * toast that says its change was undone 1.6 s. An offer of Undo keeps its
+ * own time: the toast's countdown ends it.
  */
 export function holdToast(held: boolean) {
   clearTimeout(toastTimer);
-  if (held || !toast || toast.action) return;
-  toastTimer = setTimeout(dismissToast, 6000);
+  if (held || !toast || (toast.action && !toast.done)) return;
+  toastTimer = setTimeout(dismissToast, toast.done ? 1600 : 6000);
 }
 
 /** Dismisses the toast, or only the one with this id. */

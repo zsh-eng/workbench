@@ -38,6 +38,7 @@ import {
   holdToast,
   reportError,
   showToast,
+  undoToast,
   useSession,
   useStatusText,
   useToast,
@@ -100,10 +101,22 @@ export function useActions() {
       return run(library(article, edits.archive(archived))).then(
         (done) =>
           done &&
-          showToast(archived ? "Archived" : "Moved to Saved", {
-            label: "Undo",
-            run: () => void run(library(article, edits.archive(!archived))),
-          }),
+          showToast(
+            (count) =>
+              archived
+                ? count === 1
+                  ? "Archived"
+                  : `${count} archived`
+                : count === 1
+                  ? "Moved to Saved"
+                  : `${count} moved to Saved`,
+            {
+              label: "Undo",
+              run: () => void run(library(article, edits.archive(!archived))),
+              done: archived ? "Back in Saved" : "Back in Archive",
+            },
+            { key: archived ? "archive" : "unarchive" },
+          ),
       );
     },
     save: (article: Article) =>
@@ -118,10 +131,14 @@ export function useActions() {
         (done) =>
           done &&
           undo &&
-          showToast("Removed from your library", {
-            label: "Undo",
-            run: () => void run(undo!),
-          }),
+          showToast(
+            (count) =>
+              count === 1
+                ? "Removed from your library"
+                : `${count} removed from your library`,
+            { label: "Undo", run: () => void run(undo!), done: "Restored" },
+            { key: "remove" },
+          ),
       );
     },
   };
@@ -721,7 +738,9 @@ async function leave(session: Session) {
  * Undo counting down after Telegram's undo bar. A phone shows it above the
  * bottom bar. It stays usable over a sheet, which makes the rest of the page
  * inert, and the region announces each new toast. ⌘Z or Ctrl+Z undoes while
- * Undo is on offer.
+ * Undo is on offer. A toast keeps its element while it changes: a second
+ * archive joins the first ("2 archived"), and Undo turns the same toast into
+ * "Back in Saved" with a check before it leaves.
  */
 export function Toaster() {
   const current = useToast();
@@ -731,7 +750,7 @@ export function Toaster() {
   const leaving = !current && shown !== null;
   const undo = current?.action;
   useEffect(() => {
-    if (!undo || !current) return;
+    if (!undo || !current || current.done) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "z" || !(event.metaKey || event.ctrlKey))
         return;
@@ -739,8 +758,7 @@ export function Toaster() {
       const target = event.target as HTMLElement;
       if (target.closest("input, textarea, [contenteditable]")) return;
       event.preventDefault();
-      undo.run();
-      dismissToast(current.id);
+      undoToast(current.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -759,13 +777,12 @@ export function Toaster() {
           data-leaving={leaving || undefined}
           inert={leaving}
           message={shown.message}
+          done={shown.done}
           undo={
             shown.action && {
               label: shown.action.label,
-              onUndo: () => {
-                shown.action!.run();
-                dismissToast(shown.id);
-              },
+              round: shown.round,
+              onUndo: () => undoToast(shown.id),
               onDone: () => dismissToast(shown.id),
             }
           }

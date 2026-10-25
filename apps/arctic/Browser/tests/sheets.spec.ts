@@ -89,4 +89,18 @@ test("Undo counts down above the bottom bar and takes the change back", async ({
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator(".card")).toHaveCount(2);
   await expect(toast.locator(".toast")).toHaveCount(0);
+
+  // Two archives share one toast, which counts them. Its Undo takes both
+  // back, and the same toast says so before it leaves.
+  await archive("A polynya in winter");
+  const one = toast.locator(".toast");
+  await one.evaluate((element) => element.setAttribute("data-probe", ""));
+  await archive("Brash ice");
+  const same = toast.locator(".toast[data-probe]");
+  await expect(same).toContainText("2 archived");
+  await same.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".card")).toHaveCount(2);
+  await expect(same).toContainText("Back in Saved");
+  await expect(same.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  await expect(toast.locator(".toast")).toHaveCount(0);
 });

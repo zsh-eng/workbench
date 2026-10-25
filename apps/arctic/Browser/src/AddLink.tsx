@@ -13,7 +13,12 @@ import { useNavigate } from "react-router-dom";
 import { editLibrary, removeArticle, type Article } from "./articles";
 import { articleId, canonicalURL, saveLink } from "./links";
 import { listMotion } from "./motion";
-import { articles as projected, reportError, showToast, useSession } from "./state";
+import {
+  articles as projected,
+  reportError,
+  showToast,
+  useSession,
+} from "./state";
 import { useAboveKeyboard } from "./surface";
 import type { Session } from "./sync/session";
 import { Tip } from "./ui";
@@ -54,10 +59,15 @@ export async function addLink(
     return result;
   }
   const before = known.find((article) => article.id === result.id);
-  showToast("Saved", {
-    label: "Undo",
-    run: () => void undo(session, result.id, before),
-  });
+  showToast(
+    (count) => (count === 1 ? "Saved" : `${count} saved`),
+    {
+      label: "Undo",
+      run: () => void undo(session, result.id, before),
+      done: "Undone",
+    },
+    { key: "save-link" },
+  );
   return result;
 }
 

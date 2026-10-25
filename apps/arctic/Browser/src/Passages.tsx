@@ -89,7 +89,9 @@ export function Passages({
       return;
     }
     const top = range.getBoundingClientRect().top;
-    window.scrollTo({ top: Math.max(0, window.scrollY + top - innerHeight * 0.3) });
+    window.scrollTo({
+      top: Math.max(0, window.scrollY + top - innerHeight * 0.3),
+    });
     setFocus(reveal.id);
     const timer = setTimeout(() => setFocus(undefined), 1600);
     return () => clearTimeout(timer);
@@ -105,12 +107,20 @@ export function Passages({
     const check = () => {
       const selection = getSelection();
       const root = prose.current;
-      if (!root || !selection || selection.isCollapsed || !selection.rangeCount) {
+      if (
+        !root ||
+        !selection ||
+        selection.isCollapsed ||
+        !selection.rangeCount
+      ) {
         setBar((current) => (current?.mode === "selection" ? null : current));
         return;
       }
       const range = selection.getRangeAt(0);
-      if (!root.contains(range.commonAncestorContainer) || !range.toString().trim())
+      if (
+        !root.contains(range.commonAncestorContainer) ||
+        !range.toString().trim()
+      )
         return;
       setBar({ mode: "selection", range: range.cloneRange() });
     };
@@ -181,9 +191,16 @@ export function Passages({
   // H highlights the selection.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "h" || event.metaKey || event.ctrlKey || event.altKey)
+      if (
+        event.key.toLowerCase() !== "h" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
         return;
-      if ((event.target as Element).closest("input, textarea, [contenteditable]"))
+      if (
+        (event.target as Element).closest("input, textarea, [contenteditable]")
+      )
         return;
       if (bar?.mode !== "selection") return;
       event.preventDefault();
@@ -211,9 +228,10 @@ export function Passages({
     );
     if (same) {
       setBar(note ? { mode: "passage", id: same.id, note: true } : null);
-      await editAnnotation(session, same, { colour, isHighlighted: true }).catch(
-        reportError,
-      );
+      await editAnnotation(session, same, {
+        colour,
+        isHighlighted: true,
+      }).catch(reportError);
       return;
     }
     const created = newAnnotation(article.url, { quote, colour });
@@ -226,13 +244,23 @@ export function Passages({
     await editAnnotation(session, item, { deletedAt: Date.now() }).catch(
       reportError,
     );
-    showToast(item.note ? "Note removed" : "Highlight removed", {
-      label: "Undo",
-      run: () =>
-        void saveAnnotation(session, { ...item, updatedAt: Date.now() }).catch(
-          reportError,
-        ),
-    });
+    const noun = item.note ? "note" : "highlight";
+    showToast(
+      (count) =>
+        count === 1
+          ? `${item.note ? "Note" : "Highlight"} removed`
+          : `${count} ${noun}s removed`,
+      {
+        label: "Undo",
+        run: () =>
+          void saveAnnotation(session, {
+            ...item,
+            updatedAt: Date.now(),
+          }).catch(reportError),
+        done: "Restored",
+      },
+      { key: `remove-${noun}` },
+    );
   }
 
   const range =
@@ -242,7 +270,10 @@ export function Passages({
         ? resolved.get(bar.id)
         : undefined;
   if (!bar || !range || (bar.mode === "passage" && !passage)) return null;
-  const text = bar.mode === "selection" ? bar.range.toString() : passage!.quote?.exact ?? "";
+  const text =
+    bar.mode === "selection"
+      ? bar.range.toString()
+      : (passage!.quote?.exact ?? "");
   return createPortal(
     <FloatingBar range={range}>
       <div className="passage-row">
@@ -255,7 +286,8 @@ export function Passages({
               data-colour={colour}
               aria-label={`Highlight ${colour}`}
               aria-pressed={
-                passage?.isHighlighted && (passage.colour ?? "yellow") === colour
+                passage?.isHighlighted &&
+                (passage.colour ?? "yellow") === colour
               }
               onPointerDown={(event) => event.preventDefault()}
               onClick={() =>
@@ -319,7 +351,7 @@ export function Passages({
           </Tip>
         )}
       </div>
-      {passage && (bar.mode === "passage" && (bar.note || passage.note)) && (
+      {passage && bar.mode === "passage" && (bar.note || passage.note) && (
         <NoteEditor
           key={passage.id}
           value={passage.note}
@@ -369,11 +401,19 @@ function FloatingBar({
       const touch = matchMedia("(pointer: coarse)").matches;
       const above = first.top - height - 10;
       const top =
-        !touch && above > 70 ? above : Math.min(last.bottom + 12, innerHeight - height - 12);
-      const centre = touch ? (last.left + last.right) / 2 : (first.left + first.right) / 2;
-      const left = Math.min(Math.max(12, centre - width / 2), innerWidth - width - 12);
+        !touch && above > 70
+          ? above
+          : Math.min(last.bottom + 12, innerHeight - height - 12);
+      const centre = touch
+        ? (last.left + last.right) / 2
+        : (first.left + first.right) / 2;
+      const left = Math.min(
+        Math.max(12, centre - width / 2),
+        innerWidth - width - 12,
+      );
       bar.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
-      bar.style.visibility = first.bottom < 0 || last.top > innerHeight ? "hidden" : "";
+      bar.style.visibility =
+        first.bottom < 0 || last.top > innerHeight ? "hidden" : "";
     };
     place();
     const schedule = () => {
