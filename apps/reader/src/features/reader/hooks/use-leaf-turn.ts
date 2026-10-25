@@ -12,8 +12,17 @@ import {
   creaseUnder,
   Leaf,
   LEAF_NODES,
+  LEAF_SEGMENT,
   LEAF_WIDTH,
 } from "../paper/leaf-physics";
+import type { LeafGrip } from "../paper/paper-preference";
+import {
+  gripFrame,
+  holdAngle,
+  rollFrame,
+  toSection,
+  type SheetFrame,
+} from "../paper/sheet-frame";
 import {
   rubberBandSwipeOffset,
   SWIPE_DIRECTION_LOCK_PX,
@@ -29,8 +38,8 @@ import {
 /** Radius of the roll a hand turns a page round, as a fraction of its width. */
 const HAND_ROLL = 0.25;
 /**
- * The edge leads the finger, so the page comes over the top while the
- * thumb is still well inside the screen.
+ * Holding the edge, the edge leads the finger, so the page comes over the
+ * top while the thumb is still well inside the screen.
  */
 const EDGE_LEAD = 1.6;
 /** Where the edge lies once a page has turned: a little short of flat. */
@@ -54,11 +63,35 @@ const FLICK_SPIN = 1;
 const FLICK_SPEED = 450;
 /** How far a flick leans gravity, until the page passes upright. */
 const FLING_LEAN = (95 * Math.PI) / 180;
-/** The tilt a middle grip allows the roll, following the finger. */
+/** Holding the edge: the tilt a middle grip allows the roll. */
 const MIDDLE_TILT = 0.07;
-/** A corner grip tilts the roll this much, so the corner leads. */
+/** Holding the edge: a corner grip tilts the roll this much. */
 const CORNER_TILT = 0.42;
 const CORNER_ZONE_PX = 56;
+/**
+ * Held anywhere, a touch this near a corner of the fore-edge holds the
+ * corner, and may pull it across the page as steeply as this (dy over dx):
+ * a thumb takes a corner up and over, not straight across.
+ */
+const CORNER_REACH_X = 72;
+const CORNER_REACH_Y = 150;
+const CORNER_PULL_SLOPE = 2.4;
+/**
+ * Held anywhere, the fold turns to lie across the pull, the way the hand
+ * moves the paper. Short pulls go straight across, as a thumb's first
+ * millimetres are noise: the pull is measured as if it began this much
+ * further right.
+ */
+const PULL_STEADY_PX = 48;
+/** How fast the fold turns to follow the pull, seconds. */
+const FOLD_FOLLOW = 0.06;
+/** Let go, the fold straightens as the leaf falls, seconds. */
+const FOLD_RELAX = 0.33;
+/**
+ * Held anywhere, a touch this near the spine holds the page this far out:
+ * paper held at the gutter cannot be turned by pulling it.
+ */
+const NEAREST_GRIP = 0.35;
 /** A tap pushes the page this far across, accelerating, then lets go. */
 const PUSH_DISTANCE = 0.46;
 const PUSH_SECONDS = 0.2;
@@ -74,10 +107,8 @@ export type LeafView =
       leaf: Leaf;
       /** Which page is the leaf: this one turning away, or the last coming back. */
       page: LeafPage;
-      /** Tilt of the roll's rulings, radians; 0 runs them up the spine. */
-      tilt: number;
-      /** Height the rulings tilt about, from the stage top. */
-      pivotY: number;
+      /** How the leaf's section lies over the page. */
+      frame: SheetFrame;
     }
   /** The page has turned over and gone; the next waits for promotion. */
   | { kind: "turned" }
@@ -111,13 +142,23 @@ interface Turn {
   leaf: Leaf;
   page: LeafPage;
   canTurn: boolean;
-  /** The rulings' tilt the hand asks for, and the tilt shown. */
-  tilt: number;
-  shownTilt: number;
-  pivotY: number;
+  grip: LeafGrip;
+  /**
+   * Where the hand holds the page, in page px: the paper point held. For
+   * the edge grip, `gripY` is the height the roll tilts about.
+   */
+  gripX: number;
+  gripY: number;
+  /** The node of the strip at the grip. */
+  node: number;
+  /** The fold's angle the hand asks for, and the angle shown. */
+  wanted: number;
+  angle: number;
   corner: -1 | 0 | 1;
+  /** A finger carrying the held point, as it last moved, page px. */
+  pull: { x: number; y: number; travelX: number; travelY: number } | null;
   /** A tap's scripted push, while it runs. */
-  push: { direction: SwipeDirection; startedAt: number; width: number } | null;
+  push: { direction: SwipeDirection; startedAt: number } | null;
   /**
    * A flick carries the page over the hill whichever side it is on: 1
    * onward, -1 home, 0 for a page let go gently.
@@ -128,6 +169,9 @@ interface Turn {
 interface UseLeafTurnOptions {
   containerRef: RefObject<HTMLElement | null>;
   enabled: boolean;
+  grip: LeafGrip;
+  /** Px at the right of the stage that the book's fore-edge takes. */
+  foreEdge: number;
   currentSpreadId: number | null;
   previousSpreadId: number | null;
   nextSpreadId: number | null;
@@ -159,11 +203,14 @@ function hasActiveTextSelection(): boolean {
 /**
  * Turns pages as a leaf of paper you hold (Debug curl).
  *
- * The page is a simulated strip (`Leaf`). A finger that swipes picks up its
- * edge and carries it round a roll, so the leaf curls over; let go, and
- * gravity, the air and the stack below decide where it lands. A touch at
- * any time catches a moving page where the finger meets it, including one
- * already falling over, so there is no moment when touches are ignored.
+ * The page is a simulated strip (`Leaf`) laid over the page by a sheet
+ * frame (`SheetFrame`). A finger that swipes takes hold of the paper where
+ * it touches and carries that point, under the finger, round the hand's
+ * roll; the fold lies across the pull, so a corner pulled across the page
+ * makes a cone and the middle of the edge a roll. Let go, and gravity, the
+ * air and the stack below decide where it lands. A touch at any time
+ * catches a moving page where the finger meets it, including one already
+ * falling over, so there is no moment when touches are ignored.
  *
  * Navigation follows the paper: a forward turn is sent once the leaf has
  * gone over the spine, a backward one once it lies down again. Until the
@@ -200,6 +247,10 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     previous: previousSpreadId,
     next: nextSpreadId,
   }));
+  const settings = useEffectEvent(() => ({
+    grip: options.grip,
+    foreEdge: options.foreEdge,
+  }));
   const present = useEffectEvent((view: LeafView | null) =>
     options.present(view),
   );
@@ -215,6 +266,15 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     if (direction === "next") options.onNext();
     else options.onPrevious();
   });
+
+  /** The page the leaf is: the stage less the book's fore-edge. */
+  const pageSize = () => {
+    const { width, height } = sizeRef.current;
+    return {
+      width: Math.max(1, width - settings().foreEdge),
+      height,
+    };
+  };
 
   const stopLoop = useCallback(() => {
     cancelAnimationFrame(frameRef.current);
@@ -233,21 +293,29 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
   });
 
   /**
-   * Shows the leaf. A tilted roll may not reach the spine, which stays
-   * flat, so the tilt shrinks as the lift line nears it.
+   * How the leaf lies over the page now. Held at the edge, a tilted roll
+   * may not reach the spine, which stays flat, so the tilt shrinks as the
+   * lift line nears it. Held anywhere, the cone's apex lies on the spine's
+   * line, so the spine always stays flat.
    */
-  const showMoving = useEffectEvent((turn: Turn) => {
-    const { width, height } = sizeRef.current;
+  const frameOf = (turn: Turn): SheetFrame => {
+    const { width, height } = pageSize();
+    if (turn.grip === "anywhere") {
+      return gripFrame(turn.gripX, turn.gripY, turn.angle, width);
+    }
     const lift = turn.leaf.liftLine() * (width / LEAF_WIDTH);
-    const reach = turn.tilt > 0 ? height - turn.pivotY : turn.pivotY;
+    const reach = turn.wanted > 0 ? height - turn.gripY : turn.gripY;
     const limit = Math.asin(Math.min(1, (0.9 * lift) / Math.max(1, reach)));
-    turn.shownTilt = Math.max(-limit, Math.min(limit, turn.tilt));
+    turn.angle = Math.max(-limit, Math.min(limit, turn.wanted));
+    return rollFrame(turn.gripY, turn.angle, width);
+  };
+
+  const showMoving = useEffectEvent((turn: Turn) => {
     present({
       kind: "moving",
       leaf: turn.leaf,
       page: turn.page,
-      tilt: turn.shownTilt,
-      pivotY: turn.pivotY,
+      frame: frameOf(turn),
     });
   });
 
@@ -285,17 +353,42 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       (thrown ? FLING_LEAN : LEAN) * Math.tanh((angle - hill) / HILL_WIDTH);
   };
 
-  /** Starts a turn: the current page lifts, or the last one comes back. */
+  /**
+   * Starts a turn: the current page lifts, or the last one comes back.
+   * `gripX` is where the finger took the page; held at the edge, or coming
+   * back, the hand holds the fore-edge.
+   */
   const beginTurn = useEffectEvent(
-    (direction: SwipeDirection, pivotY: number, corner: -1 | 0 | 1): Turn => {
+    (
+      direction: SwipeDirection,
+      gripX: number,
+      gripY: number,
+      corner: -1 | 0 | 1,
+    ): Turn => {
+      const { width } = pageSize();
+      const grip = settings().grip;
+      const held = grip === "anywhere" && direction === "next";
+      const x = held
+        ? Math.max(NEAREST_GRIP * width, Math.min(width, gripX))
+        : width;
+      const node = held
+        ? Math.max(
+            2,
+            Math.min(LEAF_NODES, Math.round((x / width) * LEAF_NODES)),
+          )
+        : LEAF_NODES;
       const turn: Turn = {
         leaf: new Leaf(direction === "next" ? "right" : "left"),
         page: direction === "next" ? "current" : "previous",
         canTurn: false,
-        tilt: corner * CORNER_TILT,
-        shownTilt: 0,
-        pivotY,
+        grip,
+        gripX: x,
+        gripY,
+        node,
+        wanted: grip === "edge" ? corner * CORNER_TILT : 0,
+        angle: 0,
         corner,
+        pull: null,
         push: null,
         fling: 0,
       };
@@ -310,29 +403,59 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
    * Carries the edge for a finger `travel` px from where it started: round
    * the hand's roll for a forward turn, back off it for a backward one.
    */
-  const carry = useEffectEvent(
-    (turn: Turn, travel: number, rise: number, width: number) => {
-      aim(turn);
-      const metres = LEAF_WIDTH / width;
-      const forward = turn.page === "current";
-      let distance = forward ? Math.min(0, travel) : Math.max(0, travel);
-      if (!turn.canTurn) distance = rubberBandSwipeOffset(distance, width);
-      const radius = HAND_ROLL * LEAF_WIDTH;
-      const crease = forward
-        ? creaseUnder(LEAF_WIDTH + EDGE_LEAD * distance * metres, radius)
-        : Math.min(
-            LEAF_WIDTH,
-            TURNED_CREASE + BACKWARD_GAIN * distance * metres,
-          );
-      const [x, z, angle] = carriedEdge(crease, radius);
-      turn.leaf.holdAt(LEAF_NODES, x, z + 0.0005, angle);
-      const lean = Math.max(-1, Math.min(1, -rise / 240));
-      turn.tilt =
-        turn.corner === 0
-          ? lean * MIDDLE_TILT
-          : turn.corner * CORNER_TILT + lean * MIDDLE_TILT;
-    },
-  );
+  const carry = useEffectEvent((turn: Turn, travel: number, rise: number) => {
+    aim(turn);
+    const { width } = pageSize();
+    const metres = LEAF_WIDTH / width;
+    const forward = turn.page === "current";
+    let distance = forward ? Math.min(0, travel) : Math.max(0, travel);
+    if (!turn.canTurn) distance = rubberBandSwipeOffset(distance, width);
+    const radius = HAND_ROLL * LEAF_WIDTH;
+    const crease = forward
+      ? creaseUnder(LEAF_WIDTH + EDGE_LEAD * distance * metres, radius)
+      : Math.min(LEAF_WIDTH, TURNED_CREASE + BACKWARD_GAIN * distance * metres);
+    const [x, z, angle] = carriedEdge(crease, radius);
+    turn.leaf.holdAt(LEAF_NODES, x, z + 0.0005, angle);
+    if (turn.grip !== "edge") return;
+    const lean = Math.max(-1, Math.min(1, -rise / 240));
+    turn.wanted =
+      turn.corner === 0
+        ? lean * MIDDLE_TILT
+        : turn.corner * CORNER_TILT + lean * MIDDLE_TILT;
+  });
+
+  /**
+   * Holding the page anywhere: carries the held point under the finger,
+   * round the hand's roll, with the fold turned across the pull. The paper
+   * beyond the grip is free, and hangs or falls as the strip makes it.
+   */
+  const carryHeld = useEffectEvent((turn: Turn, elapsed: number) => {
+    const pull = turn.pull;
+    if (!pull) return;
+    aim(turn);
+    const { width, height } = pageSize();
+    let travelX = Math.min(0, pull.travelX);
+    if (!turn.canTurn) travelX = rubberBandSwipeOffset(travelX, width);
+    const targetX = turn.gripX + travelX;
+    const targetY = turn.gripY + pull.travelY;
+    turn.wanted = holdAngle(
+      turn.gripX,
+      turn.gripY,
+      Math.atan2(turn.gripY - targetY, turn.gripX - targetX + PULL_STEADY_PX),
+      width,
+      height,
+    );
+    turn.angle +=
+      (turn.wanted - turn.angle) * (1 - Math.exp(-elapsed / FOLD_FOLLOW));
+    const frame = frameOf(turn);
+    const toStrip = LEAF_WIDTH / frame.length;
+    const [arc] = toSection(frame, targetX, targetY);
+    const held = turn.node * LEAF_SEGMENT;
+    const radius = HAND_ROLL * LEAF_WIDTH;
+    const crease = creaseUnder(arc * toStrip, radius, held);
+    const [x, z, angle] = carriedEdge(crease, radius, held);
+    turn.leaf.holdAt(turn.node, x, z + 0.0005, angle);
+  });
 
   const ensureLoop = useEffectEvent(() => {
     if (frameRef.current) return;
@@ -344,8 +467,9 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
   const letGo = useEffectEvent((turn: Turn, speed: number) => {
     const { leaf } = turn;
     aim(turn);
+    turn.pull = null;
     leaf.release();
-    const width = sizeRef.current.width || 1;
+    const width = pageSize().width;
     // A flick spins the page about the spine, the way the finger moved,
     // unless there is no page to turn to that way.
     const spin = (-FLICK_SPIN * speed) / width;
@@ -405,10 +529,11 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     lastTickRef.current = now;
     const { leaf } = turn;
     if (turn.push) {
-      const { width, startedAt, direction } = turn.push;
+      const { startedAt, direction } = turn.push;
+      const width = pageSize().width;
       const t = Math.min(1, (now - startedAt) / 1000 / PUSH_SECONDS);
       const sign = direction === "next" ? -1 : 1;
-      carry(turn, sign * PUSH_DISTANCE * width * t * t, 0, width);
+      carry(turn, sign * PUSH_DISTANCE * width * t * t, 0);
       if (t >= 1) {
         turn.push = null;
         leaf.advance(elapsed);
@@ -417,12 +542,15 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         return;
       }
     }
+    if (turn.pull) carryHeld(turn, elapsed);
     lean(turn);
     leaf.advance(elapsed);
-    notifyMove(leaf.reach() * (sizeRef.current.width / LEAF_WIDTH));
+    notifyMove(leaf.reach() * (pageSize().width / LEAF_WIDTH));
     if (!leaf.held) {
-      // Let go, a corner's tilt relaxes as the leaf falls.
-      turn.tilt *= Math.exp(-3 * elapsed);
+      // Let go, a corner's fold straightens as the leaf falls.
+      const relax = Math.exp(-elapsed / FOLD_RELAX);
+      turn.wanted *= relax;
+      if (turn.grip === "anywhere") turn.angle *= relax;
       const gone = leaf.goneLeft();
       const down = leaf.landedRight();
       if (turn.page === "current" && gone) return finish(turn, "turned");
@@ -476,13 +604,13 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
 
     /** Grabs the moving leaf where the finger meets it. */
     const catchLeaf = (turn: Turn, event: PointerEvent, rect: DOMRect) => {
-      const metres = LEAF_WIDTH / rect.width;
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const along =
-        (x * Math.cos(turn.shownTilt) +
-          (y - turn.pivotY) * Math.sin(turn.shownTilt)) *
-        metres;
+      const frame = frameOf(turn);
+      const [arc] = toSection(
+        frame,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
+      const along = arc * (LEAF_WIDTH / frame.length);
       const { leaf } = turn;
       let node = LEAF_NODES;
       let best = Infinity;
@@ -495,6 +623,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         }
       }
       turn.push = null;
+      turn.pull = null;
       turn.fling = 0;
       leaf.holdAt(node, leaf.x[node]!, leaf.z[node]!);
       gestureRef.current = {
@@ -552,6 +681,17 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       };
     };
 
+    /** Whether a touch began by a corner of the fore-edge. */
+    const atCorner = (gesture: Gesture) => {
+      const rect = container.getBoundingClientRect();
+      const x = gesture.startX - rect.left;
+      const y = gesture.startY - rect.top;
+      return (
+        rect.width - x <= CORNER_REACH_X &&
+        (y <= CORNER_REACH_Y || rect.height - y <= CORNER_REACH_Y)
+      );
+    };
+
     const lockFresh = (
       gesture: Gesture,
       deltaX: number,
@@ -571,7 +711,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
               ? -1
               : 0
           : 0;
-      beginTurn(gesture.direction, y, corner);
+      beginTurn(gesture.direction, x, y, corner);
       container.setPointerCapture(event.pointerId);
       window.getSelection()?.removeAllRanges();
       setPhase("dragging");
@@ -591,7 +731,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         event.preventDefault();
         const turn = turnRef.current;
         if (!turn) return;
-        const metres = LEAF_WIDTH / gesture.width;
+        const metres = LEAF_WIDTH / pageSize().width;
         const reach = gesture.nodeReach;
         const x = Math.max(
           -reach,
@@ -610,8 +750,12 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         ) {
           return;
         }
+        const steepest =
+          settings().grip === "anywhere" && atCorner(gesture) && deltaX < 0
+            ? CORNER_PULL_SLOPE
+            : 1;
         if (
-          Math.abs(deltaY) >= Math.abs(deltaX) ||
+          Math.abs(deltaY) >= steepest * Math.abs(deltaX) ||
           Date.now() - gesture.startedAt > MAX_TOUCH_TAP_DURATION_MS ||
           hasActiveTextSelection()
         ) {
@@ -630,9 +774,25 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         (gesture.direction === "previous" && deltaX < -REVERSE_PX);
       if (reversed) {
         gesture.direction = gesture.direction === "next" ? "previous" : "next";
-        turn = beginTurn(gesture.direction, turn.pivotY, 0);
+        const rect = container.getBoundingClientRect();
+        turn = beginTurn(
+          gesture.direction,
+          gesture.startX - rect.left,
+          turn.gripY,
+          0,
+        );
       }
-      carry(turn, deltaX, deltaY, gesture.width);
+      const held = turn.grip === "anywhere" && turn.page === "current";
+      if (held) {
+        turn.pull = {
+          x: event.clientX,
+          y: event.clientY,
+          travelX: deltaX,
+          travelY: deltaY,
+        };
+        return;
+      }
+      carry(turn, deltaX, deltaY);
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -691,12 +851,16 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         direction === "next" ? adjacent().next : adjacent().previous;
       if (target === null) return false;
       const rect = measure();
-      const turn = beginTurn(direction, holdY ?? rect.height * 0.6, 0);
-      turn.push = {
+      // A tap pushes the fore-edge, as a hand would.
+      const turn = beginTurn(
         direction,
-        startedAt: performance.now(),
-        width: rect.width,
-      };
+        rect.width,
+        holdY ?? rect.height * 0.6,
+        0,
+      );
+      turn.gripX = pageSize().width;
+      turn.node = LEAF_NODES;
+      turn.push = { direction, startedAt: performance.now() };
       notifyStart();
       setPhase("settling");
       ensureLoop();

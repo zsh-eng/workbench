@@ -21,6 +21,30 @@ export function isPaperInk(value: unknown): value is PaperInk {
 }
 
 /**
+ * Where a hand holds the leaf (Debug curl). `anywhere` holds the paper
+ * under the finger and turns the fold with the pull: a roll from the middle
+ * of the edge, a cone from a corner. `edge` is the first leaf: the
+ * fore-edge carried ahead of the finger round a roll that tilts only near a
+ * corner.
+ */
+export type LeafGrip = "anywhere" | "edge";
+
+export function isLeafGrip(value: unknown): value is LeafGrip {
+  return value === "anywhere" || value === "edge";
+}
+
+/**
+ * How highlights look on the paper: the app's `flat` fill, or highlighter
+ * pigment in the sheet, laid as a felt-tip stroke (`marker`) or evenly
+ * (`wash`).
+ */
+export type PaperMarks = "flat" | "wash" | "marker";
+
+export function isPaperMarks(value: unknown): value is PaperMarks {
+  return value === "flat" || value === "wash" || value === "marker";
+}
+
+/**
  * Paper in the Reader, a prototype: how a swipe turns the page, the grain
  * under the text, and the turn's feel. One choice for this device, applied
  * only while Debug mode is on.
@@ -29,6 +53,14 @@ export interface PaperPreference {
   pageTurn: PageTurnStyle;
   grain: PaperGrain;
   ink: PaperInk;
+  /** How highlights look, while the paper has grain. */
+  marks: PaperMarks;
+  grip: LeafGrip;
+  /**
+   * The book around the leaf: the unread leaves' fore-edges at the right,
+   * and the read leaves' stack shading the gutter.
+   */
+  bookBlock: boolean;
   /** The front's ink shows faintly through the back of a curling page. */
   showThrough: boolean;
   haptics: boolean;
@@ -39,6 +71,9 @@ export const PLAIN_PAPER: PaperPreference = {
   pageTurn: "slide",
   grain: "off",
   ink: "in",
+  marks: "marker",
+  grip: "anywhere",
+  bookBlock: true,
   showThrough: true,
   haptics: true,
   sound: false,
@@ -54,6 +89,9 @@ function readPaperPreference(): PaperPreference {
       pageTurn: isPageTurnStyle(saved.pageTurn) ? saved.pageTurn : "slide",
       grain: isPaperGrain(saved.grain) ? saved.grain : PLAIN_PAPER.grain,
       ink: isPaperInk(saved.ink) ? saved.ink : PLAIN_PAPER.ink,
+      marks: isPaperMarks(saved.marks) ? saved.marks : PLAIN_PAPER.marks,
+      grip: isLeafGrip(saved.grip) ? saved.grip : PLAIN_PAPER.grip,
+      bookBlock: saved.bookBlock !== false,
       showThrough: saved.showThrough !== false,
       haptics: saved.haptics !== false,
       sound: saved.sound === true,
@@ -104,7 +142,8 @@ export function usePaperPreference(): PaperPreference {
 
 /**
  * The paper the Reader shows. Design ideas pass `?turn=`, `?paper=`,
- * `?ink=` and `?showThrough=` to preview an idea without saving it.
+ * `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=` to preview an
+ * idea without saving it.
  */
 export function resolvePaper(
   debugEnabled: boolean,
@@ -115,12 +154,19 @@ export function resolvePaper(
   const turn = params.get("turn");
   const grain = params.get("paper");
   const ink = params.get("ink");
+  const marks = params.get("marks");
+  const grip = params.get("grip");
+  const block = params.get("block");
   const showThrough = params.get("showThrough");
   return {
     ...saved,
     pageTurn: isPageTurnStyle(turn) ? turn : saved.pageTurn,
     grain: isPaperGrain(grain) ? grain : saved.grain,
     ink: isPaperInk(ink) ? ink : saved.ink,
+    marks: isPaperMarks(marks) ? marks : saved.marks,
+    grip: isLeafGrip(grip) ? grip : saved.grip,
+    bookBlock:
+      block === "off" ? false : block === "on" ? true : saved.bookBlock,
     showThrough:
       showThrough === "off"
         ? false

@@ -28,8 +28,14 @@ import {
   useSpreadSwipeNavigation,
   type SwipeDirection,
 } from "./hooks/use-spread-swipe-navigation";
+import { BookBlock, foreEdgeWidth } from "./paper/BookBlock";
 import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
-import type { PageTurnStyle, PaperInk } from "./paper/paper-preference";
+import type {
+  LeafGrip,
+  PageTurnStyle,
+  PaperInk,
+  PaperMarks,
+} from "./paper/paper-preference";
 import { useLeafCurl } from "./paper/use-leaf-curl";
 import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
 import { usePageFeel } from "./paper/use-page-feel";
@@ -66,6 +72,12 @@ interface SpreadStageProps {
   paper?: PaperGrain;
   /** Where the ink sits in the grain (Debug); see paper/paper-preference. */
   ink?: PaperInk;
+  /** How highlights look on paper with grain (Debug). */
+  marks?: PaperMarks;
+  /** Where a hand holds the leaf (Debug curl). */
+  grip?: LeafGrip;
+  /** The book's stacks either side of the leaf (Debug curl). */
+  bookBlock?: boolean;
   showThrough?: boolean;
   haptics?: boolean;
   sound?: boolean;
@@ -108,6 +120,9 @@ export function SpreadStage({
   pageTurn = "slide",
   paper = "off",
   ink = "on",
+  marks = "flat",
+  grip = "anywhere",
+  bookBlock = false,
   showThrough = true,
   haptics = false,
   sound = false,
@@ -140,6 +155,11 @@ export function SpreadStage({
   const leaf = pageTurn === "curl" && curlAllowed;
   const curl = pageTurn === "curl-v1" && curlAllowed;
   const curled = leaf || curl;
+  // The leaf lies in a book: its unread stack takes the stage's right edge.
+  const showBook = leaf && bookBlock && spread !== null;
+  const unreadPages = spread ? spread.totalPages - spread.currentPage : 0;
+  const readPages = spread ? spread.currentPage - 1 : 0;
+  const foreEdge = showBook ? foreEdgeWidth(unreadPages) : 0;
 
   const feel = usePageFeel({
     haptics: curled && haptics,
@@ -169,6 +189,8 @@ export function SpreadStage({
   const leafTurn = useLeafTurn({
     containerRef: internalStageRef,
     enabled: swipeEnabled && leaf,
+    grip,
+    foreEdge,
     currentSpreadId: spread?.currentSpread ?? null,
     previousSpreadId: previousSpread?.currentSpread ?? null,
     nextSpreadId: nextSpread?.currentSpread ?? null,
@@ -220,6 +242,7 @@ export function SpreadStage({
     layers,
     keys,
     idle: phase === "idle",
+    foreEdge,
     grain: paper,
     showThrough,
     presenterRef: leafPresenter,
@@ -268,6 +291,7 @@ export function SpreadStage({
     paddingRightPx,
     paper,
     ink,
+    marks,
   };
 
   const handlePageContentClick: MouseEventHandler<HTMLDivElement> = (event) => {
@@ -359,6 +383,10 @@ export function SpreadStage({
           >
             <SpreadView spread={nextSpread} {...spreadViewProps} />
           </motion.div>
+        )}
+
+        {showBook && (
+          <BookBlock readPages={readPages} unreadPages={unreadPages} />
         )}
 
         {curled && (

@@ -162,6 +162,9 @@ export function rasterKey(
       : inkInPaper(layer)
         ? "in"
         : "on",
+    layer.querySelector(".reader-marks-canvas[data-ready]")
+      ? "pigment"
+      : "flat",
     layer.querySelectorAll("[data-reader-page-slice]").length,
     hash(type + marks),
   ].join("|");

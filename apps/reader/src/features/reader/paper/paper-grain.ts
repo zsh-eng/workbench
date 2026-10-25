@@ -74,6 +74,17 @@ export function paperGrainStyle(
 }
 
 const images = new Map<PaperGrain, Promise<HTMLImageElement | null>>();
+const loaded = new Map<PaperGrain, HTMLImageElement | null>();
+
+/**
+ * The tile's image if it has already loaded (null if it cannot be drawn),
+ * or undefined while it is still loading.
+ */
+export function loadedGrain(
+  grain: Exclude<PaperGrain, "off">,
+): HTMLImageElement | null | undefined {
+  return loaded.get(grain);
+}
 
 /**
  * The tile as a decoded image at `scale`, for drawing the grain into a page
@@ -88,8 +99,14 @@ export function loadPaperGrainImage(
     image = new Promise((resolve) => {
       const element = new Image();
       element.decoding = "async";
-      element.onload = () => resolve(element);
-      element.onerror = () => resolve(null);
+      element.onload = () => {
+        loaded.set(grain, element);
+        resolve(element);
+      };
+      element.onerror = () => {
+        loaded.set(grain, null);
+        resolve(null);
+      };
       element.src = paperGrainDataUrl(grain);
     });
     images.set(grain, image);

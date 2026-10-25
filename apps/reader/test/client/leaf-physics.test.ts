@@ -100,6 +100,9 @@ describe("paper preference", () => {
       pageTurn: "curl" as const,
       grain: "fine" as const,
       ink: "in" as const,
+      marks: "marker" as const,
+      grip: "anywhere" as const,
+      bookBlock: true,
       showThrough: true,
       haptics: true,
       sound: false,
@@ -113,5 +116,35 @@ describe("paper preference", () => {
     expect(
       resolvePaper(false, saved, new URLSearchParams("ink=gl")).grain,
     ).toBe("off");
+  });
+
+  it("previews the hold, the highlights and the book from the address", () => {
+    const saved = {
+      pageTurn: "curl" as const,
+      grain: "fine" as const,
+      ink: "in" as const,
+      marks: "marker" as const,
+      grip: "anywhere" as const,
+      bookBlock: true,
+      showThrough: true,
+      haptics: true,
+      sound: false,
+    };
+    const preview = resolvePaper(
+      true,
+      saved,
+      new URLSearchParams("grip=edge&marks=wash&block=off"),
+    );
+    expect([preview.grip, preview.marks, preview.bookBlock]).toEqual([
+      "edge",
+      "wash",
+      false,
+    ]);
+    const kept = resolvePaper(true, saved, new URLSearchParams("grip=x"));
+    expect([kept.grip, kept.marks, kept.bookBlock]).toEqual([
+      "anywhere",
+      "marker",
+      true,
+    ]);
   });
 });

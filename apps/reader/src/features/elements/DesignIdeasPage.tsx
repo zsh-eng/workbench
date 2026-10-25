@@ -149,8 +149,33 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
         id: "paper-leaf",
         title: "A leaf you can hold",
         description:
-          "Drag anywhere: the page lifts in a soft roll and follows your finger. Let go short of half way and it falls back; past it, or with a flick, it falls over and lands softly. Catch it while it falls. A tap pushes it. The ink sits in a fine tooth.",
-        src: (bookId) => `/reader/${bookId}?turn=curl&paper=fine&ink=in`,
+          "Take the page anywhere and the paper under your finger stays under it: pull a corner and it folds on the diagonal, the middle of the edge and it rolls straight. Hold it part way, let go short of half way and it falls back; past it, or with a flick, it falls over. The leaf shows its cut edge, the unread pages' edges narrow at the right as you read, and highlights are ink in the fine tooth.",
+        src: (bookId) =>
+          `/reader/${bookId}?turn=curl&paper=fine&ink=in&grip=anywhere&marks=marker&block=on`,
+      },
+      {
+        id: "paper-edge-grip",
+        title: "Held at the edge",
+        description:
+          "The same leaf held as before: the fore-edge runs ahead of your finger round a roll that tilts only near a corner. Compare a corner pull with the leaf held anywhere.",
+        src: (bookId) =>
+          `/reader/${bookId}?turn=curl&paper=fine&ink=in&grip=edge&marks=marker&block=on`,
+      },
+      {
+        id: "paper-wash",
+        title: "Highlights as a wash",
+        description:
+          "Highlight a passage: the pigment is laid evenly over the line's full height, like a watercolour wash, with a soft edge and a faint tide line, rather than a felt tip's stroke.",
+        src: (bookId) =>
+          `/reader/${bookId}?turn=curl&paper=fine&ink=in&grip=anywhere&marks=wash&block=on`,
+      },
+      {
+        id: "paper-flat-marks",
+        title: "Today's highlights on paper",
+        description:
+          "The leaf with the app's own highlight fill, a box of colour behind the words, to judge what the pigment adds.",
+        src: (bookId) =>
+          `/reader/${bookId}?turn=curl&paper=fine&ink=in&grip=anywhere&marks=flat&block=on`,
       },
       {
         id: "paper-curl-v1",
@@ -177,9 +202,9 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
         id: "paper-plain-curl",
         title: "Leaf alone",
         description:
-          "The leaf with no grain and an opaque back, to judge what the paper and the show-through add.",
+          "The leaf with no grain, no book around it and an opaque back, to judge what the paper, the book and the show-through add.",
         src: (bookId) =>
-          `/reader/${bookId}?turn=curl&paper=off&showThrough=off`,
+          `/reader/${bookId}?turn=curl&paper=off&showThrough=off&block=off`,
       },
     ],
   },

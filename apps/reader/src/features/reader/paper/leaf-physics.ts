@@ -419,17 +419,19 @@ export function sampleLeaf(
 }
 
 /**
- * Where a hand carries the edge of a page it turns: up round a roll of
- * `radius` whose crease is at `crease`, then over and down towards the
- * page, edge first, as a turned-over leaf settles onto the one below.
- * Returns the edge's x, z and the direction the leaf points there.
+ * Where a hand carries a point of a page it turns, `arc` from the spine
+ * (the edge, by default): up round a roll of `radius` whose crease is at
+ * `crease`, then over and down towards the page, edge first, as a
+ * turned-over leaf settles onto the one below. Returns the point's x, z and
+ * the direction the leaf points there.
  */
 export function carriedEdge(
   crease: number,
   radius: number,
+  arc = LEAF_WIDTH,
 ): [number, number, number] {
-  const past = LEAF_WIDTH - crease;
-  if (past <= 0) return [LEAF_WIDTH, 0, 0];
+  const past = arc - crease;
+  if (past <= 0) return [arc, 0, 0];
   if (past < Math.PI * radius) {
     const turned = past / radius;
     return [
@@ -447,13 +449,17 @@ export function carriedEdge(
   ];
 }
 
-/** The crease that carries the edge to `x`, seen from above. */
-export function creaseUnder(x: number, radius: number): number {
+/** The crease that carries the point `arc` from the spine to `x`, from above. */
+export function creaseUnder(
+  x: number,
+  radius: number,
+  arc = LEAF_WIDTH,
+): number {
   let low = -2 * LEAF_WIDTH;
-  let high = LEAF_WIDTH;
+  let high = arc;
   for (let step = 0; step < 40; step++) {
     const middle = (low + high) / 2;
-    if (carriedEdge(middle, radius)[0] > x) high = middle;
+    if (carriedEdge(middle, radius, arc)[0] > x) high = middle;
     else low = middle;
   }
   return (low + high) / 2;

@@ -386,3 +386,143 @@ test("Appearance turns the curl on for this device", async ({
   await waitForReaderReady(page);
   await expect(page.locator(STAGE)).toHaveAttribute("data-page-turn", "curl");
 });
+
+/** Turns past the front matter with taps, each waiting for the page. */
+async function turnPages(page: Page, count: number) {
+  for (let turn = 0; turn < count; turn++) {
+    await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+    const before = await currentPages(page);
+    await page.touchscreen.tap(360, 420);
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    await waitForReaderReady(page);
+  }
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+}
+
+/**
+ * How far the line where the leaf lifts leans from upright, in degrees,
+ * from the live page's clip: the clip keeps the flat part of the page.
+ */
+async function liftLineLean(page: Page): Promise<number> {
+  const clip = await page
+    .locator(CURRENT_SPREAD)
+    .evaluate((element) => getComputedStyle(element).clipPath);
+  const points = [...clip.matchAll(/(-?[\d.]+)px (-?[\d.]+)px/g)].map(
+    (match) => [Number(match[1]), Number(match[2])] as const,
+  );
+  const box = await page.locator(CURRENT_SPREAD).boundingBox();
+  const corner = ([x, y]: readonly [number, number]) =>
+    (x < 0.5 || x > box!.width - 0.5) && (y < 0.5 || y > box!.height - 0.5);
+  const cut = points.filter((point) => !corner(point));
+  expect(cut).toHaveLength(2);
+  const [[ax, ay], [bx, by]] = cut as [
+    readonly [number, number],
+    readonly [number, number],
+  ];
+  return (Math.atan2(Math.abs(bx - ax), Math.abs(by - ay)) * 180) / Math.PI;
+}
+
+test("a corner pulled across folds on a slant and turns one page", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  await turnPages(page, 2);
+  const start = await currentPages(page);
+  const startPlace = await savedPlace(page, localBook.id);
+
+  // Held part way, the fold lies across the pull, not upright.
+  const hand = await finger(page);
+  await hand.down(350, 790);
+  await hand.move(300, 730, { steps: 8, stepMs: 20 });
+  await hand.move(240, 660, { steps: 8, stepMs: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
+  expect(await liftLineLean(page)).toBeGreaterThan(8);
+
+  // Carried on over, it turns exactly one page and saves the place.
+  await hand.move(90, 520, { steps: 10, stepMs: 20 });
+  await hand.up();
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  await expect.poll(() => savedPlace(page, localBook.id)).not.toBe(startPlace);
+  await page.touchscreen.tap(50, 420);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => savedPlace(page, localBook.id)).toBe(startPlace);
+});
+
+test("the middle of the edge rolls straight, and holds part way", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  await turnPages(page, 2);
+  const start = await currentPages(page);
+
+  const hand = await finger(page);
+  await hand.down(350, 430);
+  await hand.move(220, 436, { steps: 12, stepMs: 20 });
+  await page.waitForTimeout(400);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
+  expect(await liftLineLean(page)).toBeLessThan(4);
+  // Still held: nothing has turned.
+  await page.waitForTimeout(400);
+  expect(await currentPages(page)).toEqual(start);
+
+  // Brought back and let go, it lies down where it was.
+  await hand.move(330, 432, { steps: 10, stepMs: 24 });
+  await page.waitForTimeout(150);
+  await hand.up();
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  expect(await currentPages(page)).toEqual(start);
+});
+
+test("pigment stands in for a highlight's fill and keeps its tools", async ({
+  page,
+  localBook,
+}) => {
+  await page.goto(
+    `/reader/${localBook.id}?turn=curl&paper=fine&ink=in&marks=marker`,
+  );
+  await waitForReaderReady(page);
+  await turnPages(page, 6);
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with yellow" }).click();
+  const marks = page.locator(`${CURRENT_SPREAD} mark[data-highlight-id]`);
+  await expect(marks).not.toHaveCount(0);
+  await expect(
+    page.locator(`${CURRENT_SPREAD} .reader-marks-canvas`),
+  ).toHaveAttribute("data-ready", "");
+  await expect(marks.first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  // The mark still takes the tap that opens its tools.
+  await page.evaluate(() => getSelection()?.removeAllRanges());
+  await page.mouse.click(5, 5);
+  await marks.first().tap();
+  await expect(
+    page.getByRole("button", { name: "Remove highlight" }),
+  ).toBeVisible();
+});
+
+test("the book's fore-edge narrows as you read", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  const edge = page.locator("[data-reader-book-fore-edge]");
+  const width = () =>
+    edge.evaluate((element) =>
+      Number.parseFloat(
+        (element as HTMLElement).style.getPropertyValue("--fore-edge"),
+      ),
+    );
+  await turnPages(page, 1);
+  const before = await width();
+  await turnPages(page, 3);
+  expect(await width()).toBeLessThan(before);
+
+  await page.goto(`/reader/${localBook.id}?turn=curl&block=off`);
+  await waitForReaderReady(page);
+  await expect(edge).toHaveCount(0);
+});

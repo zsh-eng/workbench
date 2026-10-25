@@ -6,8 +6,10 @@ import { Switch } from "@/components/ui/switch";
 import { useId } from "react";
 import { isPaperGrain } from "./paper-grain";
 import {
+  isLeafGrip,
   isPageTurnStyle,
   isPaperInk,
+  isPaperMarks,
   setPaperPreference,
   usePaperPreference,
   type PaperPreference,
@@ -42,7 +44,8 @@ function Toggle({
 }
 
 /**
- * Appearance row: the page turn, the paper's grain and the turn's feel.
+ * Appearance row: the page turn and how the leaf is held, the paper's
+ * grain, its ink and highlights, and the turn's feel.
  * Debug mode only while the curl is a prototype; it follows the Reading
  * view row in the Layout tab.
  */
@@ -116,10 +119,59 @@ export function PaperRow() {
               WebGL
             </SegmentedToggleGroupItem>
           </SegmentedToggleGroup>
+          <h4 className={labelClassName}>Highlights</h4>
+          <SegmentedToggleGroup
+            aria-label="Highlights"
+            value={paper.marks}
+            onValueChange={(next) => {
+              if (isPaperMarks(next)) update({ marks: next });
+            }}
+            className="flex w-full rounded-full bg-secondary/40 p-1"
+          >
+            <SegmentedToggleGroupItem value="flat" className={itemClassName}>
+              Flat
+            </SegmentedToggleGroupItem>
+            <SegmentedToggleGroupItem value="wash" className={itemClassName}>
+              Wash
+            </SegmentedToggleGroupItem>
+            <SegmentedToggleGroupItem value="marker" className={itemClassName}>
+              Marker
+            </SegmentedToggleGroupItem>
+          </SegmentedToggleGroup>
+        </>
+      )}
+      {paper.pageTurn === "curl" && (
+        <>
+          <h4 className={labelClassName}>Hold</h4>
+          <SegmentedToggleGroup
+            aria-label="Hold"
+            value={paper.grip}
+            onValueChange={(next) => {
+              if (isLeafGrip(next)) update({ grip: next });
+            }}
+            className="flex w-full rounded-full bg-secondary/40 p-1"
+          >
+            <SegmentedToggleGroupItem
+              value="anywhere"
+              className={itemClassName}
+            >
+              Anywhere
+            </SegmentedToggleGroupItem>
+            <SegmentedToggleGroupItem value="edge" className={itemClassName}>
+              At the edge
+            </SegmentedToggleGroupItem>
+          </SegmentedToggleGroup>
         </>
       )}
       {paper.pageTurn !== "slide" && (
         <div className="space-y-3 rounded-[1.25rem] border border-border/50 bg-secondary/20 px-3 py-3">
+          {paper.pageTurn === "curl" && (
+            <Toggle
+              label="Book edges"
+              checked={paper.bookBlock}
+              onChange={(bookBlock) => update({ bookBlock })}
+            />
+          )}
           <Toggle
             label="Ink shows through"
             checked={paper.showThrough}
