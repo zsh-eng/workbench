@@ -42,11 +42,32 @@ export function useArticles(): Article[] {
   );
 }
 
-/** The revision of one namespace's records, for views derived from them. */
-export function useRecords(storage: RecordStorage) {
+/** Each derivation's last value, per storage: one per record change. */
+const derived = new WeakMap<
+  RecordStorage,
+  Map<(storage: RecordStorage) => unknown, { revision: number; value: unknown }>
+>();
+
+/**
+ * A value derived from one namespace's records, such as its highlights. It
+ * is derived again only after a record changes, once for every component
+ * that reads it, so `derive` must be a module-level function.
+ */
+export function useDerived<T>(
+  storage: RecordStorage,
+  derive: (storage: RecordStorage) => T,
+): T {
   return useSyncExternalStore(
     (listener) => storage.subscribe(listener),
-    () => storage.revision,
+    () => {
+      let values = derived.get(storage);
+      if (!values) derived.set(storage, (values = new Map()));
+      const cached = values.get(derive);
+      if (cached?.revision === storage.revision) return cached.value as T;
+      const value = derive(storage);
+      values.set(derive, { revision: storage.revision, value });
+      return value;
+    },
   );
 }
 

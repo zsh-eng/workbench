@@ -201,9 +201,12 @@ export function TextControls({ fields }: { fields: TextField[] }) {
           value={settings.theme}
           className="swatches"
           options={[
-            ["arctic", <Swatch theme="arctic" label="Arctic" />],
-            ["flexoki", <Swatch theme="flexoki" label="Flexoki" />],
-            ["night", <Swatch theme="night" label="Night" />],
+            ["arctic", <Swatch key="arctic" theme="arctic" label="Arctic" />],
+            [
+              "flexoki",
+              <Swatch key="flexoki" theme="flexoki" label="Flexoki" />,
+            ],
+            ["night", <Swatch key="night" theme="night" label="Night" />],
           ]}
           onChange={(theme) => updateSettings({ theme })}
         />
@@ -251,10 +254,7 @@ function OfflineSection() {
           texts on this device
           {offline.bytes > 0 && <span> · {megabytes(offline.bytes)}</span>}
           {offline.failed > 0 && (
-            <span>
-              {" "}
-              · {offline.failed} could not download
-            </span>
+            <span> · {offline.failed} could not download</span>
           )}
         </div>
         <progress

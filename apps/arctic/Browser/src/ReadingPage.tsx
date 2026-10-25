@@ -2,20 +2,15 @@ import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { duration, readingSessions, readingStats } from "./reading";
-import { useArticles, useRecords, useSession } from "./state";
+import { useArticles, useDerived, useSession } from "./state";
 import { AccountMenu } from "./ui";
 
 /** Reading time from every device, as the phone's Reading stats show it. */
 export function ReadingPage() {
   const navigate = useNavigate();
-  const session = useSession();
-  const revision = useRecords(session.reading);
+  const sessions = useDerived(useSession().reading, readingSessions);
   const articles = useArticles();
-  const stats = useMemo(
-    () => readingStats(readingSessions(session.reading)),
-    // The revision changes with the records.
-    [session, revision],
-  );
+  const stats = useMemo(() => readingStats(sessions), [sessions]);
   const [selected, setSelected] = useState(6);
   const day = stats.days[selected]!;
   const most = Math.max(...stats.days.map((item) => item.seconds));

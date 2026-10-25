@@ -25,21 +25,19 @@ import {
   type Colour,
 } from "./annotations";
 import type { Article } from "./articles";
-import { reportError, showToast, useRecords, useSession } from "./state";
+import { reportError, showToast, useDerived, useSession } from "./state";
 import { keyboardHeight, Sheet, useCompact } from "./surface";
 import { Tip } from "./ui";
 
 /** The account's passages and notes, for one article or all, oldest first. */
 export function useAnnotations(articleURL?: string) {
-  const session = useSession();
-  const revision = useRecords(session.annotations);
+  const annotations = useDerived(useSession().annotations, readAnnotations);
   return useMemo(
     () =>
-      readAnnotations(session.annotations)
+      annotations
         .filter((item) => !articleURL || item.articleURL === articleURL)
         .sort((a, b) => a.createdAt - b.createdAt),
-    // The revision changes with the records.
-    [session, articleURL, revision],
+    [annotations, articleURL],
   );
 }
 

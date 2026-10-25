@@ -18,7 +18,7 @@ import {
   ReadingControls,
   TextControls,
 } from "./SettingsPage";
-import { useArticles, useRecords, useSession, useSyncing } from "./state";
+import { useArticles, useDerived, useSession, useSyncing } from "./state";
 import { articleText, isCover, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
 import { NotesPanel, Passages } from "./Passages";
@@ -328,15 +328,13 @@ function opensWith(html: string, description: string) {
 
 /** Time spent on this article so far, on every device. */
 function ReadFor({ url }: { url: string }) {
-  const session = useSession();
-  const revision = useRecords(session.reading);
+  const sessions = useDerived(useSession().reading, readingSessions);
   const seconds = useMemo(
     () =>
-      readingSessions(session.reading)
+      sessions
         .filter((visit) => visit.subject.id === url)
         .reduce((sum, visit) => sum + visit.activeMs / 1000, 0),
-    // The revision changes with the records.
-    [session, url, revision],
+    [sessions, url],
   );
   if (seconds < 30) return null;
   return (

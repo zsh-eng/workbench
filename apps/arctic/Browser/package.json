@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "bun run build:sync && vite",
     "build": "bun run build:sync && tsc --noEmit && vite build",
+    "lint": "oxlint --config ../../../.oxlintrc.json .",
     "build:sync": "bun run --cwd ../../../packages/local-sync build",
     "preview": "vite preview",
     "deploy": "bun run build && wrangler deploy",

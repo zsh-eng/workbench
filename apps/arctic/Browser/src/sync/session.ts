@@ -87,7 +87,7 @@ export class Session {
         this.controller.setPending(this.pendingCount),
       );
     this.controller.setPending(this.pendingCount);
-    // Highlights and reading time have their own readers (useRecords), so a
+    // Highlights and reading time have their own readers (useDerived), so a
     // reading checkpoint does not render the library.
     for (const channel of [channels.library, channels.content])
       channel.storage.subscribe(() => {
