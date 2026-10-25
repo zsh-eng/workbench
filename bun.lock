@@ -402,6 +402,7 @@
       },
       "devDependencies": {
         "@hono/zod-validator": "^0.7.6",
+        "@types/react": "19.3.0",
         "dexie": "^4.4.2",
         "fake-indexeddb": "^6.2.5",
         "hono": "^4.12.15",
