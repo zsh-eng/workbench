@@ -74,6 +74,18 @@ const LivingCoversIdea = lazy(() =>
   })),
 );
 
+const FeedbackIdea = lazy(() =>
+  import("@/features/elements/FeedbackIdea").then((module) => ({
+    default: module.FeedbackIdea,
+  })),
+);
+
+const SheetMotionIdea = lazy(() =>
+  import("@/features/elements/SheetMotionIdea").then((module) => ({
+    default: module.SheetMotionIdea,
+  })),
+);
+
 const ElementsFrame = lazy(() =>
   import("@/features/elements/ElementsFrame").then((module) => ({
     default: module.ElementsFrame,
@@ -272,6 +284,26 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <LivingCoversIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/feedback"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <FeedbackIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/sheet-motion"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <SheetMotionIdea />
                           </Suspense>
                         </DebugGate>
                       }

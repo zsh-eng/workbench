@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { springSheetScroller } from "@workbench/elements/sheet-motion";
 import { Heading } from "react-aria-components/Dialog";
 import {
   Sheet as AriaSheet,
@@ -39,7 +40,8 @@ export type SheetProps = {
  * A bottom sheet on React Aria's Sheet, after the EPUB Reader's
  * (apps/reader/src/components/ui/detent-sheet.tsx). The browser's own
  * scrolling moves it, so a drag follows the finger, keeps its momentum, and
- * rests on detents. It is modal: the page turns inert, focus stays inside,
+ * rests on detents. Opening, closing and a new detent run UIKit's sheet
+ * spring. It is modal: the page turns inert, focus stays inside,
  * and a press outside or Escape closes it.
  */
 export function Sheet({
@@ -175,6 +177,14 @@ function SheetBody({
   const ref = useRef<HTMLDivElement>(null);
 
   useEdgeEntrance(ref, isEntering);
+
+  // React Aria opens, closes and changes detents with smooth scrolls; UIKit's
+  // sheet spring runs them instead (packages/elements/docs/MOTION.md). The
+  // body mounts with the sheet, before React Aria's first scroll.
+  useLayoutEffect(() => {
+    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (scroller) return springSheetScroller(scroller);
+  }, []);
 
   // A closing sheet scrolls out of view, and React Aria unmounts it once it
   // is gone. React puts back scroll offsets when a commit moves focus, which

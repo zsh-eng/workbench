@@ -643,7 +643,14 @@ export function ReaderNotesPrototype({
   async function send() {
     const editing = Boolean(notes.editingId);
     const color = quote?.color;
+    const words = draft.trim();
     if (!(await notes.send())) return;
+    // The saved words fly from the field into the notice's mark.
+    const field = input.current;
+    const from =
+      !desktop && field?.isConnected && words
+        ? { rect: field.getBoundingClientRect(), text: words }
+        : undefined;
     onClearQuote();
     mobileAnnotation?.close();
     if (notebook) {
@@ -656,6 +663,7 @@ export function ReaderNotesPrototype({
       key: Date.now(),
       label: editing ? "Note updated" : "Saved to notebook",
       color: color as IslandNoticeState["color"],
+      from,
     });
     onReturnToReading();
   }
@@ -694,8 +702,13 @@ export function ReaderNotesPrototype({
     void deleteEntry({ kind: "note", id }, (undo) => {
       const key = Date.now();
       setNotice({ key, label: "Note deleted", undo });
+      // Called once the note is back: the Undo pill turns into a check.
       return () =>
-        setNotice((current) => (current?.key === key ? null : current));
+        setNotice((current) =>
+          current?.key === key
+            ? { key: key + 1, label: "Note restored" }
+            : current,
+        );
     });
   }
 
@@ -1463,6 +1476,12 @@ export function ReaderNotesPrototype({
               >
                 <IslandSurface
                   layerKey={islandState}
+                  // A deleted note dissolves into its Undo.
+                  exit={
+                    islandState === "notice" && notice?.undo
+                      ? "dissolve"
+                      : "fade"
+                  }
                   radius={
                     islandState === "tools"
                       ? 26
@@ -1501,11 +1520,9 @@ export function ReaderNotesPrototype({
                   {islandState === "compose" && renderNoteInput("island")}
                   {islandState === "notice" && notice && (
                     <IslandNotice
+                      key={notice.key}
                       notice={notice}
-                      onUndo={() => {
-                        setNotice(null);
-                        notice.undo?.();
-                      }}
+                      onUndo={() => notice.undo?.()}
                     />
                   )}
                 </IslandSurface>

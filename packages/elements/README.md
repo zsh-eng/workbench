@@ -16,6 +16,14 @@ demo contract.
   bar. Import `@workbench/elements/toast.css` once and colour it with its
   `--wb-toast-*` properties; the app places it and moves it in and out. Arctic
   for the web and Reader use it.
+- `@workbench/elements/spring`: `SPRINGS`, the springs the apps share
+  (UIKit's sheet, Telegram's, a release, a pop, a morph), and
+  `springDisplacement`, `settleTime`, `springCurve` (a CSS `linear()`
+  easing) and `springTransition` (for `motion`).
+- `@workbench/elements/sheet-motion`: `springSheetScroller`, which moves a
+  React Aria `Sheet` on a spring instead of a smooth scroll. Arctic for the
+  web and Reader use it. See [docs/MOTION.md](docs/MOTION.md) for the
+  measurements behind both.
 
 The package exports TypeScript source. It works with React 18 and 19; the
 toast needs 19. The toast uses no hooks, so an app whose React is another copy

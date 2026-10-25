@@ -329,3 +329,53 @@ test("With detent sheets off, Open notebook in the notes bubble still opens the 
     .click();
   await expect(note).toBeVisible();
 });
+
+/** Counts the moves that a sheet's spring runs from here on. */
+async function countSprings(page: Page) {
+  await page.evaluate(() => {
+    const counted = window as Window & { springs?: number };
+    counted.springs = 0;
+    new MutationObserver((records) => {
+      for (const record of records)
+        if ((record.target as Element).hasAttribute("data-sheet-spring"))
+          counted.springs!++;
+    }).observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-sheet-spring"],
+    });
+  });
+  return () =>
+    page.evaluate(() => (window as Window & { springs?: number }).springs);
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const)
+  test(`A sheet opens at its detent, changes detent and closes ${reducedMotion === "reduce" ? "in place with reduced motion" : "on its spring"}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/debug/ideas/sheet-motion?motion=uikit");
+    const springs = await countSprings(page);
+    await page.getByRole("button", { name: "List", exact: true }).tap();
+    const sheet = page.getByRole("dialog", { name: "List" });
+    await settled(sheet);
+    await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+
+    await sheet.getByRole("button", { name: "Full height" }).tap();
+    await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+    await sheet.getByRole("button", { name: "Medium", exact: true }).tap();
+    await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
+
+    // A tap on the dimmed page above closes it, and the page takes taps.
+    await page.touchscreen.tap(195, 60);
+    await expect(sheet).toBeHidden();
+    await page.getByRole("button", { name: "Menu", exact: true }).tap();
+    const menu = page.getByRole("dialog", { name: "Menu" });
+    await settled(menu);
+    await menu.getByRole("button", { name: "Contents" }).tap();
+    await expect(menu).toBeHidden();
+
+    // Each move ran on the spring; with reduced motion, none did.
+    if (reducedMotion === "reduce") expect(await springs()).toBe(0);
+    else expect(await springs()).toBeGreaterThan(3);
+  });
