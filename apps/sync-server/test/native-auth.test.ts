@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { expect, it } from "vitest";
 import worker from "../src/index";
 import { pkceChallenge } from "@workbench/arctic-sync-server/native-auth";
+import { cookies, signedIn } from "./accounts";
 
 const origin = "https://localhost:8792";
 const bindings = {
@@ -10,29 +11,12 @@ const bindings = {
   GOOGLE_CLIENT_ID: "native-test",
   GOOGLE_CLIENT_SECRET: "test-only",
 };
-const cookieHeader = (r: Response) =>
-  r.headers
-    .getSetCookie()
-    .map((c) => c.split(";")[0])
-    .join("; ");
 const request = (path: string, init?: RequestInit) =>
   worker.fetch(new Request(origin + path, init), bindings);
 
 // Google itself is outside this test. Use a real Better Auth login in the
 // browser, then exercise the production start/finish/exchange routes and D1.
-async function signedInBrowser() {
-  const response = await request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: origin },
-    body: JSON.stringify({
-      name: "Native fixture",
-      email: `${crypto.randomUUID()}@example.test`,
-      password: "native-test-password",
-    }),
-  });
-  expect(response.status).toBe(200);
-  return cookieHeader(response);
-}
+const signedInBrowser = () => signedIn(request, origin);
 async function authorization(cookie: string) {
   const verifier = crypto.randomUUID() + crypto.randomUUID();
   const state = await pkceChallenge(crypto.randomUUID());
@@ -45,7 +29,7 @@ async function authorization(cookie: string) {
   expect(google.searchParams.get("redirect_uri")).toBe(
     `${origin}/api/auth/callback/google`,
   );
-  const flowCookie = cookieHeader(start);
+  const flowCookie = cookies(start);
   const flow = /__Secure-arctic.auth_flow=([^;]+)/.exec(flowCookie)![1];
   const finish = `/api/arctic/auth/finish?flow=${flow}`;
   const response = await request(finish, {
@@ -79,7 +63,7 @@ it("exchanges a one-use native code into shared auth and scoped Arctic sync, the
   );
   const response = await exchange(grant);
   expect(response.status).toBe(200);
-  const cookie = cookieHeader(response);
+  const cookie = cookies(response);
   expect(cookie).toContain("__Secure-workbench.session_token=");
   expect((await exchange(grant)).status).toBe(400);
   const state = await request("/api/apps/arctic/sync/v3/state", {
@@ -99,7 +83,7 @@ it("exchanges a one-use native code into shared auth and scoped Arctic sync, the
     headers: { Cookie: cookie },
   });
   expect(renewed.status).toBe(200);
-  expect(cookieHeader(renewed)).toContain("__Secure-workbench.session_token=");
+  expect(cookies(renewed)).toContain("__Secure-workbench.session_token=");
   const saved = await env.DATABASE.prepare(
     "SELECT expires_at AS expires FROM session WHERE user_id=?",
   )

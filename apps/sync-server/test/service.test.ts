@@ -7,23 +7,17 @@ import {
 } from "@zsh-eng/local-sync";
 import xxhash from "xxhash-wasm";
 import worker from "../src/index";
+import {
+  migratedAccount,
+  MIGRATED_PASSWORD,
+  signedIn,
+  signUp,
+} from "./accounts";
 const origin = "http://localhost:8792";
-async function user() {
-  const response = await SELF.fetch(`${origin}/api/auth/sign-up/email`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: "http://localhost:5175",
-    },
-    body: JSON.stringify({
-      email: `${crypto.randomUUID()}@example.test`,
-      password: "test-password-123",
-      name: "Local reader",
-    }),
-  });
-  expect(response.status).toBe(200);
-  return response.headers.get("set-cookie")!.split(";")[0];
-}
+// Requests from the Reader's origin.
+const call = (path: string, init: RequestInit) =>
+  SELF.fetch(origin + path, init);
+const user = () => signedIn(call, "http://localhost:5175");
 const change = (value: string, counter = 1, isDeleted = false) => ({
   key: "same/key",
   value,
@@ -55,7 +49,7 @@ function client(cookie: string, namespace: string) {
   return { ...http, store };
 }
 it("uses one real auth session with independent app winners, tombstones, pages and streams", async () => {
-  const cookie = await user();
+  const cookie = await signUp(call, "http://localhost:5175");
   const reader = client(cookie, "reader"),
     spaced = client(cookie, "spaced"),
     arctic = client(cookie, "arctic");
@@ -160,17 +154,29 @@ it("keeps Arctic's article text in arctic-content: HTML without scripts, at most
   const content = client(cookie, "arctic-content"),
     arctic = client(cookie, "arctic");
   const hash = await xxhash();
-  const upload = async (text: string | Uint8Array, type = "text/html; charset=utf-8") => {
-    const bytes = typeof text === "string" ? new TextEncoder().encode(text) : text;
+  const upload = async (
+    text: string | Uint8Array,
+    type = "text/html; charset=utf-8",
+  ) => {
+    const bytes =
+      typeof text === "string" ? new TextEncoder().encode(text) : text;
     const id = `xxh64:${hash.h64Raw(bytes).toString(16).padStart(16, "0")}`;
     return content
-      .request(`/files/${id}`, { method: "PUT", body: bytes, headers: { "Content-Type": type } })
+      .request(`/files/${id}`, {
+        method: "PUT",
+        body: bytes,
+        headers: { "Content-Type": type },
+      })
       .then(
         (response) => ({ status: response.status, id }),
-        (error: Error) => ({ status: Number(/\d{3}/.exec(error.message)?.[0]), id }),
+        (error: Error) => ({
+          status: Number(/\d{3}/.exec(error.message)?.[0]),
+          id,
+        }),
       );
   };
-  const page = "<article><h1>Ice</h1><p>Sea ice keeps its own time.</p></article>";
+  const page =
+    "<article><h1>Ice</h1><p>Sea ice keeps its own time.</p></article>";
   const saved = await upload(page);
   expect(saved.status).toBe(200);
   expect(await (await content.request(`/files/${saved.id}`)).text()).toBe(page);
@@ -179,23 +185,30 @@ it("keeps Arctic's article text in arctic-content: HTML without scripts, at most
     { ...change(JSON.stringify({ file: saved.id })), key: "content/ice" },
   ]);
   expect(
-    (await content.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })).records.map(
-      (record) => record.key,
-    ),
+    (
+      await content.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })
+    ).records.map((record) => record.key),
   ).toEqual(["content/ice"]);
 
   expect((await upload(page, "application/octet-stream")).status).toBe(415);
-  expect((await upload(`${page}<SCRIPT src="x.js"></SCRIPT>`)).status).toBe(415);
-  expect((await upload(new Uint8Array(2 * 1024 * 1024 + 1).fill(97))).status).toBe(413);
+  expect((await upload(`${page}<SCRIPT src="x.js"></SCRIPT>`)).status).toBe(
+    415,
+  );
+  expect(
+    (await upload(new Uint8Array(2 * 1024 * 1024 + 1).fill(97))).status,
+  ).toBe(413);
 
   // Native Arctic sees none of it: no files, and no content records.
   await expect(arctic.request("/files")).rejects.toThrow("404");
   expect(
-    (await arctic.remote.pull("mac", { cursor: 0, excludeOwnDevice: false })).records,
+    (await arctic.remote.pull("mac", { cursor: 0, excludeOwnDevice: false }))
+      .records,
   ).toEqual([]);
   expect(
     await (
-      await SELF.fetch(`${origin}/api/namespaces`, { headers: { Cookie: cookie } })
+      await SELF.fetch(`${origin}/api/namespaces`, {
+        headers: { Cookie: cookie },
+      })
     ).json(),
   ).toEqual({
     namespaces: [
@@ -217,9 +230,12 @@ it("keeps Arctic highlights and reading sessions in their own record namespaces"
       { ...change(JSON.stringify({ seconds: 42 })), key: "session/A" },
     ]);
     expect(
-      (await records.remote.pull("phone", { cursor: 0, excludeOwnDevice: false })).records.map(
-        (record) => record.key,
-      ),
+      (
+        await records.remote.pull("phone", {
+          cursor: 0,
+          excludeOwnDevice: false,
+        })
+      ).records.map((record) => record.key),
     ).toEqual(["session/A"]);
     // Records only, as native Arctic.
     await expect(records.request("/files")).rejects.toThrow("404");
@@ -269,7 +285,11 @@ it("rejects stale epochs and a different account without changing local state", 
 
 it("shares the browser session across allowed origins and revokes access on logout", async () => {
   const cookie = await user();
-  for (const from of ["http://localhost:5175", "http://localhost:5180", "http://localhost:5186"]) {
+  for (const from of [
+    "http://localhost:5175",
+    "http://localhost:5180",
+    "http://localhost:5186",
+  ]) {
     const response = await SELF.fetch(`${origin}/api/me`, {
       headers: { Cookie: cookie, Origin: from },
     });
@@ -303,27 +323,7 @@ it("shares the browser session across allowed origins and revokes access on logo
 });
 
 it("authenticates migrated verified PBKDF2 accounts through the real sign-in route", async () => {
-  const id = crypto.randomUUID(),
-    email = `${id}@example.test`,
-    now = Date.now();
-  await env.DATABASE.prepare(
-    "INSERT INTO user(id,name,email,email_verified,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-  )
-    .bind(id, "Migrated fixture", email, 1, now, now)
-    .run();
-  await env.DATABASE.prepare(
-    "INSERT INTO account(id,account_id,provider_id,user_id,password,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-  )
-    .bind(
-      id,
-      id,
-      "credential",
-      id,
-      "legacy-pbkdf2:Xj+SO0CHAnpDOZyhr2+KAojZiIxA+ns2Oa3M8/uCxACqqWLH6PfCNTuEtuBfyUmt",
-      now,
-      now,
-    )
-    .run();
+  const { id, email } = await migratedAccount();
   const login = (password: string) =>
     worker.fetch(
       new Request(`${origin}/api/auth/sign-in/email`, {
@@ -339,12 +339,12 @@ it("authenticates migrated verified PBKDF2 accounts through the real sign-in rou
   await env.DATABASE.prepare("UPDATE user SET email_verified=0 WHERE id=?")
     .bind(id)
     .run();
-  expect((await login("test-user-password")).status).toBe(403);
+  expect((await login(MIGRATED_PASSWORD)).status).toBe(403);
   await env.DATABASE.prepare("UPDATE user SET email_verified=1 WHERE id=?")
     .bind(id)
     .run();
   expect((await login("wrong-password")).status).toBe(401);
-  const response = await login("test-user-password");
+  const response = await login(MIGRATED_PASSWORD);
   expect(response.status).toBe(200);
   const cookie = response.headers.get("set-cookie")!.split(";")[0];
   expect(

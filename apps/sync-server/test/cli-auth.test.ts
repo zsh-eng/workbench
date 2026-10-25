@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import worker from "../src/index";
 import xxhash from "xxhash-wasm";
 import { digest } from "../src/cli-auth";
+import { signedIn } from "./accounts";
 const origin = "http://localhost:8792";
 const call = (path: string, init?: RequestInit) =>
   worker.fetch(new Request(origin + path, init), env);
@@ -16,22 +17,7 @@ const post = (
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
-async function user() {
-  const r = await post(
-    "/api/auth/sign-up/email",
-    {
-      name: "CLI test",
-      email: `${crypto.randomUUID()}@example.test`,
-      password: "cli-test-password",
-    },
-    { Origin: origin },
-  );
-  expect(r.status).toBe(200);
-  return r.headers
-    .getSetCookie()
-    .map((x) => x.split(";")[0])
-    .join("; ");
-}
+const user = () => signedIn(call, origin);
 it("authorizes device once, isolates identity, allows only Arctic text writes, expires and revokes credentials", async () => {
   const cookie = await user();
   const grant = (await (await post("/api/cli/device")).json()) as any;
@@ -166,7 +152,9 @@ it("authorizes device once, isolates identity, allows only Arctic text writes, e
   expect((await call("/api/apps/arctic/files", { headers })).status).toBe(403);
   // Arctic's article text is backed up like Reader's files, and the CLI may
   // upload it: a file the server checks, then the record that names it.
-  expect((await call("/api/apps/arctic-content/files", { headers })).status).toBe(200);
+  expect(
+    (await call("/api/apps/arctic-content/files", { headers })).status,
+  ).toBe(200);
   const { h64Raw } = await xxhash();
   const fileId = (html: string) =>
     `xxh64:${h64Raw(new TextEncoder().encode(html)).toString(16).padStart(16, "0")}`;
