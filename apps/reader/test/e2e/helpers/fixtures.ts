@@ -341,6 +341,14 @@ export async function selectPassage(
   return text;
 }
 
+/**
+ * A tap that the Reader handles clears the selection again 80 and 240 ms
+ * later. This waits on the page's own timers, so a slow machine waits longer.
+ */
+export async function letTapClearSelection(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+}
+
 /** Shows the phone reading chrome, which carries the Notes Island capsule. */
 export async function showNotesCapsule(page: Page): Promise<void> {
   const capsule = page.locator("[data-notes-capsule]");

@@ -4,9 +4,11 @@ import {
   expect,
   nextSpread,
   openLocalBook,
+  openReaderTool,
   test,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
@@ -300,14 +302,11 @@ test.describe("on a phone", () => {
   }) => {
     await openLocalBook(page, localBook.id);
     await page.touchscreen.tap(195, 350);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .tap();
-    const tools = await waitForSheet(page, "Reader tools");
-    await tools.getByRole("button", { name: /Search book/ }).tap();
-    await waitForSheet(page, "Search book");
+    const sheet = await openReaderTool(page, /Search book/, "Search book");
     await expect(searchField(page)).toBeFocused();
     await search(page, "Dinah");
+    // The sheet grows to fit the results.
+    await waitForSheetToRest(sheet);
 
     await results(page).nth(6).tap();
     const stepper = page.getByTestId("search-stepper");

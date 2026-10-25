@@ -3,6 +3,7 @@ import {
   test,
   expect,
   closeSheet,
+  letTapClearSelection,
   openLocalBook,
   nextSpread,
   selectPassage,
@@ -501,6 +502,7 @@ test("Copy writes a highlight's whole passage, past the page break, from its too
   // A fresh selection offers the same Copy, beside its colours.
   await page.touchscreen.tap(195, 120);
   await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await letTapClearSelection(page);
   await selectPassage(page);
   const selected = await page.evaluate(() => getSelection()!.toString());
   await copy.tap();

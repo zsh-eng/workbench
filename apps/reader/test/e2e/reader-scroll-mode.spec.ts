@@ -891,13 +891,15 @@ test("Search marks its matches in the scroll column as rows mount", async ({
   await enterScroll(page);
 
   await showChrome(page);
-  await openReaderTool(page, /Search book/, "Search book");
+  const sheet = await openReaderTool(page, /Search book/, "Search book");
   const field = page.getByRole("searchbox", { name: "Search this book" });
   await field.fill("Dinah");
   await expect(page.locator("[data-search-status]")).toHaveAttribute(
     "data-search-status",
     "done",
   );
+  // The sheet grows to fit the results.
+  await waitForSheetToRest(sheet);
   await page.locator("[data-search-result]").nth(2).tap();
   await expect(page.getByTestId("search-stepper")).toContainText("3 of");
   await expect(page.locator(SETTLED_STAGE)).toHaveCount(1);
