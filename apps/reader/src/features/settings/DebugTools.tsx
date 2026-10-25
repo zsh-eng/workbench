@@ -69,6 +69,12 @@ const GROUPS: { title: string; tools: DebugTool[] }[] = [
         to: "/debug/jump-history",
       },
       {
+        title: "Sheet Lab",
+        description:
+          "Every case a sheet has to get right: content that grows and shrinks, rows removed and undone, the keyboard, stacking, shape.",
+        to: "/debug/sheet-lab",
+      },
+      {
         title: "Sync Lab",
         description:
           "Spawn isolated clients, inspect sync, and test offline changes.",

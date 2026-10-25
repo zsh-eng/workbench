@@ -32,6 +32,12 @@ const ReaderChromeDebug = lazy(() =>
   })),
 );
 
+const SheetLab = lazy(() =>
+  import("@/features/sheet-lab/SheetLab").then((module) => ({
+    default: module.SheetLab,
+  })),
+);
+
 const NotesLab = lazy(() =>
   import("@/features/notes-lab/NotesLab").then((module) => ({
     default: module.NotesLab,
@@ -294,6 +300,16 @@ function App() {
                         <DebugGate>
                           <Suspense fallback={null}>
                             <FeedbackIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
+                      path="/debug/sheet-lab"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <SheetLab />
                           </Suspense>
                         </DebugGate>
                       }
