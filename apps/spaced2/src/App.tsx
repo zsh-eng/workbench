@@ -1,4 +1,5 @@
 import { SyncBoundary } from "@/components/sync-status";
+import ImagesActivityPill from "@/components/images/images-activity-pill";
 import CommandBar from "@/components/nav/command-bar";
 import NavBar from "@/components/nav/nav-bar.tsx";
 import { SpacedIcon } from "@/components/nav/spaced-icon";
@@ -83,6 +84,7 @@ function AppShell() {
       <SpacedIcon />
       <NavBar />
       <SessionExpiredBanner />
+      <ImagesActivityPill />
       {/* The content layer: nothing that a page stacks rises above the chrome. */}
       <main
         className={cn(
