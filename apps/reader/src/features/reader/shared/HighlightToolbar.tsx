@@ -14,8 +14,8 @@ import {
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { Send } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useRef, useState } from "react";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 
 interface HighlightToolbarProps {
   /** The selection's top centre, and its foot when known. */
@@ -43,9 +43,8 @@ export function HighlightToolbar({
   const isMobile = useIsMobile();
   const prefersReducedMotion = useReducedMotion();
   const [noteText, setNoteText] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopyFeedback("Could not copy highlight.");
   const inputRef = useRef<HTMLInputElement>(null);
-  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isBareDesktopPicker = !isMobile && !onNoteSubmit;
   const hasCopyAction = Boolean(textToCopy?.trim());
 
@@ -84,36 +83,9 @@ export function HighlightToolbar({
 
   const opensBelowSelection = y > position.y;
 
-  const handleCopy = useCallback(async () => {
-    if (!textToCopy) return;
-    if (!navigator.clipboard) {
-      toast.error("Could not copy highlight.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
-      if (copyResetTimerRef.current) {
-        clearTimeout(copyResetTimerRef.current);
-      }
-      copyResetTimerRef.current = setTimeout(() => {
-        copyResetTimerRef.current = null;
-        setCopied(false);
-      }, 1500);
-    } catch (error) {
-      console.error("Failed to copy highlighted text:", error);
-      toast.error("Could not copy highlight.");
-    }
-  }, [textToCopy]);
-
-  useEffect(() => {
-    return () => {
-      if (copyResetTimerRef.current) {
-        clearTimeout(copyResetTimerRef.current);
-      }
-    };
-  }, []);
+  const handleCopy = () => {
+    if (textToCopy) copy(textToCopy);
+  };
 
   // Close toolbar when clicking outside
   useEffect(() => {
@@ -155,7 +127,7 @@ export function HighlightToolbar({
     (event) => {
       if (!hasCopyAction) return;
       event.preventDefault();
-      void handleCopy();
+      handleCopy();
     },
     {
       requireReset: true,
@@ -256,7 +228,7 @@ export function HighlightToolbar({
         {hasCopyAction && (
           <button
             type="button"
-            onClick={() => void handleCopy()}
+            onClick={handleCopy}
             aria-label="Copy highlighted text"
             title={copied ? "Copied" : "Copy text"}
             className={cn(
