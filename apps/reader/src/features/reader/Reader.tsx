@@ -959,6 +959,7 @@ export function Reader() {
                             highlightId: activeHighlightData?.id,
                             tools: (
                               <HighlightToolbarContainer
+                                placement="island"
                                 bookId={bookId}
                                 spineItemId={activeHighlightData?.spineItemId}
                                 highlights={sessionState.highlights}
@@ -1147,6 +1148,7 @@ export function Reader() {
 
                   {!isMobile && (
                     <HighlightToolbarContainer
+                      placement="floating"
                       bookId={bookId}
                       spineItemId={
                         activeHighlightData?.spineItemId ?? undefined

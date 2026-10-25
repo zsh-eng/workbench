@@ -405,3 +405,80 @@ test("a notebook highlight has the note menu on phones too", async ({
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(entry).toHaveCount(1);
 });
+
+test("tapping a highlight and closing its tools moves nothing on the page", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  await selectPassage(page, 1);
+  await page.getByRole("button", { name: "Highlight with yellow" }).tap();
+  const island = page.locator("[data-notes-island]");
+  await expect(island).toHaveCount(0);
+  // Where the start of each line of text sits.
+  const words = () =>
+    page.evaluate(() => {
+      const root = document.querySelector(
+        '[data-reader-spread-layer="current"]',
+      )!;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const points: number[][] = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (node.length < 2) continue;
+        const range = document.createRange();
+        range.setStart(node, 0);
+        range.setEnd(node, 2);
+        const rect = range.getBoundingClientRect();
+        points.push([rect.x, rect.y]);
+      }
+      return points;
+    });
+  const expectInPlace = (now: number[][], before: number[][]) => {
+    expect(now).toHaveLength(before.length);
+    now.forEach(([x, y], index) => {
+      expect(Math.abs(x! - before[index]![0]!)).toBeLessThan(1);
+      expect(Math.abs(y! - before[index]![1]!)).toBeLessThan(1);
+    });
+  };
+  // The browser reports any box that moves without being dragged.
+  await page.evaluate(() => {
+    const shifts: string[] = [];
+    (window as unknown as { shifts: string[] }).shifts = shifts;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as unknown as {
+        sources: { node?: Node }[];
+      }[])
+        for (const source of entry.sources)
+          shifts.push(source.node?.nodeName ?? "?");
+    }).observe({ type: "layout-shift" });
+  });
+  const before = await words();
+  const mark = page
+    .locator('[data-reader-spread-layer="current"] mark[data-color="yellow"]')
+    .first();
+  const box = (await mark.boundingBox())!;
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator('[data-notes-island="tools"]')).toBeVisible();
+  await expect
+    .poll(() =>
+      island.evaluate(
+        (element) =>
+          element.getAnimations({ subtree: true }).length === 0 &&
+          getComputedStyle(element).opacity === "1",
+      ),
+    )
+    .toBe(true);
+  expectInPlace(await words(), before);
+
+  // A tap on plain text below the highlight closes the tools.
+  await page.touchscreen.tap(195, box.y + box.height + 160);
+  await expect(island).toHaveCount(0);
+  expectInPlace(await words(), before);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { shifts: string[] }).shifts,
+    ),
+  ).toEqual([]);
+});

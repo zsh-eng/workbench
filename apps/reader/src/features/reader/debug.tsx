@@ -387,6 +387,7 @@ export function ReaderDebug() {
 
       <div className={isMobile ? "fixed inset-x-0 bottom-4 z-50" : undefined}>
         <HighlightToolbarContainer
+          placement={isMobile ? "island" : "floating"}
           bookId={bookId}
           spineItemId={activeHighlightData?.spineItemId ?? undefined}
           highlights={bookHighlights}

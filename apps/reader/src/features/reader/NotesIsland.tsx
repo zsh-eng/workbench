@@ -121,7 +121,8 @@ export function NotesCapsule({
 /**
  * A surface that changes shape with its content. Each state is a layer that
  * crossfades; the surface follows the layer's measured size. The first size is
- * applied at once, so a surface that appears never grows out of an old shape.
+ * applied before the surface paints, so a surface that appears never grows out
+ * of an old shape or out of nothing.
  */
 export function IslandSurface({
   layerKey,
@@ -140,9 +141,16 @@ export function IslandSurface({
     null,
   );
   const [settled, setSettled] = useState(false);
+  // The first layer measures itself before React attaches this surface's
+  // ref, which comes after the children's layout effects. That size waits
+  // here for the surface's own layout effect.
+  const firstSize = useRef<{ width: number; height: number } | null>(null);
   const measure = useCallback((width: number, height: number) => {
     const container = surface.current;
-    if (!container) return;
+    if (!container) {
+      firstSize.current = { width, height };
+      return;
+    }
     // The surface is border-box sized: include its border, or the
     // bottom-anchored layer sits off centre and loses its top edge.
     const style = getComputedStyle(container);
@@ -156,10 +164,22 @@ export function IslandSurface({
         parseFloat(style.borderTopWidth) +
         parseFloat(style.borderBottomWidth),
     };
+    // Motion applies even an instant size a frame later. Until then the
+    // surface, whose layers are absolute, would paint as its bare border and
+    // jump to size part way through its entrance.
+    if (!container.style.width) {
+      container.style.width = `${next.width}px`;
+      container.style.height = `${next.height}px`;
+    }
     setSize((size) =>
       size?.width === next.width && size.height === next.height ? size : next,
     );
   }, []);
+  useLayoutEffect(() => {
+    const first = firstSize.current;
+    firstSize.current = null;
+    if (first) measure(first.width, first.height);
+  }, [measure]);
   useEffect(() => {
     if (size && !settled) setSettled(true);
   }, [size, settled]);

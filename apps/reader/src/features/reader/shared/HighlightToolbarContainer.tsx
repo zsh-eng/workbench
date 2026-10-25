@@ -4,7 +4,6 @@ import {
   useDeleteHighlightMutation,
   useUpdateHighlightMutation,
 } from "@/hooks/use-highlights-query";
-import { useIsMobile } from "@/hooks/use-mobile";
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import type { Highlight } from "@/types/highlight";
 import { AnimatePresence } from "motion/react";
@@ -15,6 +14,12 @@ interface ActiveHighlightState {
 }
 
 interface HighlightToolbarContainerProps {
+  /**
+   * "island": colour swatches for the phone's Notes Island, which places
+   * them. "floating": the toolbar beside the passage. The caller decides:
+   * a width check made here would start as desktop on the first render.
+   */
+  placement: "island" | "floating";
   bookId: string | undefined;
   spineItemId: string | undefined;
   highlights: Highlight[];
@@ -39,6 +44,7 @@ interface HighlightToolbarContainerProps {
 }
 
 export function HighlightToolbarContainer({
+  placement,
   bookId,
   spineItemId,
   highlights,
@@ -55,8 +61,6 @@ export function HighlightToolbarContainer({
   activeHighlight,
   onEditClose,
 }: HighlightToolbarContainerProps) {
-  const isMobile = useIsMobile();
-
   // Get mutations for editing highlights
   const updateHighlightMutation = useUpdateHighlightMutation(
     bookId,
@@ -91,8 +95,7 @@ export function HighlightToolbarContainer({
     onEditClose();
   };
 
-  // Mobile rendering
-  if (isMobile) {
+  if (placement === "island") {
     return (
       <AnimatePresence>
         {isEditingHighlight && (
@@ -109,7 +112,6 @@ export function HighlightToolbarContainer({
     );
   }
 
-  // Desktop rendering
   return (
     <>
       <AnimatePresence>
