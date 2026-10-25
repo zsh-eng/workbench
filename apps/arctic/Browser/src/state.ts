@@ -71,11 +71,6 @@ export function useDerived<T>(
   );
 }
 
-/** Connection, account and sync activity (see @zsh-eng/local-sync). */
-export function useStatus() {
-  return useSyncStatus(useSession().controller);
-}
-
 /** Whether a sync is running; re-renders only when that changes. */
 export function useSyncing() {
   return useSyncStatus(useSession().controller, (status) => status.running);
@@ -86,7 +81,7 @@ export function useStatusText() {
   return useSyncSummary(useSession().controller);
 }
 
-export type Toast = {
+type Toast = {
   /** The toast's element: it stays the same while the toast changes. */
   id: number;
   message: string;
@@ -102,7 +97,7 @@ export type Toast = {
   done?: boolean;
 };
 
-export type ToastAction = {
+type ToastAction = {
   label: string;
   run: () => void;
   /** What the toast says once the change is undone. */
@@ -186,7 +181,7 @@ export function dismissToast(id?: number) {
   if (!toast || (id !== undefined && toast.id !== id)) return;
   clearTimeout(toastTimer);
   toast = null;
-  toastListeners.forEach((listener) => listener());
+  emit();
 }
 
 export function useToast() {

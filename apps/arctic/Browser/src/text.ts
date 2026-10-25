@@ -146,7 +146,7 @@ function leadImage(body: HTMLElement, cover: string) {
  * Whether two image URLs name one picture: image proxies are unwrapped and
  * size variants (`-1024x768`, `-scaled`, `.fill-1200x600`) are ignored.
  */
-export function sameImage(a: string, b: string) {
+function sameImage(a: string, b: string) {
   const x = imageName(a);
   const y = imageName(b);
   if (!x || !y) return false;

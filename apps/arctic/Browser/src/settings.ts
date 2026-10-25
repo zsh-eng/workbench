@@ -18,7 +18,7 @@ export type Settings = {
   offline: boolean;
 };
 
-export const DEFAULT_SETTINGS: Settings = {
+const DEFAULT_SETTINGS: Settings = {
   appearance: "system",
   theme: "arctic",
   font: "sans",

@@ -1,5 +1,5 @@
 /** One IndexedDB database per account: synced records, unsent edits, and article text. */
-export const databaseName = (userId: string) => `arctic:${userId}`;
+const databaseName = (userId: string) => `arctic:${userId}`;
 
 export function openDatabase(userId: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

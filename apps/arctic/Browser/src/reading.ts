@@ -18,7 +18,7 @@ import type { Session } from "./sync/session";
  * two minutes or less; a longer gap counts for nothing. A hidden tab, or
  * another window in focus, pauses.
  */
-export type ReadingSession = ActivitySession<null>;
+type ReadingSession = ActivitySession<null>;
 
 const PREFIX = "session/";
 
@@ -62,7 +62,7 @@ export function readingSessions(storage: RecordStorage): ReadingSession[] {
   return sessions;
 }
 
-export type ReadingStats = {
+type ReadingStats = {
   days: { date: Date; seconds: number }[];
   week: number;
   total: number;

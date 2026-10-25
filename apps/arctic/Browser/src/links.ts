@@ -83,7 +83,7 @@ export function localID(id: string) {
  * A readable stand-in title from the address, until the phone fetches the
  * page's own: the last path segment as words, or the site's name.
  */
-export function titleFromURL(canonical: string) {
+function titleFromURL(canonical: string) {
   const url = new URL(canonical);
   const host = url.hostname.replace(/^www\./, "");
   const segment = url.pathname
@@ -144,7 +144,7 @@ function linkRecords(url: string, id: string, savedAt: number) {
   ];
 }
 
-export type Saved =
+type Saved =
   | { kind: "saved"; id: string }
   | { kind: "already"; id: string }
   | { kind: "invalid" };

@@ -655,7 +655,7 @@ function LibraryBar({
   );
 }
 
-export function useScrolled() {
+function useScrolled() {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const update = () => setScrolled(window.scrollY > 4);
@@ -740,7 +740,7 @@ const Card = memo(function Card({
   );
 });
 
-export function Source({ article }: { article: Article }) {
+function Source({ article }: { article: Article }) {
   return (
     <span className="source">
       <Favicon src={article.favicon} host={article.host} />

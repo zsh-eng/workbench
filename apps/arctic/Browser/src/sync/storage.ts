@@ -109,10 +109,6 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
     return { value: pending.value!, isDeleted: pending.isDeleted ?? false };
   }
 
-  synced(key: string): View | undefined {
-    return this.rows.get(key);
-  }
-
   /** Changes fields of a live record. */
   edit(key: string, fields: Fields) {
     return this.serial(() => this.editNow(key, fields));

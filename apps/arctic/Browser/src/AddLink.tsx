@@ -38,11 +38,7 @@ export function isFresh(id: string) {
  * Saves a link and says so, with Undo. A new link goes to the top of Saved;
  * one already there is pointed out instead.
  */
-export async function addLink(
-  session: Session,
-  input: string,
-  show: () => void,
-) {
+async function addLink(session: Session, input: string, show: () => void) {
   const known = projected(session);
   // The card renders as the records are written, so it is marked first.
   // With view transitions, the list motion brings it in instead.

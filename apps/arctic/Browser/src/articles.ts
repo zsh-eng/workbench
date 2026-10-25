@@ -269,7 +269,7 @@ export async function removeArticle(
  * The source appears beside every title, so a matching publisher suffix is
  * display noise. Mirrors `ArticleTitle.display` in the phone app.
  */
-export function displayTitle(title: string, host: string) {
+function displayTitle(title: string, host: string) {
   const site = siteKey(host);
   if (site.length < 3) return title;
   for (const separator of [" | ", " – ", " — ", " · ", " - ", " :: "]) {

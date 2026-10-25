@@ -27,7 +27,7 @@ const NAMESPACES = {
   reading: "arctic-reading",
 } as const;
 type Channels = Record<keyof typeof NAMESPACES, Channel>;
-export const MAX_COPY_BYTES = 2 * 1024 * 1024;
+const MAX_COPY_BYTES = 2 * 1024 * 1024;
 /** Sync on open, on reconnect, on return to the tab, and every five minutes. */
 const SYNC_INTERVAL_MS = 5 * 60_000;
 

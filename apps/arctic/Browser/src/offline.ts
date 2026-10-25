@@ -7,7 +7,7 @@ import type { Session } from "./sync/session";
  * Keeps saved articles' text in this browser for offline reading. Opened
  * articles are kept anyway; this downloads the rest, four at a time.
  */
-export type Offline = {
+type Offline = {
   running: boolean;
   /** Texts of saved articles: kept here, and in all. */
   kept: number;

@@ -80,7 +80,7 @@ export function ReadingControls() {
   );
 }
 
-export type TextField =
+type TextField =
   | "font"
   | "size"
   | "spacing"

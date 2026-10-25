@@ -49,7 +49,7 @@ export const better = (article: Article, words: number) =>
   !article.copy || words > article.copy.words * 1.3;
 
 /** Same page: scheme and host in lower case, no fragment, no default port, no trailing slash. */
-export function pageKey(value: string) {
+function pageKey(value: string) {
   try {
     const url = new URL(value);
     url.hash = "";
