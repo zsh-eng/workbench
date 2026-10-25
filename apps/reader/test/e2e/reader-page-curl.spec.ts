@@ -503,6 +503,42 @@ test("the middle of the edge rolls straight, and holds part way", async ({
   expect(await currentPages(page)).toEqual(start);
 });
 
+test("a page comes back from anywhere, held until let go", async ({
+  page,
+  localBook,
+}) => {
+  await openWithCurl(page, localBook.id);
+  await turnPages(page, 3);
+  const start = await currentPages(page);
+
+  // Drawn back from the middle and returned, it lies down where it was.
+  let hand = await finger(page);
+  await hand.down(110, 430);
+  await hand.move(300, 434, { steps: 12, stepMs: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
+  await hand.move(110, 430, { steps: 10, stepMs: 24 });
+  await page.waitForTimeout(150);
+  await hand.up();
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  expect(await currentPages(page)).toEqual(start);
+
+  // Drawn up and over by its foot, it stays in hand, then comes back.
+  hand = await finger(page);
+  await hand.down(110, 720);
+  await hand.move(200, 670, { steps: 8, stepMs: 20 });
+  await hand.move(300, 610, { steps: 8, stepMs: 20 });
+  await page.waitForTimeout(500);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "visible");
+  expect(await currentPages(page)).toEqual(start);
+  await hand.move(370, 560, { steps: 6, stepMs: 16 });
+  await hand.up();
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  await waitForReaderReady(page);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).toEqual(start);
+});
+
 test("pigment stands in for a highlight's fill and keeps its tools", async ({
   page,
   localBook,

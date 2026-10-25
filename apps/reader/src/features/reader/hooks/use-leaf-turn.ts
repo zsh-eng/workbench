@@ -151,6 +151,11 @@ interface Turn {
   gripY: number;
   /** The node of the strip at the grip. */
   node: number;
+  /**
+   * Where the finger first touched, page px. A page coming back is held by
+   * its edge, which comes to the finger and then stays in hand.
+   */
+  handX: number;
   /** The fold's angle the hand asks for, and the angle shown. */
   wanted: number;
   angle: number;
@@ -207,10 +212,12 @@ function hasActiveTextSelection(): boolean {
  * frame (`SheetFrame`). A finger that swipes takes hold of the paper where
  * it touches and carries that point, under the finger, round the hand's
  * roll; the fold lies across the pull, so a corner pulled across the page
- * makes a cone and the middle of the edge a roll. Let go, and gravity, the
- * air and the stack below decide where it lands. A touch at any time
- * catches a moving page where the finger meets it, including one already
- * falling over, so there is no moment when touches are ignored.
+ * makes a cone and the middle of the edge a roll. A page brought back is
+ * held by its edge, wherever the swipe began, its fold across the pull
+ * too. Let go, and gravity, the air and the stack below decide where it
+ * lands. A touch at any time catches a moving page where the finger meets
+ * it, including one already falling over, so there is no moment when
+ * touches are ignored.
  *
  * Navigation follows the paper: a forward turn is sent once the leaf has
  * gone over the spine, a backward one once it lies down again. Until the
@@ -385,6 +392,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         gripX: x,
         gripY,
         node,
+        handX: gripX,
         wanted: grip === "edge" ? corner * CORNER_TILT : 0,
         angle: 0,
         corner,
@@ -425,6 +433,46 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
   });
 
   /**
+   * Bringing the last page back, held anywhere: the hand has its edge,
+   * which comes over ahead of the finger until it reaches it, then stays
+   * under it. The fold lies across the pull, as going forward, and the part
+   * held is the last to lie down: a thumb drawing the foot of the page up
+   * and over lays the head down first.
+   */
+  const carryBack = (
+    turn: Turn,
+    pull: NonNullable<Turn["pull"]>,
+    elapsed: number,
+  ) => {
+    const { width, height } = pageSize();
+    let travelX = Math.max(0, pull.travelX);
+    if (!turn.canTurn) travelX = rubberBandSwipeOffset(travelX, width);
+    turn.wanted = holdAngle(
+      turn.gripX,
+      turn.gripY,
+      Math.atan2(-pull.travelY, travelX + PULL_STEADY_PX),
+      width,
+      height,
+    );
+    turn.angle +=
+      (turn.wanted - turn.angle) * (1 - Math.exp(-elapsed / FOLD_FOLLOW));
+    const frame = frameOf(turn);
+    const [arc] = toSection(
+      frame,
+      turn.handX + travelX,
+      turn.gripY + pull.travelY,
+    );
+    const radius = HAND_ROLL * LEAF_WIDTH;
+    const crease = Math.min(
+      LEAF_WIDTH,
+      TURNED_CREASE + BACKWARD_GAIN * travelX * (LEAF_WIDTH / width),
+      creaseUnder(arc * (LEAF_WIDTH / frame.length), radius),
+    );
+    const [x, z, angle] = carriedEdge(crease, radius);
+    turn.leaf.holdAt(LEAF_NODES, x, z + 0.0005, angle);
+  };
+
+  /**
    * Holding the page anywhere: carries the held point under the finger,
    * round the hand's roll, with the fold turned across the pull. The paper
    * beyond the grip is free, and hangs or falls as the strip makes it.
@@ -433,6 +481,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     const pull = turn.pull;
     if (!pull) return;
     aim(turn);
+    if (turn.page === "previous") return carryBack(turn, pull, elapsed);
     const { width, height } = pageSize();
     let travelX = Math.min(0, pull.travelX);
     if (!turn.canTurn) travelX = rubberBandSwipeOffset(travelX, width);
@@ -782,8 +831,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
           0,
         );
       }
-      const held = turn.grip === "anywhere" && turn.page === "current";
-      if (held) {
+      if (turn.grip === "anywhere") {
         turn.pull = {
           x: event.clientX,
           y: event.clientY,
