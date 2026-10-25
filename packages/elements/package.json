@@ -11,6 +11,7 @@
     "./spring": "./src/spring.ts",
     "./sheet-motion": "./src/sheet-motion.ts",
     "./sheet-fit": "./src/sheet-fit.ts",
+    "./sheet-body": "./src/sheet-body.tsx",
     "./sheet.css": "./src/sheet.css"
   },
   "devDependencies": {
