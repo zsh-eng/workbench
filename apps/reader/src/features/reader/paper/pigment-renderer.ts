@@ -37,9 +37,6 @@ export interface PigmentStroke {
   ends: boolean;
 }
 
-/** `marker` is a felt-tip stroke; `wash` the same pigment laid evenly. */
-export type PigmentStyle = "marker" | "wash";
-
 const VERTEX = `
 attribute vec2 aUv;
 attribute vec4 aRect;
@@ -71,7 +68,6 @@ uniform sampler2D uGrain;
 uniform float uTile;
 uniform vec2 uOffset;
 uniform float uRatio;
-uniform float uMarker;
 uniform float uDark;
 uniform float uHasGrain;
 varying vec2 vPx;
@@ -112,15 +108,15 @@ void main() {
   float strokeLength = (vRect.z - vRect.x) * css;
 
   // The stroke's middle wanders a little as the hand does, and its height
-  // breathes with the pressure; a wash keeps the line's own box.
-  float wander = (noise(vec2(along / 90.0, seed)) - 0.5) * 0.08 * lineHeight * uMarker;
-  float middle = (vRect.y + vRect.w) * 0.5 * css + 0.03 * lineHeight * uMarker + wander;
-  float halfHeight = lineHeight * mix(0.5, 0.43, uMarker)
-    * (1.0 + (noise(vec2(along / 50.0, seed + 7.0)) - 0.5) * 0.06 * uMarker);
+  // breathes with the pressure.
+  float wander = (noise(vec2(along / 90.0, seed)) - 0.5) * 0.08 * lineHeight;
+  float middle = (vRect.y + vRect.w) * 0.5 * css + 0.03 * lineHeight + wander;
+  float halfHeight = lineHeight * 0.43
+    * (1.0 + (noise(vec2(along / 50.0, seed + 7.0)) - 0.5) * 0.06);
   float across = (at.y - middle) / halfHeight;
 
   // A chisel tip ends on a slant; a line break cuts straight.
-  float slant = 0.22 * halfHeight * uMarker;
+  float slant = 0.22 * halfHeight;
   float startEdge = along + across * slant * starts;
   float endEdge = strokeLength - along + across * slant * ends;
 
@@ -140,17 +136,17 @@ void main() {
   // How much pigment lies here: streaks from the felt along the stroke,
   // a pool where the tip first touched, a little less where it lifted,
   // and more in the paper's tooth than on its peaks.
-  float density = mix(0.86, 0.92, uMarker);
+  float density = 0.92;
   float streak = noise(vec2(along / 160.0, across * 5.0 + seed * 3.0));
-  density *= 1.0 + (streak - 0.5) * 0.22 * uMarker;
+  density *= 1.0 + (streak - 0.5) * 0.22;
   density *= 1.0 + (noise(vec2(along / 28.0, seed + 19.0)) - 0.5) * 0.08;
-  density *= 1.0 + 0.16 * exp(-max(startEdge, 0.0) / 5.0) * starts * uMarker;
-  density *= 1.0 - 0.1 * exp(-max(endEdge, 0.0) / 9.0) * ends * uMarker;
+  density *= 1.0 + 0.16 * exp(-max(startEdge, 0.0) / 5.0) * starts;
+  density *= 1.0 - 0.1 * exp(-max(endEdge, 0.0) / 9.0) * ends;
   density *= 0.9 + 0.22 * fibre;
   // As the stroke dries, pigment is carried out to its edge and stays
-  // there: a faint tide line, plainer in a wash than under a felt tip.
+  // there: a faint tide line.
   float rim = min(min(edge, startEdge), endEdge) + soak;
-  density *= 1.0 + mix(0.2, 0.1, uMarker) * exp(-max(rim, 0.0) / 1.3);
+  density *= 1.0 + 0.1 * exp(-max(rim, 0.0) / 1.3);
   density *= 1.0 + 0.22 * chosen;
   density = clamp(density * inside, 0.0, 1.0);
 
@@ -170,7 +166,6 @@ const UNIFORMS = [
   "uGrain",
   "uTile",
   "uOffset",
-  "uMarker",
   "uDark",
   "uHasGrain",
 ] as const;
@@ -220,7 +215,6 @@ class PigmentRenderer {
     height: number;
     pixelRatio: number;
     dark: boolean;
-    style: PigmentStyle;
     /** The page's grain tile (alpha), its size in CSS px, and its offset. */
     grain: { tile: HTMLCanvasElement; size: number } | null;
   }): HTMLCanvasElement | null {
@@ -272,7 +266,6 @@ class PigmentRenderer {
     const at = this.locations;
     gl.uniform2f(at.uSize, canvas.width, canvas.height);
     gl.uniform1f(at.uRatio, ratio);
-    gl.uniform1f(at.uMarker, options.style === "marker" ? 1 : 0);
     gl.uniform1f(at.uDark, dark ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.grainTexture);

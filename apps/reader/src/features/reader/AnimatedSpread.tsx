@@ -92,7 +92,7 @@ export function SpreadView({
       )}
       {paper !== "off" && marks !== "flat" && (
         <Suspense fallback={null}>
-          <PaperMarks grain={paper} style={marks} content={spread} />
+          <PaperMarks grain={paper} content={spread} />
         </Suspense>
       )}
       {paper !== "off" && ink === "gl" && (

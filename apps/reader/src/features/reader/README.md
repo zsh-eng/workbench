@@ -42,7 +42,7 @@ Design ideas → Reading fonts opens the book you read last in each sans font th
 
 ## Paper and the page curl (Debug)
 
-With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat, Wash or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. The study behind the leaf is in `docs/page-turn-study/`.
+With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. The study behind the leaf is in `docs/page-turn-study/`.
 
 The leaf (`curl`):
 

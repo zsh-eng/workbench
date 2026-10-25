@@ -131,9 +131,6 @@ export function PaperRow() {
             <SegmentedToggleGroupItem value="flat" className={itemClassName}>
               Flat
             </SegmentedToggleGroupItem>
-            <SegmentedToggleGroupItem value="wash" className={itemClassName}>
-              Wash
-            </SegmentedToggleGroupItem>
             <SegmentedToggleGroupItem value="marker" className={itemClassName}>
               Marker
             </SegmentedToggleGroupItem>
