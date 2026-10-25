@@ -8,6 +8,8 @@ import {
   useTransform,
 } from "motion/react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -21,14 +23,13 @@ import {
   SpreadView,
   type NavDirection,
 } from "./AnimatedSpread";
-import { useLeafTurn, type LeafView } from "./hooks/use-leaf-turn";
 import {
   CURL_SETTLE_SPRING,
   SWIPE_SETTLE_SPRING,
   useSpreadSwipeNavigation,
   type SwipeDirection,
 } from "./hooks/use-spread-swipe-navigation";
-import { BookBlock, foreEdgeWidth } from "./paper/BookBlock";
+import { isPageCurlSupported } from "./paper/curl-support";
 import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
 import type {
   LeafGrip,
@@ -36,10 +37,26 @@ import type {
   PaperInk,
   PaperMarks,
 } from "./paper/paper-preference";
-import { useLeafCurl } from "./paper/use-leaf-curl";
-import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
-import { usePageFeel } from "./paper/use-page-feel";
+import type { LeafTurnState } from "./paper/PaperTurn";
+import type { PageFeel } from "./paper/use-page-feel";
 import { getSpreadContentKey } from "./spread-identity";
+
+/**
+ * The curls, their drawing and their feel load only when one is chosen
+ * (Debug), so the slide's Reader carries none of it.
+ */
+const PaperTurn = lazy(() =>
+  import("./paper/PaperTurn").then((module) => ({
+    default: module.PaperTurn,
+  })),
+);
+
+/** A leaf turn before its code has loaded: at rest, and unable to turn. */
+const LEAF_LOADING: LeafTurnState = {
+  phase: "idle",
+  isInteractionActive: false,
+  turn: () => false,
+};
 
 /** Turns the page from rest, as a swipe would; false if it cannot. */
 export type PageTurner = (direction: SwipeDirection, holdY?: number) => boolean;
@@ -130,11 +147,13 @@ export function SpreadStage({
 }: SpreadStageProps) {
   const direction = toNavDirection(spread?.intent);
   const internalStageRef = useRef<HTMLDivElement>(null);
-  const curlCanvasRef = useRef<HTMLCanvasElement>(null);
   const previousLayerRef = useRef<HTMLDivElement>(null);
   const currentLayerRef = useRef<HTMLDivElement>(null);
   const nextLayerRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(0);
+  // The turn's feel, while a curl has loaded it; the swipe plays it too.
+  const feelRef = useRef<PageFeel | null>(null);
+  const [leafTurn, setLeafTurn] = useState<LeafTurnState | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const setStageRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -155,17 +174,6 @@ export function SpreadStage({
   const leaf = pageTurn === "curl" && curlAllowed;
   const curl = pageTurn === "curl-v1" && curlAllowed;
   const curled = leaf || curl;
-  // The leaf lies in a book: its unread stack takes the stage's right edge.
-  const showBook = leaf && bookBlock && spread !== null;
-  const unreadPages = spread ? spread.totalPages - spread.currentPage : 0;
-  const readPages = spread ? spread.currentPage - 1 : 0;
-  const foreEdge = showBook ? foreEdgeWidth(unreadPages) : 0;
-
-  const feel = usePageFeel({
-    haptics: curled && haptics,
-    sound: curled && sound,
-  });
-
   const swipe = useSpreadSwipeNavigation({
     containerRef: internalStageRef,
     enabled: swipeEnabled && !leaf,
@@ -175,38 +183,19 @@ export function SpreadStage({
     onPrevious: onSwipePrevious,
     onNext: onSwipeNext,
     onSwipeStart: () => {
-      feel.start();
+      feelRef.current?.start();
       onSwipeStart?.();
     },
-    onRelease: feel.release,
-    onSettled: feel.settled,
+    onRelease: (target, velocity) => feelRef.current?.release(target, velocity),
+    onSettled: () => feelRef.current?.settled(),
     disableMotion: disableAnimations,
     settleSpring: curl ? CURL_SETTLE_SPRING : SWIPE_SETTLE_SPRING,
   });
   const { dragOffset, dragY, grabY } = swipe;
 
-  const leafPresenter = useRef<(view: LeafView | null) => void>(() => {});
-  const leafTurn = useLeafTurn({
-    containerRef: internalStageRef,
-    enabled: swipeEnabled && leaf,
-    grip,
-    foreEdge,
-    currentSpreadId: spread?.currentSpread ?? null,
-    previousSpreadId: previousSpread?.currentSpread ?? null,
-    nextSpreadId: nextSpread?.currentSpread ?? null,
-    onPrevious: onSwipePrevious,
-    onNext: onSwipeNext,
-    onSwipeStart: () => {
-      feel.start();
-      onSwipeStart?.();
-    },
-    onRelease: (turns, speed) => feel.release(turns ? 1 : 0, speed),
-    onMove: feel.drag,
-    onSettled: feel.settled,
-    present: (view) => leafPresenter.current(view),
-  });
-
-  const { phase, isInteractionActive, turn } = leaf ? leafTurn : swipe;
+  const { isInteractionActive, turn } = leaf
+    ? (leafTurn ?? LEAF_LOADING)
+    : swipe;
 
   if (turnRef) turnRef.current = curled && swipeEnabled ? turn : null;
 
@@ -220,38 +209,6 @@ export function SpreadStage({
     current: currentLayerRef,
     next: nextLayerRef,
   };
-
-  usePageCurl({
-    enabled: curl,
-    stageRef: internalStageRef,
-    canvasRef: curlCanvasRef,
-    layers,
-    dragOffset,
-    dragY,
-    grabY,
-    keys,
-    idle: phase === "idle",
-    grain: paper,
-    showThrough,
-  });
-
-  useLeafCurl({
-    enabled: leaf,
-    stageRef: internalStageRef,
-    canvasRef: curlCanvasRef,
-    layers,
-    keys,
-    idle: phase === "idle",
-    foreEdge,
-    grain: paper,
-    showThrough,
-    presenterRef: leafPresenter,
-  });
-
-  useLayoutEffect(() => {
-    if (!curl) return;
-    return dragOffset.on("change", feel.drag);
-  }, [curl, dragOffset, feel.drag]);
 
   useLayoutEffect(() => {
     const stage = internalStageRef.current;
@@ -385,20 +342,35 @@ export function SpreadStage({
           </motion.div>
         )}
 
-        {showBook && (
-          <BookBlock readPages={readPages} unreadPages={unreadPages} />
-        )}
-
         {curled && (
-          // One canvas per kind of curl: each owns its WebGL context.
-          <canvas
-            key={leaf ? "leaf" : "curl"}
-            ref={curlCanvasRef}
-            data-reader-page-curl
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 z-[3] h-full w-full"
-            style={{ visibility: "hidden" }}
-          />
+          <Suspense fallback={null}>
+            <PaperTurn
+              kind={leaf ? "leaf" : "curl"}
+              stageRef={internalStageRef}
+              layers={layers}
+              keys={keys}
+              swipeEnabled={swipeEnabled}
+              swipe={{ dragOffset, dragY, grabY, idle: swipe.phase === "idle" }}
+              spreadIds={{
+                current: spread?.currentSpread ?? null,
+                previous: previousSpread?.currentSpread ?? null,
+                next: nextSpread?.currentSpread ?? null,
+              }}
+              onPrevious={onSwipePrevious}
+              onNext={onSwipeNext}
+              onSwipeStart={onSwipeStart}
+              grip={grip}
+              bookBlock={bookBlock}
+              readPages={spread ? spread.currentPage - 1 : 0}
+              unreadPages={spread ? spread.totalPages - spread.currentPage : 0}
+              grain={paper}
+              showThrough={showThrough}
+              haptics={haptics}
+              sound={sound}
+              feelRef={feelRef}
+              onLeafTurn={setLeafTurn}
+            />
+          </Suspense>
         )}
       </div>
     </MotionConfig>

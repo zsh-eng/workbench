@@ -18,10 +18,13 @@ const STAGE = "[data-page-turn]";
 const CURL = "[data-reader-page-curl]";
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 
-async function openWithCurl(page: Page, bookId: string) {
-  await page.goto(`/reader/${bookId}?turn=curl`);
+/** Opens the book with the leaf, plus any other `&` settings. */
+async function openWithCurl(page: Page, bookId: string, settings = "") {
+  await page.goto(`/reader/${bookId}?turn=curl${settings}`);
   await waitForReaderReady(page);
   await expect(page.locator(STAGE)).toHaveAttribute("data-page-turn", "curl");
+  // The curl loads only once chosen, and is ready when its canvas is.
+  await expect(page.locator(CURL)).toBeAttached();
 }
 
 /**
@@ -321,8 +324,7 @@ test("the WebGL ink stands in for the text and keeps selection", async ({
   page,
   localBook,
 }) => {
-  await page.goto(`/reader/${localBook.id}?turn=curl&paper=fine&ink=gl`);
-  await waitForReaderReady(page);
+  await openWithCurl(page, localBook.id, "&paper=fine&ink=gl");
   for (let turn = 0; turn < 6; turn++) {
     await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
     const before = await currentPages(page);
@@ -359,6 +361,29 @@ test("reduced motion keeps the plain turn", async ({ page, localBook }) => {
   const start = await currentPages(page);
   await drag(page, [330, 500], [110, 500]);
   await expect.poll(() => currentPages(page)).not.toEqual(start);
+});
+
+test("the slide loads none of the curls' code, which loads once chosen", async ({
+  page,
+  localBook,
+}) => {
+  const paperCode =
+    /\/(PaperTurn|PaperInk|PaperMarks|use-leaf-turn|use-leaf-curl|use-page-curl|leaf-renderer|curl-renderer)\./;
+  const loaded: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (paperCode.test(path)) loaded.push(path);
+  });
+  await page.goto(`/reader/${localBook.id}`);
+  await waitForReaderReady(page);
+  await expect(page.locator(STAGE)).toHaveAttribute("data-page-turn", "slide");
+  const start = await currentPages(page);
+  await drag(page, [330, 500], [110, 500]);
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  expect(loaded).toEqual([]);
+
+  await openWithCurl(page, localBook.id);
+  expect(loaded.some((path) => path.includes("/PaperTurn."))).toBe(true);
 });
 
 test("Appearance turns the curl on for this device", async ({
@@ -482,10 +507,7 @@ test("pigment stands in for a highlight's fill and keeps its tools", async ({
   page,
   localBook,
 }) => {
-  await page.goto(
-    `/reader/${localBook.id}?turn=curl&paper=fine&ink=in&marks=marker`,
-  );
-  await waitForReaderReady(page);
+  await openWithCurl(page, localBook.id, "&paper=fine&ink=in&marks=marker");
   await turnPages(page, 6);
   await selectPassage(page);
   await page.getByRole("button", { name: "Highlight with yellow" }).click();
@@ -522,8 +544,7 @@ test("the book's fore-edge narrows as you read", async ({
   await turnPages(page, 3);
   expect(await width()).toBeLessThan(before);
 
-  await page.goto(`/reader/${localBook.id}?turn=curl&block=off`);
-  await waitForReaderReady(page);
+  await openWithCurl(page, localBook.id, "&block=off");
   await expect(edge).toHaveCount(0);
 });
 
@@ -534,8 +555,7 @@ test("the leaf's raster draws the words as heavy as the page", async ({
   // Without grain, the raster and the page differ only in how they draw
   // text, so their ink should agree. A raster drawn with other font
   // smoothing than the page's (macOS) carries about a fifth more.
-  await page.goto(`/reader/${localBook.id}?turn=curl&paper=off`);
-  await waitForReaderReady(page);
+  await openWithCurl(page, localBook.id, "&paper=off");
   await turnPages(page, 6);
   const box = (await page.locator(CURRENT_SPREAD).boundingBox())!;
   const area = { x: box.x, y: box.y + 120, width: box.width, height: 480 };
