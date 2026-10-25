@@ -4,6 +4,7 @@ export const IDEA_TOPICS = [
   { id: "reader", label: "Reader" },
   { id: "search", label: "Reader search" },
   { id: "fonts", label: "Reading fonts" },
+  { id: "paper", label: "Paper" },
   { id: "dark", label: "Dark mode" },
   { id: "covers", label: "Living covers" },
 ] as const;

@@ -402,3 +402,43 @@ mark {
   background: var(--secondary);
   color: var(--foreground);
 }
+
+/* Paper grain under the text (Debug; see features/reader/paper). The tile
+   is alpha only, so each theme picks the colour of its fibres from its own
+   palette: neutral tooth on white, warm fibres on cream, a quieter tooth at
+   night. */
+.reader-paper-grain,
+.reader-paper-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.reader-paper-grain {
+  background-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+  -webkit-mask-image: var(--paper-grain);
+  mask-image: var(--paper-grain);
+  -webkit-mask-size: var(--paper-tile) var(--paper-tile);
+  mask-size: var(--paper-tile) var(--paper-tile);
+}
+
+.flexoki-light .reader-paper-grain {
+  background-color: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--yellow-primary) 55%, var(--foreground)) 13%,
+    transparent
+  );
+}
+
+:is(.dark, .flexoki-dark) .reader-paper-grain {
+  background-color: color-mix(in oklab, var(--foreground) 5%, transparent);
+}
+
+.night .reader-paper-grain {
+  background-color: color-mix(in oklab, var(--foreground) 3.5%, transparent);
+}
+
+.reader-paper-vignette {
+  box-shadow: inset 0 0 96px
+    color-mix(in oklab, var(--foreground) 6%, transparent);
+}

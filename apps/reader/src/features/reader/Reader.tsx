@@ -27,7 +27,9 @@ import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
 import { ReaderSheetHost } from "./ReaderSheetHost";
 import { ReaderStateScreen } from "./ReaderStateScreen";
-import { SpreadStage } from "./SpreadStage";
+import { SpreadStage, type PageTurner } from "./SpreadStage";
+import { PaperRow } from "./paper/PaperRow";
+import { resolvePaper, usePaperPreference } from "./paper/paper-preference";
 import { ReaderProgressPeek } from "./footer/ReaderProgressPeek";
 import { ReaderFooter } from "./footer";
 import { ReaderHistoryPageIndicator } from "./footer/ReaderHistoryPageIndicator";
@@ -131,6 +133,10 @@ export function Reader() {
   const fontParam = searchParams.get("font");
   const previewFontFamily =
     debugEnabled && isReadingFontId(fontParam) ? fontParam : null;
+  // Paper for Design ideas and Debug: the curl, grain and show-through.
+  const paper = resolvePaper(debugEnabled, usePaperPreference(), searchParams);
+  // Set while the curl turns pages, so a tap turns the page the same way.
+  const pageTurnerRef = useRef<PageTurner | null>(null);
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const [notebookOpen, setNotebookOpen] = useState(false);
@@ -586,8 +592,13 @@ export function Reader() {
       )}
       <div className="h-full">
         <ReaderController
-          onNextPage={sessionActions.nextSpread}
-          onPrevPage={sessionActions.prevSpread}
+          onNextPage={() => {
+            if (!pageTurnerRef.current?.("next")) sessionActions.nextSpread();
+          }}
+          onPrevPage={() => {
+            if (!pageTurnerRef.current?.("previous"))
+              sessionActions.prevSpread();
+          }}
           canGoPrev={sessionState.navigation.canGoPrev}
           canGoNext={sessionState.navigation.canGoNext}
           chromeInteractionMode={chromeInteractionMode}
@@ -725,6 +736,12 @@ export function Reader() {
                         onSwipeStart={hideChrome}
                         onSwipeNext={sessionActions.nextSpread}
                         onSwipePrevious={sessionActions.prevSpread}
+                        pageTurn={paper.pageTurn}
+                        paper={paper.grain}
+                        showThrough={paper.showThrough}
+                        haptics={paper.haptics}
+                        sound={paper.sound}
+                        turnRef={pageTurnerRef}
                         paddingTopPx={stagePadding.paddingTop}
                         paddingBottomPx={stagePadding.paddingBottom}
                         paddingLeftPx={stagePadding.paddingX}
@@ -1135,16 +1152,19 @@ export function Reader() {
                         }
                         layoutControl={
                           debugEnabled ? (
-                            <ReadingLayoutRow
-                              value={scrollMode.preferredMode}
-                              disabled={scrollMode.switchDisabled}
-                              onChange={(next) => {
-                                // The sheet closes while the layout changes
-                                // behind it.
-                                chromeActions.closeReaderSheet();
-                                scrollMode.setMode(next);
-                              }}
-                            />
+                            <>
+                              <ReadingLayoutRow
+                                value={scrollMode.preferredMode}
+                                disabled={scrollMode.switchDisabled}
+                                onChange={(next) => {
+                                  // The sheet closes while the layout changes
+                                  // behind it.
+                                  chromeActions.closeReaderSheet();
+                                  scrollMode.setMode(next);
+                                }}
+                              />
+                              <PaperRow />
+                            </>
                           ) : undefined
                         }
                       />

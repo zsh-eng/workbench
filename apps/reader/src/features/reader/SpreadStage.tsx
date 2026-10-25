@@ -4,6 +4,7 @@ import {
   AnimatePresence,
   motion,
   MotionConfig,
+  useReducedMotion,
   useTransform,
 } from "motion/react";
 import {
@@ -11,6 +12,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEventHandler,
   type RefObject,
 } from "react";
@@ -19,8 +21,20 @@ import {
   SpreadView,
   type NavDirection,
 } from "./AnimatedSpread";
-import { useSpreadSwipeNavigation } from "./hooks/use-spread-swipe-navigation";
+import {
+  CURL_SETTLE_SPRING,
+  SWIPE_SETTLE_SPRING,
+  useSpreadSwipeNavigation,
+  type SwipeDirection,
+} from "./hooks/use-spread-swipe-navigation";
+import { paperGrainStyle, type PaperGrain } from "./paper/paper-grain";
+import type { PageTurnStyle } from "./paper/paper-preference";
+import { isPageCurlSupported, usePageCurl } from "./paper/use-page-curl";
+import { usePageFeel } from "./paper/use-page-feel";
 import { getSpreadContentKey } from "./spread-identity";
+
+/** Turns the page from rest, as a swipe would; false if it cannot. */
+export type PageTurner = (direction: SwipeDirection, holdY?: number) => boolean;
 
 interface SpreadStageProps {
   spread: ResolvedSpread | null;
@@ -42,6 +56,14 @@ interface SpreadStageProps {
   paddingBottomPx: number;
   paddingLeftPx: number;
   paddingRightPx: number;
+  /** How a swipe moves the page (Debug): slide, or curl like paper. */
+  pageTurn?: PageTurnStyle;
+  paper?: PaperGrain;
+  showThrough?: boolean;
+  haptics?: boolean;
+  sound?: boolean;
+  /** Set while the curl turns pages, so taps can turn with it. */
+  turnRef?: RefObject<PageTurner | null>;
 }
 
 function toNavDirection(
@@ -76,10 +98,21 @@ export function SpreadStage({
   paddingBottomPx,
   paddingLeftPx,
   paddingRightPx,
+  pageTurn = "slide",
+  paper = "off",
+  showThrough = true,
+  haptics = false,
+  sound = false,
+  turnRef,
 }: SpreadStageProps) {
   const direction = toNavDirection(spread?.intent);
   const internalStageRef = useRef<HTMLDivElement>(null);
+  const curlCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previousLayerRef = useRef<HTMLDivElement>(null);
+  const currentLayerRef = useRef<HTMLDivElement>(null);
+  const nextLayerRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(0);
+  const prefersReducedMotion = useReducedMotion();
   const setStageRef = useCallback(
     (node: HTMLDivElement | null) => {
       internalStageRef.current = node;
@@ -88,17 +121,65 @@ export function SpreadStage({
     [stageContentRef],
   );
 
-  const { dragOffset, isInteractionActive } = useSpreadSwipeNavigation({
-    containerRef: internalStageRef,
-    enabled: swipeEnabled,
-    currentSpreadId: spread?.currentSpread ?? null,
-    previousSpreadId: previousSpread?.currentSpread ?? null,
-    nextSpreadId: nextSpread?.currentSpread ?? null,
-    onPrevious: onSwipePrevious,
-    onNext: onSwipeNext,
-    onSwipeStart,
-    disableMotion: disableAnimations,
+  // The curl replaces the slide only where it can run as designed: a
+  // touch screen, one page at a time, motion allowed and WebGL present.
+  const curl =
+    pageTurn === "curl" &&
+    renderAdjacentSpreads &&
+    spreadConfig.columns === 1 &&
+    !disableAnimations &&
+    !prefersReducedMotion &&
+    isPageCurlSupported();
+
+  const feel = usePageFeel({ haptics: curl && haptics, sound: curl && sound });
+
+  const { dragOffset, dragY, grabY, phase, isInteractionActive, turn } =
+    useSpreadSwipeNavigation({
+      containerRef: internalStageRef,
+      enabled: swipeEnabled,
+      currentSpreadId: spread?.currentSpread ?? null,
+      previousSpreadId: previousSpread?.currentSpread ?? null,
+      nextSpreadId: nextSpread?.currentSpread ?? null,
+      onPrevious: onSwipePrevious,
+      onNext: onSwipeNext,
+      onSwipeStart: () => {
+        feel.start();
+        onSwipeStart?.();
+      },
+      onRelease: feel.release,
+      onSettled: feel.settled,
+      disableMotion: disableAnimations,
+      settleSpring: curl ? CURL_SETTLE_SPRING : SWIPE_SETTLE_SPRING,
+    });
+
+  if (turnRef) turnRef.current = curl && swipeEnabled ? turn : null;
+
+  usePageCurl({
+    enabled: curl,
+    stageRef: internalStageRef,
+    canvasRef: curlCanvasRef,
+    layers: {
+      previous: previousLayerRef,
+      current: currentLayerRef,
+      next: nextLayerRef,
+    },
+    dragOffset,
+    dragY,
+    grabY,
+    keys: {
+      previous: previousSpread ? getSpreadContentKey(previousSpread) : null,
+      current: spread ? getSpreadContentKey(spread) : null,
+      next: nextSpread ? getSpreadContentKey(nextSpread) : null,
+    },
+    idle: phase === "idle",
+    grain: paper,
+    showThrough,
   });
+
+  useLayoutEffect(() => {
+    if (!curl) return;
+    return dragOffset.on("change", feel.drag);
+  }, [curl, dragOffset, feel.drag]);
 
   useLayoutEffect(() => {
     const stage = internalStageRef.current;
@@ -136,6 +217,7 @@ export function SpreadStage({
     paddingBottomPx,
     paddingLeftPx,
     paddingRightPx,
+    paper,
   };
 
   const handlePageContentClick: MouseEventHandler<HTMLDivElement> = (event) => {
@@ -155,37 +237,46 @@ export function SpreadStage({
     event.stopPropagation();
   };
 
+  // In a curl the pages do not move: the adjacent pages wait under the
+  // current one and the curl decides what shows (see usePageCurl).
+  const willChange = isInteractionActive ? "transform" : "auto";
+  const layerStyle = (transform: typeof currentTransform) =>
+    curl ? { transform: "none", willChange } : { transform, willChange };
+
   return (
     <MotionConfig reducedMotion="user">
       {/* position:relative + overflow:hidden clips pages as they slide in/out */}
       <div
         ref={setStageRef}
         onClick={handlePageContentClick}
+        data-page-turn={curl ? "curl" : "slide"}
+        data-paper={paper}
         className="relative h-full w-full overflow-hidden"
-        style={{ touchAction: swipeEnabled ? "pan-y pinch-zoom" : "auto" }}
+        style={
+          {
+            touchAction: swipeEnabled ? "pan-y pinch-zoom" : "auto",
+            ...paperGrainStyle(paper),
+          } as CSSProperties
+        }
       >
         {renderAdjacentSpreads && stageWidth > 0 && previousSpread && (
           <motion.div
+            ref={previousLayerRef}
             data-reader-spread-layer="previous"
             aria-hidden="true"
             inert
             className="pointer-events-none absolute inset-0 z-0 h-full w-full select-none overflow-hidden bg-background"
-            style={{
-              transform: previousTransform,
-              willChange: isInteractionActive ? "transform" : "auto",
-            }}
+            style={layerStyle(previousTransform)}
           >
             <SpreadView spread={previousSpread} {...spreadViewProps} />
           </motion.div>
         )}
 
         <motion.div
+          ref={currentLayerRef}
           data-reader-spread-layer="current"
           className="absolute inset-0 z-[1] h-full w-full"
-          style={{
-            transform: currentTransform,
-            willChange: isInteractionActive ? "transform" : "auto",
-          }}
+          style={layerStyle(currentTransform)}
         >
           <AnimatePresence custom={direction} initial={false} mode="sync">
             {/* Keyed by what the spread shows, so renumbering it as earlier
@@ -203,17 +294,29 @@ export function SpreadStage({
 
         {renderAdjacentSpreads && stageWidth > 0 && nextSpread && (
           <motion.div
+            ref={nextLayerRef}
             data-reader-spread-layer="next"
             aria-hidden="true"
             inert
-            className="pointer-events-none absolute inset-0 z-[2] h-full w-full select-none overflow-hidden bg-background"
-            style={{
-              transform: nextTransform,
-              willChange: isInteractionActive ? "transform" : "auto",
-            }}
+            className={
+              curl
+                ? "pointer-events-none absolute inset-0 z-0 h-full w-full select-none overflow-hidden bg-background"
+                : "pointer-events-none absolute inset-0 z-[2] h-full w-full select-none overflow-hidden bg-background"
+            }
+            style={layerStyle(nextTransform)}
           >
             <SpreadView spread={nextSpread} {...spreadViewProps} />
           </motion.div>
+        )}
+
+        {curl && (
+          <canvas
+            ref={curlCanvasRef}
+            data-reader-page-curl
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-[3] h-full w-full"
+            style={{ visibility: "hidden" }}
+          />
         )}
       </div>
     </MotionConfig>

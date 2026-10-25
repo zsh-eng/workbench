@@ -24,9 +24,15 @@ export const SWIPE_SETTLE_SPRING = {
   duration: 0.4,
   bounce: 0,
 } as const;
+/** A curled page floats a little longer before it lands. */
+export const CURL_SETTLE_SPRING = {
+  type: "spring",
+  duration: 0.52,
+  bounce: 0,
+} as const;
 
 type SwipePhase = "idle" | "dragging" | "settling" | "awaiting-navigation";
-type SwipeDirection = "previous" | "next";
+export type SwipeDirection = "previous" | "next";
 
 interface SwipeGesture {
   pointerId: number;
@@ -34,6 +40,7 @@ interface SwipeGesture {
   startY: number;
   startedAt: number;
   startOffset: number;
+  startDragY: number;
   resumeTargetOffset: number | null;
   width: number;
   axis: "pending" | "horizontal";
@@ -55,13 +62,28 @@ interface UseSpreadSwipeNavigationOptions {
   onPrevious: () => void;
   onNext: () => void;
   onSwipeStart?: () => void;
+  /** A released swipe, with where it will settle (0 returns the page). */
+  onRelease?: (targetOffset: number, velocity: number) => void;
+  /** The page has come to rest after a swipe or a turn. */
+  onSettled?: () => void;
   disableMotion?: boolean;
+  /** The settle spring; the curl gives paper a little longer in the air. */
+  settleSpring?: typeof SWIPE_SETTLE_SPRING | typeof CURL_SETTLE_SPRING;
 }
 
 interface UseSpreadSwipeNavigationResult {
   dragOffset: ReturnType<typeof useMotionValue<number>>;
+  /** The finger's vertical travel; a curl tilts with it. */
+  dragY: ReturnType<typeof useMotionValue<number>>;
+  /** Where the page is held, from the stage top. */
+  grabY: ReturnType<typeof useMotionValue<number>>;
   phase: SwipePhase;
   isInteractionActive: boolean;
+  /**
+   * Turns the page as a swipe would, from rest. Returns false when the
+   * page cannot turn now, so the caller can navigate another way.
+   */
+  turn: (direction: SwipeDirection, holdY?: number) => boolean;
 }
 
 function hasActiveTextSelection(): boolean {
@@ -152,10 +174,19 @@ export function useSpreadSwipeNavigation(
     onPrevious,
     onNext,
     onSwipeStart,
+    onRelease,
+    onSettled,
     disableMotion = false,
+    settleSpring = SWIPE_SETTLE_SPRING,
   } = options;
   const prefersReducedMotion = useReducedMotion();
   const dragOffset = useMotionValue(0);
+  const dragY = useMotionValue(0);
+  const grabY = useMotionValue(0);
+  const verticalAnimationRef = useRef<{ stop: () => void } | null>(null);
+  const turnRef = useRef<
+    (direction: SwipeDirection, holdY?: number) => boolean
+  >(() => false);
   const [phase, setPhaseState] = useState<SwipePhase>("idle");
 
   const phaseRef = useRef<SwipePhase>("idle");
@@ -171,6 +202,10 @@ export function useSpreadSwipeNavigation(
   const lastObservedCurrentSpreadIdRef = useRef(currentSpreadId);
   // Gesture subscriptions read adjacent targets from the latest committed render.
   const notifySwipeStart = useEffectEvent(() => onSwipeStart?.());
+  const notifyRelease = useEffectEvent((target: number, velocity: number) =>
+    onRelease?.(target, velocity),
+  );
+  const notifySettled = useEffectEvent(() => onSettled?.());
   const adjacentSpreads = useEffectEvent(() => ({
     previous: previousSpreadId,
     next: nextSpreadId,
@@ -185,6 +220,8 @@ export function useSpreadSwipeNavigation(
     animationGenerationRef.current += 1;
     animationRef.current?.stop();
     animationRef.current = null;
+    verticalAnimationRef.current?.stop();
+    verticalAnimationRef.current = null;
   }, []);
 
   const resetInteraction = useCallback(() => {
@@ -193,8 +230,9 @@ export function useSpreadSwipeNavigation(
     pendingNavigationRef.current = null;
     settleTargetOffsetRef.current = null;
     dragOffset.set(0);
+    dragY.set(0);
     setPhase("idle");
-  }, [dragOffset, setPhase, stopAnimation]);
+  }, [dragOffset, dragY, setPhase, stopAnimation]);
 
   const dispatchPendingNavigationIfReady = useEffectEvent((offset: number) => {
     const pendingNavigation = pendingNavigationRef.current;
@@ -236,11 +274,13 @@ export function useSpreadSwipeNavigation(
     dragOffset.set(rebasedOffset);
     if (rebasedOffset === 0) {
       settleTargetOffsetRef.current = null;
+      dragY.set(0);
       setPhase("idle");
+      notifySettled();
       return;
     }
     settleRef.current(0, velocity);
-  }, [currentSpreadId, dragOffset, setPhase, stopAnimation]);
+  }, [currentSpreadId, dragOffset, dragY, setPhase, stopAnimation]);
 
   useEffect(() => {
     if (enabled) return;
@@ -272,7 +312,9 @@ export function useSpreadSwipeNavigation(
 
       settleTargetOffsetRef.current = null;
       dragOffset.set(0);
+      dragY.set(0);
       setPhase("idle");
+      notifySettled();
     };
 
     const settle = (targetOffset: number, velocity: number) => {
@@ -301,14 +343,16 @@ export function useSpreadSwipeNavigation(
       setPhase("settling");
       if (disableMotion || prefersReducedMotion) {
         dragOffset.set(targetOffset);
+        dragY.set(0);
         dispatchPendingNavigationIfReady(targetOffset);
         finishSettle(targetOffset);
         return;
       }
 
       const generation = animationGenerationRef.current;
+      verticalAnimationRef.current = animate(dragY, 0, settleSpring);
       const controls = animate(dragOffset, targetOffset, {
-        ...SWIPE_SETTLE_SPRING,
+        ...settleSpring,
         velocity,
       });
       animationRef.current = controls;
@@ -334,18 +378,24 @@ export function useSpreadSwipeNavigation(
       if (isSystemNavigationEdge(event.clientX)) return;
 
       const startOffset = dragOffset.get();
-      const resumeTargetOffset =
-        phaseRef.current === "settling" ? settleTargetOffsetRef.current : null;
+      const resuming = phaseRef.current === "settling";
+      const resumeTargetOffset = resuming
+        ? settleTargetOffsetRef.current
+        : null;
       stopAnimation();
       setPhase("idle");
-      const width = container.getBoundingClientRect().width;
+      const rect = container.getBoundingClientRect();
+      const width = rect.width;
       stageWidthRef.current = width;
+      // A caught page stays held where it was; a fresh one where touched.
+      if (!resuming) grabY.set(event.clientY - rect.top);
       gestureRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         startedAt: Date.now(),
         startOffset,
+        startDragY: resuming ? dragY.get() : 0,
         resumeTargetOffset,
         width,
         axis: "pending",
@@ -407,6 +457,7 @@ export function useSpreadSwipeNavigation(
         );
       }
       dragOffset.set(nextOffset);
+      dragY.set(gesture.startDragY + deltaY);
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -438,7 +489,26 @@ export function useSpreadSwipeNavigation(
         canGoPrevious: adjacentSpreads().previous !== null,
         canGoNext: adjacentSpreads().next !== null,
       });
+      notifyRelease(targetOffset, dragOffset.getVelocity());
       settle(targetOffset, dragOffset.getVelocity());
+    };
+
+    turnRef.current = (direction, holdY) => {
+      if (phaseRef.current !== "idle" || gestureRef.current) return false;
+      const target =
+        direction === "next"
+          ? adjacentSpreads().next
+          : adjacentSpreads().previous;
+      if (target === null) return false;
+      const rect = container.getBoundingClientRect();
+      stageWidthRef.current = rect.width;
+      grabY.set(holdY ?? rect.height * 0.72);
+      dragY.set(0);
+      notifySwipeStart();
+      const targetOffset = direction === "next" ? -rect.width : rect.width;
+      notifyRelease(targetOffset, 0);
+      settle(targetOffset, 0);
+      return true;
     };
 
     const handlePointerCancel = (event: PointerEvent) => {
@@ -464,20 +534,33 @@ export function useSpreadSwipeNavigation(
       container.removeEventListener("pointercancel", handlePointerCancel);
       stopAnimation();
       gestureRef.current = null;
+      turnRef.current = () => false;
     };
   }, [
     containerRef,
     disableMotion,
     dragOffset,
+    dragY,
     enabled,
+    grabY,
     prefersReducedMotion,
     setPhase,
+    settleSpring,
     stopAnimation,
   ]);
 
+  const turn = useCallback(
+    (direction: SwipeDirection, holdY?: number) =>
+      turnRef.current(direction, holdY),
+    [],
+  );
+
   return {
     dragOffset,
+    dragY,
+    grabY,
     phase,
     isInteractionActive: phase !== "idle",
+    turn,
   };
 }
