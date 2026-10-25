@@ -2,7 +2,12 @@ import { getRuntimeStorage } from "@/features/sync-lab/runtime";
 import { useSyncExternalStore } from "react";
 import { isPaperGrain, type PaperGrain } from "./paper-grain";
 
-export type PageTurnStyle = "slide" | "curl";
+/** `curl` is the leaf you can hold; `curl-v1` the first curl, kept to compare. */
+export type PageTurnStyle = "slide" | "curl" | "curl-v1";
+
+export function isPageTurnStyle(value: unknown): value is PageTurnStyle {
+  return value === "slide" || value === "curl" || value === "curl-v1";
+}
 
 /**
  * Paper in the Reader, a prototype: how a swipe turns the page, the grain
@@ -33,7 +38,7 @@ function readPaperPreference(): PaperPreference {
     const raw = getRuntimeStorage().getItem(PAPER_STORAGE_KEY);
     const saved: Partial<PaperPreference> = raw ? JSON.parse(raw) : {};
     return {
-      pageTurn: saved.pageTurn === "curl" ? "curl" : "slide",
+      pageTurn: isPageTurnStyle(saved.pageTurn) ? saved.pageTurn : "slide",
       grain: isPaperGrain(saved.grain) ? saved.grain : PLAIN_PAPER.grain,
       showThrough: saved.showThrough !== false,
       haptics: saved.haptics !== false,
@@ -98,7 +103,7 @@ export function resolvePaper(
   const showThrough = params.get("showThrough");
   return {
     ...saved,
-    pageTurn: turn === "curl" || turn === "slide" ? turn : saved.pageTurn,
+    pageTurn: isPageTurnStyle(turn) ? turn : saved.pageTurn,
     grain: isPaperGrain(grain) ? grain : saved.grain,
     showThrough:
       showThrough === "off"

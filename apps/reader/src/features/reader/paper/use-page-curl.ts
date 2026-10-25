@@ -50,7 +50,7 @@ interface UsePageCurlOptions {
   showThrough: boolean;
 }
 
-const DARK_THEMES = ["dark", "night", "flexoki-dark"];
+export const DARK_THEMES = ["dark", "night", "flexoki-dark"];
 const SHOW_THROUGH = { light: 0.12, dark: 0.15 };
 
 let support: boolean | null = null;
@@ -69,11 +69,11 @@ export function isPageCurlSupported(): boolean {
   return support;
 }
 
-function pixelRatio(): number {
+export function pixelRatio(): number {
   return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
 }
 
-function themeName(): string {
+export function themeName(): string {
   const root = document.documentElement;
   for (const name of root.classList) {
     if (
@@ -98,7 +98,7 @@ function hash(text: string): string {
  * Identifies one raster: the page, plus what changes its pixels without
  * changing its text (theme, size, type, highlights, paper).
  */
-function rasterKey(
+export function rasterKey(
   layer: HTMLElement,
   contentKey: string,
   grain: PaperGrain,
