@@ -9,7 +9,6 @@ export const READING_MODE_STORAGE_KEY = "reader-reading-mode-v1";
 /**
  * The reading layout, like Apple Books' Scrolling View: one choice for every
  * book on this device. A book read in scroll mode reopens in scroll mode.
- * It applies only while Debug mode is on.
  */
 function readReadingMode(): ReadingMode {
   try {

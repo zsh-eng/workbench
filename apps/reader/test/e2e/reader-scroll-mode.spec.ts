@@ -56,7 +56,7 @@ async function openTool(page: Page, button: string | RegExp, sheet: string) {
 const openReadingSettings = (page: Page) =>
   openTool(page, "Appearance", "Appearance");
 
-/** Debug mode's Pages or Scroll row leads Appearance's Layout tab. */
+/** The Reading view row, Pages or Scroll, leads Appearance's Layout tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
   const settings = await openReadingSettings(page);
   await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
@@ -456,7 +456,7 @@ async function clearSelection(page: Page) {
 
 const SPILL_TAB = "[data-reader-spill-tab]";
 
-/** A reader without Debug mode, where Scroll is not a reading layout. */
+/** A reader without Debug mode: Scroll is offered; the pull is not. */
 const withoutDebugMode = (page: Page) =>
   page.addInitScript(() =>
     localStorage.setItem("reader-debug-enabled-v1", "false"),
@@ -578,7 +578,7 @@ test("The spill tab finishes the sentence on the next page, and the highlight re
   ).not.toBe("scroll");
 });
 
-test("Without Debug mode, a visit to the column leaves no Scroll layout behind, and Scroll is not offered", async ({
+test("Without Debug mode, a visit to the column leaves no Scroll layout behind, a pull stays on the page, and Appearance offers Scroll", async ({
   page,
   localBook,
 }) => {
@@ -610,11 +610,25 @@ test("Without Debug mode, a visit to the column leaves no Scroll layout behind, 
   });
   await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
 
-  // Appearance's Layout has no Pages or Scroll row.
-  const settings = await openReadingSettings(page);
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
-  await expect(settings.getByRole("tabpanel")).toBeVisible();
-  await expect(settings.locator("[data-reading-layout-row]")).toHaveCount(0);
+  // Appearance's Layout offers Pages or Scroll, and Scroll reads the
+  // chapter as one column.
+  await enterScroll(page);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).toBe("scroll");
+});
+
+test("Scroll and back to Pages keeps the page", async ({ page, localBook }) => {
+  await openLocalBook(page, localBook.id);
+  for (let index = 0; index < 5; index++) await nextSpread(page);
+  const before = await currentPages(page);
+  await enterScroll(page);
+  await chooseLayout(page, "Pages");
+  await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
+  await expect.poll(() => currentPages(page)).toEqual(before);
+  expect(
+    await page.evaluate(() => localStorage.getItem("reader-reading-mode-v1")),
+  ).toBe("pages");
 });
 
 test.describe("on a desktop", () => {

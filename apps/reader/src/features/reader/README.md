@@ -52,9 +52,9 @@ With Debug mode on, Appearance → Layout → Page turn chooses Slide or Curl, a
 - `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css.
 - `use-page-feel.ts` adds a haptic tick when a turned page lets go (Android's vibration, or iOS 18's native switch) and an optional rustle from shaped noise in Web Audio.
 
-## Scroll mode prototype (Debug)
+## Scroll mode
 
-With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).
+Appearance → Layout → Reading view chooses Pages or Scroll, for every book on the device; a book read in scroll mode reopens there, at the same line. Scroll mode shows one chapter as a vertical column (`scroll/`). The pull from pages into scroll mode is still Debug mode only.
 
 - The engine builds the column from the chapter's paged layout (`shared/layout-column.ts`), so lines break exactly as on the pages. Each page's start is a column offset, and its anchor comes from `pickAnchorForPage`.
 - `ScrollStage` positions rows at exact offsets and mounts only the rows near the view. Long blocks split into chunks of 8 lines. The rows of a text selection stay mounted.

@@ -221,7 +221,8 @@ export function Reader() {
   const selectionHandedOver = useRef<() => void>(() => {});
   const scrollMode = useReaderScrollMode({
     bookId,
-    layoutEnabled: debugEnabled,
+    layoutEnabled: true,
+    pullEnabled: debugEnabled,
     touch: chromeInteractionMode === "touch",
     ready: displayReady,
     spread: sessionState.pagination.spread,
@@ -1151,21 +1152,19 @@ export function Reader() {
                             : undefined
                         }
                         layoutControl={
-                          debugEnabled ? (
-                            <>
-                              <ReadingLayoutRow
-                                value={scrollMode.preferredMode}
-                                disabled={scrollMode.switchDisabled}
-                                onChange={(next) => {
-                                  // The sheet closes while the layout changes
-                                  // behind it.
-                                  chromeActions.closeReaderSheet();
-                                  scrollMode.setMode(next);
-                                }}
-                              />
-                              <PaperRow />
-                            </>
-                          ) : undefined
+                          <>
+                            <ReadingLayoutRow
+                              value={scrollMode.preferredMode}
+                              disabled={scrollMode.switchDisabled}
+                              onChange={(next) => {
+                                // The sheet closes while the layout changes
+                                // behind it.
+                                chromeActions.closeReaderSheet();
+                                scrollMode.setMode(next);
+                              }}
+                            />
+                            {debugEnabled && <PaperRow />}
+                          </>
                         }
                       />
                     )}

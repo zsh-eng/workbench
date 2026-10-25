@@ -370,7 +370,7 @@ function ProgressiveEdgeBlur({
 }
 
 /**
- * Prototype scroll mode for one chapter (Debug mode).
+ * Scroll mode for one chapter.
  *
  * The chapter column comes from the pagination worker with exact offsets, so
  * this stage virtualizes without estimates: rows are absolutely positioned at

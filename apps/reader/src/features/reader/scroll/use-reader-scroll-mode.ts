@@ -115,11 +115,12 @@ type ScrollPhase =
 interface UseReaderScrollModeOptions {
   bookId: string | undefined;
   /**
-   * Scroll as a reading layout: the settings switch, the pull from pages,
-   * the saved choice and reopening in it. Debug mode only. A selection's
-   * visit to the column works without it.
+   * Scroll as a reading layout: the settings switch, the saved choice and
+   * reopening in it. A selection's visit to the column works without it.
    */
   layoutEnabled: boolean;
+  /** The pull from pages into scroll mode. Debug mode only for now. */
+  pullEnabled: boolean;
   /** Pull-to-scroll needs touch; the switch works everywhere. */
   touch: boolean;
   /** The reader has painted its first spread. */
@@ -186,8 +187,8 @@ function targetPage(
 
 /**
  * Owns one Reader's chapter column: Scroll as a reading layout beside
- * Pages (a Debug-mode choice), and the visits to the column that a
- * selection cut by a page break makes from pages, which every reader has.
+ * Pages (Appearance → Layout), and the visits to the column that a
+ * selection cut by a page break makes from pages.
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
  * page that holds the reading line into place; Pages → Scroll opens at that
@@ -203,6 +204,7 @@ function targetPage(
 export function useReaderScrollMode({
   bookId,
   layoutEnabled,
+  pullEnabled,
   touch,
   ready,
   spread,
@@ -357,7 +359,7 @@ export function useReaderScrollMode({
     [close, layoutEnabled, open, phase],
   );
 
-  // Scroll as a layout turned off (Debug mode off), or a visit's column
+  // Scroll as a layout turned off, or a visit's column
   // that became one: return to pages without animation. A visit stays.
   const layoutColumn =
     phase.kind === "pulling" ||
@@ -684,6 +686,7 @@ export function useReaderScrollMode({
     () => ({
       canStart: () =>
         layoutEnabled &&
+        pullEnabled &&
         touch &&
         phase.kind === "off" &&
         leadingChapter !== null &&
@@ -743,7 +746,15 @@ export function useReaderScrollMode({
         });
       },
     }),
-    [column, layoutEnabled, leadingChapter, phase.kind, spread, touch],
+    [
+      column,
+      layoutEnabled,
+      leadingChapter,
+      phase.kind,
+      pullEnabled,
+      spread,
+      touch,
+    ],
   );
 
   const chapterWords = useMemo(() => {
