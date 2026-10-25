@@ -7,6 +7,7 @@ import {
   showNotesCapsule,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 test.use({
@@ -113,8 +114,10 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   await settings.getByRole("tab", { name: "Theme" }).click();
   await expect.poll(top).toBeLessThan(typeTop - 40);
   await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
+  await waitForSheetToRest(settings);
   await settings.getByRole("tab", { name: "Type" }).click();
   await expect.poll(top).toBeCloseTo(typeTop, 0);
+  await waitForSheetToRest(settings);
 
   // Changes apply to the page behind the sheet.
   const page17 = page.getByText("Curiouser and curiouser!", { exact: false });
@@ -159,6 +162,8 @@ test("A menu and a toast opened from a sheet take taps", async ({
   const input = notebook.getByRole("textbox", { name: "Write a note" });
   await input.fill("A note to delete");
   await input.press("Control+Enter");
+  // The field keeps the words, read-only, until the note is saved.
+  await expect(input).toHaveValue("");
   const note = notebook.getByText("A note to delete", { exact: true });
   await expect(note).toBeVisible();
 
@@ -224,6 +229,8 @@ test("Search rests at the medium detent and full height", async ({
   const field = sheet.getByRole("searchbox");
   await expect(field).toBeFocused();
   await expect.poll(() => visibleShare(sheet)).toBeGreaterThan(0.98);
+  // A drag puts the keyboard away once the sheet has reached full height.
+  await waitForSheetToRest(sheet);
   await field.fill("Dinah");
   await expect(sheet.locator("[data-search-status]")).toHaveAttribute(
     "data-search-status",
@@ -235,6 +242,7 @@ test("Search rests at the medium detent and full height", async ({
   await swipe(page, 60, 420);
   await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
   await expect(field).not.toBeFocused();
+  await waitForSheetToRest(sheet);
 
   // A result opens its page, and the sheet closes over it.
   const results = sheet.locator("[data-search-result]");

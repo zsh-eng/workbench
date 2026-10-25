@@ -290,7 +290,8 @@ function SheetBody({
 /**
  * Moves a sheet that fits its content to the content's new height on the
  * sheet's spring, so the top edge glides instead of jumping. The content keeps its own height; a
- * sheet taller than the screen scrolls its body.
+ * sheet taller than the screen scrolls its body. `[data-sheet-fit]` is at
+ * rest when its height matches its content's.
  */
 function FitHeight({ children }: { children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null);
@@ -306,6 +307,7 @@ function FitHeight({ children }: { children: ReactNode }) {
   }, []);
   return (
     <motion.div
+      data-sheet-fit=""
       className="shrink-0 overflow-hidden"
       initial={false}
       animate={{ height }}

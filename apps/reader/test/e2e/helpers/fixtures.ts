@@ -323,6 +323,45 @@ export async function waitForSheet(page: Page, name: string): Promise<Locator> {
   return dialog;
 }
 
+/**
+ * Waits until a sheet holds still: it has taken its content's new height
+ * (after a tab of another height) and its top edge has stopped (after a drag
+ * or a detent change). A tap on a control that is still moving can miss, and
+ * Playwright's retries then scroll React Aria's sheet scroller, which closes
+ * the sheet.
+ */
+export async function waitForSheetToRest(sheet: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      sheet.evaluate(
+        (element) =>
+          new Promise<boolean>((resolve) => {
+            const surface = element.closest(".reader-sheet") ?? element;
+            const fit = surface.querySelector<HTMLElement>("[data-sheet-fit]");
+            const content = fit?.firstElementChild as HTMLElement | null;
+            if (
+              fit &&
+              content &&
+              Math.abs(
+                fit.getBoundingClientRect().height - content.offsetHeight,
+              ) >= 0.5
+            )
+              return resolve(false);
+            const top = surface.getBoundingClientRect().top;
+            let frames = 0;
+            const check = () => {
+              if (surface.getBoundingClientRect().top !== top)
+                return resolve(false);
+              if (++frames === 3) return resolve(true);
+              requestAnimationFrame(check);
+            };
+            requestAnimationFrame(check);
+          }),
+      ),
+    )
+    .toBe(true);
+}
+
 /** Opens Reader tools from the phone header once it shows, and waits for them. */
 export async function openReaderTools(page: Page): Promise<Locator> {
   await page
