@@ -8,10 +8,11 @@
  * half way round the cylinder and then lie flipped over, face down, on top.
  *
  * The fold is solved from where the page is held: a grab point on the free
- * edge travels with a virtual finger that moves twice as fast as the real
- * one, so the crease itself keeps pace with the finger. Paper is
- * inextensible, so the grab point lands exactly under the virtual finger
- * once it has gone round the curl.
+ * edge. Paper is inextensible, so once the grab point has gone round the
+ * curl it lies exactly where it was carried to. Early in a turn it is
+ * carried by the finger, so the lifted edge stays under it; from there the
+ * page takes over and gathers speed, as a sheet does once it is past
+ * upright, until it has travelled the two widths that lay it over the spine.
  */
 
 export interface CurlShape {
@@ -118,7 +119,8 @@ export function computeCurlFold(options: {
     width *
     Math.sin(Math.PI * progress);
 
-  const towardGrabX = 2 * progress * width;
+  // Under the finger at first (slope 1), two widths at the end.
+  const towardGrabX = progress * (1 + progress) * width;
   const towardGrabY = -(dragY + lead);
   const travel = Math.hypot(towardGrabX, towardGrabY);
   if (travel < 1e-6) {
