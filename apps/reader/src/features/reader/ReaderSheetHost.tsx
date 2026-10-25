@@ -8,9 +8,7 @@ import {
   type ReaderSettingsPanelTab,
 } from "./ReaderSettingsPanel";
 import { ReaderDetentSheets } from "./ReaderDetentSheets";
-import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { ReaderControlMenu } from "./ReaderControlMenu";
-import { SlidingSheet } from "@/components/SlidingSheet";
 import { ReaderToolsSidebar } from "./ReaderToolsSidebar";
 import type { ChapterEntry, ReaderSheetId } from "./types";
 
@@ -40,9 +38,9 @@ interface ReaderSheetHostProps {
 /**
  * Coordinates the reader's peer-level overlays.
  *
- * Mobile pages share one fixed-height sheet, or detent sheets when that
- * trial is on in Settings. Desktop tools share one right-side workspace so
- * contents and appearance stay beside the book.
+ * Mobile pages open as detent sheets that stack over Reader tools. Desktop
+ * tools share one right-side workspace so contents and appearance stay
+ * beside the book.
  */
 export function ReaderSheetHost({
   isMobile,
@@ -65,7 +63,6 @@ export function ReaderSheetHost({
 }: ReaderSheetHostProps) {
   const [settingsTab, setSettingsTab] =
     useState<ReaderSettingsPanelTab>("type");
-  const detentSheets = useDetentSheetsEnabled();
   if (!isMobile) {
     return (
       <ReaderToolsSidebar
@@ -88,7 +85,7 @@ export function ReaderSheetHost({
     );
   }
 
-  const renderPage = (page: ReaderSheetId, detents: boolean) => (
+  const renderPage = (page: ReaderSheetId) => (
     <>
       {page === "tools" && (
         <ReaderControlMenu
@@ -117,7 +114,7 @@ export function ReaderSheetHost({
           chapterStartPages={chapterStartPages}
           currentChapterHref={currentChapterHref}
           onNavigateToHref={onNavigateToHref}
-          className={detents ? "min-h-0 flex-1" : "h-full"}
+          className="min-h-0 flex-1"
         />
       )}
       {page === "settings" && (
@@ -127,8 +124,8 @@ export function ReaderSheetHost({
           activeTab={settingsTab}
           onActiveTabChange={setSettingsTab}
           layoutControl={layoutControl}
-          // A detent sheet fits the tab; the shared sheet has a fixed height.
-          className={detents ? "mt-0 h-auto" : "mt-0 h-full"}
+          // A detent sheet fits the tab.
+          className="mt-0 h-auto"
         />
       )}
       {page === "notes" && notesPanel}
@@ -136,37 +133,12 @@ export function ReaderSheetHost({
     </>
   );
 
-  if (detentSheets) {
-    return (
-      <ReaderDetentSheets
-        activeSheet={activeSheet}
-        onOpenSheet={onOpenSheet}
-        onCloseSheet={onCloseSheet}
-        renderPage={(page) => renderPage(page, true)}
-      />
-    );
-  }
-
-  const page = activeSheet ?? "tools";
-  const titles: Record<string, string> = {
-    tools: "Reader tools",
-    contents: "Contents",
-    settings: "Appearance",
-    "book-actions": "Reading status",
-    notes: "Notebook",
-    search: "Search book",
-  };
   return (
-    <SlidingSheet
-      open={activeSheet !== null}
-      onClose={onCloseSheet}
-      page={page}
-      rootPage="tools"
-      title={titles[page] ?? "Reader tools"}
-      onBack={() => onOpenSheet("tools")}
-      safeAreaBottom={page !== "settings"}
-    >
-      {renderPage(page, false)}
-    </SlidingSheet>
+    <ReaderDetentSheets
+      activeSheet={activeSheet}
+      onOpenSheet={onOpenSheet}
+      onCloseSheet={onCloseSheet}
+      renderPage={renderPage}
+    />
   );
 }

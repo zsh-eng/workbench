@@ -2,7 +2,6 @@ import { flushSync } from "react-dom";
 import { cn } from "@/lib/utils";
 import { NotebookNote } from "./NotebookNote";
 import { DesktopNotebookNote, NotebookNoteBody } from "./DesktopNotebookNote";
-import { ReaderSheet } from "./shared/ReaderSheet";
 import { NotebookCountIcon } from "./shared/NotebookCountIcon";
 import type { Note, NoteTarget } from "@/types/note";
 import type { Highlight } from "@/types/highlight";
@@ -1017,28 +1016,7 @@ export function ReaderNotes({
   const NotebookCard = desktop ? DesktopNotebookNote : NotebookNote;
   const notebookPanel = useMemo(
     () => (
-      <motion.section
-        key="notebook"
-        initial={
-          desktop || embeddedNotebook
-            ? false
-            : {
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(12px)",
-              }
-        }
-        animate={{ opacity: 1, transform: "none" }}
-        exit={
-          desktop || embeddedNotebook
-            ? undefined
-            : {
-                opacity: 0,
-                transform: reduceMotion ? "none" : "translateY(12px)",
-              }
-        }
-        transition={
-          desktop || embeddedNotebook ? { duration: 0 } : MOTION.enter
-        }
+      <section
         aria-label="Book notebook"
         // In a detent sheet the list keeps its own height; space that
         // removed entries free shows below it, above the field.
@@ -1071,15 +1049,6 @@ export function ReaderNotes({
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {!desktop && !embeddedNotebook && (
-            <button
-              aria-label="Close notebook"
-              onClick={close}
-              className="relative flex size-8 items-center justify-center rounded-full before:absolute before:content-[''] before:-inset-1.5 text-muted-foreground hover:bg-muted"
-            >
-              <X size={15} />
-            </button>
-          )}
         </header>
         {notebookEntries.length > 0 && (
           <NotebookFilters
@@ -1300,7 +1269,7 @@ export function ReaderNotes({
             ])}
           </AnimatePresence>
         </div>
-      </motion.section>
+      </section>
     ),
     [
       notebookEntries,
@@ -1332,24 +1301,6 @@ export function ReaderNotes({
   );
   return (
     <>
-      {!desktop && !embeddedNotebook && (
-        <ReaderSheet
-          open={notebook && open}
-          onOpenChange={(next) => {
-            // Closing the notebook returns to reading, not to a composer.
-            if (next) setNotebook(true);
-            else close();
-          }}
-          title="Notebook"
-          showHeader={false}
-          bodyClassName="flex min-h-0 flex-col"
-        >
-          {notebookPanel}
-          <div className="shrink-0 px-4 pt-1 pb-[max(8px,env(safe-area-inset-bottom))]">
-            {renderNoteInput("notebook")}
-          </div>
-        </ReaderSheet>
-      )}
       {children(
         <div className="flex h-full min-h-0 flex-col">
           {(desktop || embeddedNotebook) && notebookPanel}

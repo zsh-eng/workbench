@@ -157,8 +157,7 @@ export async function openLocalBook(page: Page, bookId: string): Promise<void> {
 /**
  * Waits for a phone Reader sheet to rest and returns it. A detent sheet
  * slides in on the browser's own scrolling and takes focus once it rests;
- * until then a tap meets a moving target and keys still go to the page. The
- * fixed-height sheet needs no wait.
+ * until then a tap meets a moving target and keys still go to the page.
  */
 export async function waitForSheet(
   page: Page,
