@@ -388,6 +388,12 @@
         "hono": "^4.12.15",
       },
     },
+    "packages/background-activity": {
+      "name": "@workbench/background-activity",
+      "peerDependencies": {
+        "react": ">=18",
+      },
+    },
     "packages/elements": {
       "name": "@workbench/elements",
       "peerDependencies": {
@@ -1571,6 +1577,8 @@
     "@workbench/arctic-sync-server": ["@workbench/arctic-sync-server@workspace:packages/arctic-sync-server"],
 
     "@workbench/arctic-web": ["@workbench/arctic-web@workspace:apps/arctic/Web"],
+
+    "@workbench/background-activity": ["@workbench/background-activity@workspace:packages/background-activity"],
 
     "@workbench/elements": ["@workbench/elements@workspace:packages/elements"],
 

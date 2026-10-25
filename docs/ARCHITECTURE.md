@@ -39,6 +39,11 @@ and local development files. Shared packages must not import app code.
   signals, session saves, and one session shape for Reader, Arctic and Spaced,
   with codecs for each app's stored records. Its
   [README](../packages/activity-time/README.md) is the format's contract.
+- **background-activity** owns background jobs that apps show: a queue
+  with lanes, progress, cancel, retry and offline waits, persistence across
+  reloads, sync as a tracked job, and service-worker updates that wait for a
+  safe moment. Its [model](../packages/background-activity/docs/MODEL.md)
+  says what shows and when. It sits beside local-sync and does not import it.
 - **arctic-sync-server** exposes private auth and sync route factories. The
   Reader Worker supplies authentication and database/object-storage bindings.
   It is a package, not a separate deployed service.
