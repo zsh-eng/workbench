@@ -430,7 +430,8 @@ its own; **Whole range** goes back. The rail shows by itself when the review
 pane has room; the toolbar's first button, or **Show files and commits** in
 `⌘K`, shows or hides it in any width, and Med keeps that choice. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
-and the commits instead.
+and the commits instead. Med reads the commits ahead while the review is idle,
+so each one shows at once.
 
 Drag the right edge of the rail, the Guide's list, or the Commit tab's list to
 make it wider, or focus the edge and press `←` or `→`. Double-click the edge

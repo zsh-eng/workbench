@@ -2818,9 +2818,9 @@ describe("review brief", () => {
     await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
   });
 
-  test("a pull request's Changed files pane lists its commits beside its files", async () => {
+  test("a pull request's Changed files pane lists its commits, read ahead so each shows at once", async () => {
     await page.viewport(1400, 900);
-    const { controller } = await mountApp({
+    const { controller, requests } = await mountApp({
       savedReview: true,
       rangeCommits: true,
     });
@@ -2840,7 +2840,13 @@ describe("review brief", () => {
     await expect
       .element(list.getByRole("button", { name: "Whole range" }))
       .toHaveAttribute("aria-current", "page");
-    // A commit picked in the pane narrows the Review's diff to it.
+    // While the review is idle, the commits load ahead.
+    const commitReads = () =>
+      requests
+        .filter((comparison) => comparison.kind === "commit")
+        .map((c) => "commit" in c && c.commit);
+    await expect.poll(commitReads).toEqual([firstCommit, secondCommit]);
+    // A commit picked in the pane narrows the Review's diff to it, with no request.
     await list.getByRole("button", { name: /Add the initial renderer/ }).click();
     await expect
       .poll(() => controller.getSnapshot().comparison)
@@ -2853,6 +2859,7 @@ describe("review brief", () => {
     await expect
       .poll(() => controller.getSnapshot().comparison)
       .toEqual({ kind: "commit", commit: firstCommit });
+    expect(commitReads()).toEqual([firstCommit, secondCommit]);
     await list.getByRole("button", { name: "Whole range" }).click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     // Changes are live and list files only.
