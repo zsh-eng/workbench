@@ -251,6 +251,17 @@ function segmentsSpellText(item: PreparedInlineItem): boolean {
   return spells;
 }
 
+/**
+ * A group is prepared again as normal text, so items with preserved spaces,
+ * tabs or line breaks stay on their own.
+ */
+function isPreparedAsNormalText(item: PreparedInlineItem): boolean {
+  return !item.prepared.kinds.some(
+    (kind) =>
+      kind === "preserved-space" || kind === "tab" || kind === "hard-break",
+  );
+}
+
 function canJoinWord(
   previous: PreparedInlineItem,
   next: PreparedInlineItem,
@@ -260,8 +271,8 @@ function canJoinWord(
     next.font === previous.font &&
     previous.chromeWidth === 0 &&
     next.chromeWidth === 0 &&
-    !itemHasForcedBreak(previous) &&
-    !itemHasForcedBreak(next) &&
+    isPreparedAsNormalText(previous) &&
+    isPreparedAsNormalText(next) &&
     segmentsSpellText(previous) &&
     segmentsSpellText(next)
   );
@@ -500,22 +511,24 @@ function layoutTextLinesPreWrap(
   items: PreparedInlineItem[],
   safeWidth: number,
 ): PageLine[] {
+  const words = groupItemsIntoWords(items);
   const lines: PageLine[] = [];
 
-  let itemIndex = 0;
+  let groupIndex = 0;
   let textCursor: LayoutCursor | null = null;
 
-  while (itemIndex < items.length) {
+  while (groupIndex < words.length) {
     const fragments: PageLine["fragments"] = [];
     let remainingWidth = safeWidth;
     let lineStartOffset: TextCursorOffset | null = null;
     let lineEndOffset: TextCursorOffset | null = null;
 
-    lineLoop: while (itemIndex < items.length) {
-      const item = items[itemIndex];
-      if (!item) break;
+    lineLoop: while (groupIndex < words.length) {
+      const group = words[groupIndex];
+      if (!group) break;
+      const { item } = group;
       if (textCursor && cursorsMatch(textCursor, item.endCursor)) {
-        itemIndex++;
+        groupIndex++;
         textCursor = null;
         continue;
       }
@@ -531,28 +544,28 @@ function layoutTextLinesPreWrap(
       if (!textCursor && !itemHasForcedBreak(item)) {
         const fullWidth = leadingGap + item.fullWidth + item.chromeWidth;
         if (fullWidth <= remainingWidth) {
-          if (!lineStartOffset) {
-            lineStartOffset = createOffset(itemIndex, LINE_START_CURSOR);
-          }
-          lineEndOffset = createOffset(itemIndex, item.endCursor);
-
-          fragments.push({
-            kind: "text",
-            text: item.fullText,
-            font: item.font,
-            leadingGap,
-            inlineRole: item.inlineRole,
-            link: item.link,
-            isCode: item.isCode,
-            highlightMarks: projectHighlightMarks(item.highlightMarks, {
-              preserveStart: true,
-              preserveEnd: true,
+          lineStartOffset ??= groupCursorToItemOffset(
+            items,
+            group,
+            LINE_START_CURSOR,
+            "start",
+          );
+          lineEndOffset = groupCursorToItemOffset(
+            items,
+            group,
+            item.endCursor,
+            "end",
+          );
+          fragments.push(
+            ...splitGroupFragment(items, group, {
+              text: item.fullText,
+              gapBefore: leadingGap,
+              start: LINE_START_CURSOR,
+              end: item.endCursor,
             }),
-            anchorStart: createOffset(itemIndex, LINE_START_CURSOR),
-            anchorEnd: createOffset(itemIndex, item.endCursor),
-          });
+          );
           remainingWidth -= fullWidth;
-          itemIndex++;
+          groupIndex++;
           continue;
         }
       }
@@ -566,35 +579,40 @@ function layoutTextLinesPreWrap(
       );
 
       if (!line || cursorsMatch(start, line.end)) {
-        itemIndex++;
+        groupIndex++;
         textCursor = null;
         continue;
       }
 
-      if (!lineStartOffset) {
-        lineStartOffset = createOffset(itemIndex, start);
+      // layoutNextLine always places something, so a run that starts after
+      // other text could leave the first letters of its first word behind.
+      // Wrap before the run when that does not fit, or when a space before it
+      // gives a break, as rich-inline does for the greedy path.
+      if (
+        fragments.length > 0 &&
+        !textCursor &&
+        (reservedWidth + line.width > remainingWidth ||
+          (item.leadingGap > 0 &&
+            line.end.segmentIndex === 0 &&
+            line.end.graphemeIndex > 0))
+      ) {
+        break lineLoop;
       }
-      lineEndOffset = createOffset(itemIndex, line.end);
 
-      fragments.push({
-        kind: "text",
-        text: line.text,
-        font: item.font,
-        leadingGap,
-        inlineRole: item.inlineRole,
-        link: item.link,
-        isCode: item.isCode,
-        highlightMarks: projectHighlightMarks(item.highlightMarks, {
-          preserveStart: cursorsMatch(start, LINE_START_CURSOR),
-          preserveEnd: cursorsMatch(line.end, item.endCursor),
+      lineStartOffset ??= groupCursorToItemOffset(items, group, start, "start");
+      lineEndOffset = groupCursorToItemOffset(items, group, line.end, "end");
+      fragments.push(
+        ...splitGroupFragment(items, group, {
+          text: line.text,
+          gapBefore: leadingGap,
+          start,
+          end: line.end,
         }),
-        anchorStart: createOffset(itemIndex, start),
-        anchorEnd: createOffset(itemIndex, line.end),
-      });
+      );
       remainingWidth -= leadingGap + line.width + item.chromeWidth;
 
       if (cursorsMatch(line.end, item.endCursor)) {
-        itemIndex++;
+        groupIndex++;
         textCursor = null;
         continue;
       }

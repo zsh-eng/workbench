@@ -150,3 +150,26 @@ describe("a highlight that starts or ends inside a word", () => {
     ]);
   });
 });
+
+// Blocks with <br> are laid out run by run, so a highlighted word is its own
+// run there even when spaces surround it.
+describe("a highlight in a block with line breaks", () => {
+  const html =
+    "<p>The lamp was low and the hall was quiet when the two of them came in from the rain. “Nothing moves here,” she said, and the door closed behind them both.<br/>Then the lamp went out.</p>";
+
+  it.each([
+    ["here", 172],
+    ["Nothing", 144],
+    ["said", 232],
+  ])("keeps %s whole and on the line where it was", (word, width) => {
+    const plain = pageLines(html, null, width, 1000);
+    const highlighted = pageLines(html, word, width, 1000);
+
+    expect(highlighted.flat()).toContainEqual(
+      expect.stringContaining(`[${word}]`),
+    );
+    expect(
+      highlighted.map((page) => page.map((line) => line.replace(/[[\]]/g, ""))),
+    ).toEqual(plain);
+  });
+});
