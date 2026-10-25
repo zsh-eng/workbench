@@ -1038,7 +1038,9 @@ export function ReaderNotesPrototype({
           desktop || embeddedNotebook ? { duration: 0 } : MOTION.enter
         }
         aria-label="Book notebook"
-        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        // In a detent sheet the list keeps its own height; space that
+        // removed entries free shows below it, above the field.
+        className={`flex min-h-0 flex-col overflow-hidden ${embeddedNotebook ? "flex-initial" : "flex-1"}`}
       >
         <header className="flex items-center gap-3 px-4 py-2">
           <h2 className="flex flex-1 items-center gap-2 text-sm font-medium">
@@ -1349,8 +1351,10 @@ export function ReaderNotesPrototype({
       {children(
         <div className="flex h-full min-h-0 flex-col">
           {(desktop || embeddedNotebook) && notebookPanel}
+          {embeddedNotebook && <div data-sheet-slack="" aria-hidden="true" />}
           {(desktop || embeddedNotebook) && (
             <div
+              data-sheet-footer={embeddedNotebook ? "" : undefined}
               className={
                 desktop
                   ? "shrink-0 p-(--sidebar-panel-content-inset)"
