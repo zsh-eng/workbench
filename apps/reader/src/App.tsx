@@ -9,7 +9,7 @@ import { Highlights } from "@/features/highlights/Highlights";
 import { Library } from "@/features/library/Library";
 import { Reader } from "@/features/reader";
 import { ReadingSessions } from "@/features/reading-sessions/ReadingSessions";
-import { ReloadPrompt } from "@/components/ReloadPrompt";
+import { BackgroundActivityHost } from "@/features/background-activity/BackgroundActivityHost";
 import { Devices } from "@/features/devices/Devices";
 import { Toaster } from "@/components/ui/sonner";
 import { EpubImportProvider } from "@/features/library/use-epub-import";
@@ -69,6 +69,10 @@ const Experiments = lazyPage(
 const SystemPage = lazyPage(
   () => import("@/features/experiments/system/SystemPage"),
   "SystemPage",
+);
+const BackgroundActivityIdea = lazyPage(
+  () => import("@/features/background-activity/ideas/BackgroundActivityIdea"),
+  "BackgroundActivityIdea",
 );
 const ElementsPage = lazyPage(
   () => import("@/features/elements/ElementsPage"),
@@ -296,6 +300,16 @@ function App() {
                       }
                     />
                     <Route
+                      path="/debug/ideas/background"
+                      element={
+                        <DebugGate>
+                          <Suspense fallback={null}>
+                            <BackgroundActivityIdea />
+                          </Suspense>
+                        </DebugGate>
+                      }
+                    />
+                    <Route
                       path="/debug/ideas/sheet-motion"
                       element={
                         <DebugPage>
@@ -324,7 +338,7 @@ function App() {
                   {/* Specimen frames show one part; offline notices are noise there. */}
                   {!getLabRuntime() &&
                     !location.pathname.startsWith("/debug/elements/frame/") && (
-                      <ReloadPrompt />
+                      <BackgroundActivityHost />
                     )}
                 </EpubImportProvider>
               </AppRouter>

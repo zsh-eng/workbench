@@ -1,0 +1,17 @@
+{
+  "name": "@workbench/background-activity",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.ts",
+    "./service-worker": "./src/service-worker.ts"
+  },
+  "scripts": {
+    "test": "bun test ./test"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

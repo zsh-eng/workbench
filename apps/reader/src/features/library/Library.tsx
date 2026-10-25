@@ -62,6 +62,10 @@ import {
   type LibraryViewPreferences,
 } from "./library-view";
 import { useEpubImport } from "./use-epub-import";
+import {
+  DownloadAllForOffline,
+  LibraryActivity,
+} from "@/features/background-activity/LibraryActivity";
 
 // A new filter shows its books at once: the old list goes without a fade, so
 // the switch does not wait for it.
@@ -330,6 +334,7 @@ export function Library() {
             <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
+        <DownloadAllForOffline books={data?.books ?? []} />
         {debugEnabled && (
           <>
             <DropdownMenuSeparator />
@@ -381,10 +386,13 @@ export function Library() {
         count={`${found.length} of ${data?.books.length ?? 0}`}
         onSubmit={openFirstMatch}
         actions={
-          <div className="flex items-center gap-0.5 max-md:hidden">
-            {addBooks(false)}
-            {viewMenu}
-          </div>
+          <>
+            <LibraryActivity place="header" />
+            <div className="flex items-center gap-0.5 max-md:hidden">
+              {addBooks(false)}
+              {viewMenu}
+            </div>
+          </>
         }
       />
 
@@ -483,6 +491,7 @@ export function Library() {
                 {shown.length} {shown.length === 1 ? "book" : "books"}
               </span>
               <div className="flex shrink-0 items-center md:hidden">
+                <LibraryActivity place="row" />
                 {addBooks(true)}
                 {viewMenu}
               </div>

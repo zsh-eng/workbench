@@ -1,4 +1,5 @@
 import { BackToLibrary } from "@/components/ui/back-to-library";
+import { BackgroundActivityTrials } from "@/features/background-activity/BackgroundActivityTrials";
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -39,7 +40,7 @@ const GROUPS: { title: string; tools: DebugTool[] }[] = [
       {
         title: "Design ideas",
         description:
-          "New designs for the Library, Reader, reading fonts, paper, dark mode, living covers, sheet motion and feedback next to what ships, with your books.",
+          "New designs for the Library, Reader, reading fonts, paper, dark mode, living covers, sheet motion, feedback and background activity next to what ships, with your books.",
         to: "/debug/elements/reader",
       },
       {
@@ -107,6 +108,7 @@ export function DebugTools() {
             hide them.
           </p>
         </header>
+        <BackgroundActivityTrials />
         {GROUPS.map((group) => {
           const tools = group.tools.filter((tool) => !(tool.reload && inLab));
           return (

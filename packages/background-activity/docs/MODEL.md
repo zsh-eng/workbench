@@ -1,0 +1,171 @@
+# Background activity: what shows, and when
+
+This page is the product model. [STATES.md](STATES.md) is the state chart
+and the checked rules. The [README](../README.md) is the API.
+
+## What counts
+
+Background activity is work that the app does on its own time, that changes
+what this device has or what the server has, and that you do not watch on
+screen while it happens.
+
+| Activity    | Examples                                                                                  | Owner                  |
+| ----------- | ----------------------------------------------------------------------------------------- | ---------------------- |
+| Record sync | a pull and push every 30 s, on reconnect and after an edit; the first restore on a device | `@zsh-eng/local-sync`  |
+| Downloads   | a book's EPUB, covers, Spaced card images, "download all images"                          | the app, as a job here |
+| Uploads     | a book or cover that you imported, waiting for the server                                 | the app's file manager |
+| Preparation | unzipping and indexing a book after its download                                          | the app, in the job    |
+| App update  | the new version's files, then the switch to them                                          | the service worker     |
+
+Pagination, search and saving a highlight are not background activity. They
+answer something you just did, and they have their own feedback.
+
+## The rule: show it only when it earns its place
+
+Most activity stays silent. Show a piece of work only when one of these is
+true:
+
+1. **You asked for it.** You tapped Download, Download all images, or
+   Restart. It shows on the thing you asked about, from start to end, and it
+   confirms once.
+2. **You are waiting for it.** You opened a book that is not on this device,
+   or a new device has an empty library until the restore arrives.
+3. **Your work is not safe yet, and that matters now.** Changes are saved
+   only on this device because you are offline, signed out, or sync keeps
+   failing, and that has lasted long enough to matter.
+4. **It needs you.** It failed and cannot fix itself: it needs a sign-in,
+   storage is full, or the server refused the file.
+5. **Something new is possible.** An update is ready, or a book that you
+   asked for is now on this device.
+
+Silence is right when:
+
+- **The work is routine and ends by itself.** Periodic sync, a cover, an
+  upload that succeeds, a retry that recovers.
+- **The work is short.** Nothing shows for the first 0.5 s, and a thing that
+  shows stays at least 0.6 s, so nothing flickers.
+- **You are reading.** The open page never shows background activity. Work
+  that needs you waits until you leave the book, except a failure of the
+  book itself.
+- **The failure is a blip.** One dropped request is not news. Sync raises
+  attention after two failures in a row; a job retries before it says
+  "Couldn't download".
+
+## The states you can see
+
+A job is one subject: a book, "all images", or the update. Its states, in
+the words the app uses:
+
+| State       | What you see                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Queued      | The subject is dim and still: it is next.                                                                                          |
+| Downloading | The subject fills. Bytes when known ("2.1 of 4.6 MB"), else items ("12 of 140 images"). An unknown size shows a slow sweep.        |
+| Preparing   | Full, with the short local step named once ("Preparing").                                                                          |
+| Waiting     | The fill holds where it is, with the reason: "Waiting for a connection", "Waiting for you to leave the book", "Sign in to finish". |
+| Retrying    | Shown as Downloading. Only the activity sheet says "Retrying in 8 s".                                                              |
+| Couldn't    | The subject has a retry mark. The sheet says why in words, with Retry.                                                             |
+| Done        | The fill completes, a check draws once, and the subject goes back to rest.                                                         |
+| Cancelled   | The subject goes back to rest at once.                                                                                             |
+
+Sync is not a job that you start, so it shows only its exceptions:
+
+| Sync state                         | What you see                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| Synced, syncing                    | Nothing.                                                                                      |
+| Restoring on a new device          | The Library arrives book by book: "Restoring your library · 12 books".                        |
+| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs. |
+| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                    |
+| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").            |
+
+The update has its own small moment:
+
+| Update state | What you see                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Checking     | Nothing.                                                                                                                                          |
+| Downloading  | Only in the activity sheet: "Downloading the update · 1.2 of 3.4 MB".                                                                             |
+| Ready        | On the Library only: "Restart to update", in the header, or floating at the bottom on a phone. It also applies by itself at the next safe moment. |
+| Restarting   | The same chip becomes a short ring, and the app reloads to the same screen.                                                                       |
+| Updated      | After the reload, the chip's place shows a check and "Updated" for two seconds.                                                                   |
+
+## One subject, one element
+
+- A book's download is its cover. The same cover goes from rest to dim
+  (queued) to filling, draws its check, and rests again. There is no toast
+  and no second progress bar for it. A summary that counts many books, such
+  as "3 books · 41%", is a different subject: the downloads together.
+- "Download all images" is one row in Spaced, on the Images page and in the
+  floating pill elsewhere. Where the page shows the row, the pill steps
+  aside: one floating surface per place.
+- The update is one chip, from Ready to the ring. "Updated" after the reload
+  takes the chip's place.
+
+## A safe moment for an update
+
+With Debug → Calm updates, an update downloads in the background and waits.
+Without it, the app still reloads as soon as the update is ready. The page
+keeps the version
+it loaded until the switch, and the waiting service worker keeps that
+version's files, so nothing breaks while it waits.
+
+- **Never on the Reader.** Nothing reloads a book that is open.
+- **By itself:** when the app comes back to the front on any other screen
+  after two minutes or more away, with no download that you asked for in
+  progress. (An import should hold it too; that is not wired yet.) A fresh
+  launch also gets the new version,
+  because the browser switches when no page uses the old one.
+- **By a tap:** Restart on the chip or in the activity sheet. A download in
+  progress continues after the reload.
+- **Required updates:** when sync says "Update to keep syncing" (410), its
+  Reload applies the waiting update.
+
+## Critique of the starting points
+
+- **An island with mini covers** is strong for one to three downloads while
+  you browse. But the mini cover is a second element for a subject that the
+  grid already shows, unless the cover visibly flies into the island when
+  the download starts. Long jobs keep it on screen, and in the Reader it
+  would compete with the notes island. Kept as a direction, with the
+  flight, and never in the Reader.
+- **A cover that fills** keeps identity best: the subject is the element. It
+  cannot show a subject that is off screen, or work with no cover (sync,
+  images, the update), so it needs a summary somewhere.
+- **A quiet glyph that opens a sheet** covers every case honestly, and the
+  sheet is where details such as "Retrying in 8 s" belong. Its risk is a
+  permanent status badge that everyone learns to ignore. The rule: the glyph
+  shows only while work you asked for runs, or while something needs you.
+- **The update as its own moment** is right: a reload is a product event.
+  "What's new" is not needed for a one-person app; "Updated" is the closure.
+- **A Dynamic Island for every sync** is the boring version. A spinner on
+  each 30 s sync is noise, and noise trains people to ignore the one state
+  that matters (your changes are only here).
+
+Beyond the starting points:
+
+- **Ticks for work that is only here.** Telegram's message ticks: one tick
+  when saved on this device, two when synced. Show them only while sync is
+  held up (offline, signed out, failing), on the things you changed.
+- **The offline shelf.** Offline, books that are not on this device fade,
+  and the ones you can open stay bright: "Offline · 6 books on this device".
+- **The restore is the Library arriving.** On a new device, covers arrive
+  as their records do, with a count, instead of a spinner over an empty page.
+
+## Directions to try
+
+Design ideas → Background activity compares three directions with the same
+scenarios, on the real engine with simulated jobs:
+
+1. **On the covers.** Progress lives on the subject; ticks for waiting work;
+   the offline shelf; the update chip.
+2. **The island.** One floating pill at the bottom of the Library. Covers
+   fly into it; it shows a stack of mini covers and one ring; tap to open it
+   into a list. It carries the update moment too.
+3. **A glyph and a sheet.** A glyph beside the account button that shows
+   only when it has something to say; tap for the activity sheet: Now,
+   Waiting, Done, and This app.
+
+The recommendation is 1 with 3: progress on the subject, and the glyph and
+sheet for what has no subject on screen. The Library wires that for books
+downloaded for offline, behind Debug → Offline downloads. A phone's header
+is full with the places, so there the glyph sits in the filter row beside
+Sort and layout, where Download all starts, and the update chip floats at
+the bottom of the Library.

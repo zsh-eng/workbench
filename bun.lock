@@ -173,6 +173,7 @@
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.14.10",
         "@workbench/activity-time": "workspace:*",
+        "@workbench/background-activity": "workspace:*",
         "@workbench/arctic-sync-server": "workspace:*",
         "@workbench/elements": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
@@ -253,6 +254,7 @@
         "@radix-ui/react-tooltip": "1.1.6",
         "@uidotdev/usehooks": "2.4.1",
         "@workbench/activity-time": "workspace:*",
+        "@workbench/background-activity": "workspace:*",
         "@workbench/elements": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
         "better-auth": "1.6.9",
@@ -386,6 +388,12 @@
       "dependencies": {
         "@zsh-eng/local-sync": "workspace:*",
         "hono": "^4.12.15",
+      },
+    },
+    "packages/background-activity": {
+      "name": "@workbench/background-activity",
+      "peerDependencies": {
+        "react": ">=18",
       },
     },
     "packages/elements": {
@@ -1575,6 +1583,8 @@
     "@workbench/arctic-sync-server": ["@workbench/arctic-sync-server@workspace:packages/arctic-sync-server"],
 
     "@workbench/arctic-web": ["@workbench/arctic-web@workspace:apps/arctic/Web"],
+
+    "@workbench/background-activity": ["@workbench/background-activity@workspace:packages/background-activity"],
 
     "@workbench/elements": ["@workbench/elements@workspace:packages/elements"],
 

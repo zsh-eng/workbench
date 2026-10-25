@@ -1,11 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 // Run after bun run build. This uses the production service worker and no API mocks.
-// E2E_PORT moves the server, as in playwright.config.ts.
+// E2E_PORT moves the server, as in playwright.config.ts; the update test
+// serves its own copy on the next port.
 const port = Number(process.env.E2E_PORT ?? 5195);
 export default defineConfig({
   testDir: "./test/e2e",
   outputDir: "./test-results/pwa",
-  testMatch: "reader-pwa.spec.ts",
+  testMatch: ["reader-pwa.spec.ts", "reader-pwa-update.spec.ts"],
   timeout: 60_000,
   use: {
     ...devices["Desktop Chrome"],

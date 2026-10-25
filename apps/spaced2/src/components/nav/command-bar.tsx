@@ -18,6 +18,7 @@ import {
   handleCardSave,
   handleCardSuspend,
 } from "@/lib/review/actions";
+import { imagesActivity } from "@/lib/images/images-activity";
 import { Deck } from "@/lib/types";
 import {
   Ban,
@@ -26,6 +27,7 @@ import {
   BookmarkIcon,
   ChevronsRight,
   Home,
+  ImageDown,
   Pencil,
   Plus,
   Trash,
@@ -268,6 +270,18 @@ export default function CommandBar() {
               label="Import"
               onSelect={() => setOpen(false)}
             />
+          </CommandGroup>
+
+          <CommandGroup heading="Offline">
+            <CommandItem
+              onSelect={() => {
+                imagesActivity.start();
+                setOpen(false);
+              }}
+            >
+              <ImageDown className="h-4 w-4" />
+              <span>Download all images</span>
+            </CommandItem>
           </CommandGroup>
 
           <CommandBarDecks decks={decks} onSelect={handleDeckSelect} />

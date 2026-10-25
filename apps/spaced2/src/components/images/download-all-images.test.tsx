@@ -3,6 +3,12 @@ import { act } from "react";
 import { click, render } from "../../../tests/dom";
 import DownloadAllImages from "./download-all-images";
 
+/** The job publishes its progress on a timer, at most every 100 ms. */
+const published = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((yes) => {
@@ -29,9 +35,11 @@ test("batch waits for every image even when its last queued task finishes first"
   );
   try {
     await click(view.container.querySelector("button")!);
+    await published();
     expect(view.container.textContent).toContain("Downloading (1 / 2)");
     expect(view.container.textContent).not.toContain("Downloaded 2");
     await act(async () => slow.resolve());
+    await published();
     expect(view.container.textContent).toContain("Downloaded 2 new images");
   } finally {
     await view.unmount();
@@ -55,6 +63,7 @@ test("cancel remains terminal after running tasks settle and queued tasks do not
   );
   try {
     await click(view.container.querySelector("button")!);
+    await published();
     await click(
       view.container.querySelector(
         'button[aria-label="Cancel image downloads"]',
@@ -62,6 +71,7 @@ test("cancel remains terminal after running tasks settle and queued tasks do not
     );
     expect(view.container.textContent).toContain("Download cancelled");
     await act(async () => pending.resolve());
+    await published();
     expect(downloads).toBe(5);
     expect(view.container.textContent).toContain("Download cancelled (5 / 7)");
     expect(view.container.textContent).not.toContain("Downloaded 5");
@@ -87,10 +97,32 @@ test("a failed batch item is counted and does not reject the whole batch", async
   );
   try {
     await click(view.container.querySelector("button")!);
+    await published();
     expect(view.container.textContent).toContain(
       "Downloaded 1 new images; 1 failed",
     );
   } finally {
     await view.unmount();
   }
+});
+
+test("the download keeps going when you leave the Images page", async () => {
+  const pending = deferred();
+  let finished = 0;
+  const links = () => new Map([["a", ""]]);
+  const download = async () => {
+    await pending.promise;
+    finished++;
+    return { newlyDownloaded: true };
+  };
+  const view = await render(
+    <DownloadAllImages findLinks={links} download={download} />,
+  );
+  await click(view.container.querySelector("button")!);
+  await published();
+  expect(view.container.textContent).toContain("Downloading (0 / 1)");
+  await view.unmount();
+  await act(async () => pending.resolve());
+  await published();
+  expect(finished).toBe(1);
 });

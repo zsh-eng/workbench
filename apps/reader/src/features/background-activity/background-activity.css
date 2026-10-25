@@ -1,0 +1,120 @@
+/* Marks for background work: a ring that fills, a sweep for an unknown size,
+   and a check that draws once. One element per subject; a mark changes in
+   place (packages/elements/docs/MOTION.md). */
+
+.ba-ring {
+  display: inline-block;
+  flex: none;
+  width: var(--ba-ring-size, 18px);
+  height: var(--ba-ring-size, 18px);
+}
+.ba-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+.ba-ring circle {
+  fill: none;
+  stroke-width: var(--ba-ring-stroke, 2.25px);
+  stroke-linecap: round;
+}
+.ba-ring-track {
+  stroke: color-mix(in oklab, currentColor 18%, transparent);
+}
+.ba-ring-fill {
+  stroke: currentColor;
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: calc(1 - var(--ba-fraction, 0));
+  transition: stroke-dashoffset 220ms linear;
+}
+/* Size unknown: one short arc turns slowly. The one loop allowed is a wait. */
+.ba-ring[data-unknown] .ba-ring-fill {
+  stroke-dasharray: 0.22 0.78;
+  stroke-dashoffset: 0;
+  transform-origin: 50% 50%;
+  animation: ba-sweep 1.4s linear infinite;
+}
+@keyframes ba-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ba-check {
+  display: inline-block;
+  flex: none;
+  width: var(--ba-ring-size, 18px);
+  height: var(--ba-ring-size, 18px);
+}
+.ba-check svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ba-check path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 1;
+  animation: ba-draw 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+@keyframes ba-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A cover downloading for offline: it rests dim while queued, and the
+   download fills it from the bottom, under a veil that recedes. */
+.ba-cover-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--background) 62%, transparent);
+  clip-path: inset(0 0 calc(var(--ba-fraction, 0) * 100%) 0);
+  transition:
+    clip-path 220ms linear,
+    opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ba-cover-veil[data-state="queued"],
+.ba-cover-veil[data-state="waiting"] {
+  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ba-cover-veil[data-state="done"] {
+  opacity: 0;
+  transition: opacity 300ms ease-out 900ms;
+}
+
+/* The second tick draws once, when the change syncs. */
+.ba-tick-second {
+  stroke-dasharray: 1 1;
+  animation: ba-draw 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ba-tick-second {
+    animation: none;
+  }
+  .ba-ring-fill,
+  .ba-cover-veil {
+    transition: none;
+  }
+  .ba-ring[data-unknown] .ba-ring-fill {
+    animation: none;
+    stroke-dasharray: 0.3 0.7;
+  }
+  .ba-check path {
+    animation: none;
+  }
+  .ba-cover-veil[data-state="done"] {
+    transition: opacity 150ms linear 900ms;
+  }
+}

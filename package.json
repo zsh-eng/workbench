@@ -47,7 +47,7 @@
     "build:reader": "bun run --cwd apps/reader build",
     "build:arctic-web": "bun run --cwd apps/arctic/Web build",
     "test:arctic-web": "bun run --cwd apps/arctic/Web test",
-    "test:packages": "bun run build:packages && bun run --cwd packages/local-sync test && bun run --cwd packages/text-highlighter test && bun run --cwd packages/arctic-sync-server test && bun run --cwd packages/activity-time test",
+    "test:packages": "bun run build:packages && bun run --cwd packages/local-sync test && bun run --cwd packages/text-highlighter test && bun run --cwd packages/arctic-sync-server test && bun run --cwd packages/activity-time test && bun run --cwd packages/background-activity test",
     "med": "node apps/med/dist/cli.js",
     "dev:med": "node apps/med/scripts/dev.mjs",
     "build:med": "bun run --cwd apps/med build",

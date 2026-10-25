@@ -7,6 +7,7 @@ import {
   type FileRemoteApi,
 } from "@/lib/files/file-remote-api";
 import type {
+  FileDownloadOptions,
   FileId,
   FileMetadata,
   Files,
@@ -21,11 +22,29 @@ const UPLOAD_RETRY_MAX_MS = 30_000;
 const DEFAULT_MEDIA_TYPE = "application/octet-stream";
 
 /**
+ * One download, shared by every caller that asks for the file. It stops only
+ * when each caller that can stop has stopped; a caller without a signal
+ * keeps it going.
+ */
+interface SharedDownload {
+  promise: Promise<Blob>;
+  controller: AbortController;
+  holders: number;
+  progress: { bytes: number; total: number | null } | null;
+  listeners: Set<NonNullable<FileDownloadOptions["onProgress"]>>;
+}
+
+function abortError(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Aborted", "AbortError");
+}
+
+/**
  * Local-first file facade and durable upload worker.
  *
  * `put()` commits the Blob and upload intent in one transaction. Downloads are
- * foreground operations shared by FileId. Uploads run only while the app has
- * enabled them for an authenticated, online session.
+ * shared by FileId; each caller can follow the bytes and stop waiting.
+ * Uploads run only while the app has enabled them for an authenticated,
+ * online session.
  */
 export interface FileTransferState {
   uploading: FileId | null;
@@ -54,7 +73,7 @@ export class FilesManager implements Files {
   }
   private readonly remote: FileRemoteApi;
   private readonly pendingOperations = new Set<Promise<unknown>>();
-  private readonly downloads = new Map<FileId, Promise<Blob>>();
+  private readonly downloads = new Map<FileId, SharedDownload>();
   private uploadsEnabled = false;
   private uploadLifecycleVersion = 0;
   private uploadLoop: Promise<void> | null = null;
@@ -110,27 +129,70 @@ export class FilesManager implements Files {
     return id;
   }
 
-  get(id: FileId): Promise<Blob> {
-    return this.track(this.getFile(id));
+  get(id: FileId, options: FileDownloadOptions = {}): Promise<Blob> {
+    return this.track(this.getFile(id, options));
   }
 
-  private async getFile(id: FileId): Promise<Blob> {
+  private async getFile(
+    id: FileId,
+    options: FileDownloadOptions,
+  ): Promise<Blob> {
     const localFile = await db.files.get(id);
     if (localFile) return localFile.blob;
+    options.signal?.throwIfAborted();
+    return this.join(this.downloads.get(id) ?? this.startDownload(id), options);
+  }
 
-    const activeDownload = this.downloads.get(id);
-    if (activeDownload) return activeDownload;
-
-    const download = this.downloadAndStore(id);
-    this.downloads.set(id, download);
-    this.publish({ downloading: [...this.downloads.keys()] });
-
-    try {
-      return await download;
-    } finally {
+  private startDownload(id: FileId): SharedDownload {
+    const controller = new AbortController();
+    const download: SharedDownload = {
+      promise: Promise.resolve(new Blob()),
+      controller,
+      holders: 0,
+      progress: null,
+      listeners: new Set(),
+    };
+    download.promise = this.downloadAndStore(id, {
+      signal: controller.signal,
+      onProgress: (bytes, total) => {
+        download.progress = { bytes, total };
+        for (const listener of download.listeners) listener(bytes, total);
+      },
+    }).finally(() => {
+      if (this.downloads.get(id) !== download) return;
       this.downloads.delete(id);
       this.publish({ downloading: [...this.downloads.keys()] });
+    });
+    // A caller that stops early must not leave an unhandled rejection.
+    download.promise.catch(() => {});
+    this.downloads.set(id, download);
+    this.publish({ downloading: [...this.downloads.keys()] });
+    return download;
+  }
+
+  private join(
+    download: SharedDownload,
+    { signal, onProgress }: FileDownloadOptions,
+  ): Promise<Blob> {
+    download.holders += signal ? 1 : Number.POSITIVE_INFINITY;
+    if (onProgress) {
+      download.listeners.add(onProgress);
+      if (download.progress)
+        onProgress(download.progress.bytes, download.progress.total);
     }
+    return new Promise<Blob>((resolve, reject) => {
+      const onAbort = () => {
+        download.holders -= 1;
+        if (download.holders <= 0)
+          download.controller.abort(abortError(signal!));
+        reject(abortError(signal!));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      download.promise.then(resolve, reject).finally(() => {
+        signal?.removeEventListener("abort", onAbort);
+        if (onProgress) download.listeners.delete(onProgress);
+      });
+    });
   }
 
   async hasLocal(id: FileId): Promise<boolean> {
@@ -245,8 +307,12 @@ export class FilesManager implements Files {
     return tracked;
   }
 
-  private async downloadAndStore(id: FileId): Promise<Blob> {
-    const blob = await this.remote.get(id);
+  private async downloadAndStore(
+    id: FileId,
+    options: FileDownloadOptions,
+  ): Promise<Blob> {
+    const blob = await this.remote.get(id, options);
+    options.signal?.throwIfAborted();
     const mediaType = blob.type || DEFAULT_MEDIA_TYPE;
 
     await db.transaction(
