@@ -539,6 +539,15 @@ test("a page comes back from anywhere, held until let go", async ({
   await expect.poll(() => currentPages(page)).toEqual(start);
 });
 
+test("the fore-edge itself takes the page", async ({ page, localBook }) => {
+  await openWithCurl(page, localBook.id);
+  await turnPages(page, 2);
+  const start = await currentPages(page);
+  // Within the system's edge zone, which the slide leaves alone.
+  await drag(page, [384, 520], [120, 500]);
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+});
+
 test("pigment stands in for a highlight's fill and keeps its tools", async ({
   page,
   localBook,

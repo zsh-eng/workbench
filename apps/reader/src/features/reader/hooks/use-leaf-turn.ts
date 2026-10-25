@@ -200,6 +200,19 @@ interface UseLeafTurnResult {
   turn: (direction: SwipeDirection, holdY?: number) => boolean;
 }
 
+/**
+ * Whether a swipe in from the right edge may take the browser forward: in
+ * a browser tab with a page to go forward to. An installed app has no such
+ * gesture, and the Reader's forward list is nearly always empty, so where
+ * the browser cannot say, the page takes the touch; where the system's
+ * gesture does apply, it wins over the page's anyway.
+ */
+function browserGoesForward(): boolean {
+  if (window.matchMedia?.("(display-mode: standalone)").matches) return false;
+  const { navigation } = window as { navigation?: { canGoForward?: boolean } };
+  return navigation?.canGoForward === true;
+}
+
 function hasActiveTextSelection(): boolean {
   const selection = window.getSelection();
   return Boolean(selection && !selection.isCollapsed && selection.toString());
@@ -214,7 +227,8 @@ function hasActiveTextSelection(): boolean {
  * roll; the fold lies across the pull, so a corner pulled across the page
  * makes a cone and the middle of the edge a roll. A page brought back is
  * held by its edge, wherever the swipe began, its fold across the pull
- * too. Let go, and gravity, the air and the stack below decide where it
+ * too. The fore-edge itself can be taken, where the system does not claim
+ * it. Let go, and gravity, the air and the stack below decide where it
  * lands. A touch at any time catches a moving page where the finger meets
  * it, including one already falling over, so there is no moment when
  * touches are ignored.
@@ -707,9 +721,13 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         catchLeaf(turn, event, rect);
         return;
       }
+      // The left edge is the system's way back. The right is the book's
+      // fore-edge, where a hand takes a page, unless the browser has a page
+      // to go forward to from there.
       if (
         event.clientX - rect.left <= SYSTEM_NAVIGATION_EDGE_PX ||
-        rect.right - event.clientX <= SYSTEM_NAVIGATION_EDGE_PX
+        (rect.right - event.clientX <= SYSTEM_NAVIGATION_EDGE_PX &&
+          browserGoesForward())
       ) {
         return;
       }
