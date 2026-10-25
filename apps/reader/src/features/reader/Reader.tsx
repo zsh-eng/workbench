@@ -3,25 +3,12 @@ import { HighlightToolbarContainer } from "@/features/reader/shared/HighlightToo
 import { useInputBehavior } from "@/features/reader/hooks/use-input-behavior";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { recordReaderTraceSpan } from "@/lib/reader-performance-trace";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isInteractiveTapTarget } from "./hooks/use-touch-spread-tap-nav";
 import { highlightNoteTarget } from "./note-locations";
 import type { NoteTarget } from "@/types/note";
 import type { AnnotationColor } from "@/lib/highlight-constants";
-import type { TOCItem } from "@/lib/db";
-import type {
-  ChapterCanonicalText,
-  ResolvedLeafPage,
-  ResolvedSpread,
-} from "@/lib/pagination-v2";
 import { ReaderNotes } from "./ReaderNotes";
 import { ReaderController } from "./ReaderController";
 import { ReaderHeader } from "./ReaderHeader";
@@ -41,22 +28,17 @@ import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
 import { useReaderDisplayReadiness } from "./hooks/use-reader-display-readiness";
 import { useReaderHandoffPrompt } from "./hooks/use-reader-handoff-prompt";
 import {
+  DisplayReadyCommitProbe,
   useReaderPerformanceTraceLifecycle,
   useReaderPerformanceTraceRoute,
 } from "./hooks/use-reader-performance-trace";
 import { useReaderSession } from "./hooks/use-reader-session";
 import { useReaderStatusPrompt } from "./hooks/use-reader-status-prompt";
-import {
-  buildReaderPageDebugDump,
-  collectReaderPageDebugDumpEnvironment,
-  serializeReaderPageDebugDump,
-} from "./debug/page-debug-dump";
+import { copyReaderPageDebugDump } from "./debug/copy-page-debug-dump";
 import { DeferredEpubImageProvider } from "./shared/DeferredEpubImageProvider";
 import { ReaderSearchPanel } from "./search/ReaderSearchPanel";
 import { ReaderSearchStepper } from "./search/ReaderSearchStepper";
-import { useReaderSearch } from "./search/use-reader-search";
-import { useSearchMarks } from "./search/use-search-marks";
-import { useHotkey } from "@tanstack/react-hotkeys";
+import { useReaderBookSearch } from "./search/use-reader-book-search";
 import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
@@ -64,59 +46,6 @@ import { useSelectAcross } from "./scroll/use-select-across";
 import { useDetentSheetsEnabled } from "@/lib/detent-sheets-preference";
 import { isReadingFontId } from "@/lib/reading-fonts";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
-
-function DisplayReadyCommitProbe({
-  paginationStatus,
-  readerStatus,
-}: {
-  paginationStatus: string;
-  readerStatus: string;
-}): null {
-  const renderStartedAtMsRef = useRef(performance.now());
-  const statusRef = useRef({ paginationStatus, readerStatus });
-
-  useLayoutEffect(() => {
-    const committedAtMs = performance.now();
-    const initialStatus = statusRef.current;
-    recordReaderTraceSpan({
-      name: "display-ready-reader-render-commit",
-      lane: "processing",
-      startPerformanceMs: renderStartedAtMsRef.current,
-      endPerformanceMs: committedAtMs,
-      details: {
-        durationMs:
-          Math.round((committedAtMs - renderStartedAtMsRef.current) * 10) / 10,
-        paginationStatus: initialStatus.paginationStatus,
-        readerStatus: initialStatus.readerStatus,
-      },
-    });
-  }, []);
-
-  return null;
-}
-
-const EMPTY_TOC: TOCItem[] = [];
-
-/** The first page a spread shows. */
-function leadingPage(spread: ResolvedSpread | null): ResolvedLeafPage | null {
-  for (const slot of spread?.slots ?? [])
-    if (slot.kind === "page") return slot.page;
-  return null;
-}
-
-/** The canonical offset of the first text block a page shows, if loaded. */
-function pageTextOffset(
-  page: ResolvedLeafPage | null,
-  getCanonicalText: (chapterIndex: number) => ChapterCanonicalText | null,
-): number | null {
-  if (!page) return null;
-  const text = getCanonicalText(page.chapterIndex);
-  for (const slice of page.content) {
-    const start = text?.blockStarts.get(slice.blockId);
-    if (start !== undefined) return start;
-  }
-  return null;
-}
 
 export function Reader() {
   const debugEnabled = useDebugEnabled();
@@ -292,56 +221,28 @@ export function Reader() {
   });
   selectionHandedOver.current = selectAcross.onSelectionHandedOver;
 
-  // Search starts its worker once the book has settled, or when it opens.
   const searchOpen = chromeState.activeReaderSheet === "search";
   // Search ideas for Design ideas, Debug mode only: `?search=` steps to the
   // nearest match and `?searchMarks=` picks how matches are marked.
-  const searchIdea = debugEnabled ? searchParams.get("search") : null;
   const searchMarks = debugEnabled ? searchParams.get("searchMarks") : null;
-  const [searchStarted, setSearchStarted] = useState(false);
-  const readerPage = leadingPage(sessionState.pagination.spread);
-  if ((searchOpen || searchIdea) && !searchStarted) setSearchStarted(true);
-  const search = useReaderSearch({
-    bookId: bookId ?? "",
-    enabled: searchStarted,
-    warm: settledPaintReady,
-    chapters: sessionState.chapters.entries,
-    toc: sessionState.book?.toc ?? EMPTY_TOC,
-    chapterAccess: sessionResources.chapterAccess,
-    highlights: sessionState.highlights,
-    locations: sessionState.pagination.searchLocations,
-    locateTextOffsets: sessionResources.locateTextOffsets,
-    layoutKey: `${sessionState.pagination.status}:${sessionState.navigation.totalPages}`,
-    currentChapterIndex: sessionState.navigation.currentChapterIndex,
-    currentPageInChapter: readerPage?.currentPageInChapter ?? null,
-    readerOffset:
-      readerPage?.chapterIndex === sessionState.navigation.currentChapterIndex
-        ? pageTextOffset(
-            readerPage,
-            sessionResources.chapterAccess.getCanonicalText,
-          )
-        : null,
-    goToTextOffset: sessionActions.goToTextOffset,
-    // A Design ideas preview leaves the book where its reader left it.
-    previewOnly: Boolean(searchIdea),
+  const { search, focusRequest: searchFocusRequest } = useReaderBookSearch({
+    bookId,
+    session: {
+      resources: sessionResources,
+      state: sessionState,
+      actions: sessionActions,
+    },
+    open: searchOpen,
+    displayReady,
+    settledPaintReady,
+    idea: debugEnabled ? searchParams.get("search") : null,
+    marks: {
+      containerRef: scrollMode.annotationContainerRef,
+      contentKey: scrollMode.renderedRows,
+    },
+    onOpen: () => chromeActions.openReaderSheet("search"),
   });
   const searchActiveIndex = search.state.activeIndex;
-  useSearchMarks({
-    enabled: searchOpen || searchActiveIndex !== null,
-    // In scroll mode the column holds the text, and it mounts rows as the
-    // reader scrolls.
-    containerRef: scrollMode.annotationContainerRef,
-    contentKey: scrollMode.renderedRows,
-    spread: sessionState.pagination.spread,
-    spreadWindow: sessionState.pagination.spreadWindow,
-    results: search.state.results,
-    activeId:
-      searchActiveIndex === null
-        ? null
-        : (search.state.results[searchActiveIndex]?.id ?? null),
-    getCanonicalText: sessionResources.chapterAccess.getCanonicalText,
-  });
-  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
 
   const { prompt: handoffPrompt } = useReaderHandoffPrompt({
     bookId,
@@ -368,83 +269,6 @@ export function Reader() {
     if (!settledPaintReady) return;
     resumeBackgroundLoad();
   }, [resumeBackgroundLoad, settledPaintReady]);
-  const searchIdeaStep = useRef<"query" | "open" | "done">("query");
-  const { setQuery: setSearchQuery, next: nextSearchResult } = search;
-  useEffect(() => {
-    if (!searchIdea || !displayReady) return;
-    if (searchIdeaStep.current === "query") {
-      searchIdeaStep.current = "open";
-      setSearchQuery(searchIdea, { remember: false });
-    } else if (
-      searchIdeaStep.current === "open" &&
-      search.state.status === "done" &&
-      search.state.results.length
-    ) {
-      searchIdeaStep.current = "done";
-      nextSearchResult();
-    }
-  }, [
-    displayReady,
-    nextSearchResult,
-    search.state.results.length,
-    search.state.status,
-    searchIdea,
-    setSearchQuery,
-  ]);
-
-  // Find next and previous, as in a browser.
-  const stepEnabled = displayReady && search.state.results.length > 0;
-  useHotkey(
-    "Mod+G",
-    (event) => {
-      event.preventDefault();
-      search.next();
-    },
-    {
-      target: window,
-      enabled: stepEnabled,
-      ignoreInputs: false,
-      stopPropagation: false,
-      meta: { name: "Next search result", description: "Go to the next match" },
-    },
-  );
-  useHotkey(
-    "Mod+Shift+G",
-    (event) => {
-      event.preventDefault();
-      search.previous();
-    },
-    {
-      target: window,
-      enabled: stepEnabled,
-      ignoreInputs: false,
-      stopPropagation: false,
-      meta: {
-        name: "Previous search result",
-        description: "Go to the previous match",
-      },
-    },
-  );
-
-  useHotkey(
-    "Mod+F",
-    (event) => {
-      event.preventDefault();
-      if (!displayReady) return;
-      chromeActions.openReaderSheet("search");
-      setSearchFocusRequest((request) => request + 1);
-    },
-    {
-      target: window,
-      ignoreInputs: false,
-      requireReset: true,
-      stopPropagation: false,
-      meta: {
-        name: "Search book",
-        description: "Find words in this book",
-      },
-    },
-  );
   const statusPrompt = useReaderStatusPrompt({
     bookId,
     isReady: displayReady,
@@ -528,53 +352,30 @@ export function Reader() {
     chromeInteractionMode === "touch" && displayReady;
   const swipeNavigationEnabled =
     shouldPrepareSwipePages && !isReaderInteractionSuppressed;
-  const handleCopyDebugDump = async () => {
-    const spread = sessionState.pagination.spread;
-
-    if (!spread) {
-      toast({
-        message: "Page is not ready to copy.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const dump = buildReaderPageDebugDump({
-      book,
-      settings: sessionState.settings,
-      spread,
-      paginationConfig: sessionState.pagination.paginationConfig,
-      spreadConfig: sessionState.pagination.spreadConfig,
-      layout: {
-        viewport: stageViewport,
-        spreadColumns: resolvedSpreadColumns,
-        columnGapPx,
-        paddingTopPx: stagePadding.paddingTop,
-        paddingBottomPx: stagePadding.paddingBottom,
-        paddingLeftPx: stagePadding.paddingX,
-        paddingRightPx: stagePadding.paddingX,
-      },
-      environment: collectReaderPageDebugDumpEnvironment({
+  const handleCopyDebugDump = () =>
+    copyReaderPageDebugDump(
+      {
+        book,
+        settings: sessionState.settings,
+        spread: sessionState.pagination.spread,
+        paginationConfig: sessionState.pagination.paginationConfig,
+        spreadConfig: sessionState.pagination.spreadConfig,
+        layout: {
+          viewport: stageViewport,
+          spreadColumns: resolvedSpreadColumns,
+          columnGapPx,
+          paddingTopPx: stagePadding.paddingTop,
+          paddingBottomPx: stagePadding.paddingBottom,
+          paddingLeftPx: stagePadding.paddingX,
+          paddingRightPx: stagePadding.paddingX,
+        },
         stageSlotElement: stageSlotRef.current,
         stageContentElement: stageContentRef.current,
-      }),
-      chapterEntries: sessionState.chapters.entries,
-      getBlocks: sessionResources.chapterAccess.getBlocks,
-    });
-
-    try {
-      await navigator.clipboard.writeText(serializeReaderPageDebugDump(dump));
-
-      toast({
-        message: "Copied debug dump.",
-      });
-    } catch {
-      toast({
-        message: "Could not copy debug dump.",
-        variant: "destructive",
-      });
-    }
-  };
+        chapterEntries: sessionState.chapters.entries,
+        getBlocks: sessionResources.chapterAccess.getBlocks,
+      },
+      toast,
+    );
 
   return (
     // The Reader never scrolls as a whole: `overflow-clip`, unlike hidden,
