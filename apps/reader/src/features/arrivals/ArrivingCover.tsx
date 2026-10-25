@@ -47,10 +47,13 @@ function useCoverUrl(cover: Blob | null): string | null {
   return url;
 }
 
+/** Covers decoded once, so a cover that moves to another tile shows at once. */
+const decodedUrls = new Set<string>();
+
 function useDecoded(url: string | null): boolean {
   const [decoded, setDecoded] = useState<string | null>(null);
   useEffect(() => {
-    if (!url) return;
+    if (!url || decodedUrls.has(url)) return;
     let cancelled = false;
     const image = new Image();
     image.src = url;
@@ -58,13 +61,14 @@ function useDecoded(url: string | null): boolean {
       .decode()
       .catch(() => undefined)
       .then(() => {
+        decodedUrls.add(url);
         if (!cancelled) setDecoded(url);
       });
     return () => {
       cancelled = true;
     };
   }, [url]);
-  return url !== null && decoded === url;
+  return url !== null && (decoded === url || decodedUrls.has(url));
 }
 
 /** Ready the shader engine, unless the drawing will not move. */
@@ -209,6 +213,13 @@ function CalmArrival(props: ArrivingCoverProps) {
   const ready = decoded && arrival.progress.stage === "ready";
   const [rested, setRested] = useState(false);
   const handing = useHandover(props, rested);
+  // At rest when the colour has faded up. A timer, not transitionend: a
+  // tile that mounts with its book ready has no transition to end.
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setTimeout(() => setRested(true), 750);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
   return (
     <>
       <span
@@ -235,7 +246,6 @@ function CalmArrival(props: ArrivingCoverProps) {
             src={url}
             alt=""
             draggable={false}
-            onTransitionEnd={() => ready && setRested(true)}
             className={cn(
               "pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-700 ease-in-out select-none",
               ready ? "opacity-100" : "opacity-0",
