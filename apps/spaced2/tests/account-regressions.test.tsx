@@ -1,3 +1,4 @@
+import { createSyncClientState } from "@zsh-eng/local-sync";
 import { deckRecord, streamResponse } from "./sync-fixtures";
 import { beforeEach, afterEach, expect, test, spyOn } from "bun:test";
 import { act } from "react";
@@ -115,6 +116,8 @@ afterEach(async () => {
 
 test("the first pull returns the active promise and resolves only after local application", async () => {
   await setClientId("pull-client");
+  // A first pull starts from cursor 0, even when a rerun left a cursor.
+  stateStore.write(createSyncClientState(crypto.randomUUID()));
   const response = deferred<Response>();
   globalThis.fetch = (async (url) =>
     String(url).endsWith("/me")
