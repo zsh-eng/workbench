@@ -4,9 +4,11 @@ import {
   expect,
   nextSpread,
   openLocalBook,
+  openReaderTool,
   test,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
@@ -246,16 +248,17 @@ test("a step as the book opens starts where the reader is", async ({
   for (let spread = 0; spread < 4; spread++) await nextSpread(page);
   const start = await currentPages(page);
   // Book page numbers count the chapters laid out so far, so they settle
-  // once the earlier chapters are.
+  // once the earlier chapters are. On a busy machine that takes a while.
+  const settled = { timeout: 15_000 };
   await page.reload();
   await waitForReaderReady(page);
-  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => currentPages(page), settled).toEqual(start);
 
   // Design ideas' `?search=` steps as soon as the page shows, before then.
   await page.goto(`/reader/${localBook.id}?search=the`);
   await expect(page.getByTestId("search-stepper")).toBeVisible();
   await waitForReaderReady(page);
-  await expect.poll(() => currentPages(page)).toEqual(start);
+  await expect.poll(() => currentPages(page), settled).toEqual(start);
 });
 
 test("a result opens the right page after the type changes", async ({
@@ -300,14 +303,11 @@ test.describe("on a phone", () => {
   }) => {
     await openLocalBook(page, localBook.id);
     await page.touchscreen.tap(195, 350);
-    await page
-      .getByRole("button", { name: "Open reader tools", exact: true })
-      .tap();
-    const tools = await waitForSheet(page, "Reader tools");
-    await tools.getByRole("button", { name: /Search book/ }).tap();
-    await waitForSheet(page, "Search book");
+    const sheet = await openReaderTool(page, /Search book/, "Search book");
     await expect(searchField(page)).toBeFocused();
     await search(page, "Dinah");
+    // The sheet grows to fit the results.
+    await waitForSheetToRest(sheet);
 
     await results(page).nth(6).tap();
     const stepper = page.getByTestId("search-stepper");

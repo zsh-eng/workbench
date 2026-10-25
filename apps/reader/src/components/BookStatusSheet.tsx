@@ -1,4 +1,4 @@
-import { CircularBookCover } from "@/components/ContinueReadingCard";
+import { CircularBookCover } from "@/components/CircularBookCover";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { useSpringPressAnimation } from "@/components/ui/spring-press";

@@ -62,14 +62,6 @@ export const CONTENT_WIDTH_CLASSES = [
 ] as const;
 export type ContentWidth = (typeof CONTENT_WIDTH_CLASSES)[number];
 
-export const CONTENT_WIDTH_VALUES: Record<ContentWidth, string> = {
-  compact: "40rem", // 640px
-  narrow: "48rem", // 768px
-  medium: "56rem", // 896px
-  wide: "64rem", // 1024px
-  full: "72rem", // 1152px
-};
-
 export const READER_FONT_SIZE_MIN_PX = 8;
 export const READER_FONT_SIZE_DEFAULT_PX = 16;
 export const READER_FONT_SIZE_MAX_PX = 32;

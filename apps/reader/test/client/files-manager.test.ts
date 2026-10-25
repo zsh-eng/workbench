@@ -16,7 +16,13 @@ function createManager(remote: FileRemoteApi): FilesManager {
 }
 afterEach(() => {
   for (const manager of managers.splice(0)) manager.pauseUploads();
+  vi.useRealTimers();
 });
+
+/** Fakes the retry timer. IndexedDB keeps its own scheduling. */
+function useFakeRetryTimer() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+}
 
 async function waitForCondition(
   condition: () => boolean | Promise<boolean>,
@@ -157,23 +163,20 @@ describe("FilesManager", () => {
     const remote = new MockFileRemoteApi();
     remote.failPuts = true;
     const manager = createManager(remote);
-    manager.resumeUploads();
-
     const id = await manager.put(new Blob(["retry upload"]));
-    await waitForCondition(async () => {
-      const operation = await db.fileUploadOperations.get(id);
-      return operation?.lastFailure.kind === "failed";
-    });
-
-    expect(await db.fileUploadOperations.get(id)).toMatchObject({
-      retryCount: 1,
-      lastFailure: { kind: "failed", message: "Mock upload failed" },
-    });
+    useFakeRetryTimer();
+    manager.resumeUploads();
+    await vi.waitFor(async () =>
+      expect(await db.fileUploadOperations.get(id)).toMatchObject({
+        retryCount: 1,
+        lastFailure: { kind: "failed", message: "Mock upload failed" },
+      }),
+    );
 
     remote.failPuts = false;
-    await waitForCondition(
-      async () => (await db.fileUploadOperations.get(id)) === undefined,
-      2500,
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(async () =>
+      expect(await db.fileUploadOperations.get(id)).toBeUndefined(),
     );
     expect(remote.files.has(id)).toBe(true);
     manager.pauseUploads();
@@ -249,7 +252,6 @@ describe("upload retry lifetime", () => {
   afterEach(() => {
     manager.pauseUploads();
     vi.restoreAllMocks();
-    vi.useRealTimers();
   });
   it("backs off, caps the delay, and cancels the timer on pause", async () => {
     await db.fileUploadOperations.clear();
@@ -258,7 +260,7 @@ describe("upload retry lifetime", () => {
     remote.failPuts = true;
     manager = createManager(remote);
     await manager.put(new Blob(["backoff"]));
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    useFakeRetryTimer();
     const timers = vi.spyOn(globalThis, "setTimeout");
     manager.resumeUploads();
     await vi.waitFor(() => expect(remote.putCalls).toBe(1));
@@ -289,6 +291,7 @@ describe("upload retry lifetime", () => {
       .mockImplementationOnce(() => pending.promise);
     manager = createManager(remote);
     await manager.put(new Blob(["first"]));
+    useFakeRetryTimer();
     manager.resumeUploads();
     await vi.waitFor(() => expect(put).toHaveBeenCalledOnce());
     await manager.put(new Blob(["second"]));
@@ -303,9 +306,9 @@ describe("upload retry lifetime", () => {
       ).toBe(true),
     );
     expect(put).toHaveBeenCalledOnce();
-    await waitForCondition(
-      async () => (await db.fileUploadOperations.count()) === 0,
-      2500,
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(async () =>
+      expect(await db.fileUploadOperations.count()).toBe(0),
     );
     expect(put).toHaveBeenCalledTimes(3);
   });
@@ -319,6 +322,7 @@ it("does not schedule a retry when an in-flight upload fails after pause", async
   const put = vi.spyOn(remote, "put").mockImplementation(() => pending.promise);
   const manager = createManager(remote);
   const id = await manager.put(new Blob(["pause during request"]));
+  useFakeRetryTimer();
   manager.resumeUploads();
   await vi.waitFor(() => expect(put).toHaveBeenCalledOnce());
   manager.pauseUploads();
@@ -328,7 +332,7 @@ it("does not schedule a retry when an in-flight upload fails after pause", async
       retryCount: 1,
     }),
   );
-  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await vi.advanceTimersByTimeAsync(60_000);
   expect(put).toHaveBeenCalledOnce();
   vi.restoreAllMocks();
 });

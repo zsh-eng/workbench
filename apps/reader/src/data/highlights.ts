@@ -35,19 +35,6 @@ export async function addHighlight(highlight: Highlight): Promise<string> {
   return db.highlights.add({ ...highlight, isDeleted: false });
 }
 
-export async function getHighlights(
-  bookId: string,
-  spineItemId: string,
-): Promise<Highlight[]> {
-  const highlights = await db.highlights
-    .where("bookId")
-    .equals(bookId)
-    .and((h) => h.spineItemId === spineItemId && isNotDeleted(h))
-    .toArray();
-
-  return highlights.map(normalizeHighlightTimestamps);
-}
-
 export async function getBookHighlights(bookId: string): Promise<Highlight[]> {
   const highlights = await db.highlights
     .where("bookId")

@@ -42,10 +42,6 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function getReadingModePreference(): ReadingMode {
-  return mode;
-}
-
 export function setReadingModePreference(next: ReadingMode): void {
   try {
     getRuntimeStorage().setItem(READING_MODE_STORAGE_KEY, next);

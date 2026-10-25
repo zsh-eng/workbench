@@ -1,7 +1,8 @@
 // The React Compiler would add a hook (its memo cache) to each component. Kept
 // out, the toast has none, so it renders under another copy of React: Reader's
 // React is 19.2 and this package's is 19.3. There is nothing here to memoise.
-"use no memo";
+// Each component says "use no memo" itself: bundlers drop a module-level
+// directive, and Rolldown warns about one.
 
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 
@@ -53,6 +54,7 @@ export function Toast({
   className,
   ...props
 }: ToastProps) {
+  "use no memo";
   return (
     <div
       {...props}
@@ -97,6 +99,7 @@ export function Toast({
 
 /** The check that takes the countdown's place once the change is undone. */
 function DoneMark() {
+  "use no memo";
   return (
     <span aria-hidden="true" className="wb-toast-done">
       <svg viewBox="0 0 24 24">
@@ -122,6 +125,7 @@ export function UndoCountdown({
   paused?: boolean;
   onDone?: () => void;
 }) {
+  "use no memo";
   return (
     <span
       ref={holdWhileHidden}

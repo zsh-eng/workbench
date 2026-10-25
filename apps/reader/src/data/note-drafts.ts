@@ -10,10 +10,6 @@ export async function getNoteDraft(id: string): Promise<NoteDraft | undefined> {
   return db.noteDrafts.get(id);
 }
 
-export async function getBookNoteDrafts(bookId: string): Promise<NoteDraft[]> {
-  return db.noteDrafts.where("bookId").equals(bookId).toArray();
-}
-
 /** Resume the existing compose draft without replacing its captured location. */
 export async function beginNoteDraft(
   bookId: string,

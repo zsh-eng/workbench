@@ -19,8 +19,8 @@ import {
   Palette,
   type LucideIcon,
 } from "lucide-react";
-import { ReaderContentsPanel } from "./ReaderContentsSheet";
-import { ReaderSettingsList } from "./ReaderSettingsSheet";
+import { ReaderContentsPanel } from "./ReaderContentsPanel";
+import { ReaderSettingsList } from "./ReaderSettingsPanel";
 import type { ChapterEntry, ReaderSheetId } from "./types";
 import { MOTION_MS } from "@/lib/motion";
 

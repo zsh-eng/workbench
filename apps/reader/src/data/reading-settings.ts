@@ -32,14 +32,3 @@ export async function getReadingSettings(): Promise<ReadingSettings> {
   await db.readingSettings.add({ ...defaultSettings, isDeleted: false });
   return (await db.readingSettings.get("default"))!;
 }
-
-export async function updateReadingSettings(
-  settings: Partial<ReadingSettings>,
-): Promise<void> {
-  const current = await getReadingSettings();
-  await db.readingSettings.put({
-    ...current,
-    ...settings,
-    isDeleted: false,
-  });
-}

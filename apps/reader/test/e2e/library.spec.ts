@@ -1,6 +1,9 @@
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { readFile } from "node:fs/promises";
 import {
   expect,
   SAMPLE_BOOK_TITLE,
+  SAMPLE_EPUB_PATH,
   test,
   waitForReaderReady,
   nextSpread,
@@ -8,26 +11,12 @@ import {
 } from "./helpers/fixtures";
 
 test.describe("Library", () => {
-  test("should display empty library initially", async ({ page }) => {
-    await page.goto("/");
-    // A test's first page can also load Vite's cold application module graph.
-    await expect(page.getByText("Your library is empty")).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(
-      page.getByText("Drop EPUB files anywhere on this page", {
-        exact: false,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Choose EPUB files" }),
-    ).toBeVisible();
-  });
-
-  test("should add a book via file picker", async ({ page, addSampleBook }) => {
+  test("imports a book from the file picker and opens it at once", async ({
+    page,
+    addSampleBook,
+  }) => {
     await page.goto("/");
     await addSampleBook();
-    await expect(page.getByText("Your library is empty")).not.toBeVisible();
 
     const artifacts = await page.evaluate(async () => {
       const readRequest = <T>(request: IDBRequest<T>) =>
@@ -90,6 +79,10 @@ test.describe("Library", () => {
     expect(artifacts.expandedFileCount).toBeGreaterThan(0);
     expect(artifacts.materializedSourceFileId).toBe(artifacts.sourceFileId);
     expect(artifacts.materializationRecipeVersion).toBe(1);
+
+    await page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).click();
+    await waitForReaderReady(page);
+    await nextSpread(page);
   });
 
   test("search narrows the page from the title, and typing starts it", async ({
@@ -131,11 +124,40 @@ test.describe("Library", () => {
     await searchInput.press("Enter");
     await expect(page).toHaveURL(`/reader/${localBook.id}`);
   });
+});
 
-  test("should open a book from library", async ({ page, localBook }) => {
-    await page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).click();
-    await expect(page).toHaveURL(`/reader/${localBook.id}`);
-  });
+test("mobile import offers Open book after durable preparation without opening automatically", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const chooser = page.waitForEvent("filechooser");
+  await page
+    .getByRole("button", { name: "Choose EPUB files", exact: true })
+    .click();
+  await (await chooser).setFiles(SAMPLE_EPUB_PATH);
+  const openBook = page.getByRole("button", { name: "Open book", exact: true });
+  await expect(openBook).toBeVisible();
+  await expect(
+    page.locator("[data-sonner-toast]").filter({ has: openBook }),
+  ).toContainText("Added 1 book.");
+  await expect(page).toHaveURL(/\/$/);
+  const prepared = await page.evaluate(async (modulePath) => {
+    const { syncV2Db: db } = await import(modulePath);
+    const book = await db.books.toCollection().first();
+    const marker = await db.bookMaterializations.get(book.id);
+    return {
+      id: book.id,
+      source: book.sourceFileId,
+      markerSource: marker?.sourceFileId,
+      entries: await db.bookFiles.where("bookId").equals(book.id).count(),
+    };
+  }, "/src/lib/sync-v2/db.ts");
+  expect(prepared.markerSource).toBe(prepared.source);
+  expect(prepared.entries).toBeGreaterThan(0);
+  await openBook.click();
+  await expect(page).toHaveURL(new RegExp(`/reader/${prepared.id}$`));
+  await waitForReaderReady(page);
 });
 
 test("updates reading status and library placement while offline", async ({
@@ -172,23 +194,10 @@ test("updates reading status and library placement while offline", async ({
     .toBe("finished");
 });
 
-test("imports then immediately opens a new EPUB", async ({
-  page,
-  addSampleBook,
-}) => {
-  await page.goto("/");
-  await addSampleBook();
-  await page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).click();
-  await waitForReaderReady(page);
-  await nextSpread(page);
-});
-
 test("keeps duplicate and failed imports in the Library", async ({
   page,
   localBook,
 }) => {
-  const { SAMPLE_EPUB_PATH } = await import("./helpers/fixtures");
-  const { readFile } = await import("node:fs/promises");
   const drop = async (name: string, bytes: Buffer) => {
     const dataTransfer = await page.evaluateHandle(
       ({ name, bytes }) => {
@@ -228,9 +237,6 @@ test("keeps duplicate and failed imports in the Library", async ({
 test("reports mixed multi-file import outcomes without opening a book", async ({
   page,
 }) => {
-  const { readFile } = await import("node:fs/promises");
-  const { unzipSync, zipSync, strFromU8, strToU8 } = await import("fflate");
-  const { SAMPLE_EPUB_PATH } = await import("./helpers/fixtures");
   const original = await readFile(SAMPLE_EPUB_PATH);
   const entries = unzipSync(original);
   const opf = Object.keys(entries).find((path) => path.endsWith(".opf"))!;

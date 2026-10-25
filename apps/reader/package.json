@@ -30,7 +30,7 @@
     "db:backup-remote": "bun scripts/backup-remote-d1.ts",
     "format": "oxfmt --config ../../.oxfmtrc.json .",
     "format:check": "oxfmt --config ../../.oxfmtrc.json --check .",
-    "build:packages": "bun run --cwd ../../packages/text-highlighter build && bun run --cwd ../../packages/local-sync build",
+    "build:packages": "bun scripts/build-packages.ts",
     "test:sync": "bun run --cwd ../../packages/local-sync build && bun run --cwd ../../packages/local-sync test"
   },
   "dependencies": {

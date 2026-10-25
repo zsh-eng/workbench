@@ -27,9 +27,15 @@
     /* Path aliases */
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
+    // Workspace packages' source (elements, activity-time) checks against
+    // this app's React types, whatever the install layout.
     "paths": {
       "@/*": ["./src/*"],
-      "@server/*": ["./server/*"]
+      "@server/*": ["./server/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
     }
   },
   "include": ["src", "worker-configuration.d.ts"]

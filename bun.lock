@@ -390,6 +390,9 @@
     },
     "packages/elements": {
       "name": "@workbench/elements",
+      "devDependencies": {
+        "@types/react": "19.3.0",
+      },
       "peerDependencies": {
         "react": ">=18",
       },

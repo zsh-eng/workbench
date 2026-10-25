@@ -172,24 +172,6 @@ function buildSpreadProjection(
   };
 }
 
-export function buildResolvedSpread(
-  intent: SpreadIntent,
-  state: SpreadComputationState,
-): ResolvedSpread | null {
-  const anchorGlobalPage = resolveAnchorToGlobalPage(
-    state.pagesByChapter,
-    state.chapterPageOffsets,
-    state.anchor,
-  );
-  if (anchorGlobalPage === null) return null;
-
-  const projection = buildSpreadProjection(state);
-  const spreadIndex = projection.spreadIndexByGlobalPage.get(anchorGlobalPage);
-  if (spreadIndex === undefined) return null;
-
-  return buildResolvedSpreadAtIndex(intent, state, projection, spreadIndex);
-}
-
 export function buildResolvedSpreadWindow(
   intent: SpreadIntent,
   state: SpreadComputationState,

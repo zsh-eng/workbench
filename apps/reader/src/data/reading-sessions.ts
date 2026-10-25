@@ -1,7 +1,6 @@
 /** Reading-duration records and cleanup of sessions left open by a device. */
 import { getOrCreateDeviceId } from "@/lib/device";
 import { READER_GAP_MS, type ReaderSessionRow } from "@workbench/activity-time";
-import Dexie from "dexie";
 import { db, isNotDeleted } from "./database";
 
 /** A longer pause between inputs counts nothing (`packages/activity-time`). */
@@ -65,32 +64,4 @@ export async function updateCurrentDeviceReadingSession(
   const record = withCurrentDeviceReadingSession(session);
   await db.readingSessions.put({ ...record, isDeleted: false });
   return record.id;
-}
-
-export async function endCurrentDeviceReadingSession(
-  session: CurrentDeviceReadingSessionInput & { endedAt: number },
-): Promise<string> {
-  return updateCurrentDeviceReadingSession(session);
-}
-
-export async function closeStaleReadingSessionsForCurrentDevice(
-  staleBefore: number,
-): Promise<number> {
-  const deviceId = getOrCreateDeviceId();
-  const staleSessions = await db.readingSessions
-    .where("[deviceId+lastActiveAt]")
-    .between([deviceId, Dexie.minKey], [deviceId, staleBefore])
-    .filter((session) => session.endedAt === null && isNotDeleted(session))
-    .toArray();
-
-  if (staleSessions.length === 0) return 0;
-
-  await db.readingSessions.bulkPut(
-    staleSessions.map((session) => ({
-      ...session,
-      endedAt: session.lastActiveAt,
-    })),
-  );
-
-  return staleSessions.length;
 }

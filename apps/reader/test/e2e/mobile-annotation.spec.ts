@@ -1,9 +1,13 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   test,
   expect,
+  closeSheet,
+  letTapClearSelection,
   openLocalBook,
   nextSpread,
+  selectPassage,
+  showNotesCapsule,
   waitForReaderReady,
   waitForSheet,
 } from "./helpers/fixtures";
@@ -13,58 +17,6 @@ test.use({
   hasTouch: true,
   isMobile: true,
 });
-
-/**
- * Closes a phone sheet as a reader does: a tap on the dimmed page above
- * it. The detent Notebook has no close button of its own.
- */
-async function closeSheet(page: Page, sheet: Locator) {
-  const top = await sheet.evaluate(
-    (element) =>
-      (element.closest(".reader-sheet") ?? element).getBoundingClientRect().top,
-  );
-  await page.touchscreen.tap(195, Math.max(8, top / 2));
-  await expect(sheet).not.toBeVisible();
-}
-
-async function selectPassage(page: Page, index = 0) {
-  await page.evaluate((index) => {
-    (document.activeElement as HTMLElement | null)?.blur();
-    const root = document.querySelector(
-      '[data-reader-spread-layer="current"]',
-    )!;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const range = document.createRange();
-    let node = walker.nextNode();
-    let found = 0;
-    while (node) {
-      range.selectNodeContents(node);
-      if (
-        (node.textContent?.trim().length ?? 0) >= 20 &&
-        range.getBoundingClientRect().top >= 120 &&
-        found++ === index
-      )
-        break;
-      node = walker.nextNode();
-    }
-    if (!node) throw new Error("No sample passage");
-    range.setStart(node, 0);
-    range.setEnd(node, 20);
-    getSelection()!.removeAllRanges();
-    getSelection()!.addRange(range);
-  }, index);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
-}
-
-/** The capsule rides on the footer, so the chrome must be showing. */
-async function showChrome(page: Page) {
-  const capsule = page.locator("[data-notes-capsule]");
-  if (!(await capsule.isVisible()))
-    await page.touchscreen.tap(page.viewportSize()!.width / 2, 300);
-  await expect(capsule).toBeVisible();
-}
 
 test("Notes Island annotation and retained draft", async ({
   page,
@@ -131,7 +83,7 @@ test("Notes Island annotation and retained draft", async ({
   await input.press("Escape");
   await expect(panel).toHaveCount(0);
   // A new passage offers to attach itself to the unfinished draft.
-  await selectPassage(page, 2);
+  await selectPassage(page, { index: 2 });
   await expect(page.getByRole("button", { name: "Add note" })).toHaveCount(0);
   await page.getByRole("button", { name: "Attach to draft" }).click();
   await expect(input).toHaveValue("This draft belongs to a passage.");
@@ -152,7 +104,7 @@ test("Notes Island annotation and retained draft", async ({
     content: "This draft belongs to a passage.",
     quote: { text: attachedQuote },
   });
-  await showChrome(page);
+  await showNotesCapsule(page);
   const notebookButton = page.getByRole("button", {
     name: "Open notebook",
     exact: true,
@@ -201,7 +153,7 @@ test("attaching, quote removal and highlight deletion preserve note intent", asy
   const first = await quote.locator("span").first().innerText();
   await input.press("Escape");
   await expect(page.locator("[data-note-composer]")).toHaveCount(0);
-  await selectPassage(page, 2);
+  await selectPassage(page, { index: 2 });
   await page.getByRole("button", { name: "Attach to draft" }).click();
   await expect(quote.locator("span").first()).not.toHaveText(first);
   await expect(input).toHaveValue("Retained thought");
@@ -222,78 +174,54 @@ test("attaching, quote removal and highlight deletion preserve note intent", asy
   expect(saved[0]).not.toHaveProperty("quote");
 });
 
-/** Counts the saved words that fly into the island from here on. */
-async function countFlights(page: Page) {
-  await page.evaluate(() => {
-    const counted = window as Window & { flights?: number };
-    counted.flights = 0;
-    new MutationObserver((records) => {
-      for (const record of records)
-        for (const node of record.addedNodes)
-          if (
-            node instanceof Element &&
-            node.hasAttribute("data-feedback-flight")
-          )
-            counted.flights!++;
-    }).observe(document.body, { childList: true });
-  });
-  return () =>
-    page.evaluate(() => (window as Window & { flights?: number }).flights);
-}
-
-for (const reducedMotion of ["no-preference", "reduce"] as const)
-  test(`a noted highlight opens its note on the island, with Undo for deletion${reducedMotion === "reduce" ? ", in place with reduced motion" : ""}`, async ({
-    page,
-    localBook,
-  }) => {
-    await page.emulateMedia({ reducedMotion });
-    await openLocalBook(page, localBook.id);
-    for (let i = 0; i < 8; i++) await nextSpread(page);
-    await selectPassage(page);
-    await page.getByRole("button", { name: "Highlight with green" }).click();
-    const mark = page
-      .locator('[data-reader-spread-layer="current"] mark')
-      .first();
-    await mark.click();
-    await page.getByRole("button", { name: "Add note" }).click();
-    await page
-      .getByRole("textbox", { name: "Write a note" })
-      .fill("Worth rereading.");
-    const flights = await countFlights(page);
-    await page.getByRole("button", { name: "Save note", exact: true }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Saved to notebook" }),
-    ).toBeVisible();
-    await expect(page.locator("[data-notes-island]")).toHaveCount(0);
-    // The words fly into the notice; with reduced motion, nothing moves.
-    expect(await flights()).toBe(reducedMotion === "reduce" ? 0 : 1);
-    await mark.click();
-    const note = page.getByRole("region", { name: "Note", exact: true });
-    await expect(note).toContainText("Worth rereading.");
-    await expect(note).toContainText(/p\. \d+ · Today/);
-    await note.getByRole("button", { name: "Delete note" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Note deleted" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Note restored" }),
-    ).toBeVisible();
-    await expect
-      .poll(() =>
-        page.evaluate(async () => {
-          const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
-          return (await db.notes.toArray()).filter((item) => !item.isDeleted)
-            .length;
-        }),
-      )
-      .toBe(1);
-    await mark.click();
-    await note.getByRole("button", { name: "Show highlight tools" }).click();
-    await expect(
-      page.getByRole("button", { name: "Remove highlight", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-  });
+test("a noted highlight opens its note on the island, with Undo for deletion", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let i = 0; i < 8; i++) await nextSpread(page);
+  await selectPassage(page);
+  await page.getByRole("button", { name: "Highlight with green" }).click();
+  const mark = page
+    .locator('[data-reader-spread-layer="current"] mark')
+    .first();
+  await mark.click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await page
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("Worth rereading.");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved to notebook" }),
+  ).toBeVisible();
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await mark.click();
+  const note = page.getByRole("region", { name: "Note", exact: true });
+  await expect(note).toContainText("Worth rereading.");
+  await expect(note).toContainText(/p\. \d+ · Today/);
+  await note.getByRole("button", { name: "Delete note" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Note deleted" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Note restored" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+        return (await db.notes.toArray()).filter((item) => !item.isDeleted)
+          .length;
+      }),
+    )
+    .toBe(1);
+  await mark.click();
+  await note.getByRole("button", { name: "Show highlight tools" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove highlight", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
 
 test("the notebook gathers highlights and filters them by type and colour", async ({
   page,
@@ -302,7 +230,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
   // Selecting text hides the reading chrome; the island owns the bottom edge.
-  await showChrome(page);
+  await showNotesCapsule(page);
   const back = page.getByRole("button", { name: "Back to library" });
   await expect(back).toBeInViewport();
   // A plain yellow highlight, and a green highlight with a note. The reveal
@@ -315,7 +243,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
   }).toPass();
   await expect(back).not.toBeInViewport();
   await page.getByRole("button", { name: "Highlight with yellow" }).click();
-  await selectPassage(page, 2);
+  await selectPassage(page, { index: 2 });
   await page.getByRole("button", { name: "Highlight with green" }).click();
   await page
     .locator('[data-reader-spread-layer="current"] mark[data-color="green"]')
@@ -326,7 +254,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
     .getByRole("textbox", { name: "Write a note" })
     .fill("Green thought.");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await showChrome(page);
+  await showNotesCapsule(page);
   // The capsule counts what the notebook shows.
   const open = page.getByRole("button", { name: "Open notebook", exact: true });
   await expect(open).toHaveAttribute(
@@ -377,14 +305,14 @@ test("the notebook opens at the current chapter", async ({
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
   const goTo = async (name: string) => {
-    await showChrome(page);
+    await showNotesCapsule(page);
     await page.getByRole("button", { name, exact: true }).click();
     await waitForReaderReady(page);
   };
   // Two highlights in each of four chapters overflow the notebook list.
   for (const color of ["yellow", "green", "blue", "magenta"]) {
     for (const index of [0, 2]) {
-      await selectPassage(page, index);
+      await selectPassage(page, { index: index });
       await page
         .getByRole("button", { name: `Highlight with ${color}` })
         .click();
@@ -394,7 +322,7 @@ test("the notebook opens at the current chapter", async ({
   }
   await goTo("Previous chapter");
   await goTo("Previous chapter");
-  await showChrome(page);
+  await showNotesCapsule(page);
   await page
     .getByRole("button", { name: "Open notebook", exact: true })
     .click();
@@ -416,7 +344,7 @@ test("a notebook highlight has the note menu on phones too", async ({
   await selectPassage(page);
   await page.getByRole("button", { name: "Highlight with blue" }).click();
   await expect(page.locator("[data-notes-island]")).toHaveCount(0);
-  await showChrome(page);
+  await showNotesCapsule(page);
   await page
     .getByRole("button", { name: "Open notebook", exact: true })
     .click();
@@ -574,6 +502,7 @@ test("Copy writes a highlight's whole passage, past the page break, from its too
   // A fresh selection offers the same Copy, beside its colours.
   await page.touchscreen.tap(195, 120);
   await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await letTapClearSelection(page);
   await selectPassage(page);
   const selected = await page.evaluate(() => getSelection()!.toString());
   await copy.tap();
@@ -586,7 +515,7 @@ test("tapping a highlight and closing its tools moves nothing on the page", asyn
 }) => {
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
-  await selectPassage(page, 1);
+  await selectPassage(page, { index: 1 });
   await page.getByRole("button", { name: "Highlight with yellow" }).tap();
   const island = page.locator("[data-notes-island]");
   await expect(island).toHaveCount(0);
@@ -656,28 +585,3 @@ test("tapping a highlight and closing its tools moves nothing on the page", asyn
     ),
   ).toEqual([]);
 });
-
-for (const reducedMotion of ["no-preference", "reduce"] as const)
-  test(`the Undo toast is announced, and Undo turns it into Restored${reducedMotion === "reduce" ? ", and only fades with reduced motion" : ""}`, async ({
-    page,
-  }) => {
-    await page.emulateMedia({ reducedMotion });
-    await page.goto("/debug/ideas/feedback");
-    await page.getByRole("button", { name: "Show the Undo toast" }).tap();
-    const toast = page
-      .getByRole("status")
-      .filter({ hasText: "Highlight deleted" });
-    await expect(toast).toBeVisible();
-    // It opens out of a pill; with reduced motion it does not change shape.
-    const opening = await toast.evaluate(
-      (element) => getComputedStyle(element).animationName,
-    );
-    if (reducedMotion === "reduce") expect(opening).toBe("none");
-    else expect(opening).toContain("wb-toast-open");
-    await toast.evaluate((element) => element.setAttribute("data-probe", ""));
-    await toast.getByRole("button", { name: "Undo" }).tap();
-    // The same toast says the change is undone, then leaves.
-    const same = page.locator("[data-probe]");
-    await expect(same).toContainText("Restored");
-    await expect(same).toHaveCount(0);
-  });

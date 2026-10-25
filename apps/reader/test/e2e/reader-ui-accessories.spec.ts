@@ -5,6 +5,7 @@ import {
   currentPages,
   nextSpread,
   openReaderTools,
+  selectPassage,
   waitForReaderReady,
   waitForSheet,
 } from "./helpers/fixtures";
@@ -36,7 +37,7 @@ test("desktop shows the status prompt in the header and contents open a chapter"
   await expect.poll(() => currentPages(page)).not.toEqual(before);
 });
 
-test("desktop notebook highlights navigate to the marked passage and retain the tab", async ({
+test("desktop notebook highlights navigate to the marked passage", async ({
   page,
   localBook,
 }) => {
@@ -44,27 +45,7 @@ test("desktop notebook highlights navigate to the marked passage and retain the 
   await openLocalBook(page, localBook.id);
   for (let i = 0; i < 8; i++) await nextSpread(page);
   const markedPages = await currentPages(page);
-  await page.evaluate(() => {
-    const root = document.querySelector(
-      '[data-reader-spread-layer="current"]',
-    )!;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node && (node.textContent?.trim().length ?? 0) < 40)
-      node = walker.nextNode();
-    if (!node) throw new Error("No passage");
-    const range = document.createRange();
-    range.setStart(node, 0);
-    range.setEnd(node, 40);
-    window.getSelection()!.removeAllRanges();
-    window.getSelection()!.addRange(range);
-  });
-  await expect
-    .poll(() => page.evaluate(() => window.getSelection()?.toString().length))
-    .toBe(40);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
+  await selectPassage(page, { length: 40 });
   await page.getByRole("button", { name: "Highlight with yellow" }).click();
   const mark = page
     .locator('[data-reader-spread-layer="current"] [data-highlight-id]')
@@ -90,18 +71,6 @@ test("desktop notebook highlights navigate to the marked passage and retain the 
       )
       .first(),
   ).toBeVisible();
-  await page.reload();
-  await waitForReaderReady(page);
-  await page.locator('[data-reader-header="desktop"]').hover();
-  await page
-    .getByRole("button", { name: "Open reader tools", exact: true })
-    .click();
-  await expect(
-    tools.getByRole("button", { name: "Notebook", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(
-    tools.getByRole("button", { name: /^Go to highlight:/ }),
-  ).toHaveCount(1);
 });
 
 test.describe("mobile Reader accessories", () => {

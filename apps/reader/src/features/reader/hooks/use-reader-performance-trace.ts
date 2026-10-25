@@ -213,3 +213,37 @@ export function useReaderPerformanceTraceLifecycle(options: {
     completeReaderTrace("completed");
   }, [bookId, paginationStatus, settledPaintReady]);
 }
+
+/**
+ * Mounted in the render that makes the Reader display ready: records how
+ * long that render took to commit.
+ */
+export function DisplayReadyCommitProbe({
+  paginationStatus,
+  readerStatus,
+}: {
+  paginationStatus: string;
+  readerStatus: string;
+}): null {
+  const renderStartedAtMsRef = useRef(performance.now());
+  const statusRef = useRef({ paginationStatus, readerStatus });
+
+  useLayoutEffect(() => {
+    const committedAtMs = performance.now();
+    const initialStatus = statusRef.current;
+    recordReaderTraceSpan({
+      name: "display-ready-reader-render-commit",
+      lane: "processing",
+      startPerformanceMs: renderStartedAtMsRef.current,
+      endPerformanceMs: committedAtMs,
+      details: {
+        durationMs:
+          Math.round((committedAtMs - renderStartedAtMsRef.current) * 10) / 10,
+        paginationStatus: initialStatus.paginationStatus,
+        readerStatus: initialStatus.readerStatus,
+      },
+    });
+  }, []);
+
+  return null;
+}

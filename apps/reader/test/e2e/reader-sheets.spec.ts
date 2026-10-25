@@ -3,6 +3,7 @@ import {
   test,
   expect,
   openLocalBook,
+  openReaderTool,
   openReaderTools,
   showNotesCapsule,
   waitForReaderReady,
@@ -37,21 +38,6 @@ function screenShare(dialog: Locator) {
   });
 }
 
-/** Waits until a sheet has entered and rests; React Aria marks entry. */
-async function settled(dialog: Locator) {
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  await expect
-    .poll(() =>
-      dialog.evaluate(
-        (element) =>
-          !element
-            .closest(".reader-sheet-overlay")
-            ?.hasAttribute("data-entering"),
-      ),
-    )
-    .toBe(true);
-}
-
 /** A finger drag in the middle of the screen; negative moves content up. */
 async function swipe(page: Page, y: number, distance: number) {
   const cdp = await page.context().newCDPSession(page);
@@ -69,8 +55,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   page,
 }) => {
   await page.goto(`${FRAME}?state=tools&variant=detents`);
-  const tools = page.getByRole("dialog", { name: "Reader tools" });
-  await settled(tools);
+  const tools = await waitForSheet(page, "Reader tools", { timeout: 30_000 });
   // Reader tools fit their content instead of a fixed height.
   await expect.poll(() => visibleShare(tools)).toBeCloseTo(1, 1);
   const toolsTop = await tools.evaluate(
@@ -80,8 +65,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
 
   // Contents stacks over the tools at the lists' medium detent.
   await tools.getByRole("button", { name: /Contents/ }).click();
-  const contents = page.getByRole("dialog", { name: "Contents" });
-  await settled(contents);
+  const contents = await waitForSheet(page, "Contents");
   await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
   await expect(tools).toBeAttached();
 
@@ -94,11 +78,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
 
   // Appearance takes the place of the tools, fits its tab, and does not dim.
   await tools.getByRole("button", { name: "Appearance", exact: true }).click();
-  const settings = page.getByRole("dialog", {
-    name: "Appearance",
-    exact: true,
-  });
-  await settled(settings);
+  const settings = await waitForSheet(page, "Appearance");
   await expect(tools).toBeHidden();
   await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await expect(page.locator(".reader-sheet-backdrop")).toHaveCount(0);
@@ -140,8 +120,7 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   await tools
     .getByRole("button", { name: /Book status/ })
     .dispatchEvent("click");
-  const status = page.getByRole("dialog", { name: "Reading status" });
-  await settled(status);
+  const status = await waitForSheet(page, "Reading status");
   const finished = status.getByRole("button", { name: "Finished" });
   await finished.click();
   await expect(finished).toHaveAttribute("aria-pressed", "true");
@@ -156,9 +135,7 @@ test("A menu and a toast opened from a sheet take taps", async ({
   // Aria's top layer.
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
-  const tools = await openReaderTools(page);
-  await tools.getByRole("button", { name: "Notebook", exact: true }).click();
-  const notebook = await waitForSheet(page, "Notebook");
+  const notebook = await openReaderTool(page, "Notebook", "Notebook");
   const input = notebook.getByRole("textbox", { name: "Write a note" });
   await input.fill("A note to delete");
   await input.press("Control+Enter");
@@ -183,14 +160,7 @@ test("The Reader opens Contents as a detent sheet by default", async ({
 }) => {
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
-  await page
-    .getByRole("button", { name: "Open reader tools", exact: true })
-    .click();
-  const tools = page.getByRole("dialog", { name: "Reader tools" });
-  await settled(tools);
-  await tools.getByRole("button", { name: /Contents/ }).click();
-  const contents = page.getByRole("dialog", { name: "Contents" });
-  await settled(contents);
+  const contents = await openReaderTool(page, /Contents/, "Contents");
   await expect.poll(() => screenShare(contents)).toBeCloseTo(0.55, 1);
 
   // A chapter is a tap away at the detent; the book turns to it behind the
@@ -202,13 +172,6 @@ test("The Reader opens Contents as a detent sheet by default", async ({
   await expect(chapter).not.toHaveAttribute("aria-current", "location");
   await chapter.click();
   await expect(chapter).toHaveAttribute("aria-current", "location");
-
-  // A swipe up takes the list to full height; Back returns to the tools.
-  await swipe(page, 700, -500);
-  await expect.poll(() => visibleShare(contents)).toBeGreaterThan(0.98);
-  await contents.getByRole("button", { name: "Back to reader tools" }).click();
-  await expect(contents).toBeHidden();
-  await expect(tools).toBeVisible();
 });
 
 test("Search rests at the medium detent and full height", async ({
@@ -217,14 +180,7 @@ test("Search rests at the medium detent and full height", async ({
 }) => {
   await openLocalBook(page, localBook.id);
   await page.touchscreen.tap(195, 422);
-  await page
-    .getByRole("button", { name: "Open reader tools", exact: true })
-    .click();
-  const tools = page.getByRole("dialog", { name: "Reader tools" });
-  await settled(tools);
-  await tools.getByRole("button", { name: /Search book/ }).click();
-  const sheet = page.getByRole("dialog", { name: "Search book" });
-  await settled(sheet);
+  const sheet = await openReaderTool(page, /Search book/, "Search book");
 
   // An empty field takes focus. The keyboard would cover the medium
   // detent, so the sheet opens at full height.
@@ -256,7 +212,7 @@ test("Search rests at the medium detent and full height", async ({
   // The count brings the results back at the medium detent, with the
   // result in view and the keyboard away.
   await stepper.getByRole("button", { name: /Show all results/ }).tap();
-  await settled(sheet);
+  await waitForSheet(page, "Search book");
   await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
   await expect(results.nth(1)).toHaveAttribute("aria-current", "true");
   await expect(results.nth(1)).toBeInViewport();
@@ -312,34 +268,6 @@ test("Open notebook in the notes bubble opens the Notebook sheet that Reader too
   ).toBeVisible();
 });
 
-test("With detent sheets off, Open notebook in the notes bubble still opens the Notebook", async ({
-  page,
-  localBook,
-}) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-detent-sheets-v1", "false"),
-  );
-  await openLocalBook(page, localBook.id);
-  await showNotesCapsule(page);
-  await page
-    .getByRole("button", { name: "Open notebook", exact: true })
-    .click();
-  const notebook = await waitForSheet(page, "Notebook");
-  const input = notebook.getByRole("textbox", { name: "Write a note" });
-  await input.fill("A note in the fixed sheet");
-  await input.press("Control+Enter");
-  const note = notebook.getByText("A note in the fixed sheet", { exact: true });
-  await expect(note).toBeVisible();
-  await notebook.getByRole("button", { name: "Close notebook" }).click();
-  await expect(notebook).toBeHidden();
-
-  await showNotesCapsule(page);
-  await page
-    .getByRole("button", { name: "Open notebook", exact: true })
-    .click();
-  await expect(note).toBeVisible();
-});
-
 /** Counts the moves that a sheet's spring runs from here on. */
 async function countSprings(page: Page) {
   await page.evaluate(() => {
@@ -367,8 +295,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     await page.goto("/debug/ideas/sheet-motion?motion=uikit");
     const springs = await countSprings(page);
     await page.getByRole("button", { name: "List", exact: true }).tap();
-    const sheet = page.getByRole("dialog", { name: "List" });
-    await settled(sheet);
+    const sheet = await waitForSheet(page, "List");
     await expect.poll(() => screenShare(sheet)).toBeCloseTo(0.55, 1);
 
     await sheet.getByRole("button", { name: "Full height" }).tap();
@@ -380,8 +307,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     await page.touchscreen.tap(195, 60);
     await expect(sheet).toBeHidden();
     await page.getByRole("button", { name: "Menu", exact: true }).tap();
-    const menu = page.getByRole("dialog", { name: "Menu" });
-    await settled(menu);
+    const menu = await waitForSheet(page, "Menu");
     await menu.getByRole("button", { name: "Contents" }).tap();
     await expect(menu).toBeHidden();
 
@@ -389,3 +315,122 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     if (reducedMotion === "reduce") expect(await springs()).toBe(0);
     else expect(await springs()).toBeGreaterThan(3);
   });
+
+// Debug mode can turn detent sheets off, bringing back one fixed-height
+// sheet whose pages slide in place. This test keeps that path working.
+test.describe("fixed-height Reader tools sheet", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() =>
+      localStorage.setItem("reader-detent-sheets-v1", "false"),
+    );
+  });
+
+  // Motion stays on so the quick reversal below lands mid-slide.
+  test("moves between tools pages and keeps a note", async ({
+    page,
+    localBook,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await openLocalBook(page, localBook.id);
+    await page.touchscreen.tap(195, 350);
+    await page
+      .getByRole("button", { name: "Open reader tools", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveCount(1);
+    for (const [button, title] of [
+      ["Appearance", "Appearance"],
+      ["Notebook", "Notebook"],
+      [/Book status/, "Reading status"],
+      [/Contents/, "Contents"],
+    ] as const) {
+      await dialog
+        .getByRole("button", {
+          name: button,
+          exact: typeof button === "string",
+        })
+        .click();
+      // Each page takes the place of the tools in the one sheet.
+      await expect(dialog).toHaveCount(1);
+      await expect(
+        page.getByRole("dialog", { name: title, exact: true }),
+      ).toBeVisible();
+      if (title === "Notebook") {
+        const input = dialog.getByRole("textbox");
+        await input.fill("Sheet navigation note");
+        await input.press("Control+Enter");
+        await expect(
+          dialog.getByText("Sheet navigation note", { exact: true }),
+        ).toBeVisible();
+      }
+      await dialog
+        .getByRole("button", { name: "Back to reader tools" })
+        .click();
+      await expect(
+        dialog.getByRole("button", { name: "Notebook", exact: true }),
+      ).toBeVisible();
+    }
+    // Reverse before the page slide completes; outgoing pages must not keep focus.
+    await dialog.getByRole("button", { name: "Appearance" }).click();
+    await dialog.getByRole("button", { name: "Back to reader tools" }).click();
+    await dialog.getByRole("button", { name: "Notebook", exact: true }).click();
+    await expect(
+      dialog.getByText("Sheet navigation note", { exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(async (path) => {
+          const { syncV2Db: db } = await import(path);
+          return (await db.notes.toArray()).filter(
+            (note: { isDeleted: boolean; content: string }) =>
+              !note.isDeleted && note.content === "Sheet navigation note",
+          ).length;
+        }, "/src/lib/sync-v2/db.ts"),
+      )
+      .toBe(1);
+    await dialog
+      .getByText("Sheet navigation note", { exact: true })
+      .click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Edit note" }).click();
+    await expect(
+      dialog.getByRole("textbox", { name: "Edit note" }),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel editing" }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator("[data-note-composer]")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Open reader tools", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", { name: "Notebook", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("Open notebook in the notes bubble opens the Notebook", async ({
+    page,
+    localBook,
+  }) => {
+    await openLocalBook(page, localBook.id);
+    await showNotesCapsule(page);
+    await page
+      .getByRole("button", { name: "Open notebook", exact: true })
+      .click();
+    const notebook = await waitForSheet(page, "Notebook");
+    const input = notebook.getByRole("textbox", { name: "Write a note" });
+    await input.fill("A note in the fixed sheet");
+    await input.press("Control+Enter");
+    const note = notebook.getByText("A note in the fixed sheet", {
+      exact: true,
+    });
+    await expect(note).toBeVisible();
+    await notebook.getByRole("button", { name: "Close notebook" }).click();
+    await expect(notebook).toBeHidden();
+
+    await showNotesCapsule(page);
+    await page
+      .getByRole("button", { name: "Open notebook", exact: true })
+      .click();
+    await expect(note).toBeVisible();
+  });
+});

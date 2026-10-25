@@ -203,7 +203,7 @@ export interface ReaderPageDebugDump {
   }>;
 }
 
-interface BuildReaderPageDebugDumpOptions {
+export interface BuildReaderPageDebugDumpOptions {
   book: Book;
   settings: ReaderSettings;
   spread: ResolvedSpread;

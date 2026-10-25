@@ -30,6 +30,10 @@ demo contract.
   floats and where it meets the screen's edges. Import
   `@workbench/elements/sheet.css` once and colour the surface with its
   `--wb-sheet-*` properties.
+- `@workbench/elements/sheet-body`: `useSheetBody`, the behaviour of a React
+  Aria sheet's body (its spring and shape, the scroll out on close, and the
+  keyboard kept clear of its detents), `SheetFitHeight`, which holds the
+  height for the content, and `isTextField`.
 
 Arctic for the web and Reader use the sheet parts. See
 [docs/MOTION.md](docs/MOTION.md) for the measurements behind them and the

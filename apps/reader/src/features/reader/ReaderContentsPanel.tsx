@@ -1,11 +1,9 @@
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TOCItem } from "@/lib/db";
 import { splitHrefFragment } from "@/lib/epub-resource-utils";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, List } from "lucide-react";
+import { List } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, type Ref } from "react";
-import { ReaderSheet } from "./shared/ReaderSheet";
 import type { ChapterEntry } from "./types";
 
 interface ReaderContentsPanelProps {
@@ -16,11 +14,6 @@ interface ReaderContentsPanelProps {
   currentChapterHref: string;
   onNavigateToHref: (href: string) => boolean;
   className?: string;
-}
-
-interface ReaderContentsSheetProps extends ReaderContentsPanelProps {
-  onClose: () => void;
-  onBack: () => void;
 }
 
 interface FlattenedTocItem {
@@ -481,46 +474,5 @@ export function ReaderContentsPanel({
         </ScrollArea>
       </div>
     </div>
-  );
-}
-
-export function ReaderContentsSheet({
-  isOpen,
-  onClose,
-  onBack,
-  ...panelProps
-}: ReaderContentsSheetProps) {
-  return (
-    <ReaderSheet
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (open) return;
-        onClose();
-      }}
-      title="Contents"
-      panelClassName="max-w-md"
-      bodyClassName="w-full min-w-0 max-w-full overflow-hidden"
-      header={
-        <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onBack}
-            aria-label="Back to reader tools"
-            className="size-8 rounded-full border border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-
-          <p className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Contents
-          </p>
-
-          <div className="size-8" aria-hidden="true" />
-        </div>
-      }
-    >
-      <ReaderContentsPanel isOpen={isOpen} {...panelProps} />
-    </ReaderSheet>
   );
 }

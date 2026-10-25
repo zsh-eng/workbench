@@ -4,7 +4,7 @@ import {
 } from "@/components/BookStatusSheet";
 import { SlidingSheet } from "@/components/SlidingSheet";
 import { NotebookNote } from "@/features/reader/NotebookNote";
-import { ReaderContentsPanel } from "@/features/reader/ReaderContentsSheet";
+import { ReaderContentsPanel } from "@/features/reader/ReaderContentsPanel";
 import { ReaderControlMenu } from "@/features/reader/ReaderControlMenu";
 import {
   READER_SHEET_PAGES,
@@ -14,7 +14,7 @@ import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import {
   ReaderSettingsPanel,
   type ReaderSettingsPanelTab,
-} from "@/features/reader/ReaderSettingsSheet";
+} from "@/features/reader/ReaderSettingsPanel";
 import type { ReaderSheetId } from "@/features/reader/types";
 import type { ReadingStatus } from "@/lib/db";
 import { getReadingFont } from "@/lib/reading-fonts";

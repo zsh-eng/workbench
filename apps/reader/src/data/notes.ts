@@ -129,15 +129,6 @@ export async function getNotesByHighlight(
   );
 }
 
-export async function getChapterNotes(
-  bookId: string,
-  spineItemId: string,
-): Promise<Note[]> {
-  return (await getBookNotes(bookId)).filter(
-    (note) => note.anchor.spineItemId === spineItemId,
-  );
-}
-
 export async function getAllNotes(): Promise<Note[]> {
   return ordered(await db.notes.filter(isNotDeleted).toArray());
 }
