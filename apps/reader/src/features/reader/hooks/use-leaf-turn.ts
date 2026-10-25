@@ -50,6 +50,10 @@ const LEAN = (60 * Math.PI) / 180;
 const HILL_WIDTH = (6 * Math.PI) / 180;
 /** How much of a flick's speed goes into spinning the page over. */
 const FLICK_SPIN = 1;
+/** A finger leaving faster than this, px a second, flicks the page. */
+const FLICK_SPEED = 450;
+/** How far a flick leans gravity, until the page passes upright. */
+const FLING_LEAN = (95 * Math.PI) / 180;
 /** The tilt a middle grip allows the roll, following the finger. */
 const MIDDLE_TILT = 0.07;
 /** A corner grip tilts the roll this much, so the corner leads. */
@@ -114,6 +118,11 @@ interface Turn {
   corner: -1 | 0 | 1;
   /** A tap's scripted push, while it runs. */
   push: { direction: SwipeDirection; startedAt: number; width: number } | null;
+  /**
+   * A flick carries the page over the hill whichever side it is on: 1
+   * onward, -1 home, 0 for a page let go gently.
+   */
+  fling: -1 | 0 | 1;
 }
 
 interface UseLeafTurnOptions {
@@ -258,14 +267,22 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
    */
   const lean = (turn: Turn, leaf: Leaf = turn.leaf) => {
     const forward = turn.page === "current";
-    const hill = turn.canTurn
-      ? forward
-        ? HILL_FORWARD
-        : HILL_BACKWARD
-      : forward
-        ? Math.PI
-        : 0;
-    leaf.tilt = LEAN * Math.tanh((leaf.angle() - hill) / HILL_WIDTH);
+    const onward = turn.canTurn && turn.fling !== -1;
+    const toLeft = onward === forward;
+    const angle = leaf.angle();
+    const hill =
+      turn.fling !== 0 || !turn.canTurn
+        ? toLeft
+          ? 0
+          : Math.PI
+        : forward
+          ? HILL_FORWARD
+          : HILL_BACKWARD;
+    // A flicked page is thrown until it stands past upright.
+    const thrown =
+      turn.fling !== 0 && (toLeft ? angle < Math.PI / 2 : angle > Math.PI / 2);
+    leaf.tilt =
+      (thrown ? FLING_LEAN : LEAN) * Math.tanh((angle - hill) / HILL_WIDTH);
   };
 
   /** Starts a turn: the current page lifts, or the last one comes back. */
@@ -280,6 +297,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         pivotY,
         corner,
         push: null,
+        fling: 0,
       };
       aim(turn);
       lean(turn);
@@ -333,6 +351,8 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     const spin = (-FLICK_SPIN * speed) / width;
     const over = turn.page === "current" ? spin > 0 : spin < 0;
     if (turn.canTurn || !over) leaf.spin(spin);
+    turn.fling =
+      Math.abs(speed) < FLICK_SPEED ? 0 : over && turn.canTurn ? 1 : -1;
     const lands = leaf.predict((copy) => lean(turn, copy));
     const turns =
       turn.canTurn &&
@@ -403,7 +423,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
     if (!leaf.held) {
       // Let go, a corner's tilt relaxes as the leaf falls.
       turn.tilt *= Math.exp(-3 * elapsed);
-      const gone = leaf.reach() <= 0;
+      const gone = leaf.goneLeft();
       const down = leaf.landedRight();
       if (turn.page === "current" && gone) return finish(turn, "turned");
       if (turn.page === "current" && down) return finish(turn, "home");
@@ -439,14 +459,18 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       return rect;
     };
 
-    const fingerSpeed = (gesture: Gesture): number => {
+    /**
+     * The finger's speed as it lifts, over its last 80 ms, by the events'
+     * own times: moves can arrive together, a frame late.
+     */
+    const fingerSpeed = (gesture: Gesture, lift: PointerEvent): number => {
       const samples = gesture.samples;
       const last = samples[samples.length - 1];
       if (!last) return 0;
       const first =
         samples.find((sample) => last.t - sample.t <= 80) ?? samples[0]!;
       const seconds = (last.t - first.t) / 1000;
-      if (seconds <= 0.004 || performance.now() - last.t > 60) return 0;
+      if (seconds <= 0.004 || lift.timeStamp - last.t > 60) return 0;
       return (last.x - first.x) / seconds;
     };
 
@@ -471,6 +495,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         }
       }
       turn.push = null;
+      turn.fling = 0;
       leaf.holdAt(node, leaf.x[node]!, leaf.z[node]!);
       gestureRef.current = {
         pointerId: event.pointerId,
@@ -485,7 +510,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         node,
         nodeX: leaf.x[node]!,
         nodeReach: Math.hypot(leaf.x[node]!, leaf.z[node]!),
-        samples: [{ x: event.clientX, t: performance.now() }],
+        samples: [{ x: event.clientX, t: event.timeStamp }],
       };
       container.setPointerCapture(event.pointerId);
       setPhase("dragging");
@@ -523,7 +548,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
         node: LEAF_NODES,
         nodeX: 0,
         nodeReach: 0,
-        samples: [{ x: event.clientX, t: performance.now() }],
+        samples: [{ x: event.clientX, t: event.timeStamp }],
       };
     };
 
@@ -559,7 +584,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       if (!gesture || gesture.pointerId !== event.pointerId) return;
       const deltaX = event.clientX - gesture.startX;
       const deltaY = event.clientY - gesture.startY;
-      gesture.samples.push({ x: event.clientX, t: performance.now() });
+      gesture.samples.push({ x: event.clientX, t: event.timeStamp });
       if (gesture.samples.length > 12) gesture.samples.shift();
 
       if (gesture.mode === "catch") {
@@ -632,7 +657,7 @@ export function useLeafTurn(options: UseLeafTurnOptions): UseLeafTurnResult {
       ) {
         event.preventDefault();
       }
-      letGo(turn, fingerSpeed(gesture));
+      letGo(turn, fingerSpeed(gesture, event));
     };
 
     const handlePointerCancel = (event: PointerEvent) => {

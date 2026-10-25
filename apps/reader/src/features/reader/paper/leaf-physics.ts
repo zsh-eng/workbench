@@ -334,6 +334,27 @@ export class Leaf {
     return Math.atan2(sz, sx);
   }
 
+  /**
+   * How fast the leaf swings about the spine, radians a second, positive
+   * towards the left-hand stack.
+   */
+  swing(): number {
+    let moment = 0;
+    let inertia = 0;
+    for (let index = 1; index <= LEAF_NODES; index++) {
+      const x = this.x[index]!;
+      const z = this.z[index]!;
+      moment += x * this.vz[index]! - z * this.vx[index]!;
+      inertia += x * x + z * z;
+    }
+    return inertia > 0 ? moment / inertia : 0;
+  }
+
+  /** Whether the leaf has gone over to the left and is not coming back. */
+  goneLeft(): boolean {
+    return this.reach() <= 0 && this.swing() > -0.5;
+  }
+
   /** Whether the leaf has come down flat on the right-hand stack. */
   landedRight(): boolean {
     if (this.hold || this.maxSpeed() > 0.05) return false;
@@ -368,7 +389,7 @@ export class Leaf {
     for (let elapsed = 0; elapsed < 1.2; elapsed += 1 / 30) {
       lean?.(copy);
       copy.advance(1 / 30);
-      if (copy.reach() <= 0) return "left";
+      if (copy.goneLeft()) return "left";
       if (copy.landedRight()) return "right";
     }
     return copy.angle() > Math.PI / 2 ? "left" : "right";

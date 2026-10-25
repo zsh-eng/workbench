@@ -41,7 +41,7 @@ function fall(leaf: Leaf): { side: "left" | "right" | "none"; peak: number } {
     hill(leaf);
     leaf.advance(1 / 60);
     peak = Math.max(peak, leaf.maxSpeed());
-    if (leaf.reach() <= 0) return { side: "left", peak };
+    if (leaf.goneLeft()) return { side: "left", peak };
     if (leaf.landedRight()) return { side: "right", peak };
   }
   return { side: "none", peak };

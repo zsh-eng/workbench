@@ -94,6 +94,29 @@ async function finger(page: Page) {
   };
 }
 
+/**
+ * A quick flick, its events stamped with the times a finger would make
+ * them, so the speed holds however slowly the browser takes them.
+ */
+async function flick(page: Page, from: number, to: number, y = 520) {
+  const cdp = await page.context().newCDPSession(page);
+  let clock = Date.now() / 1000;
+  const send = (type: string, x?: number) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      timestamp: clock,
+      touchPoints: x === undefined ? [] : [{ x, y }],
+    });
+  await send("touchStart", from);
+  for (let step = 1; step <= 4; step++) {
+    clock += 0.016;
+    await send("touchMove", from + ((to - from) * step) / 4);
+  }
+  clock += 0.008;
+  await send("touchEnd");
+  await cdp.detach();
+}
+
 async function savedPlace(page: Page, bookId: string) {
   return page.evaluate(async (id) => {
     const modulePath = "/src/lib/db.ts";
@@ -155,6 +178,25 @@ test("a curl turn saves the same place as a plain turn", async ({
   await page.touchscreen.tap(360, 420);
   await expect.poll(() => currentPages(page)).toEqual(curled);
   await expect.poll(() => savedPlace(page, localBook.id)).toBe(curledPlace);
+});
+
+test("a quick flick turns the page either way", async ({ page, localBook }) => {
+  await openWithCurl(page, localBook.id);
+  await page.touchscreen.tap(360, 420);
+  await expect.poll(() => currentPages(page)).not.toEqual(["1"]);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+  const start = await currentPages(page);
+
+  // Seventy pixels in a sixteenth of a second turns it on.
+  await flick(page, 320, 250);
+  await expect.poll(() => currentPages(page)).not.toEqual(start);
+  await waitForReaderReady(page);
+  await expect(page.locator(CURL)).toHaveCSS("visibility", "hidden");
+
+  // And back.
+  await flick(page, 60, 130);
+  await expect.poll(() => currentPages(page)).toEqual(start);
 });
 
 test("a falling page can be caught and carried back", async ({
