@@ -136,6 +136,39 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  paper: {
+    current: {
+      id: "paper-slide",
+      title: "Today's slide",
+      description:
+        "What ships: a swipe slides the next page in over this one, on a plain screen.",
+      src: (bookId) => `/reader/${bookId}?turn=slide&paper=off`,
+    },
+    ideas: [
+      {
+        id: "paper-curl",
+        title: "Curl on fine paper",
+        description:
+          "Drag from the right, or tap it: the page curls from where you hold it, low or high, and follows your finger. Its back shows the words faintly through the sheet, and the next page waits in its shadow. A fine tooth sits under the text.",
+        src: (bookId) => `/reader/${bookId}?turn=curl&paper=fine`,
+      },
+      {
+        id: "paper-laid",
+        title: "Laid paper",
+        description:
+          "The same curl on a fuller sheet: tooth, a faint cloudy formation, a few wisps of fibre and a soft vignette. Warmest on Flexoki light, quietest at Night.",
+        src: (bookId) => `/reader/${bookId}?turn=curl&paper=rich`,
+      },
+      {
+        id: "paper-plain-curl",
+        title: "Curl alone",
+        description:
+          "The curl with no grain and an opaque back, to judge what the paper and the show-through add.",
+        src: (bookId) =>
+          `/reader/${bookId}?turn=curl&paper=off&showThrough=off`,
+      },
+    ],
+  },
   dark: {
     current: {
       id: "dark-current",

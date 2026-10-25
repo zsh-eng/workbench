@@ -40,6 +40,18 @@ A bundled family (`@fontsource`) is imported twice with the same subsets and wei
 
 Design ideas → Reading fonts opens the book you read last in each sans font through the Debug-only `?font=<id>` parameter, which lays the book out without saving the font.
 
+## Paper and the page curl (Debug)
+
+With Debug mode on, Appearance → Layout → Page turn chooses Slide or Curl, and Paper chooses Plain, Fine or Laid grain (`paper/`). Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=` and `?showThrough=`, without saving them. The curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays.
+
+- The swipe hook still owns the gesture, the commit threshold, the spring and the mid-turn page promotion. The curl only presents its offset, so saved places, history and checkpoints are the same as for a slide.
+- `curl-geometry.ts` bends the page round a cylinder whose axis can tilt (after Hong et al., "Turning pages of 3D electronic books"). The page is held by its right edge at the height of the touch; the crease keeps pace with the finger, a grab low on the page lifts the bottom corner first, and vertical travel tilts the fold.
+- The page beneath and the turning page up to the crease stay live DOM; `clip-path` cuts the turning page at the crease. Text never bends while it can be read.
+- `curl-renderer.ts` draws only the bent part with WebGL, from a raster of the page: front shaded by the curve, back as paper with the front's ink blurred and mirrored through it, a soft highlight along the fold, and analytic shadows on the page beneath and under the flipped part.
+- `page-raster.ts` paints the laid-out page into a canvas from `Range.getClientRects()` and computed styles, so it needs no second layout. Rasters for the current and previous pages are made while the reader rests and are keyed by content, so a page promoted mid-turn reuses its own.
+- `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css.
+- `use-page-feel.ts` adds a haptic tick when a turned page lets go (Android's vibration, or iOS 18's native switch) and an optional rustle from shaped noise in Web Audio.
+
 ## Scroll mode prototype (Debug)
 
 With Debug mode on, a Pages/Scroll switch sits under the mobile header. Scroll mode shows one chapter as a vertical column (`scroll/`).
