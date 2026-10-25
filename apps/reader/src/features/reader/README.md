@@ -42,14 +42,19 @@ Design ideas → Reading fonts opens the book you read last in each sans font th
 
 ## Paper and the page curl (Debug)
 
-With Debug mode on, Appearance → Layout → Page turn chooses Slide or Curl, and Paper chooses Plain, Fine or Laid grain (`paper/`). Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=` and `?showThrough=`, without saving them. The curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays.
+With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, and Ink chooses where the text sits in that grain (`paper/`). Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. The study behind the leaf is in `docs/page-turn-study/`.
 
-- The swipe hook still owns the gesture, the commit threshold, the spring and the mid-turn page promotion. The curl only presents its offset, so saved places, history and checkpoints are the same as for a slide.
-- `curl-geometry.ts` bends the page round a cylinder whose axis can tilt (after Hong et al., "Turning pages of 3D electronic books"). The page is held by its right edge at the height of the touch; the lifted edge stays under the finger until the page takes over past mid-turn, a grab low on the page lifts the bottom corner first, and vertical travel tilts the fold.
-- The page beneath and the turning page up to the crease stay live DOM; `clip-path` cuts the turning page at the crease. Text never bends while it can be read.
-- `curl-renderer.ts` draws only the bent part with WebGL, from a raster of the page: front shaded by the curve, back as paper with the front's ink blurred and mirrored through it, a soft highlight along the fold, and analytic shadows on the page beneath and under the flipped part.
-- `page-raster.ts` paints the laid-out page into a canvas from `Range.getClientRects()` and computed styles, so it needs no second layout. Rasters for the current and previous pages are made while the reader rests and are keyed by content, so a page promoted mid-turn reuses its own.
-- `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css.
+The leaf (`curl`):
+
+- `leaf-physics.ts` simulates the page as a strip across the book: 24 segments with length constraints, bending stiffness, air drag, a soft landing and a self-floor for the part turned over. Held, the paper takes a set, so it does not snap open when let go.
+- `hooks/use-leaf-turn.ts` owns the gesture. The finger carries the edge round a roll a quarter of the page across, a little ahead of the finger; a grab near a corner tilts the roll. Let go, the page falls under the phone's gravity, which leans away from a hilltop on either side, so a page let go about 40% of the way, or flicked, turns, and a shorter one falls back. A touch on a falling page catches it where the finger meets it and swings it about the spine. Taps push the page with the same physics. A turn navigates when the page has gone, so saved places are the same as for a slide.
+- `leaf-renderer.ts` draws the lifted part with WebGL from a raster of the page, in room light with no highlight: the back is the same grain, the front's ink faint through it, warmer where light comes through. The shade under the leaf is the share of the room's light the leaf hides, worked out across the fold; the leaf near the stack takes the same shade, so it leaves the live page without a seam.
+- `paper/use-leaf-curl.ts` keeps the live page up to the lift line, clipped there with `clip-path`, prepares rasters while the reader rests, and lays out each layer during a turn.
+
+The first curl (`curl-v1`) is kept to compare: `curl-geometry.ts` bends the page round a cylinder held at the swipe's offset (after Hong et al.) and `curl-renderer.ts` draws it with a glossy roll and analytic shadows; the swipe hook owns its gesture.
+
+- `page-raster.ts` paints the laid-out page into a canvas from `Range.getClientRects()` and computed styles, so it needs no second layout. Rasters are keyed by content, theme, grain and ink.
+- `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css. With ink `in` the paper, App.css lays the grain over the text, multiplied on light themes, and thins the ink on the tooth with a `lighten` layer in the paper's colour. With ink `gl`, `PaperInk.tsx` rasters each page's text alone and `ink-renderer.ts` soaks it into the grain with WebGL; the live text turns clear under it and keeps selection, links and search.
 - `use-page-feel.ts` adds a haptic tick when a turned page lets go (Android's vibration, or iOS 18's native switch) and an optional rustle from shaped noise in Web Audio.
 
 ## Scroll mode prototype (Debug)

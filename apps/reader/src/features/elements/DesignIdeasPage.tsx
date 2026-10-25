@@ -146,24 +146,38 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
     },
     ideas: [
       {
-        id: "paper-curl",
-        title: "Curl on fine paper",
+        id: "paper-leaf",
+        title: "A leaf you can hold",
         description:
-          "Drag from the right, or tap it: the page curls from where you hold it, low or high, and follows your finger. Its back shows the words faintly through the sheet, and the next page waits in its shadow. A fine tooth sits under the text.",
-        src: (bookId) => `/reader/${bookId}?turn=curl&paper=fine`,
+          "Drag anywhere: the page lifts in a soft roll and follows your finger. Let go short of half way and it falls back; past it, or with a flick, it falls over and lands softly. Catch it while it falls. A tap pushes it. The ink sits in a fine tooth.",
+        src: (bookId) => `/reader/${bookId}?turn=curl&paper=fine&ink=in`,
+      },
+      {
+        id: "paper-curl-v1",
+        title: "The first curl",
+        description:
+          "The curl before: a cylinder drawn along your finger, with a glossy roll and the grain under the text. Keep it beside the leaf to compare.",
+        src: (bookId) => `/reader/${bookId}?turn=curl-v1&paper=fine&ink=on`,
+      },
+      {
+        id: "paper-ink",
+        title: "Ink drawn into the paper",
+        description:
+          "The leaf, with the text drawn by WebGL into the grain: ink wicks a little along the fibres and thins on the tooth. The live text stays underneath, clear, so selection works.",
+        src: (bookId) => `/reader/${bookId}?turn=curl&paper=fine&ink=gl`,
       },
       {
         id: "paper-laid",
         title: "Laid paper",
         description:
-          "The same curl on a fuller sheet: tooth, a faint cloudy formation, a few wisps of fibre and a soft vignette. Warmest on Flexoki light, quietest at Night.",
-        src: (bookId) => `/reader/${bookId}?turn=curl&paper=rich`,
+          "The leaf on a fuller sheet: tooth, a faint cloudy formation, a few wisps of fibre and a soft vignette. Warmest on Flexoki light, quietest at Night.",
+        src: (bookId) => `/reader/${bookId}?turn=curl&paper=rich&ink=in`,
       },
       {
         id: "paper-plain-curl",
-        title: "Curl alone",
+        title: "Leaf alone",
         description:
-          "The curl with no grain and an opaque back, to judge what the paper and the show-through add.",
+          "The leaf with no grain and an opaque back, to judge what the paper and the show-through add.",
         src: (bookId) =>
           `/reader/${bookId}?turn=curl&paper=off&showThrough=off`,
       },
