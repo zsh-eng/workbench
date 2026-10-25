@@ -3,6 +3,27 @@ import path from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+type ModuleInfo = {
+  isEntry: boolean;
+  importers: readonly string[];
+} | null;
+
+/** Whether static imports alone reach this module from an entry. */
+function loadsWithEntry(id: string, getModuleInfo: (id: string) => ModuleInfo) {
+  const seen = new Set([id]);
+  const queue = [id];
+  for (const next of queue) {
+    const info = getModuleInfo(next);
+    if (info?.isEntry) return true;
+    for (const importer of info?.importers ?? [])
+      if (!seen.has(importer)) {
+        seen.add(importer);
+        queue.push(importer);
+      }
+  }
+  return false;
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   server: { proxy: { "/api": "http://127.0.0.1:8791" } },
@@ -63,10 +84,11 @@ export default defineConfig({
     target: "esnext",
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
+        // Packages that the first load needs share a vendor chunk; packages
+        // that only lazy screens import stay with those screens.
+        manualChunks(id, { getModuleInfo }) {
+          if (id.includes("node_modules") && loadsWithEntry(id, getModuleInfo))
             return "vendor";
-          }
         },
       },
     },

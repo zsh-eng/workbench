@@ -17,7 +17,6 @@ import LoginSuccessRoute from "@/routes/LoginSuccessRoute";
 import ProfileRoute from "@/routes/ProfileRoute";
 import ReviewRoute from "@/routes/Review.tsx";
 import SavedRoute from "@/routes/SavedRoute";
-import StatsRoute from "@/routes/StatsRoute";
 import SuspendedCardsRoute from "@/routes/SuspendedCardsRoute";
 import { useMediaQuery } from "@uidotdev/usehooks";
 import { CircleAlert, CircleCheck } from "lucide-react";
@@ -26,6 +25,8 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import "./index.css";
 
 const ElementsRoutes = lazy(() => import("@/elements/ElementsRoutes"));
+// Stats is the only screen with charts, so the charts load with it.
+const StatsRoute = lazy(() => import("@/routes/StatsRoute"));
 
 // The Elements page and its frames show sample data, so they do not sync.
 if (!location.pathname.startsWith("/debug/elements")) SyncEngine.start();
@@ -103,7 +104,14 @@ function AppShell() {
             {/* <Route path='/debug' element={<DebugRoute />} /> */}
             <Route path="/create" element={<CreateFlashcardRoute />} />
             <Route path="/profile" element={<ProfileRoute />} />
-            <Route path="/stats" element={<StatsRoute />} />
+            <Route
+              path="/stats"
+              element={
+                <Suspense fallback={null}>
+                  <StatsRoute />
+                </Suspense>
+              }
+            />
             <Route path="/login-success" element={<LoginSuccessRoute />} />
             <Route path="/import" element={<ImportRoute />} />
 
