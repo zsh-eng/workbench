@@ -122,7 +122,7 @@ export function springSheetScroller(
       return;
     }
     finish(false);
-    nativeScrollTo.apply(this, args as [ScrollToOptions]);
+    Reflect.apply(nativeScrollTo, this, args);
   } as typeof scroller.scrollTo;
 
   // While the spring runs, the offsets it writes end scrolls of their own.
@@ -209,7 +209,7 @@ function screenBottom(): number {
   const probe = document.createElement("div");
   probe.style.cssText =
     "position:fixed;top:0;height:100lvh;width:0;visibility:hidden;pointer-events:none";
-  document.body.append(probe);
+  document.body.appendChild(probe);
   const large = probe.offsetHeight;
   probe.remove();
   return Math.max(innerHeight, large);
