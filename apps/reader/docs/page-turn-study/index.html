@@ -216,6 +216,7 @@ ol.sources li { overflow-wrap: anywhere; }
     <li><a href="#rendering"><span>4</span>Rendering options</a></li>
     <li><a href="#plan"><span>5</span>Plan</a></li>
     <li><a href="#spike"><span>·</span>Spike: ink in register</a></li>
+    <li><a href="#sheet"><span>·</span>Built: grip, edge and ink</a></li>
     <li><a href="#sources"><span>·</span>Sources</a></li>
   </ol>
 </nav>
@@ -925,6 +926,22 @@ ol.sources li { overflow-wrap: anywhere; }
     <div class="callout">
       <h4>Run it again</h4>
       <p>From <code>apps/reader</code>: <code>SPIKE_PORT=5342 bunx vite --config spikes/ink-register/vite.config.ts</code>. Then <code>bun spikes/ink-register/measure.ts capture &lt;folder&gt;</code> for Chrome. For Safari, open the page in the Simulator with <code>?x=dom</code>, take a screenshot with <code>xcrun simctl io &lt;device&gt; screenshot</code>, and run <code>measure.ts analyse</code> on it. Options: <code>font=iowan</code>, <code>x=engine</code>, <code>control=1</code>, <code>emboss=1</code>, <code>sel=1</code>, <code>perf=1</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="sheet">
+  <div class="part-head col">
+    <div class="eyebrow">Built</div>
+    <h2>One sheet: grip, edge and ink</h2>
+    <p>The second pass on the leaf, after the feedback that you can't take the page at different points, it has no thickness, and highlights look like boxes, not ink. One model of the sheet now feeds the gesture, the renderer, the shade and the clip. All of it is behind Debug.</p>
+  </div>
+  <div class="sub col">
+    <div class="claims">
+      <div class="claim" id="b1"><span class="cid">B1</span><div class="tags"><span class="ev phy">Physics</span></div><div class="ctext"><p><b>A frame for the sheet.</b> The simulated strip is the page's cross-section. A sheet frame (<code>paper/sheet-frame.ts</code>) lays it over the page along rulings that meet at an apex on the spine's line, beyond the page. With the apex far away the rulings are parallel, a roll. With it near, they fan, a cone, as in Hong, Card &amp; Chen (C2). The spine is itself a ruling, so it stays flat, and the lift line is a ruling, so it stays straight (C5). Each strip segment is drawn as a flat facet, bent about its ruling, so the bent leaf is developable whatever the strip does (C4).</p></div></div>
+      <div class="claim" id="b2"><span class="cid">B2</span><div class="tags"><span class="ev jud">Judgement</span></div><div class="ctext"><p><b>Held where it's taken.</b> The finger keeps the paper point it touched (C19 for a fresh grip as well as a catch). The fold turns to lie across the pull, and it straightens as the leaf falls. A corner pulled up and across makes a diagonal fold. The middle of the edge pulled across rolls straight, because the apex can't come near without the corners trailing (C6). A grip well inside the page folds the outer part over it. A tap still pushes the fore-edge, and a backward turn is still a roll.</p><p class="note">The apex is kept at least 0.3 of the page width off the page, and the fold turns by at most 42°. Past those, paper near the apex would have to bend tighter than a page does.</p></div></div>
+      <div class="claim" id="b3"><span class="cid">B3</span><div class="tags"><span class="ev phy">Physics</span><span class="ev jud">Judgement</span></div><div class="ctext"><p><b>Thickness.</b> Book paper is about 0.1 mm thick, a third of a pixel at phone scale. The leaf draws its cut edges as a rim 0.9 px thick that reaches 0.6 px past the face, so the edge reads as a hairline where the leaf lifts. The book around the page shows the stacks: the unread leaves' edges as a band at the fore-edge that narrows as you read, and the read stack, off the screen beyond the spine, shading the gutter more as it grows. The turning leaf is the page less the band, so it lands on the stack's edge.</p><p class="note">This is the honest limit of a phone: a page seen from straight above shows no thickness, and the left stack is off the screen. Only its shade reaches this page.</p></div></div>
+      <div class="claim" id="b4"><span class="cid">B4</span><div class="tags"><span class="ev phy">Physics</span><span class="ev jud">Judgement</span></div><div class="ctext"><p><b>Highlights as ink.</b> A highlighter is a translucent dye laid by a felt tip, not a box of colour behind the words. Each highlighted line is now one stroke, drawn in WebGL and multiplied into the sheet under the text. Light passes through the dye (Beer–Lambert), so a pool deepens the hue as well as the darkness. Its edges are soft and uneven and soak a little way along the page's own grain. A marker's stroke has streaks along it, a pool where the tip touched, a chisel slant at its ends and a faint tide line. On dark paper the dye glows faintly instead. The marks keep their place in the page with a clear fill, so selection, hit-testing, the highlight tools and saved offsets don't change. The page raster carries the strokes onto the turning leaf and through to its back.</p></div></div>
     </div>
   </div>
 </section>
