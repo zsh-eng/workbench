@@ -54,7 +54,7 @@ async function swipe(page: Page, y: number, distance: number) {
 test("Reader sheets rest on detents and stack over Reader tools", async ({
   page,
 }) => {
-  await page.goto(`${FRAME}?state=tools&variant=detents`);
+  await page.goto(`${FRAME}?state=tools`);
   const tools = await waitForSheet(page, "Reader tools", { timeout: 30_000 });
   // Reader tools fit their content instead of a fixed height.
   await expect.poll(() => visibleShare(tools)).toBeCloseTo(1, 1);
@@ -114,7 +114,7 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   // Reader tools hide everything outside them once they have entered. A
   // page that opened before then stayed inert until React Aria's top layer
   // kept it visible.
-  await page.goto(`${FRAME}?state=tools&variant=detents`);
+  await page.goto(`${FRAME}?state=tools`);
   const tools = page.getByRole("dialog", { name: "Reader tools" });
   await expect(tools).toBeVisible({ timeout: 30_000 });
   await tools

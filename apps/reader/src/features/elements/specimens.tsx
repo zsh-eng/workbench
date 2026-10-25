@@ -46,19 +46,16 @@ export const SPECIMENS: Specimen[] = [
     label: "Sheets",
     title: "Reader sheets",
     description:
-      "The phone Reader's sheets with the real panels on a sample book. Left: the sheet that ships, one fixed height. Right: React Aria's Sheet. It moves on native scrolling, rests on detents, and stacks pages over Reader tools. Drag a handle, flick, or tap the page behind. Menus fit their content and glide to a new height, as Appearance does between tabs; it does not dim, so the page stays in view while you change it.",
+      "The phone Reader's sheets with the real panels on a sample book, on React Aria's Sheet. It moves on native scrolling, rests on detents, and stacks pages over Reader tools. Drag a handle, flick, or tap the page behind. Menus fit their content and glide to a new height, as Appearance does between tabs; it does not dim, so the page stays in view while you change it.",
     states: SHEET_STATES,
     variants: {
       device: "phone",
-      options: [
-        { id: "now", label: "Now: fixed height" },
-        { id: "detents", label: "Proposal: detents" },
-      ],
+      options: [{ id: "detents", label: "Phone" }],
     },
     timeline: {
       ...SHEET_TIMELINE,
       label: "Sheet position",
-      note: "Scrub the proposal's open sheet from a peek to full height. The page dims only past the last detent, and the sheet below steps back as the top one rises.",
+      note: "Scrub the open sheet from a peek to full height. The page dims only past the last detent, and the sheet below steps back as the top one rises.",
     },
     Component: SheetsSpecimen,
   },

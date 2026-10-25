@@ -2,14 +2,10 @@ import {
   BookStatusPanel,
   READING_STATUS_LABELS,
 } from "@/components/BookStatusSheet";
-import { SlidingSheet } from "@/components/SlidingSheet";
 import { NotebookNote } from "@/features/reader/NotebookNote";
 import { ReaderContentsPanel } from "@/features/reader/ReaderContentsPanel";
 import { ReaderControlMenu } from "@/features/reader/ReaderControlMenu";
-import {
-  READER_SHEET_PAGES,
-  ReaderDetentSheets,
-} from "@/features/reader/ReaderDetentSheets";
+import { ReaderDetentSheets } from "@/features/reader/ReaderDetentSheets";
 import { ReaderHeader } from "@/features/reader/ReaderHeader";
 import {
   ReaderSettingsPanel,
@@ -38,8 +34,6 @@ export const SHEET_STATES = [
   { id: "book-actions", label: "Reading status" },
   { id: "notes", label: "Notebook" },
 ] as const;
-
-export type SheetVariant = "now" | "detents";
 
 /**
  * The Elements page can drive the open detent sheet through its range: from
@@ -74,16 +68,9 @@ const SAMPLE_SETTINGS: ReaderSettings = {
 const CLOSE_MS = 350;
 const STACK_MS = 900;
 
-function variantFromUrl(): SheetVariant {
-  return new URLSearchParams(location.search).get("variant") === "now"
-    ? "now"
-    : "detents";
-}
-
 /**
  * The phone Reader's sheets on a still page, with the real panels on a
- * sample book. "now" is the shipped fixed-height sheet; "detents" is React
- * Aria's Sheet. Each choice opens Reader tools, then the page, as a reader
+ * sample book. Each choice opens Reader tools, then the page, as a reader
  * would. Settings change the sample page; nothing is saved.
  */
 export function SheetsSpecimen({
@@ -93,7 +80,6 @@ export function SheetsSpecimen({
   state: string;
   nonce: number;
 }) {
-  const [variant] = useState(variantFromUrl);
   const [active, setActive] = useState<ReaderSheetId | null>(null);
   const [settings, setSettings] = useState(SAMPLE_SETTINGS);
   const [settingsTab, setSettingsTab] =
@@ -114,7 +100,7 @@ export function SheetsSpecimen({
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [state, nonce]);
 
-  useDrivenSheet(variant === "detents" ? active : null);
+  useDrivenSheet(active);
 
   const update = (next: Partial<ReaderSettings>) =>
     setSettings((value) => ({ ...value, ...next }));
@@ -153,7 +139,7 @@ export function SheetsSpecimen({
             onUpdateSettings={update}
             activeTab={settingsTab}
             onActiveTabChange={setSettingsTab}
-            className={variant === "detents" ? "mt-0 h-auto" : "mt-0 h-full"}
+            className="mt-0 h-auto"
           />
         );
       case "book-actions":
@@ -196,26 +182,12 @@ export function SheetsSpecimen({
         isMenuOpen={active !== null}
         onOpenMenu={() => setActive("tools")}
       />
-      {variant === "detents" ? (
-        <ReaderDetentSheets
-          activeSheet={active}
-          onOpenSheet={setActive}
-          onCloseSheet={() => setActive(null)}
-          renderPage={renderPage}
-        />
-      ) : (
-        <SlidingSheet
-          open={active !== null}
-          onClose={() => setActive(null)}
-          page={active ?? "tools"}
-          rootPage="tools"
-          title={READER_SHEET_PAGES[active ?? "tools"].title}
-          onBack={() => setActive("tools")}
-          safeAreaBottom={active !== "settings"}
-        >
-          {renderPage(active ?? "tools")}
-        </SlidingSheet>
-      )}
+      <ReaderDetentSheets
+        activeSheet={active}
+        onOpenSheet={setActive}
+        onCloseSheet={() => setActive(null)}
+        renderPage={renderPage}
+      />
     </div>
   );
 }
