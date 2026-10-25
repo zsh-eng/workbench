@@ -1479,21 +1479,25 @@ export function ReaderNotesPrototype({
                       onNote={() => void noteOnPassage()}
                     />
                   )}
-                  {islandState === "note" && annotationNote && (
-                    <IslandNote
-                      width={islandWidth}
-                      text={annotationNote.content}
-                      meta={noteMeta(
-                        entries.find((entry) => entry.id === annotationNote.id)
-                          ?.location.page ?? 0,
-                        annotationNote.createdAt,
-                      )}
-                      onEdit={() => void startEdit(annotationNote.id)}
-                      onDelete={() => deleteFromIsland(annotationNote.id)}
-                      onShowTools={() => setToolsRequested(true)}
-                      onClose={() => mobileAnnotation?.close()}
-                    />
-                  )}
+                  {islandState === "note" &&
+                    annotationNote &&
+                    mobileAnnotation && (
+                      <IslandNote
+                        width={islandWidth}
+                        text={annotationNote.content}
+                        meta={noteMeta(
+                          entries.find(
+                            (entry) => entry.id === annotationNote.id,
+                          )?.location.page ?? 0,
+                          annotationNote.createdAt,
+                        )}
+                        copyText={mobileAnnotation.copyText}
+                        onEdit={() => void startEdit(annotationNote.id)}
+                        onDelete={() => deleteFromIsland(annotationNote.id)}
+                        onShowTools={() => setToolsRequested(true)}
+                        onClose={() => mobileAnnotation?.close()}
+                      />
+                    )}
                   {islandState === "compose" && renderNoteInput("island")}
                   {islandState === "notice" && notice && (
                     <IslandNotice

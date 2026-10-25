@@ -260,25 +260,16 @@ export function IslandTools({
   actionLabel: "Note" | "Attach";
   onNote: () => void;
 }) {
-  const { copied, copy } = useCopyFeedback("Could not copy the passage.");
   return (
     <div className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap">
       {tools}
       <span aria-hidden="true" className="h-5 w-px bg-border" />
       <div className="-ml-1.5 flex items-center gap-1">
-        <button
-          type="button"
-          aria-label="Copy text"
-          // Keep the page selection and focus where they are.
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => copy(copyText)}
-          className={cn(
-            "flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
-            copied && "text-foreground",
-          )}
-        >
-          <CopyFeedbackIcon copied={copied} className="size-[18px]" />
-        </button>
+        <CopyPassageButton
+          text={copyText}
+          className="text-muted-foreground"
+          iconClassName="size-[18px]"
+        />
         <button
           type="button"
           aria-label={actionLabel === "Attach" ? "Attach to draft" : "Add note"}
@@ -294,11 +285,42 @@ export function IslandTools({
   );
 }
 
-/** A saved note for the passage the reader tapped. */
+/** Copies a passage and confirms in place with a check. */
+function CopyPassageButton({
+  text,
+  className,
+  iconClassName,
+}: {
+  text: string;
+  className?: string;
+  iconClassName: string;
+}) {
+  const { copied, copy } = useCopyFeedback("Could not copy the passage.");
+  return (
+    <button
+      type="button"
+      aria-label="Copy text"
+      // Keep the page selection and focus where they are.
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() => copy(text)}
+      className={cn(
+        "flex size-11 items-center justify-center rounded-full transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
+        className,
+        copied && "text-foreground",
+      )}
+    >
+      <CopyFeedbackIcon copied={copied} className={iconClassName} />
+    </button>
+  );
+}
+
+/** A saved note for the passage the reader tapped. Copy, like the tools'
+ * Copy, writes the passage; the note is on screen to read. */
 export function IslandNote({
   width,
   text,
   meta,
+  copyText,
   onEdit,
   onDelete,
   onShowTools,
@@ -307,6 +329,8 @@ export function IslandNote({
   width: number;
   text: string;
   meta: string;
+  /** The highlighted passage, from the chapter text. */
+  copyText: string;
   onEdit: () => void;
   onDelete: () => void;
   onShowTools: () => void;
@@ -328,6 +352,13 @@ export function IslandNote({
           <PencilLine className="size-3.5" aria-hidden="true" />
           Edit
         </button>
+        {/* Copy and the colours act on the passage, so they sit together.
+            The bigger target keeps the footer's height. */}
+        <CopyPassageButton
+          text={copyText}
+          className="-my-0.5"
+          iconClassName="size-3.5"
+        />
         <button
           type="button"
           aria-label="Show highlight tools"

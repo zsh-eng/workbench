@@ -500,7 +500,7 @@ async function highlightAcrossPageBreak(page: Page, bookId: string) {
   );
 }
 
-test("Copy writes a highlight's whole passage, past the page break", async ({
+test("Copy writes a highlight's whole passage, past the page break, from its tools and its note", async ({
   page,
   localBook,
 }) => {
@@ -524,6 +524,24 @@ test("Copy writes a highlight's whole passage, past the page break", async ({
   await expect.poll(clipboard).toBe(passage);
   await expect(
     page.getByRole("status").filter({ hasText: "Copied to clipboard" }),
+  ).toHaveCount(1);
+
+  // Once noted, the highlight opens its note card, whose Copy still writes
+  // the passage rather than the note.
+  await page.getByRole("button", { name: "Add note" }).tap();
+  await page
+    .getByRole("textbox", { name: "Write a note" })
+    .fill("A note, not the passage.");
+  await page.getByRole("button", { name: "Save note", exact: true }).tap();
+  await expect(page.locator("[data-notes-island]")).toHaveCount(0);
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await mark.tap();
+  const note = page.getByRole("region", { name: "Note", exact: true });
+  await expect(note).toContainText("A note, not the passage.");
+  await note.getByRole("button", { name: "Copy text", exact: true }).tap();
+  await expect.poll(clipboard).toBe(passage);
+  await expect(
+    note.getByRole("status").filter({ hasText: "Copied to clipboard" }),
   ).toHaveCount(1);
 
   // A fresh selection offers the same Copy, beside its colours.
