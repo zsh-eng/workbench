@@ -22,7 +22,7 @@ import { join } from "node:path";
 import type { Article } from "../src/articles";
 import { cleanByline, tidyArticle } from "../src/content";
 import { articleFinder, better, MIN_WORDS, type Source } from "../src/copy";
-import { encodeSorted } from "../src/sync/storage";
+import { encodeSorted } from "../src/sync/swift";
 import { xxh64 } from "../src/sync/xxh64";
 
 const args = process.argv.slice(2);

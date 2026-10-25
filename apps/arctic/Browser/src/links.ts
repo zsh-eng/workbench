@@ -1,6 +1,6 @@
 import { edits, editLibrary, type Article } from "./articles";
 import type { Session } from "./sync/session";
-import { encodeSorted } from "./sync/storage";
+import { encodeSorted, swiftNow } from "./sync/swift";
 
 /**
  * Saving a link from the web writes the three records that Arctic on iPhone
@@ -70,8 +70,11 @@ export async function articleId(canonical: string) {
     .join("");
 }
 
-/** The phone's ArticleSyncCodec.localID: a UUID from the id's first 32 digits. */
-function localID(id: string) {
+/**
+ * The phone's ArticleSyncCodec.localID: a UUID from the id's first 32
+ * digits. The phone also names its offline copies by it.
+ */
+export function localID(id: string) {
   const hex = id.toUpperCase();
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
@@ -110,10 +113,8 @@ export function titleFromURL(canonical: string) {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : host;
 }
 
-const SWIFT_EPOCH_MS = 978_307_200_000;
-
 /** The phone's three records for a new saved article; `savedAt` is in Swift seconds. */
-export function linkRecords(url: string, id: string, savedAt: number) {
+function linkRecords(url: string, id: string, savedAt: number) {
   return [
     {
       key: `article/${id}`,
@@ -167,9 +168,7 @@ export async function saveLink(
     session.syncSoon();
     return { kind: "saved", id };
   }
-  await session.arctic.write(
-    linkRecords(url, id, (Date.now() - SWIFT_EPOCH_MS) / 1000),
-  );
+  await session.arctic.write(linkRecords(url, id, swiftNow()));
   session.syncSoon();
   return { kind: "saved", id };
 }

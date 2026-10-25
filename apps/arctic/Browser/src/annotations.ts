@@ -1,4 +1,5 @@
-import { encodeSorted, type RecordStorage } from "./sync/storage";
+import type { RecordStorage } from "./sync/storage";
+import { encodeSorted, fromSwift, toSwift } from "./sync/swift";
 import type { Session } from "./sync/session";
 
 /**
@@ -29,11 +30,6 @@ export type Annotation = {
   updatedAt: number;
   deletedAt?: number;
 };
-
-const SWIFT_EPOCH_MS = 978_307_200_000;
-const toSwift = (ms: number) => (ms - SWIFT_EPOCH_MS) / 1000;
-const fromSwift = (value: unknown) =>
-  typeof value === "number" ? value * 1000 + SWIFT_EPOCH_MS : undefined;
 
 /** Every passage and note in the account that is not removed. */
 export function readAnnotations(storage: RecordStorage): Annotation[] {

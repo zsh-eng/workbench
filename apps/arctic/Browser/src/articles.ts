@@ -1,4 +1,5 @@
 import type { Fields, RecordStorage } from "./sync/storage";
+import { fromSwift, swiftNow } from "./sync/swift";
 
 /**
  * One saved or visited article, projected from the phone's records:
@@ -63,14 +64,6 @@ export const folders: {
     empty: "Every read leaves a trail.",
   },
 ];
-
-/** Swift dates count seconds from 1 January 2001. */
-const SWIFT_EPOCH_MS = 978_307_200_000;
-const fromSwift = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value)
-    ? value * 1000 + SWIFT_EPOCH_MS
-    : undefined;
-const swiftNow = () => (Date.now() - SWIFT_EPOCH_MS) / 1000;
 
 const https = (value: unknown) =>
   typeof value === "string" && /^https?:\/\//i.test(value) ? value : undefined;

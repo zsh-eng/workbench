@@ -2,9 +2,10 @@ import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { readCopyFile } from "./content";
-import { MIN_WORDS, articleFinder, better, nativeID, saveCopy } from "./copy";
+import { MIN_WORDS, articleFinder, better, saveCopy } from "./copy";
 import { extractPage } from "./extract";
 import type { Article } from "./articles";
+import { localID } from "./links";
 import { useArticles, useSession } from "./state";
 import { AccountMenu } from "./ui";
 
@@ -79,7 +80,7 @@ function FromFiles({ articles }: { articles: Article[] }) {
   const items = useMemo(() => {
     const find = articleFinder(articles);
     const byNative = new Map(
-      articles.map((article) => [nativeID(article.id), article]),
+      articles.map((article) => [localID(article.id), article]),
     );
     return files.map((file): Candidate => {
       // The phone's offline copies are named by article ID and hold #reader-content.

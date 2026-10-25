@@ -1,6 +1,6 @@
 import { cleanArticle, cleanByline, countWords } from "./content";
 import type { Article } from "./articles";
-import { encodeSorted } from "./sync/storage";
+import { encodeSorted } from "./sync/swift";
 import type { Session } from "./sync/session";
 
 /** A page shorter than this is usually a teaser, a login wall or an error. */
@@ -92,15 +92,3 @@ function looseKey(value: string) {
     return "";
   }
 }
-
-/** The phone names its offline copies by article ID; synced articles use the record ID's first 32 digits. */
-export const nativeID = (id: string) =>
-  [
-    id.slice(0, 8),
-    id.slice(8, 12),
-    id.slice(12, 16),
-    id.slice(16, 20),
-    id.slice(20, 32),
-  ]
-    .join("-")
-    .toUpperCase();

@@ -8,6 +8,7 @@ import {
   type SyncStorage,
 } from "@zsh-eng/local-sync";
 import { namespaceRange, promised, transact } from "./idb";
+import { encodeSorted } from "./swift";
 
 export type Fields = Record<string, unknown>;
 type Stored = SyncRecord & { ns: string };
@@ -28,20 +29,7 @@ type Pending = {
   isDeleted?: boolean;
 };
 
-export type View = { value: string; isDeleted: boolean };
-
-/** JSON with sorted keys, as the phone encodes its records. */
-export function encodeSorted(value: unknown): string {
-  return JSON.stringify(value, (_, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.keys(item)
-            .sort()
-            .map((key) => [key, item[key]]),
-        )
-      : item,
-  );
-}
+type View = { value: string; isDeleted: boolean };
 
 const same = (left: unknown, right: unknown) =>
   encodeSorted(left) === encodeSorted(right);
