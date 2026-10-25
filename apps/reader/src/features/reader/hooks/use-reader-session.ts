@@ -113,6 +113,10 @@ export interface ReaderSessionResources {
 
 export interface ReaderSessionActions {
   selectHistoryVisit: (index: number) => void;
+  /** Shows a visit while the trail is scrubbed, without taking it. */
+  previewHistoryVisit: (index: number) => void;
+  /** Returns from a previewed visit to the current one. */
+  restoreHistoryVisit: () => void;
   setHistoryExpanded: (expanded: boolean) => void;
   goBackInHistory: () => void;
   goForwardInHistory: () => void;
@@ -288,6 +292,9 @@ export function useReaderSession(
   const actions = useMemo<ReaderSessionActions>(
     () => ({
       selectHistoryVisit: (index) => core.jumpHistory.select(index, goToAnchor),
+      previewHistoryVisit: (index) =>
+        core.jumpHistory.preview(index, goToAnchor),
+      restoreHistoryVisit: () => core.jumpHistory.restore(goToAnchor),
       setHistoryExpanded: core.jumpHistory.setExpanded,
       goBackInHistory: () => core.jumpHistory.go("back", goToAnchor),
       goForwardInHistory: () => core.jumpHistory.go("forward", goToAnchor),

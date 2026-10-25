@@ -113,7 +113,7 @@ export type SpreadIntent =
   | {
       /** Shows a place without moving the reading position or history. */
       kind: "preview";
-      source: "scrubber" | "search";
+      source: "scrubber" | "search" | "history";
     }
   | {
       kind: "restore";

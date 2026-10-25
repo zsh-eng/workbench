@@ -96,6 +96,37 @@ export function useReaderJumpHistory(bookId: string, sourceFileId: string) {
     },
     [owner],
   );
+  // A scrub along the trail shows a visit without taking it, then puts the
+  // reader back at the current visit if the finger lets go there.
+  const preview = useCallback(
+    (
+      targetIndex: number,
+      navigate: (
+        anchor: ContentAnchor,
+        options: { intent: SpreadIntent },
+      ) => void,
+    ) => {
+      const target = owner.controller.getSnapshot().entries[targetIndex];
+      if (target)
+        navigate(target.anchor, {
+          intent: { kind: "preview", source: "history" },
+        });
+    },
+    [owner],
+  );
+  const restore = useCallback(
+    (
+      navigate: (
+        anchor: ContentAnchor,
+        options: { intent: SpreadIntent },
+      ) => void,
+    ) => {
+      const { entries, cursor } = owner.controller.getSnapshot();
+      const current = entries[cursor];
+      if (current) navigate(current.anchor, { intent: { kind: "restore" } });
+    },
+    [owner],
+  );
   const go = useCallback(
     (
       direction: "back" | "forward",
@@ -114,6 +145,8 @@ export function useReaderJumpHistory(bookId: string, sourceFileId: string) {
     presentation: snapshot.presentation,
     setExpanded: owner.setExpanded,
     select,
+    preview,
+    restore,
     initialAnchor: owner.initialAnchor,
     record: owner.record,
     endGroup: owner.controller.endGroup,

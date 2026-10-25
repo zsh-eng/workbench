@@ -33,7 +33,9 @@ export function updateHistoryPresentation(
       : changed && (intent.kind === "jump" || intent.kind === "history")
         ? true
         : presentation.expanded;
-  const preview = intent.kind === "preview";
+  // A page scrub or search preview hides the trail; a history scrub moves
+  // along the trail, so it stays.
+  const preview = intent.kind === "preview" && intent.source !== "history";
   if (
     !evicted &&
     expanded === presentation.expanded &&

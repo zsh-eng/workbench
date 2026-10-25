@@ -53,6 +53,22 @@ describe("history footer presentation", () => {
       expanded: true,
     });
   });
+  it("keeps the trail showing while it is scrubbed, and records nothing until a visit is taken", () => {
+    const { controller, visit } = setup();
+    visit("B", { kind: "jump", source: "highlight" });
+    const trail = controller.getSnapshot();
+    expect(visit("A", { kind: "preview", source: "history" })).toMatchObject({
+      expanded: true,
+      preview: false,
+    });
+    expect(visit("B", { kind: "restore" })).toMatchObject({ expanded: true });
+    expect(controller.getSnapshot()).toBe(trail);
+    expect(visit("A", { kind: "history", targetIndex: 0 })).toMatchObject({
+      expanded: true,
+    });
+    expect(controller.getSnapshot().entries).toBe(trail.entries);
+    expect(controller.getSnapshot().cursor).toBe(0);
+  });
   it("keeps restored trails quiet and retains the chosen mode across reflow", () => {
     const { controller, visit } = setup();
     visit("B", { kind: "jump", source: "highlight" });
