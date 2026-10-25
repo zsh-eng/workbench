@@ -526,3 +526,74 @@ test("the book's fore-edge narrows as you read", async ({
   await waitForReaderReady(page);
   await expect(edge).toHaveCount(0);
 });
+
+test("the leaf's raster draws the words as heavy as the page", async ({
+  page,
+  localBook,
+}) => {
+  // Without grain, the raster and the page differ only in how they draw
+  // text, so their ink should agree. A raster drawn with other font
+  // smoothing than the page's (macOS) carries about a fifth more.
+  await page.goto(`/reader/${localBook.id}?turn=curl&paper=off`);
+  await waitForReaderReady(page);
+  await turnPages(page, 6);
+  const box = (await page.locator(CURRENT_SPREAD).boundingBox())!;
+  const area = { x: box.x, y: box.y + 120, width: box.width, height: 480 };
+  const shot = (await page.screenshot({ clip: area })).toString("base64");
+  const ratio = await page.evaluate(
+    async ({ shot, spread, top, height }) => {
+      const rasterPath = "/src/features/reader/paper/page-raster.ts";
+      const curlPath = "/src/features/reader/paper/use-page-curl.ts";
+      const { rasterizePage } = await import(rasterPath);
+      const { pageRasterOptions } = await import(curlPath);
+      const layer = document.querySelector<HTMLElement>(spread)!;
+      const raster: HTMLCanvasElement = rasterizePage(
+        layer,
+        pageRasterOptions(layer, null),
+      );
+      const ratio = window.devicePixelRatio;
+      const image = new Image();
+      image.src = `data:image/png;base64,${shot}`;
+      await image.decode();
+      const ink = (source: CanvasImageSource, sy: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(layer.offsetWidth * ratio);
+        canvas.height = Math.round(height * ratio);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(
+          source,
+          0,
+          sy,
+          canvas.width,
+          canvas.height,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
+        const { data } = context.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
+        let paper = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          paper = Math.max(
+            paper,
+            data[index]! + data[index + 1]! + data[index + 2]!,
+          );
+        }
+        let total = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          total += paper - (data[index]! + data[index + 1]! + data[index + 2]!);
+        }
+        return total;
+      };
+      return ink(raster, Math.round(top * ratio)) / ink(image, 0);
+    },
+    { shot, spread: CURRENT_SPREAD, top: 120, height: area.height },
+  );
+  expect(ratio).toBeGreaterThan(0.93);
+  expect(ratio).toBeLessThan(1.07);
+});

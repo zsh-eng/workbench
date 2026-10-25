@@ -259,6 +259,35 @@ export function rasterizePage(
   const { inkOnly = false } = options;
   const context = canvas.getContext("2d", { alpha: inkOnly });
   if (!context) return canvas;
+  // Canvas text takes its font smoothing from the canvas element, and a
+  // detached canvas smooths as the platform does by default. On macOS that
+  // is heavier than the page's `antialiased` text, so the leaf's words
+  // would turn bold where it leaves the live page. Drawn connected, with
+  // the page's smoothing, they match.
+  canvas.style.display = "none";
+  canvas.style.setProperty(
+    "-webkit-font-smoothing",
+    getComputedStyle(layer).getPropertyValue("-webkit-font-smoothing"),
+  );
+  document.body.appendChild(canvas);
+  try {
+    paintPage(context, layer, origin, width, height, options);
+  } finally {
+    canvas.remove();
+    canvas.removeAttribute("style");
+  }
+  return canvas;
+}
+
+function paintPage(
+  context: CanvasRenderingContext2D,
+  layer: HTMLElement,
+  origin: DOMRect,
+  width: number,
+  height: number,
+  options: PageRasterOptions,
+): void {
+  const { pixelRatio, inkOnly = false } = options;
   context.scale(pixelRatio, pixelRatio);
   const inked = inkOnly ? null : layer.querySelector<HTMLCanvasElement>(INKED);
   const marked = inkOnly
@@ -505,7 +534,6 @@ export function rasterizePage(
     }
     context.restore();
   }
-  return canvas;
 }
 
 /** Converts any CSS colour to 0–1 sRGB, through a one-pixel canvas. */
