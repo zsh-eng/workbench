@@ -20,6 +20,15 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** The toast as last rendered: its sonner id and the Toast's props. */
+function shownToast() {
+  const [render, options] = mocks.toast.custom.mock.lastCall as unknown as [
+    () => { props: { message: string; done?: boolean } },
+    { id: string },
+  ];
+  return { id: options.id, ...render().props };
+}
+
 function pressUndo() {
   const event = new KeyboardEvent("keydown", { key: "z", cancelable: true });
   mocks.hotkey.mock.lastCall![1](event);
@@ -61,8 +70,73 @@ it("keeps failed restores available and prevents duplicate Undo during a pending
     finish();
   });
   expect(result.current.restoredEntries.current.has("note")).toBe(true);
-  expect(mocks.toast.dismiss).toHaveBeenCalledWith("toast-id");
+  // The toast that offered Undo says so itself.
+  expect(shownToast()).toMatchObject({ message: "Restored", done: true });
   expect(pressUndo().defaultPrevented).toBe(false);
+});
+
+it("gathers quick deletions into one toast, whose Undo restores them all in place", async () => {
+  const restore = vi.fn(async () => {});
+  const { result } = renderHook(() =>
+    useNotebookDeletion({
+      remove: async () => true,
+      restore,
+      shortcutEnabled: true,
+    }),
+  );
+  for (const id of ["a", "b", "c"])
+    await act(async () => {
+      await result.current.deleteEntry({ kind: "highlight", id });
+    });
+  const first = shownToast();
+  expect(first.message).toBe("3 highlights deleted");
+  // Every render is the same toast.
+  expect(
+    new Set(mocks.toast.custom.mock.calls.map((call) => call[1]?.id)),
+  ).toEqual(new Set([first.id]));
+  await act(async () => {
+    (shownToast() as unknown as { undo: { onUndo: () => void } }).undo.onUndo();
+  });
+  await vi.waitFor(() => expect(restore).toHaveBeenCalledTimes(3));
+  expect(restore.mock.calls.map(([entry]) => entry.id)).toEqual([
+    "c",
+    "b",
+    "a",
+  ]);
+  expect(shownToast()).toMatchObject({
+    id: first.id,
+    message: "Restored",
+    done: true,
+  });
+  expect(pressUndo().defaultPrevented).toBe(false);
+});
+
+it("takes back one deletion at a time from the keyboard, and the toast counts down", async () => {
+  const restore = vi.fn(async () => {});
+  const { result } = renderHook(() =>
+    useNotebookDeletion({
+      remove: async () => true,
+      restore,
+      shortcutEnabled: true,
+    }),
+  );
+  await act(async () => {
+    await result.current.deleteEntry({ kind: "note", id: "a" });
+  });
+  await act(async () => {
+    await result.current.deleteEntry({ kind: "highlight", id: "b" });
+  });
+  expect(shownToast().message).toBe("1 note and 1 highlight deleted");
+  await act(async () => {
+    pressUndo();
+  });
+  expect(restore).toHaveBeenLastCalledWith({ kind: "highlight", id: "b" });
+  expect(shownToast()).toMatchObject({ message: "Note deleted" });
+  await act(async () => {
+    pressUndo();
+  });
+  expect(restore).toHaveBeenLastCalledWith({ kind: "note", id: "a" });
+  expect(shownToast()).toMatchObject({ message: "Restored", done: true });
 });
 
 it("does not add a failed deletion to the undo history", async () => {

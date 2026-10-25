@@ -658,7 +658,7 @@ test("tapping a highlight and closing its tools moves nothing on the page", asyn
 });
 
 for (const reducedMotion of ["no-preference", "reduce"] as const)
-  test(`the Undo toast is announced and takes its change back${reducedMotion === "reduce" ? ", and only fades with reduced motion" : ""}`, async ({
+  test(`the Undo toast is announced, and Undo turns it into Restored${reducedMotion === "reduce" ? ", and only fades with reduced motion" : ""}`, async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion });
@@ -674,7 +674,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     );
     if (reducedMotion === "reduce") expect(opening).toBe("none");
     else expect(opening).toContain("wb-toast-open");
+    await toast.evaluate((element) => element.setAttribute("data-probe", ""));
     await toast.getByRole("button", { name: "Undo" }).tap();
-    await expect(page.getByText("Highlight restored")).toBeVisible();
-    await expect(toast).toHaveCount(0);
+    // The same toast says the change is undone, then leaves.
+    const same = page.locator("[data-probe]");
+    await expect(same).toContainText("Restored");
+    await expect(same).toHaveCount(0);
   });

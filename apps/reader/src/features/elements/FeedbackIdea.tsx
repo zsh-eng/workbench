@@ -19,7 +19,6 @@ import { ArrowLeft, ArrowUp, PencilLine } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { toast } from "sonner";
 
 export type FeedbackIdeaId = "island" | "bubble" | "pill";
 
@@ -195,13 +194,11 @@ export function FeedbackIdea() {
           type="button"
           data-feedback-toast=""
           onClick={() => {
-            // Undo takes the toast away, as the notebook's does.
-            const dismiss = showUndoToast({
+            // Undo turns the same toast into "Restored", as the notebook's
+            // does.
+            const shown = showUndoToast({
               message: "Highlight deleted",
-              onUndo: () => {
-                dismiss();
-                toast.success("Highlight restored");
-              },
+              onUndo: () => shown.done(),
             });
           }}
           className="mt-4 h-9 rounded-full bg-secondary px-4 font-sans text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-ring"

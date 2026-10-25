@@ -44,10 +44,11 @@ export function ToastSpecimen({
     toast.dismiss();
     setNotice(null);
     if (state === "undo") {
-      return showUndoToast({
+      const shown = showUndoToast({
         message: "Note deleted",
-        onUndo: () => toast.success("Note restored"),
+        onUndo: () => shown.done(),
       });
+      return shown.dismiss;
     }
     if (state === "status")
       toast.success(
