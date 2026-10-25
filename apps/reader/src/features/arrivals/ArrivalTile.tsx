@@ -138,12 +138,15 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
     (stage === "queued" || stage === "duplicate" || stage === "failed") &&
       "opacity-45",
   );
+  // Until the title is known the place keeps room for two lines of it, so
+  // the rows below never move down when it comes; then it matches the tile
+  // the book will have.
   const caption = (
     <>
       <h3
         className={cn(
           "mt-3 line-clamp-2 text-[13px] leading-snug font-normal",
-          arrival.title === null && "text-muted-foreground",
+          arrival.title === null && "min-h-[2lh] text-muted-foreground",
         )}
       >
         {title}
