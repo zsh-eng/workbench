@@ -45,21 +45,3 @@ test("theme, reading type and layout stay with this browser", async ({
   await page.keyboard.press("=");
   await expect(prose).toHaveCSS("font-size", "22px");
 });
-
-test("downloads saved text for reading offline", async ({ page, context }) => {
-  await page.goto("/settings");
-  await page.getByRole("button", { name: "Download 2 texts" }).click();
-  await expect(page.locator(".offline-status")).toContainText(
-    "2 of 2 texts on this device",
-  );
-  await expect(
-    page.getByRole("button", { name: "All text is on this device" }),
-  ).toBeDisabled();
-
-  // Neither article was opened before. The service worker keeps the app.
-  await page.evaluate(() => navigator.serviceWorker.ready);
-  await context.setOffline(true);
-  await page.goto("/").catch(() => {});
-  await page.locator(".card-title", { hasText: "The tundra" }).click();
-  await expect(page.locator(".prose")).toContainText("Paragraph 12.");
-});

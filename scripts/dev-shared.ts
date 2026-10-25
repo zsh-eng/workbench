@@ -8,7 +8,12 @@ const workerOptions = [
 ];
 // SHARED_API_PORT and SHARED_APP_PORT (with one app) move the stack off the
 // usual ports, so test suites in two worktrees can run at once.
+// SHARED_EXTRA_ORIGINS (comma-separated) adds app origins that the API
+// trusts, such as a production preview of an app.
 const apiPort = process.env.SHARED_API_PORT ?? "8792";
+const extraOrigins = (process.env.SHARED_EXTRA_ORIGINS ?? "")
+  .split(",")
+  .filter(Boolean);
 const apps = [
   ["reader", "5175"],
   ["spaced2", "5180"],
@@ -21,12 +26,14 @@ const apps = [
   )
   .map(([app, port]) => [app!, process.env.SHARED_APP_PORT ?? port!]);
 const moved =
-  !!process.env.SHARED_API_PORT || !!process.env.SHARED_APP_PORT
+  !!process.env.SHARED_API_PORT ||
+  !!process.env.SHARED_APP_PORT ||
+  extraOrigins.length > 0
     ? [
         "--var",
         `BASE_URL:http://localhost:${apiPort}`,
         "--var",
-        `APP_ORIGINS:${apps.map(([, port]) => `http://localhost:${port}`).join(",")}`,
+        `APP_ORIGINS:${[...apps.map(([, port]) => `http://localhost:${port}`), ...extraOrigins].join(",")}`,
         ...(process.env.SHARED_INSPECTOR_PORT
           ? ["--inspector-port", process.env.SHARED_INSPECTOR_PORT]
           : []),
