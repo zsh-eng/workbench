@@ -1,7 +1,11 @@
 import { DuplicateBookDialog } from "./DuplicateBookDialog";
+import { preloadArrivingCover } from "@/features/arrivals/LazyArrivingCover";
 import { useToast } from "@/hooks/use-toast";
 import { markEpubPreparationReady } from "@/hooks/use-epub-processor";
+import { importBooks } from "@/lib/background-activity";
+import { appArrivals } from "@/lib/book-arrivals";
 import { addBookFromFile, DuplicateBookError } from "@/lib/book-service";
+import { arrivingBooks } from "@/lib/debug-switch";
 import type { Book } from "@/lib/db";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +13,7 @@ import {
   createElement,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -61,6 +66,19 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Debug → Arriving books: each book stands in its place on the shelf as
+  // soon as it is ready, also after Try again, not when the batch ends.
+  useEffect(() => {
+    const shelved = new Set<string>();
+    return appArrivals.subscribe(() => {
+      for (const { bookId } of appArrivals.getSnapshot()) {
+        if (!bookId || shelved.has(bookId)) continue;
+        shelved.add(bookId);
+        void queryClient.invalidateQueries({ queryKey: ["books"] });
+      }
+    });
+  }, [queryClient]);
+
   const importFiles = useCallback(
     async (files: FileList | readonly File[]) => {
       if (isProcessing || files.length === 0) return;
@@ -86,11 +104,19 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
       let duplicateCount = 0;
       let errorCount = 0;
       let lastDuplicateBook: Book | null = null;
+      // Debug → Arriving books: each file is a job, and its place shows now.
+      const arrivals = arrivingBooks.get() ? importBooks(epubFiles) : null;
+      if (arrivals) {
+        preloadArrivingCover();
+        navigate("/");
+      }
 
       try {
-        for (const file of epubFiles) {
+        for (const [index, file] of epubFiles.entries()) {
           try {
-            const importedBook = await addBookFromFile(file);
+            const importedBook = arrivals
+              ? await arrivals.outcomes[index]!
+              : await addBookFromFile(file);
             markEpubPreparationReady(queryClient, importedBook);
             successCount += 1;
             lastImportedBook = importedBook;
@@ -114,7 +140,10 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
 
         if (successCount > 0) {
           await queryClient.invalidateQueries({ queryKey: ["books"] });
-          navigate("/");
+          // Arrivals went to the Library at the start, and you may have
+          // opened a book since; their confirmation comes with the last cover.
+          if (arrivals) await arrivals.rested();
+          else navigate("/");
           const bookToOpen = successCount === 1 ? lastImportedBook : null;
           toast({
             message,
@@ -153,6 +182,7 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
           variant: "destructive",
         });
       } finally {
+        arrivals?.end();
         setIsProcessing(false);
       }
     },

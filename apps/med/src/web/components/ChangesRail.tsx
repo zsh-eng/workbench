@@ -9,6 +9,17 @@ import { RailCommits } from "./guide/GuideRail";
 /** As wide as the Guide's rail. */
 const RAIL_WIDTH = 268;
 
+type CommitProps = {
+  commits: readonly SavedCommit[];
+  moreCommits?: boolean;
+  /** The commit of the range that shows, if one does. */
+  commit: string | null;
+  /** The saved comparison shows. */
+  whole: boolean;
+  onCommit(id: string): void;
+  onWhole(): void;
+};
+
 /**
  * The Changes tab's rail in a saved review: the changed files as a tree, and
  * the range's commits. It sits where the Guide's rail does, so the diff keeps
@@ -22,16 +33,7 @@ export function ChangesRail({
   onCommit,
   onWhole,
   ...files
-}: ComponentProps<typeof FileSidebar> & {
-  commits: readonly SavedCommit[];
-  moreCommits?: boolean;
-  /** The commit of the range that shows, if one does. */
-  commit: string | null;
-  /** The saved comparison shows. */
-  whole: boolean;
-  onCommit(id: string): void;
-  onWhole(): void;
-}) {
+}: ComponentProps<typeof FileSidebar> & CommitProps) {
   const { measure, width, pane } = useColumnWidth("changes", () => RAIL_WIDTH);
   return (
     <nav
@@ -40,19 +42,40 @@ export function ChangesRail({
       {...stylex.props(styles.rail, styles.width(width))}
     >
       <FileSidebar {...files} />
-      {commits.length > 1 && (
-        <div {...stylex.props(styles.commits)}>
-          <RailCommits
-            commits={commits}
-            more={moreCommits}
-            current={commit}
-            onCommit={onCommit}
-            whole={{ current: whole, onShow: onWhole }}
-          />
-        </div>
-      )}
+      <RangeCommits
+        commits={commits}
+        moreCommits={moreCommits}
+        commit={commit}
+        whole={whole}
+        onCommit={onCommit}
+        onWhole={onWhole}
+      />
       <ColumnHandle kind="changes" width={width} pane={pane} label="the file list" />
     </nav>
+  );
+}
+
+/** A range's commits under its files, in the rail or the Changed files pane.
+ * A range of one commit lists none. */
+export function RangeCommits({
+  commits,
+  moreCommits,
+  commit,
+  whole,
+  onCommit,
+  onWhole,
+}: CommitProps) {
+  if (commits.length < 2) return null;
+  return (
+    <div {...stylex.props(styles.commits)}>
+      <RailCommits
+        commits={commits}
+        more={moreCommits}
+        current={commit}
+        onCommit={onCommit}
+        whole={{ current: whole, onShow: onWhole }}
+      />
+    </div>
   );
 }
 

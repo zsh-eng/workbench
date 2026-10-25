@@ -11,9 +11,10 @@ import {
  *
  * - Public-domain covers ship with the app, in `scenes/<name>/`, each with
  *   its own cover so the showcase needs no library.
- * - Scenes for the user's own books are local files. The dev server serves
- *   them from a git-ignored folder at `/__living-covers/`; they never enter
- *   the repository or a production build.
+ * - Scenes for the user's own books are local files. The dev server and
+ *   `vite preview` serve them from a git-ignored folder at
+ *   `/__living-covers/`; they never enter the repository or a build. A build
+ *   asks for them only with `VITE_LOCAL_LIVING_COVERS=1` (the phone preview).
  *
  * Every file passes through one cache, so a scene seen once works offline.
  */
@@ -94,7 +95,9 @@ interface LocalManifest {
 
 async function localEntries(): Promise<SceneEntry[]> {
   // Production has no local scenes; see docs/LIVING_COVERS.md for the plan.
-  if (!import.meta.env.DEV) return [];
+  // The phone preview is a local build that asks for them.
+  if (!import.meta.env.DEV && !import.meta.env.VITE_LOCAL_LIVING_COVERS)
+    return [];
   try {
     const response = await fetchSceneFile(`${LOCAL_ROOT}manifest.json`);
     if (!response.headers.get("content-type")?.includes("json")) return [];

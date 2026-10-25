@@ -11,6 +11,7 @@ const TOPICS = [
   { id: "sheets", label: "Sheet motion", added: "2026-10-25" },
   { id: "feedback", label: "Feedback", added: "2026-10-25" },
   { id: "background", label: "Background activity", added: "2026-10-26" },
+  { id: "arriving", label: "Arriving books", added: "2026-10-26" },
 ] as const;
 
 /**

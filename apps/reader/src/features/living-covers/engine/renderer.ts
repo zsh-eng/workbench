@@ -104,7 +104,12 @@ function transformDirection(m: Mat4, v: Vec3): Vec3 {
   ];
 }
 
-function compile(gl: WebGL2RenderingContext, vertex: string, fragment: string) {
+/** Compile and link one program, with a cache of its uniform locations. */
+export function compile(
+  gl: WebGL2RenderingContext,
+  vertex: string,
+  fragment: string,
+) {
   const program = gl.createProgram();
   for (const [type, source] of [
     [gl.VERTEX_SHADER, vertex],
