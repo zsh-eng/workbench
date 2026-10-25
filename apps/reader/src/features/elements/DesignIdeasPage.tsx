@@ -8,7 +8,7 @@ import {
   type DeviceId,
 } from "./DeviceFrame";
 import { Choice, ElementsLayout, ElementsSection } from "./ElementsLayout";
-import { isIdeaTopic, type IdeaTopic } from "./idea-topics";
+import { IDEA_TOPICS, isIdeaTopic, type IdeaTopic } from "./idea-topics";
 
 interface Idea {
   id: string;
@@ -396,7 +396,10 @@ function usePhoneWidth(): boolean {
  */
 export function DesignIdeasPage() {
   const { topic: topicParam } = useParams();
-  const topic: IdeaTopic = isIdeaTopic(topicParam) ? topicParam : "library";
+  // A link without a topic opens the newest.
+  const topic: IdeaTopic = isIdeaTopic(topicParam)
+    ? topicParam
+    : IDEA_TOPICS[0].id;
   return <TopicPage key={topic} topic={topic} />;
 }
 
