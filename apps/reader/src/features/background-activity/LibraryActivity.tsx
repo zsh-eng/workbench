@@ -5,12 +5,12 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { downloadBooks } from "@/lib/background-activity";
+import { activity, downloadBooks } from "@/lib/background-activity";
 import type { Book } from "@/lib/db";
 import { offlineDownloads, useDebugSwitch } from "@/lib/debug-switch";
 import { files } from "@/lib/files";
 import { CloudDownload } from "lucide-react";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityGlyph } from "./ActivityGlyph";
 import { CoverActivity } from "./CoverActivity";
 import { UpdateChip } from "./UpdateChip";
@@ -83,7 +83,10 @@ export function DownloadAllForOffline({ books }: { books: readonly Book[] }) {
             void missingBooks(books).then((missing) => {
               if (missing.length === 0) {
                 toast({
-                  message: `All ${books.length} books are on this device.`,
+                  message:
+                    books.length === 1
+                      ? "Your book is on this device."
+                      : `All ${books.length} books are on this device.`,
                 });
                 return;
               }
@@ -118,4 +121,89 @@ export function DownloadForOfflineItem({ book }: { book: Book }) {
       Download for offline
     </DropdownMenuItem>
   );
+}
+
+/** The Library's filter for books you can open offline. */
+export const ON_DEVICE_FILTER = {
+  value: "on-device",
+  label: "On this device",
+} as const;
+
+/** The download jobs that have finished, as one string that changes with them. */
+function finishedDownloads(): string {
+  return activity
+    .getSnapshot()
+    .jobs.filter((job) => job.kind === "book-download" && job.state === "done")
+    .map((job) => job.id)
+    .join();
+}
+
+/** The ids of the books on this device; null until they are known. */
+function useBooksOnDevice(
+  books: readonly Book[] | undefined,
+  enabled: boolean,
+): ReadonlySet<string> | null {
+  // Only a finished download changes the answer; progress does not render.
+  const finished = useSyncExternalStore(
+    activity.subscribe,
+    finishedDownloads,
+    finishedDownloads,
+  );
+  const [ids, setIds] = useState<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (!enabled || !books) return;
+    let cancelled = false;
+    void Promise.all(
+      books.map(
+        async (book) =>
+          [book.id, await files.hasLocal(book.sourceFileId)] as const,
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      setIds(new Set(results.filter(([, here]) => here).map(([id]) => id)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [books, enabled, finished]);
+  return ids;
+}
+
+/**
+ * "On this device", with Debug -> Offline downloads. While the grid is on
+ * screen it keeps the books it showed when you chose it: a download that
+ * finishes does not push a cover in between the others. The filter takes
+ * in what changed when you choose it again or come back to the app.
+ * `ids` is null while the filter is off or not yet known.
+ */
+export function useOnDeviceFilter(
+  books: readonly Book[] | undefined,
+  active: boolean,
+): { enabled: boolean; ids: ReadonlySet<string> | null } {
+  const enabled = useDebugSwitch(offlineDownloads);
+  const live = useBooksOnDevice(books, enabled);
+  const [view, setView] = useState<{
+    active: boolean;
+    held: ReadonlySet<string> | null;
+    fresh: boolean;
+  }>({ active, held: null, fresh: false });
+  let current = view;
+  if (current.active !== active)
+    current = { active, held: active ? null : current.held, fresh: false };
+  if (active && live && !current.fresh)
+    current = { ...current, held: live, fresh: true };
+  if (current !== view) setView(current);
+
+  // Back from another app: the next look takes in what finished meanwhile.
+  useEffect(() => {
+    if (!active) return;
+    const onChange = () => {
+      if (document.visibilityState === "visible")
+        setView((now) => ({ ...now, fresh: false }));
+    };
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, [active]);
+
+  return { enabled, ids: enabled && active ? current.held : null };
 }
