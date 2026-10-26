@@ -6,6 +6,8 @@ import {
   SAMPLE_EPUB_PATH,
   test,
   waitForReaderReady,
+  waitForSheet,
+  waitForSheetToRest,
 } from "./helpers/fixtures";
 
 // Debug → Arriving books: each added book holds its place in the Library at
@@ -189,6 +191,8 @@ test("one book arrives in the arrival sheet, and Read now opens it", async ({
   // The sheet is the confirmation: no toast, no dialog.
   await expect(page.getByText("Added 1 book.", { exact: true })).toHaveCount(0);
 
+  // A tap waits for the sheet to hold still, as a finger would.
+  await waitForSheetToRest(await waitForSheet(page, "In your library", READY));
   await read.click();
   await expect(page).toHaveURL(/\/reader\//);
   await waitForReaderReady(page);
@@ -235,9 +239,9 @@ test("closing the sheet once the book is ready lands it on its own cover", async
     READY,
   );
   // Focus is in the sheet once it has come up; Escape closes it.
-  await expect(
-    page.getByRole("dialog", { name: "In your library" }),
-  ).toBeFocused(READY);
+  const dialog = await waitForSheet(page, "In your library", READY);
+  await waitForSheetToRest(dialog);
+  await expect(dialog).toBeFocused();
   await watchLanding(page);
   await page.keyboard.press("Escape");
 
@@ -263,6 +267,9 @@ test("the same book again shows the copy you have in the sheet", async ({
   await expect(
     page.getByRole("heading", { name: "Book already added" }),
   ).toHaveCount(0);
+  await waitForSheetToRest(
+    await waitForSheet(page, "Already in your library", READY),
+  );
   await sheet.getByRole("button", { name: "Read now" }).click();
   await expect(page).toHaveURL(`/reader/${localBook.id}`);
   await waitForReaderReady(page);

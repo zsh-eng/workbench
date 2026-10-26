@@ -158,6 +158,8 @@ export async function openLocalBook(page: Page, bookId: string): Promise<void> {
  * Waits for a phone Reader sheet to rest and returns it. A detent sheet
  * slides in on the browser's own scrolling and takes focus once it rests;
  * until then a tap meets a moving target and keys still go to the page.
+ * `timeout` covers both: a sheet that opens while the page is busy also
+ * comes up slowly.
  */
 export async function waitForSheet(
   page: Page,
@@ -168,16 +170,18 @@ export async function waitForSheet(
   // A Debug page loads on demand, which takes a while the first time.
   await expect(dialog).toBeVisible({ timeout });
   await expect
-    .poll(() =>
-      dialog.evaluate((element) => {
-        const overlay = element.closest(".reader-sheet-overlay");
-        if (!overlay) return true;
-        const sheet = element.closest(".reader-sheet")!;
-        return (
-          !overlay.hasAttribute("data-entering") &&
-          sheet.getBoundingClientRect().top < innerHeight
-        );
-      }),
+    .poll(
+      () =>
+        dialog.evaluate((element) => {
+          const overlay = element.closest(".reader-sheet-overlay");
+          if (!overlay) return true;
+          const sheet = element.closest(".reader-sheet")!;
+          return (
+            !overlay.hasAttribute("data-entering") &&
+            sheet.getBoundingClientRect().top < innerHeight
+          );
+        }),
+      { timeout },
     )
     .toBe(true);
   return dialog;
