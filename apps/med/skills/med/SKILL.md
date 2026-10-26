@@ -124,6 +124,25 @@ and any changes that were already there (`git status --short`).
      --repo <repository-root> --base <commit-before-work> --head HEAD --guide -
    ```
 
+   Related pull requests or branches, such as a stack where each pull
+   request is based on the one before it, are **one** thread: one stack, not
+   one review each. Name them bottom first; Med reads pull requests with `gh`,
+   fetches missing heads without a checkout, and diffs each layer against the
+   layer below:
+
+   ```sh
+   med review create --key <task> --title "Parser rewrite" \
+     --repo <repository-root> --stack 101 102 103 104 --guide guides.json
+   med review create --key <task> --title "Parser rewrite" \
+     --repo <repository-root> --stack parse-tokens build-ast --base main
+   ```
+
+   `--guide` then takes a JSON array with one guide, or `null`, for each
+   layer. Use `--set` in place of `--stack` for independent changes of one
+   task, each against its own base. To hand off one layer again, run
+   `med review create` with that layer's pull request URL or branch as
+   `--key`; `med review update --key <that key> --guide -` sets its guide.
+
 4. Med checks the guide against the changed files and prints what it leaves
    out or names twice. Fix those, then run
    `med review update --key <task> --guide -` with the fixed guide.
@@ -182,6 +201,10 @@ or ends, or until the user forks it with Continue in Med.
 
 - Include only the repositories your task changed. Use `--manifest` for more
   than one (see `med docs agents`).
+- Review several stacked pull requests as one `--stack`. Separate
+  `med review create` calls for them clutter the user's tabs; Med joins a
+  hand-off whose base is another open thread's head only when the same
+  session made both, or both are pull requests.
 - `--working` captures every current change, including changes that were there
   before you started. Keep only your files with `--paths`, or say so in the
   guide's summary when that applies.

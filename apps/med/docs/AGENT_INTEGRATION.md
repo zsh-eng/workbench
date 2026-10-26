@@ -370,6 +370,32 @@ patches and file pairs cannot be saved. Keep a generated manifest out of the
 reviewed changes unless it belongs to the project. `med review create --help`
 lists every option.
 
+### Stacks and sets
+
+Related pull requests or branches are one thread. `--stack` names them
+bottom first; each is a layer, diffed against the layer below. A pull request
+(a number such as `101`, `#101`, or its URL) is read with `gh` and is its own
+diff, from the merge base with its base commit; a head that is not local is
+fetched as `refs/pull/<n>/head`, never checked out. A branch is its changes
+since the layer below; the bottom branch's since `--base` (the repository's
+base branch by default). `--set` makes parts that do not depend on each other,
+each since its own base.
+
+```sh
+med review create --repo . --title "Parser rewrite" --stack 101 102 103 104
+med review create --repo . --stack parse-tokens build-ast typecheck --base main
+med review create --repo . --set fix-docs fix-cli --guide guides.json
+```
+
+`--guide` takes a JSON array with a guide, or `null`, for each part. Each
+part's pull request URL or branch is its key: `med review create --key <key>`
+with one comparison hands off that part again, as a new version in which the
+other parts keep their comparisons and comments; `med review update --key
+<key> --guide -` sets its guide. A hand-off of one range joins an open thread
+as its next layer when its base is that thread's top head and the same session
+made both, or both are pull requests; the command then prints `Added layer N
+of M`. See [stacks and sets](STACKS.md).
+
 ## Tabs and history
 
 The threads that the user has open are tabs, in Med's sidebar. The others are
