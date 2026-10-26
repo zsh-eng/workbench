@@ -33,6 +33,24 @@ need a diff and link review, not a build.
 Keep deployment resource names and production data separate from repository
 names. Do not deploy or run remote migrations as a side effect of a refactor.
 
+## Fast test loop
+
+- Start the app's e2e server once per worktree, in the background, on your
+  own port. For Reader: `E2E_PORT=<port> bun run e2e:serve`. Each
+  `E2E_PORT=<port> bun run test:e2e <spec>` then reuses it.
+- Run heavy jobs (Playwright, full vitest runs, builds) through the
+  machine-wide lock, which allows two at a time: `bun run heavy <command>`.
+  Reader's `test:e2e` uses it already.
+- For screenshots, clips and timings, use the
+  [agent kit](packages/agent-kit/README.md): `bun run kit shot|clip|time`. Do
+  not write throwaway browser scripts or `zz-*.spec.ts` probes.
+- Run a command that can take more than about 3 minutes in the background,
+  with a timeout. Give each polling loop a deadline.
+- Batch independent file reads into one turn: parallel tool calls, or one
+  command that prints several ranges.
+- Do not run a passing spec again unless the code changed. Use
+  `--repeat-each` only to find a flaky test.
+
 ## Test design
 
 - Prefer integration and end-to-end tests for behavior. Exercise production
@@ -49,5 +67,5 @@ names. Do not deploy or run remote migrations as a side effect of a refactor.
 Track servers, watchers, test browsers, and build processes started for a task.
 Stop them when the task no longer needs them. Keep shared app services and
 processes used by other active tasks running. Before stopping a process, check
-its command, working directory, and parent process. Avoid concurrent heavy
-builds or browser suites when the machine is under memory or CPU pressure.
+its command, working directory, and parent process. Stop your warm e2e server
+when the task ends.
