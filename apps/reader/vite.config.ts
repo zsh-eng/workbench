@@ -149,6 +149,13 @@ export default defineConfig(({ command, mode }) => ({
                   name: "framework",
                   test: /node_modules[\\/](react|react-dom|scheduler)[\\/]|vite\/preload-helper/,
                 },
+                {
+                  // The Reader's loader, which the entry and the Library
+                  // share. Out of the entry chunk for the same reason; the
+                  // entry gives it the import() that names the Reader's file.
+                  name: "screen-loader",
+                  test: /\/src\/(lib\/prefetch|features\/reader\/load-reader)\.ts$/,
+                },
               ],
             },
           },

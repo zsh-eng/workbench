@@ -20,6 +20,7 @@ import {
 } from "@/features/background-activity/LibraryActivity";
 import { useBookArrival } from "@/features/arrivals/arrival-store";
 import { LazyArrivingCover } from "@/features/arrivals/LazyArrivingCover";
+import { preloadReader } from "@/features/reader/load-reader";
 import { useSetReadingStatus } from "@/hooks/use-reading-status";
 import { useToast } from "@/hooks/use-toast";
 import type { Book, ReadingStatus } from "@/lib/db";
@@ -252,6 +253,7 @@ function BookActions({
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem
             render={<Link to={`/reader/${book.id}`} />}
+            onFocus={preloadReader}
             onClick={() =>
               beginReaderTrace({
                 bookId: book.id,
@@ -324,8 +326,14 @@ function BookLink({
       onClick={() =>
         beginReaderTrace({ bookId: book.id, bookTitle: book.title, source })
       }
-      onFocusCapture={() => onPrefetch(book)}
+      onFocusCapture={() => {
+        preloadReader();
+        onPrefetch(book);
+      }}
+      // A touch enters as it goes down: in time for the Reader's code, if
+      // the Library has not loaded it yet, but not worth the book itself.
       onPointerEnter={(event) => {
+        preloadReader();
         if (event.pointerType !== "touch") onPrefetch(book);
       }}
       onContextMenu={(event) => {
