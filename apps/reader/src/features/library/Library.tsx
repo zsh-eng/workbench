@@ -70,6 +70,8 @@ import {
 import {
   DownloadAllForOffline,
   LibraryActivity,
+  ON_DEVICE_FILTER,
+  useOnDeviceFilter,
 } from "@/features/background-activity/LibraryActivity";
 
 // A new filter shows its books at once: the old list goes without a fade, so
@@ -121,7 +123,17 @@ export function Library() {
   const { data } = useBooksWithStatuses();
   const debugEnabled = useDebugEnabled();
 
-  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [chosenFilter, setFilter] = useState<
+    LibraryFilter | typeof ON_DEVICE_FILTER.value
+  >("all");
+  const onDevice = useOnDeviceFilter(
+    data?.books,
+    chosenFilter === ON_DEVICE_FILTER.value,
+  );
+  const filter =
+    chosenFilter === ON_DEVICE_FILTER.value && !onDevice.enabled
+      ? "all"
+      : chosenFilter;
   const filterRow = useMoreToTheRight();
   const [view, setViewState] = useState(readViewPreferences);
   const placeSearch = usePlaceSearch();
@@ -145,13 +157,16 @@ export function Library() {
       .sort(compareBooksByLastReadDesc(data.lastReadByBook));
     const shown = sortBooks(
       found.filter((book) =>
-        matchesFilter(data.statuses.get(book.id) ?? null, filter),
+        filter === ON_DEVICE_FILTER.value
+          ? data.statuses.get(book.id) !== "reading" &&
+            !!onDevice.ids?.has(book.id)
+          : matchesFilter(data.statuses.get(book.id) ?? null, filter),
       ),
       view.sort,
       data.lastReadByBook,
     );
     return { found, reading, shown };
-  }, [data, filter, terms, view.sort]);
+  }, [data, filter, onDevice.ids, terms, view.sort]);
 
   const displayedBooks = useMemo(
     () => [...reading, ...shown],
@@ -496,7 +511,10 @@ export function Library() {
                 data-more={filterRow.more || undefined}
                 className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] max-md:data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] md:gap-4"
               >
-                {LIBRARY_FILTERS.map((option) => {
+                {[
+                  ...LIBRARY_FILTERS,
+                  ...(onDevice.enabled ? [ON_DEVICE_FILTER] : []),
+                ].map((option) => {
                   const active = option.value === filter;
                   return (
                     <button
@@ -537,7 +555,9 @@ export function Library() {
                   <p className="py-20 text-center text-[14px] text-muted-foreground">
                     {terms
                       ? "No books here match."
-                      : "No books here. Change a book’s status from its menu to file it here."}
+                      : filter === ON_DEVICE_FILTER.value
+                        ? "No books on this device yet. Sort and layout → Download all for offline."
+                        : "No books here. Change a book’s status from its menu to file it here."}
                   </p>
                 ) : view.layout === "covers" ? (
                   <ul className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(128px,1fr))] md:gap-x-8">

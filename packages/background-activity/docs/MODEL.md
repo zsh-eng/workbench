@@ -15,6 +15,7 @@ screen while it happens.
 | Downloads   | a book's EPUB, covers, Spaced card images, "download all images"                          | the app, as a job here |
 | Uploads     | a book or cover that you imported, waiting for the server                                 | the app's file manager |
 | Preparation | unzipping and indexing a book after its download                                          | the app, in the job    |
+| Imports     | a file you chose becoming a book: saving, reading, making the cover                       | the app, as a job here |
 | App update  | the new version's files, then the switch to them                                          | the service worker     |
 
 Pagination, search and saving a highlight are not background activity. They
@@ -34,7 +35,9 @@ true:
    only on this device because you are offline, signed out, or sync keeps
    failing, and that has lasted long enough to matter.
 4. **It needs you.** It failed and cannot fix itself: it needs a sign-in,
-   storage is full, or the server refused the file.
+   storage is full, or the server refused the file. A file that could not
+   be added says so on its own place in the Library, with Try again, so
+   the glyph does not raise it again.
 5. **Something new is possible.** An update is ready, or a book that you
    asked for is now on this device.
 
@@ -98,6 +101,38 @@ The update has its own small moment:
   aside: one floating surface per place.
 - The update is one chip, from Ready to the ring. "Updated" after the reload
   takes the chip's place.
+- In the activity sheet, each book's row carries its cover. The sheet
+  covers the shelf, so the row's cover is the only picture of that book on
+  screen, not a second one.
+
+## Nothing moves while you look
+
+Rows that jump as work finishes are the usual failure of an activity list.
+The sheet follows what App Store updates, Safari's downloads, Music and
+Podcasts do:
+
+1. **A row finishes where it is.** Its ring becomes a check and its words
+   change ("On this device"). It does not move while the sheet is open,
+   and a finished download stays after the queue forgets it.
+2. **Sections regroup only when the sheet opens.** Each opening files the
+   rows under Now, Waiting, Couldn't finish, Done and This app, each in the
+   order the work began. While it is open, a row keeps its section.
+3. **Moves happen together, on one spring.** New work joins the end of its
+   section, and a row you cancel or dismiss leaves. Every row that changes
+   in one update opens or closes its height on the same spring
+   (UITableView's, response 0.30 s), never one jump per row.
+4. **Fixed sizes.** Every row is 56 px tall whatever it says, its actions
+   have one width, and numbers use tabular figures, so changing sizes and
+   counts do not jiggle the words.
+5. **The sheet holds its height.** It fits its rows by the shared sheet
+   rules (packages/elements/docs/MOTION.md, "Sheet behaviour"): it follows
+   a row that joins, holds while one leaves, and settles once.
+
+A routine sync pass never appears in the sheet, so it cannot add and remove
+a row every 30 s. The Library's "On this device" filter follows rules 1
+and 2: while you look at it, a book that finishes downloading does not push in
+between the covers; the filter takes it in when you choose it again or come
+back to the app.
 
 ## A safe moment for an update
 
@@ -120,10 +155,9 @@ version's files, so nothing breaks while it waits.
 
 - **An island with mini covers** is strong for one to three downloads while
   you browse. But the mini cover is a second element for a subject that the
-  grid already shows, unless the cover visibly flies into the island when
-  the download starts. Long jobs keep it on screen, and in the Reader it
-  would compete with the notes island. Kept as a direction, with the
-  flight, and never in the Reader.
+  grid already shows, unless the cover flies into the island, and that is
+  a lot of motion for a download. Many downloads make it noisy, and in the
+  Reader it would compete with the notes island. Tried and dropped.
 - **A cover that fills** keeps identity best: the subject is the element. It
   cannot show a subject that is off screen, or work with no cover (sync,
   images, the update), so it needs a summary somewhere.
@@ -149,21 +183,19 @@ Beyond the starting points:
 
 ## Directions to try
 
-Design ideas → Background activity compares three directions with the same
+Design ideas → Background activity shows the directions with the same
 scenarios, on the real engine with simulated jobs:
 
 1. **On the covers.** Progress lives on the subject; ticks for waiting work;
    the offline shelf; the update chip.
-2. **The island.** One floating pill at the bottom of the Library. Covers
-   fly into it; it shows a stack of mini covers and one ring; tap to open it
-   into a list. It carries the update moment too.
-3. **A glyph and a sheet.** A glyph beside the account button that shows
+2. **A glyph and a sheet.** A glyph beside the account button that shows
    only when it has something to say; tap for the activity sheet: Now,
-   Waiting, Done, and This app.
+   Waiting, Couldn't finish, Done, and This app.
+3. **Covers and a sheet.** 1 with 2, the choice: progress on the subject,
+   and the glyph and sheet for what has no subject on screen.
 
-The recommendation is 1 with 3: progress on the subject, and the glyph and
-sheet for what has no subject on screen. The Library wires that for books
-downloaded for offline, behind Debug → Offline downloads. A phone's header
-is full with the places, so there the glyph sits in the filter row beside
-Sort and layout, where Download all starts, and the update chip floats at
-the bottom of the Library.
+The island was a fourth direction, dropped (see the critique). The Library
+wires the choice for books downloaded for offline, behind Debug → Offline
+downloads. A phone's header is full with the places, so there the glyph
+sits in the filter row beside Sort and layout, where Download all starts,
+and the update chip floats at the bottom of the Library.

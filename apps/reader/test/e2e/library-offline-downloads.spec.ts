@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, SAMPLE_EPUB_PATH } from "./helpers/fixtures";
+import {
+  expect,
+  test,
+  SAMPLE_EPUB_PATH,
+  waitForSheet,
+} from "./helpers/fixtures";
 
 // Debug -> Offline downloads: a book that is only on the server downloads
 // from the Library, on its cover, with the glyph and its sheet.
@@ -47,13 +52,29 @@ test("a book downloads for offline on its cover", async ({
   const glyph = page.locator("[data-activity-glyph]");
   await expect(glyph).toHaveAttribute("data-activity-glyph", "progress");
   await glyph.click();
-  const sheet = page.getByRole("dialog");
+  const sheet = await waitForSheet(page, "Activity");
   await expect(sheet.getByText("Now")).toBeVisible();
+  // The row carries the book's cover: the shelf is behind the sheet.
+  await expect(
+    sheet.locator(`[data-sheet-cover="${localBook.id}"]`),
+  ).toBeVisible();
   await expect(sheet.getByRole("button", { name: /^Cancel / })).toBeVisible();
   await page.keyboard.press("Escape");
 
+  // "On this device" keeps what it showed while you look at it.
+  const filters = page.getByRole("group", { name: "Show" });
+  await filters.getByRole("button", { name: "On this device" }).click();
+  const nothingHere = page.getByText(/^No books on this device yet/);
+  await expect(nothingHere).toBeVisible();
   release();
-  await expect(cover).toHaveAttribute("data-cover-activity", "done");
+  await expect(glyph).toHaveAttribute("data-activity-glyph", "done");
+  await expect(nothingHere).toBeVisible();
+  // Chosen again, it takes the book in.
+  await filters.getByRole("button", { name: "All" }).click();
+  await filters.getByRole("button", { name: "On this device" }).click();
+  await expect(nothingHere).toBeHidden();
+  await filters.getByRole("button", { name: "All" }).click();
+
   // The check confirms once, then the cover goes back to rest.
   await expect(page.locator("[data-cover-activity]")).toHaveCount(0, {
     timeout: 5_000,
@@ -69,6 +90,6 @@ test("a book downloads for offline on its cover", async ({
   await page
     .getByRole("menuitem", { name: "Download all for offline" })
     .click();
-  await expect(page.getByText("All 1 books are on this device.")).toBeVisible();
+  await expect(page.getByText("Your book is on this device.")).toBeVisible();
   expect(requests).toBe(1);
 });

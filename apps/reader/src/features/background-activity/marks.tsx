@@ -37,18 +37,24 @@ export function ProgressRing({
   );
 }
 
-/** A check that draws once when it mounts. */
+/**
+ * A check that draws once when it mounts. `animate={false}` shows it drawn,
+ * for work that had finished before you looked.
+ */
 export function DrawnCheck({
   size = 18,
+  animate = true,
   className,
 }: {
   size?: number;
+  animate?: boolean;
   className?: string;
 }) {
   return (
     <span
       aria-hidden="true"
       className={["ba-check", className].filter(Boolean).join(" ")}
+      data-drawn={animate ? undefined : ""}
       style={{ "--ba-ring-size": `${size}px` } as CSSProperties}
     >
       <svg viewBox="0 0 24 24">

@@ -48,7 +48,7 @@ export type ScenarioId =
 
 export const SCENARIOS: { id: ScenarioId; label: string }[] = [
   { id: "new-device", label: "New device" },
-  { id: "download", label: "Download 3" },
+  { id: "download", label: "Download 5" },
   { id: "offline", label: "Offline edits" },
   { id: "update", label: "Update" },
   { id: "failure", label: "Failure" },
@@ -369,7 +369,7 @@ export function createSimulation(
         return;
       }
       case "download":
-        for (const book of notHere().slice(0, 3)) startDownload(book);
+        for (const book of notHere().slice(0, 5)) startDownload(book);
         return;
       case "offline": {
         const changed = books
