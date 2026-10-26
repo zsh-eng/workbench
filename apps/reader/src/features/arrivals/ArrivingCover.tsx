@@ -142,8 +142,9 @@ export function ArrivingCover(props: ArrivingCoverProps) {
 }
 
 /**
- * The handover: `plain` sits under the drawing from the start, hidden, and
- * shows when the drawing fades. Both show the same picture by then.
+ * The handover: `plain` sits under the drawing from the start, hidden. It
+ * shows at once when the drawing starts to fade over it, so the two never
+ * cross-fade through the card: both show the same picture by then.
  */
 function useHandover(props: ArrivingCoverProps, rested: boolean) {
   const { plainReady, onSettled } = props;
@@ -197,7 +198,7 @@ function ShaderArrival(props: ArrivingCoverProps & { look: ArrivalDirection }) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-0 transition-opacity duration-200",
+          "absolute inset-0",
           handing ? "opacity-100" : "opacity-0",
         )}
       >
@@ -240,7 +241,7 @@ function CalmArrival(props: ArrivingCoverProps) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-0 transition-opacity duration-200",
+          "absolute inset-0",
           handing ? "opacity-100" : "opacity-0",
         )}
       >
