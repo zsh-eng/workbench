@@ -309,6 +309,66 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  installing: {
+    current: {
+      id: "install-today",
+      title: "Today",
+      description:
+        "What shipped before: nothing. Installing was up to you, through Safari's menus, and launch showed a blank screen in the background colour.",
+      src: "/",
+    },
+    ideas: [
+      {
+        id: "install-list",
+        title: "Steps",
+        description:
+          "The recommendation, wired in the real app. One row per tap, each beside the control as Safari draws it: Page Menu, Share, View More, Add to Home Screen, Add. The sheet stays open while you tap through Safari's toolbar. It opens by itself once, in the Library at a calm moment after your first book or on a second visit, and always from Account → Install Reader or Settings.",
+        src: "/debug/ideas/installing?variant=list",
+      },
+      {
+        id: "install-walkthrough",
+        title: "Walkthrough",
+        description:
+          "Safari's own screens, one step at a time: the menu grows out of the Page Menu, the share sheet rises, View More unfolds, Add to Home Screen rises over it. Tap Next and Back.",
+        src: "/debug/ideas/installing?variant=walkthrough",
+      },
+      {
+        id: "install-sentence",
+        title: "One sentence",
+        description:
+          "The taps as one sentence, each control inline beside its name: the smallest sheet.",
+        src: "/debug/ideas/installing?variant=sentence",
+      },
+      {
+        id: "install-ios26",
+        title: "Steps on iOS 26",
+        description:
+          "The same steps where iOS 26 Safari puts Share behind ⋯ beside the address bar, not in the Page Menu.",
+        src: "/debug/ideas/installing?variant=list&ios=26",
+      },
+      {
+        id: "install-books",
+        title: "Books added in Safari",
+        description:
+          "An installed app keeps its own library on iPhone. When you have books and no account, the sheet says how to bring them.",
+        src: "/debug/ideas/installing?variant=list&books=1",
+      },
+      {
+        id: "install-chrome",
+        title: "Chrome and Edge",
+        description:
+          "Chromium installs with its own dialog, so the sheet is one Install button. Once installed, the button says so in place and the sheet closes. Here Install answers after a moment, where Chrome shows its dialog.",
+        src: "/debug/ideas/installing?platform=chromium",
+      },
+      {
+        id: "install-other-browser",
+        title: "Another iPhone browser",
+        description:
+          "Chrome, Firefox or an app's own browser on iPhone: open the page in Safari to install, with Copy link. Chrome and Edge can also add it from their Share menu.",
+        src: "/debug/ideas/installing?platform=ios-other",
+      },
+    ],
+  },
   sheets: {
     current: {
       id: "sheet-scroll",

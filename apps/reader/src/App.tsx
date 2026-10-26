@@ -11,6 +11,8 @@ import { Library } from "@/features/library/Library";
 import { Reader } from "@/features/reader";
 import { ReadingSessions } from "@/features/reading-sessions/ReadingSessions";
 import { BackgroundActivityHost } from "@/features/background-activity/BackgroundActivityHost";
+import { InstallOfferHost } from "@/features/install/InstallOfferHost";
+import { hostsInstallOffer } from "@/features/install/install-offer";
 import { Devices } from "@/features/devices/Devices";
 import { Toaster } from "@/components/ui/sonner";
 import { EpubImportProvider } from "@/features/library/use-epub-import";
@@ -98,6 +100,10 @@ const ArrivingBooksIdea = lazyPage(
 const FeedbackIdea = lazyPage(
   () => import("@/features/elements/FeedbackIdea"),
   "FeedbackIdea",
+);
+const InstallIdea = lazyPage(
+  () => import("@/features/install/InstallIdea"),
+  "InstallIdea",
 );
 const SheetMotionIdea = lazyPage(
   () => import("@/features/elements/SheetMotionIdea"),
@@ -343,6 +349,14 @@ function App() {
                       }
                     />
                     <Route
+                      path="/debug/ideas/installing"
+                      element={
+                        <DebugPage>
+                          <InstallIdea />
+                        </DebugPage>
+                      }
+                    />
+                    <Route
                       path="/debug/elements/frame/:specimenId"
                       element={
                         <DebugPage>
@@ -365,6 +379,7 @@ function App() {
                     !location.pathname.startsWith("/debug/elements/frame/") && (
                       <BackgroundActivityHost />
                     )}
+                  {hostsInstallOffer() && <InstallOfferHost />}
                 </EpubImportProvider>
               </AppRouter>
             </FileUploadInitializer>

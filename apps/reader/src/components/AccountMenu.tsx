@@ -12,6 +12,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  openInstallSheet,
+  useInstallAvailability,
+} from "@/features/install/install-offer";
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { useSyncStatus } from "@/features/sync-status/use-sync-status";
 import { useAuth } from "@/hooks/use-auth";
@@ -37,6 +41,7 @@ import {
   LogOut,
   MonitorSmartphone,
   Settings,
+  SquarePlus,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -75,6 +80,7 @@ export function AccountMenu() {
   const { isSyncing, triggerSync } = useSync();
   const syncStatus = useSyncStatus();
   const { toast } = useToast();
+  const install = useInstallAvailability();
   // An ended session keeps its account on this device until sign-out.
   const hasAccount = isAuthenticated || authStatus === "expired";
   const showSyncAttention = hasAccount && syncStatus.attention;
@@ -217,6 +223,12 @@ export function AccountMenu() {
           <Settings />
           Settings
         </DropdownMenuItem>
+        {install.available && (
+          <DropdownMenuItem onClick={() => openInstallSheet("menu")}>
+            <SquarePlus />
+            Install Reader
+          </DropdownMenuItem>
+        )}
         {debugEnabled && (
           <DropdownMenuItem render={<Link to="/debug" />}>
             <Bug />

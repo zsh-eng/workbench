@@ -46,6 +46,11 @@ import "@fontsource/atkinson-hyperlegible-next/latin-ext-700.css";
 import "@fontsource/atkinson-hyperlegible-next/latin-700.css";
 
 import "./index.css";
+import { listenForInstallPrompt } from "./features/install/install-prompt";
+
+// Chromium's install prompt can fire before the app renders, and only once.
+listenForInstallPrompt();
+
 /** Configure isolated clients before app modules create their singleton services. */
 async function bootstrap() {
   const root = createRoot(document.getElementById("root")!);
