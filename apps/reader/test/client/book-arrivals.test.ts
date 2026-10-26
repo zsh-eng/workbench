@@ -2,7 +2,11 @@ import {
   ArrivalProvider,
   type Arrival,
 } from "@/features/arrivals/arrival-store";
-import { useArrivalGrid } from "@/features/arrivals/ArrivalTile";
+import {
+  ArrivalTile,
+  useArrivalGrid,
+  usePendingArrivalCount,
+} from "@/features/arrivals/ArrivalTile";
 import { ArrivingCover } from "@/features/arrivals/ArrivingCover";
 import {
   ArrivalRecords,
@@ -14,7 +18,7 @@ import type { Book } from "@/lib/db";
 import type { FileId } from "@/lib/files";
 import { compareBooksByDateAddedDesc } from "@/lib/library-sort";
 import { createActivityManager } from "@workbench/background-activity";
-import { cleanup, render, renderHook } from "@testing-library/react";
+import { act, cleanup, render, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -77,6 +81,7 @@ function fakeImport({
         title: name,
         author: "Anon",
         cover: null,
+        chapters: 3,
       });
       await wait(2);
       return book(name, options.dateAdded ?? Date.now());
@@ -165,20 +170,25 @@ describe("a batch of arriving books", () => {
 });
 
 describe("the covers grid while books arrive", () => {
-  function grid(records: ArrivalRecords, shown: Book[], hold = true) {
+  function provider(records: ArrivalRecords) {
     const manager = createActivityManager({ kinds: {} });
-    const wrapper = ({ children }: { children: ReactNode }) =>
+    return ({ children }: { children: ReactNode }) =>
       createElement(
         ArrivalProvider,
         {
           records,
           source: manager,
-          look: "develop",
+          look: "light",
           reliefFor: () => null,
         },
         children,
       );
-    return renderHook(() => useArrivalGrid(shown, hold), { wrapper });
+  }
+
+  function grid(records: ArrivalRecords, shown: Book[], hold = true) {
+    return renderHook(() => useArrivalGrid(shown, hold), {
+      wrapper: provider(records),
+    });
   }
 
   const describeItems = (items: ({ book: Book } | { arrivalKey: string })[]) =>
@@ -210,6 +220,63 @@ describe("the covers grid while books arrive", () => {
 
     expect(describeItems(result.current)).toEqual(["older"]);
   });
+
+  it("keeps an empty library waiting until a ready book settles on the shelf", () => {
+    const records = new ArrivalRecords();
+    const { keys } = records.start(["one.epub"]);
+    const { result } = renderHook(() => usePendingArrivalCount(), {
+      wrapper: provider(records),
+    });
+    expect(result.current).toBe(1);
+
+    // The import has written the book; the Library has not read it yet.
+    act(() => records.ready(keys[0]!, book("one", 1)));
+    expect(result.current).toBe(1);
+
+    act(() => records.settle(keys[0]!));
+    expect(result.current).toBe(0);
+  });
+
+  it("leaves a book's place empty while the arrival sheet shows it", () => {
+    const records = new ArrivalRecords();
+    const { keys } = records.start(["one.epub"]);
+    records.present(keys[0]!, true);
+    const view = render(
+      createElement(
+        "ul",
+        null,
+        createElement(ArrivalTile, { arrivalKey: keys[0]! }),
+      ),
+      { wrapper: provider(records) },
+    );
+    const place = () => view.container.querySelector("[data-arrival-place]");
+
+    expect(place()?.getAttribute("data-arrival-place")).toBe(keys[0]);
+
+    act(() => records.present(keys[0]!, false));
+    expect(place()).toBeNull();
+    expect(view.container.querySelector("[data-arrival-tile]")).not.toBeNull();
+  });
+
+  it("keeps the place of a book in the arrival sheet after its batch, until the sheet lets it go", () => {
+    vi.useFakeTimers();
+    try {
+      const records = new ArrivalRecords();
+      const { batch, keys } = records.start(["one.epub", "two.epub"]);
+      records.present(keys[0]!, true);
+      records.end(batch);
+      vi.advanceTimersByTime(5_000);
+      expect(records.getSnapshot().map((record) => record.key)).toEqual([
+        keys[0],
+      ]);
+
+      records.present(keys[0]!, false);
+      vi.advanceTimersByTime(5_000);
+      expect(records.getSnapshot()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // The engine reads the media query the first time it is asked, here.
@@ -235,10 +302,13 @@ describe("reduced motion", () => {
       title: "One",
       author: "Anon",
       cover: new Blob(["cover"], { type: "image/png" }),
+      chapters: null,
       bookId: stage === "ready" ? "book-one" : null,
       existingBookId: null,
+      existingCover: null,
       error: null,
       settled: false,
+      presented: false,
       progress: { stage, fraction: stage === "ready" ? 1 : 0.7 },
       changedAt: 0,
     });

@@ -268,44 +268,51 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "arriving-today",
       title: "Today",
       description:
-        "What ships: nothing shows while the files are read; each book appears with its cover when it is done. The buttons at the top run one book, five, or a slow, a failed and a duplicate one; tap the chosen one again to replay.",
-      src: "/debug/ideas/arriving-books?look=today",
+        "What ships: nothing shows while a file is read. One book then gets a toast with Open book; several appear one by one as each is done. The buttons at the top run one book, one already added, five, or a slow, a failed and a duplicate one; tap the chosen one again to replay.",
+      src: "/debug/ideas/arriving-books?look=today&state=one",
     },
     ideas: [
+      {
+        id: "arriving-sheet",
+        title: "One book: arrival sheet",
+        description:
+          "The recommendation for one book. A sheet at the medium detent shows it large: the cover spreads in as ink, in step with the import, then the title, the author, its chapters and Read now. Close the sheet and the cover comes down into its place in the grid; closed early, the book goes on arriving there in raking light. One already added shows the copy you have, with Read now.",
+        src: "/debug/ideas/arriving-books?look=light&state=one",
+      },
+      {
+        id: "arriving-light",
+        title: "Several books: raking light",
+        description:
+          "The recommendation for a batch, with no sheet. Every book holds its place at once, as paper. A low lamp crosses each cover from the spine as the book is prepared, and the colour returns where it has been. On a printed cover the light finds the board's tooth and a passing sheen; on a living cover, its hand-made relief. In the real Library: Settings → Debug tools → Try on this device → Arriving books.",
+        src: "/debug/ideas/arriving-books?look=light&state=five",
+      },
       {
         id: "arriving-develop",
         title: "Develop",
         description:
-          "The recommendation. Every book holds its place at once, as paper. When the import finds the cover it develops like a print, shadows first through a fine grain, and the colour comes in over the black and white as the book is written. It follows the real steps and never runs ahead of them. In the real Library: Settings → Debug tools → Try on this device → Arriving books, then add books.",
-        src: "/debug/ideas/arriving-books?look=develop",
-      },
-      {
-        id: "arriving-light",
-        title: "Raking light",
-        description:
-          "The cover waits pale, in black and white; a low lamp crosses it from the spine as the book is prepared, catching the relief (the living cover's depth where it has one, the ink otherwise), and the colour returns where the light has been.",
-        src: "/debug/ideas/arriving-books?look=light",
+          "Each cover develops like a print, shadows first through a fine grain, and the colour comes in over the black and white as the book is written. It follows the real steps and never runs ahead of them.",
+        src: "/debug/ideas/arriving-books?look=develop&state=five",
       },
       {
         id: "arriving-ink",
-        title: "Ink",
+        title: "Ink in the grid",
         description:
-          "Ink falls on blotting paper in three drops near the top and blooms down in soft lobes along the fibres, deep while it is wet, with a faint tide line, and dries to the cover's own colour.",
-        src: "/debug/ideas/arriving-books?look=ink",
+          "The sheet's ink on every cover of a batch: three drops near the top bloom down in soft lobes along the fibres, deep while wet, with a faint tide line, and dry to the cover's own colour.",
+        src: "/debug/ideas/arriving-books?look=ink&state=five",
       },
       {
         id: "arriving-calm",
         title: "Calm (CSS)",
         description:
           "No shader: the black and white cover fades up when it is found, its colour when it is ready. What weak devices and an over-budget frame fall back to.",
-        src: "/debug/ideas/arriving-books?look=calm",
+        src: "/debug/ideas/arriving-books?look=calm&state=five",
       },
       {
         id: "arriving-still",
         title: "Reduced motion",
         description:
-          "With Reduce Motion on: places held as paper, and each cover appears in one short cross-fade when its book is ready.",
-        src: "/debug/ideas/arriving-books?look=still",
+          "With Reduce Motion on: places held as paper, and each cover appears in one short cross-fade when its book is ready. The sheet's cover does the same, and closing it moves nothing.",
+        src: "/debug/ideas/arriving-books?look=still&state=five",
       },
     ],
   },

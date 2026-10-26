@@ -301,6 +301,16 @@ function snapTarget(
   return best;
 }
 
+/**
+ * Whether any of a sheet shows on screen. A sheet that leaves on the spring
+ * rests a pixel past the bottom of the screen, not at the start of its
+ * scroll range: it is out of view there.
+ */
+export function sheetInView(scroller: HTMLElement): boolean {
+  const sheet = scroller.querySelector("[data-sheet-content]");
+  return sheet !== null && sheet.getBoundingClientRect().top < screenBottom();
+}
+
 /** The bottom of what can show: on iOS Safari the page runs on under the
  * toolbar, to the large viewport's height. */
 function screenBottom(): number {

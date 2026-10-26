@@ -7,7 +7,12 @@ import {
   type RefObject,
 } from "react";
 import { fitSheetHeight, trackSheetShape } from "./sheet-fit";
-import { sheetSnaps, springSheetScroller, springSheetTo } from "./sheet-motion";
+import {
+  sheetInView,
+  sheetSnaps,
+  springSheetScroller,
+  springSheetTo,
+} from "./sheet-motion";
 import { SPRINGS, type Spring } from "./spring";
 
 /** Fields that open the phone keyboard. */
@@ -89,9 +94,11 @@ export function useSheetBody(
     if (!isExiting) return;
     const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
     if (!scroller) return;
-    // A bottom sheet is out of view at the start of its scroll range.
+    // Only while some of it shows: on the spring a leaving sheet stops just
+    // below the screen, short of the start of its scroll range. Asked to
+    // leave from there, it is where it would go, and its move ends at once.
     const leave = () => {
-      if (scroller.scrollTop > 0)
+      if (sheetInView(scroller))
         scroller.scrollTo({ top: 0, behavior: "smooth" });
     };
     scroller.addEventListener("scrollend", leave);

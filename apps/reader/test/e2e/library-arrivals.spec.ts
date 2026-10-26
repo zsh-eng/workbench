@@ -1,6 +1,14 @@
 import type { Page } from "@playwright/test";
 import { epubVariant } from "./helpers/epub-variants";
-import { expect, test } from "./helpers/fixtures";
+import {
+  expect,
+  SAMPLE_BOOK_TITLE,
+  SAMPLE_EPUB_PATH,
+  test,
+  waitForReaderReady,
+  waitForSheet,
+  waitForSheetToRest,
+} from "./helpers/fixtures";
 
 // Debug → Arriving books: each added book holds its place in the Library at
 // once and its cover develops as it is prepared. The arrival draws with
@@ -17,7 +25,8 @@ const READY = { timeout: 30_000 };
 /**
  * Turns on the trial before the app loads, and records what the page shows
  * on the way: the most places held at one time, each look an arriving cover
- * took, and whether a drawing canvas was ever made.
+ * took, whether a drawing canvas was ever made, and whether the arrival
+ * sheet opened.
  */
 async function turnOnArrivingBooks(page: Page) {
   await page.addInitScript(() => {
@@ -27,7 +36,12 @@ async function turnOnArrivingBooks(page: Page) {
       "reader-library-view-v1",
       JSON.stringify({ sort: "added", layout: "covers" }),
     );
-    const seen = { places: 0, looks: [] as string[], canvas: false };
+    const seen = {
+      places: 0,
+      looks: [] as string[],
+      canvas: false,
+      sheet: false,
+    };
     Object.assign(window, { __arrivalsSeen: seen });
     new MutationObserver(() => {
       const places = document.querySelectorAll("[data-arrival-tile]").length;
@@ -37,6 +51,7 @@ async function turnOnArrivingBooks(page: Page) {
         if (!seen.looks.includes(look)) seen.looks.push(look);
       }
       if (document.querySelector("[data-arrival-canvas]")) seen.canvas = true;
+      if (document.querySelector("[data-arrival-sheet]")) seen.sheet = true;
     }).observe(document, {
       subtree: true,
       childList: true,
@@ -51,7 +66,12 @@ function seen(page: Page) {
     () =>
       (
         window as unknown as {
-          __arrivalsSeen: { places: number; looks: string[]; canvas: boolean };
+          __arrivalsSeen: {
+            places: number;
+            looks: string[];
+            canvas: boolean;
+            sheet: boolean;
+          };
         }
       ).__arrivalsSeen,
   );
@@ -69,14 +89,59 @@ function books(titles: string[]) {
   );
 }
 
-async function chooseFiles(page: Page, files: ReturnType<typeof books>) {
+async function chooseFiles(
+  page: Page,
+  files: ReturnType<typeof books> | string,
+) {
+  // An empty Library offers Choose EPUB files; one with books, Add books.
+  const add = page
+    .getByRole("button", { name: /^(Choose EPUB files|Add books)$/ })
+    .first();
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
-    page
-      .getByRole("button", { name: "Choose EPUB files", exact: true })
-      .click(),
+    add.click(),
   ]);
   await chooser.setFiles(files);
+}
+
+/**
+ * Counts the frames in which the cover flying down from the arrival sheet
+ * fades, and those in which the first cover in the grid under it was not
+ * drawn yet: a blank card under the fade breaks the book's identity.
+ */
+async function watchLanding(page: Page) {
+  await page.evaluate(() => {
+    const landing = { flying: 0, fading: 0, blank: 0 };
+    Object.assign(window, { __landing: landing });
+    const sample = () => {
+      const flight = document.querySelector("[data-arrival-flight]");
+      if (flight) landing.flying++;
+      if (flight && Number(getComputedStyle(flight).opacity) < 1) {
+        landing.fading++;
+        const tile = document.querySelector("ul.grid > li");
+        const canvas = tile?.querySelector("canvas[data-arrival-canvas]");
+        const images = [...(tile?.querySelectorAll("img") ?? [])];
+        const drawn = canvas
+          ? canvas.hasAttribute("data-arrival-painted")
+          : images.length > 0 &&
+            images.every((image) => image.complete && image.naturalWidth > 0);
+        if (!drawn) landing.blank++;
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+}
+
+function landing(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __landing: { flying: number; fading: number; blank: number };
+        }
+      ).__landing,
+  );
 }
 
 async function shelfTitles(page: Page) {
@@ -98,11 +163,116 @@ test("a batch holds every place at once and ends with each book on the shelf in 
     READY,
   );
   expect(await shelfTitles(page)).toEqual(titles);
-  // The places came together, before any book was ready.
+  // The places came together, before any book was ready, and a batch
+  // stays in the grid.
   expect((await seen(page)).places).toBe(5);
+  expect((await seen(page)).sheet).toBe(false);
   // The places leave once the books stand in them.
   await expect(page.locator("[data-arrival-tile]")).toHaveCount(0, READY);
   expect(await shelfTitles(page)).toEqual(titles);
+});
+
+test("one book arrives in the arrival sheet, and Read now opens it", async ({
+  page,
+}) => {
+  await turnOnArrivingBooks(page);
+  await page.goto("/");
+
+  await chooseFiles(page, books(["Arriving book 1"]));
+
+  const sheet = page.locator("[data-arrival-sheet]");
+  await expect(
+    sheet.getByRole("heading", { name: "Arriving book 1" }),
+  ).toBeVisible(READY);
+  // Its place in the grid waits for it, empty.
+  await expect(page.locator("[data-arrival-place]")).toHaveCount(1);
+  const read = sheet.getByRole("button", { name: "Read now" });
+  await expect(read).toBeEnabled(READY);
+  // The sheet is the confirmation: no toast, no dialog.
+  await expect(page.getByText("Added 1 book.", { exact: true })).toHaveCount(0);
+
+  // A tap waits for the sheet to hold still, as a finger would.
+  await waitForSheetToRest(await waitForSheet(page, "In your library", READY));
+  await read.click();
+  await expect(page).toHaveURL(/\/reader\//);
+  await waitForReaderReady(page);
+});
+
+test("closing the sheet early leaves the book arriving in its place", async ({
+  page,
+  localBook,
+}) => {
+  void localBook;
+  await turnOnArrivingBooks(page);
+  await page.reload();
+
+  await chooseFiles(page, books(["Arriving book 1"]));
+  const sheet = page.locator("[data-arrival-sheet]");
+  await expect(sheet).toBeVisible(READY);
+  await watchLanding(page);
+  // A press on the page above the sheet closes it.
+  await page.mouse.click(195, 120);
+
+  await expect(sheet).toHaveCount(0, READY);
+  await expect(page.locator("[data-arrival-flight]")).toHaveCount(0, READY);
+  // The cover flew down and let go only over its place, drawn.
+  expect(await landing(page)).toMatchObject({ blank: 0 });
+  expect((await landing(page)).fading).toBeGreaterThan(0);
+  const titles = page.getByRole("heading", { level: 3 });
+  await expect(titles.first()).toHaveText("Arriving book 1", READY);
+  await expect(titles.nth(1)).toHaveText(SAMPLE_BOOK_TITLE);
+  // The book lands for good: its place is no longer held for the sheet.
+  await expect(page.locator("[data-arrival-place]")).toHaveCount(0);
+  await expect(page.locator("[data-arrival-tile]")).toHaveCount(0, READY);
+  await expect(titles.first()).toHaveText("Arriving book 1");
+});
+
+test("closing the sheet once the book is ready lands it on its own cover", async ({
+  page,
+}) => {
+  await turnOnArrivingBooks(page);
+  await page.goto("/");
+
+  await chooseFiles(page, books(["Arriving book 1"]));
+  const sheet = page.locator("[data-arrival-sheet]");
+  await expect(sheet.getByRole("button", { name: "Read now" })).toBeEnabled(
+    READY,
+  );
+  // Focus is in the sheet once it has come up; Escape closes it.
+  const dialog = await waitForSheet(page, "In your library", READY);
+  await waitForSheetToRest(dialog);
+  await expect(dialog).toBeFocused();
+  await watchLanding(page);
+  await page.keyboard.press("Escape");
+
+  await expect(page.locator("[data-arrival-flight]")).toHaveCount(0, READY);
+  expect(await landing(page)).toMatchObject({ blank: 0 });
+  expect((await landing(page)).fading).toBeGreaterThan(0);
+  await expect(page.locator("[data-arrival-place]")).toHaveCount(0);
+});
+
+test("the same book again shows the copy you have in the sheet", async ({
+  page,
+  localBook,
+}) => {
+  await turnOnArrivingBooks(page);
+  await page.reload();
+
+  await chooseFiles(page, SAMPLE_EPUB_PATH);
+
+  const sheet = page.locator('[data-arrival-sheet="duplicate"]');
+  await expect(sheet).toBeVisible(READY);
+  // The sheet answers; the grid holds no place for a book that is not coming.
+  await expect(page.locator("[data-arrival-tile]")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Book already added" }),
+  ).toHaveCount(0);
+  await waitForSheetToRest(
+    await waitForSheet(page, "Already in your library", READY),
+  );
+  await sheet.getByRole("button", { name: "Read now" }).click();
+  await expect(page).toHaveURL(`/reader/${localBook.id}`);
+  await waitForReaderReady(page);
 });
 
 test("with reduced motion an arriving cover never moves", async ({ page }) => {
@@ -127,9 +297,9 @@ test("Design ideas compare the looks on a simulated batch", async ({
   page,
 }) => {
   await page.goto("/debug/ideas/arriving-books?look=develop&state=five");
-  await expect(page.getByRole("heading", { name: "Library" })).toBeVisible(
-    READY,
-  );
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible(READY);
   await expect(page.getByText("Added 5 books.", { exact: true })).toBeVisible(
     READY,
   );

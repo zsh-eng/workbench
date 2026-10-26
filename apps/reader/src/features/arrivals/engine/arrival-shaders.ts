@@ -44,11 +44,15 @@ float luma(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// The face's height for lighting: the living cover's relief channel, or,
-// without one, ink standing a little proud of the paper, softened.
+// The face's height for lighting, from a living cover's relief channel.
 float height(vec2 uv) {
-  if (uHas.y > 0.5) return texture(uRelief, uv).g;
-  return 1.0 - luma(textureLod(uCover, uv, 1.6).rgb);
+  return texture(uRelief, uv).g;
+}
+
+// A printed cover's surface: the fine tooth of the board, in CSS pixels.
+float tooth(vec2 px) {
+  return noise(px * 1.1 + uSeed * 3.1) * 0.75 +
+         noise(px * vec2(0.35, 0.5) + uSeed * 7.7) * 0.25;
 }
 
 // Film grain, per device pixel: white noise softened with a little value
@@ -82,30 +86,47 @@ vec4 develop(vec3 cover) {
 
 // A lamp low at the spine. It crosses the cover as the book is prepared,
 // rising as it goes. Ahead of it the cover waits, pale and grey; in its pool
-// the relief stands out in a warm grazing light; behind it the colour is
-// back.
-vec4 rake(vec3 cover, vec2 uv) {
+// the surface shows in a warm grazing light; behind it the colour is back.
+// A living cover's hand-made relief stands up in the light. A printed cover
+// is flat: the light finds the board's tooth and a sheen that travels with
+// the lamp, never embossed ink.
+vec4 rake(vec3 cover, vec2 uv, vec2 px) {
   float t = uReveal;
   float L = luma(cover);
-  vec2 texel = 1.4 / uSize * uCrop.zw;
-  float hx = height(uv + vec2(texel.x, 0.0)) - height(uv - vec2(texel.x, 0.0));
-  float hy = height(uv + vec2(0.0, texel.y)) - height(uv - vec2(0.0, texel.y));
-  float g = grain(uSeed);
-  float reliefScale = uHas.y > 0.5 ? 9.0 : 5.0;
-  vec3 n = normalize(vec3(-hx * reliefScale + g * 0.06, hy * reliefScale + g * 0.06, 1.0));
-  float elevation = mix(0.12, 0.9, t);
+  vec2 slope;
+  if (uHas.y > 0.5) {
+    vec2 texel = 1.4 / uSize * uCrop.zw;
+    slope = vec2(
+      height(uv + vec2(texel.x, 0.0)) - height(uv - vec2(texel.x, 0.0)),
+      height(uv - vec2(0.0, texel.y)) - height(uv + vec2(0.0, texel.y))
+    ) * 9.0;
+  } else {
+    slope = vec2(
+      tooth(px + vec2(1.0, 0.0)) - tooth(px - vec2(1.0, 0.0)),
+      tooth(px + vec2(0.0, 1.0)) - tooth(px - vec2(0.0, 1.0))
+    ) * 0.13;
+  }
+  vec3 n = normalize(vec3(-slope, 1.0));
+  float elevation = mix(0.14, 0.9, t);
   vec3 light = normalize(vec3(-cos(elevation), 0.3, sin(elevation)));
-  float shade = max(dot(n, light), 0.0) / max(light.z, 0.05);
+  float shade = clamp(max(dot(n, light), 0.0) / max(light.z, 0.05), 0.5, 1.6);
   // The lamp's edge, slanted, and the pool of light around it.
   float across = vUv.x + (vUv.y - 0.5) * 0.3;
   float edge = mix(-0.4, 1.4, t);
   float lit = smoothstep(edge + 0.02, edge - 0.4, across);
   float pool = exp(-pow((across - edge) / 0.22, 2.0));
+  // The board is never quite flat: a slow swell catches the light unevenly.
+  float swell = fbm(px * 0.011 + uSeed * 4.3) - 0.5;
+  // Laminate and ink take a glancing sheen just behind the lamp's edge,
+  // dark ink a little more than bare paper.
+  float sheen = exp(-pow((across - edge + 0.07) / 0.05, 2.0)) *
+                (0.07 + 0.08 * (1.0 - L)) * (1.0 - t * 0.6);
   vec3 mono = vec3(L);
   vec3 waiting = mix(uPaper, mono, 0.5);
-  vec3 grazed = mono * mix(1.0, clamp(shade, 0.35, 1.8), 0.9) * vec3(1.04, 1.0, 0.94);
+  vec3 warm = vec3(1.04, 1.0, 0.94);
+  vec3 grazed = mono * shade * (1.0 + swell * 0.18) * warm + sheen * shade;
   vec3 ahead = mix(waiting, grazed, pool);
-  vec3 behind = mix(cover, cover * clamp(shade, 0.8, 1.25), pool * (1.0 - t));
+  vec3 behind = mix(cover, cover * shade * warm + sheen, pool * (1.0 - t));
   vec3 rgb = mix(ahead, behind, lit);
   rgb = mix(rgb, cover, smoothstep(0.88, 1.0, t));
   float alpha = smoothstep(0.0, 0.12, t);
@@ -159,7 +180,7 @@ void main() {
   // GL's rows run up; the image's run down.
   vec2 uv = uCrop.xy + vec2(vUv.x, 1.0 - vUv.y) * uCrop.zw;
   vec3 cover = texture(uCover, uv).rgb;
-  if (uDirection == 1) outColor = rake(cover, uv);
+  if (uDirection == 1) outColor = rake(cover, uv, px);
   else if (uDirection == 2) outColor = ink(cover, px);
   else outColor = develop(cover);
 }`;

@@ -49,7 +49,7 @@ export function useArrivalGrid(
   }, [places, holdPlaces, shown]);
 }
 
-/** Arrivals with no book in the library yet: an empty library waits for them. */
+/** Arrivals not on the shelf yet: an empty library waits for them. */
 export function usePendingArrivalCount(): number {
   return useArrivalPlaces().filter((place) => place.pending).length;
 }
@@ -97,7 +97,7 @@ const STEP_WORDS = {
 /** After this long in one step, the tile says which step it is in. */
 const SLOW_STEP_MS = 2500;
 
-function useSlowStep(arrival: Arrival): string | null {
+export function useSlowStep(arrival: Arrival): string | null {
   const stage = arrival.progress.stage;
   const working = stage in STEP_WORDS;
   const [slow, setSlow] = useState<number | null>(null);

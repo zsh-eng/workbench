@@ -173,6 +173,30 @@ test("A sheet floats below full height and meets the edges at full height", asyn
   await expect.poll(box).toEqual({ float: 1, expanded: false });
 });
 
+// A leaving sheet rests just below the screen. Its exit once took that for
+// a sheet still on screen and sent it out again, without end, when Escape
+// closed it from full height.
+test("Escape closes a sheet with detents from each detent and from full height, without an error", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  for (const [rest, detent] of [
+    ["Small", "detent 1"],
+    ["Medium", "detent 2"],
+    ["Full height", "full"],
+  ] as const) {
+    const sheet = await openScenario(page, "shape", "Shape and safe areas");
+    await sheet.getByRole("button", { name: rest, exact: true }).click();
+    await expect(readout(page)).toHaveAttribute("data-detent", detent);
+    await waitForSheetToRest(sheet);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(readout(page)).toHaveAttribute("data-detent", "none");
+  }
+  expect(errors).toEqual([]);
+});
+
 test("A sheet over a sheet goes back to the one below", async ({ page }) => {
   const lower = await openScenario(page, "stacked", "Sheet over a sheet");
   await lower.getByRole("button", { name: "Open a sheet over this" }).click();

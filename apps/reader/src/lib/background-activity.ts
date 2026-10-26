@@ -103,6 +103,7 @@ export function importBooks(files: readonly File[]) {
     ),
   );
   return {
+    keys,
     outcomes: keys.map((key) => appArrivals.outcome(key)),
     /** Every added book has come to rest on the shelf, or 4 s have passed. */
     rested: () => appArrivals.rested(batch, 4000),

@@ -32,12 +32,20 @@ export interface ArrivalRecord {
   author: string | null;
   /** The cover as the EPUB holds it, from the moment it is read. */
   cover: Blob | null;
+  /** Entries at the top of its table of contents, once read. */
+  chapters: number | null;
   bookId: string | null;
-  /** For a duplicate, the copy already in the library. */
+  /** For a duplicate, the copy already in the library, and its cover. */
   existingBookId: string | null;
+  existingCover: FileId | null;
   error: string | null;
   /** The drawing has come to rest and the plain cover has taken over. */
   settled: boolean;
+  /**
+   * The arrival sheet shows this book. Its place in the grid stays empty
+   * until the sheet closes and the cover comes down into it.
+   */
+  presented: boolean;
 }
 
 export interface BookImportInput {
@@ -79,6 +87,8 @@ function deferred(): Outcome {
 export class ArrivalRecords {
   private records: readonly ArrivalRecord[] = [];
   private readonly outcomes = new Map<string, Outcome>();
+  /** Batches whose places have had their time. */
+  private readonly ended = new Set<number>();
   private readonly listeners = new Set<() => void>();
 
   subscribe = (listener: () => void) => {
@@ -103,10 +113,13 @@ export class ArrivalRecords {
         title: null,
         author: null,
         cover: null,
+        chapters: null,
         bookId: null,
         existingBookId: null,
+        existingCover: null,
         error: null,
         settled: false,
+        presented: false,
       }),
     );
     for (const record of added) this.outcomes.set(record.key, deferred());
@@ -127,7 +140,12 @@ export class ArrivalRecords {
     this.update(key, {
       sourceFileId: step.sourceFileId,
       ...(step.stage === "preparing"
-        ? { title: step.title, author: step.author, cover: step.cover }
+        ? {
+            title: step.title,
+            author: step.author,
+            cover: step.cover,
+            chapters: step.chapters,
+          }
         : {}),
     });
   }
@@ -138,6 +156,7 @@ export class ArrivalRecords {
       sourceFileId: book.sourceFileId,
       title: book.title,
       author: book.author,
+      chapters: book.toc.length || null,
     });
     this.outcomes.get(key)?.resolve(book);
   }
@@ -146,6 +165,7 @@ export class ArrivalRecords {
     const existing = error.existingBook;
     this.update(key, {
       existingBookId: existing.id,
+      existingCover: existing.cover?.fileId ?? null,
       sourceFileId: existing.sourceFileId,
       title: existing.title,
       author: existing.author,
@@ -163,16 +183,34 @@ export class ArrivalRecords {
   /** The batch's loop has finished; its places leave once they were seen. */
   end(batch: number) {
     window.setTimeout(() => {
-      // By now each book has come to rest, or was never in view. Failures
-      // keep their place until they are tried again or dismissed.
-      this.publish(
-        this.records.filter(
-          (record) =>
-            record.batch !== batch ||
-            (record.error !== null && record.bookId === null),
-        ),
-      );
+      this.ended.add(batch);
+      this.prune();
     }, BATCH_LINGER_MS);
+  }
+
+  /**
+   * By now each book of an ended batch has come to rest, or was never in
+   * view. Failures keep their place until they are tried again or
+   * dismissed, and a book in the arrival sheet until the sheet closes.
+   */
+  private prune() {
+    const next = this.records.filter(
+      (record) =>
+        !this.ended.has(record.batch) ||
+        record.presented ||
+        (record.error !== null && record.bookId === null),
+    );
+    if (next.length !== this.records.length) this.publish(next);
+  }
+
+  /** The arrival sheet shows the book, or has let it go to its place. */
+  present(key: string, presented: boolean) {
+    const record = this.records.find((item) => item.key === key);
+    if (!record || record.presented === presented) return;
+    this.update(key, { presented });
+    // A book let go after its batch ended keeps its place while it lands.
+    if (!presented && this.ended.has(record.batch))
+      window.setTimeout(() => this.prune(), BATCH_LINGER_MS);
   }
 
   /**

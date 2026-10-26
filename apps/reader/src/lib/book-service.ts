@@ -28,6 +28,8 @@ export type BookImportStep =
       title: string;
       author: string;
       cover: Blob | null;
+      /** Entries at the top of the table of contents, when it has any. */
+      chapters: number | null;
     };
 
 export interface AddBookOptions {
@@ -77,6 +79,7 @@ export async function addBookFromFile(
       title: parsedEpub.book.title,
       author: parsedEpub.book.author,
       cover: parsedEpub.coverBlob ?? null,
+      chapters: parsedEpub.book.toc.length || null,
     });
     const prepared = await prepareNewBook(parsedEpub);
     return prepared.book;

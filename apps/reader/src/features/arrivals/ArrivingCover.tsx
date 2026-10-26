@@ -37,7 +37,7 @@ export interface ArrivingCoverProps {
 const coverUrls = new WeakMap<Blob, string>();
 
 /** One object URL per cover Blob, kept while the page lives. */
-function useCoverUrl(cover: Blob | null): string | null {
+export function useCoverUrl(cover: Blob | null): string | null {
   if (!cover) return null;
   let url = coverUrls.get(cover);
   if (!url) {
@@ -50,7 +50,7 @@ function useCoverUrl(cover: Blob | null): string | null {
 /** Covers decoded once, so a cover that moves to another tile shows at once. */
 const decodedUrls = new Set<string>();
 
-function useDecoded(url: string | null): boolean {
+export function useDecoded(url: string | null): boolean {
   const [decoded, setDecoded] = useState<string | null>(null);
   useEffect(() => {
     if (!url || decodedUrls.has(url)) return;
@@ -91,6 +91,18 @@ function useEngineAvailable(): boolean {
 }
 
 /**
+ * Whether an arriving cover shows a whole picture: its drawing has a frame,
+ * or, without one, its images have loaded. Type needs nothing to load.
+ */
+export function arrivalPainted(cover: Element): boolean {
+  const canvas = cover.querySelector("canvas[data-arrival-canvas]");
+  if (canvas) return canvas.hasAttribute("data-arrival-painted");
+  return [...cover.querySelectorAll("img")].every(
+    (image) => image.complete && image.naturalWidth > 0,
+  );
+}
+
+/**
  * A book's cover while it arrives: paper while the file is saved and read,
  * then the chosen look, in step with the import, then the plain cover.
  * With reduced motion the paper simply gives way to the cover.
@@ -114,6 +126,7 @@ export function ArrivingCover(props: ArrivingCoverProps) {
   return (
     <span
       data-arrival={arrival.progress.stage}
+      data-arrival-key={arrival.key}
       data-arrival-look={look}
       className={cn("relative block overflow-hidden bg-secondary", className)}
     >
@@ -129,8 +142,9 @@ export function ArrivingCover(props: ArrivingCoverProps) {
 }
 
 /**
- * The handover: `plain` sits under the drawing from the start, hidden, and
- * shows when the drawing fades. Both show the same picture by then.
+ * The handover: `plain` sits under the drawing from the start, hidden. It
+ * shows at once when the drawing starts to fade over it, so the two never
+ * cross-fade through the card: both show the same picture by then.
  */
 function useHandover(props: ArrivingCoverProps, rested: boolean) {
   const { plainReady, onSettled } = props;
@@ -156,12 +170,14 @@ function ShaderArrival(props: ArrivingCoverProps & { look: ArrivalDirection }) {
     changedAt: arrival.changedAt,
     cover: arrival.cover,
     relief,
+    watched: arrival.presented,
   });
   input.current = {
     progress: arrival.progress,
     changedAt: arrival.changedAt,
     cover: arrival.cover,
     relief,
+    watched: arrival.presented,
   };
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -182,7 +198,7 @@ function ShaderArrival(props: ArrivingCoverProps & { look: ArrivalDirection }) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-0 transition-opacity duration-200",
+          "absolute inset-0",
           handing ? "opacity-100" : "opacity-0",
         )}
       >
@@ -225,7 +241,7 @@ function CalmArrival(props: ArrivingCoverProps) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-0 transition-opacity duration-200",
+          "absolute inset-0",
           handing ? "opacity-100" : "opacity-0",
         )}
       >
