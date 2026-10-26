@@ -42,7 +42,8 @@ med skills install
 
 This writes a Med skill for Claude Code (`~/.claude/skills/med`) and Codex
 (`~/.agents/skills/med`). With it, an agent hands off its changes as a review
-in Med. `med skills uninstall` removes it.
+in Med. `med skills uninstall` removes it. `med skills suggest` lists review
+practices that you can copy into your own skills; Med installs none of them.
 
 ## Requirements
 
@@ -101,6 +102,7 @@ med --help
 med docs usage
 med docs agents
 med docs vaults
+med docs reference
 ```
 
 ## Source and licenses

@@ -2220,7 +2220,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2297,6 +2297,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   );
                   send({ changed });
                 }
+              } else if (action === "since") {
+                const version = Number(url.searchParams.get("version")) || undefined;
+                send({ since: (await savedReviews.since(id!, version)) ?? null });
               } else if (action === "feedback") {
                 const { threads: _threads, ...feedback } = await savedReviews.feedback(id!);
                 send(feedback);
@@ -2351,6 +2354,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 ),
               );
               inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "approval") {
+              const input = z
+                .object({ version: z.number().int().positive(), approved: z.boolean() })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(
+                await savedReviews.approve(id!, input.version, input.approved, assertRequestAccess),
+              );
               return;
             }
             if (request.method === "POST" && action === "brief") {

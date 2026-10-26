@@ -292,7 +292,6 @@ test("the docs' prototypes run a commit and a comment's trip to the agent", asyn
   await page.keyboard.press("Enter");
   await expect(said).toHaveText("Pushed 1 commit to origin/search-filters.");
 
-  await page.goto("/docs/agents");
   const review = page.getByRole("figure", { name: "Try it: Comment and send" });
   await review.getByRole("button", { name: "Line 7" }).click();
   await review

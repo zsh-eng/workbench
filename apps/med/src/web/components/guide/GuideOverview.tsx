@@ -1,19 +1,33 @@
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import type { SavedCommit } from "../../../shared/review-guide";
+import type { ReviewOutput } from "../../../shared/review-output";
+import type { Since } from "../../../shared/saved-review";
 import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { clippedTooltip } from "../ToolButton";
 import { GuideMarkdown } from "./GuideMarkdown";
+import {
+  dismissOffer,
+  FindingsPart,
+  offerDismissed,
+  PracticeOffer,
+  ProofPart,
+  SincePart,
+  type Offer,
+  type OverviewProof,
+} from "./OverviewParts";
 import { Progress } from "./Progress";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
- * The Guide's first page: what changed and why, then the segments to read and
- * the range's commits. Each row opens its part of the diff.
+ * The Guide's first page: the proof, what changed and why, what changed since
+ * the reader's last review, the findings, then the segments to read and the
+ * range's commits. Each row opens its part of the diff. A part that the
+ * version does not have does not show.
  */
 export function GuideOverview({
   title,
@@ -27,6 +41,12 @@ export function GuideOverview({
   viewed,
   total,
   done,
+  proof,
+  findings,
+  openFindings = 0,
+  since,
+  version,
+  offers = [],
   onScope,
   onWhole,
   onOpenLink,
@@ -44,6 +64,17 @@ export function GuideOverview({
   viewed: ReadonlySet<string>;
   total: number;
   done: number;
+  /** The version's proof, or the checks that its session ran. */
+  proof?: OverviewProof;
+  /** The version's findings, from its notes or guide (shared/review-output.ts). */
+  findings?: Pick<ReviewOutput, "findings" | "counts" | "nothingToFix">;
+  openFindings?: number;
+  /** The files that changed since the reader's last review, from version 2. */
+  since?: Since | null;
+  /** The shown version, which the reader can mark approved. */
+  version?: { number: number; approved: boolean; onApprove(approved: boolean): void };
+  /** Practices that would help here, most useful first; one shows at a time. */
+  offers?: readonly Offer[];
   onScope(scope: GuideScope): void;
   /** Shows the whole diff of the Review's version. */
   onWhole(): void;
@@ -53,6 +84,23 @@ export function GuideOverview({
   const next =
     sections.find((section) => section.fileIds.some((id) => !viewed.has(id))) ?? sections[0];
   const comments = sections.reduce((sum, section) => sum + section.notes.length, 0);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
+    () => new Set(offers.filter((offer) => offerDismissed(offer.id)).map((offer) => offer.id)),
+  );
+  const offer = offers.find((entry) => !dismissed.has(entry.id) && !offerDismissed(entry.id));
+  const offerIn = (slot: Offer["slot"]) =>
+    offer?.slot === slot && (
+      <PracticeOffer
+        key={offer.id}
+        offer={offer}
+        onDismiss={() => {
+          dismissOffer(offer.id);
+          setDismissed((current) => new Set(current).add(offer.id));
+        }}
+      />
+    );
+  const hasFindings =
+    !!findings && (findings.findings.length > 0 || !!findings.counts || !!findings.nothingToFix);
   return (
     <section aria-label="Guide overview" {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.column)}>
@@ -68,19 +116,23 @@ export function GuideOverview({
         </p>
         <h1 {...stylex.props(styles.title)}>{title}</h1>
         <p {...stylex.props(styles.meta)}>{meta}</p>
+        {proof ? <ProofPart proof={proof} /> : offerIn("proof")}
         {summary ? (
           <div {...stylex.props(styles.summary)}>
             <GuideMarkdown text={summary} size="lead" onOpenLink={onOpenLink} />
           </div>
+        ) : offer?.slot === "explainer" ? (
+          offerIn("explainer")
         ) : (
-          !sections.length && (
+          !sections.length &&
+          commits.length > 0 && (
             <p {...stylex.props(styles.quiet)}>
               This review has no guide. Read it one commit at a time, or all at once.
             </p>
           )
         )}
-        {(next || commits.length > 0) && (
-          <div {...stylex.props(styles.start)}>
+        <div {...stylex.props(styles.start)}>
+          {(next || commits.length > 0) && (
             <button
               type="button"
               onClick={() =>
@@ -95,25 +147,58 @@ export function GuideOverview({
               {done > 0 && done < total ? "Continue" : "Start reviewing"}
               <Icon name="arrowLeft" size={13} style={{ transform: "rotate(180deg)" }} />
             </button>
+          )}
+          <button
+            type="button"
+            onClick={onWhole}
+            {...stylex.props(
+              ui.button,
+              !next && !commits.length && ui.primary,
+              ui.pressable,
+              styles.startButton,
+            )}
+          >
+            All files
+          </button>
+          {version && (
             <button
               type="button"
-              onClick={onWhole}
-              {...stylex.props(ui.button, ui.pressable, styles.startButton)}
+              aria-pressed={version.approved}
+              onClick={() => version.onApprove(!version.approved)}
+              {...stylex.props(
+                ui.button,
+                ui.pressable,
+                styles.startButton,
+                version.approved && ui.active,
+              )}
             >
-              All files
+              <Icon name="check" size={13} />
+              {version.approved
+                ? `Approved version ${version.number}`
+                : `Approve version ${version.number}`}
             </button>
-            <span {...stylex.props(styles.startMeta)}>
-              {sections.length > 0 &&
-                `${sections.length} ${sections.length === 1 ? "segment" : "segments"}`}
-              {sections.length > 0 &&
+          )}
+          <span {...stylex.props(styles.startMeta)}>
+            {[
+              sections.length > 0 &&
+                `${sections.length} ${sections.length === 1 ? "segment" : "segments"}`,
+              sections.length > 0 &&
                 comments > 0 &&
-                ` · ${comments} ${comments === 1 ? "comment" : "comments"}`}
-              {sections.length === 0 &&
-                `${commits.length}${moreCommits ? "+" : ""} ${commits.length === 1 ? "commit" : "commits"}`}
-              {total > 0 && ` · ${done} of ${total} files viewed`}
-            </span>
-          </div>
-        )}
+                `${comments} ${comments === 1 ? "comment" : "comments"}`,
+              sections.length === 0 &&
+                commits.length > 0 &&
+                `${commits.length}${moreCommits ? "+" : ""} ${commits.length === 1 ? "commit" : "commits"}`,
+              openFindings > 0 &&
+                `${openFindings} open ${openFindings === 1 ? "finding" : "findings"}`,
+              total > 0 && `${done} of ${total} files viewed`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+        {since && <SincePart since={since} onOpen={onOpenLink} />}
+        {offerIn("rounds")}
+        {hasFindings && <FindingsPart output={findings} open={openFindings} onOpen={onOpenLink} />}
         {sections.length > 0 && (
           <>
             <h2 {...stylex.props(styles.label)}>Segments</h2>

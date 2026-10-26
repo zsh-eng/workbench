@@ -344,7 +344,7 @@ browsing.
 **Copy comments** copies the comments of all targets, with paths, revisions,
 line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
 Codex** sends them to the review's own agent; see
-[sending comments](AGENT_INTEGRATION.md#send-comments-to-the-agent). **Clear**
+[sending comments](#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
 Beside a thread, the review's header keeps only its tabs: **Send to** shows
 when there are comments to send, and **Copy comments**, **Clear all
@@ -359,6 +359,50 @@ repository and branch in quieter text, and its comments at the band's end. A
 long title is cut at its end; in a narrow band, the repository and branch go
 first. The review card keeps its tabs as its first row. See
 [titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).
+
+### Set up agents
+
+```sh
+med skills install
+```
+
+This writes the Med skill for Claude Code (`~/.claude/skills/med`) and Codex
+(`~/.agents/skills/med`): `SKILL.md`, a short checklist that an agent reads
+when it hands off changes, and `guide.md`, the guide that `med docs agents`
+prints. `med skills show` prints the skill, and `med skills uninstall` removes
+it. Install it again after you update Med. `med skills suggest` lists review
+practices that you can copy into your own skills; see
+[review practices](PRACTICES.md). For agents without skills, see
+[AGENTS.md guidance](AGENT_INTEGRATION.md#agentsmd-guidance).
+
+For threads that Med starts, add these lines to your CLAUDE.md or AGENTS.md,
+such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. The first install prints
+them, and `med skills instructions` prints them again. Edit them as you like;
+Med adds nothing to an agent's prompt.
+
+```markdown
+## Med
+
+Hand off finished changes for review with the `med` skill. In a thread that
+Med started (`MED_SESSION=owned`), hand off each round of work with
+`med review create --working --title "<2-4 words>" --guide -` (add `--paths`
+in a shared checkout); messages arrive as new turns, so don't run
+`med review wait`.
+```
+
+Review commands talk to the running server, so start Med with `med web`. They
+find it through a private connection file in the state folder,
+`~/.local/state/med` by default. If you change the folder (`--state-dir` or
+`MED_STATE_DIR`) or the port (`--port`, default 6330), use the same values for
+the server and for the agent's commands. A command without `--port` uses the
+one server that runs from the state folder if no server runs on 6330. Saved reviews and their comments last
+as long as the state folder.
+
+Open the server's launch URL once in the browser where you review. Med changes
+its token for a browser cookie and removes the token from the address; review
+links such as `http://127.0.0.1:6330/review/r_…` then work in new tabs. Another
+browser must open the launch URL once too. Never put the launch token in agent
+instructions or review links.
 
 ### Agent sessions
 
@@ -479,6 +523,94 @@ Saved reviews persist in the state folder, until 30 days after you close
 their tabs ([Threads](#threads)). Notes on a branch last until the server
 stops.
 
+## Review in Med
+
+A thread's pane has the tabs **Review**, **Changes**, and **Commit**. It opens
+on **Review**, at the latest version, once the agent has shown one, and on
+**Changes** before that. The menu above the diff chooses a version; the keys
+at the top of **Notes** do too. Hover the title in the review bar for the time
+Med saved the review and its repository. A version with more than one
+comparison, such as one for each repository, lists each one in the menu.
+History and files stay available, and the **Review** tab brings back the saved
+comparison. The saved diff and its context are captured; files that you open
+from the file tree, and **Changes**, are live.
+
+- **Comment.** Select lines in the diff. The card shows the lines, **L** for
+  the old side and **R** for the new. Write, then press **Comment** or `⌘↵`;
+  **Cancel** or Escape closes the draft. Saved comments have **Reply**,
+  **Edit**, and **Delete**. Med shows each change at once and saves it in the
+  background; if a save fails, Med restores the comment, reports the error, and
+  keeps your text.
+- **Ask** (`a`) asks the thread's agent about the selected lines, in a fork of
+  its session in plan mode. The thread does not get the question or the
+  answer. **Keep as comment** saves both as a comment on the lines
+  (`Question: …`, then the agent's name and its answer); the agent gets it with
+  the other comments.
+- **Copy comments** copies, as Markdown, the comments on every comparison that
+  you visited in the review, including commits from the history. It uses the
+  field names of Codex diff comments: **File**, **Workspace**, **Side**,
+  **Lines**, **Diff hunk**, and **Comment**, plus the comparison's ends, the
+  capture type, and IDs. Replies name their parent. Each excerpt has the
+  selected lines and up to three rows on each side, from the saved patch, or
+  from labelled captured source when the patch does not cover them; it never
+  reads current files. Copying waits for saves to finish and does not delete
+  comments.
+- **Clear**, then **Confirm clear**, removes the review's comments from all
+  its targets. If the comments changed after you opened the confirmation, Med
+  refuses the clear. Clearing does not delete the review or change files.
+- **Compare against** compares the selected tip with its common ancestor on a
+  local or remote-tracking branch. This browses; the saved review does not
+  change. **Compare revisions…** compares two exact ends.
+- **Push to remote** (the push button) opens a dialog with the exact commit,
+  repository, remote, and branch. Choose a branch or type a new name, then
+  select **Push to origin**.
+  Med pushes committed history only; it does not force, delete remote
+  branches, or push tags. Push hooks run, and a rejected push says what to do.
+  A captured working comparison cannot be pushed.
+
+With more than one comparison, **Total** in the review bar counts the lines of
+all of them, from their captured ends, and stays fixed while you browse. The diff toolbar counts
+the selected comparison. Targets that overlap can count a line twice; for pull
+requests and stacked changes, use `--merge-base` so that merged work is left
+out. Binary files count no lines.
+
+### Send comments to the agent
+
+A review with an agent session sends comments to that session, so you do not
+paste them. **Send to Claude** (or **Send to Codex**) opens the Session pane,
+with your text and the comments that you have not sent. Select the comment
+count to choose comments. A GitHub comment's reply button, or **Add all to**
+the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
+
+- **A session that Med started** in a thread gets the message as a new turn.
+  It does not run `med review wait`; in such a session, the command exits at
+  once. `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
+- **Claude Code** in a terminal or app takes the message with
+  `med review wait --key <task>`, which the skill runs in the background after
+  it creates the review. The command
+  waits with no time limit, prints the message, and ends; Claude Code then
+  wakes the agent. The pane shows **Waiting for you** while the agent waits. A
+  message sent earlier stays in Med until the agent waits. The command confirms
+  each message that it prints; a message that no wait confirms within 10
+  seconds, as when the waiting process stopped, goes to the next wait. When
+  the Claude Code process ends with messages still waiting, Med resumes the
+  session and sends them.
+- **A Claude Code session that no process runs**, such as an adopted one
+  after its terminal closed, resumes in Med with the message as its next
+  turn, and Med runs it from then on. A session open in a terminal or another
+  app that does not run `med review wait` gets its messages when that session
+  ends, or in a fork with **Continue in Med**
+  ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
+- **Codex** gets the message in its queue (`codex queue`), and the thread's
+  next turn reads it first, as a user message. Med finds `codex` on the PATH,
+  in the ChatGPT app, or at `MED_CODEX_PATH`.
+
+The thread shows each sent message as waiting (for the agent, or for its
+session in a terminal or another app to close), taken, or queued. A sent comment leaves the
+drafts until you edit it or reply to it. Each message keeps the version of
+each comment that it sent, from the same read as the agent's text, so an
+edit while Med sends stays a draft.
+
 ## The Guide
 
 When an agent attaches a guide, the **Review** tab opens on the Guide. A guide
@@ -505,6 +637,36 @@ request split into small ones.
 A range with several commits and no guide shows its commits in the Guide too.
 Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
 
+### Proof, findings, and later versions
+
+The Overview also shows what a version's notes and guide summary say about
+it, in whatever format the agent or your own review skills wrote it
+([review practices](PRACTICES.md#b-read-review-output-from-any-source)). A
+Review opens on the Overview when its version has a guide, two or more
+commits, proof, or findings. A later version opens there too, unless it has
+only a brief: then it opens on the brief, and the Overview is the **Review**
+tab. Each part shows only when the version has it.
+
+- **Proof.** First, under the title: each check with its result, the media,
+  and **Not covered**, what the checks miss. Without written proof, the checks
+  that the session ran in the turn that made the latest version show, marked
+  "from the session's last turn".
+- **Since version N.** From version 2: the files that changed since the last
+  version that you approved or commented on, or else the version before.
+  Click a file to open it in the diff.
+- **Findings.** Items tagged Important, Nit, or Pre-existing, with the ones
+  closed as Fixed, Intentional, or Won't fix and their reasons. The start row
+  counts the open ones. Click a finding to open its line.
+- **Approve version N.** Beside **Start reviewing**. Med keeps the approval
+  for the version and marks it in the version menu. It is your record, not a
+  gate: nothing waits for it.
+- **Practices.** Where one would help, the Overview offers a review practice:
+  **Ask the agent to explain** when there is no explanation, which puts the
+  request in the session's message box for you to send; the proof-first skill
+  to copy when there is no proof; the round-limit skill from version 4. One
+  shows at a time, and **Dismiss** hides it for good in this browser.
+  `med skills suggest` lists all of them.
+
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
@@ -526,7 +688,9 @@ the file under the pointer.
 A review's **Notes** hold the agent's brief and the replies that you pin from
 its session. A brief explains the change in Markdown, and its links open the
 lines that it cites. The **Notes** tab comes after **Review** and before
-**Changes**; a Review with a brief and no Guide opens on it.
+**Changes**; a Review with a brief opens on it unless the
+[Overview](#proof-findings-and-later-versions) has a guide, commits, proof, or
+findings to show.
 
 - **Attach a brief.** Copy the agent's last message and press `⌘V` outside a
   text field. On live changes, Med first asks for a title and saves the review,
@@ -1125,6 +1289,23 @@ shortcuts first; the command palette has the same actions.
   files that need Git's content conversion.
 - **App.** Med is a browser app with a local server. Notes on branches last for
   the session; there is no shared, persistent review store.
+- **Saved reviews.** Reviews are local to the computer that runs Med; a
+  localhost link does not open the review on another computer. Med keeps a
+  closed thread's Review versions and comments for 30 days, then a short
+  record of it (title, repository, branch, sessions) for 180 days after the
+  close.
+  - A review starts with up to 16 targets and keeps up to 128 captures, including
+    comparisons that got comments later.
+  - Each target captures up to 500 changed files and 24 MiB of patch and source.
+    A larger comparison is an error; narrow it.
+  - Med stores up to 64 MiB for each review and 500 comments for each review.
+    Over 512 MiB in total, Med first removes the captures of the threads that
+    closed first, and keeps their short records; it refuses a new capture only
+    when the tabs alone use more.
+  - Copied comments are limited to 8 MiB. Med reports an error instead of cutting
+    comments; narrow line ranges or remove comments first.
+  - Binary and very large files keep their diff metadata but give no text
+    context for comments.
 
 Measurements: [Zoekt search](validation/ZOEKT.md) and
 [its integration](validation/ZOEKT_INTEGRATION.md),

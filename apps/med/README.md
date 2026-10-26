@@ -93,7 +93,7 @@ node apps/med/dist/cli.js review create --title "Agent changes" \
 
 The command prints a clickable review link. Use `--working` instead of `--base` and `--head` to capture current working changes. The review bar has **Copy comments** and **Clear** side by side; beside an agent's thread, they are in the review's **⋯** menu. A checkmark confirms a successful copy. The bar shows the review title, the compared branch, and whole-review totals when the review has more than one comparison. Hover the title for the save time and repository.
 
-To compare a feature branch with its base branch, use `--base main --head HEAD` (or `develop`, `origin/main`, or another local Git ref). This compares the two tips directly. For a pull-request-style diff, use their common ancestor as the base; see [branch comparisons](docs/AGENT_INTEGRATION.md#compare-with-a-base-branch). Saved links capture exact commits. Create a new link after a merge or new commits.
+To compare a feature branch with its base branch, use `--base main --head HEAD --merge-base` (or `develop`, `origin/main`, or another local Git ref): it compares their common ancestor with the branch, as a pull request does. When the base has commits that the branch lacks, Med uses the merge base by itself; `--no-merge-base` compares the two tips. See [branch comparisons](docs/AGENT_INTEGRATION.md#compare-with-a-base-branch). Saved links capture exact commits. Create a new link after a merge or new commits.
 
 See [agent integration](docs/AGENT_INTEGRATION.md) for multi-repository manifests, repository selection, and suggested `AGENTS.md` guidance. Confirm that guidance with the user before adding it to their instructions.
 
@@ -208,4 +208,4 @@ remain separate. See [setup and vault commands](docs/VAULTS.md),
 [index measurements](docs/validation/VAULT_INDEX.md), and
 [service validation](docs/validation/SERVICE.md).
 
-Run `med docs agents`, `med docs vaults`, or `med docs usage` for offline guides.
+Run `med docs agents`, `med docs usage`, `med docs vaults`, or `med docs reference` for offline guides.

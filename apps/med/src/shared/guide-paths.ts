@@ -1,3 +1,4 @@
+import { generatedByPath } from "./generated";
 import type { ReviewGuide } from "./review-guide";
 
 // How a guide's paths name changed files, for the Guide tab and for the CLI's
@@ -76,6 +77,8 @@ export function matchGuidePaths<T>(
 export interface GuideCheckFile {
   path: string;
   previousPath?: string;
+  /** The host's mark (docs/GENERATED.md): a mark, false, or absent for the path rule. */
+  generated?: unknown;
 }
 
 /** What a guide leaves out or names twice; each list is empty when all is well. */
@@ -88,6 +91,9 @@ export interface GuideCheck {
   unmatched: string[];
   /** Comments on a file that is not one changed file of their segment. */
   misplaced: string[];
+  /** Segments of only lockfiles and generated files that come before other
+   * segments, as `"Title" before "Title"`. */
+  order: string[];
 }
 
 /**
@@ -105,6 +111,10 @@ export function checkGuide(
   const duplicated: string[] = [];
   const matched = new Set<string>();
   const placed = new Set<string>();
+  /** For each segment: whether it has a file that a person wrote, and one that a tool wrote. */
+  const kinds = guide.segments.map(() => ({ written: false, generated: false }));
+  const generated = (file: GuideCheckFile) =>
+    file.generated === undefined ? !!generatedByPath(file.path) : !!file.generated;
   for (const { root, files } of comparisons) {
     const count = new Map<GuideCheckFile, number>();
     guide.segments.forEach((segment, index) => {
@@ -114,7 +124,10 @@ export function checkGuide(
         if (found.length) matched.add(`${index}\0${pattern}`);
         for (const file of found) own.add(file);
       }
-      for (const file of own) count.set(file, (count.get(file) ?? 0) + 1);
+      for (const file of own) {
+        count.set(file, (count.get(file) ?? 0) + 1);
+        kinds[index]![generated(file) ? "generated" : "written"] = true;
+      }
       (segment.comments ?? []).forEach((comment, number) => {
         const file = namesOneFile(comment.file)
           ? matchGuidePaths(comment.file, files, names, root).at(0)
@@ -139,7 +152,14 @@ export function checkGuide(
         misplaced.push(`segments[${index}].comments[${number}]: ${comment.file}`);
     });
   });
-  return { missing, duplicated, unmatched, misplaced };
+  // Lockfiles and generated files follow the change that made them.
+  const order: string[] = [];
+  const later = guide.segments.findLastIndex((_, index) => kinds[index]!.written);
+  guide.segments.forEach((segment, index) => {
+    if (index < later && kinds[index]!.generated && !kinds[index]!.written)
+      order.push(`"${segment.title}" before "${guide.segments[later]!.title}"`);
+  });
+  return { missing, duplicated, unmatched, misplaced, order };
 }
 
 /** The check as advice for the agent that wrote the guide, or nothing when it passes. */
@@ -156,9 +176,16 @@ export function guideCheckText(check: GuideCheck, update: string): string | unde
     check.misplaced.length &&
       `- Comments on a file that is not a changed file of their segment: ${list(check.misplaced)}`,
   ].filter((line): line is string => !!line);
+  const coverage = lines.length > 0;
+  if (check.order.length)
+    lines.push(
+      `- Put lockfiles and generated files in the last segments, after the code and tests: ${list(check.order)}`,
+    );
   if (!lines.length) return undefined;
   return [
-    "Guide check: put every changed file in exactly one segment.",
+    coverage
+      ? "Guide check: put every changed file in exactly one segment."
+      : "Guide check: order the segments by review priority.",
     ...lines,
     `Fix the guide, then run: ${update}`,
   ].join("\n");

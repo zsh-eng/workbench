@@ -281,6 +281,16 @@ describe("stacks and sets", () => {
     expect(after[1]).not.toBe(before[1]);
     expect(after[2]).toBe(before[2]);
     expect(next.partTotals![next.parts!.items[0]!.id]!.comments).toBe(1);
+    // With the checkout on the top branch, the stack still starts at main;
+    // a base that leaves a part empty is refused.
+    git(f.repo, "checkout", "-q", "types");
+    const again = await f.review(
+      await f.run("create", "--stack", "parse", "ast", "types", "--repo", f.repo, "--key", "top"),
+    );
+    expect(again.parts!.items[0]!.base).toBe("main");
+    await expect(
+      f.run("create", "--stack", "parse", "ast", "types", "--repo", f.repo, "--base", "types"),
+    ).rejects.toThrow("Part 1 (parse) has no changes since types, so there is nothing to review.");
   });
 
   it("joins a hand-off whose base is an open thread's head from the same session, and ungroups it", async () => {

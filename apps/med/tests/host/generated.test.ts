@@ -386,4 +386,24 @@ test("med review --generated marks the files that a hand-off names, in each vers
   // New notes capture the version again; the marks stay.
   await api(`/api/reviews/${id}/iterations`, {});
   expect((await current(id))["package.json"]).toEqual({ kind: "declared" });
+
+  // A brief's Generated section names files as --generated does.
+  const brief = join(repo, "..", "brief.md");
+  await writeFile(brief, "Regenerated the client.\n\n## Generated\n- `src/app.ts`\n");
+  await med(
+    "create",
+    "--title",
+    "Client from brief",
+    "--key",
+    "brief-client",
+    "--repo",
+    repo,
+    "--working",
+    "--brief",
+    brief,
+    "--no-pr",
+    "--no-session",
+  );
+  const named = await api<{ id: string }>("/api/reviews/by-key", { key: "brief-client" });
+  expect((await current(named.id))["src/app.ts"]).toEqual({ kind: "declared" });
 });

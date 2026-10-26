@@ -19,7 +19,7 @@ import type {
 } from "../../../shared/owned-session";
 import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
-import { Icon } from "../Icon";
+import { Icon, type IconName } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { PlanCard, QuestionCard, type CardKeys } from "./AskCards";
 import { ImageViewer, imageSource } from "./ImageThumbs";
@@ -32,6 +32,8 @@ export interface ComposerAttachment {
   id: string;
   label: string;
   text: string;
+  /** Where it comes from; a GitHub comment by default. */
+  icon?: IconName;
 }
 
 /** A session that Med runs: its state and the actions it takes. */
@@ -506,7 +508,7 @@ export function SessionComposer({
             )}
             {attachments.map((attachment) => (
               <span key={attachment.id} {...stylex.props(styles.chip, styles.chipOn)}>
-                <Icon name="github" size={12} />
+                <Icon name={attachment.icon ?? "github"} size={12} />
                 <span {...stylex.props(styles.chipLabel)}>{attachment.label}</span>
                 <button
                   type="button"

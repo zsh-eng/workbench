@@ -1,8 +1,8 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseReviewCommand, runReviewCommand } from "../../src/cli/review";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -654,11 +654,15 @@ exit 1
     await expect(run("create", "--manifest", path, "--repo", f.repos[0]!)).rejects.toThrow(
       "Use --manifest without",
     );
+    // An unregistered repository: ask the user before med add.
     const outside = await state();
     git(outside, "init", "-b", "main");
+    await writeFile(join(outside, "a.txt"), "a\n");
     await expect(
       run("create", "--title", "Outside", "--repo", outside, "--working"),
-    ).rejects.toThrow("Med request failed:");
+    ).rejects.toThrow(
+      `${outside} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${outside}`,
+    );
     expect(output).toEqual([]);
   });
 
@@ -723,6 +727,447 @@ exit 1
     const f = await fixture();
     await f.host.close();
     await expect(f.run("repos")).rejects.toThrow("Start med-diff");
+  });
+});
+
+describe("hand-off checks that say what to do next", () => {
+  /** Runs a command and keeps its link output and its advice apart. */
+  const checked = async (
+    f: Awaited<ReturnType<typeof fixture>>,
+    command: string[],
+    options: { environment?: NodeJS.ProcessEnv; home?: string } = {},
+  ) => {
+    const out: string[] = [];
+    const advice: string[] = [];
+    await runReviewCommand(
+      [...command, "--no-pr", "--state-dir", f.stateDir, "--port", String(f.host.port)],
+      { print: (text) => out.push(text), warn: (text) => advice.push(text), ...options },
+    );
+    return { out: out.join("\n"), advice: advice.join("\n") };
+  };
+  const reviews = async (f: Awaited<ReturnType<typeof fixture>>) =>
+    (await readdir(join(f.stateDir, "reviews")).catch(() => [] as string[])).filter((name) =>
+      name.endsWith(".json"),
+    ).length;
+
+  it("takes a folder inside the repository as the repository", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    await mkdir(join(repo, "src"));
+    const { out } = await checked(f, [
+      "create",
+      "--title",
+      "Inner folder",
+      "--repo",
+      join(repo, "src"),
+      "--working",
+      "--paths",
+      join(repo, "file.txt"),
+    ]);
+    const bundle = await f.saved(out);
+    expect(bundle.targets[0]).toMatchObject({
+      repo,
+      comparison: { kind: "working", paths: ["file.txt"] },
+    });
+    // update --paths takes the folder too.
+    await writeFile(join(repo, "file.txt"), "again\n");
+    const again = await checked(f, [
+      "update",
+      "--key",
+      bundle.id,
+      "--repo",
+      join(repo, "src"),
+      "--paths",
+      join(repo, "file.txt"),
+    ]);
+    expect((await f.saved(again.out)).targets.at(-1)).toMatchObject({
+      repo,
+      comparison: { kind: "working", paths: ["file.txt"] },
+    });
+  });
+
+  it("refuses an empty hand-off and names the comparison that holds the work", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const home = join(f.root, "home");
+    const project = join(home, ".claude", "projects", "-work");
+    await mkdir(project, { recursive: true });
+    // The session started after the fixture's commit and before its own on main.
+    const start = Date.now() + 60_000;
+    await writeFile(
+      join(project, "s-1.jsonl"),
+      `{"type":"user","cwd":"${repo}","timestamp":"${new Date(start).toISOString()}"}\n`,
+    );
+    execFileSync("git", ["commit", "-qam", "agent work"], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.invalid",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.invalid",
+        GIT_COMMITTER_DATE: new Date(start + 60_000).toISOString(),
+      },
+    });
+    await expect(
+      checked(
+        f,
+        ["create", "--title", "On main", "--repo", repo, "--base", "main", "--head", "HEAD"],
+        {
+          environment: { CLAUDE_CODE_SESSION_ID: "s-1" },
+          home,
+        },
+      ),
+    ).rejects.toThrow(
+      "main and HEAD are the same commit, so there is nothing to review. For commits that you made on this branch, pass the commit before your work as --base. This session made 1 commit on HEAD: --base HEAD~1 --head HEAD.",
+    );
+    await expect(
+      checked(f, ["create", "--title", "Clean tree", "--repo", repo, "--working"]),
+    ).rejects.toThrow(`${repo} has no uncommitted changes, so there is nothing to review.`);
+    expect(await reviews(f)).toBe(0);
+  });
+
+  it("compares a branch from its merge base when the base moved on, unless told not to", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    git(repo, "commit", "-am", "start");
+    const fork = git(repo, "rev-parse", "HEAD");
+    git(repo, "switch", "-c", "feat/search");
+    await writeFile(join(repo, "search.ts"), "export {};\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "search");
+    git(repo, "switch", "main");
+    await writeFile(join(repo, "later.txt"), "main moved on\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "later on main");
+    const range = ["--repo", repo, "--base", "main", "--head", "feat/search"];
+    const pr = await checked(f, ["create", "--title", "Search box", "--key", "one", ...range]);
+    expect((await f.saved(pr.out)).targets[0].base).toBe(fork);
+    expect(pr.advice).toContain(
+      "Merge base: main has 1 commit that feat/search does not have, so Med compared feat/search with their merge base, as a pull request does. Add --no-merge-base to compare the two tips.",
+    );
+    const tips = await checked(f, [
+      "create",
+      "--title",
+      "Search box",
+      "--key",
+      "two",
+      ...range,
+      "--no-merge-base",
+    ]);
+    expect((await f.saved(tips.out)).targets[0].base).toBe(git(repo, "rev-parse", "main"));
+    expect(tips.advice).not.toContain("Merge base");
+  });
+
+  it("checks the title, defaults the key to the branch, and says how to wait", async () => {
+    const f = await fixture(2);
+    const repo = f.repos[0]!;
+    git(repo, "switch", "-c", "feat/retry");
+    const short = await checked(f, ["create", "--title", "Retry", "--repo", repo, "--working"], {
+      environment: { CLAUDE_CODE_SESSION_ID: "s-2" },
+    });
+    const first = await f.saved(short.out);
+    expect(first.key).toBe("feat/retry");
+    expect(short.advice).toContain(
+      'Title check: the title has 1 word. Use 2–4 words that name what the task builds, without the repository\'s name or words such as "review" and "changes": med review update --key feat/retry --title "<2-4 words>"',
+    );
+    expect(short.advice).toContain(
+      "Key: feat/retry, from the branch. Hand off each later round of this task with the same key",
+    );
+    expect(short.advice).toContain(
+      "To get the user's comments, run this as a background command: med review wait --key feat/retry.",
+    );
+    // The next round on the branch is the next version of the same review.
+    await writeFile(join(repo, "file.txt"), "round two\n");
+    const named = await checked(f, [
+      "create",
+      "--title",
+      "repo-0 retry fix",
+      "--repo",
+      repo,
+      "--working",
+    ]);
+    const [link, note] = named.out.split("\n");
+    expect(note).toBe("Added iteration 2 to the review with this key.");
+    const second = await f.saved(link!);
+    expect(second.id).toBe(first.id);
+    expect(second.iterations).toHaveLength(2);
+    expect(named.advice).toContain("Title check: the title names the repository (repo-0).");
+    const good = await checked(f, ["update", "--key", first.id, "--title", "Fetch retries"]);
+    expect(good.out).toContain(first.id);
+    expect((await f.api(`/api/reviews/${first.id}`)).title).toBe("Fetch retries");
+
+    // The same branch name in another repository is another task.
+    const other = f.repos[1]!;
+    git(other, "switch", "-c", "feat/retry");
+    const elsewhere = await checked(f, [
+      "create",
+      "--title",
+      "Retry policy",
+      "--repo",
+      other,
+      "--working",
+    ]);
+    const third = await f.saved(elsewhere.out);
+    expect(third.id).not.toBe(first.id);
+    expect(third.key).toBe("repo-1/feat/retry");
+    expect(elsewhere.advice).toContain("Key: repo-1/feat/retry, from the branch.");
+  });
+
+  it("warns when a guide update would describe code that the capture does not show", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const guide = join(f.root, "guide.json");
+    await writeFile(guide, JSON.stringify({ segments: [{ title: "File", files: ["file.txt"] }] }));
+    await checked(f, [
+      "create",
+      "--key",
+      "fix",
+      "--title",
+      "Small fix",
+      "--repo",
+      repo,
+      "--working",
+    ]);
+    const fresh = await checked(f, ["update", "--key", "fix", "--guide", guide]);
+    expect(fresh.advice).not.toContain("Stale capture");
+    await writeFile(join(repo, "file.txt"), "fixed after the comments\n");
+    const stale = await checked(f, ["update", "--key", "fix", "--guide", guide]);
+    expect(stale.advice).toContain(
+      `Stale capture: the checkout changed after version 1 was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version 2 with the same key: med review create --key fix --repo ${repo} --working --guide <file>`,
+    );
+  });
+
+  it("asks for generated files last, and names files that this session did not edit", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    await writeFile(join(repo, "mine.ts"), "export const mine = 1;\n");
+    await writeFile(join(repo, "bun.lock"), "{}\n");
+    const home = join(f.root, "home");
+    const project = join(home, ".claude", "projects", "-work");
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, "s-3.jsonl"),
+      [
+        { type: "user", cwd: repo, timestamp: new Date().toISOString() },
+        {
+          type: "assistant",
+          cwd: repo,
+          message: {
+            content: [
+              { type: "tool_use", name: "Write", input: { file_path: join(repo, "mine.ts") } },
+              { type: "tool_use", name: "Edit", input: { file_path: join(repo, "bun.lock") } },
+            ],
+          },
+        },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n") + "\n",
+    );
+    const guide = join(f.root, "guide.json");
+    await writeFile(
+      guide,
+      JSON.stringify({
+        segments: [
+          { title: "Lockfile", files: ["bun.lock"] },
+          { title: "Code", files: ["mine.ts", "file.txt"] },
+        ],
+      }),
+    );
+    const run = await checked(
+      f,
+      [
+        "create",
+        "--key",
+        "mine",
+        "--title",
+        "Mine only",
+        "--repo",
+        repo,
+        "--working",
+        "--guide",
+        guide,
+      ],
+      { environment: { CLAUDE_CODE_SESSION_ID: "s-3" }, home },
+    );
+    expect(run.out).toContain(
+      'Guide check: order the segments by review priority.\n- Put lockfiles and generated files in the last segments, after the code and tests: "Lockfile" before "Code"',
+    );
+    expect(run.advice).toContain(
+      `Shared checkout: file.txt changed, but this session did not edit it. If it is not part of your task, hand off only your files: med review update --key mine --paths ${join(repo, "bun.lock")} ${join(repo, "mine.ts")}`,
+    );
+  });
+
+  it("reads a manifest from standard input", async () => {
+    const f = await fixture(2);
+    const manifest = JSON.stringify({
+      title: "Two repos",
+      targets: f.repos.map((repo) => ({ repo, comparison: { kind: "working" } })),
+    });
+    const child = spawn(
+      "bun",
+      [
+        resolve("src/cli/index.ts"),
+        "review",
+        "create",
+        "--manifest",
+        "-",
+        "--no-pr",
+        "--no-session",
+        "--state-dir",
+        f.stateDir,
+        "--port",
+        String(f.host.port),
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    child.stdin.end(manifest);
+    let out = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    const code = await new Promise((done) => child.on("close", done));
+    expect(code).toBe(0);
+    const bundle = await f.saved(out.trim());
+    expect(bundle.targets.map((target: { repo: string }) => target.repo)).toEqual(f.repos);
+  });
+
+  it("checks proof, an explainer, and open findings only when the repository opts in", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const brief = join(f.root, "brief.md");
+    const handoff = (...extra: string[]) =>
+      checked(f, [
+        "create",
+        "--key",
+        "t",
+        "--title",
+        "Retry policy",
+        "--repo",
+        repo,
+        "--working",
+        ...extra,
+      ]);
+    // Off by default: a hand-off without proof is captured as before.
+    await handoff();
+    const saved = await reviews(f);
+    expect(saved).toBeGreaterThan(0);
+
+    execFileSync("git", ["config", "med.checks", "proof,findings"], { cwd: repo });
+    await writeFile(brief, "## Findings\n- Important `file.txt:1` The retry never stops.\n");
+    const refused = await handoff("--brief", brief).catch((error: Error) => error.message);
+    expect(refused).toMatch(
+      /^.+ asks for proof,findings with each hand-off \(git config med\.checks proof,findings\)\. Add a Proof section in the brief: .+med skills suggest proof-first.+; and no open Important finding: fix it, or close each as Fixed, Intentional, or Won't fix with a reason \(file\.txt:1\)\. Then run med review create again\. Nothing was captured\. To turn the check off, the user runs: git config --unset-all med\.checks$/,
+    );
+    expect(await reviews(f)).toBe(saved);
+
+    // With proof, and the finding closed, the version is captured.
+    await writeFile(
+      brief,
+      "## Proof\n- `bun test`: 3 passed\n\n## Findings\n- Important `file.txt:1` The retry never stops. Fixed: it stops after 3 tries.\n",
+    );
+    const { out } = await handoff("--brief", brief);
+    expect((await f.saved(out.split("\n")[0]!)).iterations).toHaveLength(2);
+
+    // A guide's summary is an explainer, however short.
+    execFileSync("git", ["config", "med.checks", "explainer"], { cwd: repo });
+    await expect(handoff()).rejects.toThrow(
+      /asks for explainer with each hand-off .+ Add an explainer: why the change exists/,
+    );
+    const guide = join(f.root, "guide.json");
+    await writeFile(
+      guide,
+      JSON.stringify({
+        summary: "Retries stop.",
+        segments: [{ title: "Retry", files: ["file.txt"] }],
+      }),
+    );
+    await handoff("--guide", guide);
+    expect(await reviews(f)).toBe(saved);
+  });
+});
+
+describe("since your last review, and approvals", () => {
+  it("lists the files that changed since the version the reader approved or commented on", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${f.host.port}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const create = async () =>
+      (await f.saved(
+        (
+          await f.run(
+            "create",
+            "--key",
+            "loop",
+            "--title",
+            "Review loop",
+            "--repo",
+            repo,
+            "--working",
+            "--no-pr",
+            "--no-session",
+          )
+        ).split("\n")[0]!,
+      )) as { id: string; iterations: { targetIds: string[] }[] };
+    await writeFile(join(repo, "other.txt"), "stays\n");
+    const one = await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toBeNull();
+    // Version 2 changes file.txt and adds new.txt.
+    await writeFile(join(repo, "file.txt"), "second\n");
+    await writeFile(join(repo, "new.txt"), "new\n");
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toEqual({
+      from: 1,
+      to: 2,
+      basis: "previous",
+      files: [
+        { path: "file.txt", change: "changed" },
+        { path: "new.txt", change: "new" },
+      ],
+    });
+    // The reader comments on version 2 and approves version 1; version 3
+    // drops new.txt. Since compares with the later of the two: version 2.
+    const two = (await f.api(`/api/reviews/${one.id}`)).iterations[1].targetIds[0];
+    await post(`/api/reviews/${one.id}/targets/${two}/notes`, {
+      expectedRevision: 0,
+      mutation: { type: "add", note: { path: "file.txt", side: "new", line: 1, text: "Why?" } },
+    });
+    const approved = await post(`/api/reviews/${one.id}/approval`, { version: 1, approved: true });
+    expect(approved.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
+    await rm(join(repo, "new.txt"));
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toEqual({
+      from: 2,
+      to: 3,
+      basis: "commented",
+      files: [{ path: "new.txt", change: "gone" }],
+    });
+    // An approval of version 3 makes it the last review; taking it back undoes that.
+    await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: true });
+    await writeFile(join(repo, "other.txt"), "changed in 4\n");
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toMatchObject({
+      from: 3,
+      basis: "approved",
+      files: [{ path: "other.txt", change: "changed" }],
+    });
+    const back = await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: false });
+    expect(back.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
+    // A version that does not exist cannot be approved.
+    const missing = await fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${one.id}/approval`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ version: 9, approved: true }),
+    });
+    expect(missing.status).toBe(404);
   });
 });
 

@@ -112,7 +112,7 @@ export function fold(
   isOpen: (key: string) => boolean,
 ): Unit[] {
   const result: Unit[] = [];
-  for (let at = 0; at < list.length; ) {
+  for (let at = 0; at < list.length;) {
     let end = at + 1;
     while (end < list.length && !isPrompt(list[end]!)) end++;
     const turn = list.slice(at, end);

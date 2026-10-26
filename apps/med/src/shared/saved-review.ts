@@ -286,6 +286,27 @@ export const savedIterationSchema = z.object({
   guides: z.record(z.string(), savedGuideSchema).optional(),
 });
 export type SavedIteration = z.infer<typeof savedIterationSchema>;
+/** A version that the reader approved, and when. */
+export const approvalSchema = z.object({ version: z.number().int().positive(), at: z.string() });
+export type Approval = z.infer<typeof approvalSchema>;
+/** What changed since the reader's last review of a thread
+ * (`GET /api/reviews/:id/since`): the files of version `to` that differ from
+ * version `from`, by the content of their new side. */
+export const sinceSchema = z.object({
+  from: z.number().int().positive(),
+  to: z.number().int().positive(),
+  /** Why `from`: the last version approved, or commented on, or else the one before. */
+  basis: z.enum(["approved", "commented", "previous"]),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      change: z.enum(["changed", "new", "gone"]),
+      /** The repository, when the version has more than one comparison. */
+      repo: z.string().optional(),
+    }),
+  ),
+});
+export type Since = z.infer<typeof sinceSchema>;
 /** Later details for a review, such as the pull request opened after it. */
 export const savedReviewDetailsSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
@@ -327,6 +348,9 @@ export const savedReviewSchema = z.object({
   iterations: z.array(savedIterationSchema).optional(),
   /** A stack or a set of reviews in one thread (docs/STACKS.md). */
   parts: savedPartsSchema.optional(),
+  /** The versions that the reader approved (docs/PRACTICES.md): a record
+   * for the reader, not a gate. A review without iterations has version 1. */
+  approvals: z.array(approvalSchema).optional(),
   /** Each part's counts in the current version, by part ID. */
   partTotals: z.record(z.string(), partTotalsSchema).optional(),
   totals: z

@@ -268,8 +268,8 @@ const startMode = (mode: string | undefined) =>
 /** The modes that an approved plan can continue in, the first by default,
  * as Claude Code offers them after a plan. */
 const planModes = (bypass: boolean) =>
-  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map(
-    (value) => CLAUDE_MODES.find((mode) => mode.value === value)!,
+  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map((value) =>
+    CLAUDE_MODES.find((mode) => mode.value === value)!,
   );
 const questionsSchema = z.array(ownedQuestionSchema).min(1).max(8);
 
@@ -525,13 +525,11 @@ export function startClaude(
         settings: settings(),
         commands: parsed.data.commands
           .filter((command) => !command.builtin)
-          .map(
-            (command): OwnedCommand => ({
-              name: command.name,
-              description: command.description,
-              ...(command.argumentHint ? { hint: command.argumentHint } : {}),
-            }),
-          ),
+          .map((command): OwnedCommand => ({
+            name: command.name,
+            description: command.description,
+            ...(command.argumentHint ? { hint: command.argumentHint } : {}),
+          })),
       });
     },
     get_context_usage(value) {

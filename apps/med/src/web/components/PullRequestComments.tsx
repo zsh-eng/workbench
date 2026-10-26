@@ -212,7 +212,8 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
  * comments can go into it. */
 export interface AgentReplyTarget {
   agent: string;
-  add(attachment: { label: string; text: string }): void;
+  /** `icon` marks where it comes from; a GitHub comment by default. */
+  add(attachment: { label: string; text: string; icon?: IconName }): void;
 }
 export const AgentReplyContext = createContext<AgentReplyTarget | null>(null);
 
