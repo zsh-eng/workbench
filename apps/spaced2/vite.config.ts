@@ -58,14 +58,43 @@ export default defineConfig({
       registerType: "autoUpdate",
       workbox: {
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
+        globPatterns: [
+          "**/*.{js,css,html}",
+          // The page's own icons, and the one that Add to Home Screen takes
+          // on iOS. Browsers fetch the manifest's icons when they install,
+          // so of those only the two that every install uses are here.
+          "{favicon.ico,telescope.svg,apple-touch-icon-180x180.png,pwa-192x192.png,pwa-512x512.png}",
+        ],
         // The Elements page is a development tool; installs do not fetch it.
         globIgnores: ["**/node_modules/**/*", "**/ElementsRoutes-*.js"],
+        runtimeCaching: [
+          {
+            // Built files outside the precache: KaTeX's fonts, which only
+            // cards with maths use, and the Elements page. Names carry a
+            // content hash, so a cached copy never goes stale.
+            urlPattern: ({ sameOrigin, url }) =>
+              sameOrigin &&
+              /^\/assets\/.+\.(js|css|woff2|woff|ttf)$/.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "spaced-assets",
+              expiration: { maxEntries: 60, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
+      // The icons come from `globPatterns`.
+      includeManifestIcons: false,
       manifest: {
+        // Chrome's identity for an install: the start URL it used before.
+        id: "/",
         name: "Spaced",
         short_name: "Spaced",
         description: "Spaced is an app for spaced repetition using flashcards",
         theme_color: "#06B6D4",
+        // Android's splash screen: the light page colour (bg-muted).
+        background_color: "#f5f5f5",
         icons: [
           {
             src: "pwa-64x64.png",
@@ -89,17 +118,21 @@ export default defineConfig({
             purpose: "maskable",
           },
         ],
+        // Chrome's richer install dialog. Not precached.
         screenshots: [
           {
-            src: "/screenshots/desktop.png",
-            sizes: "3024x1890",
-            type: "image/png",
+            src: "/screenshots/review-wide.jpg",
+            sizes: "1280x757",
+            type: "image/jpeg",
             form_factor: "wide",
+            label: "A card to review, with its answer beside it",
           },
           {
-            src: "/screenshots/mobile.png",
-            sizes: "852x1724",
-            type: "image/png",
+            src: "/screenshots/review-narrow.jpg",
+            sizes: "780x1540",
+            type: "image/jpeg",
+            form_factor: "narrow",
+            label: "A card to review on a phone",
           },
         ],
       },
