@@ -1,7 +1,7 @@
 import type { ActivityEnvironment } from "@/features/background-activity/ActivityContext";
 import type { Job, JobState } from "@workbench/background-activity";
 import { act, cleanup, render } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The sheet reads the app's queue and update only through its environment.
@@ -33,6 +33,8 @@ const { ActivityEnvironmentProvider } =
   await import("@/features/background-activity/ActivityContext");
 const { ActivitySheetBody } =
   await import("@/features/background-activity/ActivitySheet");
+const { ActivityGlyph } =
+  await import("@/features/background-activity/ActivityGlyph");
 const { arrangeOnOpen, arrangeWhileOpen } =
   await import("@/features/background-activity/sheet-rows");
 
@@ -91,6 +93,13 @@ function queue(initial: Job[]) {
 }
 
 function openSheet(source: ReturnType<typeof queue>) {
+  return renderWith(source, ActivitySheetBody);
+}
+
+function renderWith(
+  source: ReturnType<typeof queue>,
+  component: ComponentType,
+) {
   const environment: ActivityEnvironment = {
     source,
     update: {
@@ -104,7 +113,7 @@ function openSheet(source: ReturnType<typeof queue>) {
     createElement(
       ActivityEnvironmentProvider,
       { value: environment },
-      createElement(ActivitySheetBody),
+      createElement(component),
     ),
   );
 }
@@ -281,5 +290,50 @@ describe("arrangeWhileOpen", () => {
     const rows = arrangeOnOpen(jobs);
     const next = arrangeWhileOpen(rows, jobs, new Set(["book:persuasion"]));
     expect(next.map((row) => row.job.id)).toEqual(["book:emma", "book:walden"]);
+  });
+});
+
+describe("the activity glyph", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const sync = (state: JobState, patch: Partial<Job> = {}) =>
+    job("sync", state, {
+      id: "sync",
+      kind: "sync",
+      input: undefined,
+      tracked: true,
+      title: "Sync",
+      ...patch,
+    });
+
+  /** The glyph's mark for these jobs, or null when it has nothing to say. */
+  function glyphFor(jobs: Job[]): string | null {
+    const view = renderWith(queue(jobs), ActivityGlyph);
+    const glyph = view.container.querySelector("[data-activity-glyph]");
+    view.unmount();
+    return glyph?.getAttribute("data-activity-glyph") ?? null;
+  }
+
+  it("speaks for a restore, and leaves what sync needs from you to the account menu", () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    expect(
+      glyphFor([sync("running", { title: "Restoring your library" })]),
+    ).toBe("progress");
+    // A sign-in and two failures in a row have the account menu; a routine
+    // pass is silent.
+    const quiet = [
+      sync("waiting", {
+        origin: "app",
+        waitingFor: "sign-in",
+        attention: true,
+      }),
+      sync("retrying", { origin: "app", attention: true }),
+      sync("running", { origin: "app" }),
+    ];
+    for (const job of quiet) expect(glyphFor([job])).toBeNull();
   });
 });

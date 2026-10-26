@@ -121,9 +121,10 @@ Podcasts do:
    section, and a row you cancel or dismiss leaves. Every row that changes
    in one update opens or closes its height on the same spring
    (UITableView's, response 0.30 s), never one jump per row.
-4. **Fixed sizes.** Every row is 56 px tall whatever it says, its actions
-   have one width, and numbers use tabular figures, so changing sizes and
-   counts do not jiggle the words.
+4. **Fixed sizes.** Every row is 56 px tall whatever it says (a This app
+   row 72 px, its words in up to two lines), its actions have one width,
+   and numbers use tabular figures, so changing sizes and counts do not
+   jiggle the words.
 5. **The sheet holds its height.** It fits its rows by the shared sheet
    rules (packages/elements/docs/MOTION.md, "Sheet behaviour"): it follows
    a row that joins, holds while one leaves, and settles once.
@@ -202,7 +203,12 @@ scenarios, on the real engine with simulated jobs:
    and the glyph and sheet for what has no subject on screen.
 
 The island was a fourth direction, dropped (see the critique). The Library
-wires the choice for books downloaded for offline, behind Debug → Offline
-downloads. A phone's header is full with the places, so there the glyph
-sits in the filter row beside Sort and layout, where Download all starts,
-and the update chip floats at the bottom of the Library.
+wires the choice. The glyph and its sheet show for everyone. Of sync, the
+glyph speaks only for a restore; what sync needs from you (a sign-in, two
+failures in a row) has the account menu, and the sheet lists it under This
+app. Books that download for offline, and their covers, stay behind
+Debug → Offline downloads. A phone's header is full with the places, so
+there the glyph sits in the filter row beside Sort and layout, where
+Download all starts, and the update chip floats at the bottom of the
+Library. The glyph goes first among the buttons of its row (before Search,
+with room), so they keep their places when it comes and goes.
