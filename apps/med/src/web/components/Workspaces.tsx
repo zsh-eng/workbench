@@ -80,6 +80,7 @@ import {
   useReadState,
 } from "../data/tabs";
 import { requestLayer } from "../data/stack";
+import { ScheduledSection } from "./shell/ScheduledSection";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import {
@@ -1825,6 +1826,15 @@ export function WorkspaceHost({
                                 requestLayer(thread.id, part);
                                 openTab(thread);
                               }}
+                              scheduled={
+                                <ScheduledSection
+                                  fetcher={fetcher}
+                                  onOpenThread={(id) => {
+                                    const thread = tabsRef.current.find((entry) => entry.id === id);
+                                    if (thread) openTab(thread);
+                                  }}
+                                />
+                              }
                             />
                           </aside>
                           {!narrow && (

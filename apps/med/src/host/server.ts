@@ -80,6 +80,7 @@ import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
+import { createSchedules } from "./schedules";
 import { createThreadTabs } from "./thread-tabs";
 import { createThreadService } from "./thread-service";
 import { createThreadSubagents } from "./thread-subagents";
@@ -350,6 +351,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     environment: agentEnvironment,
   });
   await ownedSessions.restore();
+  // The Scheduled list: a session's jobs fire while its process runs, in Med
+  // or elsewhere.
+  const schedules = createSchedules({
+    async running(ids) {
+      const places = new Map<string, "med" | SessionPlace>();
+      const rest = ids.filter((id) => {
+        const runner = ownedSessions.get(id);
+        if (runner?.pid() === undefined || runner.dormant()) return true;
+        places.set(id, "med");
+        return false;
+      });
+      if (rest.length)
+        for (const [id, place] of await ownedSessions.elsewhere(rest, 1000)) places.set(id, place);
+      return places;
+    },
+  });
   /**
    * The review's Claude sessions that Med does not run now, or restored
    * without a process: those that another process runs, such as Claude Code
@@ -2754,6 +2771,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // Threads: open as a tab, close to history, reorder, and delete.
           if (url.pathname === "/api/threads" && request.method === "GET") {
             send(await threads.list());
+            return;
+          }
+          // The tabs' Claude Code schedules and the Claude app's scheduled
+          // tasks, read only (docs/SCHEDULES.md).
+          if (url.pathname === "/api/schedules" && request.method === "GET") {
+            send(await schedules.list((await threads.list()).threads));
             return;
           }
           if (url.pathname === "/api/threads/history" && request.method === "GET") {

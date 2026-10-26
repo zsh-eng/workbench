@@ -26,6 +26,7 @@ import { LinkedText } from "../FileRefs";
 import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
+import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import { ImageThumbs } from "./ImageThumbs";
@@ -290,6 +291,22 @@ const Item = memo(function Item({
     case "tool":
       return <ToolCall item={item} renderThread={renderThread} />;
     case "notice":
+      // A prompt that a schedule enqueued starts its turn, as a typed one does.
+      if (item.scheduled)
+        return (
+          <div data-scheduled-run="" {...stylex.props(styles.notice, styles.scheduledRun)}>
+            <Icon name="clock" size={13} />
+            <span {...stylex.props(styles.runTitle)}>{item.title}</span>
+            {item.description && (
+              <span
+                title={item.description}
+                {...stylex.props(styles.noticeDetail, styles.runPrompt)}
+              >
+                {item.description}
+              </span>
+            )}
+          </div>
+        );
       return (
         <div
           role={item.severity === "error" ? "alert" : undefined}
@@ -1575,164 +1592,168 @@ export function SessionThread({
   );
   const offsets = model.offsets;
   const scrollerProps = stylex.props(styles.scroller);
+  // Schedule cards read the session's cancels and fires (ScheduleCard.tsx).
+  const scheduleFacts = useScheduleFacts(snapshot.items, now ?? snapshot.updatedAt ?? 0);
   const above = metrics ? offsets[start]! : 0;
   const below = metrics ? offsets[count]! - offsets[end]! : 0;
 
   return (
     <OpenAgentContext.Provider value={setAgentId}>
-      <div data-pending={!settled || undefined} {...stylex.props(styles.frame)}>
-        {agents.length > 0 && (
-          <AgentTabs
-            agents={agents}
-            open={agent ? agent.id : null}
-            onOpen={(id) => setAgentId(id)}
-          />
-        )}
-        <div {...stylex.props(styles.body)}>
-          <div inert={!!agent} {...stylex.props(styles.viewport)}>
-            <div
-              ref={scroller}
-              // A scrolling region takes focus, so keys can scroll it. Focus in the
-              // thread also gives [ and ] to its messages, not to hunks.
-              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-              tabIndex={0}
-              data-message-keys=""
-              {...scrollerProps}
-              className={`${scrollerProps.className ?? ""} med-thread-scroller`}
-            >
-              <div
-                ref={content}
-                {...stylex.props(styles.content, !settled && styles.unsettled)}
-                role="log"
-                aria-label="Session"
-                aria-live="polite"
-                aria-busy={snapshot.running}
-              >
-                <ThreadProbe probe={probe} />
-                {earlier ? (
-                  <div {...stylex.props(styles.edge)}>
-                    <button
-                      type="button"
-                      disabled={earlier.loading}
-                      onClick={() => void earlier.load()}
-                      {...stylex.props(styles.earlier)}
-                    >
-                      {earlier.loading
-                        ? "Loading earlier work…"
-                        : earlier.failed
-                          ? "Earlier work did not load. Try again"
-                          : "Load earlier work"}
-                    </button>
-                  </div>
-                ) : (
-                  before
-                )}
-                <div ref={head} {...stylex.props(styles.space(above))} />
-                <RowOpen value={rows}>
-                  {all.slice(start, end).map((unit, offset) => {
-                    const at = start + offset;
-                    return (
-                      <div
-                        key={unit.key}
-                        ref={unitRef}
-                        data-unit={unit.key}
-                        data-rise={appended.has(unit.key) ? "" : undefined}
-                        data-message={isMessage(unit) ? unit.item.kind : undefined}
-                        data-current={unit.key === current ? "" : undefined}
-                        {...stylex.props(styles.unit)}
-                      >
-                        <UnitBody
-                          unit={unit}
-                          last={snapshot.running && at === count - 1}
-                          final={"item" in unit && finals.has(unit.item.id)}
-                          renderThread={renderThread}
-                          onOpenLink={onOpenLink}
-                          onWork={toggleWork}
-                          onHold={holdUnit}
-                        />
-                      </div>
-                    );
-                  })}
-                </RowOpen>
-                <div {...stylex.props(styles.space(below))} />
-                {snapshot.running ? (
-                  <div {...stylex.props(rowStyles.row, styles.status)}>
-                    <span {...stylex.props(rowStyles.icon)}>
-                      <span {...stylex.props(motion.spinner)} />
-                    </span>
-                    <span {...stylex.props(motion.shimmer)}>
-                      {thinking ? "Thinking" : "Working"}
-                    </span>
-                    <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
-                  </div>
-                ) : endMark ? (
-                  <div {...stylex.props(styles.endMark)}>{endMark}</div>
-                ) : (
-                  snapshot.items.length > 0 &&
-                  // The last turn's own row says so when its work folds.
-                  !folded &&
-                  !waitingMessage && (
-                    <div {...stylex.props(styles.done)}>
-                      <span {...stylex.props(styles.rule)} />
-                      Worked for {formatSeconds(elapsed)}
-                      {turn.toolCalls > 0 &&
-                        ` · ${turn.toolCalls} tool ${turn.toolCalls === 1 ? "call" : "calls"}`}
-                      <span {...stylex.props(styles.rule)} />
-                    </div>
-                  )
-                )}
-                {recap && !snapshot.running && (
-                  <TurnRecap
-                    {...recap}
-                    onDismiss={() => {
-                      recap.onDismiss();
-                      // The recap leaves sight; the thread keeps the focus.
-                      scroller.current?.focus({ preventScroll: true });
-                    }}
-                  />
-                )}
-              </div>
-            </div>
-            {!atBottom && (
-              <button
-                type="button"
-                onClick={() => {
-                  const node = scroller.current;
-                  if (!node) return;
-                  stuck.current = true;
-                  setAtBottom(true);
-                  node.scrollTop = node.scrollHeight;
-                  list.current?.record();
-                  list.current?.place(true);
-                }}
-                {...stylex.props(styles.latest)}
-              >
-                <Icon name="arrowDown" size={12} />
-                Latest
-              </button>
-            )}
-          </div>
-          <div inert={!!agent} {...stylex.props(styles.docks)}>
-            <BackgroundDock
-              items={snapshot.items}
-              now={now ?? snapshot.updatedAt}
-              // An agent task opens its thread; a shell's call shows in the thread.
-              onShow={(id) =>
-                agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
-              }
-            />
-            {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
-          </div>
-          {agent && (
-            <AgentView
-              agent={agent}
-              now={now ?? snapshot.updatedAt ?? agent.at}
-              onClose={closeAgent}
-              onOpenLink={onOpenLink}
+      <ScheduleFactsContext.Provider value={scheduleFacts}>
+        <div data-pending={!settled || undefined} {...stylex.props(styles.frame)}>
+          {agents.length > 0 && (
+            <AgentTabs
+              agents={agents}
+              open={agent ? agent.id : null}
+              onOpen={(id) => setAgentId(id)}
             />
           )}
+          <div {...stylex.props(styles.body)}>
+            <div inert={!!agent} {...stylex.props(styles.viewport)}>
+              <div
+                ref={scroller}
+                // A scrolling region takes focus, so keys can scroll it. Focus in the
+                // thread also gives [ and ] to its messages, not to hunks.
+                // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+                tabIndex={0}
+                data-message-keys=""
+                {...scrollerProps}
+                className={`${scrollerProps.className ?? ""} med-thread-scroller`}
+              >
+                <div
+                  ref={content}
+                  {...stylex.props(styles.content, !settled && styles.unsettled)}
+                  role="log"
+                  aria-label="Session"
+                  aria-live="polite"
+                  aria-busy={snapshot.running}
+                >
+                  <ThreadProbe probe={probe} />
+                  {earlier ? (
+                    <div {...stylex.props(styles.edge)}>
+                      <button
+                        type="button"
+                        disabled={earlier.loading}
+                        onClick={() => void earlier.load()}
+                        {...stylex.props(styles.earlier)}
+                      >
+                        {earlier.loading
+                          ? "Loading earlier work…"
+                          : earlier.failed
+                            ? "Earlier work did not load. Try again"
+                            : "Load earlier work"}
+                      </button>
+                    </div>
+                  ) : (
+                    before
+                  )}
+                  <div ref={head} {...stylex.props(styles.space(above))} />
+                  <RowOpen value={rows}>
+                    {all.slice(start, end).map((unit, offset) => {
+                      const at = start + offset;
+                      return (
+                        <div
+                          key={unit.key}
+                          ref={unitRef}
+                          data-unit={unit.key}
+                          data-rise={appended.has(unit.key) ? "" : undefined}
+                          data-message={isMessage(unit) ? unit.item.kind : undefined}
+                          data-current={unit.key === current ? "" : undefined}
+                          {...stylex.props(styles.unit)}
+                        >
+                          <UnitBody
+                            unit={unit}
+                            last={snapshot.running && at === count - 1}
+                            final={"item" in unit && finals.has(unit.item.id)}
+                            renderThread={renderThread}
+                            onOpenLink={onOpenLink}
+                            onWork={toggleWork}
+                            onHold={holdUnit}
+                          />
+                        </div>
+                      );
+                    })}
+                  </RowOpen>
+                  <div {...stylex.props(styles.space(below))} />
+                  {snapshot.running ? (
+                    <div {...stylex.props(rowStyles.row, styles.status)}>
+                      <span {...stylex.props(rowStyles.icon)}>
+                        <span {...stylex.props(motion.spinner)} />
+                      </span>
+                      <span {...stylex.props(motion.shimmer)}>
+                        {thinking ? "Thinking" : "Working"}
+                      </span>
+                      <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
+                    </div>
+                  ) : endMark ? (
+                    <div {...stylex.props(styles.endMark)}>{endMark}</div>
+                  ) : (
+                    snapshot.items.length > 0 &&
+                    // The last turn's own row says so when its work folds.
+                    !folded &&
+                    !waitingMessage && (
+                      <div {...stylex.props(styles.done)}>
+                        <span {...stylex.props(styles.rule)} />
+                        Worked for {formatSeconds(elapsed)}
+                        {turn.toolCalls > 0 &&
+                          ` · ${turn.toolCalls} tool ${turn.toolCalls === 1 ? "call" : "calls"}`}
+                        <span {...stylex.props(styles.rule)} />
+                      </div>
+                    )
+                  )}
+                  {recap && !snapshot.running && (
+                    <TurnRecap
+                      {...recap}
+                      onDismiss={() => {
+                        recap.onDismiss();
+                        // The recap leaves sight; the thread keeps the focus.
+                        scroller.current?.focus({ preventScroll: true });
+                      }}
+                    />
+                  )}
+                </div>
+              </div>
+              {!atBottom && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const node = scroller.current;
+                    if (!node) return;
+                    stuck.current = true;
+                    setAtBottom(true);
+                    node.scrollTop = node.scrollHeight;
+                    list.current?.record();
+                    list.current?.place(true);
+                  }}
+                  {...stylex.props(styles.latest)}
+                >
+                  <Icon name="arrowDown" size={12} />
+                  Latest
+                </button>
+              )}
+            </div>
+            <div inert={!!agent} {...stylex.props(styles.docks)}>
+              <BackgroundDock
+                items={snapshot.items}
+                now={now ?? snapshot.updatedAt}
+                // An agent task opens its thread; a shell's call shows in the thread.
+                onShow={(id) =>
+                  agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
+                }
+              />
+              {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
+            </div>
+            {agent && (
+              <AgentView
+                agent={agent}
+                now={now ?? snapshot.updatedAt ?? agent.at}
+                onClose={closeAgent}
+                onOpenLink={onOpenLink}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      </ScheduleFactsContext.Provider>
     </OpenAgentContext.Provider>
   );
 }
@@ -2162,6 +2183,9 @@ const styles = stylex.create({
     fontSize: 12.5,
   },
   noticeError: { color: tokens.red },
+  scheduledRun: { color: tokens.muted, minWidth: 0 },
+  runTitle: { flexShrink: 0, whiteSpace: "nowrap" },
+  runPrompt: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   noticeDetail: { color: tokens.faint },
   compaction: {
     display: "flex",

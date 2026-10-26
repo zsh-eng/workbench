@@ -159,6 +159,7 @@ export function ThreadSidebar({
   onUngroup,
   onShape,
   onOpenPart,
+  scheduled,
   streams,
   streamActions,
   closedStreams,
@@ -205,6 +206,8 @@ export function ThreadSidebar({
   onShape?(thread: Thread, shape: "stack" | "set"): void;
   /** Shows one part of a stack or a set. */
   onOpenPart?(thread: Thread, part: string): void;
+  /** The Scheduled section, above the repositories (ScheduledSection.tsx). */
+  scheduled?: ReactNode;
   /** Streams of work, in the reader's order: they group the tabs in place of
    * the repositories (the durable sessions design). */
   streams?: readonly SidebarStream[];
@@ -568,6 +571,7 @@ export function ThreadSidebar({
         </ContextMenu.Portal>
       </ContextMenu.Root>
       {notice}
+      {scheduled}
       <section aria-label="Repositories" {...stylex.props(styles.sources)}>
         <div {...stylex.props(styles.sourcesHeader)}>
           <button

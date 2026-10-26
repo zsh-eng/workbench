@@ -8,6 +8,7 @@ import { useTheme } from "../../themes";
 import { diffSurfaceStyle } from "../diff-surface";
 import { Icon, type IconName } from "../Icon";
 import { motion, rowStyles } from "./session-styles";
+import { ScheduleCard } from "./ScheduleCard";
 import { isMedWait } from "./thread-model";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
@@ -120,6 +121,21 @@ export const ToolCall = memo(function ToolCall({
 }: {
   item: ToolItem;
   /** Renders a subagent's thread inside the call that started it. */
+  renderThread(items: SessionItem[]): ReactNode;
+}) {
+  // A schedule tool's call is a card of what it schedules (ScheduleCard.tsx).
+  return item.call.schedule ? (
+    <ScheduleCard item={item} />
+  ) : (
+    <ToolRow item={item} renderThread={renderThread} />
+  );
+});
+
+function ToolRow({
+  item,
+  renderThread,
+}: {
+  item: ToolItem;
   renderThread(items: SessionItem[]): ReactNode;
 }) {
   const { call } = item;
@@ -251,7 +267,7 @@ export const ToolCall = memo(function ToolCall({
       )}
     </div>
   );
-});
+}
 
 /** Edited text often ends inside a line; a final newline keeps the diff from marking it. */
 const ending = (text: string) => (text === "" || text.endsWith("\n") ? text : `${text}\n`);

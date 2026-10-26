@@ -666,6 +666,18 @@ next layer.
   top. The row's menu has **Stack on**, **Ungroup** (each layer above the
   first is a thread again), and **Treat as a set** or **Treat as a stack**.
 
+## Scheduled
+
+Med shows what Claude Code scheduled and never runs a schedule
+([details](SCHEDULES.md)). A `CronCreate`, `CronDelete`, or `ScheduleWakeup`
+call is a card in the thread: "Every hour at :23", its prompt, recurring or
+one-shot, when it expires, and Cancelled, Expired, Fired, or Missed. A job of
+a session ends with it, which the card says. The sidebar's **Scheduled**
+section lists the tabs' jobs with their thread and whether each can fire
+(**Live** while its session's process runs; **Stopped** once it ended, until
+the session resumes), and the Claude app's scheduled tasks from
+`~/.claude/scheduled-tasks`.
+
 ## Edit working files
 
 Working files and files outside Git open in Vim Normal mode; press `i` to
