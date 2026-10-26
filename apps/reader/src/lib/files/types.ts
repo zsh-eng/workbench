@@ -7,6 +7,13 @@ export interface FileMetadata {
   mediaType?: string;
 }
 
+/** A Blob with its id and the type it is stored with. Nothing is written yet. */
+export interface IdentifiedFile {
+  id: FileId;
+  blob: Blob;
+  mediaType: string;
+}
+
 export interface LocalFile {
   id: FileId;
   blob: Blob;
@@ -47,6 +54,8 @@ export interface FileDownloadOptions {
 
 export interface Files {
   put(blob: Blob, metadata?: FileMetadata): Promise<FileId>;
+  identify(blob: Blob, metadata?: FileMetadata): Promise<IdentifiedFile>;
+  store(file: IdentifiedFile): Promise<void>;
   get(id: FileId, options?: FileDownloadOptions): Promise<Blob>;
   hasLocal(id: FileId): Promise<boolean>;
   ensureLocal(id: FileId): Promise<void>;

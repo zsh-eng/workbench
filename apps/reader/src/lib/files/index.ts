@@ -11,6 +11,7 @@ export type {
   FileMetadata,
   Files,
   FileUploadOperation,
+  IdentifiedFile,
   LocalFile,
   RemoteFile,
 } from "./types";

@@ -5,6 +5,7 @@ import type {
   SpineItem,
   TOCItem,
 } from "@/lib/db";
+import { BookImportError, type NotEpubFormat } from "@/lib/book-import-errors";
 import type { FileId } from "@/lib/files";
 import { unzip } from "fflate";
 
@@ -37,7 +38,9 @@ export interface ParseEPUBOptions {
 }
 
 /**
- * Extract and parse an EPUB file
+ * Extract and parse an EPUB file. A file that cannot be a readable book
+ * throws a BookImportError that says why: not an EPUB, damaged,
+ * DRM-protected, or missing its package or its reading order.
  */
 export async function parseEPUB(
   file: Blob,
@@ -47,18 +50,18 @@ export async function parseEPUB(
   const arrayBuffer = await file.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
 
-  // Unzip the EPUB file
-  const unzipped = await unzipAsync(uint8Array);
+  const unzipped = await openArchive(uint8Array);
+  if (isDrmProtected(unzipped)) throw new BookImportError({ kind: "drm" });
 
   // Parse container.xml to find the OPF file
   const opfPath = await findOPFPath(unzipped);
-
-  if (!opfPath) {
-    throw new Error("Could not find OPF file in EPUB");
+  const opfData = opfPath ? unzipped[opfPath] : undefined;
+  if (!opfPath || !opfData) {
+    throw new BookImportError({ kind: "incomplete", missing: "package" });
   }
 
   // Parse the OPF file
-  const opfContent = new TextDecoder().decode(unzipped[opfPath]);
+  const opfContent = new TextDecoder().decode(opfData);
   const opfDoc = new DOMParser().parseFromString(opfContent, "text/xml");
 
   // Extract metadata
@@ -69,6 +72,8 @@ export async function parseEPUB(
 
   // Extract spine
   const spine = extractSpine(opfDoc);
+  if (!spine.some((item) => manifest.some((entry) => entry.id === item.idref)))
+    throw new BookImportError({ kind: "incomplete", missing: "contents" });
 
   // Extract table of contents
   const toc = await extractTOC(opfDoc, manifest, unzipped, opfPath);
@@ -138,6 +143,80 @@ function createDerivedBlobFactory(
     new BlobConstructor([new Uint8Array(content).buffer as ArrayBuffer], {
       type: mediaType,
     }) as Blob;
+}
+
+/**
+ * The archive's entries. Bytes that are no ZIP are another kind of file; a
+ * ZIP that does not open is damaged; one without an EPUB's container or
+ * mimetype is some other archive.
+ */
+async function openArchive(
+  bytes: Uint8Array,
+): Promise<Record<string, Uint8Array>> {
+  if (!isZip(bytes))
+    throw new BookImportError({ kind: "not-epub", format: sniffFormat(bytes) });
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = await unzipAsync(bytes);
+  } catch (error) {
+    throw new BookImportError({ kind: "damaged" }, error);
+  }
+  const mimetype = entries.mimetype
+    ? new TextDecoder().decode(entries.mimetype).trim()
+    : null;
+  if (!entries["META-INF/container.xml"] && mimetype !== "application/epub+zip")
+    throw new BookImportError({ kind: "not-epub", format: "zip" });
+  return entries;
+}
+
+/** A local file header, an empty archive's end record, or a spanned archive. */
+function isZip(bytes: Uint8Array): boolean {
+  return (
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    ((bytes[2] === 3 && bytes[3] === 4) ||
+      (bytes[2] === 5 && bytes[3] === 6) ||
+      (bytes[2] === 7 && bytes[3] === 8))
+  );
+}
+
+function sniffFormat(bytes: Uint8Array): NotEpubFormat {
+  const ascii = (start: number, length: number) =>
+    String.fromCharCode(...bytes.subarray(start, start + length));
+  // A PDF's header may follow a little junk, within its first kilobyte.
+  if (ascii(0, 1024).includes("%PDF-")) return "pdf";
+  // MOBI, AZW and AZW3 are Palm databases, typed at byte 60; Topaz is TPZ.
+  if (ascii(60, 8) === "BOOKMOBI" || ascii(0, 3) === "TPZ") return "kindle";
+  return "unknown";
+}
+
+/** Font obfuscation, which DRM-free books use, is not DRM. */
+const FONT_OBFUSCATION = new Set([
+  "http://www.idpf.org/2008/embedding",
+  "http://ns.adobe.com/pdf/enc#RC",
+]);
+
+/**
+ * DRM leaves its files in META-INF: Adobe's rights.xml, a Readium LCP
+ * license, Apple's sinf.xml, or an encryption.xml that encrypts more than
+ * fonts.
+ */
+function isDrmProtected(entries: Record<string, Uint8Array>): boolean {
+  if (
+    entries["META-INF/rights.xml"] ||
+    entries["META-INF/license.lcpl"] ||
+    entries["META-INF/sinf.xml"]
+  )
+    return true;
+  const encryption = entries["META-INF/encryption.xml"];
+  if (!encryption) return false;
+  const doc = new DOMParser().parseFromString(
+    new TextDecoder().decode(encryption),
+    "text/xml",
+  );
+  return findElements(doc, "encryptionmethod").some(
+    (method) => !FONT_OBFUSCATION.has(method.getAttribute("Algorithm") ?? ""),
+  );
 }
 
 /**
