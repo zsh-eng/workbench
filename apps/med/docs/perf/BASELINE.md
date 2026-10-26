@@ -30,6 +30,7 @@ node scripts/perf/check.mjs scripts/perf/baseline.json .benchmarks/perf/budget.j
 node scripts/perf/budget.mjs --quick --no-react   # about 2 minutes, for a first look
 node scripts/perf/budget.mjs --frames --only warm,cold --runs 3 --no-react   # headed; painted frames
 node scripts/perf/budget.mjs --only warm,idle --runs 1 --no-react --host-profile
+node scripts/perf/budget.mjs --lockfile 10000      # the large diff also updates a 10,000-package bun.lock
 ```
 
 `--check` exits 1 when the budget fails. The rules are in `check.mjs` (lines
