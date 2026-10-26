@@ -131,6 +131,34 @@ describe("review request ownership", () => {
     },
   );
 
+  test("coming back to live changes shows them at once, and the read that checks them replaces them", async () => {
+    let working = 0;
+    const late = deferred<Response>();
+    const { controller } = fixture({
+      review: async (comparison) =>
+        comparison.kind === "working" && ++working === 2
+          ? late.promise
+          : json(response(comparison)),
+    });
+    await controller.initialize();
+    expect(controller.getSnapshot().review?.id).toBe("working");
+    await controller.selectComparison({ kind: "commit", commit: B });
+    expect(controller.getSnapshot().review?.id).toBe(B);
+    const back = controller.selectComparison({ kind: "working" });
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "ready",
+      comparison: { kind: "working" },
+      review: { id: "working" },
+    });
+    late.resolve(json({ ...response({ kind: "working" }), id: "working-2", patch: "working-2" }));
+    await back;
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "ready",
+      review: { id: "working-2" },
+    });
+    controller.dispose();
+  });
+
   test("comparison identity ignores key order and omitted false flags, but keeps inclusive ranges distinct", async () => {
     const { controller, calls } = fixture();
     await controller.initialize();
@@ -719,6 +747,43 @@ describe("notes and source ownership", () => {
     await controller.selectComparison({ kind: "commit", commit: B });
     late.resolve(json({ reviewId: "working", path: "a.ts", old: "old", new: "new" }));
     expect((await rejected).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    controller.dispose();
+  });
+
+  test("reads a file ahead quietly, and an expansion that comes meanwhile takes that read", async () => {
+    const late = deferred<Response>();
+    const { controller, calls } = fixture({ source: async () => late.promise });
+    await controller.initialize();
+    const sources = () => calls.filter((call) => call.url.startsWith("/api/source"));
+    const status = () => {
+      const snapshot = controller.getSnapshot();
+      const file = snapshot.files.find((entry) => entry.path === "a.ts")!;
+      return snapshot.semantic?.sourceStatusByFileKey[file.id];
+    };
+    controller.preloadSources("a.ts");
+    controller.preloadSources("a.ts");
+    controller.preloadSources("not-in-review.ts");
+    expect(sources()).toHaveLength(1);
+    expect(status()).toBeUndefined();
+    const expanding = controller.loadSources("a.ts");
+    expect(sources()).toHaveLength(1);
+    expect(status()).toEqual({ kind: "loading" });
+    late.resolve(json({ reviewId: "working", path: "a.ts", old: "old", new: "new" }));
+    expect((await expanding).new).toBe("new");
+    expect(status()).toEqual({ kind: "loaded", text: "new" });
+    expect((await controller.preloadSources("a.ts"))?.new).toBe("new");
+    expect(sources()).toHaveLength(1);
+    controller.dispose();
+  });
+
+  test("a hidden workspace reads nothing ahead", async () => {
+    const { controller, calls } = fixture({
+      source: async () => json({ reviewId: "working", path: "a.ts", old: "old", new: "new" }),
+    });
+    await controller.initialize();
+    controller.suspend();
+    expect(controller.preloadSources("a.ts")).toBeUndefined();
+    expect(calls.filter((call) => call.url.startsWith("/api/source"))).toHaveLength(0);
     controller.dispose();
   });
 });

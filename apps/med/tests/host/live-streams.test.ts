@@ -31,10 +31,13 @@ test("a page reads all its event streams over one connection", async () => {
   const base = `http://127.0.0.1:${host.port}`;
   // The browser's fetch, with the page's origin, and each request it makes.
   const requests: string[] = [];
+  const replies: { body: string; response: Response }[] = [];
   const nodeFetch = globalThis.fetch;
-  vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+  vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
     requests.push(`${init?.method ?? "GET"} ${input}`);
-    return nodeFetch(new URL(input, base), init);
+    const response = await nodeFetch(new URL(input, base), init);
+    if (input.startsWith("/api/live/")) replies.push({ body: String(init?.body), response });
+    return response;
   });
   const api = createApi(browserFetch, host.token);
   const plain = async <T>(path: string, body: unknown) =>
@@ -106,6 +109,11 @@ test("a page reads all its event streams over one connection", async () => {
   await vi.waitFor(async () =>
     expect(await plain("/api/windows/review", { id: review.id })).toEqual({ windows: 1 }),
   );
+  // Every reply's body is read or cancelled: one left unread keeps its
+  // request in a browser's memory.
+  const closes = replies.filter((reply) => reply.body.includes('"close"'));
+  expect(closes).toHaveLength(1);
+  await vi.waitFor(() => expect(replies.every((reply) => reply.response.bodyUsed)).toBe(true));
 
   // A channel that the host refuses reads like a refused stream.
   const missing = await open(`/api/reviews/${review.id}/sessions/nothing/events`);

@@ -25,10 +25,18 @@ export const ownedSettingSchema = z.object({
   category: z.enum(["model", "effort", "mode", "other"]),
   value: z.string(),
   options: z.array(
-    z.object({ value: z.string(), name: z.string(), description: z.string().optional() }),
+    z.object({
+      value: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+      /** A choice that asks first, such as Bypass: what it lets the agent do. */
+      confirm: z.string().optional(),
+    }),
   ),
   /** Changes only between turns, such as Claude Code's effort. */
   idleOnly: z.boolean().optional(),
+  /** The values that ⇧Tab steps through, in order, as in Claude Code's terminal. */
+  cycle: z.array(z.string()).optional(),
 });
 export type OwnedSetting = z.infer<typeof ownedSettingSchema>;
 
@@ -39,6 +47,17 @@ export const ownedCommandSchema = z.object({
   hint: z.string().optional(),
 });
 export type OwnedCommand = z.infer<typeof ownedCommandSchema>;
+
+/** A question that the agent asks, with choices: Claude Code's AskUserQuestion. */
+export const ownedQuestionSchema = z.object({
+  question: z.string(),
+  /** A short label, such as "Library". */
+  header: z.string().optional(),
+  /** The user may pick more than one choice. */
+  multiSelect: z.boolean().optional(),
+  options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+});
+export type OwnedQuestion = z.infer<typeof ownedQuestionSchema>;
 
 /** A tool call that waits for the user's answer. */
 export const ownedPermissionSchema = z.object({
@@ -52,6 +71,17 @@ export const ownedPermissionSchema = z.object({
       kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]),
     }),
   ),
+  /** The agent asks these questions; the answer carries the user's choices. */
+  questions: z.array(ownedQuestionSchema).optional(),
+  /** A plan to approve before the agent edits, as Markdown: Claude Code's
+   * ExitPlanMode. Approving it names the mode that the work continues in. */
+  plan: z
+    .object({
+      text: z.string(),
+      modes: z.array(z.object({ value: z.string(), name: z.string() })),
+      mode: z.string(),
+    })
+    .optional(),
 });
 export type OwnedPermission = z.infer<typeof ownedPermissionSchema>;
 
@@ -130,7 +160,17 @@ export const ownedStartSchema = z.object({
 
 export const ownedActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prompt"), text: z.string().trim().min(1).max(100_000) }),
-  z.object({ action: z.literal("permission"), id: z.string().max(200), option: z.string() }),
+  z.object({
+    action: z.literal("permission"),
+    id: z.string().max(200),
+    option: z.string(),
+    /** The answer to each question, by its text; choices join with ", ". */
+    answers: z.record(z.string().max(2000), z.string().max(10_000)).optional(),
+    /** The mode that an approved plan continues in. */
+    mode: z.string().max(80).optional(),
+    /** What the user says with a refusal, such as what to plan next. */
+    message: z.string().max(10_000).optional(),
+  }),
   z.object({ action: z.literal("interrupt") }),
   z.object({ action: z.literal("setting"), id: z.string().max(80), value: z.string().max(400) }),
   z.object({ action: z.literal("stop") }),
@@ -142,3 +182,10 @@ export const ownedActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("dismiss") }),
 ]);
 export type OwnedAction = z.infer<typeof ownedActionSchema>;
+
+/** What the user adds to an answer: the answers to the agent's questions,
+ * the mode that an approved plan continues in, or a refusal's words. */
+export type PermissionReply = Omit<
+  Extract<OwnedAction, { action: "permission" }>,
+  "action" | "id" | "option"
+>;

@@ -194,6 +194,16 @@ export const guideContexts: GuideContext[] = [
         entries: [
           { label: "Send the message", keys: ["Mod+Enter"], note: "Enter adds a line" },
           {
+            label: "Next permission mode",
+            keys: ["Shift+Tab"],
+            note: "In the message box, for Claude Code that Med runs",
+          },
+          {
+            label: "Pick a question's choice",
+            keys: ["1"],
+            note: "1–9, in the question or the empty message box",
+          },
+          {
             label: "Review the turn",
             keys: ["Alt+Enter"],
             note: "While its recap shows: the Guide's first segment not viewed, or Changes",

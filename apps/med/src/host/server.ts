@@ -1470,8 +1470,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const action = ownedActionSchema.parse(await readBody(request, MAX_BRIEF_BODY));
             assertRequestAccess();
             if (action.action === "prompt") await runner.prompt(action.text);
-            else if (action.action === "permission") runner.answer(action.id, action.option);
-            else if (action.action === "interrupt") runner.interrupt();
+            else if (action.action === "permission") {
+              const { id, option, ...reply } = action;
+              runner.answer(id, option, reply);
+            } else if (action.action === "interrupt") runner.interrupt();
             else if (action.action === "setting") await runner.set(action.id, action.value);
             else if (action.action === "restart") await runner.restart();
             else if (action.action === "continue") await runner.prompt(CONTINUE_TURN);

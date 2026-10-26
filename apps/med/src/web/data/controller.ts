@@ -186,6 +186,10 @@ export interface ReviewController {
   revealFile(id: string): void;
   setFilter(text: string): void;
   loadSources(path: string): Promise<SourceResponse>;
+  /** Reads a file's full text ahead, while nothing else loads, so that its
+   * first context expansion does not wait for the host. Undefined when it
+   * does not read now. */
+  preloadSources(path: string): Promise<SourceResponse> | undefined;
   mutateNote(mutation: NoteMutation): Promise<void>;
   dispose(): void;
 }
@@ -342,6 +346,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return parseReviewPatch(patch);
     });
   const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024, 24);
+  /** The live comparison shown last. Coming back to Changes shows it at once
+   * while a read checks it, as an edit in the worktree does. */
+  let lastLive: { key: string; entry: CachedReview } | undefined;
   const sourceCache = new ByteLru<SourceResponse>(8 * 1024 * 1024, 12, (_key, source) => {
     if (snapshot.review?.id !== source.reviewId || !snapshot.semantic) return;
     const file = snapshot.files.find((entry) => entry.path === source.path);
@@ -436,7 +443,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let reconnectDelay = 500;
   const sourceRequests = new Map<
     string,
-    { abort: AbortController; promise: Promise<SourceResponse> }
+    { abort: AbortController; promise: Promise<SourceResponse>; ahead: boolean }
   >();
   const update = (patch: Partial<ReviewControllerSnapshot>) => {
     if (disposed) return;
@@ -629,13 +636,24 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     reviewAbort?.abort();
     reviewAbort = new AbortController();
     cancelSources();
-    if (!background) update({ comparison, status: "loading", error: null });
     const key = JSON.stringify([repo, comparisonKey(comparison)]);
+    const last =
+      !force &&
+      !background &&
+      lastLive?.key === key &&
+      snapshot.review?.id !== lastLive.entry.response.id
+        ? lastLive.entry
+        : undefined;
+    if (!background && !last) update({ comparison, status: "loading", error: null });
     const cached = !force && immutableComparison(comparison) ? reviewCache.get(key) : undefined;
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
       if (reviewSide && comparison.kind === "commit") prefetchIterations();
       return;
+    }
+    if (last) {
+      update({ comparison, error: null });
+      publishReview(last, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
     }
     const start = performance.now();
     try {
@@ -659,14 +677,15 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         );
       }
       // A review id names its content, so the same id means nothing changed.
-      if (background && response.id === snapshot.review?.id) return;
+      if ((background || last) && response.id === snapshot.review?.id) return;
       const parseStart = performance.now();
       const parsed = await parse(response.patch);
       if (!isCurrent(generation)) return;
       const { files, document } = projectResponse(response, parsed);
       const entry = { response, files, document };
-      if (immutableComparison(comparison))
-        reviewCache.set(key, entry, estimateRetainedBytes(entry));
+      const bytes = estimateRetainedBytes(entry);
+      if (immutableComparison(comparison)) reviewCache.set(key, entry, bytes);
+      else lastLive = bytes <= reviewCache.maxBytes / 3 ? { key, entry } : undefined;
       publishReview(entry, generation, {
         requestMs: parseStart - start,
         parseMs: performance.now() - parseStart,
@@ -742,6 +761,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       for (const key of navigation.keys())
         if (removedIds.has(JSON.parse(key)[0])) navigation.delete(key);
       reviewCache.clear();
+      lastLive = undefined;
     }
     if (removedActive) activeTarget = undefined;
     update({
@@ -1505,7 +1525,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (!disposed && snapshot.savedTargetId === id) void checkDrift();
   }
 
-  async function loadSources(path: string): Promise<SourceResponse> {
+  function preloadSources(path: string) {
+    if (disposed || suspended || !snapshot.review || snapshot.status !== "ready") return;
+    if (!snapshot.files.some((file) => file.path === path)) return;
+    const key = JSON.stringify([snapshot.review.id, path]);
+    const cached = sourceCache.get(key);
+    if (cached) return Promise.resolve(cached);
+    if (sourceRequests.has(key) || sourceRequests.size >= 2) return;
+    const read = loadSources(path, true);
+    read.catch(() => {});
+    return read;
+  }
+
+  async function loadSources(path: string, ahead = false): Promise<SourceResponse> {
     const review = snapshot.review;
     if (!review || snapshot.status !== "ready")
       throw new Error("Wait for the current review to load.");
@@ -1532,11 +1564,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return cached;
     }
     const pending = sourceRequests.get(key);
-    if (pending) return pending.promise;
+    if (pending) {
+      // A read ahead that the reader now waits for reports as theirs.
+      if (pending.ahead && !ahead) {
+        pending.ahead = false;
+        setSourceStatus({ kind: "loading" });
+      }
+      return pending.promise;
+    }
     if (sourceRequests.size >= 4)
       throw new Error("Four files are loading. Wait before expanding another file.");
     const abort = new AbortController();
-    setSourceStatus({ kind: "loading" });
+    const entry = { abort, promise: undefined as unknown as Promise<SourceResponse>, ahead };
+    if (!ahead) setSourceStatus({ kind: "loading" });
     const promise = api
       .json(
         savedTargetUrl()
@@ -1553,6 +1593,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           throw new Error("The source belongs to a different file version.");
         const bytes = estimateRetainedBytes(source);
         sourceCache.set(key, source, bytes);
+        if (entry.ahead) return source;
         if (bytes <= sourceCache.maxBytes)
           setSourceStatus({
             kind: "loaded",
@@ -1562,13 +1603,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         return source;
       })
       .catch((error: unknown) => {
-        setSourceStatus({ kind: "error" });
+        if (!entry.ahead) setSourceStatus({ kind: "error" });
         throw error;
       })
       .finally(() => {
         if (sourceRequests.get(key)?.abort === abort) sourceRequests.delete(key);
       });
-    sourceRequests.set(key, { abort, promise });
+    entry.promise = promise;
+    sourceRequests.set(key, entry);
     return promise;
   }
 
@@ -2305,7 +2347,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         body: JSON.stringify({ repo, path }),
       });
     },
-    loadSources,
+    loadSources: (path) => loadSources(path),
+    preloadSources,
     mutateNote,
     revealFile(id) {
       if (!snapshot.files.some((file) => file.id === id)) return;
@@ -2349,6 +2392,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       stopEvents();
       cancelSources();
       reviewCache.clear();
+      lastLive = undefined;
       sourceCache.clear();
       listeners.clear();
     },

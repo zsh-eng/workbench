@@ -9,9 +9,19 @@
 //   coldLargeDiff   the same, to the thread with the large diff
 //   warmSwitch      ⌘1–⌘9 between loaded threads (the large diff apart)
 //   warmLargeDiff   ⌘ to the loaded thread with the large diff
+//   reviewTab       ⌥1 to the Review tab, from Changes or a file
+//   changesTab      ⌥ to the Changes tab
+//   commitTab       ⌥ to the Commit tab
+//   fileOpen        Enter in the file picker (⌘⇧K), to the file's tab
+//   fileTab         ⌥ to a file's tab that is open, from Review
+//   commitPick      a commit picked beside a Review of two commits
+//   soak            rounds of ⌘ switches, files, and the palette: memory growth
 //   agentSteps      three agent steps in a thread that is not on screen
 //   idle1, idle2    idle seconds with one window, and with two
 //   memory          heap, DOM nodes, and workers when all threads have loaded
+//
+// Each switch (the warm ⌘ switches, the ⌥ and Enter steps after a first
+// visit, and a commit picked) must paint within 50 ms at the 95th percentile.
 //
 // For each, it records Git processes (count, time, arguments), HTTP requests
 // and WebSocket messages with bytes, host CPU, main-thread time by kind
@@ -26,7 +36,8 @@
 //   options: --out <file>  --runs 5  --idle 60  --port 6451  --quick (3 runs, 20 s idle)
 //            --transcripts auto|real|synthetic  --no-react  --headed  --frames
 //            --tolerance 0.25  --keep (leave the scratch folder and the profiling build)
-//            --only load,cold,warm,agent,idle (some actions; not with --check)
+//            --only load,cold,warm,keys,soak,agent,idle (some actions; not with --check)
+//            --soak 120 (rounds in the soak; 0 leaves it out)
 //            --host-profile (write the host's CPU profile to the scratch folder; implies --keep)
 //
 // --check compares the run with a baseline (check.mjs says how) and exits 1
@@ -66,7 +77,9 @@ const frames = flag("frames");
 const reactPass = !flag("no-react");
 const outFile = resolve(option("out", join(app, ".benchmarks/perf/budget.json")));
 const checkFile = option("check");
-/** Action groups to run: load, cold, warm, agent, idle (all by default). */
+/** Rounds in the soak. */
+const SOAK_ROUNDS = Number(option("soak", quick ? 40 : 120));
+/** Action groups to run: load, cold, warm, keys, soak, agent, idle (all by default). */
 const only = option("only") ? new Set(option("only").split(",")) : undefined;
 if (only && checkFile) throw new Error("Use --check with a full run, without --only.");
 if (PORT < 6451 || PORT > 6459) throw new Error("Use a port from 6451 to 6459.");
@@ -80,6 +93,15 @@ const median = (values) => {
   if (!list.length) return undefined;
   const middle = list.length >> 1;
   return list.length % 2 ? list[middle] : (list[middle - 1] + list[middle]) / 2;
+};
+/** The value at `p` percent of the sorted values (the largest at 100). */
+const percentile = (values, p) => {
+  const list = values
+    .filter((value) => typeof value === "number" && Number.isFinite(value))
+    .sort((a, b) => a - b);
+  return list.length
+    ? list[Math.min(list.length - 1, Math.floor((p / 100) * list.length))]
+    : undefined;
 };
 const round = (value, digits = 1) =>
   typeof value === "number" ? Math.round(value * 10 ** digits) / 10 ** digits : value;
@@ -318,6 +340,8 @@ const ids = {
   open: idOf(fixture.long[0].title),
   cold: idOf(fixture.long[2].title),
   atlas: idOf(fixture.atlas.title),
+  /** A branch of two commits, which its Review lists beside the diff. */
+  commits: idOf("Forgiving station search"),
 };
 /** The threads that the warm switches visit: the long ones, the large diff, and the agent's. */
 const switchIds = new Set(
@@ -582,6 +606,217 @@ async function press(session, id, { tail = 500, react = false } = {}) {
 }
 
 /**
+ * Presses `key` (or runs `key` when it is a function, such as a click) and
+ * waits until `ready` (a `window.__perf` check with `arg`) holds, then for the
+ * next painted frame. READY and PAINTED are ms from the key's or the press's
+ * event; the window records what the page and the host did.
+ */
+async function keyStep(session, key, ready, arg, { tail = 300 } = {}) {
+  const { page, rec } = session;
+  const load = loadAverage();
+  const cpu0 = host.cpuAsync();
+  const from = Date.now();
+  await page.evaluate(() => {
+    window.__perf.keyAt = undefined;
+  });
+  const waiting = page.evaluate(
+    ([check, value]) => window.__perf.step(() => window.__perf[check](value)),
+    [ready, arg],
+  );
+  await (typeof key === "function" ? key() : page.keyboard.press(key));
+  const ms = await waiting;
+  await wait(tail);
+  const to = Date.now();
+  const cpu = (await host.cpuAsync()) - (await cpu0);
+  const result = await measure({ recs: [rec], from, to, cpu });
+  result.ms = ms ? { READY: round(ms.READY), PAINTED: round(ms.PAINTED) } : {};
+  result.timedOut = !ms;
+  result.load = load;
+  return result;
+}
+
+/** Shows thread `id` with its ⌘ key, and waits until nothing in it is pending. */
+async function showThread(session, id) {
+  const digit = await digitOf(session.page, id);
+  if (!digit) return false;
+  await session.page.keyboard.press(`Meta+Digit${digit}`);
+  await session.page
+    .waitForFunction((target) => {
+      const slot = document.querySelector(`[data-workspace-slot*="${CSS.escape(target)}"]`);
+      return (
+        slot?.style.visibility !== "hidden" &&
+        slot?.firstElementChild?.checkVisibility() &&
+        !slot.querySelector("[data-pending]")
+      );
+    }, id)
+    .catch(() => {});
+  await wait(400);
+  return true;
+}
+
+/** The ⌥ key of the tab whose name starts with `name`: its place in the row, or 9 for the last. */
+async function tabKey(page, name) {
+  const { index, count } = await page.evaluate((wanted) => {
+    const tabs = window.__perf.tabs();
+    return {
+      index: tabs.findIndex((tab) => tab.textContent.trim().startsWith(wanted)),
+      count: tabs.length,
+    };
+  }, name);
+  if (index < 0) return undefined;
+  return index < 8 ? `Alt+Digit${index + 1}` : index === count - 1 ? "Alt+Digit9" : undefined;
+}
+
+/**
+ * The keyboard paths inside a thread, `rounds` times after a first visit that
+ * loads each (its times print, apart): the Changes, Commit, and Review tabs,
+ * a file from the picker, and the file's tab from Review. Then a commit picked
+ * in the commit list beside a Review of two commits.
+ */
+async function keyPaths(session, results, rounds) {
+  const { page } = session;
+  const files = ["format.ts", "README.md", "format.test.ts"];
+  if (!(await showThread(session, ids.open))) throw new Error("The open thread has no ⌘ key.");
+  for (let round_ = -1; round_ < rounds; round_++) {
+    const first = round_ < 0;
+    const step = async (list, key, ready, arg) => {
+      if (!key) return;
+      const result = await keyStep(session, key, ready, arg);
+      if (first) log(`  first visit, ${key} to ${arg}: ${result.ms.PAINTED ?? "timed out"} ms`);
+      else list.push(result);
+      if (result.timedOut) log(`  ${key} did not show ${arg ?? ready} within 8 s`);
+      await wait(250);
+    };
+    await step(results.changesTab, await tabKey(page, "Changes"), "showsTab", "Changes");
+    await step(results.commitTab, await tabKey(page, "Commit"), "showsTab", "Commit");
+    await step(results.reviewTab, "Alt+Digit1", "showsTab", "Review");
+    // A file from the picker: the picker opens and takes the name untimed; Enter is timed.
+    const file = files[(round_ + 1) % files.length];
+    await page.keyboard.press("Meta+Shift+K");
+    const input = page.locator('[role="dialog"] input').filter({ visible: true }).first();
+    await input.waitFor({ timeout: 5000 });
+    await input.fill(file);
+    await wait(400);
+    await step(results.fileOpen, "Enter", "showsTab", file);
+    await keyStep(session, "Alt+Digit1", "showsTab", "Review");
+    await wait(250);
+    await step(results.fileTab, await tabKey(page, file), "showsTab", file);
+    await page.keyboard.press("Alt+Shift+W");
+    await wait(300);
+    await page.keyboard.press("Alt+Digit1");
+    await wait(300);
+  }
+  // A commit picked beside a Review of two commits, each in turn, in a page
+  // wide enough for the list beside the diff.
+  if (!ids.commits) {
+    log("  the test bed has no thread of two commits: commitPick left out");
+    return;
+  }
+  const context = await browser.newContext({
+    viewport: { width: 2200, height: 900 },
+    deviceScaleFactor: 2,
+    colorScheme: "dark",
+  });
+  const wide = await newPage({ context });
+  try {
+    await wide.page.goto(`${host.origin}/review/${ids.commits}`);
+    const rows = wide.page
+      .locator(`[data-workspace-slot*="${ids.commits}"]`)
+      .locator('[aria-label="Commits"] li button');
+    await rows.nth(1).waitFor({ timeout: 30_000 });
+    await wait(2000);
+    for (let round_ = -1; round_ < rounds; round_++) {
+      const before = await wide.page.evaluate(() => window.__perf.currentCommit());
+      const row = rows.nth((round_ + 1) % 2);
+      const result = await keyStep(wide, () => row.click(), "changedCommit", before);
+      if (round_ < 0) log(`  first commit picked: ${result.ms.PAINTED ?? "timed out"} ms`);
+      else results.commitPick.push(result);
+      await wait(300);
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+/** Heap after a collection, DOM nodes, and listeners. */
+async function counters(session) {
+  await session.rec.cdp.send("HeapProfiler.collectGarbage");
+  await wait(200);
+  await session.rec.cdp.send("HeapProfiler.collectGarbage");
+  const { usedSize } = await session.rec.cdp.send("Runtime.getHeapUsage");
+  const dom = await session.rec.cdp.send("Memory.getDOMCounters");
+  return { heapMB: round(usedSize / 2 ** 20), nodes: dom.nodes, listeners: dom.jsEventListeners };
+}
+
+/**
+ * A long session: ⌘ switches, a file from the picker every fifth round, the
+ * palette every seventh, and all files closed every 25th. It records memory
+ * after 10 rounds and at the end; growth is per 100 rounds after the first 10.
+ */
+async function soak(session, rounds) {
+  const { page } = session;
+  const files = ["format.ts", "README.md", "format.test.ts"];
+  const load = loadAverage();
+  const round1 = async (n) => {
+    await page.keyboard.press(`Meta+Digit${1 + (n % 9)}`);
+    await wait(150);
+    if (n % 5 === 0) {
+      await page.keyboard.press("Meta+Digit1");
+      await wait(400);
+      await page.keyboard.press("Meta+Shift+K");
+      await wait(200);
+      await page
+        .locator('[role="dialog"] input')
+        .filter({ visible: true })
+        .first()
+        .fill(files[(n / 5) % files.length])
+        .catch(() => {});
+      await wait(250);
+      await page.keyboard.press("Enter");
+      await wait(500);
+      await page.keyboard.press("Alt+Digit1");
+      await wait(200);
+    }
+    if (n % 7 === 0) {
+      await page.keyboard.press("Meta+K");
+      await wait(250);
+      await page.keyboard.type("diff");
+      await wait(150);
+      await page.keyboard.press("Escape");
+      await wait(150);
+    }
+    if (n % 25 === 0) {
+      await page.keyboard.press("Meta+Digit1");
+      await wait(300);
+      await page.keyboard.press("Alt+Shift+W");
+      await wait(300);
+    }
+  };
+  for (let n = 1; n <= 10; n++) await round1(n);
+  const start = await counters(session);
+  const from = Date.now();
+  for (let n = 11; n <= rounds; n++) await round1(n);
+  await page.keyboard.press("Meta+Digit1");
+  await wait(300);
+  await page.keyboard.press("Alt+Shift+W");
+  await wait(600);
+  const end = await counters(session);
+  const per = 100 / Math.max(1, rounds - 10);
+  return {
+    load,
+    rounds,
+    seconds: round((Date.now() - from) / 1000),
+    start,
+    end,
+    growth: {
+      heapMB: round((end.heapMB - start.heapMB) * per),
+      nodes: Math.round((end.nodes - start.nodes) * per),
+      listeners: Math.round((end.listeners - start.listeners) * per),
+    },
+  };
+}
+
+/**
  * A cold load of /review/<open> in a new context, to the ready thread. With
  * `firstKey`, ⌘ for that thread follows at once, in the same trace.
  */
@@ -816,6 +1051,13 @@ async function pass({ react }) {
     coldLargeDiff: [],
     warmSwitch: [],
     warmLargeDiff: [],
+    reviewTab: [],
+    changesTab: [],
+    commitTab: [],
+    fileOpen: [],
+    fileTab: [],
+    commitPick: [],
+    soak: [],
     agentSteps: [],
     idle1: [],
     idle2: [],
@@ -878,7 +1120,7 @@ async function pass({ react }) {
     }
   }
 
-  if (!["warm", "agent", "idle"].some(wanted)) return { results };
+  if (!["warm", "keys", "soak", "agent", "idle"].some(wanted)) return { results };
   const session = await newPage({ react });
   await session.page.goto(`${host.origin}/review/${ids.open}`);
   await session.page.waitForFunction(() => window.__perf.marks.SHOWN !== undefined, null, {
@@ -908,6 +1150,31 @@ async function pass({ react }) {
     log(
       `  ${warm.length} switches: commit ${median(warm.map((r) => r.ms.COMMIT))} ms, shown ${median(warm.map((r) => r.ms.SHOWN))} ms (medians); large diff shown ${median(results.warmLargeDiff.map((r) => r.ms.SHOWN))} ms`,
     );
+  }
+
+  if (wanted("keys")) {
+    const rounds = react ? 2 : RUNS * 3;
+    log(`[${tag}] keyboard paths in a thread ×${rounds}`);
+    await keyPaths(session, results, rounds);
+    const p95 = (list) =>
+      percentile(
+        list.map((r) => r.ms.PAINTED),
+        95,
+      );
+    log(
+      `  painted p95: Review ${p95(results.reviewTab)} ms, Changes ${p95(results.changesTab)} ms, Commit ${p95(results.commitTab)} ms, file open ${p95(results.fileOpen)} ms, file tab ${p95(results.fileTab)} ms${results.commitPick.length ? `, commit ${p95(results.commitPick)} ms` : ""}`,
+    );
+    await showThread(session, ids.open);
+  }
+
+  if (!react && wanted("soak") && SOAK_ROUNDS > 10) {
+    log(`[main] a soak of ${SOAK_ROUNDS} rounds`);
+    const result = await soak(session, SOAK_ROUNDS);
+    results.soak.push(result);
+    log(
+      `  per 100 rounds: heap ${result.growth.heapMB} MB, nodes ${result.growth.nodes}, listeners ${result.growth.listeners}`,
+    );
+    await showThread(session, ids.open);
   }
 
   if (wanted("agent")) {
@@ -1077,11 +1344,21 @@ try {
       if (values.length)
         mean[path] = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
     }
+    // The 95th percentile of each time, for the keyboard switches' budget.
+    const p95 = {};
+    for (const mark of Object.keys(summary.ms ?? {})) {
+      const value = percentile(
+        runs.map((run) => run.ms?.[mark]),
+        95,
+      );
+      if (value !== undefined) p95[`ms.${mark}`] = round(value);
+    }
     actions[name] = {
       runs: runs.length,
       load: round(median(runs.map((run) => run.load)), 2),
       min,
       mean,
+      p95,
       median: summary,
       each: runs.map(brief),
     };

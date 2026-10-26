@@ -24,6 +24,12 @@
 //   bytes fail when they double. The one-run windows check no React counts
 //   (the React pass runs other agent steps) and, of their times, only host
 //   CPU, which fails when it doubles.
+// - Switches (the warm ⌘ switches; inside a thread, after a first visit, the
+//   ⌥ and Enter steps; and a commit picked) fail when their 95th percentile to
+//   the painted frame is 50 ms or more, with or without a baseline.
+// - The soak's growth per 100 rounds fails when its nodes or listeners grow
+//   by more than a quarter of the baseline's and 300 more, or its heap by a
+//   quarter and 2 MB more.
 // Gains print too.
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -65,6 +71,18 @@ export const BUDGET = [
   ],
 ];
 
+/** Keyboard switches: each paints within this many ms at the 95th percentile. */
+export const KEY_P95_MS = 50;
+const KEYS = new Set([
+  "warmSwitch",
+  "reviewTab",
+  "changesTab",
+  "commitTab",
+  "fileOpen",
+  "fileTab",
+  "commitPick",
+]);
+
 /** Windows of one run, with periodic host work: a count can move by one period. */
 const ONE_RUN = new Set(["idle1", "idle2", "agentSteps"]);
 /** Windows that race the warm pool or a refresh timer, and the one-run windows. */
@@ -89,7 +107,31 @@ export function compare(baseline, run, { tolerance = 0.25 } = {}) {
       `the baseline used another test bed (${baseline.fixture?.transcripts} ${baseline.fixture?.digest}, now ${run.fixture?.transcripts} ${run.fixture?.digest}); counts can differ`,
     );
   for (const [action, entry] of Object.entries(run.actions ?? {})) {
+    const p95 = entry.p95?.["ms.PAINTED"];
+    if (KEYS.has(action) && typeof p95 === "number") {
+      if (p95 >= KEY_P95_MS) {
+        lines.push(`FAIL ${action}.p95: ${p95} ms to paint (budget ${KEY_P95_MS} ms)`);
+        failures.push(`${action}.p95`);
+      } else lines.push(`ok   ${action}.p95: ${p95} ms to paint`);
+    }
     const before = baseline.actions?.[action];
+    if (action === "soak" && before?.median?.growth && entry.median?.growth) {
+      for (const [path, extra] of [
+        ["nodes", 300],
+        ["listeners", 300],
+        ["heapMB", 2],
+      ]) {
+        const now = entry.median.growth[path];
+        const was = before.median.growth[path];
+        if (typeof now !== "number" || typeof was !== "number") continue;
+        const slack = Math.max(0, was) * 0.25 + extra;
+        if (now > was + slack) {
+          lines.push(`FAIL soak.growth.${path}: ${was} → ${now} per 100 rounds`);
+          failures.push(`soak.growth.${path}`);
+        } else if (now < was - slack) lines.push(`gain soak.growth.${path}: ${was} → ${now}`);
+      }
+      continue;
+    }
     if (!before?.median) continue;
     const racy = RACY.has(action);
     const periodic = ONE_RUN.has(action);

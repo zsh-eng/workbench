@@ -265,6 +265,61 @@ export function AgentsSection() {
         </div>
       </Specimen>
       <Specimen
+        title="Questions and plans"
+        note="Claude Code's AskUserQuestion: number keys pick a choice, and Other takes an answer of your own. ExitPlanMode: the plan, then Approve with the mode to continue in, or Keep planning."
+        span="half"
+      >
+        <div {...stylex.props(styles.stack)}>
+          <PermissionCard
+            permission={{
+              id: "q",
+              title: "Claude Code asks",
+              options: [
+                { id: "answer", name: "Answer", kind: "allow_once" },
+                { id: "deny", name: "Skip", kind: "reject_once" },
+              ],
+              questions: [
+                {
+                  question: "Which format should durations use?",
+                  header: "Format",
+                  options: [
+                    { label: "Short", description: "1h 5m" },
+                    { label: "Long", description: "1 hour 5 minutes" },
+                  ],
+                },
+                {
+                  question: "Which units can show?",
+                  header: "Units",
+                  multiSelect: true,
+                  options: [{ label: "Hours" }, { label: "Minutes" }, { label: "Seconds" }],
+                },
+              ],
+            }}
+            onAnswer={() => {}}
+          />
+          <PermissionCard
+            permission={{
+              id: "p",
+              title: "Claude Code's plan",
+              options: [
+                { id: "approve", name: "Approve", kind: "allow_once" },
+                { id: "deny", name: "Keep planning", kind: "reject_once" },
+              ],
+              plan: {
+                text: "# Format durations\n\n1. Add `formatDuration` to `src/web/data/relative-time.ts`.\n2. Show hours past 60 minutes.\n3. Test the hour and the minute.\n",
+                modes: [
+                  { value: "acceptEdits", name: "Accept edits" },
+                  { value: "default", name: "Ask" },
+                  { value: "auto", name: "Auto" },
+                ],
+                mode: "acceptEdits",
+              },
+            }}
+            onAnswer={() => {}}
+          />
+        </div>
+      </Specimen>
+      <Specimen
         title="A long session"
         note="600 turns. The thread holds a window of at most 600 rows; scroll up for earlier rows, then earlier pages. Turns (the clock) lists every prompt and jumps to it."
         padded={false}
