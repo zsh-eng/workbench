@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { editSessionSchema } from "./protocol";
+import type { RouteContract } from "./routes";
 
 // Files that a tool writes: lockfiles, build output, snapshots, and files
 // whose header or Git attributes say so (docs/GENERATED.md). The host marks
@@ -149,6 +151,118 @@ export function generatedSource(
   if (mark.kind === "minified") {
     const plain = path.replace(/\.map$/, "").replace(/\.min(\.(?:js|mjs|css))$/, "$1");
     return plain !== path && paths.has(plain) ? plain : null;
+  }
+  return null;
+}
+
+/** What deps.dev says of one package version (docs/GENERATED.md). */
+export const dependencyInfoSchema = z.object({
+  name: z.string(),
+  version: z.string(),
+  licence: z.string().optional(),
+  /** When the registry published the version, in Unix milliseconds. */
+  publishedAt: z.number().optional(),
+  /** Security advisories that name the version. */
+  advisories: z.number().int().nonnegative().optional(),
+  deprecated: z.boolean().optional(),
+  /** deps.dev does not know the version, as for a private package. */
+  unknown: z.boolean().optional(),
+  /** The lookup failed this time; nothing is kept. */
+  failed: z.boolean().optional(),
+});
+export type DependencyInfo = z.infer<typeof dependencyInfoSchema>;
+const packageName = z
+  .string()
+  .max(214)
+  .regex(/^(?:@[a-z0-9][\w.~-]*\/)?[a-z0-9][\w.~-]*$/i);
+const packageVersion = z.string().regex(/^[0-9A-Za-z][\w.+-]{0,63}$/);
+export const provenanceSchema = z.object({
+  /** An agent edited the file with an edit tool: a hand edit of generated output. */
+  edited: z.boolean().optional(),
+  /** The last command of the sessions that writes such a file. */
+  command: z.string().optional(),
+});
+export type Provenance = z.infer<typeof provenanceSchema>;
+
+export const generatedRoutes = {
+  /** Licences, release dates, and advisories of npm package versions, from
+   * deps.dev. The browser asks only after the reader turns lookups on. */
+  dependencies: {
+    method: "POST",
+    path: "/api/dependencies",
+    input: z.object({
+      packages: z.array(z.object({ name: packageName, version: packageVersion })).max(100),
+    }),
+    output: z.object({ packages: z.array(dependencyInfoSchema) }),
+  },
+  /** Which generated files the thread's agent sessions edited by hand, and
+   * which command wrote the others. */
+  provenance: {
+    method: "POST",
+    path: "/api/review/provenance",
+    input: z.object({
+      repo: z.string().min(1).max(4096),
+      sessions: z.array(editSessionSchema).max(8),
+      files: z
+        .array(
+          z.object({
+            path: z.string().min(1).max(4096),
+            kind: z.enum(generatedKinds),
+            source: z.string().max(4096).optional(),
+          }),
+        )
+        .max(2000),
+    }),
+    output: z.object({ files: z.record(z.string(), provenanceSchema) }),
+    maxBody: 1024 * 1024,
+  },
+} satisfies Record<string, RouteContract>;
+
+const PACKAGE_COMMANDS: Record<Ecosystem, RegExp> = {
+  npm: /\b(?:bun|npm|pnpm|yarn)\s+(?:install|i|add|remove|rm|uninstall|update|up|upgrade|ci|link)\b|^\s*yarn\s*$/,
+  cargo: /\bcargo\s+(?:build|update|add|remove|check|test|run|fetch|generate-lockfile)\b/,
+  go: /\bgo\s+(?:mod\s+(?:tidy|download)|get|build|test)\b/,
+  ruby: /\bbundle(?:\s+(?:install|update|add|lock))?\s*$|\bbundle\s+(?:install|update|add|lock)\b/,
+  python: /\b(?:uv|poetry|pdm|pipenv)\s+(?:lock|add|remove|sync|update|install)\b/,
+  swift: /\bswift\s+(?:package\s+(?:resolve|update)|build)\b/,
+  other:
+    /\b(?:bun|npm|pnpm|yarn|cargo|go|bundle|uv|poetry|pdm|pipenv|swift)\s+(?:install|add|remove|update|lock|sync|mod|get|build)\b/,
+};
+const TEST_RUNNER = /\b(?:test|vitest|jest|playwright)\b/;
+const UPDATE_SNAPSHOTS = /\s(?:-u|--update(?:-snapshots|Snapshot)?)(?=\s|$)/;
+const BUILD = /\b(?:build|vite|tsc|webpack|rollup|esbuild|tsup)\b/;
+const GENERATE = /\b(?:generat\w*|codegen|protoc)\b/;
+
+/**
+ * The part of a shell command that writes a generated file of this kind, or
+ * null: a package manager for a lockfile, a test runner that updates
+ * snapshots, a build tool for output, or a command that names the header's
+ * generator. A command such as `cd app && bun install | tail` gives `bun install`.
+ */
+export function commandWrites(
+  file: { path: string; kind: GeneratedKind; source?: string },
+  command: string,
+): string | null {
+  const generator = file.source ? nameOf(file.source).replace(/\.[^.]+$/, "") : undefined;
+  const writes = (part: string) => {
+    if (generator) return part.includes(generator);
+    switch (file.kind) {
+      case "lockfile":
+        return PACKAGE_COMMANDS[lockfileEcosystem(file.path)].test(part);
+      case "snapshot":
+        return TEST_RUNNER.test(part) && UPDATE_SNAPSHOTS.test(part);
+      case "output":
+      case "minified":
+        return BUILD.test(part);
+      default:
+        return GENERATE.test(part);
+    }
+  };
+  for (const part of command.split(/&&|\|\||[;|\n]/)) {
+    // Without its redirections, such as 2>&1.
+    const trimmed = part.replace(/\s+(?:\d?>>?|&>)\s*(?:&\d|\S+)/g, "").trim();
+    if (trimmed && writes(trimmed))
+      return trimmed.length > 80 ? `${trimmed.slice(0, 79)}…` : trimmed;
   }
   return null;
 }

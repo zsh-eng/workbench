@@ -1,6 +1,7 @@
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execProgram } from "../shared/agent-session-codex";
+import { commandWrites, type GeneratedKind, type Provenance } from "../shared/generated";
 import type { EditSession } from "../shared/protocol";
 import { findTranscript } from "./agent-transcripts";
 import { userHome } from "./service/discover";
@@ -15,12 +16,17 @@ import { userHome } from "./service/discover";
 // - Codex: the files of `apply_patch` calls, also in a shell command or an
 //   exec program, relative to the turn's directory.
 //
-// A shell command that changes a file (sed -i, mv) is not an edit here.
+// A shell command that changes a file (sed -i, mv) is not an edit here. The
+// shell commands are kept apart, for the generated files that they write
+// (docs/GENERATED.md): Claude Code's Bash calls, and Codex's shell and exec
+// commands.
 
 /** The tools whose calls edit a file in Claude Code. */
 const CLAUDE_EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 /** At most this many files are kept for a session; the oldest edits go first. */
 const MAX_FILES = 5000;
+/** At most this many shell commands are kept for a session; the oldest go first. */
+const MAX_COMMANDS = 500;
 const CHUNK = 4 * 1024 * 1024;
 
 type Json = Record<string, unknown>;
@@ -44,7 +50,60 @@ interface Read {
   cwd?: string;
   /** Absolute paths, in the order of their last edit. */
   files: Map<string, number>;
+  /** Shell commands, in order. */
+  commands: string[];
   order: number;
+}
+
+/** A shell command of a Codex call: the script of `bash -lc <script>`, or its words. */
+function codexCommand(command: unknown): string | undefined {
+  if (typeof command === "string") return command || undefined;
+  if (!Array.isArray(command) || !command.every((part) => typeof part === "string")) return;
+  const words = command as string[];
+  if (words.length === 3 && /(?:^|\/)(?:ba|z)?sh$/.test(words[0]!) && /^-l?c$/.test(words[1]!))
+    return words[2];
+  return words.join(" ") || undefined;
+}
+
+/** The shell commands that one transcript line runs. */
+function lineCommands(agent: EditSession["agent"], line: string): string[] {
+  if (
+    agent === "claude"
+      ? !line.includes('"Bash"')
+      : !line.includes('"function_call"') && !line.includes('"local_shell_call"')
+  )
+    return [];
+  let entry: Json | undefined;
+  try {
+    entry = record(JSON.parse(line));
+  } catch {
+    return [];
+  }
+  if (agent === "claude") {
+    const content = record(entry?.message)?.content;
+    if (!Array.isArray(content)) return [];
+    return content.flatMap((part) => {
+      const block = record(part);
+      const command =
+        block?.type === "tool_use" && block.name === "Bash" && record(block.input)?.command;
+      return typeof command === "string" && command ? [command] : [];
+    });
+  }
+  const payload = record(entry?.payload);
+  if (entry?.type !== "response_item" || !payload) return [];
+  if (payload.type === "local_shell_call") {
+    const command = codexCommand(record(payload.action)?.command);
+    return command ? [command] : [];
+  }
+  if (payload.type !== "function_call" || payload.name === "apply_patch") return [];
+  let args: Json | undefined;
+  try {
+    args = record(JSON.parse(String(payload.arguments)));
+  } catch {
+    return [];
+  }
+  const command = codexCommand(args?.command) ?? codexCommand(args?.cmd);
+  return command && !command.includes("*** Begin Patch") ? [command] : [];
 }
 
 /** The edited files that one transcript line names, as absolute paths. */
@@ -140,12 +199,17 @@ async function readMore(agent: EditSession["agent"], path: string, state: Read) 
       const end = bytes.lastIndexOf(10);
       state.rest = Buffer.from(end < 0 ? bytes : bytes.subarray(end + 1));
       if (end < 0) continue;
-      for (const line of bytes.toString("utf8", 0, end).split("\n"))
+      for (const line of bytes.toString("utf8", 0, end).split("\n")) {
         for (const file of lineFiles(agent, line, state)) {
           state.files.delete(file);
           state.files.set(file, state.order++);
           if (state.files.size > MAX_FILES) state.files.delete(state.files.keys().next().value!);
         }
+        for (const command of lineCommands(agent, line)) {
+          state.commands.push(command);
+          if (state.commands.length > MAX_COMMANDS) state.commands.shift();
+        }
+      }
     }
   } finally {
     await handle.close();
@@ -155,7 +219,7 @@ async function readMore(agent: EditSession["agent"], path: string, state: Read) 
 export function createSessionEdits(options: { home?: () => string } = {}) {
   const home = options.home ?? userHome;
   const reads = new Map<string, Read>();
-  const paths = new Map<string, string>();
+  const transcripts = new Map<string, string>();
   /** Real paths of the folders of edited files outside the checkout's path. */
   const folders = new Map<string, string>();
   /** Reads of one session that run; a second caller waits for the first. */
@@ -163,17 +227,17 @@ export function createSessionEdits(options: { home?: () => string } = {}) {
 
   const transcript = async (session: EditSession) => {
     const key = `${session.agent}:${session.id}`;
-    const known = paths.get(key);
+    const known = transcripts.get(key);
     if (known && (await stat(known).then(Boolean, () => false))) return known;
     const path = await findTranscript(session, home());
-    if (path) paths.set(key, path);
+    if (path) transcripts.set(key, path);
     return path;
   };
 
   const readFile = async (agent: EditSession["agent"], path: string) => {
     let state = reads.get(path);
     if (!state) {
-      state = { offset: 0, rest: Buffer.alloc(0), files: new Map(), order: 0 };
+      state = { offset: 0, rest: Buffer.alloc(0), files: new Map(), commands: [], order: 0 };
       if (reads.size > 256) reads.clear();
       reads.set(path, state);
     }
@@ -181,8 +245,8 @@ export function createSessionEdits(options: { home?: () => string } = {}) {
     return state;
   };
 
-  /** Absolute paths, the last edit last; none for an unknown session. */
-  const files = async (session: EditSession): Promise<string[]> => {
+  /** The transcripts of a session: its own, and its Claude Code subagents'. */
+  const states = async (session: EditSession): Promise<Read[]> => {
     const path = await transcript(session);
     if (!path) return [];
     const states = [await readFile(session.agent, path)];
@@ -193,8 +257,13 @@ export function createSessionEdits(options: { home?: () => string } = {}) {
       for (const name of names.filter((entry) => entry.endsWith(".jsonl")))
         states.push(await readFile("claude", join(folder, name)));
     }
+    return states;
+  };
+
+  /** Absolute paths, the last edit last; none for an unknown session. */
+  const files = async (session: EditSession): Promise<string[]> => {
     const all = new Map<string, number>();
-    for (const state of states)
+    for (const state of await states(session))
       for (const [file, order] of state.files) all.set(file, Math.max(all.get(file) ?? 0, order));
     return [...all].sort((a, b) => a[1] - b[1]).map(([file]) => file);
   };
@@ -213,33 +282,64 @@ export function createSessionEdits(options: { home?: () => string } = {}) {
     return rel && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel) ? rel : undefined;
   };
 
+  /**
+   * The session's edited files inside `checkout`, relative to it, the last
+   * edit last. `real` is the checkout's real path, when a symbolic link
+   * leads to it.
+   */
+  const paths = async (session: EditSession, checkout: string) => {
+    const roots = [checkout, await realpath(checkout).catch(() => checkout)];
+    const found = new Set<string>();
+    for (const file of await shared(session)) {
+      let rel = roots.map((root) => inside(file, root)).find(Boolean);
+      // A path under a symbolic link, such as /tmp, has another real path.
+      if (!rel) {
+        const folder = dirname(file);
+        let known = folders.get(folder);
+        if (known === undefined) {
+          known = await realpath(folder).catch(() => "");
+          if (folders.size > 1024) folders.clear();
+          folders.set(folder, known);
+        }
+        if (known)
+          rel = roots.map((root) => inside(join(known!, basename(file)), root)).find(Boolean);
+      }
+      if (rel) found.add(rel.split(sep).join("/"));
+    }
+    return [...found];
+  };
+
   return {
     files: shared,
+    paths,
     /**
-     * The session's edited files inside `checkout`, relative to it, the last
-     * edit last. `real` is the checkout's real path, when a symbolic link
-     * leads to it.
+     * For each generated file of `checkout`: whether one of the sessions
+     * edited it with an edit tool (a hand edit), and the last of their shell
+     * commands that writes such a file. A file with neither is left out.
      */
-    async paths(session: EditSession, checkout: string) {
-      const roots = [checkout, await realpath(checkout).catch(() => checkout)];
-      const found = new Set<string>();
-      for (const file of await shared(session)) {
-        let rel = roots.map((root) => inside(file, root)).find(Boolean);
-        // A path under a symbolic link, such as /tmp, has another real path.
-        if (!rel) {
-          const folder = dirname(file);
-          let known = folders.get(folder);
-          if (known === undefined) {
-            known = await realpath(folder).catch(() => "");
-            if (folders.size > 1024) folders.clear();
-            folders.set(folder, known);
-          }
-          if (known)
-            rel = roots.map((root) => inside(join(known!, basename(file)), root)).find(Boolean);
-        }
-        if (rel) found.add(rel.split(sep).join("/"));
+    async provenance(
+      sessions: readonly EditSession[],
+      checkout: string,
+      files: readonly { path: string; kind: GeneratedKind; source?: string }[],
+    ) {
+      const edited = new Set<string>();
+      const commands: string[] = [];
+      for (const session of sessions) {
+        for (const path of await paths(session, checkout)) edited.add(path);
+        for (const state of await states(session)) commands.push(...state.commands);
       }
-      return [...found];
+      const result: Record<string, Provenance> = {};
+      for (const file of files) {
+        let command: string | null = null;
+        for (let index = commands.length - 1; index >= 0 && !command; index--)
+          command = commandWrites(file, commands[index]!);
+        if (edited.has(file.path) || command)
+          result[file.path] = {
+            ...(edited.has(file.path) && { edited: true }),
+            ...(command && { command }),
+          };
+      }
+      return result;
     },
   };
 }
