@@ -172,16 +172,24 @@ export async function liveStream(token: string, url: string, signal: AbortSignal
       headers: headers(token, { "Content-Type": "application/json" }),
       body: JSON.stringify(input),
     });
+  // A reply's body that nobody reads keeps its request in the browser's
+  // memory until the page closes, so a close's reply is cancelled.
+  const discard = (reply: Response | undefined) => void reply?.body?.cancel().catch(() => {});
   // The open request has no signal, and a close waits for it, so the host never
   // keeps a channel that the reader left during the request.
   const opening = post({ open: [{ key, path: url }] }).catch(() => undefined);
   const release = () => {
     if (!live.channels.delete(key)) return;
     close(controller);
-    if (!live.closed) void opening.then(() => post({ close: [key] })).catch(() => {});
+    if (!live.closed)
+      void opening
+        .then(() => post({ close: [key] }))
+        .then(discard)
+        .catch(() => {});
   };
   signal.addEventListener("abort", release, { once: true });
   const reply = await opening;
+  if (reply && !reply.ok) discard(reply);
   const result = reply?.ok
     ? ((await reply.json()) as { channels: { key: string; status: number; body?: unknown }[] })
         .channels[0]
