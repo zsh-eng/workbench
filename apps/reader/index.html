@@ -24,7 +24,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <!-- launch-screens:start -->
-    <!-- Written by scripts/launch-screens.ts --html; the head script below keeps the ones for this appearance. -->
+    <!-- Written by scripts/launch-screens.ts --html; src/lib/launch-screens.ts keeps the ones for this appearance. -->
     <link
       rel="apple-touch-startup-image"
       data-scheme="light"
@@ -544,24 +544,6 @@
             }
           }
           document.documentElement.classList.add(theme);
-          // Launch screens follow the system's scheme. With Light or Dark
-          // chosen here, keep only that one, so the screen iOS keeps when
-          // Reader is added to the Home Screen matches the first paint.
-          if (appearance !== "system") {
-            const scheme = ["dark", "night", "flexoki-dark"].includes(theme)
-              ? "dark"
-              : "light";
-            document
-              .querySelectorAll('link[rel="apple-touch-startup-image"]')
-              .forEach((link) => {
-                if (link.dataset.scheme !== scheme) link.remove();
-                else
-                  link.media = link.media.replace(
-                    / and \(prefers-color-scheme: \w+\)/,
-                    "",
-                  );
-              });
-          }
           if (theme === "night") {
             document
               .querySelector('meta[name="theme-color"]')

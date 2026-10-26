@@ -228,7 +228,7 @@ export function launchScreens(colours = pageColours()): LaunchScreen[] {
 export function launchLinks(screens = launchScreens()): string {
   return [
     START,
-    "    <!-- Written by scripts/launch-screens.ts --html; the head script below keeps the ones for this appearance. -->",
+    "    <!-- Written by scripts/launch-screens.ts --html; src/lib/launch-screens.ts keeps the ones for this appearance. -->",
     ...screens.map((screen) =>
       [
         "    <link",

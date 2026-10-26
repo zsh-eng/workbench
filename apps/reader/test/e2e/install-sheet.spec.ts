@@ -141,35 +141,49 @@ test("Chromium installs through its own prompt", async ({ page }) => {
 test("launch screens follow the appearance chosen in Reader", async ({
   page,
 }) => {
+  // The schemes of the launch screens iOS can pick when Add to Home Screen
+  // is tapped, and whether they still ask for the system's scheme.
   const launchScreens = () =>
-    page.evaluate(() =>
-      [
+    page.evaluate(() => {
+      const links = [
         ...document.querySelectorAll<HTMLLinkElement>(
           'link[rel="apple-touch-startup-image"]',
         ),
-      ].map((link) => ({ scheme: link.dataset.scheme, media: link.media })),
-    );
-  // Light by default, whatever the system says: only light screens, and
-  // they no longer ask for a colour scheme.
+      ].filter((link) => link.media !== "not all");
+      return {
+        schemes: [...new Set(links.map((link) => link.dataset.scheme))],
+        count: links.length,
+        followSystem: links.every((link) =>
+          link.media.includes("prefers-color-scheme"),
+        ),
+      };
+    });
+  // Light by default, whatever the system says.
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
-  let screens = await launchScreens();
-  expect(screens.length).toBeGreaterThan(0);
-  expect(screens.every(({ scheme }) => scheme === "light")).toBe(true);
-  expect(
-    screens.some(({ media }) => media.includes("prefers-color-scheme")),
-  ).toBe(false);
+  await expect.poll(launchScreens).toMatchObject({
+    schemes: ["light"],
+    followSystem: false,
+  });
+  const { count } = await launchScreens();
+
+  // Choosing Dark changes them at once: iOS reads them when Add to Home
+  // Screen is tapped, not when the page loads.
+  let menu = await openAccountMenu(page);
+  await menu.getByRole("menuitemradio", { name: "Dark" }).click();
+  await expect.poll(launchScreens).toEqual({
+    schemes: ["dark"],
+    count,
+    followSystem: false,
+  });
 
   // Match system keeps both, each for its scheme.
-  await page.evaluate(() =>
-    localStorage.setItem("epub-reader-appearance", "system"),
-  );
-  await page.reload();
-  screens = await launchScreens();
-  expect(screens.filter(({ scheme }) => scheme === "dark")).toHaveLength(
-    screens.length / 2,
-  );
-  expect(
-    screens.every(({ media }) => media.includes("prefers-color-scheme")),
-  ).toBe(true);
+  await page.keyboard.press("Escape");
+  menu = await openAccountMenu(page);
+  await menu.getByRole("menuitemradio", { name: "Match system" }).click();
+  await expect.poll(launchScreens).toEqual({
+    schemes: ["light", "dark"],
+    count: count * 2,
+    followSystem: true,
+  });
 });

@@ -1,4 +1,5 @@
 import { getRuntimeStorage } from "@/features/sync-lab/runtime";
+import { matchLaunchScreens } from "@/lib/launch-screens";
 import { toReadingFontId } from "@/lib/reading-fonts";
 import {
   READER_FONT_SIZE_DEFAULT_PX,
@@ -228,6 +229,14 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
       reportStorageError();
     }
   }, [appearanceMode, reportStorageError]);
+
+  const launchScheme =
+    appearanceMode === "system"
+      ? "system"
+      : isDarkReaderTheme(settings.theme)
+        ? "dark"
+        : "light";
+  useEffect(() => matchLaunchScreens(launchScheme), [launchScheme]);
 
   useEffect(() => {
     if (appearanceMode !== "system") return;
