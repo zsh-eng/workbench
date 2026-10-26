@@ -706,6 +706,9 @@ export function createActivityManager<K extends JobKinds>(
     const progress = { ...EMPTY_PROGRESS, ...view.progress };
     const same = entry.job.kind === view.kind && entry.job.state === view.state;
     set(entry, {
+      // The work began when its owner started to report it, so a restore
+      // that ends within half a second never shows.
+      createdAt: entry.job.kind === "" ? now : entry.job.createdAt,
       kind: view.kind,
       title: view.title,
       state: view.state,

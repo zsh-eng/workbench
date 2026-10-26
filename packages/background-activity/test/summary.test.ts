@@ -121,6 +121,46 @@ describe("sync, as a tracked job", () => {
     return syncAsJob({ subscribe: () => () => {}, getSnapshot: () => value });
   }
 
+  test("a restore shows half a second after it begins, however long the page has been open", async () => {
+    const { clock, manager, summary } = setup();
+    let status: SyncStatusLike = {
+      connection: "online",
+      auth: { status: "signed-in" },
+      running: false,
+      restoring: false,
+      pending: 0,
+      failure: null,
+      failures: 0,
+      retryAt: null,
+    };
+    const listeners = new Set<() => void>();
+    manager.track(
+      "sync",
+      syncAsJob({
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        getSnapshot: () => status,
+      }),
+    );
+    const restore = (restoring: boolean) => {
+      status = { ...status, running: restoring, restoring };
+      listeners.forEach((listener) => listener());
+    };
+    await clock.advance(5_000);
+    restore(true);
+    await clock.advance(300);
+    expect(summary().shown).toHaveLength(0);
+    restore(false);
+    await clock.advance(5_000);
+    restore(true);
+    await clock.advance(500);
+    expect(summary().shown.map((job) => job.title)).toEqual([
+      "Restoring your library",
+    ]);
+  });
+
   test("a sync pass is silent, and so is a healthy idle sync", () => {
     expect(syncSource({ running: true }).read()).toMatchObject({
       state: "running",
