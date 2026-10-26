@@ -44,8 +44,18 @@ vi.mock("@/lib/app-update", () => ({
   appUpdateStore: { subscribe: () => () => {}, getSnapshot: () => null },
   getAppUpdate: () => null,
 }));
-vi.mock("@/features/background-activity/JobCover", () => ({
+vi.mock("@/features/background-activity/JobLook", () => ({
   JobCover: () => null,
+  JobTitle: () => null,
+  JobLine: () => null,
+}));
+vi.mock("@/lib/book-arrivals", () => ({
+  appArrivals: {
+    subscribe: () => () => {},
+    getSnapshot: () => [],
+    dismiss: () => {},
+  },
+  BOOK_IMPORT_KIND: "book-import",
 }));
 
 const { useOnDeviceFilter } =

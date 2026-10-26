@@ -16,24 +16,38 @@ type GlyphKind = "attention" | "progress" | "update" | "waiting" | "done";
 
 /**
  * Jobs the glyph speaks for. Sync has the account menu, and an update that
- * waits for you has its chip, so neither shows twice.
+ * waits for you has its chip, so neither shows twice. A file that could not
+ * be added says so on its own place in the Library, where you just added
+ * it, with Try again: the glyph does not raise it a second time. The sheet
+ * still lists it.
  */
 function forGlyph(job: Job, updateChipShown: boolean): boolean {
   if (job.kind === "sync") return false;
   if (job.kind === "app-update") return !updateChipShown;
+  if (job.kind === "book-import" && job.state === "failed") return false;
   return true;
 }
 
+const books = (count: number) => `${count} ${count === 1 ? "book" : "books"}`;
+
 function glyphLabel(kind: GlyphKind, jobs: readonly Job[]): string {
-  const books = jobs.filter((job) => job.kind === "book-download");
-  const count = books.length || jobs.length;
-  const noun = books.length ? (count === 1 ? "book" : "books") : "items";
   if (kind === "attention") return "Activity: something needs you";
-  if (kind === "waiting")
-    return `Activity: ${count} ${noun} waiting for a connection`;
   if (kind === "done") return "Activity: done";
   if (kind === "update") return "Activity: an update is ready";
-  return `Activity: ${count} ${noun} downloading`;
+  const active = jobs.filter(
+    (job) => job.state !== "done" && job.state !== "failed",
+  );
+  const downloads = active.filter((job) => job.kind === "book-download");
+  const imports = active.filter((job) => job.kind === "book-import");
+  const others = active.length - downloads.length - imports.length;
+  if (kind === "waiting")
+    return `Activity: ${downloads.length ? books(downloads.length) : `${active.length} items`} waiting for a connection`;
+  const parts = [
+    downloads.length > 0 && `downloading ${books(downloads.length)}`,
+    imports.length > 0 && `adding ${books(imports.length)}`,
+    others > 0 && `${others} ${others === 1 ? "item" : "items"} in progress`,
+  ].filter(Boolean);
+  return `Activity: ${parts.join(", ") || "in progress"}`;
 }
 
 /**

@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
+import {
+  stageStart,
+  type ArrivalStage,
+} from "@/features/arrivals/arrival-progress";
 import { useActivityEnvironment, useUpdateState } from "./ActivityContext";
 import { DrawnCheck, ProgressRing } from "./marks";
 import {
@@ -42,6 +46,12 @@ export function bookIdOf(job: Job): string | null {
   const input = job.input as { bookId?: unknown } | null | undefined;
   return typeof input?.bookId === "string" ? input.bookId : null;
 }
+
+/** An import runs to its end once started: it has no Cancel. */
+const isImport = (job: Job) => job.kind === "book-import";
+
+/** A book's job: a download, or a file becoming a book. */
+const isBook = (job: Job) => bookIdOf(job) !== null || isImport(job);
 
 /**
  * The rows while this sheet is open (sheet-rows.ts). The sheet mounts its
@@ -95,12 +105,11 @@ function StopRing({ job, onCancel }: { job: Job; onCancel: () => void }) {
  */
 function Leading({ job }: { job: Job }) {
   const { renderCover } = useActivityEnvironment();
-  const bookId = bookIdOf(job);
-  if (bookId)
+  if (isBook(job))
     return (
       <span
-        className="block h-9 w-6 shrink-0 overflow-hidden rounded-[2px] shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_1px_2px_rgb(0_0_0/0.12)]"
-        data-sheet-cover={bookId}
+        className="block h-9 w-6 shrink-0 overflow-hidden rounded-[2px] bg-secondary shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_1px_2px_rgb(0_0_0/0.12)]"
+        data-sheet-cover={bookIdOf(job) ?? job.id}
       >
         {renderCover?.(job) ?? (
           <span className="block size-full bg-secondary" />
@@ -189,6 +198,14 @@ function Trailing({
         </button>
       </>
     );
+  if (isImport(job))
+    return (
+      <ProgressRing
+        fraction={stageStart((job.progress.phase ?? "queued") as ArrivalStage)}
+        size={18}
+        className={job.state === "queued" ? "opacity-45" : undefined}
+      />
+    );
   return (
     <StopRing
       job={job}
@@ -200,7 +217,7 @@ function Trailing({
   );
 }
 
-function subtitle({ job, gone }: SheetRow, now: number): string {
+function line({ job, gone }: SheetRow, now: number): string {
   if (bookIdOf(job)) {
     if (job.state === "done") return "On this device";
     // Started, before its first bytes: the request is out.
@@ -220,8 +237,10 @@ function Row({
   now: number;
   onRemove: (id: string) => void;
 }) {
+  const { renderTitle, renderLine } = useActivityEnvironment();
   const { job } = row;
   const warn = !row.gone && (job.state === "failed" || job.attention);
+  const words = line(row, now);
   return (
     <div
       className="flex items-center gap-3"
@@ -232,7 +251,7 @@ function Row({
       <Leading job={job} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] text-foreground">
-          {job.title}
+          {renderTitle?.(job) ?? job.title}
         </span>
         <span
           className={cn(
@@ -240,7 +259,7 @@ function Row({
             warn && "text-[oklch(0.55_0.14_55)]",
           )}
         >
-          {subtitle(row, now)}
+          {renderLine?.(job, words) ?? words}
         </span>
       </span>
       {/* One width for every state, so the words never reflow. */}

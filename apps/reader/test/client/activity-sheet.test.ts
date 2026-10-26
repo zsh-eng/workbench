@@ -15,8 +15,18 @@ vi.mock("@/lib/app-update", () => ({
   },
   getAppUpdate: () => null,
 }));
-vi.mock("@/features/background-activity/JobCover", () => ({
+vi.mock("@/features/background-activity/JobLook", () => ({
   JobCover: () => null,
+  JobTitle: () => null,
+  JobLine: () => null,
+}));
+vi.mock("@/lib/book-arrivals", () => ({
+  appArrivals: {
+    subscribe: () => () => {},
+    getSnapshot: () => [],
+    dismiss: () => {},
+  },
+  BOOK_IMPORT_KIND: "book-import",
 }));
 
 const { ActivityEnvironmentProvider } =
@@ -204,6 +214,38 @@ describe("the activity sheet", () => {
     const again = openSheet(source);
     expect(lines(again.container)).toEqual(["# This app", "sync running"]);
   });
+});
+
+it("shows an import's step without a Cancel, and lets it finish in place", () => {
+  const importing = job("alice", "running", {
+    id: "import:1:0",
+    kind: "book-import",
+    input: { key: "import:1:0" },
+    title: "alice",
+    progress: {
+      done: 0,
+      total: null,
+      bytes: 0,
+      totalBytes: null,
+      phase: "reading",
+    },
+  });
+  const emma = job("emma", "running");
+  const source = queue([importing, emma]);
+  const sheet = openSheet(source);
+  expect(lines(sheet.container)).toEqual([
+    "# Now",
+    "import:1:0 running",
+    "emma running",
+  ]);
+  expect(sheet.queryByRole("button", { name: "Cancel alice" })).toBeNull();
+  expect(sheet.getByRole("button", { name: "Cancel emma" })).toBeTruthy();
+  source.publish([{ ...importing, state: "done" }, emma]);
+  expect(lines(sheet.container)).toEqual([
+    "# Now",
+    "import:1:0 done",
+    "emma running",
+  ]);
 });
 
 describe("arrangeWhileOpen", () => {
