@@ -8,6 +8,8 @@ import {
   nextSyncHlcBatch,
   encodeSyncKey,
   encodeSyncValue,
+  MAX_SYNC_VALUE_BYTES,
+  SyncValueTooLargeError,
   type SyncRecord,
   type SyncRemote,
   type SyncPushChange,
@@ -91,6 +93,21 @@ describe("independent Dexie consumer", () => {
       isDeleted: true,
     });
     expect((await raw._sync_outbox.toArray())[0]?.isDeleted).toBe(true);
+  });
+
+  it("fails a write that one record cannot hold with a typed error, storing nothing", async () => {
+    const { db, raw } = setup("a");
+    const write = db.tasks.put({
+      id: "one",
+      title: "x".repeat(MAX_SYNC_VALUE_BYTES),
+    });
+    await expect(write).rejects.toBeInstanceOf(SyncValueTooLargeError);
+    await expect(write).rejects.toMatchObject({
+      key: encodeSyncKey("tasks", "one"),
+      limit: MAX_SYNC_VALUE_BYTES,
+    });
+    expect(await raw.tasks.count()).toBe(0);
+    expect(await raw._sync_outbox.count()).toBe(0);
   });
 
   it("applies a newer remote deletion and preserves a newer local edit", async () => {

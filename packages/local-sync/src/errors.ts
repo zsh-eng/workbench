@@ -37,3 +37,21 @@ export class SyncRecordError extends Error {
     this.name = "SyncRecordError";
   }
 }
+
+/**
+ * A value larger than one synced record can hold. Encoders, the Dexie
+ * middleware and push batching throw it before any request, so an app can
+ * say what is too large instead of showing a schema failure.
+ */
+export class SyncValueTooLargeError extends SyncRecordError {
+  constructor(
+    public readonly bytes: number,
+    public readonly limit: number,
+    public readonly key?: string,
+  ) {
+    super(
+      `Cannot synchronize ${key ? `record ${key}` : "a record"}: it is ${bytes} bytes, more than the ${limit} that one record can hold`,
+    );
+    this.name = "SyncValueTooLargeError";
+  }
+}

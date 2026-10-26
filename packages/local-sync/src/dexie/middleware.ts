@@ -4,9 +4,8 @@
  */
 
 import {
+  checkSyncValueSize,
   encodeSyncKey,
-  encodeSyncValue,
-  syncValueSchema,
   type SyncHlc,
   type SyncPushChange,
 } from "../protocol.js";
@@ -167,10 +166,14 @@ function createOutboxChanges(
       throw new Error(`Synced table "${tableName}" requires a string key`);
     }
 
+    // A value one record cannot hold fails the write, so nothing is stored
+    // that could never sync. The error is typed, with the record's key.
+    const key = encodeSyncKey(tableName, primaryKey);
     return {
-      key: encodeSyncKey(tableName, primaryKey),
-      value: syncValueSchema.parse(
-        (definition.encode ?? encodeSyncValue)(value),
+      key,
+      value: checkSyncValueSize(
+        definition.encode ? definition.encode(value) : JSON.stringify(value),
+        key,
       ),
       schemaVersion: definition.schemaVersion,
       hlc: timestamps[index]!,

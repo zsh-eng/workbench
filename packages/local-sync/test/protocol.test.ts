@@ -1,6 +1,9 @@
 import {
   MAX_SYNC_KEY_BYTES,
   MAX_SYNC_PUSH_BODY_BYTES,
+  MAX_SYNC_VALUE_BYTES,
+  SyncRecordError,
+  SyncValueTooLargeError,
   compareSyncVersions,
   decodeSyncKey,
   decodeSyncValue,
@@ -34,6 +37,9 @@ describe("sync v2 protocol", () => {
     expect(() => encodeSyncValue(undefined)).toThrow(
       "sync value must be JSON serializable",
     );
+    expect(() =>
+      encodeSyncValue({ text: "x".repeat(MAX_SYNC_VALUE_BYTES) }),
+    ).toThrow(SyncValueTooLargeError);
   });
 
   it("retains soft-deleted values without parsing opaque server data", () => {
@@ -178,6 +184,6 @@ describe("sync v2 protocol", () => {
   it("rejects logical keys over the byte limit", () => {
     expect(() =>
       encodeSyncKey("books", "x".repeat(MAX_SYNC_KEY_BYTES)),
-    ).toThrow(`key must not exceed ${MAX_SYNC_KEY_BYTES} UTF-8 bytes`);
+    ).toThrow(SyncRecordError);
   });
 });
