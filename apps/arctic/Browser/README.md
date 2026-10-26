@@ -38,7 +38,8 @@ This writes only to the local API. Checks:
   `E2E_RELEASE_PORT` the releases test's own server, so two worktrees can run
   the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
-  `scripts/copies.ts` uses.
+  `scripts/copies.ts` uses, and `scripts/text.ts`, which reads a page for
+  `wb arctic`.
 
 Deploy only with the owner's approval: `bun run deploy:arctic-browser`. It
 publishes `dist/` as the static Worker `arctic-web` (see `wrangler.jsonc`).
@@ -133,7 +134,8 @@ stays, whether its article is saved or not. `tests/releases.spec.ts` and
 library) writes the phone's three records for a new article
 (`ArticleSyncCodec.values`): `article/<id>` with the title and an empty
 description, `library/<id>` saved now, and `tags/<id>` with empty lists and the
-phone's generation for the id (`src/links.ts`). The URL is the phone's
+phone's generation for the id (`src/links.ts`, with the codec in
+`packages/arctic-links`). The URL is the phone's
 canonical URL: http or https, a lowercase host, no default port and no
 fragment, with the query kept. The browser's URL parser normalizes first; then
 every character that Swift's parser would escape (`|`, `^`, `[`, a lone `%`, and
@@ -147,6 +149,15 @@ has no image and no preview, so Arctic on iPhone fetches its title, image and
 topics when it next opens (`ArticleStore.needsPreview`). A link already in
 Saved is pointed out; one from History is saved again. Undo removes a new link
 with tombstones.
+
+**From the terminal**, `bun run wb arctic save <url…>` (Workbench Backup,
+`apps/sync-backup`) writes the same records from the same package, and then
+fetches each link's text (see Article text). Its title is the page's own, or
+empty when it does not read the page, for the phone to fill in. The shared API
+checks every record that its credential writes (`apps/sync-server`,
+`src/cli-links.ts`). `tests/cli.spec.ts` saves the same links here and with
+`wb`, and compares what the phone receives: the same bytes, but for the title
+and the saved time.
 
 ## Article text
 
@@ -187,10 +198,17 @@ holds personal article text: keep it private, and delete it after the import.
 
 `scripts/upload.ts <folder>` imports such a folder without a browser. It uses
 the Workbench Backup credential (`wb auth login`), which may upload Arctic
-article text and nothing else, and it follows the rules of the Article text
-page: files match articles the same way, and the minimum length, size limit
-and 30% rule apply. `--dry-run` reports what it would upload. Run it again
-safely: copies that are already there are kept.
+article text and save links, and it follows the rules of the Article text
+page (`copyProblem` in `src/copy.ts`): files match articles the same way, and
+the minimum length, size limit and 30% rule apply. `--dry-run` reports what it
+would upload. Run it again safely: copies that are already there are kept.
+
+`bun run wb arctic save` and `bun run wb arctic text` read one page at a time
+with `scripts/text.ts`: the same extractor, the same cleaning as upload.ts,
+and the same rules. They report why a page gave no text: a PDF, an HTTP
+error, or a paywall preview, which is under 400 words on a site from the Unwall
+list or on a page marked `isAccessibleForFree: false`. With `--unwall`, they
+read listed sites through Unwall, as `--unwall` above does.
 
 ## Design
 
