@@ -5,6 +5,7 @@ import { Settings } from "@/features/settings/Settings";
 import { DebugGate } from "@/features/settings/DebugGate";
 import "@/App.css";
 import { AppShell } from "@/components/AppShell";
+import { PageLoadBoundary } from "@/components/PageLoadBoundary";
 import { Highlights } from "@/features/highlights/Highlights";
 import { Library } from "@/features/library/Library";
 import { Reader } from "@/features/reader";
@@ -138,7 +139,10 @@ function FileUploadInitializer({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** A page that needs Debug mode, loaded on demand. */
+/**
+ * A page that needs Debug mode, loaded on demand. The service worker keeps
+ * its code after the first visit, so a first visit offline cannot open it.
+ */
 function DebugPage({
   children,
   loading,
@@ -149,15 +153,17 @@ function DebugPage({
 }) {
   return (
     <DebugGate>
-      <Suspense
-        fallback={
-          loading ? (
-            <div className="p-8 text-sm text-muted-foreground">{loading}</div>
-          ) : null
-        }
-      >
-        {children}
-      </Suspense>
+      <PageLoadBoundary>
+        <Suspense
+          fallback={
+            loading ? (
+              <div className="p-8 text-sm text-muted-foreground">{loading}</div>
+            ) : null
+          }
+        >
+          {children}
+        </Suspense>
+      </PageLoadBoundary>
     </DebugGate>
   );
 }
@@ -311,11 +317,9 @@ function App() {
                     <Route
                       path="/debug/ideas/background"
                       element={
-                        <DebugGate>
-                          <Suspense fallback={null}>
-                            <BackgroundActivityIdea />
-                          </Suspense>
-                        </DebugGate>
+                        <DebugPage>
+                          <BackgroundActivityIdea />
+                        </DebugPage>
                       }
                     />
                     <Route

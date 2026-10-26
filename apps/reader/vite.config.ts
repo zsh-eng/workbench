@@ -1,49 +1,28 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { mkdirSync, writeFileSync } from "fs";
 import path from "path";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { readerBackupApi } from "./scripts/local-data/backup-api";
 import { livingCoversDev } from "./scripts/living-covers/dev-plugin";
+import { readerPrecache } from "./scripts/pwa/precache";
 
-/**
- * The service worker's precache list with sizes, written beside it on build
- * as `sw-precache.json`. While a new version installs, the page counts these
- * entries in Cache Storage to show the update's progress.
- */
-function precacheList(): {
-  plugin: Plugin;
-  transform: (
-    entries: { url: string; revision: string | null; size: number }[],
-  ) => Promise<{ manifest: typeof entries }>;
-} {
-  let outDir: string | null = null;
-  return {
-    plugin: {
-      name: "reader-precache-list",
-      apply: "build",
-      configResolved(config) {
-        outDir = path.resolve(config.root, config.build.outDir);
-      },
-    },
-    async transform(entries) {
-      if (outDir) {
-        mkdirSync(outDir, { recursive: true });
-        writeFileSync(
-          path.join(outDir, "sw-precache.json"),
-          JSON.stringify(
-            entries.map(({ url, revision, size }) => ({ url, revision, size })),
-          ),
-        );
-      }
-      return { manifest: entries };
-    },
-  };
-}
-
-const precache = precacheList();
+const precache = readerPrecache({
+  // Debug pages and labs download on their first visit, then work offline.
+  // The Library loads living covers itself, so those stay precached.
+  onDemandPages: [
+    /\/src\/features\/(elements|experiments|notes-lab|sheet-lab|sync-lab)\//,
+    /\/src\/features\/reader\/(debug|diagnostics)[/.]/,
+    /\/src\/features\/settings\/DebugTools\.tsx$/,
+    /\/src\/features\/background-activity\/ideas\//,
+    /\/src\/features\/living-covers\/LivingCoversIdea\.tsx$/,
+  ],
+  // The Latin faces of the interface (DM Sans, Inter for figures, EB
+  // Garamond for titles) and of the default reading font, Lora. Other
+  // reading fonts and other scripts load when text first uses them.
+  precacheFonts: /^assets\/(dm-sans|inter|eb-garamond|lora)-latin-\d+-/,
+});
 
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => ({
@@ -75,24 +54,42 @@ export default defineConfig(({ command, mode }) => ({
         enabled: true,
       },
       workbox: {
-        // Built-in document and pagination-worker fonts must be available from
-        // CacheStorage on repeat launches, without an HTTP cache revalidation.
-        // Every browser that runs the service worker takes the woff2 source,
-        // so the woff fallbacks Fontsource also emits stay out.
+        // `precache` keeps the code and fonts every reader needs; the rest
+        // comes from the `reader-assets` cache after its first use. Either way
+        // a font comes from Cache Storage, never an HTTP revalidation. Every
+        // browser that runs the service worker takes the woff2 source, so the
+        // woff fallbacks Fontsource also emits stay out.
         globPatterns: ["**/*.{js,css,html,woff2}"],
         // A new version waits after it installs, keeping this version's files,
         // and takes over when the page posts SKIP_WAITING: at once by
         // default, at a safe moment with Debug -> Calm updates.
         skipWaiting: false,
         clientsClaim: true,
-        manifestTransforms: [precache.transform],
+        manifestTransforms: [precache.manifestTransform],
         navigateFallbackDenylist: [/^\/api\//],
         globIgnores: [
           "**/assets/encode-*.js",
           "**/assets/webp_enc*.js",
           "**/assets/webp_enc*.wasm",
+          // Install-time images: launch screens and store screenshots.
+          "launch/**",
+          "screenshots/**",
         ],
         runtimeCaching: [
+          {
+            // Built files outside the precache: on-demand pages, other fonts
+            // and the WebP encoder. Names carry a content hash, so a cached
+            // copy never goes stale.
+            urlPattern: ({ sameOrigin, url }) =>
+              sameOrigin &&
+              /^\/assets\/.+\.(js|css|woff2|wasm)$/.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "reader-assets",
+              expiration: { maxEntries: 400, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: "CacheFirst",

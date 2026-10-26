@@ -101,3 +101,55 @@ test("production debug mode defaults off and keeps an explicit override", async 
   await menu.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await expect(toggle).toBeChecked();
 });
+
+test("a fresh install opens the Library and a book offline, and keeps Debug pages after their first visit", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    localStorage.setItem("reader-debug-enabled-v1", "true");
+  });
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await importSampleBook(page);
+  // A Debug page downloads on its first visit, online.
+  await page.goto("/debug/sheet-lab");
+  await expect(page.getByRole("heading", { name: "Sheet Lab" })).toBeVisible();
+  await page.close();
+
+  // The book was never opened online: the precache alone opens it.
+  // setOffline does not reach the service worker's own requests, so the
+  // network fails them too.
+  await context.setOffline(true);
+  await context.route("**/*", (route) => route.abort("internetdisconnected"));
+  const fresh = await context.newPage();
+  await fresh.goto("/");
+  await fresh.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).click();
+  await waitForReaderReady(fresh);
+  await nextSpread(fresh);
+  // The default reading font, Lora, comes from the precache too.
+  expect(
+    await fresh.evaluate(() =>
+      [...document.fonts].some(
+        (face) =>
+          face.family.replaceAll('"', "") === "Lora" &&
+          face.status === "loaded",
+      ),
+    ),
+  ).toBe(true);
+
+  await fresh.goto("/debug/sheet-lab");
+  await expect(fresh.getByRole("heading", { name: "Sheet Lab" })).toBeVisible();
+  // A Debug page never visited cannot download offline, and says so.
+  await fresh.goto("/debug/notes-lab");
+  await expect(
+    fresh.getByRole("heading", { name: "This page couldn’t open" }),
+  ).toBeVisible();
+  await context.unroute("**/*");
+  await context.setOffline(false);
+  await fresh.getByRole("button", { name: "Reload" }).click();
+  await expect(fresh.getByRole("heading", { name: "Notes Lab" })).toBeVisible();
+});
