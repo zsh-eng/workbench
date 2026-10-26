@@ -12,6 +12,7 @@
     "test:e2e": "bun test/run-local-e2e.ts"
   },
   "dependencies": {
+    "@workbench/arctic-links": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*"
   },
   "devDependencies": {

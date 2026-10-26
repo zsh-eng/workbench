@@ -367,6 +367,42 @@ for (const phone of [false, true])
           }
         : { viewport: { width: 1280, height: 800 } },
     );
+    test("one button opens and closes the search, and nothing of it stays behind", async ({
+      page,
+      localBook,
+    }) => {
+      expect(localBook.id).toBeTruthy();
+      const toggle = page
+        .locator("header")
+        .getByRole("button", { name: /^(Search|Close search)$/ });
+      const press = () => (phone ? toggle.tap() : toggle.click());
+      await expect(toggle).toHaveAccessibleName("Search");
+      await toggle.evaluate((button) => {
+        (window as { searchToggle?: Element }).searchToggle = button;
+      });
+      const sameButton = () =>
+        toggle.evaluate(
+          (button) =>
+            button === (window as { searchToggle?: Element }).searchToggle,
+        );
+
+      await press();
+      await expect(
+        page.getByRole("searchbox", { name: "Search library" }),
+      ).toBeFocused();
+      // Counted at once, without waiting: a leaving control counts too.
+      expect(await toggle.count()).toBe(1);
+      await expect(toggle).toHaveAccessibleName("Close search");
+      expect(await sameButton()).toBe(true);
+
+      await press();
+      expect(await toggle.count()).toBe(1);
+      await expect(toggle).toHaveAccessibleName("Search");
+      expect(await sameButton()).toBe(true);
+      await expect(
+        page.getByRole("navigation", { name: "Places" }),
+      ).toBeVisible();
+    });
     test("returning from a book restores the Library scroll position", async ({
       page,
       localBook,

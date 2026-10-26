@@ -18,7 +18,7 @@ const post = (
     body: JSON.stringify(body),
   });
 const user = () => signedIn(call, origin);
-it("authorizes device once, isolates identity, allows only Arctic text writes, expires and revokes credentials", async () => {
+it("authorizes device once, isolates identity, allows only Arctic text and link writes, expires and revokes credentials", async () => {
   const cookie = await user();
   const grant = (await (await post("/api/cli/device")).json()) as any;
   expect(grant.access_token).toBeUndefined();
@@ -128,7 +128,8 @@ it("authorizes device once, isolates identity, allows only Arctic text writes, e
   expect((await call("/api/apps/reader/sessions", { headers })).status).toBe(
     403,
   );
-  // Arctic records are readable; it has no files, and the CLI never pushes.
+  // Arctic records are readable; it has no files, and the CLI pushes only
+  // new or restored links (test/cli-links.test.ts), never other records.
   const arctic = (await (
     await call("/api/apps/arctic/sync/v3/state", { headers })
   ).json()) as any;
@@ -146,8 +147,23 @@ it("authorizes device once, isolates identity, allows only Arctic text writes, e
     ).status,
   ).toBe(200);
   expect(
-    (await post("/api/apps/arctic/sync/v3/push", { changes: [] }, arcticScoped))
-      .status,
+    (
+      await post(
+        "/api/apps/arctic/sync/v3/push",
+        {
+          changes: [
+            {
+              key: "library/a",
+              value: "{}",
+              isDeleted: true,
+              schemaVersion: 1,
+              hlc: { wallTimeMs: Date.now(), counter: 0 },
+            },
+          ],
+        },
+        arcticScoped,
+      )
+    ).status,
   ).toBe(403);
   expect((await call("/api/apps/arctic/files", { headers })).status).toBe(403);
   // Arctic's article text is backed up like Reader's files, and the CLI may

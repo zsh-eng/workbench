@@ -7,6 +7,7 @@ import {
   DownloadError,
   fetchPage,
   MAX_BYTES,
+  PDF,
   type PageResponse,
 } from "./fetch";
 
@@ -18,6 +19,8 @@ export type ExtractedArticle = {
   image?: string;
   html: string;
   wordCount: number;
+  /** The page says it is not free to read (schema.org `isAccessibleForFree`). */
+  paywalled: boolean;
   method: "http" | "browser";
   downloadedAt: number;
 };
@@ -38,6 +41,19 @@ function usable(result: DefuddleResponse) {
     !/^(just a moment|access denied|attention required|sign in|log in|verify you are human)/i.test(
       result.title.trim(),
     )
+  );
+}
+/** Paywalled news sites mark their articles `isAccessibleForFree: false` in JSON-LD. */
+function notFree(data: unknown): boolean {
+  if (Array.isArray(data)) return data.some(notFree);
+  if (!data || typeof data !== "object") return false;
+  const item = data as Record<string, unknown>;
+  const free = item.isAccessibleForFree;
+  return (
+    free === false ||
+    (typeof free === "string" && free.toLowerCase() === "false") ||
+    notFree(item["@graph"]) ||
+    notFree(item.hasPart)
   );
 }
 export function fromHTML(html: string, url: string) {
@@ -69,6 +85,7 @@ function article(
     image: result.image || undefined,
     html: result.content,
     wordCount: result.wordCount,
+    paywalled: notFree(result.schemaOrgData),
     method,
     downloadedAt: Date.now(),
   };
@@ -92,11 +109,9 @@ export class Extractor {
       if (error instanceof DownloadError) throw error;
     }
     if (response && response.status >= 200 && response.status < 300) {
-      if (
-        !/text\/html|application\/xhtml\+xml/i.test(
-          response.headers["content-type"] ?? "",
-        )
-      )
+      const type = response.headers["content-type"] ?? "";
+      if (/application\/pdf/i.test(type)) throw new DownloadError(PDF);
+      if (!/text\/html|application\/xhtml\+xml/i.test(type))
         throw new DownloadError("This link does not contain an HTML article.");
       const charset =
         response.headers["content-type"]?.match(

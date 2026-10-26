@@ -12,6 +12,7 @@ import {
   cliWritePath,
   devicePage,
 } from "./cli-auth";
+import { cliLinkPushProblem } from "./cli-links";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
@@ -79,6 +80,7 @@ const requireUser = createMiddleware<AppEnv>(async (c, next) => {
       (c.req.method === "GET" && cliReadPath(c.req.path)) ||
       cliWritePath(c.req.method, c.req.path);
     if (!allowed) return c.json({ error: "Not allowed for a CLI credential" }, 403);
+    c.set("cli", true);
     c.set("user", identity.user);
     c.set("session", { id: "cli", token: "", userId: identity.user.id, createdAt: new Date(0), updatedAt: new Date(0), expiresAt: identity.expiresAt });
     return next();
@@ -136,6 +138,13 @@ app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   const syncOperation = /\/sync\/v3\/(push|pull|pull-stream)$/.test(c.req.path);
   if ((syncOperation || expected) && expected !== JSON.stringify(scope))
     return c.json({ error: "SYNC_SCOPE_CHANGED", scope }, 409);
+  // A CLI credential writes to `arctic` only to save links, in the phone's
+  // exact records; any other write there is refused here, before the route.
+  if (c.get("cli") && namespace === "arctic" && c.req.method !== "GET") {
+    const problem = await cliLinkPushProblem(c);
+    if (problem)
+      return c.json({ error: `Not allowed for a CLI credential: ${problem}` }, 403);
+  }
   const device = syncDeviceIdSchema.safeParse(c.req.header("X-Device-ID"));
   if (device.success) {
     const now = Date.now();

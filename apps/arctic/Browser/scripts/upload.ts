@@ -21,8 +21,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Article } from "../src/articles";
 import { cleanByline, tidyArticle } from "../src/content";
-import { articleFinder, better, MIN_WORDS, type Source } from "../src/copy";
-import { encodeSorted } from "../src/sync/swift";
+import {
+  articleFinder,
+  copyProblem,
+  copyRecord,
+  type Source,
+} from "../src/copy";
 import { xxh64 } from "../src/sync/xxh64";
 
 const args = process.argv.slice(2);
@@ -41,7 +45,6 @@ if (!folder) {
 }
 const dryRun = args.includes("--dry-run");
 const origin = new URL(option("--origin") ?? "https://api.zsheng.app").origin;
-const MAX_BYTES = 2 * 1024 * 1024;
 const DEVICE = "wb-arctic-upload";
 
 /** The Workbench Backup credential, as `wb` stores it. It is never printed. */
@@ -167,11 +170,8 @@ for (const name of (await readdir(folder)).sort()) {
   tidyArticle(root, article.url);
   const html = root.innerHTML.trim();
   const words = (root.textContent ?? "").split(/\s+/).filter(Boolean).length;
-  if (words < MIN_WORDS) count(`under ${MIN_WORDS} words`);
-  else if (!better(article, words)) count("has a longer copy");
-  else if (new TextEncoder().encode(html).byteLength > MAX_BYTES)
-    count("larger than 2 MiB");
-  else if (/<script\b/i.test(html)) count("contains a script");
+  const problem = copyProblem(article, html, words);
+  if (problem) count(problem);
   else {
     chosen.add(article.id);
     const source = root.getAttribute("data-arctic-source");
@@ -229,16 +229,12 @@ const worker = async () => {
       continue;
     }
     changes.push({
-      key: `content/${item.article.id}`,
-      value: encodeSorted({
-        url: item.article.url,
+      ...copyRecord(item.article, {
         file,
         bytes: bytes.byteLength,
         words: item.words,
-        ...(item.byline ? { byline: item.byline } : {}),
-        format: "html",
+        byline: item.byline,
         source: item.source,
-        savedAt: Date.now(),
       }),
       isDeleted: false,
       schemaVersion: 1,

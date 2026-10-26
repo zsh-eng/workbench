@@ -1,0 +1,9 @@
+{
+  "name": "@workbench/arctic-links",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./index.ts"
+  }
+}
