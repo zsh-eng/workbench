@@ -105,16 +105,19 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 ## UI states
 
 - **Sidebar.** The thread's row has a progress strip, one segment per part,
-  bottom first: unreviewed (outline), in progress (some files viewed), approved
-  (all files viewed, no comments), changes requested (has comments). The
-  chevron shows the parts, top first, numbered, with +/−. A merged or closed
-  layer's segment is dim.
+  bottom first: unreviewed (outline), in progress (some files viewed, or a
+  comment), approved (all files viewed, no comments), changes requested (all
+  files viewed, with comments). The Review writes each layer's viewed and file
+  counts to `med:layers:v1:<review>` in local storage, so the strip reads no
+  diff. The chevron shows the parts, top first, numbered, with +/−. A merged
+  or closed layer's segment is dim.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom, the
   base branch (`main`) at the bottom, each with its number, title, state, and
   +/−. Shift-click picks a range. **This layer** and **Whole stack** sit above.
   A narrow pane, where the rail hides, has a layer menu in the review's row.
 - **Keys.** `⌥↑` and `⌥↓` go up and down the stack. **Next unreviewed** (button
-  and `⌘K`) goes to the lowest layer that is not approved and not merged.
+  and `⌘K`) goes to the lowest layer that has no verdict (approved or changes
+  requested) and is not merged or closed.
 - **Top bar.** The current layer's pull request, through `PullRequestTitle`.
 
 ## Critique
