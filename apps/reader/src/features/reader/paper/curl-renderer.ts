@@ -451,6 +451,11 @@ export class CurlRenderer {
     gl.deleteBuffer(this.indexBuffer);
     gl.deleteProgram(this.mesh);
     gl.deleteProgram(this.shadow);
+    // A canvas still on the page (React's second mount in development, or
+    // the curl chosen again) keeps its context for the next renderer, which
+    // could not start on a lost one. One that has gone gives it up now.
+    const { canvas } = gl;
+    if (canvas instanceof HTMLCanvasElement && canvas.isConnected) return;
     gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 }

@@ -133,13 +133,16 @@ describe("paper preference", () => {
     const preview = resolvePaper(
       true,
       saved,
-      new URLSearchParams("grip=edge&marks=wash&block=off"),
+      new URLSearchParams("grip=edge&marks=flat&block=off"),
     );
     expect([preview.grip, preview.marks, preview.bookBlock]).toEqual([
       "edge",
-      "wash",
+      "flat",
       false,
     ]);
+    // The wash was folded into the marker; an old link keeps the marker.
+    const washed = resolvePaper(true, saved, new URLSearchParams("marks=wash"));
+    expect(washed.marks).toBe("marker");
     const kept = resolvePaper(true, saved, new URLSearchParams("grip=x"));
     expect([kept.grip, kept.marks, kept.bookBlock]).toEqual([
       "anywhere",

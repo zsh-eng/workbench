@@ -54,22 +54,6 @@ interface UsePageCurlOptions {
 export const DARK_THEMES = ["dark", "night", "flexoki-dark"];
 const SHOW_THROUGH = { light: 0.12, dark: 0.15 };
 
-let support: boolean | null = null;
-
-/** Whether this browser can draw the curl; checked once. */
-export function isPageCurlSupported(): boolean {
-  if (support !== null) return support;
-  try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl");
-    support = Boolean(gl);
-    gl?.getExtension("WEBGL_lose_context")?.loseContext();
-  } catch {
-    support = false;
-  }
-  return support;
-}
-
 export function pixelRatio(): number {
   return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
 }

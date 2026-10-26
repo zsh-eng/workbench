@@ -6,11 +6,7 @@ import {
   paperGrainTileSize,
   type PaperGrain,
 } from "./paper-grain";
-import {
-  pigmentRenderer,
-  type PigmentStroke,
-  type PigmentStyle,
-} from "./pigment-renderer";
+import { pigmentRenderer, type PigmentStroke } from "./pigment-renderer";
 import { DARK_THEMES, pixelRatio, themeName } from "./use-page-curl";
 
 const MARKS = 'mark.epub-highlight[data-color]:not([data-color="invisible"])';
@@ -88,11 +84,9 @@ function strokesOf(page: HTMLElement): PigmentStroke[] {
  */
 export function PaperMarks({
   grain,
-  style,
   content,
 }: {
   grain: PaperGrain;
-  style: PigmentStyle;
   /** Changes whenever the page's text or highlights may have moved. */
   content: unknown;
 }) {
@@ -146,7 +140,6 @@ export function PaperMarks({
         height,
         pixelRatio: ratio,
         dark: DARK_THEMES.includes(themeName()),
-        style,
         grain:
           tile && grain !== "off"
             ? { tile, size: paperGrainTileSize(grain) }
@@ -222,7 +215,7 @@ export function PaperMarks({
       sizes.disconnect();
       hide();
     };
-  }, [content, grain, style]);
+  }, [content, grain]);
 
   return (
     <canvas

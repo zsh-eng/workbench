@@ -1,16 +1,24 @@
 import type { PaginationConfig } from "@/lib/pagination-v2";
 import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { PageSliceView } from "./PageSliceView";
-import { PaperInk } from "./paper/PaperInk";
-import { PaperMarks } from "./paper/PaperMarks";
 import type { PaperGrain } from "./paper/paper-grain";
 import type {
   PaperInk as PaperInkPlace,
   PaperMarks as PaperMarksStyle,
 } from "./paper/paper-preference";
 import { getPageContentKey } from "./spread-identity";
+
+// The ink and pigment passes (Debug paper) load only with grain on.
+const PaperMarks = lazy(() =>
+  import("./paper/PaperMarks").then((module) => ({
+    default: module.PaperMarks,
+  })),
+);
+const PaperInk = lazy(() =>
+  import("./paper/PaperInk").then((module) => ({ default: module.PaperInk })),
+);
 
 export type NavDirection = "forward" | "backward" | "instant";
 
@@ -83,10 +91,14 @@ export function SpreadView({
         <div className="reader-paper-vignette" aria-hidden="true" />
       )}
       {paper !== "off" && marks !== "flat" && (
-        <PaperMarks grain={paper} style={marks} content={spread} />
+        <Suspense fallback={null}>
+          <PaperMarks grain={paper} content={spread} />
+        </Suspense>
       )}
       {paper !== "off" && ink === "gl" && (
-        <PaperInk grain={paper} content={spread} />
+        <Suspense fallback={null}>
+          <PaperInk grain={paper} content={spread} />
+        </Suspense>
       )}
       {/* Pages clip only vertically. Glyph ink can extend past the text
           column, such as a line-initial "j" or a line-final italic "f", and

@@ -479,11 +479,13 @@ mark {
 }
 
 /* The WebGL ink (see paper/PaperInk.tsx): once drawn, it stands in for
-   the live text, which keeps its place for selection and links. */
+   the live text, which keeps its place for selection and links. It lies
+   over the text column (z-index 10), so a highlight's fill, drawn there,
+   sits under the words rather than over them. */
 .reader-ink-canvas {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 11;
   width: 100%;
   height: 100%;
   pointer-events: none;

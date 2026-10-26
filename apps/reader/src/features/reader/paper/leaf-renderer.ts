@@ -60,6 +60,13 @@ const NODE_COUNT = LEAF_NODES + 1;
 export const LEAF_THICKNESS_PX = 0.9;
 /** How far the cut edge shows past the face, seen from above, CSS px. */
 const LEAF_EDGE_SPREAD_PX = 0.6;
+/**
+ * On dark paper, how far towards the ink a leaf's surface goes: its sheen
+ * turned edge-on, its back lying flat, and its print's ghost on the back.
+ */
+const DARK_SHEEN = 0.14;
+const DARK_BACK = 0.06;
+const DARK_GHOST = 0.1;
 
 /** The frame, the fan and the lookup from a page point to its place on it. */
 const SWEEP = `
@@ -263,7 +270,7 @@ void main() {
   vec3 colour;
   if (front) {
     vec3 gain = min(vec3(lit) + through * WARM, vec3(1.0));
-    colour = texture2D(uPage, vUv).rgb * gain * hidden();
+    colour = texture2D(uPage, vUv).rgb * gain;
   } else {
     // Reflected light loses a little where the front is printed; light
     // coming through the sheet carries the print at almost full strength.
@@ -273,11 +280,21 @@ void main() {
       vec4 grain = texture2D(uGrain, fract(vPage / uGrainTile));
       sheet = mix(sheet, grain.rgb, grain.a);
     }
-    colour = (sheet * lit * mix(vec3(1.0), print, 0.04 * uShow)
-      + sheet * through * WARM * mix(vec3(1.0), print, 0.95 * uShow))
-      * hidden();
+    colour = sheet * lit * mix(vec3(1.0), print, 0.04 * uShow)
+      + sheet * through * WARM * mix(vec3(1.0), print, 0.95 * uShow);
   }
-  gl_FragColor = vec4(colour, 1.0);
+  if (uDark > 0.5) {
+    // Dark paper shows little by the light it reflects, so a dark leaf
+    // shows by the faint sheen of its surface, which grows as it turns from
+    // lying flat, and by its back: a shade lighter than its face, the
+    // print a pale ghost through it.
+    float sheen = ${DARK_SHEEN.toFixed(3)} * (1.0 - seen.z);
+    float back = front
+      ? 0.0
+      : ${DARK_BACK.toFixed(3)} + ${DARK_GHOST.toFixed(3)} * (1.0 - printed(vUv).r) * uShow;
+    colour += (uInk - uPaper) * (sheen + back) * lit;
+  }
+  gl_FragColor = vec4(colour * hidden(), 1.0);
 }
 `;
 
@@ -989,7 +1006,8 @@ export class LeafRenderer {
     gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
 
     // Its cut edges: a little darker than the face on light paper, where
-    // the fibres are rough, and a little lighter on dark paper.
+    // the fibres are rough, and on dark paper a fine light line, as the
+    // edge of dark card catches the light.
     gl.useProgram(this.edgeProgram);
     const edge = this.edgeUniforms;
     this.setSweep(edge, geometry);
@@ -997,11 +1015,12 @@ export class LeafRenderer {
     gl.uniform1f(edge.uBevel, LEAF_EDGE_SPREAD_PX);
     const [red, green, blue] = look.paper;
     if (look.dark) {
+      const [inkRed, inkGreen, inkBlue] = look.ink;
       gl.uniform3f(
         edge.uEdge,
-        red * 1.5 + 0.05,
-        green * 1.5 + 0.05,
-        blue * 1.5 + 0.045,
+        red + (inkRed - red) * 0.24,
+        green + (inkGreen - green) * 0.24,
+        blue + (inkBlue - blue) * 0.24,
       );
     } else {
       gl.uniform3f(edge.uEdge, red * 0.84, green * 0.82, blue * 0.78);
@@ -1033,6 +1052,11 @@ export class LeafRenderer {
     gl.deleteProgram(this.leafProgram);
     gl.deleteProgram(this.edgeProgram);
     gl.deleteProgram(this.shadeProgram);
+    // A canvas still on the page (React's second mount in development, or
+    // the curl chosen again) keeps its context for the next renderer, which
+    // could not start on a lost one. One that has gone gives it up now.
+    const { canvas } = gl;
+    if (canvas instanceof HTMLCanvasElement && canvas.isConnected) return;
     gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 }

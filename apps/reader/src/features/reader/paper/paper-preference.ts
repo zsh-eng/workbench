@@ -35,13 +35,12 @@ export function isLeafGrip(value: unknown): value is LeafGrip {
 
 /**
  * How highlights look on the paper: the app's `flat` fill, or highlighter
- * pigment in the sheet, laid as a felt-tip stroke (`marker`) or evenly
- * (`wash`).
+ * pigment in the sheet, laid as a felt-tip stroke (`marker`).
  */
-export type PaperMarks = "flat" | "wash" | "marker";
+export type PaperMarks = "flat" | "marker";
 
 export function isPaperMarks(value: unknown): value is PaperMarks {
-  return value === "flat" || value === "wash" || value === "marker";
+  return value === "flat" || value === "marker";
 }
 
 /**
