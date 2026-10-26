@@ -38,7 +38,12 @@ const LONG_TITLES = [
 ];
 
 function git(cwd, args, env) {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env }).trim();
+  return execFileSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    env,
+    // The large diff, with --lockfile, is a few MB.
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim();
 }
 
 /** A seeded random source (mulberry32), so a synthetic set is the same each run. */
