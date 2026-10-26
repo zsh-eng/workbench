@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
   chmod,
@@ -45,6 +45,7 @@ import {
   savedCheckoutSchema,
   MAX_BRIEF_LENGTH,
   MAX_ITERATIONS,
+  approvalSchema,
   MAX_PINS,
   MAX_SESSIONS,
   pinSourceSchema,
@@ -61,6 +62,7 @@ import {
   type BriefCommentMutation,
   type PinMutation,
   type SavedReview,
+  type Since,
   type SavedReviewCreate,
   type SavedCheckout,
   type CapturedReviewTarget,
@@ -186,6 +188,7 @@ const savedSchema = z.object({
       autoTitle: z.boolean().optional(),
     })
     .optional(),
+  approvals: z.array(approvalSchema).max(MAX_ITERATIONS).optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
@@ -1352,6 +1355,117 @@ export class SavedReviewStore {
 
   get(id: string): Promise<SavedReview> {
     return this.serial(async () => this.describe(await this.read(id)));
+  }
+
+  /** Approve a version, or take the approval back: a record for the reader,
+   * which nothing else waits on (docs/PRACTICES.md). */
+  approve(
+    id: string,
+    version: number,
+    approved: boolean,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const versions = record.saved.iterations?.map((entry) => entry.number) ?? [1];
+      if (!versions.includes(version))
+        throw new HostError("version-not-found", `This review has no version ${version}.`, 404);
+      const others = (record.saved.approvals ?? []).filter((entry) => entry.version !== version);
+      const approvals = approved
+        ? [...others, { version, at: new Date().toISOString() }].sort(
+            (a, b) => a.version - b.version,
+          )
+        : others;
+      if (approvals.length) record.saved.approvals = approvals;
+      else delete record.saved.approvals;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
+  /**
+   * The files of a version that changed since the reader's last review: the
+   * last earlier version that they approved or commented on, or else the one
+   * before. Files compare by their new side's blob, so a file that changed
+   * only on the base side counts as unchanged. Undefined before version 2.
+   */
+  since(id: string, version?: number): Promise<Since | undefined> {
+    return this.serial(async () => {
+      const record = await this.read(id);
+      const versions = (record.saved.iterations ?? []).filter((entry) => entry.targetIds.length);
+      const to = version ? versions.find((entry) => entry.number === version) : versions.at(-1);
+      if (!to) return undefined;
+      const earlier = versions.filter((entry) => entry.number < to.number);
+      if (!earlier.length) return undefined;
+      const capture = (targetId: string) =>
+        record.captures.find((entry) => entry.targetId === targetId);
+      const approved = new Set((record.saved.approvals ?? []).map((entry) => entry.version));
+      const commented = (entry: (typeof versions)[number]) =>
+        entry.targetIds.some((target) => (capture(target)?.notes.notes.length ?? 0) > 0) ||
+        !!record.saved.briefComments?.some((comment) => comment.iteration === entry.number);
+      const reviewed = earlier.findLast((entry) => approved.has(entry.number) || commented(entry));
+      const from = reviewed ?? earlier.at(-1)!;
+      const basis = !reviewed ? "previous" : approved.has(from.number) ? "approved" : "commented";
+      // Each file's new side, by repository and part, for both versions.
+      const sides = (entry: (typeof versions)[number]) => {
+        const files = new Map<string, { repo: string; path: string; side: string }>();
+        for (const targetId of entry.targetIds) {
+          const target = record.saved.targets.find((candidate) => candidate.id === targetId);
+          const captured = capture(targetId);
+          if (!target || !captured) continue;
+          let parsed: FileDiffMetadata[] = [];
+          try {
+            parsed = parsePatchFiles(captured.review.patch, undefined, true)
+              .flatMap((patch) => patch.files)
+              .map(normalizeDiffMetadataPaths);
+          } catch {
+            /* A file without a patch compares by its counts. */
+          }
+          for (const file of captured.review.files) {
+            const meta = parsed.find((candidate) => candidate.name === file.path);
+            // The captured new side, else its blob ID (an untracked file has none), else its counts.
+            const source = captured.sources.find((entry) => entry.path === file.path);
+            const blob = meta?.newObjectId && !/^0+$/.test(meta.newObjectId) && meta.newObjectId;
+            const side =
+              meta?.type === "deleted"
+                ? "deleted"
+                : source
+                  ? createHash("sha1").update(source.new).digest("hex")
+                  : blob || `${file.status}:${file.additions}:${file.deletions}`;
+            files.set(`${target.repositoryId}\0${target.part ?? ""}\0${file.path}`, {
+              repo: target.repo,
+              path: file.path,
+              side,
+            });
+          }
+        }
+        return files;
+      };
+      const before = sides(from);
+      const after = sides(to);
+      const repos = new Set([...after.values(), ...before.values()].map((file) => file.repo));
+      const files: Since["files"] = [];
+      for (const [key, file] of after) {
+        const old = before.get(key);
+        if (!old || old.side !== file.side)
+          files.push({
+            path: file.path,
+            change: old ? "changed" : "new",
+            ...(repos.size > 1 && { repo: file.repo }),
+          });
+      }
+      for (const [key, file] of before)
+        if (!after.has(key))
+          files.push({
+            path: file.path,
+            change: "gone",
+            ...(repos.size > 1 && { repo: file.repo }),
+          });
+      files.sort(
+        (a, b) => (a.repo ?? "").localeCompare(b.repo ?? "") || a.path.localeCompare(b.path),
+      );
+      return { from: from.number, to: to.number, basis, files };
+    });
   }
 
   /** A review's description, read again only when its file changes, with

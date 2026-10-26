@@ -1002,6 +1002,90 @@ describe("hand-off checks that say what to do next", () => {
   });
 });
 
+describe("since your last review, and approvals", () => {
+  it("lists the files that changed since the version the reader approved or commented on", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${f.host.port}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const create = async () =>
+      (await f.saved(
+        (
+          await f.run(
+            "create",
+            "--key",
+            "loop",
+            "--title",
+            "Review loop",
+            "--repo",
+            repo,
+            "--working",
+            "--no-pr",
+            "--no-session",
+          )
+        ).split("\n")[0]!,
+      )) as { id: string; iterations: { targetIds: string[] }[] };
+    await writeFile(join(repo, "other.txt"), "stays\n");
+    const one = await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toBeNull();
+    // Version 2 changes file.txt and adds new.txt.
+    await writeFile(join(repo, "file.txt"), "second\n");
+    await writeFile(join(repo, "new.txt"), "new\n");
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toEqual({
+      from: 1,
+      to: 2,
+      basis: "previous",
+      files: [
+        { path: "file.txt", change: "changed" },
+        { path: "new.txt", change: "new" },
+      ],
+    });
+    // The reader comments on version 2 and approves version 1; version 3
+    // drops new.txt. Since compares with the later of the two: version 2.
+    const two = (await f.api(`/api/reviews/${one.id}`)).iterations[1].targetIds[0];
+    await post(`/api/reviews/${one.id}/targets/${two}/notes`, {
+      expectedRevision: 0,
+      mutation: { type: "add", note: { path: "file.txt", side: "new", line: 1, text: "Why?" } },
+    });
+    const approved = await post(`/api/reviews/${one.id}/approval`, { version: 1, approved: true });
+    expect(approved.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
+    await rm(join(repo, "new.txt"));
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toEqual({
+      from: 2,
+      to: 3,
+      basis: "commented",
+      files: [{ path: "new.txt", change: "gone" }],
+    });
+    // An approval of version 3 makes it the last review; taking it back undoes that.
+    await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: true });
+    await writeFile(join(repo, "other.txt"), "changed in 4\n");
+    await create();
+    expect((await f.api(`/api/reviews/${one.id}/since`)).since).toMatchObject({
+      from: 3,
+      basis: "approved",
+      files: [{ path: "other.txt", change: "changed" }],
+    });
+    const back = await post(`/api/reviews/${one.id}/approval`, { version: 3, approved: false });
+    expect(back.approvals).toEqual([{ version: 1, at: expect.any(String) }]);
+    // A version that does not exist cannot be approved.
+    const missing = await fetch(`http://127.0.0.1:${f.host.port}/api/reviews/${one.id}/approval`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ version: 9, approved: true }),
+    });
+    expect(missing.status).toBe(404);
+  });
+});
+
 // A hostile peer is outside the CLI's tested path. Keep real fetch so redirects
 // and credential redaction are observed rather than asserted as request options.
 it("does not follow redirects or print credentials from peer errors", async () => {
