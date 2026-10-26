@@ -8,14 +8,17 @@ import { z } from "zod";
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
 import {
   AGENT_DEFAULTS,
+  ownedQuestionSchema,
   ownedSettingSchema,
   type AgentChoices,
   type AgentOptions,
   type AgentPreset,
   type OwnedCommand,
   type OwnedPermission,
+  type OwnedQuestion,
   type OwnedSetting,
   type OwnedState,
+  type PermissionReply,
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
@@ -57,7 +60,7 @@ export interface OwnedRunner {
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
   prompt(text: string, images?: PromptImage[]): Promise<void>;
-  answer(id: string, option: string): void;
+  answer(id: string, option: string, reply?: PermissionReply): void;
   interrupt(): void;
   set(id: string, value: string): Promise<void>;
   /** Starts the agent of a session whose process stopped; it resumes. */
@@ -230,7 +233,41 @@ const CLAUDE_MODES = [
   { value: "default", name: "Ask", description: "Ask before edits and commands" },
   { value: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
   { value: "plan", name: "Plan", description: "Plan first; do not edit" },
+  {
+    value: "auto",
+    name: "Auto",
+    description: "A classifier allows safe actions and asks about risky ones",
+  },
+  {
+    value: "dontAsk",
+    name: "Don't ask",
+    description: "Deny what the permission rules do not allow",
+  },
+  {
+    value: "bypassPermissions",
+    name: "Bypass permissions",
+    description: "Run every tool without asking",
+    confirm:
+      "Claude Code will edit any file and run any command without asking, until you change the mode. Use it only where a mistake costs nothing, such as a throwaway clone. If Claude Code started without it, it starts again between turns.",
+  },
 ];
+const BYPASS = "bypassPermissions";
+/** The modes in the order of Claude Code's ⇧Tab. Bypass is there only when
+ * Claude Code started with it allowed; Don't ask is never there. */
+const modeCycle = (bypass: boolean) => [
+  "default",
+  "acceptEdits",
+  "plan",
+  ...(bypass ? [BYPASS] : []),
+  "auto",
+];
+/** The modes that an approved plan can continue in, the first by default,
+ * as Claude Code offers them after a plan. */
+const planModes = (bypass: boolean) =>
+  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map((value) =>
+    CLAUDE_MODES.find((mode) => mode.value === value)!,
+  );
+const questionsSchema = z.array(ownedQuestionSchema).min(1).max(8);
 
 const claudeInitSchema = z
   .object({
@@ -394,15 +431,26 @@ export function startClaude(
   let stopping = false;
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
-  let ask: { id: string; input: unknown; suggestions?: unknown[] } | undefined;
+  let ask:
+    | {
+        id: string;
+        input: unknown;
+        suggestions?: unknown[];
+        questions?: OwnedQuestion[];
+        plan?: boolean;
+      }
+    | undefined;
   let models = Array.isArray(options.models) ? options.models : [];
-  let chosen = options.resume
+  let chosen: { model: string; effort: string; mode: string; bypass?: boolean } = options.resume
     ? {
         model: options.resume.model ?? "default",
         effort: options.resume.effort ?? "default",
         mode: options.resume.mode ?? "default",
       }
     : { ...claudeChoices(models, options.choices ?? {}), mode: "default" };
+  // Whether the process that runs started with Bypass allowed: Claude Code
+  // refuses to switch to it otherwise.
+  let bypassable = false;
   let streamTimer: ReturnType<typeof setTimeout> | undefined;
   let streaming: OwnedState["streaming"];
 
@@ -440,10 +488,20 @@ export function startClaude(
         id: "mode",
         name: "Mode",
         category: "mode" as const,
-        value: CLAUDE_MODES.some((entry) => entry.value === chosen.mode) ? chosen.mode : "default",
-        options: CLAUDE_MODES,
+        // The mode that Claude Code reports, even one that Med does not know.
+        value: chosen.mode,
+        options: CLAUDE_MODES.some((entry) => entry.value === chosen.mode)
+          ? CLAUDE_MODES
+          : [...CLAUDE_MODES, { value: chosen.mode, name: chosen.mode }],
+        cycle: modeCycle(bypassable),
       },
     ];
+  };
+  /** Takes the mode that Claude Code reports, as after an approved plan. */
+  const reported = (mode: unknown) => {
+    if (typeof mode !== "string" || !mode || mode === chosen.mode) return;
+    chosen.mode = mode;
+    store.set({ settings: settings() });
   };
   // What each answer to Med's control requests changes, live or read again.
   const effects: Record<string, (value: unknown, request: Record<string, any>) => void> = {
@@ -452,9 +510,9 @@ export function startClaude(
       const parsed = claudeInitSchema.safeParse(value);
       if (!parsed.success) return;
       models = parsed.data.models;
-      // A session that Med restores keeps the mode it had.
-      if (parsed.data.current_permission_mode && !options.resume?.mode)
-        chosen.mode = parsed.data.current_permission_mode;
+      // Med starts a session in the mode it had; a new one starts in the
+      // user's default mode.
+      if (parsed.data.current_permission_mode) chosen.mode = parsed.data.current_permission_mode;
       store.set({
         status: store.get().status === "starting" ? "idle" : store.get().status,
         settings: settings(),
@@ -509,6 +567,59 @@ export function startClaude(
     ask = undefined;
   };
 
+  /** What the review shows for a tool call that waits: a question with its
+   * choices, a plan to approve, or a permission to give. */
+  const claudePermission = (
+    id: string,
+    request: Record<string, any>,
+    {
+      questions,
+      plan,
+      suggestions,
+    }: { questions?: OwnedQuestion[]; plan?: string; suggestions: unknown[] },
+  ): OwnedPermission => {
+    if (questions)
+      return {
+        id,
+        title: `${agent.name} asks`,
+        options: [
+          { id: "answer", name: "Answer", kind: "allow_once" },
+          { id: "deny", name: "Skip", kind: "reject_once" },
+        ],
+        questions,
+      };
+    if (plan !== undefined) {
+      const modes = planModes(bypassable);
+      return {
+        id,
+        title: `${agent.name}'s plan`,
+        options: [
+          { id: "approve", name: "Approve", kind: "allow_once" },
+          { id: "deny", name: "Keep planning", kind: "reject_once" },
+        ],
+        plan: {
+          text: plan,
+          modes: modes.map(({ value, name }) => ({ value, name })),
+          mode: modes[0]!.value,
+        },
+      };
+    }
+    const name = String(request.display_name ?? request.tool_name ?? "A tool");
+    const detail = inputSummary(request.input) ?? request.description;
+    return {
+      id,
+      title: `${agent.name} wants to use ${name}`,
+      ...(detail ? { detail: String(detail) } : {}),
+      options: [
+        { id: "allow", name: "Allow", kind: "allow_once" },
+        ...(suggestions.length
+          ? [{ id: "always", name: "Allow for this session", kind: "allow_always" as const }]
+          : []),
+        { id: "deny", name: "Deny", kind: "reject_once" },
+      ],
+    };
+  };
+
   const onMessage = (message: Record<string, any>) => {
     switch (message.type) {
       case "control_response": {
@@ -539,22 +650,18 @@ export function startClaude(
         const suggestions = Array.isArray(request.permission_suggestions)
           ? request.permission_suggestions
           : [];
-        ask = { id: message.request_id, input: request.input, suggestions };
-        const name = String(request.display_name ?? request.tool_name ?? "A tool");
-        const detail = inputSummary(request.input) ?? request.description;
-        const permission: OwnedPermission = {
-          id: message.request_id,
-          title: `${agent.name} wants to use ${name}`,
-          ...(detail ? { detail: String(detail) } : {}),
-          options: [
-            { id: "allow", name: "Allow", kind: "allow_once" },
-            ...(suggestions.length
-              ? [{ id: "always", name: "Allow for this session", kind: "allow_always" as const }]
-              : []),
-            { id: "deny", name: "Deny", kind: "reject_once" },
-          ],
-        };
-        store.set({ permission });
+        const id = String(message.request_id);
+        const input = (request.input ?? {}) as Record<string, unknown>;
+        const questions =
+          request.tool_name === "AskUserQuestion"
+            ? questionsSchema.safeParse(input.questions).data
+            : undefined;
+        const plan =
+          request.tool_name === "ExitPlanMode" && typeof input.plan === "string"
+            ? input.plan
+            : undefined;
+        ask = { id, input: request.input, suggestions, questions, plan: plan !== undefined };
+        store.set({ permission: claudePermission(id, request, { questions, plan, suggestions }) });
         return;
       }
       case "control_cancel_request":
@@ -564,6 +671,9 @@ export function startClaude(
         }
         return;
       case "system":
+        // Claude Code reports its mode when it starts, and when it changes.
+        if (message.subtype === "init" || message.subtype === "status")
+          reported(message.permissionMode);
         if (message.subtype === "status" && message.status === "requesting")
           store.set({ status: "working" });
         return;
@@ -714,8 +824,12 @@ export function startClaude(
           : ["--session-id", sessionId]),
       ...(chosen.model !== "default" ? ["--model", chosen.model] : []),
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
-      ...(chosen.mode !== "default" ? ["--permission-mode", chosen.mode] : []),
+      // A session that ran keeps its mode; a new one starts in the user's default.
+      ...(chosen.mode !== "default" || exists ? ["--permission-mode", chosen.mode] : []),
+      // Claude Code switches to Bypass only when it started with it allowed.
+      ...(chosen.bypass || chosen.mode === BYPASS ? ["--allow-dangerously-skip-permissions"] : []),
     ];
+    bypassable = !!chosen.bypass || chosen.mode === BYPASS;
     const token = {};
     active = token;
     held = startHeld(
@@ -833,18 +947,49 @@ export function startClaude(
         halt: undefined,
       });
     },
-    answer(id, option) {
+    answer(id, option, reply = {}) {
       if (!ask || ask.id !== id) return;
-      const response =
-        option === "deny"
-          ? { behavior: "deny", message: "The user denied this in Med." }
-          : {
-              behavior: "allow",
-              updatedInput: ask.input,
-              ...(option === "always" && ask.suggestions?.length
-                ? { updatedPermissions: ask.suggestions }
-                : {}),
-            };
+      const said = reply.message?.trim();
+      let response: Record<string, unknown>;
+      if (option === "deny")
+        response = {
+          behavior: "deny",
+          message: ask.plan
+            ? `The user wants to keep planning.${said ? ` They said: ${said}` : " Ask what to change."}`
+            : ask.questions
+              ? `The user chose not to answer.${said ? ` They said: ${said}` : ""}`
+              : `The user denied this in Med.${said ? ` They said: ${said}` : ""}`,
+        };
+      else if (ask.questions) {
+        // Claude Code reads each answer by its question's text.
+        const answers: Record<string, string> = {};
+        for (const { question } of ask.questions) {
+          const answer = reply.answers?.[question]?.trim();
+          if (answer) answers[question] = answer;
+        }
+        if (!Object.keys(answers).length)
+          throw new HostError("no-answer", "Choose an answer first.", 400);
+        response = {
+          behavior: "allow",
+          updatedInput: { ...(ask.input as object), answers },
+        };
+      } else if (ask.plan) {
+        // Approving a plan sets the mode that the work continues in.
+        const modes = planModes(bypassable).map((mode) => mode.value);
+        const mode = reply.mode && modes.includes(reply.mode) ? reply.mode : modes[0]!;
+        response = {
+          behavior: "allow",
+          updatedInput: ask.input,
+          updatedPermissions: [{ type: "setMode", mode, destination: "session" }],
+        };
+      } else
+        response = {
+          behavior: "allow",
+          updatedInput: ask.input,
+          ...(option === "always" && ask.suggestions?.length
+            ? { updatedPermissions: ask.suggestions }
+            : {}),
+        };
       write({
         type: "control_response",
         response: { subtype: "success", request_id: id, response },
@@ -862,16 +1007,25 @@ export function startClaude(
       // Without a process, the choice waits for the next start.
       if (!held) {
         if (id === "model" || id === "effort" || id === "mode") chosen[id] = value;
+        if (value === BYPASS) chosen.bypass = true;
       } else if (id === "model") {
         await control({ subtype: "set_model", ...(value === "default" ? {} : { model: value }) });
-      } else if (id === "mode") {
+      } else if (id === "mode" && (value !== BYPASS || bypassable)) {
         await control({ subtype: "set_permission_mode", mode: value });
-      } else if (id === "effort") {
-        // Claude Code takes the effort when it starts, so it starts again,
-        // once the holder of the process before has ended.
+      } else if (id === "mode" || id === "effort") {
+        // Claude Code takes the effort, and leave to bypass permissions, when
+        // it starts, so it starts again, once the holder of the process
+        // before has ended.
         if (store.get().status === "working")
-          throw new HostError("agent-busy", "Change the effort when the turn ends.", 409);
-        chosen.effort = value;
+          throw new HostError(
+            "agent-busy",
+            id === "mode"
+              ? "Switch to Bypass permissions when the turn ends."
+              : "Change the effort when the turn ends.",
+            409,
+          );
+        chosen[id] = value;
+        if (value === BYPASS) chosen.bypass = true;
         const previous = held;
         active = undefined;
         held = undefined;

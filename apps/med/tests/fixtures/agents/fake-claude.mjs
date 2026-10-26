@@ -164,8 +164,24 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         model = request.model ?? "default";
         return ok();
       case "set_permission_mode":
+        // As Claude Code 2.1 does, Bypass needs leave at the start.
+        if (
+          request.mode === "bypassPermissions" &&
+          !args.includes("--allow-dangerously-skip-permissions") &&
+          flag("--permission-mode") !== "bypassPermissions"
+        )
+          return send({
+            type: "control_response",
+            response: {
+              subtype: "error",
+              request_id,
+              error: "Cannot set permission mode to bypassPermissions",
+              error_code: "bypass_not_launched",
+            },
+          });
         mode = request.mode;
-        return ok();
+        ok({ mode });
+        return send({ type: "system", subtype: "status", status: null, permissionMode: mode });
       case "get_context_usage":
         return ok({
           categories: [{ name: "Messages", tokens: 2500, kind: "used" }],
@@ -228,6 +244,74 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         input: { file_path: "summary.ts" },
         permission_suggestions: [{ type: "addRules" }],
         tool_use_id: "toolu_1",
+      },
+    });
+    return;
+  }
+  // AskUserQuestion and ExitPlanMode, as Claude Code 2.1 asks them.
+  if (text.includes("Question")) {
+    const request_id = `ask-${randomUUID().slice(0, 8)}`;
+    asks.set(request_id, (answer) =>
+      reply(
+        answer.behavior === "allow"
+          ? `Answers: ${JSON.stringify(answer.updatedInput.answers)}`
+          : `No answer: ${answer.message}`,
+      ),
+    );
+    send({
+      type: "control_request",
+      request_id,
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "AskUserQuestion",
+        display_name: "AskUserQuestion",
+        input: {
+          questions: [
+            {
+              question: "Which format should durations use?",
+              header: "Format",
+              options: [
+                { label: "Short", description: "1h 5m" },
+                { label: "Long", description: "1 hour 5 minutes" },
+              ],
+              multiSelect: false,
+            },
+            {
+              question: "Which units can show?",
+              header: "Units",
+              options: [{ label: "Hours" }, { label: "Minutes" }, { label: "Seconds" }],
+              multiSelect: true,
+            },
+          ],
+        },
+        tool_use_id: "toolu_q",
+        requires_user_interaction: true,
+      },
+    });
+    return;
+  }
+  if (text.includes("Propose")) {
+    const request_id = `plan-${randomUUID().slice(0, 8)}`;
+    const plan = "# Format durations\n\n1. Add `formatDuration`.\n2. Test the hour.\n";
+    asks.set(request_id, (answer) => {
+      if (answer.behavior !== "allow") return reply(`Still planning: ${answer.message}`);
+      const set = answer.updatedPermissions?.find((entry) => entry.type === "setMode");
+      if (set) {
+        mode = set.mode;
+        send({ type: "system", subtype: "status", status: null, permissionMode: mode });
+      }
+      reply(`Approved; mode ${mode}.`);
+    });
+    send({
+      type: "control_request",
+      request_id,
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "ExitPlanMode",
+        display_name: "ExitPlanMode",
+        input: { plan, planFilePath: "/plans/format-durations.md" },
+        tool_use_id: "toolu_p",
+        requires_user_interaction: true,
       },
     });
     return;

@@ -327,6 +327,168 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   expect((await readFile(path!)).toString("base64")).toBe(PNG);
 });
 
+test("Claude Code's questions and plans wait in Med; the answer goes back as Claude Code reads it", async () => {
+  const { start, thread } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const replies = await thread(session.id);
+
+  // AskUserQuestion shows its questions and choices.
+  await session.act({ action: "prompt", text: "Question the format." });
+  const asked = await session.until((state) => state.permission !== undefined);
+  expect(asked.permission).toMatchObject({
+    title: "Claude Code asks",
+    options: [{ id: "answer" }, { id: "deny", name: "Skip" }],
+    questions: [
+      {
+        question: "Which format should durations use?",
+        header: "Format",
+        multiSelect: false,
+        options: [
+          { label: "Short", description: "1h 5m" },
+          { label: "Long", description: "1 hour 5 minutes" },
+        ],
+      },
+      { question: "Which units can show?", multiSelect: true },
+    ],
+  });
+  // An answer needs a choice; the answers go back by question.
+  const empty = await session.act({
+    action: "permission",
+    id: asked.permission!.id,
+    option: "answer",
+  });
+  expect(empty.status).toBe(400);
+  await session.act({
+    action: "permission",
+    id: asked.permission!.id,
+    option: "answer",
+    answers: {
+      "Which format should durations use?": "Short",
+      "Which units can show?": "Hours, Minutes",
+      "A question it did not ask": "No",
+    },
+  });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe(
+      'Answers: {"Which format should durations use?":"Short","Which units can show?":"Hours, Minutes"}',
+    ),
+  );
+  await session.until((state) => state.status === "idle" && !state.permission);
+
+  // Skip tells the agent that the user chose not to answer.
+  await session.act({ action: "prompt", text: "Question it again." });
+  const again = await session.until((state) => state.permission !== undefined);
+  await session.act({ action: "permission", id: again.permission!.id, option: "deny" });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("No answer: The user chose not to answer."));
+  await session.until((state) => state.status === "idle");
+
+  // ExitPlanMode shows the plan, and the modes the work can continue in.
+  await session.act({ action: "setting", id: "mode", value: "plan" });
+  await session.act({ action: "prompt", text: "Propose a plan." });
+  const planned = await session.until((state) => state.permission !== undefined);
+  expect(planned.permission).toMatchObject({
+    title: "Claude Code's plan",
+    options: [{ id: "approve" }, { id: "deny", name: "Keep planning" }],
+    plan: {
+      text: "# Format durations\n\n1. Add `formatDuration`.\n2. Test the hour.\n",
+      mode: "acceptEdits",
+      modes: [{ value: "acceptEdits" }, { value: "default" }, { value: "auto" }],
+    },
+  });
+  // Keep planning carries what the user said.
+  await session.act({
+    action: "permission",
+    id: planned.permission!.id,
+    option: "deny",
+    message: "Test minutes too.",
+  });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe(
+      "Still planning: The user wants to keep planning. They said: Test minutes too.",
+    ),
+  );
+  await session.until((state) => state.status === "idle");
+  // Approve sets the chosen mode; the picker shows the mode Claude Code reports.
+  await session.act({ action: "prompt", text: "Propose it again." });
+  const second = await session.until((state) => state.permission !== undefined);
+  await session.act({
+    action: "permission",
+    id: second.permission!.id,
+    option: "approve",
+    mode: "auto",
+  });
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("Approved; mode auto."));
+  const approved = await session.until(
+    (state) => state.settings.find((setting) => setting.id === "mode")?.value === "auto",
+  );
+  expect(approved.permission).toBeUndefined();
+});
+
+test("the mode picker shows the mode Claude Code reports, cycles as ⇧Tab does, and Bypass starts Claude Code again with it allowed", async () => {
+  const { start, thread, home } = await fixture();
+  const session = await start("claude");
+  const ready = await session.until(
+    (state) => state.status === "idle" && state.settings.length > 0,
+  );
+  const mode = (state: OwnedState) => state.settings.find((setting) => setting.id === "mode")!;
+  expect(mode(ready).options.map((option) => option.name)).toEqual([
+    "Ask",
+    "Accept edits",
+    "Plan",
+    "Auto",
+    "Don't ask",
+    "Bypass permissions",
+  ]);
+  expect(mode(ready).cycle).toEqual(["default", "acceptEdits", "plan", "auto"]);
+  const replies = await thread(session.id);
+
+  for (const value of ["auto", "dontAsk"]) {
+    const set = await session.act({ action: "setting", id: "mode", value });
+    expect(mode(set.data).value).toBe(value);
+  }
+  await session.act({ action: "prompt", text: "Which mode?" });
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/mode dontAsk: Which mode\?$/));
+  await session.until((state) => state.status === "idle");
+
+  // Claude Code refuses Bypass to a process that started without it, so
+  // Med starts it again, with the same session.
+  const bypass = await session.act({ action: "setting", id: "mode", value: "bypassPermissions" });
+  expect(bypass.status).toBe(200);
+  const restarted = await session.until(
+    (state) => state.status === "idle" && mode(state).value === "bypassPermissions",
+  );
+  expect(mode(restarted).cycle).toEqual([
+    "default",
+    "acceptEdits",
+    "plan",
+    "bypassPermissions",
+    "auto",
+  ]);
+  const project = join(home, ".claude", "projects", "-fake-repo");
+  await vi.waitFor(async () =>
+    expect(JSON.parse(await readFile(join(project, `${session.id}.args.json`), "utf8"))).toEqual(
+      expect.arrayContaining([
+        "--resume",
+        session.id,
+        "--permission-mode",
+        "bypassPermissions",
+        "--allow-dangerously-skip-permissions",
+      ]),
+    ),
+  );
+  await session.act({ action: "prompt", text: "Which mode now?" });
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toMatch(/mode bypassPermissions: Which mode now\?$/),
+  );
+  await session.until((state) => state.status === "idle");
+  // Once allowed, Bypass switches without a new start.
+  await session.act({ action: "setting", id: "mode", value: "default" });
+  await session.act({ action: "setting", id: "mode", value: "bypassPermissions" });
+  await session.act({ action: "prompt", text: "And now?" });
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/mode bypassPermissions: And now\?$/));
+});
+
 test("agents keep working through a host restart; after a reboot, Claude Code resumes and others stay stopped", async () => {
   const { api, home, review, thread, start, restart } = await fixture();
   const kept = await start("claude");

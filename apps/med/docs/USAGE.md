@@ -364,6 +364,21 @@ gets your messages from Med as new turns. The message box has model, effort,
 and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
 tool call that needs an answer shows **Allow** and **Deny**.
 
+- **Mode** shows the mode that Claude Code reports, also after an approved
+  plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
+  ask**, or **Bypass permissions**. `⇧Tab` in the message box steps through
+  Ask, Accept edits, Plan, and Auto, as in the terminal; Bypass joins them once
+  you chose it. **Bypass permissions** asks first. If Claude Code started
+  without it, Med starts it again with the same session, between turns.
+- When Claude Code asks a question, its choices show above the message box.
+  Number keys pick one, from the card or from the empty message box, and the
+  number after the last choice goes to **Other** for an answer of your own. A
+  single question with one answer goes as soon as you pick; otherwise
+  **Answer** sends them all. **Skip** declines.
+- When Claude Code ends planning, its plan shows as Markdown. **Approve**
+  continues in the mode you choose beside it (Accept edits at first), and
+  **Keep planning** takes an optional note on what should change.
+
 A Claude Code session that you kept in Med or adopted gets your messages too:
 
 - When no process runs it, Med resumes it with your message, and any
@@ -946,6 +961,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Move the focused tab             | `⌥↑` / `⌥↓`   |
 | Switch, or search history        | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
+| Next permission mode (message)   | `⇧Tab`        |
 | New thread                       | `⌥N`          |
 | Previous / next attempt          | `←` / `→`     |
 | Focus the next pane              | `⌘⌥←`         |

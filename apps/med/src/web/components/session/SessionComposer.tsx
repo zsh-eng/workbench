@@ -15,11 +15,13 @@ import type {
   OwnedPermission,
   OwnedSetting,
   OwnedState,
+  PermissionReply,
 } from "../../../shared/owned-session";
 import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
+import { PlanCard, QuestionCard, type CardKeys } from "./AskCards";
 import { ImageViewer, imageSource } from "./ImageThumbs";
 import { useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
@@ -104,14 +106,29 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   );
 }
 
-/** A tool call that waits for the user: the agent's question and its answers. */
+/** A tool call that waits for the user: a permission to give, the agent's
+ * questions, or its plan. */
 export function PermissionCard({
   permission,
   onAnswer,
+  onKeys,
 }: {
   permission: OwnedPermission;
-  onAnswer(option: string): void;
+  onAnswer(option: string, reply?: PermissionReply): void;
+  /** Takes the keys of the composer's empty field, for a question's choices. */
+  onKeys?(keys: CardKeys | undefined): void;
 }) {
+  if (permission.questions?.length)
+    return (
+      <QuestionCard
+        permission={permission}
+        questions={permission.questions}
+        onAnswer={onAnswer}
+        onKeys={onKeys}
+      />
+    );
+  if (permission.plan)
+    return <PlanCard permission={permission} plan={permission.plan} onAnswer={onAnswer} />;
   const first = permission.options.find((option) => option.kind === "allow_once");
   return (
     <div role="group" aria-label="Permission request" {...stylex.props(styles.ask)}>
@@ -209,6 +226,9 @@ export function SessionComposer({
   const [menuClosed, setMenuClosed] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  // A choice that asks first, such as Bypass permissions.
+  const [confirming, setConfirming] = useState<{ setting: string; value: string } | null>(null);
+  const cardKeys = useRef<CardKeys>(undefined);
   const menuId = useId();
   const chosen = drafts.filter((draft) => !left.has(draft.id));
   const empty = !text.trim() && !chosen.length && !attachments.length && !images.length;
@@ -267,6 +287,23 @@ export function SessionComposer({
   const settings = [...(owned?.state.settings ?? [])].sort(
     (a, b) => SETTING_ORDER.indexOf(a.category) - SETTING_ORDER.indexOf(b.category),
   );
+  const modeSetting = settings.find((setting) => setting.category === "mode" && setting.cycle);
+  const asked = confirming
+    ? settings
+        .find((setting) => setting.id === confirming.setting)
+        ?.options.find((option) => option.value === confirming.value)
+    : undefined;
+  const cancelOnEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    setConfirming(null);
+  };
+  const choose = (setting: OwnedSetting, value: string) => {
+    const option = setting.options.find((entry) => entry.value === value);
+    if (option?.confirm && value !== setting.value) setConfirming({ setting: setting.id, value });
+    else void act({ action: "setting", id: setting.id, value });
+  };
   const complete = (command: OwnedCommand) => {
     setText(`/${command.name} `);
     setHighlight(0);
@@ -291,6 +328,24 @@ export function SessionComposer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentions.onKeyDown(event)) return;
+    // While the field is empty, a question's number keys pick its choices.
+    if (!text && cardKeys.current?.(event)) return;
+    // ⇧Tab steps through the modes, as in Claude Code's terminal.
+    if (
+      event.key === "Tab" &&
+      event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      modeSetting?.cycle?.length &&
+      !stopped
+    ) {
+      event.preventDefault();
+      const cycle = modeSetting.cycle;
+      const next = cycle[(cycle.indexOf(modeSetting.value) + 1) % cycle.length]!;
+      void act({ action: "setting", id: modeSetting.id, value: next });
+      return;
+    }
     if (matches.length) {
       const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
       if (move) {
@@ -340,10 +395,51 @@ export function SessionComposer({
         <PermissionCard
           key={owned.state.permission.id}
           permission={owned.state.permission}
-          onAnswer={(option) =>
-            void act({ action: "permission", id: owned.state.permission!.id, option })
+          onKeys={(keys) => {
+            cardKeys.current = keys;
+          }}
+          onAnswer={(option, reply) =>
+            void act({ action: "permission", id: owned.state.permission!.id, option, ...reply })
           }
         />
+      )}
+      {confirming && asked && (
+        <div role="alertdialog" aria-label={`${asked.name}?`} {...stylex.props(styles.ask)}>
+          <div {...stylex.props(styles.askTitle)}>
+            <Icon name="alert" size={13} />
+            {asked.name}?
+          </div>
+          <p {...stylex.props(styles.askText)}>{asked.confirm}</p>
+          <div {...stylex.props(styles.askActions)}>
+            <button
+              type="button"
+              // oxlint-disable-next-line jsx-a11y/no-autofocus -- The safe answer takes the focus.
+              autoFocus
+              onKeyDown={cancelOnEscape}
+              onClick={() => setConfirming(null)}
+              {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.askButton)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onKeyDown={cancelOnEscape}
+              onClick={() => {
+                setConfirming(null);
+                void act({ action: "setting", id: confirming.setting, value: confirming.value });
+              }}
+              {...stylex.props(
+                ui.button,
+                ui.pressable,
+                ui.outlined,
+                styles.askButton,
+                styles.danger,
+              )}
+            >
+              {asked.name}
+            </button>
+          </div>
+        </div>
       )}
       {notice ??
         (halt?.kind === "stopped" && !stopped && (
@@ -568,7 +664,7 @@ export function SessionComposer({
                     ...(option.description ? { description: option.description } : {}),
                   }))}
                   disabled={stopped || (setting.idleOnly && working)}
-                  onChange={(value) => void act({ action: "setting", id: setting.id, value })}
+                  onChange={(value) => choose(setting, value)}
                   trigger={styles.picker}
                 />
               ))}
@@ -920,6 +1016,8 @@ const styles = stylex.create({
     wordBreak: "break-all",
   },
   askActions: { display: "flex", flexWrap: "wrap", gap: 6 },
+  askText: { margin: 0, color: tokens.muted, fontSize: 12, lineHeight: 1.5 },
+  danger: { color: tokens.red },
   askButton: { minHeight: 26, fontSize: 12 },
   status: {
     flex: "1",
