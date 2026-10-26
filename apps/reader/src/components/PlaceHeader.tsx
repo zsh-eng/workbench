@@ -24,6 +24,12 @@ const FADE = {
   exit: { opacity: 0, transition: MOTION.exit },
 };
 
+const GLYPH_FADE = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: 0.15 } },
+  exit: { opacity: 0, transition: { duration: 0.15 } },
+};
+
 /** Keys typed here belong to a field or an open menu, not to the search. */
 const KEYBOARD_OWNERS =
   "input, textarea, select, [contenteditable='true'], [role='menu'], [role='dialog'], [role='listbox']";
@@ -179,15 +185,6 @@ export function PlaceHeader({
                     {count}
                   </span>
                 )}
-                <button
-                  type="button"
-                  aria-label="Close search"
-                  title="Close search (Esc)"
-                  onClick={() => setSearch(null)}
-                  className={APP_HEADER_BUTTON}
-                >
-                  <X className="size-4" strokeWidth={1.6} />
-                </button>
               </motion.div>
             ) : (
               <motion.div
@@ -201,17 +198,32 @@ export function PlaceHeader({
           </AnimatePresence>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          {!searching && (
-            <button
-              type="button"
-              aria-label="Search"
-              title="Search (/)"
-              onClick={() => openSearch()}
-              className={APP_HEADER_BUTTON}
-            >
-              <Search className="size-4" strokeWidth={1.7} />
-            </button>
-          )}
+          {/* One button opens and closes the search and keeps its place, so
+              the row beside it does not move. Its meaning changes in place:
+              a 150 ms cross-fade of the glyph, no movement. */}
+          <button
+            type="button"
+            aria-label={searching ? "Close search" : "Search"}
+            title={searching ? "Close search (Esc)" : "Search (/)"}
+            onClick={() => (searching ? setSearch(null) : openSearch())}
+            className={APP_HEADER_BUTTON}
+          >
+            <span className="relative grid size-4 place-items-center">
+              <AnimatePresence initial={false}>
+                <motion.span
+                  key={searching ? "close" : "search"}
+                  className="absolute inset-0 grid place-items-center"
+                  {...GLYPH_FADE}
+                >
+                  {searching ? (
+                    <X className="size-4" strokeWidth={1.6} />
+                  ) : (
+                    <Search className="size-4" strokeWidth={1.7} />
+                  )}
+                </motion.span>
+              </AnimatePresence>
+            </span>
+          </button>
           {actions}
           <AccountMenu />
         </div>
