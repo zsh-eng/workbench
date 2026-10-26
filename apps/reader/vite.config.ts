@@ -20,7 +20,10 @@ const precache = readerPrecache({
   ],
   // The Latin faces of the interface (DM Sans, Inter for figures, EB
   // Garamond for titles) and of the default reading font, Lora. Other
-  // reading fonts and other scripts load when text first uses them.
+  // reading fonts and other scripts load when text first uses them. The sans
+  // reading fonts stay out too: the saved one downloads once the Library has
+  // painted, when the pagination worker warms with it, so it is offline
+  // before a book needs it (src/features/reader/README.md, Reading fonts).
   precacheFonts: /^assets\/(dm-sans|inter|eb-garamond|lora)-latin-\d+-/,
 });
 
