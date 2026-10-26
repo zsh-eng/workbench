@@ -49,7 +49,7 @@ export function useArrivalGrid(
   }, [places, holdPlaces, shown]);
 }
 
-/** Arrivals with no book in the library yet: an empty library waits for them. */
+/** Arrivals not on the shelf yet: an empty library waits for them. */
 export function usePendingArrivalCount(): number {
   return useArrivalPlaces().filter((place) => place.pending).length;
 }

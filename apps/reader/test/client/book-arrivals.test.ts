@@ -2,7 +2,11 @@ import {
   ArrivalProvider,
   type Arrival,
 } from "@/features/arrivals/arrival-store";
-import { ArrivalTile, useArrivalGrid } from "@/features/arrivals/ArrivalTile";
+import {
+  ArrivalTile,
+  useArrivalGrid,
+  usePendingArrivalCount,
+} from "@/features/arrivals/ArrivalTile";
 import { ArrivingCover } from "@/features/arrivals/ArrivingCover";
 import {
   ArrivalRecords,
@@ -215,6 +219,22 @@ describe("the covers grid while books arrive", () => {
     const { result } = grid(records, [older], false);
 
     expect(describeItems(result.current)).toEqual(["older"]);
+  });
+
+  it("keeps an empty library waiting until a ready book settles on the shelf", () => {
+    const records = new ArrivalRecords();
+    const { keys } = records.start(["one.epub"]);
+    const { result } = renderHook(() => usePendingArrivalCount(), {
+      wrapper: provider(records),
+    });
+    expect(result.current).toBe(1);
+
+    // The import has written the book; the Library has not read it yet.
+    act(() => records.ready(keys[0]!, book("one", 1)));
+    expect(result.current).toBe(1);
+
+    act(() => records.settle(keys[0]!));
+    expect(result.current).toBe(0);
   });
 
   it("leaves a book's place empty while the arrival sheet shows it", () => {

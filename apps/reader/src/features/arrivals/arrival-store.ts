@@ -47,7 +47,11 @@ export interface ArrivalPlace {
   sourceFileId: ArrivalRecord["sourceFileId"];
   duplicate: boolean;
   settled: boolean;
-  /** No book in the library yet. */
+  /**
+   * Not on the shelf yet. A book with an id still counts until it settles,
+   * because the Library reads its books a moment after the import writes
+   * them, and an empty Library must not show as empty meanwhile.
+   */
   pending: boolean;
 }
 
@@ -135,7 +139,7 @@ class ArrivalFeed {
         sourceFileId: arrival.sourceFileId,
         duplicate: arrival.progress.stage === "duplicate",
         settled: arrival.settled,
-        pending: !arrival.bookId && arrival.progress.stage !== "duplicate",
+        pending: !arrival.settled && arrival.progress.stage !== "duplicate",
       }),
     );
     const signature = places
