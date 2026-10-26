@@ -444,7 +444,7 @@ export function PullRequestTitle({
       >
         <Icon name="github" size={14} />
         <span {...stylex.props(styles.pullNumber)}>#{number}</span>
-        <span {...stylex.props(styles.ellipsis)}>{heading}</span>
+        <span {...stylex.props(styles.ellipsis, styles.pullTitle)}>{heading}</span>
         <Icon name="external" size={12} />
       </a>
       {pull && (
@@ -475,6 +475,8 @@ const styles = stylex.create({
     textDecoration: { default: "none", ":hover": "underline" },
   },
   pullNumber: { flexShrink: 0, color: tokens.muted, fontVariantNumeric: "tabular-nums" },
+  /** A long title stops at about 48 characters of text; the link's tooltip has all of it. */
+  pullTitle: { maxWidth: "36ch" },
   pullAuthor: {
     display: { default: "block", "@container (max-width: 520px)": "none" },
     flexShrink: 0,
