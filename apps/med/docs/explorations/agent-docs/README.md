@@ -26,8 +26,8 @@ guide, two repositories, and an unregistered repository.
 | minimal | `med --help` only | 16/22 | 11/22 | 10/22 |
 | none | no docs, no help | 16/22 | 10/22 | not run |
 
-\* A harness fault (since fixed) caused two of the Haiku multi-repository
-failures, in full and in other variants.
+\* A harness fault (since fixed) caused some of Haiku's multi-repository
+failures: both full runs, and one minimal and one none run.
 
 On Opus, every doc variant passed every task. Without docs, Opus still did
 the Git mechanics from the CLI help or its error messages: `--paths`,
@@ -38,8 +38,8 @@ Med conventions:
 - it did not attach a guide;
 - it ran `med add` on an unregistered repository without asking.
 
-The long docs were never better than the condensed ones. They were worse in
-one case. With the full skill, Sonnet and Haiku applied review comments, then
+On Opus and Haiku, the long docs were never better than the condensed ones.
+They were worse in one case. With the full skill, Sonnet and Haiku applied review comments, then
 ran `med review update --key K --guide -` and not `med review create`. That
 keeps the old capture, so the user reviews stale code. This happened in all
 4 Sonnet and Haiku runs of that task with the full skill.
