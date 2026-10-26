@@ -32,7 +32,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ["@pierre/diffs"],
     include: [
-      "lru_map",
+      "@pierre/diffs > lru_map",
       "@base-ui/react/combobox",
       "@base-ui/react/popover",
       "@base-ui/react/tabs",
