@@ -117,3 +117,21 @@ it.each(["add", "update", "remove"] as const)(
     expect(await database.getBookHighlights("book")).toMatchObject([highlight]);
   },
 );
+it("does not highlight a passage too long for one synced record, and says why", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { result } = renderHook(useMutations, { wrapper });
+  act(() =>
+    result.current.add.mutate({
+      ...highlight,
+      id: "whole-chapter",
+      selectedText: "A whole chapter of text. ".repeat(3_000),
+    }),
+  );
+  await waitFor(() => expect(result.current.add.isError).toBe(true));
+  expect(toast.error).toHaveBeenCalledWith(
+    "This passage is too long to highlight. Select less text.",
+    { id: "highlight-save-failed" },
+  );
+  expect(await database.getBookHighlights("book")).toEqual([]);
+  expect(await syncV2Db._sync_outbox.count()).toBe(0);
+});

@@ -5,6 +5,7 @@ import {
 } from "./client-state.js";
 import { SyncRecordError, SyncScopeError } from "./errors.js";
 import {
+  checkSyncValueSize,
   DEFAULT_SYNC_PULL_LIMIT,
   MAX_SYNC_PUSH_CHANGES,
   MAX_SYNC_PUSH_BODY_BYTES,
@@ -256,10 +257,13 @@ function* createPushBatches(changes: readonly SyncPushChange[]) {
   let batch: SyncPushChange[] = [];
   let bodyBytes = envelopeBytes;
   for (const change of changes) {
+    // An outbox written before a limit applied can still hold such a value.
+    checkSyncValueSize(change.value, change.key);
     const validation = syncPushChangeSchema.safeParse(change);
     if (!validation.success) {
+      const issues = validation.error.issues.map((issue) => issue.message);
       throw new SyncRecordError(
-        `Cannot synchronize record ${change.key}: ${validation.error.message}`,
+        `Cannot synchronize record ${change.key}: ${issues.join("; ")}`,
       );
     }
     const changeBytes = encoder.encode(JSON.stringify(change)).byteLength;

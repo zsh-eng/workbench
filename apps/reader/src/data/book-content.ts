@@ -1,6 +1,6 @@
 /** Expanded EPUB files, materialization markers, and regenerable Reader caches. */
 import type { FileId } from "@/lib/files/types";
-import type { Book } from "./books";
+import { syncedBookRow, type Book, type BookStructure } from "./books";
 import { db } from "./database";
 
 // Local-only tables (no sync)
@@ -11,6 +11,17 @@ export interface BookFile {
   content: Blob; // The actual file content
   mediaType: string;
 }
+
+/**
+ * The structure this device read from its copy of the EPUB: the manifest,
+ * reading order and full table of contents. It stays local, because each
+ * device has the EPUB and one synced record cannot hold a large book's
+ * contents. `getBook` reads a book with it.
+ */
+export type BookStructureRow = BookStructure & {
+  bookId: string;
+  sourceFileId: FileId;
+};
 
 /** Durable proof that the current source EPUB was expanded completely. */
 export interface BookMaterialization {
@@ -110,12 +121,40 @@ export async function getBookMaterialization(
   return db.bookMaterializations.get(bookId);
 }
 
+export async function getBookStructure(
+  bookId: string,
+): Promise<BookStructureRow | undefined> {
+  return db.bookStructures.get(bookId);
+}
+
+/** Record the structure of a book whose files are already expanded. */
+export async function putBookStructure(
+  book: Pick<Book, "id" | "sourceFileId">,
+  structure: BookStructure,
+): Promise<void> {
+  await db.bookStructures.put(bookStructureRow(book, structure));
+}
+
+function bookStructureRow(
+  book: Pick<Book, "id" | "sourceFileId">,
+  { manifest, spine, toc }: BookStructure,
+): BookStructureRow {
+  return {
+    bookId: book.id,
+    sourceFileId: book.sourceFileId,
+    manifest,
+    spine,
+    toc,
+  };
+}
+
 /** The tables a materialization writes, for a caller's wider transaction. */
 export function bookMaterializationTables() {
   return [
     db.books,
     db.bookFiles,
     db.bookMaterializations,
+    db.bookStructures,
     db.bookTextCache,
     db.bookChapterSourceCache,
   ];
@@ -124,6 +163,8 @@ export function bookMaterializationTables() {
 /**
  * Replace all source-derived local rows and write the completion marker last.
  * The transaction makes partial extraction indistinguishable from no result.
+ * `book` carries the structure read from the EPUB; the synced row gets only
+ * what `syncedBookRow` keeps of it.
  */
 export async function replaceBookMaterialization(options: {
   book: Book;
@@ -141,8 +182,9 @@ export async function replaceBookMaterialization(options: {
     if (bookFiles.length > 0) {
       await db.bookFiles.bulkPut(bookFiles);
     }
+    await db.bookStructures.put(bookStructureRow(book, book));
     if (writeBook) {
-      await db.books.put({ ...book, isDeleted: false });
+      await db.books.put({ ...syncedBookRow(book), isDeleted: false });
     }
 
     await db.bookMaterializations.put({

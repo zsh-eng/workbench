@@ -5,18 +5,28 @@ import {
   bookMaterializationTables,
   db,
   getBookBySourceFileId,
+  getBookFile,
   getBookMaterialization,
+  getBookStructure,
+  putBookStructure,
   replaceBookMaterialization,
+  withBookStructure,
   type Book,
-  type BookFile,
+  type BookStructure,
 } from "@/lib/db";
-import { parseEPUB, type ParsedEPUB } from "@/lib/epub-parser";
+import {
+  parseEPUB,
+  readBookStructure,
+  type ParsedEPUB,
+} from "@/lib/epub-parser";
 import { files, type IdentifiedFile } from "@/lib/files";
 
 export const BOOK_MATERIALIZATION_RECIPE_VERSION = 1;
 
 export interface BookPreparationResult {
+  /** The book with this device's structure, read from its EPUB. */
   book: Book;
+  /** The caller's Book is out of date: its cover or its structure differs. */
   bookChanged: boolean;
   materialized: boolean;
 }
@@ -50,26 +60,40 @@ export async function prepareNewBook(
   parsedEpub: ParsedEPUB,
   source: IdentifiedFile,
 ): Promise<BookPreparationResult> {
-  return commitMaterialization(
-    parsedEpub.book,
-    parsedEpub.files,
-    parsedEpub.coverBlob,
-    source,
-  );
+  return commitMaterialization(parsedEpub.book, parsedEpub, source);
 }
 
 async function prepareBookOnce(
   book: Book,
   sourceBlob?: Blob,
 ): Promise<BookPreparationResult> {
-  const marker = await getBookMaterialization(book.id);
+  const [marker, structure] = await Promise.all([
+    getBookMaterialization(book.id),
+    getBookStructure(book.id),
+  ]);
   const coverIsComplete = book.cover === null || book.cover.blurHash !== null;
   if (
     marker?.sourceFileId === book.sourceFileId &&
     marker.recipeVersion === BOOK_MATERIALIZATION_RECIPE_VERSION &&
     coverIsComplete
   ) {
-    return { book, bookChanged: false, materialized: false };
+    if (structure?.sourceFileId === book.sourceFileId)
+      return {
+        book: withBookStructure(book, structure),
+        bookChanged: false,
+        materialized: false,
+      };
+    // Expanded before this device kept structures: its files hold one. If
+    // they cannot give it, they are damaged, and expanding again repairs them.
+    const expanded = await readExpandedStructure(book).catch(() => null);
+    if (expanded) {
+      await putBookStructure(book, expanded);
+      return {
+        book: { ...book, ...expanded },
+        bookChanged: !sameStructure(book, expanded),
+        materialized: false,
+      };
+    }
   }
 
   // A complete materialization above needs no original bytes. Otherwise avoid
@@ -91,31 +115,34 @@ async function prepareBookOnce(
     bookId: book.id,
   });
 
-  return commitMaterialization(
-    book,
-    parsedEpub.files,
-    parsedEpub.coverBlob,
-    null,
-  );
+  return commitMaterialization(book, parsedEpub, null);
 }
 
 /**
  * Writes everything the book needs in one transaction: a new book's EPUB,
- * the cover, the Book row, its expanded files and the completion marker. A
- * full disk, a crash or a closed tab leaves all of it or none of it, and
- * nothing uploads until it has committed.
+ * the cover, the Book row, its expanded files, its structure and the
+ * completion marker. A full disk, a crash or a closed tab leaves all of it
+ * or none of it, and nothing uploads until it has committed.
  *
  * `source` is a new book's EPUB; an established book's is already stored.
+ * The structure comes from the EPUB, not from `book`: a synced row can hold
+ * a shortened one.
  */
 async function commitMaterialization(
   book: Book,
-  bookFiles: BookFile[],
-  coverBlob: Blob | undefined,
+  parsedEpub: ParsedEPUB,
   source: IdentifiedFile | null,
 ): Promise<BookPreparationResult> {
-  const cover = await prepareCover(book, coverBlob);
-  const bookChanged = source !== null || !coversEqual(book.cover, cover.ref);
-  const preparedBook = bookChanged ? { ...book, cover: cover.ref } : book;
+  const cover = await prepareCover(book, parsedEpub.coverBlob);
+  const writeBook = source !== null || !coversEqual(book.cover, cover.ref);
+  const { manifest, spine, toc } = parsedEpub.book;
+  const preparedBook: Book = {
+    ...book,
+    manifest,
+    spine,
+    toc,
+    cover: cover.ref,
+  };
 
   const stored = [source, cover.file].filter((file) => file !== null);
   // Files are locked only when this commit stores one: covers read them.
@@ -134,18 +161,33 @@ async function commitMaterialization(
       for (const file of stored) await files.store(file);
       await replaceBookMaterialization({
         book: preparedBook,
-        bookFiles,
+        bookFiles: parsedEpub.files,
         recipeVersion: BOOK_MATERIALIZATION_RECIPE_VERSION,
-        writeBook: bookChanged,
+        writeBook,
       });
     },
   );
 
   return {
     book: preparedBook,
-    bookChanged,
+    bookChanged: writeBook || !sameStructure(book, preparedBook),
     materialized: true,
   };
+}
+
+function readExpandedStructure(book: Book): Promise<BookStructure> {
+  return readBookStructure(async (path) => {
+    const file = await getBookFile(book.id, path);
+    return file && new Uint8Array(await file.content.arrayBuffer());
+  });
+}
+
+/** Both are the structure one EPUB declares, as the parser reads it. */
+function sameStructure(left: BookStructure, right: BookStructure): boolean {
+  return (
+    JSON.stringify([left.manifest, left.spine, left.toc]) ===
+    JSON.stringify([right.manifest, right.spine, right.toc])
+  );
 }
 
 /** The cover reference, and the new cover's bytes to store with the book. */

@@ -152,6 +152,10 @@ implementations with the same transaction guarantees.
 
 The retained v2 limits are 500 records per batch/page, 64 KiB per value,
 1 MiB per encoded push body, and five minutes of allowed future clock skew.
+A local write whose encoded value exceeds 64 KiB fails inside its transaction
+with `SyncValueTooLargeError` (a `SyncRecordError` with `bytes`, `limit` and
+`key`), so nothing is stored that could never sync. Keep large derived data in
+local tables.
 Clock ranges are reserved in the state store before local database writes.
 Callers must serialize use of a shared state store; the current synchronous
 key/value adapter does not coordinate multiple browser tabs.

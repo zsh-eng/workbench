@@ -116,6 +116,7 @@ export function validateLabSnapshot(value: unknown): LabSnapshot {
                 "bookTextCache",
                 "bookChapterSourceCache",
                 "bookMaterializations",
+                "bookStructures",
               ].includes(table)
             ? "bookId"
             : "id";

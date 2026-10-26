@@ -11,6 +11,7 @@ import {
   encodeSyncKey,
   MAX_SYNC_VALUE_BYTES,
   type SyncPushChange,
+  SyncValueTooLargeError,
 } from "@zsh-eng/local-sync";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetIndexedDB } from "../setup/indexeddb";
@@ -213,7 +214,7 @@ describe("sync v2 mutation middleware", () => {
     } as unknown as SyncV2ReadingState;
 
     await expect(db.readingState.add(oversized)).rejects.toThrow(
-      "value must not exceed",
+      SyncValueTooLargeError,
     );
     expect(await db.readingState.count()).toBe(0);
     expect(await db._sync_outbox.count()).toBe(0);

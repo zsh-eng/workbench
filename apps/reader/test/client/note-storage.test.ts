@@ -5,7 +5,7 @@ import {
 } from "@/lib/sync-v2/db";
 import { getOrCreateSyncClientState } from "@/lib/sync-v2/client-state";
 import { resetIndexedDB } from "../setup/indexeddb";
-import { encodeSyncKey } from "@zsh-eng/local-sync";
+import { encodeSyncKey, SyncValueTooLargeError } from "@zsh-eng/local-sync";
 import type { NoteAnchor } from "@/types/note";
 
 let db: EPUBReaderSyncV2DB;
@@ -135,7 +135,9 @@ describe("durable notes and local drafts", () => {
       text: "quote",
     });
     await saveNoteDraft(draft.id, "x".repeat(65536));
-    await expect(submitNoteDraft(draft.id)).rejects.toThrow("size limit");
+    await expect(submitNoteDraft(draft.id)).rejects.toThrow(
+      SyncValueTooLargeError,
+    );
     expect(await db.highlights.count()).toBe(0);
     expect(await db.notes.count()).toBe(0);
     expect(await db._sync_outbox.count()).toBe(0);

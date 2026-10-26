@@ -65,6 +65,11 @@ describe("prepareBook integration", () => {
       bookChanged: false,
       materialized: false,
     });
+    expect(await db.bookStructures.get(book.id)).toMatchObject({
+      sourceFileId,
+      spine: book.spine,
+      manifest: book.manifest,
+    });
 
     const storedFiles = await db.bookFiles
       .where("bookId")
@@ -93,6 +98,10 @@ describe("prepareBook integration", () => {
     );
     const book = createBook(sourceFileId, {
       cover: { fileId: COMPLETE_COVER_FILE_ID, blurHash: BLUR_HASH },
+      manifest: [
+        ...CHAPTER_MANIFEST,
+        { id: "cover-image", href: "OEBPS/cover.jpg", mediaType: "image/jpeg" },
+      ],
     });
     await db.books.put({ ...book, isDeleted: false });
 
@@ -128,6 +137,15 @@ describe("prepareBook integration", () => {
   });
 });
 
+const CHAPTER_MANIFEST = [
+  {
+    id: "chapter",
+    href: "OEBPS/chapter.xhtml",
+    mediaType: "application/xhtml+xml",
+  },
+];
+
+/** A synced Book row with the structure its test EPUB declares. */
 function createBook(sourceFileId: FileId, overrides: Partial<Book> = {}): Book {
   return {
     id: "book-1",
@@ -138,8 +156,8 @@ function createBook(sourceFileId: FileId, overrides: Partial<Book> = {}): Book {
     fileSize: 100,
     dateAdded: 1,
     metadata: {},
-    manifest: [],
-    spine: [],
+    manifest: CHAPTER_MANIFEST,
+    spine: [{ idref: "chapter", linear: true }],
     toc: [],
     ...overrides,
   };

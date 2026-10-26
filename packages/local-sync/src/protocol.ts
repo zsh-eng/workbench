@@ -1,5 +1,6 @@
 import { z } from "zod/mini";
 import { en } from "zod/locales";
+import { SyncRecordError, SyncValueTooLargeError } from "./errors.js";
 
 // zod/mini ships without messages; English keeps the issue text that
 // classic zod gave (it appears in rejected-record failures).
@@ -234,7 +235,13 @@ export function encodeSyncKey(tableName: string, recordId: string): string {
     throw new Error("sync key components must not be empty");
   }
 
-  return syncKeySchema.parse(JSON.stringify([tableName, recordId]));
+  const key = JSON.stringify([tableName, recordId]);
+  if (utf8ByteLength(key) > MAX_SYNC_KEY_BYTES) {
+    throw new SyncRecordError(
+      `Cannot synchronize a ${tableName} record: its ID makes a key longer than ${MAX_SYNC_KEY_BYTES} bytes`,
+    );
+  }
+  return key;
 }
 
 export function decodeSyncKey(key: string): readonly [string, string] {
@@ -262,7 +269,19 @@ export function encodeSyncValue(value: unknown): string {
     throw new Error("sync value must be JSON serializable");
   }
 
-  return syncValueSchema.parse(encoded);
+  return checkSyncValueSize(encoded);
+}
+
+/**
+ * The encoded value, if one record can hold it. Throws SyncValueTooLargeError
+ * otherwise: the check `syncValueSchema` makes, as a typed failure.
+ */
+export function checkSyncValueSize(value: string, key?: string): string {
+  const bytes = utf8ByteLength(value);
+  if (bytes > MAX_SYNC_VALUE_BYTES) {
+    throw new SyncValueTooLargeError(bytes, MAX_SYNC_VALUE_BYTES, key);
+  }
+  return value;
 }
 
 export function decodeSyncValue<Value>(value: string): Value {

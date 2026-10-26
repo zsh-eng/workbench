@@ -1,18 +1,12 @@
 /** Durable notebook entries. Each mutation uses the ordinary sync outbox path. */
 import type { Highlight } from "@/types/highlight";
 import type { Note, NoteAnchor, NoteTarget } from "@/types/note";
-import { MAX_SYNC_VALUE_BYTES } from "@zsh-eng/local-sync";
 import { db, isNotDeleted } from "./database";
 
 export type { Note, NoteAnchor, NoteTarget } from "@/types/note";
 
-function validateRecord(value: object) {
-  if (
-    new TextEncoder().encode(JSON.stringify(value)).byteLength >
-    MAX_SYNC_VALUE_BYTES
-  )
-    throw new Error("Note exceeds the sync record size limit");
-}
+// A note or highlight that one synced record cannot hold fails its write
+// with SyncValueTooLargeError, and the transaction stores none of it.
 
 export function validateNoteContent(content: string): string {
   const trimmed = content.trim();
@@ -40,7 +34,6 @@ export async function addNote(note: Note): Promise<string> {
       : {}),
     isDeleted: false,
   };
-  validateRecord(row);
   return db.notes.add(row);
 }
 
@@ -77,7 +70,6 @@ export async function createNote(
         createdAt: now,
         updatedAt: now,
       };
-      validateRecord({ ...highlight, isDeleted: false });
       await db.highlights.add({ ...highlight, isDeleted: false });
       note.highlightId = highlight.id;
       note.quote = { text: target.text, color: "invisible" };
@@ -140,9 +132,7 @@ export async function updateNote(id: string, content: string): Promise<void> {
     if (!note || !isNotDeleted(note)) throw new Error("Note no longer exists");
     if (note.kind !== "note")
       throw new Error("Bookmarks do not contain note text");
-    const updated = { ...note, content: text, updatedAt: Date.now() };
-    validateRecord(updated);
-    await db.notes.put(updated);
+    await db.notes.put({ ...note, content: text, updatedAt: Date.now() });
   });
 }
 

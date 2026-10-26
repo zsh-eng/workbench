@@ -2,16 +2,20 @@ import {
   assertBookSyncValue,
   normalizeBookFileReferences,
 } from "@/lib/book-file-references";
-import { encodeSyncValue, decodeSyncValue } from "@zsh-eng/local-sync";
+import { decodeSyncValue } from "@zsh-eng/local-sync";
 import type { SyncTableMap } from "@zsh-eng/local-sync/dexie";
 
-/** Reader owns the table set and its domain-specific wire conversions. */
+/**
+ * Reader owns the table set and its domain-specific wire conversions. The
+ * middleware rejects a value that one record cannot hold with a typed
+ * SyncValueTooLargeError; `syncedBookRow` keeps Book rows within it.
+ */
 export const READER_SYNC_TABLES = {
   books: {
     schemaVersion: 1,
     encode(row) {
       assertBookSyncValue(row);
-      return encodeSyncValue(row);
+      return JSON.stringify(row);
     },
     decode(value) {
       return normalizeBookFileReferences(decodeSyncValue(value));
