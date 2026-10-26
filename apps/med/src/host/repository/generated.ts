@@ -9,7 +9,7 @@ import {
 } from "../../shared/generated";
 import { matchGuidePaths } from "../../shared/guide-paths";
 import type { ReviewResponse } from "../../shared/protocol";
-import { git } from "../runtime/process";
+import { git, ProcessFailure } from "../runtime/process";
 
 // Marks the files of a review that a tool writes (docs/GENERATED.md): Git
 // attributes first, then the path, then the header. No step runs Git unless
@@ -169,6 +169,8 @@ export async function markGenerated(
   } = {},
 ) {
   if (!files.length) return;
+  // A Git without `check-attr --source` (before 2.40) gives no attributes,
+  // not a failed review.
   const attributes =
     options.attributes && (await hasAttributes(repo))
       ? await readAttributes(
@@ -176,7 +178,11 @@ export async function markGenerated(
           files.map((file) => file.path),
           options.attributes,
           options.signal,
-        )
+        ).catch((error: unknown) => {
+          options.signal?.throwIfAborted();
+          if (error instanceof ProcessFailure) return undefined;
+          throw error;
+        })
       : undefined;
   const unread: GeneratedInput[] = [];
   for (const file of files) {
