@@ -78,6 +78,14 @@ const pullRequestCommentSchema = z.object({
 export const pullRequestCommentsSchema = z.object({
   url: z.string(),
   head: z.string(),
+  pull: z
+    .object({
+      number: z.number(),
+      title: z.string(),
+      author: z.string(),
+      state: z.enum(["open", "draft", "merged", "closed"]),
+    })
+    .optional(),
   fetchedAt: z.number(),
   threads: z.array(
     z.object({

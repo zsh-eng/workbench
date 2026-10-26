@@ -308,7 +308,11 @@ when there are comments to send, and **Copy comments**, **Clear all
 comments**, **Commands**, and **Files** are in its **⋯** menu.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
-the title for the time Med saved the review and its repository. See
+the title for the time Med saved the review and its repository. Beside a
+thread, a pull request heads the review card in a row of its own, above the
+tabs: its number and title, which open it on GitHub, its author, its state
+(**Open**, **Draft**, **Merged**, or **Closed**), and its comments. A long
+title is cut at its end, so the tabs and the files keep their room. See
 [titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ### Agent sessions

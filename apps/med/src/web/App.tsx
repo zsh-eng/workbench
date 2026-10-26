@@ -119,7 +119,11 @@ import { placeThreads } from "./data/pull-request";
 import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
 import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
-import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
+import {
+  PullRequestHeader,
+  SavedReviewHeader,
+  type SavedReviewActions,
+} from "./components/SavedReviewHeader";
 import {
   comparisonLabel,
   type ComparisonLabel,
@@ -2159,19 +2163,23 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { guide: note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -5388,6 +5396,16 @@ export function App({
           {/* The review's own row heads the card; beside a thread, its actions
         join the tab row. */}
           {state.savedReview && !zen && !sessionVisible && !quiet && savedHeader(false)}
+          {/* Beside a thread, a pull request heads the card, above the tabs. */}
+          {state.savedReview?.pullRequestUrl && !zen && (quiet || sessionVisible) && (
+            <PullRequestHeader
+              url={state.savedReview.pullRequestUrl}
+              title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+              pull={pullRequest.data?.pull}
+              pullRequest={pullRequest}
+              threadPlacement={pullRequestThreads.placement}
+            />
+          )}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
           {quiet && state.status === "loading" && (

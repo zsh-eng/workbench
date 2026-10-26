@@ -3,6 +3,7 @@ import { z } from "zod";
 import type {
   PullRequestComment,
   PullRequestComments,
+  PullRequestSummary,
   PullRequestThread,
 } from "../../shared/protocol";
 import { HostError } from "../runtime/errors";
@@ -33,6 +34,25 @@ const reviewComment = comment.extend({
 const review = comment.extend({ state: z.string() });
 
 const AUTHOR = 'author: (.user.login // "ghost")';
+/** The pull request itself: its head, which thread lines refer to, and what
+ * the header says of it. */
+const PULL = `{head: .head.sha, number, title, ${AUTHOR}, state, draft, merged}`;
+const pull = z.object({
+  head: z.string(),
+  number: z.number(),
+  title: z.string(),
+  author: z.string(),
+  state: z.string(),
+  draft: z.boolean().nullable().optional(),
+  merged: z.boolean().nullable().optional(),
+});
+const summary = ({ number, title, author, state, draft, merged }: z.infer<typeof pull>) =>
+  ({
+    number,
+    title,
+    author,
+    state: merged ? "merged" : state === "closed" ? "closed" : draft ? "draft" : "open",
+  }) satisfies PullRequestSummary;
 const INLINE = `.[] | {id, ${AUTHOR}, body, createdAt: .created_at, url: .html_url, reply: .in_reply_to_id, path, line, startLine: .start_line, originalLine: .original_line, side}`;
 
 async function gh(host: string, args: string[]) {
@@ -82,7 +102,9 @@ async function load(url: string): Promise<PullRequestComments> {
   const [, host, owner, repo, number] = match;
   const base = `repos/${owner}/${repo}`;
   const [head, inline, conversation, reviews] = await Promise.all([
-    gh(host!, [`${base}/pulls/${number}`, "--jq", ".head.sha"]),
+    gh(host!, [`${base}/pulls/${number}`, "--jq", PULL]).then((text) =>
+      pull.parse(JSON.parse(text)),
+    ),
     gh(host!, ["--paginate", `${base}/pulls/${number}/comments?per_page=100`, "--jq", INLINE]),
     gh(host!, [
       "--paginate",
@@ -139,7 +161,8 @@ async function load(url: string): Promise<PullRequestComments> {
   }
   return {
     url,
-    head: head.trim(),
+    head: head.head,
+    pull: summary(head),
     fetchedAt: Date.now(),
     threads: [...threads.values()],
     conversation: lines(conversation, comment).map(toComment),

@@ -69,9 +69,12 @@ const comment = (id: number, author: string, body: string) => ({
 let pullHead = tip;
 /** The first comment's text; a test gives it more Markdown. */
 let firstBody = "Rename `after` to `next`.";
+/** GitHub's title of the pull request; a test makes it long. */
+let pullTitle = "Rename the export";
 const pullRequest = (): PullRequestComments => ({
   url: pullUrl,
   head: pullHead,
+  pull: { number: 7, title: pullTitle, author: "mira", state: "open" },
   fetchedAt: Date.now(),
   threads: [
     {
@@ -223,6 +226,7 @@ beforeEach(async () => {
   await page.viewport(1280, 800);
   pullHead = tip;
   firstBody = "Rename `after` to `next`.";
+  pullTitle = "Rename the export";
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
   setChromeMode("quiet", false);
@@ -360,4 +364,38 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.querySelector("img[onerror], b")).toBeNull();
   expect((window as { __injected?: number }).__injected).toBeUndefined();
   expect(element.textContent).not.toContain("```");
+});
+
+test("a pull request heads the thread's card with its number, title, author, and state; the tabs and the files keep their room", async () => {
+  pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
+  await openChanges();
+  const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
+  await expect.element(link).toBeVisible();
+  expect(link.element().getAttribute("href")).toBe(pullUrl);
+  expect(link.element().getAttribute("target")).toBe("_blank");
+  const header = link.element().closest("header")!;
+  await expect.poll(() => header.textContent).toMatch(/#7\s*Rename the export.*mira\s*Open/);
+  // One row: the title gives way, cut at its end; the author and state stay.
+  expect(
+    header.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
+  ).toBeGreaterThan(0);
+  expect(header.getBoundingClientRect().height).toBeLessThanOrEqual(40);
+  const title = [...link.element().querySelectorAll("span")].at(-1)!;
+  expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
+  // The header heads the review card. The tab row has no pull request in it,
+  // and the Changed files pane starts at the top of the workspace.
+  const review = header.closest<HTMLElement>("[data-pane]")!;
+  expect(review.dataset.pane).toBe("review");
+  expect(header.nextElementSibling?.querySelector('[role="tablist"]')).not.toBeNull();
+  expect(header.nextElementSibling?.textContent).not.toContain("Rename the export");
+  const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
+  expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
+  expect(files.textContent).not.toContain("Rename the export");
+  // The comments count moved to the header too.
+  await expect
+    .element(page.getByRole("button", { name: "5 pull request comments" }))
+    .toHaveTextContent("5 comments");
+  expect(
+    header.contains(page.getByRole("button", { name: "5 pull request comments" }).element()),
+  ).toBe(true);
 });
