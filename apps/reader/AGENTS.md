@@ -115,6 +115,9 @@ The following data is local-only and regenerable:
 - `bookFiles` contains expanded EPUB entries.
 - `bookMaterializations` proves that expansion completed for one source file
   and recipe version.
+- `bookStructures` holds the manifest, spine and table of contents read from
+  the EPUB. `getBook` reads a book with it. The synced Book row keeps them only
+  while they fit in one record (`syncedBookRow`), for older app versions.
 - `bookTextCache` and `bookChapterSourceCache` contain Reader-derived data.
 - `files` contains local binary bytes.
 - `fileUploadOperations` contains durable upload intent.

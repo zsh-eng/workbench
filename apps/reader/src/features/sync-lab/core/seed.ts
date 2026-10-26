@@ -28,7 +28,7 @@ export async function listSourceBooks(): Promise<SourceBook[]> {
   const source = new Dexie(SYNC_V2_DATABASE_NAME);
   try {
     await source.open();
-    if (source.verno !== 6)
+    if (source.verno !== 7)
       throw new Error(
         "Open Reader to update the local library before capturing it in Sync Lab.",
       );
@@ -51,7 +51,7 @@ export async function captureLocalSeed(
   const source = new Dexie(SYNC_V2_DATABASE_NAME);
   try {
     await source.open();
-    if (source.verno !== 6) {
+    if (source.verno !== 7) {
       throw new Error(
         "Open Reader to update the local library before capturing it in Sync Lab.",
       );

@@ -1,5 +1,9 @@
 import type { BrowserContext } from "@playwright/test";
-import type { SyncPushChange, SyncRecord } from "@zsh-eng/local-sync";
+import {
+  syncPushBodySchema,
+  type SyncPushChange,
+  type SyncRecord,
+} from "@zsh-eng/local-sync";
 
 /** A local, deterministic remote for UI tests. Protocol conflicts belong in integration tests. */
 export async function mockApi(context: BrowserContext, signedIn = false) {
@@ -58,9 +62,14 @@ export async function mockApi(context: BrowserContext, signedIn = false) {
       return;
     }
     if (path === "/api/sync/v2/push") {
-      const { changes } = request.postDataJSON() as {
-        changes: SyncPushChange[];
-      };
+      // The server's own validation: a client must never send what it rejects.
+      const body = syncPushBodySchema.safeParse(request.postDataJSON());
+      if (!body.success) {
+        unexpected.push(`Invalid push: ${body.error.message}`);
+        await route.fulfill({ status: 400, json: { error: "Invalid push" } });
+        return;
+      }
+      const { changes } = body.data;
       pushed.push(...changes);
       await route.fulfill({
         json: {

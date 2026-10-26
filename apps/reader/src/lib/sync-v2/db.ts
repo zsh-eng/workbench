@@ -12,6 +12,7 @@ import type {
   BookChapterSourceCache,
   BookFile,
   BookMaterialization,
+  BookStructureRow,
   BookTextCache,
 } from "@/data/book-content";
 import type { ReadingCheckpoint } from "@/data/reading-checkpoints";
@@ -88,6 +89,7 @@ export const SYNC_V2_STORES = {
   files: "id, remotePresent, storedAt",
   fileUploadOperations: "id, createdAt",
   bookMaterializations: "bookId, sourceFileId, recipeVersion",
+  bookStructures: "bookId",
 } as const;
 
 export const SYNC_V2_VERSION_4_STORES = {
@@ -246,6 +248,7 @@ export class EPUBReaderSyncV2DB extends Dexie {
 
   bookFiles!: Table<BookFile, string>;
   bookMaterializations!: Table<BookMaterialization, string>;
+  bookStructures!: Table<BookStructureRow, string>;
   files!: Table<LocalFile, FileId>;
   fileUploadOperations!: Table<FileUploadOperation, FileId>;
   bookTextCache!: Table<BookTextCache, string>;
@@ -274,6 +277,7 @@ export class EPUBReaderSyncV2DB extends Dexie {
       notes: SYNC_V2_STORES.notes,
       noteDrafts: SYNC_V2_STORES.noteDrafts,
     });
+    this.version(7).stores({ bookStructures: SYNC_V2_STORES.bookStructures });
   }
 }
 

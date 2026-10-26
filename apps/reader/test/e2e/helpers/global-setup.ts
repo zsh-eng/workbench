@@ -91,7 +91,13 @@ export default async function globalSetup(config: FullConfig) {
     const snapshot: PreparedLibrary = await page.evaluate(
       async (modulePath) => {
         const { syncV2Db: db } = await import(modulePath);
-        const tables = ["books", "files", "bookFiles", "bookMaterializations"];
+        const tables = [
+          "books",
+          "files",
+          "bookFiles",
+          "bookMaterializations",
+          "bookStructures",
+        ];
         return Object.fromEntries(
           await Promise.all(
             tables.map(async (table) => {

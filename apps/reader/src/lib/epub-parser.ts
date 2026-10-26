@@ -1,6 +1,7 @@
 import type {
   Book,
   BookFile,
+  BookStructure,
   ManifestItem,
   SpineItem,
   TOCItem,
@@ -53,30 +54,9 @@ export async function parseEPUB(
   const unzipped = await openArchive(uint8Array);
   if (isDrmProtected(unzipped)) throw new BookImportError({ kind: "drm" });
 
-  // Parse container.xml to find the OPF file
-  const opfPath = await findOPFPath(unzipped);
-  const opfData = opfPath ? unzipped[opfPath] : undefined;
-  if (!opfPath || !opfData) {
-    throw new BookImportError({ kind: "incomplete", missing: "package" });
-  }
-
-  // Parse the OPF file
-  const opfContent = new TextDecoder().decode(opfData);
-  const opfDoc = new DOMParser().parseFromString(opfContent, "text/xml");
-
-  // Extract metadata
+  const { opfDoc, structure } = await readPackage((path) => unzipped[path]);
+  const { manifest, spine, toc } = structure;
   const metadata = extractMetadata(opfDoc);
-
-  // Extract manifest
-  const manifest = extractManifest(opfDoc, opfPath);
-
-  // Extract spine
-  const spine = extractSpine(opfDoc);
-  if (!spine.some((item) => manifest.some((entry) => entry.id === item.idref)))
-    throw new BookImportError({ kind: "incomplete", missing: "contents" });
-
-  // Extract table of contents
-  const toc = await extractTOC(opfDoc, manifest, unzipped, opfPath);
 
   const { coverBlob } = await extractCoverInfo(
     opfDoc,
@@ -231,14 +211,51 @@ function unzipAsync(data: Uint8Array): Promise<Record<string, Uint8Array>> {
   });
 }
 
+/** One entry of the archive by its path, from memory or from storage. */
+type ReadEntry = (
+  path: string,
+) => Uint8Array | undefined | Promise<Uint8Array | undefined>;
+
+/**
+ * The package document and the structure it declares: the manifest, the
+ * reading order, and the table of contents from the nav document or NCX.
+ */
+async function readPackage(
+  read: ReadEntry,
+): Promise<{ opfDoc: Document; structure: BookStructure }> {
+  const opfPath = await findOPFPath(read);
+  const opfData = opfPath ? await read(opfPath) : undefined;
+  if (!opfPath || !opfData) {
+    throw new BookImportError({ kind: "incomplete", missing: "package" });
+  }
+
+  const opfContent = new TextDecoder().decode(opfData);
+  const opfDoc = new DOMParser().parseFromString(opfContent, "text/xml");
+  const manifest = extractManifest(opfDoc, opfPath);
+  const spine = extractSpine(opfDoc);
+  if (!spine.some((item) => manifest.some((entry) => entry.id === item.idref)))
+    throw new BookImportError({ kind: "incomplete", missing: "contents" });
+
+  const toc = await extractTOC(manifest, read, opfPath);
+  return { opfDoc, structure: { manifest, spine, toc } };
+}
+
+/**
+ * The structure of an EPUB from a few of its entries, such as the expanded
+ * files of a book: the container, the package, and the contents document.
+ */
+export async function readBookStructure(
+  read: ReadEntry,
+): Promise<BookStructure> {
+  return (await readPackage(read)).structure;
+}
+
 /**
  * Find the path to the OPF file by parsing META-INF/container.xml
  */
-async function findOPFPath(
-  files: Record<string, Uint8Array>,
-): Promise<string | null> {
+async function findOPFPath(read: ReadEntry): Promise<string | null> {
   const containerPath = "META-INF/container.xml";
-  const containerData = files[containerPath];
+  const containerData = await read(containerPath);
 
   if (!containerData) {
     return null;
@@ -375,9 +392,8 @@ function extractSpine(opfDoc: Document): SpineItem[] {
  * Extract table of contents from NCX (EPUB2) or NAV (EPUB3)
  */
 async function extractTOC(
-  _opfDoc: Document,
   manifest: ManifestItem[],
-  files: Record<string, Uint8Array>,
+  read: ReadEntry,
   opfPath: string,
 ): Promise<TOCItem[]> {
   // Try EPUB3 NAV first
@@ -388,7 +404,7 @@ async function extractTOC(
   );
 
   if (navItem) {
-    const navContent = files[navItem.href];
+    const navContent = await read(navItem.href);
     if (navContent) {
       const navDoc = new DOMParser().parseFromString(
         new TextDecoder().decode(navContent),
@@ -416,7 +432,7 @@ async function extractTOC(
   );
 
   if (ncxItem) {
-    const ncxContent = files[ncxItem.href];
+    const ncxContent = await read(ncxItem.href);
     if (ncxContent) {
       const ncxDoc = new DOMParser().parseFromString(
         new TextDecoder().decode(ncxContent),

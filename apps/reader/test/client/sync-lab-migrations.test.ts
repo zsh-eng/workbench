@@ -14,7 +14,7 @@ describe("Sync Lab historical database migrations", () => {
       const report = await runMigrationScenario(version);
       expect(report.databaseName).toMatch(/^sync-lab-migration-/);
       expect(report.before.version).toBe(version);
-      expect(report.toVersion).toBe(6);
+      expect(report.toVersion).toBe(7);
       expect(report.passed).toBe(true);
       expect(report.checks).toHaveLength(7);
       expect(report.after.counts.books).toBe(1);
