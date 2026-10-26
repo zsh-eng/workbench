@@ -1,34 +1,56 @@
 import { cn } from "@/lib/utils";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
+import type { ArrivalSheetProps } from "./ArrivalSheet";
 import type { ArrivingCoverProps } from "./ArrivingCover";
 import { useArrivalEnvironment } from "./arrival-store";
 
-// The drawing loads with the first arrival, so the Library does not carry it.
-const ArrivingCover = lazy(() =>
-  import("./ArrivingCover").then((module) => ({
-    default: module.ArrivingCover,
-  })),
+// The drawing and the sheet load with the first arrival, so the Library
+// does not carry them. Once a chunk is here its component renders at once:
+// React.lazy suspends on its first render even when the chunk is loaded,
+// and React then holds the fallback for up to 300 ms. Under the arrival
+// sheet's flight that fallback was a blank cover.
+let LoadedCover: ComponentType<ArrivingCoverProps> | null = null;
+const loadCover = () =>
+  import("./ArrivingCover").then((module) => {
+    LoadedCover = module.ArrivingCover;
+    return module;
+  });
+const LazyCover = lazy(() =>
+  loadCover().then((module) => ({ default: module.ArrivingCover })),
+);
+
+let LoadedSheet: ComponentType<ArrivalSheetProps> | null = null;
+const loadSheet = () =>
+  import("./ArrivalSheet").then((module) => {
+    LoadedSheet = module.ArrivalSheet;
+    return module;
+  });
+const LazySheet = lazy(() =>
+  loadSheet().then((module) => ({ default: module.ArrivalSheet })),
 );
 
 /** Start loading the drawing, and its engine, before the first book needs it. */
 export function preloadArrivingCover() {
-  void import("./ArrivingCover").then((module) => module.warmArrivingCover());
+  void loadCover().then((module) => module.warmArrivingCover());
 }
-
-const loadArrivalSheet = () => import("./ArrivalSheet");
-
-/** The sheet one book on its own arrives in, loaded when it is first needed. */
-export const LazyArrivalSheet = lazy(() =>
-  loadArrivalSheet().then((module) => ({ default: module.ArrivalSheet })),
-);
 
 /**
  * Start loading the arrival sheet and the drawing while you choose files,
  * so a slow phone shows the sheet with the import, not after it.
  */
 export function preloadArrivals() {
-  void loadArrivalSheet();
+  void loadSheet();
   preloadArrivingCover();
+}
+
+/** The sheet one book on its own arrives in, loaded when it is first needed. */
+export function LazyArrivalSheet(props: ArrivalSheetProps) {
+  const Sheet = LoadedSheet ?? LazySheet;
+  return (
+    <Suspense fallback={null}>
+      <Sheet {...props} />
+    </Suspense>
+  );
 }
 
 /**
@@ -48,11 +70,12 @@ export function LazyArrivingCover(
         className={cn("block bg-secondary", props.className)}
       />
     );
+  const Cover = LoadedCover ?? LazyCover;
   return (
     <Suspense
       fallback={<span className={cn("block bg-secondary", props.className)} />}
     >
-      <ArrivingCover
+      <Cover
         {...props}
         look={look}
         relief={reliefFor(props.arrival.sourceFileId)}

@@ -15,7 +15,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   createElement,
-  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -242,23 +241,19 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
     { value },
     children,
     sheetKey
-      ? createElement(
-          Suspense,
-          { fallback: null },
-          createElement(LazyArrivalSheet, {
-            key: sheetKey,
-            arrivalKey: sheetKey,
-            onOpenBook: (bookId: string, title: string) => {
-              beginReaderTrace({
-                bookId,
-                bookTitle: title,
-                source: "arrival-sheet",
-              });
-              navigate(`/reader/${bookId}`);
-            },
-            onDone: () => setSheetKey(null),
-          }),
-        )
+      ? createElement(LazyArrivalSheet, {
+          key: sheetKey,
+          arrivalKey: sheetKey,
+          onOpenBook: (bookId: string, title: string) => {
+            beginReaderTrace({
+              bookId,
+              bookTitle: title,
+              source: "arrival-sheet",
+            });
+            navigate(`/reader/${bookId}`);
+          },
+          onDone: () => setSheetKey(null),
+        })
       : null,
     duplicateBook
       ? createElement(DuplicateBookDialog, {
