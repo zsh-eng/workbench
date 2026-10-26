@@ -63,6 +63,7 @@ import {
   sourceSchema,
 } from "./api";
 import { browserFetch } from "./live";
+import { generatedMark } from "./generated";
 import { readServerEvents } from "./sse";
 
 export type { ParsedReviewFile } from "../../shared/review";
@@ -240,6 +241,11 @@ interface CachedReview {
 }
 const savedKey = (reviewId: string, targetId: string) =>
   JSON.stringify(["saved", reviewId, targetId]);
+/** The file that a review selects first: the first that a tool did not write,
+ * since generated files fold at the stream's end (docs/GENERATED.md). */
+function firstFile(files: readonly ParsedReviewFile[]): string | null {
+  return (files.find((file) => !generatedMark(file.info)) ?? files[0])?.id ?? null;
+}
 function immutableComparison(comparison: Comparison): boolean {
   const objectId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i;
   // A session's edited files grow while it works.
@@ -629,7 +635,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       visibleFiles.find((file) => file.path === restoreFilePath)?.id ??
       (visibleFiles.some((file) => file.id === snapshot.selectedFileId)
         ? snapshot.selectedFileId
-        : (visibleFiles[0]?.id ?? null));
+        : firstFile(visibleFiles));
     restoreFilePath = null;
     if (reconciled.filter !== snapshot.filter)
       reconciled = reduceReviewState(reconciled, { type: "filter/set", filter: snapshot.filter });
@@ -2523,7 +2529,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const visibleFiles = filtered(snapshot.files, filter);
       const selectedFileId = visibleFiles.some((file) => file.id === snapshot.selectedFileId)
         ? snapshot.selectedFileId
-        : (visibleFiles[0]?.id ?? null);
+        : firstFile(visibleFiles);
       const semantic = snapshot.semantic
         ? reduceReviewState(snapshot.semantic, { type: "filter/set", filter })
         : null;
