@@ -13,6 +13,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { importSummary } from "@/features/library/ImportOutcomes";
 import { toast } from "sonner";
 import {
   createArrivalDemo,
@@ -224,15 +225,9 @@ function DemoWorld({ demo, look }: { demo: ArrivalDemo; look: IdeaLook }) {
   useEffect(() => {
     if (single) return;
     let cancelled = false;
-    void demo.finished.then(({ added, duplicates, failed }) => {
+    void demo.finished.then((counts) => {
       if (cancelled) return;
-      const parts = [
-        added && `Added ${added} book${added === 1 ? "" : "s"}`,
-        duplicates && `skipped ${duplicates}`,
-        failed && `failed ${failed}`,
-      ].filter(Boolean);
-      const message = parts.join("; ");
-      toast.success(`${message.charAt(0).toUpperCase()}${message.slice(1)}.`, {
+      toast.success(importSummary(counts), {
         id: "arriving-books-demo",
         duration: 3000,
       });

@@ -5,6 +5,7 @@ import {
   type ArrivalRecord,
   type ArrivalRecords,
 } from "@/lib/book-arrivals";
+import { BookImportError } from "@/lib/book-import-errors";
 import type { ActivitySnapshot, Job } from "@workbench/background-activity";
 import {
   createContext,
@@ -32,6 +33,11 @@ export interface Arrival extends ArrivalRecord {
 export type ArrivalLook = "develop" | "light" | "ink" | "calm" | "still";
 
 export const LIBRARY_ARRIVAL_LOOK: ArrivalLook = "light";
+
+/** Why an arrival failed. A job that ended without saying failed unexpectedly. */
+export function arrivalError(arrival: ArrivalRecord): BookImportError {
+  return arrival.error ?? new BookImportError({ kind: "unexpected" });
+}
 
 /** The jobs to read: the app's queue, or a demo's own. */
 export interface ArrivalSource {

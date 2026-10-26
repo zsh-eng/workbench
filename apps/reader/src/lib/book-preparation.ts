@@ -1,13 +1,17 @@
 import { getRuntimeOnline } from "@/features/sync-lab/runtime";
 import { BookCoverDecodeError, createBookCover } from "@/lib/book-cover";
+import { DuplicateBookError } from "@/lib/book-import-errors";
 import {
+  bookMaterializationTables,
+  db,
+  getBookBySourceFileId,
   getBookMaterialization,
   replaceBookMaterialization,
   type Book,
   type BookFile,
 } from "@/lib/db";
 import { parseEPUB, type ParsedEPUB } from "@/lib/epub-parser";
-import { files } from "@/lib/files";
+import { files, type IdentifiedFile } from "@/lib/files";
 
 export const BOOK_MATERIALIZATION_RECIPE_VERSION = 1;
 
@@ -38,15 +42,19 @@ export async function prepareBook(
   return preparation;
 }
 
-/** Persist a newly parsed Book through the same artifact commit path. */
+/**
+ * Persist a newly parsed Book through the same artifact commit path, with
+ * its EPUB: the bytes are stored, and queued to upload, only with the book.
+ */
 export async function prepareNewBook(
   parsedEpub: ParsedEPUB,
+  source: IdentifiedFile,
 ): Promise<BookPreparationResult> {
   return commitMaterialization(
     parsedEpub.book,
     parsedEpub.files,
     parsedEpub.coverBlob,
-    true,
+    source,
   );
 }
 
@@ -87,26 +95,51 @@ async function prepareBookOnce(
     book,
     parsedEpub.files,
     parsedEpub.coverBlob,
-    false,
+    null,
   );
 }
 
+/**
+ * Writes everything the book needs in one transaction: a new book's EPUB,
+ * the cover, the Book row, its expanded files and the completion marker. A
+ * full disk, a crash or a closed tab leaves all of it or none of it, and
+ * nothing uploads until it has committed.
+ *
+ * `source` is a new book's EPUB; an established book's is already stored.
+ */
 async function commitMaterialization(
   book: Book,
   bookFiles: BookFile[],
   coverBlob: Blob | undefined,
-  isNewBook: boolean,
+  source: IdentifiedFile | null,
 ): Promise<BookPreparationResult> {
   const cover = await prepareCover(book, coverBlob);
-  const bookChanged = isNewBook || !coversEqual(book.cover, cover);
-  const preparedBook = bookChanged ? { ...book, cover } : book;
+  const bookChanged = source !== null || !coversEqual(book.cover, cover.ref);
+  const preparedBook = bookChanged ? { ...book, cover: cover.ref } : book;
 
-  await replaceBookMaterialization({
-    book: preparedBook,
-    bookFiles,
-    recipeVersion: BOOK_MATERIALIZATION_RECIPE_VERSION,
-    writeBook: bookChanged,
-  });
+  const stored = [source, cover.file].filter((file) => file !== null);
+  // Files are locked only when this commit stores one: covers read them.
+  const fileTables = stored.length ? [db.files, db.fileUploadOperations] : [];
+  await db.transaction(
+    "rw",
+    [...fileTables, ...bookMaterializationTables()],
+    async () => {
+      // Another tab may have added the same file since the caller looked.
+      const existing = source && (await getBookBySourceFileId(source.id));
+      if (existing)
+        throw new DuplicateBookError(
+          "A book with this file already exists in your library",
+          existing,
+        );
+      for (const file of stored) await files.store(file);
+      await replaceBookMaterialization({
+        book: preparedBook,
+        bookFiles,
+        recipeVersion: BOOK_MATERIALIZATION_RECIPE_VERSION,
+        writeBook: bookChanged,
+      });
+    },
+  );
 
   return {
     book: preparedBook,
@@ -115,12 +148,14 @@ async function commitMaterialization(
   };
 }
 
+/** The cover reference, and the new cover's bytes to store with the book. */
 async function prepareCover(
   book: Book,
   sourceCover: Blob | undefined,
-): Promise<Book["cover"]> {
-  if (book.cover && book.cover.blurHash !== null) return book.cover;
-  if (!sourceCover) return null;
+): Promise<{ ref: Book["cover"]; file: IdentifiedFile | null }> {
+  if (book.cover && book.cover.blurHash !== null)
+    return { ref: book.cover, file: null };
+  if (!sourceCover) return { ref: null, file: null };
 
   let createdCover: Awaited<ReturnType<typeof createBookCover>>;
   try {
@@ -128,12 +163,12 @@ async function prepareCover(
   } catch (error) {
     if (!(error instanceof BookCoverDecodeError)) throw error;
     console.warn(`Ignoring invalid cover for book ${book.id}:`, error);
-    return null;
+    return { ref: null, file: null };
   }
-  const fileId = await files.put(createdCover.blob, {
+  const file = await files.identify(createdCover.blob, {
     mediaType: "image/webp",
   });
-  return { fileId, blurHash: createdCover.blurHash };
+  return { ref: { fileId: file.id, blurHash: createdCover.blurHash }, file };
 }
 
 function coversEqual(left: Book["cover"], right: Book["cover"]): boolean {

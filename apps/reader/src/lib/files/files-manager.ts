@@ -1,5 +1,6 @@
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { db } from "@/lib/db";
+import Dexie from "dexie";
 import { computeFileId } from "@/lib/files/file-id";
 import {
   FetchFileRemoteApi,
@@ -12,6 +13,7 @@ import type {
   FileMetadata,
   Files,
   FileUploadOperation,
+  IdentifiedFile,
   LocalFile,
   RemoteFile,
 } from "@/lib/files/types";
@@ -41,7 +43,9 @@ function abortError(signal: AbortSignal): unknown {
 /**
  * Local-first file facade and durable upload worker.
  *
- * `put()` commits the Blob and upload intent in one transaction. Downloads are
+ * `put()` commits the Blob and upload intent in one transaction; `identify()`
+ * and `store()` split it, so a caller can commit a file with its own rows.
+ * Downloads are
  * shared by FileId; each caller can follow the bytes and stop waiting.
  * Uploads run only while the app has enabled them for an authenticated,
  * online session.
@@ -90,11 +94,41 @@ export class FilesManager implements Files {
   }
 
   private async putFile(blob: Blob, metadata: FileMetadata): Promise<FileId> {
+    const file = await this.identify(blob, metadata);
+    await this.storeFile(file);
+    return file.id;
+  }
+
+  /** Calculates a Blob's id and stored form. It writes nothing. */
+  async identify(
+    blob: Blob,
+    metadata: FileMetadata = {},
+  ): Promise<IdentifiedFile> {
     const id = await computeFileId(blob);
     const mediaType = metadata.mediaType || blob.type || DEFAULT_MEDIA_TYPE;
-    const storedBlob =
-      blob.type === mediaType ? blob : blob.slice(0, blob.size, mediaType);
+    return {
+      id,
+      mediaType,
+      blob:
+        blob.type === mediaType ? blob : blob.slice(0, blob.size, mediaType),
+    };
+  }
 
+  /**
+   * Stores identified bytes and their upload intent in one transaction.
+   * Inside a caller's transaction, which must include `files` and
+   * `fileUploadOperations`, they commit or roll back with the caller's rows,
+   * and the upload starts only once that transaction has committed.
+   */
+  store(file: IdentifiedFile): Promise<void> {
+    return this.track(this.storeFile(file));
+  }
+
+  private async storeFile({
+    id,
+    blob,
+    mediaType,
+  }: IdentifiedFile): Promise<void> {
     await db.transaction(
       "rw",
       [db.files, db.fileUploadOperations],
@@ -105,9 +139,9 @@ export class FilesManager implements Files {
         if (!existingFile) {
           await db.files.add({
             id,
-            blob: storedBlob,
+            blob,
             mediaType,
-            size: storedBlob.size,
+            size: blob.size,
             storedAt: Date.now(),
             remotePresent: false,
           });
@@ -125,8 +159,17 @@ export class FilesManager implements Files {
       },
     );
 
-    this.startUploadLoop();
-    return id;
+    // Inside a caller's transaction the rows exist once that one commits.
+    const outer = Dexie.currentTransaction;
+    if (!outer) {
+      this.startUploadLoop();
+      return;
+    }
+    outer.idbtrans.addEventListener(
+      "complete",
+      () => Dexie.ignoreTransaction(() => this.startUploadLoop()),
+      { once: true },
+    );
   }
 
   get(id: FileId, options: FileDownloadOptions = {}): Promise<Blob> {

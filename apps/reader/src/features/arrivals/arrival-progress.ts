@@ -10,11 +10,11 @@
 export type ArrivalStage =
   /** Waiting for its turn in a batch. */
   | "queued"
-  /** The file is copied into the library and identified. */
+  /** The file is read and identified. Nothing is stored yet. */
   | "saving"
   /** The EPUB is opened: its title, author, contents and cover. */
   | "reading"
-  /** The cover is made and the book is written. Title and cover are known. */
+  /** The cover is made, then the file and the book are stored together. */
   | "preparing"
   /** On the shelf. It opens. */
   | "ready"

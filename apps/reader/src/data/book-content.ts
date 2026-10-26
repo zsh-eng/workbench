@@ -110,6 +110,17 @@ export async function getBookMaterialization(
   return db.bookMaterializations.get(bookId);
 }
 
+/** The tables a materialization writes, for a caller's wider transaction. */
+export function bookMaterializationTables() {
+  return [
+    db.books,
+    db.bookFiles,
+    db.bookMaterializations,
+    db.bookTextCache,
+    db.bookChapterSourceCache,
+  ];
+}
+
 /**
  * Replace all source-derived local rows and write the completion marker last.
  * The transaction makes partial extraction indistinguishable from no result.
@@ -122,35 +133,25 @@ export async function replaceBookMaterialization(options: {
 }): Promise<void> {
   const { book, bookFiles, recipeVersion, writeBook } = options;
 
-  await db.transaction(
-    "rw",
-    [
-      db.books,
-      db.bookFiles,
-      db.bookMaterializations,
-      db.bookTextCache,
-      db.bookChapterSourceCache,
-    ],
-    async () => {
-      await db.bookFiles.where("bookId").equals(book.id).delete();
-      await db.bookTextCache.delete(book.id);
-      await db.bookChapterSourceCache.delete(book.id);
+  await db.transaction("rw", bookMaterializationTables(), async () => {
+    await db.bookFiles.where("bookId").equals(book.id).delete();
+    await db.bookTextCache.delete(book.id);
+    await db.bookChapterSourceCache.delete(book.id);
 
-      if (bookFiles.length > 0) {
-        await db.bookFiles.bulkPut(bookFiles);
-      }
-      if (writeBook) {
-        await db.books.put({ ...book, isDeleted: false });
-      }
+    if (bookFiles.length > 0) {
+      await db.bookFiles.bulkPut(bookFiles);
+    }
+    if (writeBook) {
+      await db.books.put({ ...book, isDeleted: false });
+    }
 
-      await db.bookMaterializations.put({
-        bookId: book.id,
-        sourceFileId: book.sourceFileId,
-        recipeVersion,
-        completedAt: Date.now(),
-      });
-    },
-  );
+    await db.bookMaterializations.put({
+      bookId: book.id,
+      sourceFileId: book.sourceFileId,
+      recipeVersion,
+      completedAt: Date.now(),
+    });
+  });
 }
 
 export async function getBookFilesByPaths(
