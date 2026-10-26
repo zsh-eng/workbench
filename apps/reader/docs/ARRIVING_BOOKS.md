@@ -60,7 +60,10 @@ grid.
   toast action, which stays for the switch off.
 - **Closing the sheet** sends the cover down to its place in the grid in
   460 ms, as a compositor transform. The place draws the book from the
-  same arrival state, and the flying cover then fades over it in 160 ms.
+  same arrival state. The flying cover stays until the place has painted
+  the book (a frame on its canvas, or its images loaded; a second at
+  most), and then fades over it in 160 ms. It never fades over a blank
+  card.
 - **Closing early** does the same while the book is still arriving: the
   place goes on drawing it in raking light from where the ink was, and it
   is on the shelf when it is ready.
@@ -107,7 +110,8 @@ that is not done. The import does not paginate the book, so nothing says
 ## The looks
 
 All shader looks start from paper, end on the plain cover, and hand over to
-the Library's own image in a 200 ms cross-fade. They differ in how the
+the Library's own image: the image shows at once under the drawing, and the
+drawing fades over it in 200 ms, so the card never shows through. They differ in how the
 black and white turns into the cover.
 
 1. **Raking light (the grid).** The cover waits pale, in black and white.
@@ -209,8 +213,11 @@ batch is that nothing moves.
   sheet's view reports that it is on screen, so its ink always plays.
 - The sheet and the flight are a lazy chunk. With the switch on it loads
   when the file picker opens (or when a drop starts an import), so it is
-  ready before the files are. The flight is a WAAPI transform, so the
-  compositor carries it through a main-thread stall.
+  ready before the files are. A loaded chunk renders at once: `React.lazy`
+  suspends on its first render even then, and React holds the fallback
+  for up to 300 ms, which left a blank card under the landing cover. The
+  flight is a WAAPI transform, so the compositor carries it through a
+  main-thread stall, and while it flies it is the book's only drawing.
 - An empty Library waits for its first book until that book settles on
   the shelf, not only until the import writes it, so "Your library is
   empty" does not come back while the Library reads its books.
@@ -286,13 +293,6 @@ transform.
 
 ## Known issues
 
-- **Escape on any detent sheet can overflow the stack** ("Maximum call
-  stack size exceeded"). In `packages/elements`, the `leave()` scrollend
-  handler in `sheet-body.tsx` and `finish(true)` in `sheet-motion.ts`, which
-  dispatches scrollend, call each other when the sheet is parked at its
-  edge. It shows in Sheet Lab too, so it is not the arrival sheet's. The
-  owner of the shared sheet should fix it. The arrival sheet's e2e tests
-  close it with a press above it.
 - **A small book can be ready before the sheet is up.** The sheet's code
   now loads when the file picker opens, and the book is the sheet's from
   the first frame, so the ink still plays (at its minimum pace) and the
