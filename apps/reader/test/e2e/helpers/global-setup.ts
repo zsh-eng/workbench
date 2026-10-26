@@ -1,5 +1,6 @@
 import { chromium, type FullConfig } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mockApi } from "./mock-api";
@@ -24,13 +25,47 @@ export function preparedLibraryPath(baseURL: string): string {
 }
 
 /**
- * Runs once before the suite. It loads the app, so the first test of each
- * worker meets a warm Vite module graph instead of a cold one, and imports
- * the sample book once through the real importer. Tests restore these rows
+ * A reused server can be a stale one: from another worktree on the same
+ * port, or started before its config or dependencies changed. The e2e Vite
+ * config answers `/__e2e` with the directory it runs in and those changes.
+ */
+async function assertOwnServer(baseURL: string, root: string) {
+  const response = await fetch(new URL("/__e2e", baseURL), {
+    headers: { accept: "application/json" },
+  }).catch(() => undefined);
+  const marker = (
+    response?.ok ? await response.json().catch(() => ({})) : {}
+  ) as { root?: string; changed?: string[] };
+  if (marker.root !== root)
+    throw new Error(
+      `${baseURL} is not this checkout's e2e server: it runs from ` +
+        `${marker.root ?? "another app"}, not ${root}. Stop it, or set ` +
+        `E2E_PORT to a free port.`,
+    );
+  if (marker.changed?.length)
+    throw new Error(
+      `The e2e server on ${baseURL} started before ${marker.changed.join(", ")} ` +
+        `changed. Restart it: stop it and run bun run e2e:serve again.`,
+    );
+}
+
+/**
+ * Runs once before the suite. It checks the server, rebuilds workspace
+ * packages whose sources changed (a warm server does not, and Vite reloads
+ * the new `dist`), and loads the app, so the first test of each worker
+ * meets a warm Vite module graph instead of a cold one. It imports the
+ * sample book once through the real importer. Tests restore these rows
  * (the `localBook` fixture) instead of importing the book again.
  */
 export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]!.use.baseURL!;
+  const root = dirname(config.configFile!);
+  await assertOwnServer(baseURL, root);
+  const build = spawnSync("bun", ["run", "build:packages"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  if (build.status !== 0) throw new Error("bun run build:packages failed");
   const browser = await chromium.launch();
   try {
     const context = await browser.newContext({ serviceWorkers: "block" });
@@ -86,7 +121,9 @@ export default async function globalSetup(config: FullConfig) {
       throw new Error(`Unexpected API requests: ${remote.unexpected}`);
     const path = preparedLibraryPath(baseURL);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, JSON.stringify(snapshot));
+    // Another run on the same warm server may be reading this file.
+    await writeFile(`${path}.${process.pid}`, JSON.stringify(snapshot));
+    await rename(`${path}.${process.pid}`, path);
   } finally {
     await browser.close();
   }

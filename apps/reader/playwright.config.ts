@@ -56,11 +56,16 @@ export default defineConfig({
     },
   ],
 
-  /* Run your local dev server before starting the tests */
+  /*
+   * Starts the e2e dev server, or locally reuses one that `bun run e2e:serve`
+   * keeps warm on this port. The global setup checks that a reused server
+   * runs from this checkout. CI always starts its own.
+   */
   webServer: {
-    command: `bun run dev --config test/e2e/vite.config.ts --host 127.0.0.1 --port ${port} --strictPort`,
+    command: "bun run e2e:serve",
+    env: { E2E_PORT: String(port) },
     url: `http://127.0.0.1:${port}`,
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
 });

@@ -21,6 +21,7 @@
     "test:server": "bun run build:packages && NODE_OPTIONS=\"--no-webstorage\" vitest --project server",
     "test:watch": "vitest --watch",
     "test:e2e": "playwright test",
+    "e2e:serve": "bun run dev --config test/e2e/vite.config.ts --host 127.0.0.1 --port ${E2E_PORT:-5190} --strictPort",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "diagnostics:reader": "bun scripts/reader-diagnostics.ts",
