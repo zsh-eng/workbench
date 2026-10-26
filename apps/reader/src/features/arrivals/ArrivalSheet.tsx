@@ -34,8 +34,13 @@ export interface ArrivalSheetProps {
   look?: ArrivalLook;
 }
 
-/** The cover's height: as large as the medium detent leaves room for. */
-const COVER_HEIGHT = "clamp(9rem, calc(55dvh - 13rem), 16rem)";
+/**
+ * The cover's height: all that the medium detent leaves after the title,
+ * the button and the bottom inset (about 9rem and the inset), so the sheet
+ * still fits the detent without a scroll.
+ */
+const COVER_HEIGHT =
+  "clamp(9rem, calc(55dvh - 9.5rem - max(1.25rem, env(safe-area-inset-bottom))), 22rem)";
 
 /** The cover's way down from the sheet to its place in the grid. */
 const FLIGHT = {
