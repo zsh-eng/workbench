@@ -3,6 +3,7 @@ import { test, expect, openLocalBook } from "./helpers/fixtures";
 
 // One subject keeps one toast: deletions in quick succession share it, and
 // Undo turns that same toast into "Restored" rather than showing another.
+// Its countdown shows the seconds left to undo.
 
 test.use({
   viewport: { width: 1280, height: 900 },
@@ -84,4 +85,48 @@ test("deletions share one toast, and Undo turns it into Restored", async ({
 
   // Then it leaves.
   await expect(toasts).toHaveCount(0);
+});
+
+test("the countdown shows the seconds left, holds while pointed at, and starts again for each deletion, with or without motion", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  const { rows, remove } = await writeNotes(page, [
+    "First thought.",
+    "Second thought.",
+  ]);
+  const toast = page.locator(".reader-toast");
+  const digit = toast.locator(".wb-countdown-digit");
+
+  await remove("First thought.");
+  await expect(digit).toHaveText("8");
+  await expect(digit).toHaveText("7");
+
+  // Pointing at the toast holds the count.
+  await toast.hover();
+  await expect
+    .poll(() =>
+      digit.evaluate((element) => element.getAnimations()[0]?.playState),
+    )
+    .toBe("paused");
+  const held = (await digit.textContent())!;
+  await page.waitForTimeout(1500);
+  await expect(digit).toHaveText(held);
+
+  // Away from it, the count goes on.
+  await page.mouse.move(640, 600);
+  await expect(digit).not.toHaveText(held);
+
+  // Another deletion joins the toast, and its count starts again. With
+  // reduced motion the number does not roll, but it still counts.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await remove("Second thought.");
+  await expect(toast).toContainText("2 notes deleted");
+  await expect(digit).toHaveText("8");
+  await expect(digit).toHaveText("7");
+
+  // When the count runs out, the offer ends and the deletions stay.
+  await expect(toast).toHaveCount(0, { timeout: 10_000 });
+  await expect(rows).toHaveCount(0);
 });

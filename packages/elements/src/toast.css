@@ -18,12 +18,6 @@
  * Done, the countdown's place draws a check and Undo fades, keeping its room.
  */
 
-@property --wb-countdown-left {
-  syntax: "<integer>";
-  inherits: false;
-  initial-value: 0;
-}
-
 /* SPRINGS.pop (response 0.32 s, damping 0.72) over a 160 px opening, from
    packages/elements/src/spring.ts. */
 :root {
@@ -142,7 +136,10 @@
   }
 }
 
-/* The countdown: one clock drives the ring, the number and its roll. */
+/* The countdown: one clock drives the ring, the number and its roll. At the
+   end of each second of the roll, an event writes the next number
+   (toast.tsx). The clock is on the ring and the digit, not on .wb-countdown:
+   `.wb-toast > *` gives that element the words' animation. */
 .wb-countdown {
   position: relative;
   display: grid;
@@ -150,9 +147,6 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  counter-reset: wb-countdown var(--wb-countdown-left);
-  animation: wb-countdown-count calc(var(--wb-countdown-seconds) * 1s)
-    steps(var(--wb-countdown-seconds), end) forwards;
 }
 .wb-countdown svg {
   position: absolute;
@@ -173,8 +167,6 @@
 .wb-countdown-ring {
   stroke-dasharray: 1;
   stroke-linecap: round;
-  animation: wb-countdown-drain calc(var(--wb-countdown-seconds) * 1s) linear
-    forwards;
 }
 .wb-countdown-digit {
   font-family: var(--wb-toast-numerals, inherit);
@@ -183,17 +175,19 @@
   font-variant-numeric: tabular-nums;
   line-height: 1;
   text-box: trim-both cap alphabetic;
-  animation: wb-countdown-tick 1s var(--wb-countdown-seconds) both;
-}
-.wb-countdown-digit::before {
-  content: counter(wb-countdown);
 }
 
-/* Pointing at a toast, focus in it, or a hidden page holds the time left. */
-.wb-countdown,
-.wb-countdown-ring,
+/* The clock. It runs even where an app stops or shortens every animation
+   for reduced motion, as Reader and Arctic do: else Undo stays on offer for
+   ever, or its offer ends at once. Pointing at a toast, focus in it, or a
+   hidden page holds the time left. */
+.wb-countdown-ring {
+  animation: wb-countdown-drain calc(var(--wb-countdown-seconds) * 1s) linear
+    forwards var(--wb-countdown-play, running) !important;
+}
 .wb-countdown-digit {
-  animation-play-state: var(--wb-countdown-play, running);
+  animation: wb-countdown-tick 1s var(--wb-countdown-seconds) both
+    var(--wb-countdown-play, running) !important;
 }
 .wb-countdown:is([data-paused], [data-hidden]),
 .wb-toast:focus-within {
@@ -205,14 +199,6 @@
   }
 }
 
-@keyframes wb-countdown-count {
-  from {
-    --wb-countdown-left: var(--wb-countdown-seconds);
-  }
-  to {
-    --wb-countdown-left: 0;
-  }
-}
 @keyframes wb-countdown-drain {
   from {
     stroke-dashoffset: 0;
@@ -310,8 +296,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wb-countdown-digit {
-    animation: none;
+  /* The number does not roll. The tick still runs, and still counts the
+     seconds. */
+  @keyframes wb-countdown-tick {
+    from,
+    to {
+      opacity: 1;
+    }
   }
   /* A cross-fade: nothing changes shape or moves. */
   .wb-toast,
