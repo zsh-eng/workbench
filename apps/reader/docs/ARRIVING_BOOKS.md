@@ -3,23 +3,86 @@
 The moment a book you add comes into the Library, for one book and for
 many at once. This is an experiment. It is off by default.
 
-- **Compare the looks:** Settings → Debug tools → Design ideas → Arriving
-  books (or the Debug lightbulb in the Library, which opens the newest
-  topic). Each look opens full screen at
-  `/debug/ideas/arriving-books?look=<look>&state=<one|five|trouble>`. The
-  demo runs the real job queue and the real tiles on simulated imports,
-  with public-domain covers.
 - **Try it in the Library:** Settings → Debug tools → Try on this device →
-  Arriving books. Then add one or more EPUB files.
+  Arriving books. Then add one EPUB file (the sheet) or several (the
+  grid).
+- **Compare the moments:** Settings → Debug tools → Design ideas → Arriving
+  books (or the Debug lightbulb in the Library, which opens the newest
+  topic). Each idea opens full screen at
+  `/debug/ideas/arriving-books?look=<look>&state=<one|again|five|trouble>`.
+  "One book: arrival sheet" and "Several books: raking light" are the two
+  moments as they ship behind the switch. Develop, Ink in the grid, Calm
+  and Reduced motion stay for comparison. The demo runs the real job queue,
+  the real sheet and the real tiles on simulated imports, with
+  public-domain covers.
 
-## What the moment says
+## The two moments
+
+- **One book** arrives in a sheet at the medium detent, over the Library.
+  The cover is large and comes in as ink, then the title, the author and
+  the number of chapters, then **Read now**.
+- **Two or more books** arrive in the covers grid, each in its own place,
+  under a raking light. There is no sheet.
+
+### Why a sheet for one book
+
+One book is a moment you watch, so it gets room: the cover as tall as the
+medium detent allows, and words that a tile has no space for. On a
+390 × 844 phone the cover is 195 × 292 (a grid tile is 169 × 254); on a
+430 × 932 phone it is 227 × 341. On a 375 × 667 phone the detent leaves
+only 130 × 195, smaller than a tile. A larger cover needs a taller detent. A sheet is
+the right container and a full-screen overlay is not:
+
+- The Library stays in view above the sheet, so you see where the book is
+  going.
+- It closes the way every phone sheet closes: a swipe down or a press
+  above it. Closing early is never a loss.
+- It does not navigate. The book is still one thing in one place: its
+  place in the grid waits empty while the sheet shows it.
+
+The sheet is modal: the Library behind it is inert until it closes. That is
+the cost. It is small for one book, because the sheet closes in one
+gesture and the book is on the shelf either way. For a batch it is too
+much: you would wait in a modal for five imports, so a batch stays in the
+grid.
+
+### One book, step by step
+
+| The import                                    | The sheet says         | The cover                                      | The words                                          |
+| --------------------------------------------- | ---------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| File chosen                                   | Adding to your library | Paper, in the cover's place                    | The file name, muted                               |
+| Saving (hash, store, duplicate check)         | Adding to your library | Paper                                          | The file name, muted                               |
+| Reading (unzip, OPF, title, author, cover)    | Adding to your library | Paper until the cover is found                 | Title and author, as soon as they are read         |
+| Preparing (cover decode, resize, WebP, write) | Adding to your library | Ink drops bloom down the cover, grey to colour | "16 chapters", once the table of contents is known |
+| Ready                                         | In your library        | The plain cover                                | Read now becomes active                            |
+
+- **Read now** opens the book in the Reader. It replaces the "Open book"
+  toast action, which stays for the switch off.
+- **Closing the sheet** sends the cover down to its place in the grid in
+  460 ms, as a compositor transform. The place draws the book from the
+  same arrival state, and the flying cover then fades over it in 160 ms.
+- **Closing early** does the same while the book is still arriving: the
+  place goes on drawing it in raking light from where the ink was, and it
+  is on the shelf when it is ready.
+- **The same book again** shows "Already in your library" with the copy
+  you have, and Read now opens that copy. No place opens in the grid, and
+  the Duplicate book dialog does not open.
+- **A failure** shows "Couldn’t add this book", a faded empty cover and
+  **Try again**. Closing the sheet does not fly an empty cover; the failed
+  place in the grid shows Try again and Dismiss.
+- **A slow step** names itself in the detail line after 2.5 s ("Reading
+  the book…").
+- With **Reduce Motion** the cover in the sheet uses the still look, and
+  closing it does not fly: the sheet goes and the place draws the book.
+
+## What the grid says
 
 | The import                                    | What you see                                     | What it tells you          |
 | --------------------------------------------- | ------------------------------------------------ | -------------------------- |
 | Files chosen                                  | A place for each file, in order, as paper        | The app has your files     |
 | Saving (hash, store, duplicate check)         | Paper; the caption is the file name              | Nothing yet to show        |
-| Reading (unzip, OPF, title, author, cover)    | Paper, until the reading finds the cover         | Nothing yet to show        |
-| Preparing (cover decode, resize, WebP, write) | Title and author; the cover develops, grey first | The book is what you chose |
+| Reading (unzip, OPF, title, author, cover)    | Paper; then the cover waits pale, in grey        | The cover is found         |
+| Preparing (cover decode, resize, WebP, write) | Title and author; a low lamp crosses the cover   | The book is what you chose |
 | Ready                                         | The plain cover in colour; the tile opens a book | You can read it            |
 
 The drawing follows the real steps. Each step owns a part of the way:
@@ -33,46 +96,58 @@ that is not done. The import does not paginate the book, so nothing says
 - No percent, no spinner, no step names. A step that takes more than 2.5 s
   shows its name under the cover ("Reading the book…"), so a slow book is
   not a frozen one.
-- No toast for each book. One toast for the batch, when the last cover is
-  at rest (4 s at most), with the same words as today.
-- No modal and no navigation at the end. The Library opens when you choose
-  the files; you can scroll, search, or open a book while the others come
-  in. A book you can open is a book on the shelf.
+- No toast for each book. One toast for a batch, when the last cover is at
+  rest (4 s at most), with the same words as today. One book has the sheet
+  and no toast.
+- No navigation at the end. Read now is a choice, not a step. A batch
+  leaves the Library free: you can scroll, search, or open a book while
+  the others come in. A book you can open is a book on the shelf.
 - No sound, no haptics, no repeating pulse. A finished cover is still.
 
 ## The looks
 
-All three shader looks start from paper, end on the plain cover, and hand
-over to the Library's own image in a 200 ms cross-fade. They differ in how
-the black and white turns into the cover.
+All shader looks start from paper, end on the plain cover, and hand over to
+the Library's own image in a 200 ms cross-fade. They differ in how the
+black and white turns into the cover.
 
-1. **Develop (recommended).** A print in the developer tray. The image
-   comes up from the paper through a fine silver grain: shadows first on
-   light paper, highlights first on dark paper. In the second half of
-   preparing the colour comes in over the black and white, and the grain
-   goes as it fixes. It is the seed ("a black and white cover that lights
-   up") done as chemistry instead of a light sweeping across. It is calm,
-   it reads as progress, and it is the cheapest shader.
-2. **Raking light.** The cover waits pale, in black and white. A low lamp
-   crosses from the spine as the book is prepared and rises as it goes. In
-   its pool the relief stands up in a warm grazing light; behind it the
-   colour is back. With a living-cover scene the relief is the hand-made
-   depth map; without one it is the ink, softened. It feels tactile and
-   ties to living covers, but on a flat cover the estimated relief can look
-   like an emboss filter, and it reads five texture samples a pixel.
-3. **Ink.** Three drops fall near the top of the cover and bloom down into
-   blotting paper in soft lobes, dark inks a little ahead, with a pale bleed
-   and a faint tide line, then dry to the cover's colour. It is the most
-   playful, and the most decorative: on a busy cover it can look blotchy.
+1. **Raking light (the grid).** The cover waits pale, in black and white.
+   A low lamp crosses from the spine as the book is prepared and rises as
+   it goes. In its pool the paper's surface stands up in a warm grazing
+   light; behind it the colour is back. Chosen in review because it reads
+   as light being turned on the book, which is the seed of the idea.
+2. **Ink (the sheet).** Three drops fall near the top of the cover and
+   bloom down into blotting paper in soft lobes, dark inks a little ahead,
+   with a pale bleed and a faint tide line, then dry to the cover's
+   colour. It is too busy for a grid of five, and right for one large
+   cover that you watch.
+3. **Develop (comparison).** A print in the developer tray: the image comes
+   up through a fine silver grain, and the colour comes in over the black
+   and white as it fixes. Calm, and the cheapest shader.
+
+**Raking light on a flat cover.** In round one the slope came from the
+cover's own ink, so on a printed cover the light embossed the picture: it
+looked like an image filter. Now a cover without a hand-made depth map is
+lit as what it is, a printed sheet:
+
+- The slope comes from a fine paper tooth (two octaves of value noise at
+  about one cycle a pixel), at 0.13 strength. It reads as grain under a
+  low lamp, not as relief. A coarser, stronger tooth looked like hammered
+  foil.
+- A slow swell (fbm, ±9 %) keeps the lit band from being one flat tone.
+- A narrow sheen runs just behind the lamp's edge. It is stronger on dark
+  ink, the way a printed black catches a grazing light, and it fades as
+  the lamp rises.
+- With a living-cover scene the hand-made depth map is still the relief.
 
 Two looks are not shaders:
 
 - **Calm (CSS).** The black and white cover fades up when the book is read,
   and its colour fades up over it when it is ready. Opacity only, so the
   compositor does all of it. Weak devices and a lost context fall back to
-  this.
+  this, in the grid and in the sheet.
 - **Still.** With Reduce Motion on: paper, then one short cross-fade to the
-  cover when the book is ready. Nothing moves.
+  cover when the book is ready. Nothing moves, in the grid or in the
+  sheet.
 
 **Not built: the spine sliding into a shelf.** The Library is a grid of
 covers, not a shelf of spines. EPUBs have no spine art, so the spine would
@@ -86,21 +161,21 @@ batch is that nothing moves.
   stay: sort by Recently added, filter All or Want to read, no search.
   Anywhere else each book appears where it lands, and draws there.
 - The imports run one at a time (the `import` lane holds one job), so the
-  covers develop in order, a wave down the grid. One import at a time also
+  covers light in order, a wave down the grid. One import at a time also
   keeps the phone's main thread free for the drawing.
 - Each book counts as added at `start − its place in the batch`. The final
   order is the order you chose, and a finished book takes the place it
   held. Nothing moves.
 - Each book goes on the shelf as soon as it is ready, so you can open it
-  before the batch ends. The places leave 5 s after the batch.
+  before the batch ends. The places leave 5 s after the batch. A place the
+  sheet still shows stays until the sheet lets it go.
 - **A slow book** shows its step after 2.5 s. The books after it wait;
   their places stay.
 - **A failure** keeps its place, faded, with "Couldn't add this file" and
   **Try again** and **Dismiss** on the empty cover. Try again runs the same
   job again. The place stays until you act.
-- **A duplicate** keeps a faded place that says "Already in your library"
-  and opens the copy you have. It leaves with the batch. A single duplicate
-  file also opens the Duplicate book dialog, as today.
+- **A duplicate** in a batch keeps a faded place that says "Already in your
+  library" and opens the copy you have. It leaves with the batch.
 - A cover off screen keeps its place in time but is not drawn. When you
   scroll back it is where it would be.
 
@@ -123,6 +198,15 @@ batch is that nothing moves.
   saved, in idle time, not in the frame that shows the first cover.
 - The grid reads only where the places are. Each cover reads its own
   progress, so a step of one import re-renders one tile, not the shelf.
+- One book can have more than one view: the sheet's cover, the flying
+  cover and the grid place. The engine keeps one state for each book and
+  advances it once a frame; each view keeps only what it last drew and
+  whether it was told the book is at rest. So the ink in the sheet and the
+  light in the grid show the same progress, and a place that appears after
+  the book came to rest still settles.
+- The sheet and the flight are a lazy chunk, loaded only when one file is
+  added with the switch on. The flight is a WAAPI transform, so the
+  compositor carries it through a main-thread stall.
 
 ### Measured
 
@@ -131,7 +215,8 @@ slowed with DevTools throttling. rAF runs at 120 Hz here (8.3 ms frames).
 "Frame" is the time between frames on the main thread. "Engine" is the
 arrival loop's own CPU time a frame. CPU throttling does not slow the GPU.
 
-Real Library import of five books (two without a cover), three runs each:
+Round one, a real Library import of five books (two without a cover),
+three runs each:
 
 | CPU | Arrivals | Frame p95 | Frame p99 | Longest frame | Frames > 25 ms | Engine p95 | Engine max |
 | --- | -------- | --------- | --------- | ------------- | -------------- | ---------- | ---------- |
@@ -148,7 +233,7 @@ longest frame is the same task in both: the first one after you choose the
 files, where the first file is read and hashed. With arrivals on it also
 draws five places: up to 45 ms more at 4×. The engine never went over budget.
 
-Design ideas, five simulated books, so only the drawing costs:
+Round one, Design ideas, five simulated books, so only the drawing costs:
 
 | CPU | Look    | Frame p99 | Longest frame | Engine p95 | Engine max |
 | --- | ------- | --------- | ------------- | ---------- | ---------- |
@@ -165,6 +250,46 @@ The longest frame in each demo run is the Replay tap itself. Not measured:
 the GPU on an iPhone. The worst case is four covers on screen at 2×, about
 0.7 megapixels a frame of a short fragment shader; living covers draw more
 than that on the same phones.
+
+Round two, the same machine and build, 120 Hz rAF, two or three runs
+each. "Sheet arrival" is one real import into the sheet, from the press to
+rest. "Closing flight" is the 460 ms flight and the fade. "Five in light"
+is the real Library batch in raking light.
+
+| CPU | Moment         | Frame p95 | Frame p99 | Longest frame             | Engine p95 | Engine max |
+| --- | -------------- | --------- | --------- | ------------------------- | ---------- | ---------- |
+| 1×  | Sheet arrival  | 9.6–9.8   | 10.2–16.7 | 16.7–25.1                 | 0.2–0.3    | 0.4–1.0    |
+| 1×  | Closing flight | 9.1–9.6   | –         | 10.3–10.4                 | –          | –          |
+| 1×  | Five in light  | 9.8–9.9   | –         | 58–60 (the file read)     | 0.3–0.4    | 0.5–9.3    |
+| 4×  | Sheet arrival  | 10.2      | 43–52     | about 93 (the file read)  | 0.7–0.9    | 1.0–2.3    |
+| 4×  | Closing flight | –         | –         | 16.7–23.7                 | –          | –          |
+| 4×  | Five in light  | 10.2–16.4 | –         | about 225 (the file read) | 0.7–1.1    | 1.2–3.0    |
+| 6×  | Sheet arrival  | –         | –         | 142                       | 1.1–1.3    | 2.3–2.8    |
+| 6×  | Closing flight | –         | –         | 52–59 (one task, release) | –          | –          |
+| 6×  | Five in light  | –         | –         | 358–377                   | 1.3–1.5    | 2.7–5.1    |
+
+The engine never fell back to calm. The longest frames are the first file
+read and hash, as in round one, not the drawing. The 9.3 ms engine maximum
+at 1× is one frame in one run, most likely a first texture upload; the
+other runs stayed near 0.5 ms, and the median is far under the 4 ms
+budget. At 6× the flight's longest frame is one task when the press is
+released; the flight itself does not stop, because it is a compositor
+transform.
+
+## Known issues
+
+- **Escape on any detent sheet can overflow the stack** ("Maximum call
+  stack size exceeded"). In `packages/elements`, the `leave()` scrollend
+  handler in `sheet-body.tsx` and `finish(true)` in `sheet-motion.ts`, which
+  dispatches scrollend, call each other when the sheet is parked at its
+  edge. It shows in Sheet Lab too, so it is not the arrival sheet's. The
+  owner of the shared sheet should fix it. The arrival sheet's e2e tests
+  close it with a press above it.
+- **The sheet opens a moment after the place.** On a slow phone (4× CPU)
+  the lazy chunk loads after the files are chosen. Preloading it when the
+  file picker opens would remove the wait.
+- **The activity glyph** still says "downloading" while a book is
+  imported. Its words belong to background activity.
 
 ## The first attempt, and what it taught
 
@@ -200,8 +325,12 @@ inside that place, follows the real work, and stops when it is done.
   `importBooks(files)` starts a batch.
 - `src/features/arrivals/`: the store that joins records and jobs, the
   tiles, the covers, the engine and shaders, and the Design ideas demo.
+- `src/features/arrivals/ArrivalSheet.tsx`: the one-book sheet, Read now
+  and the flight to the grid. `ArrivalRecords.present(key)` keeps a book's
+  grid place empty, and alive after its batch, while the sheet shows it.
 - `src/features/library/use-epub-import.ts`: with the switch on, an import
-  goes through `importBooks`; with it off, nothing changed.
+  goes through `importBooks`, and one file opens the arrival sheet; with it
+  off, nothing changed.
 
 ### Feeding it from background activity
 
