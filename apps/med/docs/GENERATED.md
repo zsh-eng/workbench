@@ -15,10 +15,10 @@ sentence or a table.
 Med does not call a model to classify a file. Three layers decide, the first
 that answers wins:
 
-| Layer          | Where              | Signal                                                                                                         |
-| -------------- | ------------------ | -------------------------------------------------------------------------------------------------------------- |
-| Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff`. Read only when the checkout has `.gitattributes` or `info/attributes` |
-| Header         | host               | `@generated`, `DO NOT EDIT`, `auto-generated` in the first 5 lines: from the patch, or the first 1 KiB of a working file |
+| Layer          | Where              | Signal                                                                                                                                                                                   |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff`. Read only when the checkout has `.gitattributes` or `info/attributes`                                                                      |
+| Header         | host               | `@generated`, `DO NOT EDIT`, `auto-generated` in the first 5 lines: from the patch, or the first 1 KiB of a working file                                                                 |
 | Path           | shared             | lockfiles; `dist/`, `.vite/`, `.next/`, `coverage/`, `__generated__/`; `__snapshots__/`, `*.snap`, `-snapshots/`; `*.min.js`, `*.map`; `*.generated.*`, `*.gen.*`, `*.pb.go`, `*_pb2.py` |
 
 The host puts the answer on each `ReviewFile` as `generated: { kind, source? }`,

@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { generatedByPath } from "../shared/generated";
 import { git } from "./runtime/process";
 
 // The change counts that a thread row shows for a checkout's live Changes:
@@ -24,7 +25,9 @@ export interface ChangeCounts {
 }
 
 /** A checkout's changes: tracked files from Git's numstat, against `base`'s
- * merge base or HEAD, and untracked files with their lines when they are small. */
+ * merge base or HEAD, and untracked files with their lines when they are small.
+ * Files that a tool writes, by their path, count as files but not as lines
+ * (docs/GENERATED.md), so `bun install` does not swell a thread's +/−. */
 export async function countChanges(
   path: string,
   base: string | undefined,
@@ -42,15 +45,16 @@ export async function countChanges(
   ]);
   const changes = { files: 0, additions: 0, deletions: 0 };
   for (const entry of numstat.toString("utf8").split("\0")) {
-    const match = /^(\d+|-)\t(\d+|-)\t/.exec(entry);
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/s.exec(entry);
     if (!match) continue;
     changes.files++;
+    if (generatedByPath(match[3]!)) continue;
     changes.additions += Number(match[1]) || 0;
     changes.deletions += Number(match[2]) || 0;
   }
   const paths = untracked.toString("utf8").split("\0").filter(Boolean);
   changes.files += paths.length;
-  for (const file of paths.slice(0, 20)) {
+  for (const file of paths.filter((path) => !generatedByPath(path)).slice(0, 20)) {
     const info = await stat(join(path, file)).catch(() => undefined);
     if (!info?.isFile() || info.size > 256 * 1024) continue;
     const bytes = await readFile(join(path, file)).catch(() => undefined);

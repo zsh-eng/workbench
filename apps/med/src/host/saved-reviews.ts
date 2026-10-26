@@ -18,6 +18,7 @@ import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
 import { attemptRefSchema } from "../shared/attempts";
+import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   comparisonSchema,
@@ -104,6 +105,7 @@ const responseSchema = z.object({
       binary: z.boolean(),
       tooLarge: z.boolean().optional(),
       untracked: z.boolean().optional(),
+      generated: z.union([generatedMarkSchema, z.literal(false)]).optional(),
     }),
   ),
   patch: text,
