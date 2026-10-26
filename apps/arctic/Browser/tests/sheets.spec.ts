@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import {
   addText,
   article,
@@ -101,4 +101,99 @@ test("Undo takes archives back, from the toast, with ⌘Z, and several at once",
   await expect(same).toContainText("Back in Saved");
   await expect(same.getByRole("button", { name: "Undo" })).toHaveCount(0);
   await expect(toast.locator(".toast")).toHaveCount(0);
+});
+
+// A sheet that leaves on its spring rests a pixel below the screen, short of
+// the start of its scroll range. Its exit took that for a sheet still in view
+// and sent it out again, without end: More, closed by Escape or a tap
+// outside, threw "Maximum call stack size exceeded".
+test("a sheet closes every way, from each place it rests, without an error", async ({
+  page,
+  context,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.stack ?? error.message));
+  const floe = article("https://example.com/floe", {
+    title: "A floe at dawn",
+    savedAt: Date.UTC(2026, 9, 2),
+  });
+  await phone(context.request).push([
+    ...floe.records,
+    ...article("https://example.com/brash-ice", {
+      title: "Brash ice",
+      savedAt: Date.UTC(2026, 9, 1),
+    }).records,
+  ]);
+  await addText(context.request, floe, paragraphs(12));
+  const cdp = await context.newCDPSession(page);
+
+  // A sheet takes focus once it rests.
+  const rested = () =>
+    eventually(() =>
+      page.evaluate(
+        () =>
+          !!document.activeElement?.closest("[role=dialog]") &&
+          !document.querySelector("[data-sheet-spring]"),
+      ),
+    ).toBe(true);
+  const open = async (trigger: Locator, name: string) => {
+    await trigger.click();
+    await rested();
+    return page.getByRole("dialog", { name });
+  };
+  /** A finger on the sheet's handle that drags it down, or up if negative. */
+  const drag = async (sheet: Locator, yDistance: number) => {
+    const handle = (await sheet.locator(".sheet-handle").boundingBox())!;
+    await cdp.send("Input.synthesizeScrollGesture", {
+      x: handle.x + handle.width / 2,
+      y: handle.y + handle.height / 2,
+      yDistance,
+      speed: 3000,
+      gestureSourceType: "touch",
+    });
+  };
+  const ways: Record<string, (sheet: Locator) => Promise<void>> = {
+    Escape: () => page.keyboard.press("Escape"),
+    // Above the sheet, even at full height.
+    "a tap outside": () => page.touchscreen.tap(195, 6),
+    "a swipe down": (sheet) => drag(sheet, 800),
+  };
+  const close = async (sheet: Locator, way: string, from = "") => {
+    await ways[way]!(sheet);
+    await expect(sheet).toHaveCount(0);
+    expect(errors, `closed by ${way}${from}`).toEqual([]);
+  };
+
+  // A sheet that fits its content.
+  await page.goto("/");
+  await expect(page.locator(".card")).toHaveCount(2);
+  const more = page.getByRole("button", { name: "More for Brash ice" });
+  for (const way of Object.keys(ways))
+    await close(await open(more, "Actions for Brash ice"), way);
+  const actions = await open(more, "Actions for Brash ice");
+  await actions.getByRole("button", { name: "Archive" }).click();
+  await expect(actions).toHaveCount(0);
+  await expect(
+    page.locator(".card-title", { hasText: "Brash ice" }),
+  ).toHaveCount(0);
+  expect(errors, "closed by Archive").toEqual([]);
+
+  // A sheet with a detent, from the detent and from full height.
+  await page.locator(".card-title", { hasText: "A floe at dawn" }).click();
+  await expect(page.locator(".prose")).toContainText("Paragraph 12.");
+  const text = page
+    .getByRole("toolbar", { name: "Article" })
+    .getByRole("button", { name: "Text and theme" });
+  for (const full of [false, true])
+    for (const way of Object.keys(ways)) {
+      const sheet = await open(text, "Text and theme");
+      if (full) {
+        await drag(sheet, -800);
+        await expect(page.locator(".sheet-overlay[data-expanded]")).toHaveCount(
+          1,
+        );
+        await rested();
+      }
+      await close(sheet, way, full ? " at full height" : " at the detent");
+    }
 });
