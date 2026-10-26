@@ -11,7 +11,13 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from "react";
-import type { Thread, ThreadSubagent } from "../../../shared/threads";
+import type { Thread, ThreadPart, ThreadSubagent } from "../../../shared/threads";
+import {
+  layerProgress,
+  progressLabels,
+  useLayerViewed,
+  type LayerProgress,
+} from "../../data/stack";
 import { useAttemptsAddress } from "../../data/attempts";
 import { foundSessionThread, threadInput } from "../../data/found-threads";
 import { shownSubagents, type ReadState } from "../../data/tabs";
@@ -31,6 +37,8 @@ import { StreamHeader, StreamTabs, type SidebarStream, type StreamActions } from
 import { ToolButton } from "../ToolButton";
 
 const SOURCES_KEY = "med:sidebar-sources";
+/** The stacks and sets whose rows show their parts. */
+const PARTS_KEY = "med:sidebar-parts";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -147,6 +155,10 @@ export function ThreadSidebar({
   renaming,
   onRenaming,
   onRename,
+  onGroup,
+  onUngroup,
+  onShape,
+  onOpenPart,
   streams,
   streamActions,
   closedStreams,
@@ -186,6 +198,13 @@ export function ThreadSidebar({
   onRenaming?(thread: Thread | null): void;
   /** Names the thread; an empty name gives it its agent's title again. */
   onRename?(thread: Thread, name: string): void;
+  /** Puts `thread` on top of `onto`'s stack (docs/STACKS.md). */
+  onGroup?(thread: Thread, onto: Thread): void;
+  /** Makes each part of a stack or a set a thread again. */
+  onUngroup?(thread: Thread): void;
+  onShape?(thread: Thread, shape: "stack" | "set"): void;
+  /** Shows one part of a stack or a set. */
+  onOpenPart?(thread: Thread, part: string): void;
   /** Streams of work, in the reader's order: they group the tabs in place of
    * the repositories (the durable sessions design). */
   streams?: readonly SidebarStream[];
@@ -237,13 +256,21 @@ export function ThreadSidebar({
 
   // A drag moves a tab within its repository; a line shows where it lands.
   const [drag, setDrag] = useState<{ id: string; group: string } | null>(null);
-  const [drop, setDrop] = useState<{ id: string; after: boolean } | null>(null);
+  const [drop, setDrop] = useState<{ id: string; at: DropAt } | null>(null);
   const endDrag = () => {
     setDrag(null);
     setDrop(null);
   };
-  const dropOn = (group: { key: string; threads: Thread[] }, target: string, after: boolean) => {
+  const dropOn = (group: { key: string; threads: Thread[] }, target: string, at: DropAt) => {
     if (!drag || drag.group !== group.key || drag.id === target) return endDrag();
+    // The middle of a row stacks the dragged thread on it.
+    if (at === "onto") {
+      const source = group.threads.find((thread) => thread.id === drag.id);
+      const onto = group.threads.find((thread) => thread.id === target);
+      if (source && onto) onGroup?.(source, onto);
+      return endDrag();
+    }
+    const after = at === "after";
     const ids = group.threads.map((thread) => thread.id).filter((id) => id !== drag.id);
     ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, drag.id);
     onReorder?.(ids);
@@ -258,6 +285,7 @@ export function ThreadSidebar({
         ?.focus({ preventScroll: false }),
     );
   };
+  const [partsOpen, setPartsOpen] = useState(() => new Set(readJson<string[]>(PARTS_KEY, [])));
   // The rows share one object of actions that reads the newest props, so a
   // row renders again only when its own thread or state changes.
   const handlers = {
@@ -272,6 +300,8 @@ export function ThreadSidebar({
     drop,
     dropOn,
     groups,
+    onGroup,
+    onOpenPart,
   };
   const latest = useRef(handlers);
   useLayoutEffect(() => {
@@ -284,20 +314,37 @@ export function ThreadSidebar({
     move: (thread, by) => latest.current.move(thread, by),
     prefetch: (thread) => latest.current.onPrefetch?.(thread),
     dragStart: (thread, group) => setDrag({ id: thread.id, group }),
-    dragOver: (thread, group, after) => {
-      const { drag, drop } = latest.current;
+    dragOver: (thread, group, place) => {
+      const { drag, drop, onGroup, groups } = latest.current;
       if (!drag || drag.group !== group || drag.id === thread.id) return false;
-      if (drop?.id !== thread.id || drop.after !== after) setDrop({ id: thread.id, after });
+      const source = groups
+        .find((entry) => entry.key === group)
+        ?.threads.find((entry) => entry.id === drag.id);
+      const at: DropAt =
+        place.middle && onGroup && stackable(thread) && source && stackable(source)
+          ? "onto"
+          : place.after
+            ? "after"
+            : "before";
+      if (drop?.id !== thread.id || drop.at !== at) setDrop({ id: thread.id, at });
       return true;
     },
-    drop: (thread, key, after) => {
-      const { groups, dropOn } = latest.current;
+    drop: (thread, key) => {
+      const { groups, dropOn, drop } = latest.current;
       const group = groups.find((entry) => entry.key === key);
-      if (group) dropOn(group, thread.id, after);
+      if (group && drop?.id === thread.id) dropOn(group, thread.id, drop.at);
       else endDrag();
     },
     dragEnd: () => endDrag(),
     rename: (thread) => latest.current.onRenaming?.(thread),
+    toggleParts: (thread) =>
+      setPartsOpen((open) => {
+        const next = new Set(open);
+        if (!next.delete(thread.id)) next.add(thread.id);
+        writeJson(PARTS_KEY, [...next]);
+        return next;
+      }),
+    openPart: (thread, part) => latest.current.onOpenPart?.(thread, part),
     renamed: (thread, name) => {
       latest.current.onRenaming?.(null);
       if (name !== null) latest.current.onRename?.(thread, name);
@@ -439,7 +486,8 @@ export function ThreadSidebar({
                     .filter((subagent) => read.isSubagentUnread(subagent))
                     .map((subagent) => subagent.id)
                     .join(" ")}
-                  drop={drop?.id === thread.id ? (drop.after ? "after" : "before") : undefined}
+                  drop={drop?.id === thread.id ? drop.at : undefined}
+                  partsOpen={partsOpen.has(thread.id)}
                   closable={!!onClose}
                   movable={!!onMove}
                   draggable={!!onReorder}
@@ -502,6 +550,18 @@ export function ThreadSidebar({
                 onUnread={(unread) => read.setUnread(menuThread, unread)}
                 onClose={onClose && ((removeWorktree) => onClose(menuThread, removeWorktree))}
                 onDelete={onDelete && (() => onDelete(menuThread))}
+                stackOn={
+                  onGroup && stackable(menuThread)
+                    ? (groups
+                        .find((group) => group.threads.some((entry) => entry.id === menuThread.id))
+                        ?.threads.filter(
+                          (entry) => entry.id !== menuThread.id && stackable(entry),
+                        ) ?? [])
+                    : []
+                }
+                onStackOn={onGroup && ((onto) => onGroup(menuThread, onto))}
+                onUngroup={onUngroup && menuThread.parts && (() => onUngroup(menuThread))}
+                onShape={onShape && menuThread.parts && ((shape) => onShape(menuThread, shape))}
               />
             )}
           </ContextMenu.Positioner>
@@ -592,14 +652,72 @@ interface RowActions {
   move(thread: Thread, by: -1 | 1): void;
   prefetch(thread: Thread): void;
   dragStart(thread: Thread, group: string): void;
-  /** Whether the dragged tab can land here. */
-  dragOver(thread: Thread, group: string, after: boolean): boolean;
-  drop(thread: Thread, group: string, after: boolean): void;
+  /** Whether the dragged tab can land here: before or after the row, or on
+   * its middle, which stacks the dragged thread on it. */
+  dragOver(thread: Thread, group: string, place: { after: boolean; middle: boolean }): boolean;
+  drop(thread: Thread, group: string): void;
   dragEnd(): void;
   /** Shows the row's name field. */
   rename(thread: Thread): void;
   /** The field closed, with a new name or null. */
   renamed(thread: Thread, name: string | null): void;
+  /** Shows or hides a stack's or a set's parts under its row. */
+  toggleParts(thread: Thread): void;
+  openPart(thread: Thread, part: string): void;
+}
+
+/** Where a dragged tab lands on a row. */
+type DropAt = "before" | "after" | "onto";
+
+/** A thread that can be a part of a stack: a saved review, not a found session
+ * or an attempt. */
+const stackable = (thread: Thread) => !thread.found && !thread.group;
+
+/** At most this many segments; a longer stack counts the rest. */
+const MAX_SEGMENTS = 16;
+
+/** A stack's or a set's progress in its row: a segment for each part, bottom
+ * first, unreviewed, in progress, approved, or with changes requested. */
+function PartStrip({
+  shape,
+  parts,
+  states,
+}: {
+  shape: "stack" | "set";
+  parts: readonly ThreadPart[];
+  states: readonly LayerProgress[];
+}) {
+  const done = states.filter((state) => state === "approved" || state === "changes").length;
+  const noun = shape === "stack" ? "layers" : "parts";
+  return (
+    <span
+      role="img"
+      data-part-strip=""
+      aria-label={`${done} of ${parts.length} ${noun} reviewed: ${states
+        .map((state, index) => `${index + 1} ${progressLabels[state].toLowerCase()}`)
+        .join(", ")}`}
+      {...stylex.props(styles.strip)}
+    >
+      {states.slice(0, MAX_SEGMENTS).map((state, index) => (
+        <span
+          key={parts[index]!.id}
+          data-progress={state}
+          {...stylex.props(
+            styles.segment,
+            segments[state],
+            (parts[index]!.state === "merged" || parts[index]!.state === "closed") &&
+              styles.partGone,
+          )}
+        />
+      ))}
+      {parts.length > MAX_SEGMENTS && (
+        <span {...stylex.props(styles.stripMore)}>+{parts.length - MAX_SEGMENTS}</span>
+      )}
+      <span {...stylex.props(styles.stripCount)}>
+        {done}/{parts.length}
+      </span>
+    </span>
+  );
 }
 
 interface RowProps {
@@ -617,8 +735,10 @@ interface RowProps {
   subagents: readonly ThreadSubagent[];
   /** The IDs of subagents with results that the reader has not seen. */
   fresh: string;
-  /** A dragged tab lands before or after this one. */
-  drop?: "before" | "after";
+  /** A dragged tab lands before or after this one, or on it. */
+  drop?: DropAt;
+  /** A stack's or a set's row shows its parts. */
+  partsOpen: boolean;
   closable: boolean;
   movable: boolean;
   draggable: boolean;
@@ -655,12 +775,19 @@ const ThreadRow = memo(function ThreadRow({
   subagents,
   fresh,
   drop,
+  partsOpen,
   closable,
   movable,
   draggable,
   prefetch,
   actions,
 }: RowProps) {
+  const parts = thread.parts;
+  const layerViewed = useLayerViewed(parts ? thread.id : null);
+  const partStates = parts?.items.map((part) => {
+    const counts = part.targetId ? layerViewed[part.targetId] : undefined;
+    return layerProgress(counts?.viewed ?? 0, part.files || counts?.files, part.comments);
+  });
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(rest.current), []);
   const branch = thread.branch ?? thread.checkout?.split("/").at(-1);
@@ -675,9 +802,10 @@ const ThreadRow = memo(function ThreadRow({
     doing && !subagents.some((subagent) => doing.includes(subagent.description))
       ? doing
       : undefined;
-  const after = (event: DragEvent) => {
+  const place = (event: DragEvent) => {
     const box = event.currentTarget.getBoundingClientRect();
-    return event.clientY > box.top + box.height / 2;
+    const at = (event.clientY - box.top) / box.height;
+    return { after: at > 0.5, middle: at > 0.3 && at < 0.7 };
   };
   const read = () => !current && prefetch && actions.prefetch(thread);
   const mark = (
@@ -708,6 +836,8 @@ const ThreadRow = memo(function ThreadRow({
         <span title={activity} {...stylex.props(styles.activity)}>
           {activity}
         </span>
+      ) : parts && partStates ? (
+        <PartStrip shape={parts.shape} parts={parts.items} states={partStates} />
       ) : (
         branch && <span {...stylex.props(styles.branch)}>{branch}</span>
       )}
@@ -726,6 +856,7 @@ const ThreadRow = memo(function ThreadRow({
         styles.item,
         drop === "before" && styles.dropBefore,
         drop === "after" && styles.dropAfter,
+        drop === "onto" && styles.dropOnto,
         stylex.defaultMarker(),
       )}
     >
@@ -744,11 +875,11 @@ const ThreadRow = memo(function ThreadRow({
           actions.dragStart(thread, group);
         }}
         onDragOver={(event) => {
-          if (draggable && actions.dragOver(thread, group, after(event))) event.preventDefault();
+          if (draggable && actions.dragOver(thread, group, place(event))) event.preventDefault();
         }}
         onDrop={(event) => {
           event.preventDefault();
-          if (draggable) actions.drop(thread, group, after(event));
+          if (draggable) actions.drop(thread, group);
         }}
         onDragEnd={() => draggable && actions.dragEnd()}
         onClick={() => actions.open(thread)}
@@ -853,6 +984,56 @@ const ThreadRow = memo(function ThreadRow({
           <Icon name="close" size={12} />
         </button>
       )}
+      {parts && partStates && !editing && (
+        <button
+          type="button"
+          aria-expanded={partsOpen}
+          aria-label={`${partsOpen ? "Hide" : "Show"} the ${parts.shape === "stack" ? "layers" : "parts"} of ${thread.title}`}
+          onClick={() => actions.toggleParts(thread)}
+          {...stylex.props(styles.partsToggle)}
+        >
+          <span {...stylex.props(styles.chevron, partsOpen && styles.chevronOpen)}>
+            <Icon name="chevron" size={11} />
+          </span>
+        </button>
+      )}
+      {parts && partStates && partsOpen && (
+        <ol
+          aria-label={`${thread.title} ${parts.shape === "stack" ? "layers" : "parts"}`}
+          {...stylex.props(styles.subagents, styles.parts)}
+        >
+          {parts.items
+            .map((part, index) => ({ part, index }))
+            .toReversed()
+            .map(({ part, index }) => (
+              <li key={part.id}>
+                <button
+                  type="button"
+                  data-sidebar-row=""
+                  data-part={index + 1}
+                  onClick={() => actions.openPart(thread, part.id)}
+                  title={part.title}
+                  {...stylex.props(
+                    styles.row,
+                    styles.part,
+                    (part.state === "merged" || part.state === "closed") && styles.partGone,
+                  )}
+                >
+                  <span {...stylex.props(styles.partNumber)}>{index + 1}</span>
+                  <span {...stylex.props(styles.title, styles.partTitle)}>{part.title}</span>
+                  <span {...stylex.props(styles.changes)}>
+                    <span {...stylex.props(styles.added)}>+{part.additions}</span>
+                    <span {...stylex.props(styles.removed)}>−{part.deletions}</span>
+                  </span>
+                  <span
+                    aria-label={progressLabels[partStates[index]!]}
+                    {...stylex.props(styles.segment, styles.partDot, segments[partStates[index]!])}
+                  />
+                </button>
+              </li>
+            ))}
+        </ol>
+      )}
       {subagents.length > 0 && (
         <ul aria-label={`${thread.title} subagents`} {...stylex.props(styles.subagents)}>
           {subagents.map((subagent) => {
@@ -915,6 +1096,8 @@ const previewActions: RowActions = {
   dragEnd() {},
   rename() {},
   renamed() {},
+  toggleParts() {},
+  openPart() {},
 };
 
 /** Tab rows as the sidebar draws them, without the sidebar: for the
@@ -944,6 +1127,7 @@ export function ThreadRowsPreview({
           now={now}
           subagents={[]}
           fresh=""
+          partsOpen={false}
           closable={false}
           movable={false}
           draggable={false}
@@ -966,6 +1150,10 @@ function ThreadMenu({
   onUnread,
   onClose,
   onDelete,
+  stackOn = [],
+  onStackOn,
+  onUngroup,
+  onShape,
 }: {
   thread: Thread;
   unread: boolean;
@@ -975,6 +1163,11 @@ function ThreadMenu({
   onUnread(unread: boolean): void;
   onClose?(removeWorktree: boolean): void;
   onDelete?(): void;
+  /** The tabs of its repository that the thread can go on top of. */
+  stackOn?: readonly Thread[];
+  onStackOn?(onto: Thread): void;
+  onUngroup?: (() => void) | false;
+  onShape?: ((shape: "stack" | "set") => void) | false;
 }) {
   const sessions = (thread.sessions ?? []).flatMap((session) =>
     session.agent === "acp" ? [] : [{ ...session, agent: session.agent }],
@@ -1016,6 +1209,53 @@ function ThreadMenu({
             <Icon name="command" size={13} />
             Copy lazygit command
           </span>
+        </ContextMenu.Item>
+      )}
+      {((onStackOn && stackOn.length > 0) || onUngroup || onShape) && (
+        <ContextMenu.Separator {...stylex.props(styles.separator)} />
+      )}
+      {onStackOn && stackOn.length > 0 && (
+        <ContextMenu.SubmenuRoot>
+          <ContextMenu.SubmenuTrigger className={item}>
+            Stack on
+            <span {...stylex.props(styles.menuHint, styles.submenuArrow)}>
+              <Icon name="chevron" size={12} />
+            </span>
+          </ContextMenu.SubmenuTrigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Positioner sideOffset={4} {...stylex.props(styles.menuPositioner)}>
+              <ContextMenu.Popup
+                aria-label={`Stack ${thread.title} on`}
+                {...stylex.props(ui.popup, styles.menu)}
+              >
+                {stackOn.map((onto) => (
+                  <ContextMenu.Item key={onto.id} onClick={() => onStackOn(onto)} className={item}>
+                    <span {...stylex.props(styles.menuLabel, styles.menuTitle)}>{onto.title}</span>
+                    {onto.parts && (
+                      <span {...stylex.props(styles.menuHint)}>
+                        {onto.parts.items.length}{" "}
+                        {onto.parts.shape === "stack" ? "layers" : "parts"}
+                      </span>
+                    )}
+                  </ContextMenu.Item>
+                ))}
+              </ContextMenu.Popup>
+            </ContextMenu.Positioner>
+          </ContextMenu.Portal>
+        </ContextMenu.SubmenuRoot>
+      )}
+      {onShape && thread.parts && (
+        <ContextMenu.Item
+          onClick={() => onShape(thread.parts!.shape === "stack" ? "set" : "stack")}
+          className={item}
+        >
+          {thread.parts.shape === "stack" ? "Treat as a set" : "Treat as a stack"}
+        </ContextMenu.Item>
+      )}
+      {onUngroup && (
+        <ContextMenu.Item onClick={onUngroup} className={item}>
+          Ungroup
+          <span {...stylex.props(styles.menuHint)}>{thread.parts?.items.length} threads</span>
         </ContextMenu.Item>
       )}
       <ContextMenu.Separator {...stylex.props(styles.separator)} />
@@ -1138,6 +1378,11 @@ const styles = stylex.create({
   // Where a dragged tab lands: a line above or below the row.
   dropBefore: { boxShadow: `inset 0 2px 0 ${tokens.accent}` },
   dropAfter: { boxShadow: `inset 0 -2px 0 ${tokens.accent}` },
+  // A thread dropped on the middle of a row goes on top of its stack.
+  dropOnto: {
+    borderRadius: `calc(7px * ${tokens.round})`,
+    boxShadow: `inset 0 0 0 2px ${tokens.accent}`,
+  },
   current: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
@@ -1335,6 +1580,14 @@ const styles = stylex.create({
   menuPositioner: { zIndex: 60 },
   menu: { minWidth: 240 },
   menuLabel: { display: "inline-flex", alignItems: "center", gap: 8 },
+  menuTitle: {
+    display: "block",
+    maxWidth: 260,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)" },
   menuHint: {
     marginInlineStart: "auto",
     paddingInlineStart: 16,
@@ -1424,4 +1677,73 @@ const styles = stylex.create({
   },
   chevronOpen: { transform: "rotate(0deg)" },
   sourceCount: { color: tokens.faint, fontSize: 11, fontVariantNumeric: "tabular-nums" },
+  // A stack's row: its strip in place of the branch, a toggle under its mark.
+  strip: {
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    flex: "1",
+    minWidth: 0,
+    maxWidth: 160,
+    height: 15,
+  },
+  segment: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 3,
+    maxWidth: 28,
+    height: 4,
+    boxSizing: "border-box",
+    borderRadius: 2,
+  },
+  stripMore: { flexShrink: 0, fontSize: 10, fontVariantNumeric: "tabular-nums" },
+  stripCount: {
+    flexShrink: 0,
+    marginInlineStart: 4,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  partsToggle: {
+    position: "absolute",
+    insetInlineStart: 8,
+    top: 26,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 14,
+    height: 15,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 4,
+    backgroundColor: { default: "transparent", ":hover": tokens.fillStrong },
+    color: { default: tokens.faint, ":hover": tokens.text },
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  parts: { paddingTop: 1 },
+  part: { gap: 7, height: 26, paddingInlineStart: 31, fontSize: 12 },
+  partGone: { opacity: 0.45 },
+  partNumber: {
+    flexShrink: 0,
+    width: 12,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+  },
+  partTitle: { fontSize: 12 },
+  partDot: { flexGrow: 0, flexShrink: 0, width: 7, height: 7, borderRadius: "50%" },
+});
+
+const segments = stylex.create({
+  unreviewed: { boxShadow: `inset 0 0 0 1px ${tokens.lineStrong}` },
+  progress: {
+    backgroundImage: `linear-gradient(90deg, ${tokens.accent} 50%, transparent 50%)`,
+    boxShadow: `inset 0 0 0 1px ${tokens.accent}`,
+  },
+  approved: { backgroundColor: tokens.green },
+  changes: { backgroundColor: tokens.warning },
 });

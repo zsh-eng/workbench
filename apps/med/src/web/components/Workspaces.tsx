@@ -67,6 +67,7 @@ import { foundThreadId } from "../../shared/found-sessions";
 import {
   closeThread,
   deleteThread,
+  groupThread,
   landed,
   openThread,
   orderThreads,
@@ -74,8 +75,11 @@ import {
   reopenThread,
   renameThread,
   requestSubagentOpen,
+  setThreadShape,
+  ungroupThread,
   useReadState,
 } from "../data/tabs";
+import { requestLayer } from "../data/stack";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import {
@@ -1374,6 +1378,53 @@ export function WorkspaceHost({
     },
     [fetcher],
   );
+  /** Puts a thread on top of another's stack (docs/STACKS.md). Its tab closes;
+   * the stack's tab shows when the thread was on screen. */
+  const stackTab = useCallback(
+    async (thread: Thread, onto: Thread) => {
+      try {
+        await groupThread(thread.id, onto.id, fetcher);
+        const shown = currentRef.current === thread.id;
+        closeView(thread);
+        if (shown) openTab(onto);
+        setNotice({
+          text: `Stacked “${thread.title}” on “${onto.title}”. Ungroup it from the stack's menu.`,
+        });
+      } catch (error) {
+        setNotice({
+          problem: true,
+          text: `Could not stack “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher, closeView, openTab],
+  );
+  const ungroupTab = useCallback(
+    async (thread: Thread) => {
+      try {
+        const made = await ungroupThread(thread.id, fetcher);
+        setNotice({
+          text: `“${thread.title}” is ${made.length + 1} threads again, one for each part.`,
+        });
+      } catch (error) {
+        setNotice({
+          problem: true,
+          text: `Could not ungroup “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher],
+  );
+  const shapeTab = useCallback(
+    async (thread: Thread, shape: "stack" | "set") => {
+      try {
+        await setThreadShape(thread.id, shape, fetcher);
+      } catch (error) {
+        setNotice({ problem: true, text: errorText(error, "Could not change the thread.") });
+      }
+    },
+    [fetcher],
+  );
   /** Puts one repository's tabs in this order; the other tabs keep their places. */
   const reorderGroup = useCallback(
     (group: readonly string[]) => {
@@ -1767,6 +1818,13 @@ export function WorkspaceHost({
                               renaming={renaming}
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
+                              onGroup={(thread, onto) => void stackTab(thread, onto)}
+                              onUngroup={(thread) => void ungroupTab(thread)}
+                              onShape={(thread, shape) => void shapeTab(thread, shape)}
+                              onOpenPart={(thread, part) => {
+                                requestLayer(thread.id, part);
+                                openTab(thread);
+                              }}
                             />
                           </aside>
                           {!narrow && (

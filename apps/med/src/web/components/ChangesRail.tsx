@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { SavedCommit } from "../../shared/review-guide";
 import { tokens } from "../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "./ColumnResize";
@@ -35,8 +35,9 @@ export function ChangesRail({
   wholeLabel,
   onCommit,
   onWhole,
+  top,
   ...files
-}: ComponentProps<typeof FileSidebar> & CommitProps) {
+}: ComponentProps<typeof FileSidebar> & CommitProps & { top?: ReactNode }) {
   const { measure, width, pane } = useColumnWidth("changes", () => RAIL_WIDTH);
   return (
     <nav
@@ -44,6 +45,7 @@ export function ChangesRail({
       aria-label="Files and commits"
       {...stylex.props(styles.rail, styles.width(width))}
     >
+      {top}
       <FileSidebar {...files} />
       <RangeCommits
         commits={commits}

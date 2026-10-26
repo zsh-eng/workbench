@@ -169,6 +169,19 @@ import type { BriefLocation } from "./components/BriefView";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
 import { ChangesRail, RangeCommits } from "./components/ChangesRail";
+import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
+import {
+  layerProgress,
+  layerRange,
+  nextUnreviewed,
+  rangeOf,
+  setLayerViewed,
+  subscribeLayers,
+  takeLayer,
+  stackOf,
+  useLayerViewed,
+  type LayerProgress,
+} from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
 import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
@@ -228,6 +241,7 @@ const NO_SESSIONS: AgentSession[] = [];
 const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
+const NO_PROGRESS: LayerProgress[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
@@ -1468,13 +1482,21 @@ export function App({
   // The Guide: the agent's segments over the saved comparison, and the range's
   // commits, to review one part at a time. An iteration without a guide keeps
   // the one before it, as the brief does.
+  // A stack's or a set's part has its own Guide, which a version without
+  // one keeps from the one before (docs/STACKS.md).
+  const guidePart = state.savedReview?.parts ? savedTarget?.part : undefined;
   const guideSource = shownIteration
-    ? iterations.findLast((entry) => entry.number <= shownIteration && entry.guide)
+    ? iterations.findLast(
+        (entry) =>
+          entry.number <= shownIteration && (guidePart ? entry.guides?.[guidePart] : entry.guide),
+      )
     : undefined;
   const savedGuide = !state.savedReview
     ? undefined
     : shownIteration
-      ? guideSource?.guide
+      ? guidePart
+        ? guideSource?.guides?.[guidePart]
+        : guideSource?.guide
       : state.savedReview.guide;
   const guideTarget = savedTarget;
   const guideCommits = guideTarget?.commits ?? NO_COMMITS;
@@ -1563,6 +1585,72 @@ export function App({
   }, [railChoice]);
   const railShown = changesRail && (railChoice === "open" || (railChoice === "auto" && roomy));
   const toggleRail = useCallback(() => setRailChoice(railShown ? "closed" : "open"), [railShown]);
+  // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
+  // the whole stack, or a range of layers, from one checkout.
+  const stack = useMemo(
+    () => stackOf(state.savedReview, state.savedTargetId),
+    [state.savedReview, state.savedTargetId],
+  );
+  const layerIndex = stack
+    ? stack.layers.findIndex((layer) => layer.target.id === state.savedTargetId)
+    : -1;
+  const shownLayer = layerIndex >= 0 ? stack?.layers[layerIndex] : undefined;
+  const layerSpan =
+    stack && reviewShown && !state.savedView ? rangeOf(stack.layers, state.comparison) : null;
+  const stackMode: StackMode = !layerSpan
+    ? { kind: "layer" }
+    : layerSpan.from === 0 && layerSpan.to === stack!.layers.length - 1
+      ? { kind: "whole" }
+      : { kind: "range", ...layerSpan };
+  const layerViewed = useLayerViewed(stack ? (state.savedReview?.id ?? null) : null);
+  const layerStates = useMemo(
+    () =>
+      stack
+        ? stack.layers.map((layer) => {
+            const counts = layerViewed[layer.target.id];
+            return layerProgress(counts?.viewed ?? 0, layer.files ?? counts?.files, layer.comments);
+          })
+        : NO_PROGRESS,
+    [stack, layerViewed],
+  );
+  const nextLayer = stack ? nextUnreviewed(stack.layers, layerStates) : -1;
+  const showLayer = useCallback(
+    (index: number) => {
+      const layer = stack?.layers[index];
+      if (!layer) return;
+      if (state.savedView && layer.target.id === state.savedTargetId) return;
+      // The Guide stays on its tab; anywhere else, the layer's diff shows.
+      if (fileState.active !== "guide") {
+        pendingSavedChanges.current = layer.target.id;
+        pendingIteration.current = null;
+        fileWorkspace.select("changes");
+      }
+      void controller.selectSavedTarget(layer.target.id);
+    },
+    [stack, state.savedView, state.savedTargetId, fileState.active, fileWorkspace, controller],
+  );
+  const showLayers = useCallback(
+    (from: number, to: number) => {
+      if (!stack) return;
+      if (from === to) return showLayer(from);
+      fileWorkspace.select("changes");
+      void controller.selectComparison(layerRange(stack.layers, from, to), true);
+    },
+    [stack, showLayer, fileWorkspace, controller],
+  );
+  // ⌥↑ and ⌥↓ go up and down the stack, from the shown layer.
+  const stepLayer = useCallback(
+    (by: 1 | -1) => {
+      if (!stack || !reviewShown || layerIndex < 0) return false;
+      const next = Math.max(0, Math.min(stack.layers.length - 1, layerIndex + by));
+      if (next !== layerIndex || !state.savedView) showLayer(next);
+      return true;
+    },
+    [stack, reviewShown, layerIndex, state.savedView, showLayer],
+  );
+  const showNextUnreviewed = useCallback(() => {
+    if (nextLayer >= 0) showLayer(nextLayer);
+  }, [nextLayer, showLayer]);
   const streamFiles = useMemo(() => {
     if (!guideDiff || !guideSection) return files;
     const byId = new Map(state.files.map((file) => [file.id, file]));
@@ -1589,6 +1677,26 @@ export function App({
     [viewed.marks],
   );
   const viewedIds = useMemo(() => markedIds(state.files), [markedIds, state.files]);
+  // The sidebar draws a stack's progress from each layer's viewed count.
+  const shownLayerTarget = state.savedView && shownLayer ? shownLayer.target.id : null;
+  const viewedReview = state.savedReview?.id;
+  useEffect(() => {
+    if (!shownLayerTarget || !viewedReview || state.status !== "ready") return;
+    setLayerViewed(viewedReview, shownLayerTarget, viewedIds.size, state.files.length);
+  }, [shownLayerTarget, viewedReview, state.status, viewedIds, state.files.length]);
+  // A layer that the sidebar picked shows once the thread's review is read.
+  const stackReady = !!stack && !!viewedReview;
+  useEffect(() => {
+    if (!stackReady || !viewedReview) return;
+    const take = () => {
+      const part = takeLayer(viewedReview);
+      if (!part) return;
+      const index = stack?.layers.findIndex((layer) => layer.id === part) ?? -1;
+      if (index >= 0) showLayer(index);
+    };
+    take();
+    return subscribeLayers(take);
+  }, [stackReady, viewedReview, stack, showLayer]);
   const guideViewedIds = useMemo(
     () => (shownGuideFiles === state.files ? viewedIds : markedIds(shownGuideFiles)),
     [markedIds, shownGuideFiles, state.files, viewedIds],
@@ -2663,6 +2771,18 @@ export function App({
           if (id && id !== row.active) selectTab(id);
           return;
         }
+        // ⌥↑ and ⌥↓ go up and down a stack, unless a sidebar row has the focus:
+        // there they move the tab.
+        if (
+          (key === "ArrowUp" || key === "ArrowDown") &&
+          !event.shiftKey &&
+          !(event.target instanceof Element && event.target.closest("[data-sidebar-row]")) &&
+          stepLayer(key === "ArrowUp" ? 1 : -1)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         if (["KeyW", "KeyO", "KeyB", "KeyR", "KeyZ"].includes(key)) {
           event.preventDefault();
           event.stopPropagation();
@@ -2953,6 +3073,7 @@ export function App({
     streamFiles,
     toggleTopFileViewed,
     shown,
+    stepLayer,
   ]);
 
   const selectBranch = useCallback(
@@ -3389,13 +3510,24 @@ export function App({
         ? [comparisonLabel(target.comparison, target.names).long]
         : []),
     ].join(" · ");
+  // A stack's version is one item: the shown layer in that version, or its
+  // bottom layer; the rail picks the layer.
+  const versionHandoffs = state.savedReview?.parts
+    ? handoffs.filter((target) => {
+        const mates = handoffs.filter((other) => versionOf(other) === versionOf(target));
+        const part = savedTarget?.part;
+        return (mates.find((other) => !!part && other.part === part) ?? mates[0]) === target;
+      })
+    : handoffs;
   const versionChoices = reviewShown
     ? [
-        ...handoffs
+        ...versionHandoffs
           .map((target, index) => ({ target, index, number: versionNumber(target) }))
           .sort((a, b) => b.number - a.number || a.index - b.index)
           .map(({ target, number }) => {
-            const places = handoffs.filter((other) => versionNumber(other) === number).length;
+            const places = versionHandoffs.filter(
+              (other) => versionNumber(other) === number,
+            ).length;
             const time = Date.parse(
               versionOf(target)?.createdAt ?? state.savedReview?.createdAt ?? "",
             );
@@ -3646,6 +3778,40 @@ export function App({
       void controller.selectComparison({ kind: value, ...session });
   };
   const commands: ReviewCommand[] = [
+    ...(stack && reviewAvailable
+      ? [
+          {
+            id: "stack-next-unreviewed",
+            label: `Next unreviewed ${stack.shape === "stack" ? "layer" : "part"}`,
+            disabled: nextLayer < 0,
+            run: showNextUnreviewed,
+          },
+          ...(stack.shape === "stack"
+            ? [
+                {
+                  id: "stack-up",
+                  label: "Layer above",
+                  shortcut: "⌥ ↑",
+                  disabled: layerIndex < 0 || layerIndex >= stack.layers.length - 1,
+                  run: () => showLayer(layerIndex + 1),
+                },
+                {
+                  id: "stack-down",
+                  label: "Layer below",
+                  shortcut: "⌥ ↓",
+                  disabled: layerIndex <= 0,
+                  run: () => showLayer(layerIndex - 1),
+                },
+                {
+                  id: "stack-whole",
+                  label: "Show the whole stack",
+                  disabled: stackMode.kind === "whole",
+                  run: () => showLayers(0, stack.layers.length - 1),
+                },
+              ]
+            : []),
+        ]
+      : []),
     {
       id: "render-diagnostics",
       label: "Download render diagnostics",
@@ -4886,6 +5052,31 @@ export function App({
   const comparisonFit = useRowFit(comparisonSlot, quiet && streamChrome ? comparisonText : null);
   // A Review of one version names it, with nothing to choose. (Review has no
   // compare actions.)
+  const stackRail = stack && reviewShown && !zen && (
+    <StackRail
+      stack={stack}
+      current={Math.max(0, layerIndex)}
+      mode={stackMode}
+      progress={layerStates}
+      next={nextLayer}
+      onLayer={showLayer}
+      onRange={showLayers}
+      onNext={showNextUnreviewed}
+    />
+  );
+  // Where the rail hides, the layers are a menu in the review's row.
+  const layerMenu = stack &&
+    reviewShown &&
+    !zen &&
+    !(railShown || (changedVisible && gitAvailable) || (guideTab && roomy)) && (
+      <LayerMenu
+        stack={stack}
+        current={Math.max(0, layerIndex)}
+        mode={stackMode}
+        onLayer={showLayer}
+        onRange={showLayers}
+      />
+    );
   const comparisonSelect =
     reviewShown && comparisonChoices.length <= 1 ? (
       <ChoiceLabel
@@ -5116,6 +5307,7 @@ export function App({
           {comparisonFit !== "menu" && comparisonSelect}
         </span>
       )}
+      {streamChrome && layerMenu}
       {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
       {fileState.active === "commit" && commitApi && (
         <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
@@ -5502,10 +5694,12 @@ export function App({
                       }
                     }}
                     onToggleViewed={setFilesViewed}
+                    top={stackRail}
                   />
                 )}
                 {railShown && (
                   <ChangesRail
+                    top={stackRail}
                     repo={state.session?.repository.path ?? null}
                     pathActions={pathActions}
                     files={files}
@@ -5565,6 +5759,7 @@ export function App({
                           onClick={toggleRail}
                         />
                       )}
+                      {layerMenu}
                       {comparisonSelect}
                       {comparisonActionsElement}
                       {totals}
@@ -6035,6 +6230,7 @@ export function App({
               <>
                 <FileSidebar
                   controls={controls}
+                  top={stackRail}
                   repo={state.session?.repository.path ?? null}
                   pathActions={pathActions}
                   files={files}
@@ -6080,7 +6276,18 @@ export function App({
           !workspace && <BranchStrip model={branches} />
         )}
         {branchPicker}
-        {state.savedReview?.pullRequestUrl && !savedCardHeader && (
+        {/* A stack's band names the shown layer's pull request. */}
+        {shownLayer?.pullRequestUrl && !savedCardHeader && (
+          <InTitleBand
+            lead={
+              <PullRequestTitle
+                url={shownLayer.pullRequestUrl}
+                title={shownLayer.pullRequestTitle ?? shownLayer.title}
+              />
+            }
+          />
+        )}
+        {state.savedReview?.pullRequestUrl && !shownLayer?.pullRequestUrl && !savedCardHeader && (
           <InTitleBand
             lead={
               <PullRequestTitle
