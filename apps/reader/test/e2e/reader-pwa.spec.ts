@@ -153,3 +153,63 @@ test("a fresh install opens the Library and a book offline, and keeps Debug page
   await fresh.getByRole("button", { name: "Reload" }).click();
   await expect(fresh.getByRole("heading", { name: "Notes Lab" })).toBeVisible();
 });
+
+test("an install keeps its web manifest and icons offline, and lists them for the update progress", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  // The update progress counts sw-precache.json, so it lists every file the
+  // worker precaches.
+  expect(
+    await page.evaluate(async () => {
+      const scope = (await navigator.serviceWorker.getRegistration())!.scope;
+      const entries = (await (
+        await fetch("/sw-precache.json", { cache: "no-store" })
+      ).json()) as { url: string }[];
+      const listed = new Set(
+        entries.map(({ url }) => new URL(url, scope).href),
+      );
+      const cache = await caches.open(`workbox-precache-v2-${scope}`);
+      return (await cache.keys())
+        .map((request) => {
+          const url = new URL(request.url);
+          url.searchParams.delete("__WB_REVISION__");
+          return url.href;
+        })
+        .filter((url) => !listed.has(url));
+    }),
+  ).toEqual([]);
+
+  // setOffline does not reach the service worker's own requests, so the
+  // network fails them too.
+  await context.setOffline(true);
+  await context.route("**/*", (route) => route.abort("internetdisconnected"));
+  expect(
+    await page.evaluate(async () => {
+      const link = (rel: string) =>
+        document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`)!.href;
+      const manifestUrl = link("manifest");
+      const manifest = (await (await fetch(manifestUrl)).json()) as {
+        icons: { src: string }[];
+      };
+      const urls = [
+        ...manifest.icons.map((icon) => new URL(icon.src, manifestUrl).href),
+        link("apple-touch-icon"),
+        link("icon"),
+      ];
+      const missing: string[] = [];
+      for (const url of urls) {
+        const response = await fetch(url).catch(() => null);
+        if (!response?.ok) missing.push(url);
+      }
+      return missing;
+    }),
+  ).toEqual([]);
+  await context.unroute("**/*");
+  await context.setOffline(false);
+});

@@ -59,7 +59,15 @@ export default defineConfig(({ command, mode }) => ({
         // a font comes from Cache Storage, never an HTTP revalidation. Every
         // browser that runs the service worker takes the woff2 source, so the
         // woff fallbacks Fontsource also emits stay out.
-        globPatterns: ["**/*.{js,css,html,woff2}"],
+        globPatterns: [
+          "**/*.{js,css,html,woff2}",
+          // The installed app's own files: its web manifest and the icons
+          // that browsers and the install sheet show. Other sizes stay out,
+          // and so do the launch screens and store screenshots: iOS fetches
+          // a launch screen from the network, never through this worker,
+          // when Add to Home Screen is tapped, and keeps it with the icon.
+          "{manifest.webmanifest,favicon.ico,apple-touch-icon-180x180.png,pwa-192x192.png,pwa-512x512.png}",
+        ],
         // A new version waits after it installs, keeping this version's files,
         // and takes over when the page posts SKIP_WAITING: at once by
         // default, at a safe moment with Debug -> Calm updates.
@@ -71,9 +79,6 @@ export default defineConfig(({ command, mode }) => ({
           "**/assets/encode-*.js",
           "**/assets/webp_enc*.js",
           "**/assets/webp_enc*.wasm",
-          // Install-time images: launch screens and store screenshots.
-          "launch/**",
-          "screenshots/**",
         ],
         runtimeCaching: [
           {
@@ -110,7 +115,9 @@ export default defineConfig(({ command, mode }) => ({
           },
         ],
       },
-      includeAssets: ["favicon.ico", "apple-touch-icon-180x180.png"],
+      // The icons come from `globPatterns`, through `precache`, so that
+      // `sw-precache.json` counts them. The plugin's own icon entries skip it.
+      includeManifestIcons: false,
       manifest: {
         // Chrome's identity for an install: the start URL it used before.
         id: "/",

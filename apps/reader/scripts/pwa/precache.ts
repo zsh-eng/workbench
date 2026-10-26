@@ -2,6 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
 
+/** vite-plugin-pwa's file name for the web manifest. */
+const WEB_MANIFEST = "manifest.webmanifest";
+
 interface ManifestEntry {
   url: string;
   revision: string | null;
@@ -28,6 +31,10 @@ export interface ReaderPrecacheOptions {
  * except code that only on-demand pages load and fonts outside
  * `precacheFonts`. Those download on first use, into the runtime cache that
  * `vite.config.ts` gives `/assets/`.
+ *
+ * vite-plugin-pwa adds the web manifest to the worker itself, after this
+ * transform. It is listed in `sw-precache.json` and left out of the return,
+ * so the worker has it once.
  */
 export function readerPrecache(options: ReaderPrecacheOptions): {
   plugin: Plugin;
@@ -79,7 +86,9 @@ export function readerPrecache(options: ReaderPrecacheOptions): {
           ),
         );
       }
-      return { manifest };
+      return {
+        manifest: manifest.filter((entry) => entry.url !== WEB_MANIFEST),
+      };
     },
   };
 }
