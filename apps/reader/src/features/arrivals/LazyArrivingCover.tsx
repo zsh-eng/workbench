@@ -15,12 +15,21 @@ export function preloadArrivingCover() {
   void import("./ArrivingCover").then((module) => module.warmArrivingCover());
 }
 
+const loadArrivalSheet = () => import("./ArrivalSheet");
+
 /** The sheet one book on its own arrives in, loaded when it is first needed. */
 export const LazyArrivalSheet = lazy(() =>
-  import("./ArrivalSheet").then((module) => ({
-    default: module.ArrivalSheet,
-  })),
+  loadArrivalSheet().then((module) => ({ default: module.ArrivalSheet })),
 );
+
+/**
+ * Start loading the arrival sheet and the drawing while you choose files,
+ * so a slow phone shows the sheet with the import, not after it.
+ */
+export function preloadArrivals() {
+  void loadArrivalSheet();
+  preloadArrivingCover();
+}
 
 /**
  * A cover while its book arrives, in the look of the page's arrival

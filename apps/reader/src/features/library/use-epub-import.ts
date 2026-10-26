@@ -1,7 +1,7 @@
 import { DuplicateBookDialog } from "./DuplicateBookDialog";
 import {
   LazyArrivalSheet,
-  preloadArrivingCover,
+  preloadArrivals,
 } from "@/features/arrivals/LazyArrivingCover";
 import { useToast } from "@/hooks/use-toast";
 import { markEpubPreparationReady } from "@/hooks/use-epub-processor";
@@ -116,7 +116,7 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
       // One book on its own arrives in a sheet; several fill the grid.
       const sheet = arrivals !== null && epubFiles.length === 1;
       if (arrivals) {
-        preloadArrivingCover();
+        preloadArrivals();
         navigate("/");
         if (sheet) setSheetKey(arrivals.keys[0]!);
       }
@@ -204,6 +204,7 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
 
   const openFilePicker = useCallback(() => {
     if (isProcessing) return;
+    if (arrivingBooks.get()) preloadArrivals();
 
     const input = document.createElement("input");
     input.type = "file";
