@@ -15,6 +15,13 @@ export function preloadArrivingCover() {
   void import("./ArrivingCover").then((module) => module.warmArrivingCover());
 }
 
+/** The sheet one book on its own arrives in, loaded when it is first needed. */
+export const LazyArrivalSheet = lazy(() =>
+  import("./ArrivalSheet").then((module) => ({
+    default: module.ArrivalSheet,
+  })),
+);
+
 /**
  * A cover while its book arrives, in the look of the page's arrival
  * environment; plain paper while the drawing loads.
@@ -23,6 +30,15 @@ export function LazyArrivingCover(
   props: Omit<ArrivingCoverProps, "look" | "onSettled" | "relief">,
 ) {
   const { records, look, reliefFor } = useArrivalEnvironment();
+  // The arrival sheet shows this book: its place waits, empty, for the
+  // cover to come down into it.
+  if (props.arrival.presented)
+    return (
+      <span
+        data-arrival-place={props.arrival.key}
+        className={cn("block bg-secondary", props.className)}
+      />
+    );
   return (
     <Suspense
       fallback={<span className={cn("block bg-secondary", props.className)} />}

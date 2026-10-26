@@ -37,7 +37,7 @@ export interface ArrivingCoverProps {
 const coverUrls = new WeakMap<Blob, string>();
 
 /** One object URL per cover Blob, kept while the page lives. */
-function useCoverUrl(cover: Blob | null): string | null {
+export function useCoverUrl(cover: Blob | null): string | null {
   if (!cover) return null;
   let url = coverUrls.get(cover);
   if (!url) {
@@ -50,7 +50,7 @@ function useCoverUrl(cover: Blob | null): string | null {
 /** Covers decoded once, so a cover that moves to another tile shows at once. */
 const decodedUrls = new Set<string>();
 
-function useDecoded(url: string | null): boolean {
+export function useDecoded(url: string | null): boolean {
   const [decoded, setDecoded] = useState<string | null>(null);
   useEffect(() => {
     if (!url || decodedUrls.has(url)) return;

@@ -1,16 +1,21 @@
 import { DuplicateBookDialog } from "./DuplicateBookDialog";
-import { preloadArrivingCover } from "@/features/arrivals/LazyArrivingCover";
+import {
+  LazyArrivalSheet,
+  preloadArrivingCover,
+} from "@/features/arrivals/LazyArrivingCover";
 import { useToast } from "@/hooks/use-toast";
 import { markEpubPreparationReady } from "@/hooks/use-epub-processor";
 import { importBooks } from "@/lib/background-activity";
 import { appArrivals } from "@/lib/book-arrivals";
 import { addBookFromFile, DuplicateBookError } from "@/lib/book-service";
 import { arrivingBooks } from "@/lib/debug-switch";
+import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import type { Book } from "@/lib/db";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   createElement,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -62,6 +67,8 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [duplicateBook, setDuplicateBook] = useState<Book | null>(null);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  // Debug → Arriving books: the book that arrives in the arrival sheet.
+  const [sheetKey, setSheetKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -106,9 +113,12 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
       let lastDuplicateBook: Book | null = null;
       // Debug → Arriving books: each file is a job, and its place shows now.
       const arrivals = arrivingBooks.get() ? importBooks(epubFiles) : null;
+      // One book on its own arrives in a sheet; several fill the grid.
+      const sheet = arrivals !== null && epubFiles.length === 1;
       if (arrivals) {
         preloadArrivingCover();
         navigate("/");
+        if (sheet) setSheetKey(arrivals.keys[0]!);
       }
 
       try {
@@ -130,6 +140,9 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
             }
           }
         }
+
+        // The sheet says how it went, and offers Read now.
+        if (sheet) return;
 
         const message = importFeedback(
           successCount,
@@ -222,6 +235,25 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
     EpubImportContext.Provider,
     { value },
     children,
+    sheetKey
+      ? createElement(
+          Suspense,
+          { fallback: null },
+          createElement(LazyArrivalSheet, {
+            key: sheetKey,
+            arrivalKey: sheetKey,
+            onOpenBook: (bookId: string, title: string) => {
+              beginReaderTrace({
+                bookId,
+                bookTitle: title,
+                source: "arrival-sheet",
+              });
+              navigate(`/reader/${bookId}`);
+            },
+            onDone: () => setSheetKey(null),
+          }),
+        )
+      : null,
     duplicateBook
       ? createElement(DuplicateBookDialog, {
           open: showDuplicateDialog,
