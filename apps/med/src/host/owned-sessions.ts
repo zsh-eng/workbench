@@ -261,11 +261,15 @@ const modeCycle = (bypass: boolean) => [
   ...(bypass ? [BYPASS] : []),
   "auto",
 ];
+/** The mode a new session starts in: a mode that Med knows, but never Bypass,
+ * which asks first. "default" leaves it to the user's own setting. */
+const startMode = (mode: string | undefined) =>
+  mode && mode !== BYPASS && CLAUDE_MODES.some((entry) => entry.value === mode) ? mode : "default";
 /** The modes that an approved plan can continue in, the first by default,
  * as Claude Code offers them after a plan. */
 const planModes = (bypass: boolean) =>
-  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map((value) =>
-    CLAUDE_MODES.find((mode) => mode.value === value)!,
+  ["acceptEdits", "default", "auto", ...(bypass ? [BYPASS] : [])].map(
+    (value) => CLAUDE_MODES.find((mode) => mode.value === value)!,
   );
 const questionsSchema = z.array(ownedQuestionSchema).min(1).max(8);
 
@@ -447,7 +451,10 @@ export function startClaude(
         effort: options.resume.effort ?? "default",
         mode: options.resume.mode ?? "default",
       }
-    : { ...claudeChoices(models, options.choices ?? {}), mode: "default" };
+    : {
+        ...claudeChoices(models, options.choices ?? {}),
+        mode: startMode(options.choices?.mode),
+      };
   // Whether the process that runs started with Bypass allowed: Claude Code
   // refuses to switch to it otherwise.
   let bypassable = false;
@@ -510,19 +517,21 @@ export function startClaude(
       const parsed = claudeInitSchema.safeParse(value);
       if (!parsed.success) return;
       models = parsed.data.models;
-      // Med starts a session in the mode it had; a new one starts in the
-      // user's default mode.
+      // Claude Code reports the mode that it started in: the session's own,
+      // or for a new one, the mode that Med asked for.
       if (parsed.data.current_permission_mode) chosen.mode = parsed.data.current_permission_mode;
       store.set({
         status: store.get().status === "starting" ? "idle" : store.get().status,
         settings: settings(),
         commands: parsed.data.commands
           .filter((command) => !command.builtin)
-          .map((command): OwnedCommand => ({
-            name: command.name,
-            description: command.description,
-            ...(command.argumentHint ? { hint: command.argumentHint } : {}),
-          })),
+          .map(
+            (command): OwnedCommand => ({
+              name: command.name,
+              description: command.description,
+              ...(command.argumentHint ? { hint: command.argumentHint } : {}),
+            }),
+          ),
       });
     },
     get_context_usage(value) {
@@ -824,7 +833,8 @@ export function startClaude(
           : ["--session-id", sessionId]),
       ...(chosen.model !== "default" ? ["--model", chosen.model] : []),
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
-      // A session that ran keeps its mode; a new one starts in the user's default.
+      // A session that ran keeps its mode; a new one starts in the mode that
+      // Med chose (Auto, or the thread's), else in the user's default.
       ...(chosen.mode !== "default" || exists ? ["--permission-mode", chosen.mode] : []),
       // Claude Code switches to Bypass only when it started with it allowed.
       ...(chosen.bypass || chosen.mode === BYPASS ? ["--allow-dangerously-skip-permissions"] : []),
@@ -1986,7 +1996,9 @@ export class OwnedSessions {
     { key, choices }: { key?: string; choices?: AgentChoices } = {},
   ): Promise<OwnedRunner> {
     const agent = await this.agent(presetId);
-    const wanted = { ...AGENT_DEFAULTS[presetId], ...choices };
+    // A thread keeps the mode that it last chose for Claude Code.
+    const kept = agent.kind === "claude" && key ? this.threadMode(key) : undefined;
+    const wanted = { ...AGENT_DEFAULTS[presetId], ...(kept && { mode: kept }), ...choices };
     const runner =
       agent.kind === "claude"
         ? startClaude(agent, cwd, {
@@ -2014,6 +2026,19 @@ export class OwnedSessions {
       updatedAt: Date.now(),
     });
     return runner;
+  }
+  /** The permission mode of the thread's newest Claude Code session. */
+  private threadMode(key: string) {
+    let newest: SessionRecord | undefined;
+    for (const record of Object.values(this.records))
+      if (
+        record.key === key &&
+        record.kind === "claude" &&
+        record.choices.mode &&
+        (!newest || record.updatedAt > newest.updatedAt)
+      )
+        newest = record;
+    return newest?.choices.mode;
   }
   /** Claude Code, as installed here, to run a session that Med did not start. */
   private async claude(cwd: string) {

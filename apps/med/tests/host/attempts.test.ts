@@ -238,7 +238,7 @@ test("two attempts start in their own worktrees, compare side by side with their
       branch: "show-week-tides-cli-b",
       changes: { files: 2, additions: 2, deletions: 1 },
       checks: [],
-      lastMessage: "Model haiku, effort default, mode default: Show a week of tides in the CLI.",
+      lastMessage: "Model haiku, effort default, mode auto: Show a week of tides in the CLI.",
     },
   ]);
   // The shared file first, with each attempt's diff against the shared base:

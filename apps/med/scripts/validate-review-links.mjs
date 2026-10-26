@@ -156,7 +156,10 @@ try {
   const answerGh = () =>
     fakeGh.answer([
       { args: ["pr", "view"], stdout: prResult },
-      { args: ["api", pull, ".head.sha"], stdout: `${prResult.headRefOid}\n` },
+      {
+        args: ["api", pull],
+        stdout: `${JSON.stringify({ head: prResult.headRefOid, number: 42, title: prResult.title, author: "reviewer", state: "open", draft: false, merged: false })}\n`,
+      },
       {
         args: ["api", `${pull}/comments?per_page=100`],
         stdout: lines({

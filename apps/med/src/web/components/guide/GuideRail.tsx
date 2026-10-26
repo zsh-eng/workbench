@@ -217,7 +217,8 @@ export function RailCommits({
   /** The commit that shows, if one does. */
   current: string | null;
   onCommit(id: string): void;
-  whole?: { current: boolean; onShow(): void };
+  /** A row for the whole range, "Whole range" unless `label` names it. */
+  whole?: { current: boolean; label?: string; onShow(): void };
 }) {
   return (
     <>
@@ -240,7 +241,7 @@ export function RailCommits({
               <span aria-hidden="true" {...stylex.props(styles.sha, styles.all)}>
                 all
               </span>
-              <span {...stylex.props(styles.commitSubject)}>Whole range</span>
+              <span {...stylex.props(styles.commitSubject)}>{whole.label ?? "Whole range"}</span>
             </button>
           </li>
         )}

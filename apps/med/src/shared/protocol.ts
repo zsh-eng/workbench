@@ -151,10 +151,19 @@ export interface PullRequestThread {
   originalLine: number | null;
   comments: PullRequestComment[];
 }
+/** What the review's header says of a pull request. */
+export interface PullRequestSummary {
+  number: number;
+  title: string;
+  author: string;
+  state: "open" | "draft" | "merged" | "closed";
+}
 export interface PullRequestComments {
   url: string;
   /** The pull request's head commit; thread lines refer to it. */
   head: string;
+  /** Read with the head; a host before this field sends none. */
+  pull?: PullRequestSummary;
   fetchedAt: number;
   threads: PullRequestThread[];
   /** General comments on the pull request. */

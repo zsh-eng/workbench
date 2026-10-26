@@ -2,7 +2,6 @@ import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
 import {
   createContext,
-  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -21,6 +20,7 @@ import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
+import { CommentText } from "./NoteCard";
 import { useRowPart } from "./QuietChrome";
 import { tooltip } from "./ToolButton";
 
@@ -151,31 +151,23 @@ export function commentText(comment: PullRequestComment) {
   return `${quote(comment)}\n\n${comment.url}`;
 }
 
-/** GitHub Markdown, shown as text: fenced code and inline code keep their
- * shape; HTML comments that bots leave are removed. */
+/** GitHub's suggestion blocks read as code, after a label that says what they are. */
+const labelSuggestions = (text: string) =>
+  text.replace(/^([ \t]*)(`{3,}|~{3,})suggestion[ \t]*$/gm, "$1*Suggested change*\n\n$1$2");
+
+/** A comment's Markdown, rendered as Med's own comments are: code, lists, task
+ * lists, quotes, and links that open in the browser. Raw HTML never renders;
+ * the HTML comments that bots leave are removed. A long comment folds. */
 function Body({ text }: { text: string }) {
   const clean = text.replace(/<!--[\s\S]*?-->/g, "").trim();
   const long = clean.length > 900 || clean.split("\n").length > 14;
   const [open, setOpen] = useState(false);
   if (!clean) return <p {...stylex.props(styles.body, styles.empty)}>No text.</p>;
-  const parts: ReactNode[] = [];
-  const fence = /^(`{3,}|~{3,})[ \t]*([^\n]*)\n([\s\S]*?)^\1[ \t]*$/gm;
-  let last = 0;
-  for (const match of clean.matchAll(fence)) {
-    if (match.index > last) parts.push(<Prose key={last} text={clean.slice(last, match.index)} />);
-    const suggestion = match[2]!.trim() === "suggestion";
-    parts.push(
-      <figure key={match.index} {...stylex.props(styles.figure)}>
-        {suggestion && <figcaption {...stylex.props(styles.caption)}>Suggested change</figcaption>}
-        <pre {...stylex.props(styles.code)}>{match[3]!.replace(/\n$/, "")}</pre>
-      </figure>,
-    );
-    last = match.index + match[0].length;
-  }
-  if (last < clean.length) parts.push(<Prose key={last} text={clean.slice(last)} />);
   return (
     <>
-      <div {...stylex.props(styles.body, long && !open && styles.clamped)}>{parts}</div>
+      <div {...stylex.props(styles.body, long && !open && styles.clamped)}>
+        <CommentText text={labelSuggestions(clean)} />
+      </div>
       {long && (
         <button
           type="button"
@@ -187,24 +179,6 @@ function Body({ text }: { text: string }) {
         </button>
       )}
     </>
-  );
-}
-
-function Prose({ text }: { text: string }) {
-  const trimmed = text.replace(/^\n+|\n+$/g, "");
-  if (!trimmed) return null;
-  return (
-    <p {...stylex.props(styles.prose)}>
-      {trimmed.split(/(`[^`\n]+`)/).map((part, index) =>
-        index % 2 ? (
-          <code key={index} {...stylex.props(styles.inlineCode)}>
-            {part.slice(1, -1)}
-          </code>
-        ) : (
-          <Fragment key={index}>{part}</Fragment>
-        ),
-      )}
-    </p>
   );
 }
 
@@ -1086,7 +1060,6 @@ const styles = stylex.create({
     maskImage: "linear-gradient(to bottom, black 75%, transparent)",
   },
   empty: { color: tokens.faint, margin: 0 },
-  prose: { margin: 0, marginBottom: 6, whiteSpace: "pre-wrap" },
   inlineCode: {
     fontFamily: tokens.code,
     fontSize: "0.9em",
@@ -1094,20 +1067,6 @@ const styles = stylex.create({
     paddingBlock: 1,
     borderRadius: `calc(4px * ${tokens.round})`,
     backgroundColor: tokens.fill,
-  },
-  figure: { margin: 0, marginBottom: 6 },
-  caption: { color: tokens.muted, fontSize: 11, marginBottom: 4 },
-  code: {
-    margin: 0,
-    paddingBlock: 8,
-    paddingInline: 10,
-    overflowX: "auto",
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    fontFamily: tokens.code,
-    fontSize: 12,
-    lineHeight: "18px",
-    whiteSpace: "pre",
   },
   more: {
     marginBottom: 4,

@@ -47,6 +47,7 @@ import {
 } from "../../shared/review";
 import { ByteLru } from "../../shared/byte-lru";
 import {
+  branchCommitsSchema,
   branchesSchema,
   createApi,
   eventSchema,
@@ -99,7 +100,42 @@ export interface ReviewControllerSnapshot {
   connection: "connecting" | "connected" | "reconnecting" | "closed";
   metrics: { requestMs: number; parseMs: number; cacheHit: boolean } | null;
   semantic: ReviewState | null;
+  /** The commits of the branch whose changes show live, from its merge base
+   * with the base to its head. */
+  branchCommits: {
+    repo: string;
+    base: string;
+    head: string;
+    commits: SavedCommit[];
+    more: boolean;
+  } | null;
 }
+
+/** The commits that live Changes list beside their files. A thread whose
+ * Review covers a range of this repository lists that range's, so the list
+ * is the same in both tabs; otherwise the branch's own commits show. */
+export function changesCommits(
+  snapshot: ReviewControllerSnapshot,
+): { commits: readonly SavedCommit[]; more?: boolean } | undefined {
+  const branch = snapshot.branchCommits;
+  return (
+    reviewRange(snapshot) ??
+    (branch && branch.repo === snapshot.session?.repository.path ? branch : undefined)
+  );
+}
+function reviewRange(snapshot: ReviewControllerSnapshot) {
+  const target = snapshot.savedReview?.targets.find((entry) => entry.id === snapshot.savedTargetId);
+  return target?.commits?.length && target.repositoryId === snapshot.activeRepositoryId
+    ? { commits: target.commits, more: target.moreCommits }
+    : undefined;
+}
+/** Resolves when the browser is idle, or after a second. */
+const idle = () =>
+  new Promise<void>((resolve) =>
+    "requestIdleCallback" in globalThis
+      ? requestIdleCallback(() => resolve(), { timeout: 1000 })
+      : setTimeout(resolve, 200),
+  );
 
 export interface ReviewControllerOptions {
   token?: string;
@@ -128,6 +164,9 @@ export interface ReviewController {
    * last, or by default the branch's changes on a branch other than its
    * base, and the working changes on the base. */
   showChanges(): Promise<void>;
+  /** Changes again after a commit of the list beside them: the live
+   * comparison that showed before it. */
+  showAllChanges(): Promise<void>;
   /** Moves the thread to another checkout of its repository. Its Changes
    * show that checkout from now on, since the same base. */
   moveThread(checkout: {
@@ -385,6 +424,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     connection: "closed",
     metrics: null,
     semantic: null,
+    branchCommits: null,
   };
   // Keep failed write text available if a pending navigation finishes afterward.
   let noteWriteRecovery: string | null = null;
@@ -648,12 +688,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const cached = !force && immutableComparison(comparison) ? reviewCache.get(key) : undefined;
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
-      if (reviewSide && comparison.kind === "commit") prefetchIterations();
+      readAhead(comparison);
       return;
     }
     if (last) {
       update({ comparison, error: null });
       publishReview(last, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
+      readAhead(comparison);
     }
     const start = performance.now();
     try {
@@ -691,10 +732,50 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         parseMs: performance.now() - parseStart,
         cacheHit: false,
       });
-      if (reviewSide && comparison.kind === "commit") prefetchIterations();
+      readAhead(comparison);
+      void loadBranchCommits(response);
     } catch (error) {
       if (waitsForMed(error) && !immutableComparison(comparison)) return;
       if (isCurrent(generation)) update({ status: "error", error: message(error) });
+    }
+  }
+
+  /** After a diff shows: reads ahead the commits listed beside it. */
+  function readAhead(comparison: Comparison) {
+    if (!reviewSide) prefetchChangesCommits();
+    else if (comparison.kind === "commit") prefetchIterations();
+  }
+
+  let commitsAbort: AbortController | undefined;
+  let commitsKey: string | undefined;
+  /** Reads the commits of the branch whose changes show, once for each head.
+   * A thread whose Review covers a range lists that range's commits instead,
+   * so it reads none. A commit picked from the list keeps the list. */
+  async function loadBranchCommits(response: ReviewResponse) {
+    const { repo, comparison, base, headCommit: head } = response;
+    if (comparison.kind === "commit") return;
+    if (comparison.kind !== "working" || !comparison.base || !head || head === base) {
+      commitsAbort?.abort();
+      commitsKey = undefined;
+      if (snapshot.branchCommits) update({ branchCommits: null });
+      return;
+    }
+    const key = JSON.stringify([repo, base, head]);
+    if (commitsKey === key || reviewRange(snapshot)) return;
+    commitsKey = key;
+    commitsAbort?.abort();
+    const abort = (commitsAbort = new AbortController());
+    try {
+      const { commits, more } = await api.json(
+        `/api/commits?${query({ repo, base, head })}`,
+        branchCommitsSchema,
+        { signal: abort.signal },
+      );
+      if (abort.signal.aborted || snapshot.session?.repository.path !== repo) return;
+      update({ branchCommits: { repo, base, head, commits, more } });
+      prefetchChangesCommits();
+    } catch {
+      // Changes show without the list, and the next head reads it again.
     }
   }
 
@@ -912,8 +993,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   // The diff that loads next is the Review's (a version, or a commit of its
   // range), not the checkout's live Changes.
   let reviewSide = false;
-  // The live comparison that the reader chose last, which Changes shows again.
+  // The live comparison that the reader chose last, which Changes shows again,
+  // and the one before a commit picked beside them, which All changes shows.
   let liveChoice: Comparison | null = null;
+  let choiceBeforeCommit: Comparison | null = null;
   /** Changes by default: the branch's changes on a branch other than its
    * base, and the working changes on the base. */
   const defaultChanges = (): Comparison => {
@@ -1106,13 +1189,16 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     }
     sessionAbort?.abort();
     sessionAbort = new AbortController();
+    commitsAbort?.abort();
+    commitsKey = undefined;
     cancelSources();
     stopEvents();
     sourceCache.clear();
     // A kept diff's workspace is new and shows its diff; the session sets the
     // rest in one update, so the diff renders once more, not twice.
     reviewSide = Boolean(savedTarget);
-    if (!savedTarget && path !== snapshot.session?.repository.path) liveChoice = null;
+    if (!savedTarget && path !== snapshot.session?.repository.path)
+      liveChoice = choiceBeforeCommit = null;
     if (!kept)
       update({
         session: null,
@@ -1131,6 +1217,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         status: "loading",
         error: null,
         review: null,
+        branchCommits: null,
         files: [],
         visibleFiles: [],
         semantic: null,
@@ -1340,12 +1427,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       .toReversed()
       .slice(0, 6)
       .flatMap((iteration) => saved.targets.filter((entry) => entry.id === iteration.targetIds[0]));
-    const idle = () =>
-      new Promise<void>((resolve) =>
-        "requestIdleCallback" in globalThis
-          ? requestIdleCallback(() => resolve(), { timeout: 1000 })
-          : setTimeout(resolve, 200),
-      );
     void (async () => {
       for (const target of targets) {
         await idle();
@@ -1367,22 +1448,63 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           return;
         }
       }
-      for (const commit of commits) {
-        await idle();
-        const ready = () =>
-          !abort.signal.aborted &&
-          !suspended &&
-          snapshot.status === "ready" &&
-          snapshot.savedReview?.id === saved.id &&
-          snapshot.session?.repository.path === repo;
-        if (!repo || !ready()) return;
-        try {
-          await prefetchCommit(repo, commit, abort.signal, ready);
-        } catch {
-          return;
-        }
-      }
+      if (repo)
+        await readCommitsAhead(
+          repo,
+          commits,
+          abort.signal,
+          () =>
+            !abort.signal.aborted &&
+            !suspended &&
+            snapshot.status === "ready" &&
+            snapshot.savedReview?.id === saved.id &&
+            snapshot.session?.repository.path === repo,
+        );
     })();
+  }
+
+  /** Reads ahead the commits listed beside live Changes, as prefetchIterations
+   * does for a Review's range. */
+  function prefetchChangesCommits() {
+    const repo = snapshot.session?.repository.path;
+    const commits = rangeCommitsAhead(changesCommits(snapshot)?.commits).filter(
+      (commit) =>
+        !reviewCache.get(JSON.stringify([repo, comparisonKey({ kind: "commit", commit })])),
+    );
+    if (!repo || !commits.length || suspended || disposed) return;
+    iterationAbort?.abort();
+    const abort = new AbortController();
+    iterationAbort = abort;
+    void readCommitsAhead(
+      repo,
+      commits,
+      abort.signal,
+      () =>
+        !abort.signal.aborted &&
+        !suspended &&
+        snapshot.status === "ready" &&
+        !snapshot.inReview &&
+        snapshot.session?.repository.path === repo,
+    );
+  }
+
+  /** Reads `commits` of `repo` into the cache one at a time while the review
+   * is idle, until `ready` fails. */
+  async function readCommitsAhead(
+    repo: string,
+    commits: readonly string[],
+    signal: AbortSignal,
+    ready: () => boolean,
+  ) {
+    for (const commit of commits) {
+      await idle();
+      if (!ready()) return;
+      try {
+        await prefetchCommit(repo, commit, signal, ready);
+      } catch {
+        return;
+      }
+    }
   }
 
   /** The range's commits to read ahead: those after the one that shows, then
@@ -1984,7 +2106,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       reviewSide = false;
       // A Review of another checkout: Changes are the thread's own checkout's.
       if (checkout && snapshot.session && snapshot.session.repository.path !== checkout.repo) {
-        liveChoice = null;
+        liveChoice = choiceBeforeCommit = null;
         return openWorkspace(checkout.repo, undefined, checkout.repositoryId);
       }
       const live = liveChoice ?? defaultChanges();
@@ -1996,6 +2118,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         return;
       return selectComparison(live);
     },
+    showAllChanges() {
+      reviewSide = false;
+      if (liveChoice?.kind === "commit") liveChoice = choiceBeforeCommit;
+      return selectComparison(liveChoice ?? defaultChanges());
+    },
     async moveThread(target) {
       const before = snapshot.savedReview && threadCheckout(snapshot.savedReview);
       // The base goes with the thread.
@@ -2006,7 +2133,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         ...(before?.base && { base: before.base }),
       });
       if (!moved) return;
-      liveChoice = null;
+      liveChoice = choiceBeforeCommit = null;
       reviewSide = false;
       await openWorkspace(target.repo, undefined, target.repositoryId);
     },
@@ -2286,7 +2413,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     removeRepository,
     selectComparison: (comparison, inReview = false) => {
       reviewSide = inReview;
-      if (!inReview) liveChoice = comparison;
+      if (!inReview) {
+        if (comparison.kind === "commit" && liveChoice?.kind !== "commit")
+          choiceBeforeCommit = liveChoice;
+        liveChoice = comparison;
+      }
       return selectComparison(comparison);
     },
     refresh,
@@ -2389,6 +2520,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       sessionAbort?.abort();
       reviewAbort?.abort();
       iterationAbort?.abort();
+      commitsAbort?.abort();
       stopEvents();
       cancelSources();
       reviewCache.clear();

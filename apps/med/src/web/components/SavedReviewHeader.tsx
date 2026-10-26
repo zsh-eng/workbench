@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Popover } from "@base-ui/react/popover";
 import * as stylex from "@stylexjs/stylex";
+import type { PullRequestSummary } from "../../shared/protocol";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
@@ -152,7 +153,8 @@ export function SavedReviewHeader({
       {...(compact ? {} : paneHandle)}
       {...stylex.props(styles.header, compact && styles.inline)}
     >
-      {compact && !saved.pullRequestUrl ? null : saved.pullRequestUrl ? (
+      {/* Beside a thread, the pull request heads the card (PullRequestHeader). */}
+      {compact ? null : saved.pullRequestUrl ? (
         <a
           href={saved.pullRequestUrl}
           target="_blank"
@@ -170,7 +172,7 @@ export function SavedReviewHeader({
           <span {...stylex.props(styles.ellipsis)}>{saved.title}</span>
         </span>
       )}
-      {saved.pullRequestUrl && pullRequest && threadPlacement && (
+      {!compact && saved.pullRequestUrl && pullRequest && threadPlacement && (
         <PullRequestPanel state={pullRequest} placement={threadPlacement} words={quiet} />
       )}
       {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
@@ -405,7 +407,120 @@ function CopyCommentsIcon({ copied }: { copied: boolean }) {
   );
 }
 
+const PULL_STATES: Record<PullRequestSummary["state"], string> = {
+  open: "Open",
+  draft: "Draft",
+  merged: "Merged",
+  closed: "Closed",
+};
+
+/**
+ * A pull request's own row at the top of the review card, beside a thread:
+ * its number and title, which open it on GitHub, its author and state, and
+ * its comments. The tab row below keeps its room for the tabs and files. The
+ * title gives way first; the author goes in a narrow card.
+ */
+export function PullRequestHeader({
+  url,
+  title,
+  pull,
+  pullRequest,
+  threadPlacement,
+}: {
+  url: string;
+  /** The title that Med saved, until GitHub's arrives. */
+  title: string;
+  pull?: PullRequestSummary;
+  pullRequest?: PullRequestState;
+  threadPlacement?: ThreadPlacement;
+}) {
+  const number = pull?.number ?? /\/pull\/(\d+)/.exec(url)?.[1];
+  const heading = pull?.title ?? title;
+  return (
+    <header aria-label="Pull request" {...paneHandle} {...stylex.props(styles.pull)}>
+      <Icon name="github" size={14} />
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open pull request #${number}: ${heading}`}
+        title={`#${number} ${heading}`}
+        {...stylex.props(styles.pullLink)}
+      >
+        <span {...stylex.props(styles.pullNumber)}>#{number}</span>
+        <span {...stylex.props(styles.ellipsis)}>{heading}</span>
+        <Icon name="external" size={12} />
+      </a>
+      {pull && (
+        <span title={`Opened by ${pull.author}`} {...stylex.props(styles.pullAuthor)}>
+          {pull.author}
+        </span>
+      )}
+      {pull && (
+        <span {...stylex.props(styles.pullState, styles[pull.state])}>
+          {PULL_STATES[pull.state]}
+        </span>
+      )}
+      <span {...stylex.props(styles.grow)} />
+      {pullRequest && threadPlacement && (
+        <PullRequestPanel state={pullRequest} placement={threadPlacement} words />
+      )}
+    </header>
+  );
+}
+
 const styles = stylex.create({
+  pull: {
+    containerType: "inline-size",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    minWidth: 0,
+    // As tall as the headers of the panes beside it.
+    height: 38,
+    boxSizing: "border-box",
+    paddingInline: 12,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+  },
+  pullLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    flexShrink: 1,
+    color: tokens.text,
+    fontWeight: 500,
+    textDecoration: { default: "none", ":hover": "underline" },
+  },
+  pullNumber: { flexShrink: 0, color: tokens.muted, fontVariantNumeric: "tabular-nums" },
+  pullAuthor: {
+    display: { default: "block", "@container (max-width: 480px)": "none" },
+    flexShrink: 0,
+    minWidth: 0,
+    maxWidth: 160,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  pullState: {
+    flexShrink: 0,
+    paddingInline: 6,
+    borderRadius: `calc(4px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    fontSize: 11,
+    lineHeight: "18px",
+    fontWeight: 500,
+  },
+  open: { color: tokens.green },
+  draft: { color: tokens.muted },
+  merged: { color: tokens.accent },
+  closed: { color: tokens.red },
   copyIcon: { flexShrink: 0 },
   copyShape: {
     opacity: 1,

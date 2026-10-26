@@ -14,15 +14,17 @@ type CommitProps = {
   moreCommits?: boolean;
   /** The commit of the range that shows, if one does. */
   commit: string | null;
-  /** The saved comparison shows. */
+  /** The whole comparison shows, not one of its commits. */
   whole: boolean;
+  /** The row that shows the whole comparison again. */
+  wholeLabel: string;
   onCommit(id: string): void;
   onWhole(): void;
 };
 
 /**
- * The Changes tab's rail in a saved review: the changed files as a tree, and
- * the range's commits. It sits where the Guide's rail does, so the diff keeps
+ * A thread's rail beside Review and Changes: the changed files as a tree, and
+ * the commits. It sits where the Guide's rail does, so the diff keeps
  * its place between the tabs. Its edge resizes it (ColumnResize.tsx).
  */
 export function ChangesRail({
@@ -30,6 +32,7 @@ export function ChangesRail({
   moreCommits,
   commit,
   whole,
+  wholeLabel,
   onCommit,
   onWhole,
   ...files
@@ -47,6 +50,7 @@ export function ChangesRail({
         moreCommits={moreCommits}
         commit={commit}
         whole={whole}
+        wholeLabel={wholeLabel}
         onCommit={onCommit}
         onWhole={onWhole}
       />
@@ -55,13 +59,14 @@ export function ChangesRail({
   );
 }
 
-/** A range's commits under its files, in the rail or the Changed files pane.
- * A range of one commit lists none. */
+/** A range's or a branch's commits under its files, in the rail or the
+ * Changed files pane. A range of one commit lists none. */
 export function RangeCommits({
   commits,
   moreCommits,
   commit,
   whole,
+  wholeLabel,
   onCommit,
   onWhole,
 }: CommitProps) {
@@ -73,7 +78,7 @@ export function RangeCommits({
         more={moreCommits}
         current={commit}
         onCommit={onCommit}
-        whole={{ current: whole, onShow: onWhole }}
+        whole={{ current: whole, label: wholeLabel, onShow: onWhole }}
       />
     </div>
   );

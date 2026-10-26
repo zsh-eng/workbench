@@ -187,7 +187,11 @@ load it or read its agents until you open it again.
   nothing for them. Coming back to **Changes** shows the changes it showed
   last at once, while Med reads them again and updates them if anything
   changed. On a branch other than the base, they start at the base:
-  the branch's commits and its uncommitted changes (**Branch changes**). On
+  the branch's commits and its uncommitted changes (**Branch changes**). The
+  list of files also lists those commits, oldest first, when there are two or
+  more: a commit shows on its own, and **All changes** goes back. When the
+  thread's Review covers a range, as a pull request's does, **Changes** list
+  the commits of that range instead, the same list as **Review**. On
   the base branch, they are the working changes. The comparison menu also has
   working, staged, and unstaged changes, and a commit that you open. In a
   checkout that other sessions share, such as the main checkout, **Only this
@@ -308,7 +312,11 @@ when there are comments to send, and **Copy comments**, **Clear all
 comments**, **Commands**, and **Files** are in its **⋯** menu.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
-the title for the time Med saved the review and its repository. See
+the title for the time Med saved the review and its repository. Beside a
+thread, a pull request heads the review card in a row of its own, above the
+tabs: its number and title, which open it on GitHub, its author, its state
+(**Open**, **Draft**, **Merged**, or **Closed**), and its comments. A long
+title is cut at its end, so the tabs and the files keep their room. See
 [titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ### Agent sessions
@@ -368,7 +376,10 @@ tool call that needs an answer shows **Allow** and **Deny**.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
-  ask**, or **Bypass permissions**. `⇧Tab` in the message box steps through
+  ask**, or **Bypass permissions**. Med starts a new Claude Code session in
+  **Auto**, where a classifier allows safe actions and asks about risky ones.
+  A thread's next session starts in the mode that the thread chose last,
+  except Bypass. A session keeps its own mode when it resumes. `⇧Tab` in the message box steps through
   Ask, Accept edits, Plan, and Auto, as in the terminal; Bypass joins them once
   you chose it. **Bypass permissions** asks first. If Claude Code started
   without it, Med starts it again with the same session, between turns.
@@ -443,12 +454,13 @@ Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
 
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
-its own; **Whole range** goes back. The rail shows by itself when the review
+its own; **Whole range** goes back. In **Changes**, the rail lists the
+branch's commits, or the Review's range, and **All changes** goes back. The rail shows by itself when the review
 pane has room; the toolbar's first button, or **Show files and commits** in
 `⌘K`, shows or hides it in any width, and Med keeps that choice. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,
-so each one shows at once.
+so each one shows at once, in **Review** and in **Changes**.
 
 Drag the right edge of the rail, the Guide's list, or the Commit tab's list to
 make it wider, or focus the edge and press `←` or `→`. Double-click the edge
@@ -536,6 +548,10 @@ with `gh`; it never posts, replies, or resolves.
 - A thread whose agent opens a pull request later gets the link by itself: while
   the thread's tab is open, Med asks `gh` for an open pull request from its
   branch.
+- A comment shows its Markdown, as Med's own comments and the agent's Guide
+  comments do: code, lists, task lists, quotes, and links, which open in the
+  browser. Raw HTML stays out, and a suggestion shows as code under
+  **Suggested change**.
 - Hover a comment for **Copy** and **Open on GitHub**. **Copy comments** copies
   only Med's comments.
 - Med reads again when the window gets focus, at most every 30 seconds, or when

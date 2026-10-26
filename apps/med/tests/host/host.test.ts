@@ -496,6 +496,26 @@ describe("HTTP boundary", () => {
     });
     expect((await fetch(`${base}/api/commit?id=HEAD`, { headers })).status).toBe(400);
   });
+  test("lists a branch's own commits, oldest first, and none for names that are not commits", async () => {
+    const repo = await repository();
+    const from = await commit(repo, "one\n", "first");
+    await commit(repo, "two\n", "second");
+    const head = await commit(repo, "three\n", "third");
+    const host = await startHost({ repo });
+    hosts.push(host);
+    const commits = (range: string) =>
+      fetch(`http://127.0.0.1:${host.port}/api/commits?${range}`, {
+        headers: { authorization: `Bearer ${host.token}` },
+      }).then((response) => response.json());
+    const listed = await commits(`base=${from}&head=${head}`);
+    expect(listed.commits.map((entry: { subject: string }) => entry.subject)).toEqual([
+      "second",
+      "third",
+    ]);
+    expect(listed.commits[1].id).toBe(head);
+    expect(listed.more).toBe(false);
+    expect(await commits(`base=main&head=${head}`)).toEqual({ commits: [], more: false });
+  });
   test("authenticates requests and enforces source and note versions", async () => {
     const repo = await repository();
     const id = await commit(repo, "one\ntwo\n", "first");

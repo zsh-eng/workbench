@@ -117,16 +117,20 @@ export const ownedStateSchema = z.object({
 });
 export type OwnedState = z.infer<typeof ownedStateSchema>;
 
-/** The model and effort for a new session; the agent's own default otherwise. */
+/** The model, effort, and permission mode for a new session; the agent's own
+ * default otherwise. */
 export const agentChoicesSchema = z.object({
   model: z.string().min(1).max(200).optional(),
   effort: z.string().min(1).max(80).optional(),
+  mode: z.string().min(1).max(80).optional(),
 });
 export type AgentChoices = z.infer<typeof agentChoicesSchema>;
 
-/** Med's choices for a new session, where the agent offers them. */
+/** Med's choices for a new session, where the agent offers them. Claude Code
+ * starts in Auto, where a classifier allows safe actions and asks about risky
+ * ones. */
 export const AGENT_DEFAULTS: Record<string, AgentChoices> = {
-  claude: { model: "opus", effort: "medium" },
+  claude: { model: "opus", effort: "medium", mode: "auto" },
   codex: { model: "gpt-6-astra" },
 };
 

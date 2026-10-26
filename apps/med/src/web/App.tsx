@@ -34,7 +34,12 @@ import {
   type PullRequestThread,
   type SourceResponse,
 } from "../shared/protocol";
-import { hasReview, useReviewController, type ReviewController } from "./data/controller";
+import {
+  changesCommits,
+  hasReview,
+  useReviewController,
+  type ReviewController,
+} from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
 import {
@@ -119,7 +124,11 @@ import { placeThreads } from "./data/pull-request";
 import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
 import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
-import { SavedReviewHeader, type SavedReviewActions } from "./components/SavedReviewHeader";
+import {
+  PullRequestHeader,
+  SavedReviewHeader,
+  type SavedReviewActions,
+} from "./components/SavedReviewHeader";
 import {
   comparisonLabel,
   type ComparisonLabel,
@@ -2159,19 +2168,23 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { note },
+                }),
+              ),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
-              })),
+              .map(
+                (note): DiffLineAnnotation<Annotation> => ({
+                  side: note.side === "old" ? "deletions" : "additions",
+                  lineNumber: noteLine(file.metadata, note),
+                  metadata: { guide: note },
+                }),
+              ),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -3280,17 +3293,25 @@ export function App({
     fileWorkspace.select("changes");
     void controller.showReview();
   };
-  // The Review's commits beside its diff, in the rail or the Changed files
-  // pane; Changes are live and list files only. A commit opens as part of the
-  // Review, and one that showed before shows again from the cache.
+  // The commits beside the diff, in the rail or the Changed files pane: the
+  // Review's range, and in Changes the same list, or else the branch's own
+  // commits. A commit opens in the tab that lists it, and one that showed
+  // before shows again from the cache.
+  const liveCommits = !reviewShown ? changesCommits(state) : undefined;
   const rangeCommits = {
-    commits: reviewShown && fileState.active === "changes" ? guideCommits : NO_COMMITS,
-    moreCommits: reviewShown ? guideTarget?.moreCommits : undefined,
+    commits:
+      fileState.active !== "changes"
+        ? NO_COMMITS
+        : reviewShown
+          ? guideCommits
+          : (liveCommits?.commits ?? NO_COMMITS),
+    moreCommits: reviewShown ? guideTarget?.moreCommits : liveCommits?.more,
     commit: state.comparison.kind === "commit" ? state.comparison.commit : null,
-    whole: state.savedView,
+    whole: reviewShown ? state.savedView : state.comparison.kind !== "commit",
+    wholeLabel: reviewShown ? "Whole range" : "All changes",
     onCommit: (commit: string) =>
-      void controller.selectComparison({ kind: "commit", commit }, true),
-    onWhole: showReviewDiff,
+      void controller.selectComparison({ kind: "commit", commit }, reviewShown),
+    onWhole: reviewShown ? showReviewDiff : () => void controller.showAllChanges(),
   };
   const actionRepo = state.review?.repo ?? state.session?.repository.path;
   const actionBranch = state.savedView
@@ -5388,6 +5409,16 @@ export function App({
           {/* The review's own row heads the card; beside a thread, its actions
         join the tab row. */}
           {state.savedReview && !zen && !sessionVisible && !quiet && savedHeader(false)}
+          {/* Beside a thread, a pull request heads the card, above the tabs. */}
+          {state.savedReview?.pullRequestUrl && !zen && (quiet || sessionVisible) && (
+            <PullRequestHeader
+              url={state.savedReview.pullRequestUrl}
+              title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+              pull={pullRequest.data?.pull}
+              pullRequest={pullRequest}
+              threadPlacement={pullRequestThreads.placement}
+            />
+          )}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
           {quiet && state.status === "loading" && (

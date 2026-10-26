@@ -50,7 +50,17 @@ const inline = (id: number, author: string, body: string, reply: number | null =
 test("the reader's pending review on GitHub shows as draft comments and a draft summary", async () => {
   const pull = "repos/example/repo/pulls/7";
   process.env.FAKE_GH_API = JSON.stringify({
-    [pull]: ["abc123"],
+    [pull]: [
+      {
+        head: "abc123",
+        number: 7,
+        title: "Name the package",
+        author: "reviewer",
+        state: "open",
+        draft: true,
+        merged: false,
+      },
+    ],
     [`${pull}/comments?per_page=100`]: [inline(1, "reviewer", "Name this after the package.")],
     "repos/example/repo/issues/7/comments?per_page=100": [],
     [`${pull}/reviews?per_page=100`]: [
@@ -65,6 +75,12 @@ test("the reader's pending review on GitHub shows as draft comments and a draft 
   });
   const comments = await loadPullRequestComments("https://github.com/example/repo/pull/7", true);
   expect(comments.head).toBe("abc123");
+  expect(comments.pull).toEqual({
+    number: 7,
+    title: "Name the package",
+    author: "reviewer",
+    state: "draft",
+  });
   expect(
     comments.threads.map((thread) => ({
       line: thread.line,

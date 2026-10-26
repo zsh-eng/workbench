@@ -48,7 +48,7 @@ const alive = (pid: number) => {
 const agentScript = (name: string) =>
   fileURLToPath(new URL(`../fixtures/agents/${name}`, import.meta.url));
 
-async function fixture() {
+async function fixture({ key }: { key?: string } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med owned sessions ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -126,6 +126,7 @@ async function fixture() {
   const review = (
     await api<SavedReview>("/api/reviews", {
       title: "Format durations",
+      ...(key && { key }),
       targets: [{ repo, comparison: { kind: "working" } }],
     })
   ).data;
@@ -243,7 +244,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   expect(ready.settings.map((setting) => [setting.id, setting.value])).toEqual([
     ["model", "opus"],
     ["effort", "medium"],
-    ["mode", "default"],
+    ["mode", "auto"],
   ]);
   // Built-in commands have GUI controls; the `/` menu lists the others.
   expect(ready.commands).toEqual([{ name: "review", description: "Review the current changes" }]);
@@ -258,7 +259,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   );
   expect(sent.data.message.delivery).toBe("delivered");
   await vi.waitFor(() =>
-    expect(replies()).toEqual(["Model opus, effort medium, mode default: Format the durations."]),
+    expect(replies()).toEqual(["Model opus, effort medium, mode auto: Format the durations."]),
   );
   const answered = await session.until((state) => state.context !== undefined);
   expect(answered.context).toEqual({ used: 2500, total: 10_000 });
@@ -268,7 +269,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   await session.until((state) => state.status === "idle");
   await session.act({ action: "prompt", text: "Check the summary." });
   await vi.waitFor(() =>
-    expect(replies().at(-1)).toBe("Model opus, effort high, mode default: Check the summary."),
+    expect(replies().at(-1)).toBe("Model opus, effort high, mode auto: Check the summary."),
   );
   // A model change applies at once. Haiku has no effort levels, so the picker goes.
   const haiku = await session.act({ action: "setting", id: "model", value: "haiku" });
@@ -487,6 +488,30 @@ test("the mode picker shows the mode Claude Code reports, cycles as ⇧Tab does,
   await session.act({ action: "setting", id: "mode", value: "bypassPermissions" });
   await session.act({ action: "prompt", text: "And now?" });
   await vi.waitFor(() => expect(replies().at(-1)).toMatch(/mode bypassPermissions: And now\?$/));
+});
+
+test("a new Claude Code session starts in Auto, and a new session of the thread takes the mode that it chose", async () => {
+  const { home, start } = await fixture({ key: "format-durations" });
+  const mode = (state: OwnedState) =>
+    state.settings.find((setting) => setting.id === "mode")?.value;
+  const args = async (id: string) =>
+    JSON.parse(
+      await readFile(join(home, ".claude", "projects", "-fake-repo", `${id}.args.json`), "utf8"),
+    ) as string[];
+  const first = await start("claude");
+  const ready = await first.until((state) => state.status === "idle" && state.settings.length > 0);
+  // Med asks for Auto when it starts Claude Code, and shows the mode that it reports.
+  expect(mode(ready)).toBe("auto");
+  expect(await args(first.id)).toEqual(expect.arrayContaining(["--permission-mode", "auto"]));
+
+  await first.act({ action: "setting", id: "mode", value: "plan" });
+  await first.until((state) => mode(state) === "plan");
+  const second = await start("claude");
+  const next = await second.until((state) => state.status === "idle" && state.settings.length > 0);
+  expect(mode(next)).toBe("plan");
+  expect(await args(second.id)).toEqual(expect.arrayContaining(["--permission-mode", "plan"]));
+  // The first session keeps its own mode.
+  expect(mode(await first.state())).toBe("plan");
 });
 
 test("agents keep working through a host restart; after a reboot, Claude Code resumes and others stay stopped", async () => {
