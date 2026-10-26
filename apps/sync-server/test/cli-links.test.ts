@@ -298,7 +298,23 @@ it("lets a backup credential create and restore Arctic links in the phone's reco
       newLinkRecords(otherURL, "0".repeat(64), { title: "", savedAt: now }),
     ),
   ).toContain("canonical URL");
+  // Addresses that the WHATWG parser takes but the phone's URL decoder does not.
+  for (const odd of ["http://site.fr/r%E9sum%E9.html", "https://a{b.com/x"])
+    expect(
+      await refused(
+        newLinkRecords(odd, await articleId(odd), { title: "", savedAt: now }),
+      ),
+    ).toContain("canonical URL");
   expect(await refused(fresh.slice(0, 2))).toContain("a new link writes");
+  const bigCounter = JSON.stringify({
+    changes: fresh.map((change, index) => ({
+      ...change,
+      isDeleted: false,
+      schemaVersion: 1,
+      hlc: { wallTimeMs: Date.now(), counter: 2 ** 40 + index },
+    })),
+  });
+  expect(await refused([], { body: bigCounter })).toContain("version counter");
   expect(await refused(fresh, { schemaVersion: 2 })).toContain(
     "schema version",
   );

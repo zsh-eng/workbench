@@ -21,6 +21,11 @@ this one copy:
 | `encodeSorted`, `toSwift` | Sorted-key JSON and Swift reference dates                     |
 
 The phone validates every `arctic` record and stops a pull at one it cannot
-read. Keep these values in step with `ArticleSyncCodec.canonicalURL`,
+read. `canonicalURL` therefore refuses two kinds of address that the WHATWG
+parser takes but Swift's URL decoder does not: a host with characters other
+than letters, digits, `-`, `_` and `.`, and a path whose escapes are not UTF-8
+(Latin-1 `caf%E9`). On 26 October 2026, 1,650 random canonical URLs were
+fixed points of a copy of the phone's `canonicalURL`, with the same id, on
+macOS 27 Foundation (not yet on an iPhone). Keep these values in step with `ArticleSyncCodec.canonicalURL`,
 `identity` and `values`; `apps/arctic/Browser/tests/links.spec.ts` checks the
 records that the web writes.

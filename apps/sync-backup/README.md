@@ -69,7 +69,9 @@ handles each link in turn, as Arctic for the web and the phone do:
   `tags/<id>`) for its canonical URL, from `@workbench/arctic-links`: the same
   bytes as the web's, but for the title and the time. The title is the page's
   own; with `--no-text`, or when there is no page to read (a PDF), it is
-  empty, and the phone fills in the title, image and topics when it next opens.
+  empty. The phone then fetches the title, image and topics when it next
+  opens, as for a link the web saves; until it does, or if it cannot (a
+  PDF), the phone shows no title and the web shows the host.
 - A link in History is saved again: its library record alone changes (saved,
   not archived, saved now), as a field edit. Nothing else about it changes.
 - A link already saved (or archived) is reported and left alone.
@@ -86,7 +88,7 @@ Reading a page that needs a browser uses Playwright's Chromium:
 `bun run --cwd apps/arctic/Browser browser:install`.
 
 Each link prints one line as it finishes; `--json` prints an array of results
-(`status`, `url`, `id`, `title`, `text`, `words`, `reason`, `error`).
+(`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`, `error`).
 
 ```text
 saved          https://example.com/article · text: 2,140 words
@@ -97,8 +99,10 @@ saved          https://arxiv.org/pdf/1706.03762 · no text: PDF
 invalid        "not a link" · not a web address
 ```
 
-A link that is not a web address, a refused write or a network error makes
-the command exit with 1; a page without text does not. The command uses a
+A link that is not a web address, `arctic text` for a link that is not in the
+library, a refused write or a network error makes the command exit with 1; a
+page without text does not. A link push is not retried: if its answer is
+lost, run the command again, and the link shows as already saved. The command uses a
 transport that allows only the requests it needs (`src/arctic.ts`). An older
 server that does not allow link saves answers "this server does not let wb
 save links yet". On a loopback `--origin`, `WORKBENCH_TOKEN` replaces the

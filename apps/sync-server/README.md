@@ -133,11 +133,14 @@ plus `/api/me` and `/api/namespaces`. They have two writes (`cliWritePath`):
   canonical URL whose SHA-256 is the key's id, when the article is not in
   the library. A restore is only the `library/` record of an unsaved article,
   equal to the stored value with `saved`, `archived` and `savedAt` changed.
-  A refusal is 403, and nothing is stored.
+  The version counter stays under 1,000,000. A refusal is 403, and nothing
+  is stored.
 
-CLI credentials cannot remove records or change any other `arctic` record,
-write Reader, Spaced, highlights or reading time, delete files, or inspect
-browser sessions. Permissions follow the route, not the credential: existing
+CLI credentials cannot remove records, write Reader, Spaced, highlights or
+reading time, delete files, or inspect browser sessions. In `arctic` they
+change an existing record only to save a link: a restore, or a new link over
+the records of an article that is not in the library (its `article/` or
+`library/` record is missing or removed), as the web and the phone do. Permissions follow the route, not the credential: existing
 credentials gain link saves when this server is deployed, without a migration
 or a new sign-in. The browser approval requires
 an authenticated session, same-origin POST, and an explicit code confirmation.

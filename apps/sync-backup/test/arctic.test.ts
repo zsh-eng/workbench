@@ -374,6 +374,29 @@ test("the wb command reads links from stdin, saves without text, and prints JSON
     ]);
     expect(api.files.size).toBe(0);
     expect(api.stores.get("arctic")!.size).toBe(6);
+    // An expired or revoked credential says what to do.
+    const expired = Bun.spawn(
+      [
+        "bun",
+        join(import.meta.dirname, "../src/cli.ts"),
+        "arctic",
+        "save",
+        "https://example.com/three",
+        "--origin",
+        api.server.url.origin,
+        "--data-dir",
+        directory,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, WORKBENCH_TOKEN: "revoked" },
+      },
+    );
+    expect(await expired.exited).toBe(1);
+    expect(await new Response(expired.stderr).text()).toContain(
+      "Run wb auth login",
+    );
     // WORKBENCH_TOKEN stands in for the Keychain only on a loopback origin.
     const remote = Bun.spawn(
       [

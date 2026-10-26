@@ -183,7 +183,7 @@ export const cliReadPath = (path: string) =>
  * And Arctic links: a push to `arctic` that only creates or restores links,
  * which `cliLinkPushProblem` checks record by record before it reaches the
  * sync route. It never writes Reader, Spaced, highlights or reading time,
- * and never changes or removes another Arctic record.
+ * and never removes an Arctic record or changes one except to save a link.
  */
 export const cliWritePath = (method: string, path: string) => {
   const decoded = decodeURIComponent(path);

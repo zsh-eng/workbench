@@ -63,6 +63,9 @@ export async function cliLinkPushProblem(c: Context<AppEnv>) {
   const parsed = syncPushBodySchema.safeParse(body);
   if (!parsed.success) return "the push is not a sync push";
   const { changes } = parsed.data;
+  // A huge version counter would push the phone's own clock past its bound.
+  if (changes.some((change) => change.hlc.counter > 1_000_000))
+    return "the version counter is too large";
   const ids = new Set(changes.map((change) => change.key.split("/")[1] ?? ""));
   const keys = [...ids].flatMap((id) =>
     ["article", "library", "tags"].map((family) => `${family}/${id}`),

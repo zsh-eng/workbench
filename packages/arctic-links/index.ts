@@ -49,12 +49,14 @@ export function canonicalURL(input: string): string | null {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   if (url.username || url.password) return null;
-  // A public site: a dotted name that is not an address literal.
+  // A public site: a dotted name that is not an address literal. The WHATWG
+  // parser allows `"`, `` ` ``, `{` and `}` in a host, but Swift's URL
+  // decoder refuses them, so a host keeps to letters, digits, `-`, `_`, `.`.
   const host = url.hostname;
   if (
+    !/^[a-z0-9_.-]+$/.test(host) ||
     !host.includes(".") ||
     host.endsWith(".") ||
-    host.startsWith("[") ||
     /^[\d.]+$/.test(host)
   )
     return null;
@@ -71,6 +73,13 @@ export function canonicalURL(input: string): string | null {
   }
   // A "%" that does not start an escape is itself escaped.
   escaped = escaped.replace(/%(?![0-9A-Fa-f]{2})/g, "%25");
+  // Swift's URLComponents reads a path whose escapes are not UTF-8, such as
+  // Latin-1 "caf%E9", as empty, so the phone would refuse the record.
+  try {
+    decodeURIComponent(escaped.split("?")[0]!);
+  } catch {
+    return null;
+  }
   return origin + (escaped || "/");
 }
 
@@ -267,7 +276,7 @@ export async function linkChangesProblem(
       if (!savedDate(savedAt, nowMs))
         return `library/${id}: savedAt must be a Swift date`;
       if (value !== savedLibrary(library!.value, savedAt))
-        return `library/${id}: a restore changes only saved, archived and savedAt`;
+        return `library/${id}: a restore changes only saved, archived and savedAt of the stored record, which may have changed since it was read`;
     } else
       return `${id}: a new link writes its article, library and tags records; a restore writes its library record`;
   }

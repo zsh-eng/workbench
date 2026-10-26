@@ -141,7 +141,10 @@ fragment, with the query kept. The browser's URL parser normalizes first; then
 every character that Swift's parser would escape (`|`, `^`, `[`, a lone `%`, and
 others) is escaped, so both apps hash the same string. Records for 18 awkward
 addresses passed the phone's `canonicalURL`, `identity` and decoders on Swift
-Foundation (21 October 2026), and `tests/links.spec.ts` checks the records.
+Foundation (21 October 2026), and `tests/links.spec.ts` checks the records. A
+host with characters other than letters, digits, `-`, `_` and `.`, or a path
+whose escapes are not UTF-8 (Latin-1 `caf%E9`), is not a web address here:
+Swift's URL decoder refuses it, and the phone would stop its pull at it.
 
 The web cannot fetch another site, so the title comes from the address
 ("how-sea-ice-keeps-time" becomes "How sea ice keeps time"). The new article

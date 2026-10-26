@@ -23,6 +23,7 @@ import {
   createSyncClientState,
   observeSyncHlc,
   SyncHttpError,
+  SyncNetworkError,
   tickSyncHlcBatch,
   type SyncClientState,
   type SyncRecord,
@@ -66,6 +67,9 @@ export function arcticFetch(origin: string, token: string): typeof fetch {
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Bearer ${token}`);
     headers.set("User-Agent", "WorkbenchBackup/1");
+    // A link push is not repeated: if a lost answer hid a stored push, the
+    // server would refuse the repeat as already saved.
+    const retries = path === "/api/apps/arctic/sync/v3/push" ? 0 : 3;
     for (let attempt = 0; ; attempt++) {
       const response = await fetch(url, {
         ...init,
@@ -74,13 +78,14 @@ export function arcticFetch(origin: string, token: string): typeof fetch {
         redirect: "error",
         signal: init?.signal ?? AbortSignal.timeout(60_000),
       });
-      if (attempt < 3 && (response.status === 429 || response.status >= 500)) {
+      if (
+        attempt < retries &&
+        (response.status === 429 || response.status >= 500)
+      ) {
         await response.body?.cancel();
         await Bun.sleep(1000 * 2 ** attempt);
         continue;
       }
-      if (response.status === 401)
-        throw Error("Session expired or revoked. Run wb auth login.");
       return response;
     }
   }) as typeof fetch;
@@ -162,7 +167,7 @@ async function openNamespace(
     /** Uploads a text file and returns its id. */
     async upload(bytes: Uint8Array<ArrayBuffer>) {
       const file = `xxh64:${Bun.hash.xxHash64(bytes).toString(16).padStart(16, "0")}`;
-      await request(
+      const response = await request(
         `/files/${file}`,
         {
           method: "PUT",
@@ -171,6 +176,8 @@ async function openNamespace(
         },
         false,
       );
+      if (((await response.json()) as { id?: string }).id !== file)
+        throw Error("the server stored the text under another id");
       return file;
     },
   };
@@ -212,9 +219,15 @@ type Reader = {
   close(): Promise<void>;
 };
 
-async function refusal(error: unknown) {
+/** A failure as wb says it: the server's reason, or what to do next. */
+async function refusal(error: unknown): Promise<string> {
+  // local-sync reports a failed fetch, such as the transport's refusal, as unreachable.
+  if (error instanceof SyncNetworkError && error.cause instanceof Error)
+    return refusal(error.cause);
   if (!(error instanceof SyncHttpError))
     return error instanceof Error ? error.message : String(error);
+  if (error.status === 401)
+    return "Session expired or revoked. Run wb auth login.";
   const body = (await error.response?.json().catch(() => ({}))) as {
     error?: string;
   };
@@ -242,7 +255,9 @@ export async function arctic(options: {
   const [library, content] = await Promise.all([
     openNamespace(options.origin, send, "arctic"),
     openNamespace(options.origin, send, "arctic-content"),
-  ]);
+  ]).catch(async (error) => {
+    throw Error(await refusal(error));
+  });
   let reader = options.read;
   const results: LinkResult[] = [];
   try {

@@ -11,6 +11,7 @@ import {
 } from "@zsh-eng/local-sync";
 import { API_ORIGIN, type Account } from "../api";
 import { normalizeLibrary } from "../articles";
+import { MAX_COPY_BYTES } from "../copy";
 import { deleteDatabase, openDatabase, promised, transact } from "./idb";
 import { RecordStorage } from "./storage";
 import { xxh64 } from "./xxh64";
@@ -27,7 +28,6 @@ const NAMESPACES = {
   reading: "arctic-reading",
 } as const;
 type Channels = Record<keyof typeof NAMESPACES, Channel>;
-const MAX_COPY_BYTES = 2 * 1024 * 1024;
 /** An upload stores its copy before the record that names it. */
 const UNNAMED_COPY_GRACE_MS = 24 * 60 * 60_000;
 /** Sync on open, on reconnect, on return to the tab, and every five minutes. */

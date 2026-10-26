@@ -165,7 +165,10 @@ export class ArticleText {
   }
 
   async close() {
-    await this.extractor.close();
-    await (await this.browser?.catch(() => undefined))?.close();
+    try {
+      await this.extractor.close();
+    } finally {
+      await (await this.browser?.catch(() => undefined))?.close();
+    }
   }
 }
