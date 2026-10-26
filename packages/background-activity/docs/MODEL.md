@@ -15,6 +15,7 @@ screen while it happens.
 | Downloads   | a book's EPUB, covers, Spaced card images, "download all images"                          | the app, as a job here |
 | Uploads     | a book or cover that you imported, waiting for the server                                 | the app's file manager |
 | Preparation | unzipping and indexing a book after its download                                          | the app, in the job    |
+| Imports     | a file you chose becoming a book: saving, reading, making the cover                       | the app, as a job here |
 | App update  | the new version's files, then the switch to them                                          | the service worker     |
 
 Pagination, search and saving a highlight are not background activity. They
@@ -34,7 +35,9 @@ true:
    only on this device because you are offline, signed out, or sync keeps
    failing, and that has lasted long enough to matter.
 4. **It needs you.** It failed and cannot fix itself: it needs a sign-in,
-   storage is full, or the server refused the file.
+   storage is full, or the server refused the file. A file that could not
+   be added says so on its own place in the Library, with Try again, so
+   the glyph does not raise it again.
 5. **Something new is possible.** An update is ready, or a book that you
    asked for is now on this device.
 
