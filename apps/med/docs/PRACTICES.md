@@ -18,20 +18,20 @@ the root [REVIEW.md](../../../REVIEW.md) as one repository's review rules.
 Only an empty hand-off and an unregistered repository refuse, because both
 make a review that cannot be right.
 
-| Rule the docs carried                  | Check in `med review`                                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--repo` is the repository root        | Resolve a folder inside a repository to its root (`git rev-parse --show-toplevel`).                                                                                         |
-| Ask before `med add`                   | Refuse: "`<root>` is not registered in Med. Ask the user, then run `med add <root>`."                                                                                       |
-| Commits on main need a start commit    | Refuse an empty range; when the session's transcript gives its start, name `--base HEAD~N`.                                                                                 |
-| `--working` on a clean tree            | Refuse, and name the range form.                                                                                                                                            |
-| Feature branches need `--merge-base`   | When `--base` has commits that `--head` lacks, compare from the merge base and say so. `--no-merge-base` keeps the two tips.                                                 |
-| `--paths` in a shared checkout         | After `--working` without `--paths`, list the changed files that this session's transcript never edited, and print the `update --paths` command.                            |
-| Titles of 2–4 words, no repository name | Warn, and print `med review update --key K --title "…"`.                                                                                                                    |
-| One `--key` per task                   | Default the key to the branch (not the base branch), and print it. `update --key` also takes a review ID.                                                                    |
-| A fix round is a new version           | `update --guide` on a capture that the checkout has moved past warns: "the capture is older than the checkout; run `med review create --key K …` to make version N+1".     |
-| Wait after a hand-off                  | In a Claude Code session outside a Med thread, `create` prints the `med review wait --key K` line.                                                                          |
-| Generated files last                   | The guide check names a segment of lockfiles or generated files that comes before other segments.                                                                          |
-| Several repositories need a file       | `--manifest -` reads the manifest from standard input.                                                                                                                      |
+| Rule the docs carried                   | Check in `med review`                                                                                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--repo` is the repository root         | Resolve a folder inside a repository to its root (`git rev-parse --show-toplevel`).                                                                                    |
+| Ask before `med add`                    | Refuse: "`<root>` is not registered in Med. Ask the user, then run `med add <root>`."                                                                                  |
+| Commits on main need a start commit     | Refuse an empty range; when the session's transcript gives its start, name `--base HEAD~N`.                                                                            |
+| `--working` on a clean tree             | Refuse, and name the range form.                                                                                                                                       |
+| Feature branches need `--merge-base`    | When `--base` has commits that `--head` lacks, compare from the merge base and say so. `--no-merge-base` keeps the two tips.                                           |
+| `--paths` in a shared checkout          | After `--working` without `--paths`, list the changed files that this session's transcript never edited, and print the `update --paths` command.                       |
+| Titles of 2–4 words, no repository name | Warn, and print `med review update --key K --title "…"`.                                                                                                               |
+| One `--key` per task                    | Default the key to the branch (not the base branch), and print it. `update --key` also takes a review ID.                                                              |
+| A fix round is a new version            | `update --guide` on a capture that the checkout has moved past warns: "the capture is older than the checkout; run `med review create --key K …` to make version N+1". |
+| Wait after a hand-off                   | In a Claude Code session outside a Med thread, `create` prints the `med review wait --key K` line.                                                                     |
+| Generated files last                    | The guide check names a segment of lockfiles or generated files that comes before other segments.                                                                      |
+| Several repositories need a file        | `--manifest -` reads the manifest from standard input.                                                                                                                 |
 
 Not built: an automatic version when a Med-thread turn ends with changes. That
 would make Med decide when work is ready; the **Refresh review** bar and the
@@ -105,14 +105,14 @@ version with none of them opens as today.
 one to copy into the user's own skills; `--to <dir>` writes it there. Med
 never installs them by itself. Each is under 40 lines:
 
-| Skill                | What it asks of the agent                                                          |
-| -------------------- | ---------------------------------------------------------------------------------- |
+| Skill                | What it asks of the agent                                                         |
+| -------------------- | --------------------------------------------------------------------------------- |
 | `proof-first`        | List each check with its command and result, the media, and what it doesn't cover |
-| `adversarial-review` | Fresh-context hunters, each on one bug class, then a vote; report only what wins   |
-| `explain-first`      | Explain why and what to read first before the diff                                 |
-| `round-limit`        | After 3 review rounds, stop and rethink the approach                               |
-| `review-md`          | A REVIEW.md template, after the root REVIEW.md                                     |
-| `risk-levels`        | Set the risk level from the paths the change touches                               |
+| `adversarial-review` | Fresh-context hunters, each on one bug class, then a vote; report only what wins  |
+| `explain-first`      | Explain why and what to read first before the diff                                |
+| `round-limit`        | After 3 review rounds, stop and rethink the approach                              |
+| `review-md`          | A REVIEW.md template, after the root REVIEW.md                                    |
+| `risk-levels`        | Set the risk level from the paths the change touches                              |
 
 **Offers at the point of need**, in the Overview, each with Dismiss, which
 lasts (`med:offer:<id>` in local storage):
