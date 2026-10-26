@@ -33,7 +33,7 @@ node scripts/perf/budget.mjs --only warm,idle --runs 1 --no-react --host-profile
 ```
 
 `--check` exits 1 when the budget fails. The rules are in `check.mjs` (lines
-5–27):
+5–33):
 
 - Git processes must not go up. HTTP requests and WebSocket messages can go up
   by one. These use the fewest over the runs.
@@ -47,6 +47,17 @@ node scripts/perf/budget.mjs --only warm,idle --runs 1 --no-react --host-profile
   agent steps, and idle) compare medians; their counts can go up by 25%, and
   their bytes can double. In agent and idle windows, only counts and host CPU
   are checked; host CPU fails when it doubles.
+- Switches must paint within 50 ms at the 95th percentile, with or without a
+  baseline: the warm ⌘ switches; inside a thread, after a first visit that
+  loads each, ⌥ to the Review, Changes, and Commit tabs, Enter in the file
+  picker, and ⌥ to an open file's tab; and a commit picked in the list beside
+  a Review of two commits (in a 2200 px window, where the list shows). The
+  first visits print apart. On 2026-10-26 the warm ⌘ switch was over budget
+  (52–62 ms at p95, 46 ms median), and ⌥ to Review was close (45–53 ms).
+- The soak (`--soak 120` rounds of ⌘ switches, files, and the palette)
+  records heap, DOM nodes, and listeners per 100 rounds after its first 10.
+  Nodes and listeners can grow by a quarter more than the baseline's and 300;
+  the heap by a quarter and 2 MB.
 
 To make a new baseline, run the budget with
 `--out scripts/perf/baseline.json` on a quiet machine. Record the load.

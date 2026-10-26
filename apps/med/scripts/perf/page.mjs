@@ -107,16 +107,91 @@ export function instrument({ react }) {
     };
     requestAnimationFrame(tick);
   };
+  // A key's step: waits until `ready` holds, then for the next painted
+  // frame. READY and PAINTED are ms from the last key (`perf.keyAt`).
+  perf.step = (ready, timeout = 8000) =>
+    new Promise((resolve) => {
+      const began = performance.now();
+      let readyAt;
+      const check = () => {
+        if (readyAt !== undefined || perf.keyAt === undefined) return;
+        let ok = false;
+        try {
+          ok = ready();
+        } catch {
+          /* Not yet. */
+        }
+        if (!ok) return;
+        readyAt = performance.now();
+        observer.disconnect();
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () =>
+            resolve({ READY: readyAt - perf.keyAt, PAINTED: performance.now() - perf.keyAt });
+          channel.port2.postMessage(0);
+        });
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(document, { subtree: true, childList: true, attributes: true });
+      const tick = () => {
+        check();
+        if (readyAt !== undefined) return;
+        if (performance.now() - began > timeout) {
+          observer.disconnect();
+          resolve(undefined);
+        } else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
   // A keydown starts the watch that the budget armed, at the event's time.
   window.addEventListener(
     "keydown",
     (event) => {
+      // The time of the last key, for `perf.step`.
+      perf.keyAt = event.timeStamp;
       if (!perf.armed) return;
       const id = perf.armed;
       perf.armed = null;
       performance.mark("perf:keydown");
       perf.keydownEpoch = performance.timeOrigin + event.timeStamp;
       perf.watch(id, event.timeStamp);
+    },
+    true,
+  );
+  // The workspace on screen, its tab row, and the tab that it shows.
+  perf.shown = () =>
+    [...document.querySelectorAll("[data-workspace-slot]")].find(
+      (slot) => slot.style.visibility !== "hidden" && slot.firstElementChild?.checkVisibility(),
+    );
+  perf.tabs = () => {
+    const slot = perf.shown();
+    const review = [...(slot?.querySelectorAll('[role="tab"]') ?? [])].find(
+      (tab) => tab.checkVisibility() && tab.textContent.trim().startsWith("Review"),
+    );
+    const list = review?.closest('[role="tablist"]');
+    return list
+      ? [...list.querySelectorAll('[role="tab"]')].filter((tab) => tab.checkVisibility())
+      : [];
+  };
+  /** The tab whose name starts with `name` shows, with nothing pending. */
+  perf.showsTab = (name) => {
+    const slot = perf.shown();
+    const tab = perf.tabs().find((entry) => entry.getAttribute("aria-selected") === "true");
+    return (
+      !!tab && tab.textContent.trim().startsWith(name) && !slot.querySelector("[data-pending]")
+    );
+  };
+  /** The shown workspace's current commit is no longer `before`, and nothing is pending. */
+  perf.changedCommit = (before) =>
+    perf.currentCommit() !== before && !perf.shown()?.querySelector("[data-pending]");
+  /** The commit that the shown workspace's list marks as current. */
+  perf.currentCommit = () =>
+    perf.shown()?.querySelector('[aria-label="Commits"] [aria-current="page"]')?.textContent ?? "";
+  // A press starts a step too, as a click on a commit does.
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      perf.keyAt = event.timeStamp;
     },
     true,
   );
