@@ -130,6 +130,51 @@ export const MAX_SESSIONS = 32;
 /** At most this many iterations; the oldest briefs and comparisons stay. */
 export const MAX_ITERATIONS = 64;
 
+/** A thread of several reviews (docs/STACKS.md): a stack's layers, each
+ * against the layer below, or a set's independent parts. */
+export const partShapeSchema = z.enum(["stack", "set"]);
+export type PartShape = z.infer<typeof partShapeSchema>;
+/** At most this many parts in one thread. */
+export const MAX_PARTS = 32;
+export const partIdSchema = z.string().regex(/^l_[a-f0-9]{12}$/);
+const branchNameSchema = z.string().trim().min(1).max(256);
+export const pullRequestStateSchema = z.enum(["open", "draft", "merged", "closed"]);
+export type PullRequestState = z.infer<typeof pullRequestStateSchema>;
+/** What an agent says of one part when it hands off a stack or a set. */
+export const partInputSchema = z.object({
+  /** Matches the part across versions: its pull request URL or its branch. */
+  key: reviewKeySchema,
+  title: z.string().trim().min(1).max(200).optional(),
+  pullRequestUrl: pullRequestUrlSchema.optional(),
+  pullRequestTitle: z.string().trim().min(1).max(200).optional(),
+  state: pullRequestStateSchema.optional(),
+  /** The branches of the part's base and head, for the rail. */
+  base: branchNameSchema.optional(),
+  head: branchNameSchema.optional(),
+  guide: reviewGuideSchema.optional(),
+});
+export type PartInput = z.infer<typeof partInputSchema>;
+export const savedPartSchema = partInputSchema.omit({ guide: true }).extend({
+  id: partIdSchema,
+  title: z.string(),
+});
+export type SavedPart = z.infer<typeof savedPartSchema>;
+export const savedPartsSchema = z.object({
+  shape: partShapeSchema,
+  /** The current version's parts, in order: a stack's first part is its bottom. */
+  items: z.array(savedPartSchema).max(MAX_PARTS),
+});
+export type SavedParts = z.infer<typeof savedPartsSchema>;
+/** A part's counts in the current version, which the thread list sends. */
+export const partTotalsSchema = z.object({
+  targetId: z.string(),
+  files: z.number().int().nonnegative(),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  comments: z.number().int().nonnegative(),
+});
+export type PartTotals = z.infer<typeof partTotalsSchema>;
+
 export const savedReviewCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   key: reviewKeySchema.optional(),
@@ -142,6 +187,13 @@ export const savedReviewCreateSchema = z.object({
   guide: reviewGuideSchema.optional(),
   /** One attempt at a task that several agents do; see attempts.ts. */
   group: attemptRefSchema.optional(),
+  /** A stack or a set: `items[i]` describes `targets[i]`. */
+  parts: z
+    .object({
+      shape: partShapeSchema,
+      items: z.array(partInputSchema).min(2).max(MAX_PARTS),
+    })
+    .optional(),
   /** What the agent shows. A thread that Med makes for a session, such as
    * Keep in Med, has none until the agent hands off a Review. */
   targets: z
@@ -159,8 +211,18 @@ export const savedReviewCreateSchema = z.object({
           ),
       }),
     )
-    .max(16),
+    .max(MAX_PARTS),
 });
+/** What is wrong with a hand-off's parts, or its number of comparisons. */
+export function partsProblem(input: Pick<SavedReviewCreate, "parts" | "targets">) {
+  if (!input.parts)
+    return input.targets.length > 16 ? "A review can have up to 16 comparisons." : undefined;
+  if (input.parts.items.length !== input.targets.length)
+    return "Give one part for each comparison.";
+  if (new Set(input.parts.items.map((part) => part.key)).size !== input.parts.items.length)
+    return "Give each part its own key.";
+  return undefined;
+}
 export type SavedReviewCreate = z.infer<typeof savedReviewCreateSchema>;
 /** The checkout that a thread works in, for its live Changes. A review
  * without one uses its first target's. */
@@ -200,6 +262,8 @@ export const savedReviewTargetSchema = z.object({
   /** The range has more commits than `commits` keeps. */
   moreCommits: z.boolean().optional(),
   names: endpointNamesSchema.optional(),
+  /** The part of a stack or a set that this comparison is. */
+  part: z.string().optional(),
 });
 export type SavedReviewTarget = z.infer<typeof savedReviewTargetSchema>;
 /** One round of agent work: the comparisons it captured and its brief. */
@@ -213,6 +277,8 @@ export const savedIterationSchema = z.object({
   /** The reader started these notes: they begin empty, without the brief of
    * an iteration before them. */
   fresh: z.boolean().optional(),
+  /** Each part's Guide in this version, by part ID. */
+  guides: z.record(z.string(), savedGuideSchema).optional(),
 });
 export type SavedIteration = z.infer<typeof savedIterationSchema>;
 /** Later details for a review, such as the pull request opened after it. */
@@ -254,6 +320,10 @@ export const savedReviewSchema = z.object({
   group: attemptRefSchema.optional(),
   /** Present once a key is used; the last one is current. */
   iterations: z.array(savedIterationSchema).optional(),
+  /** A stack or a set of reviews in one thread (docs/STACKS.md). */
+  parts: savedPartsSchema.optional(),
+  /** Each part's counts in the current version, by part ID. */
+  partTotals: z.record(z.string(), partTotalsSchema).optional(),
   totals: z
     .object({
       additions: z.number().nonnegative(),

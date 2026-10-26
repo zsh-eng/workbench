@@ -2,7 +2,12 @@ import { z } from "zod";
 import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
 import { attemptRefSchema } from "./attempts";
 import { agentChoicesSchema } from "./owned-session";
-import { agentSessionSchema } from "./saved-review";
+import {
+  agentSessionSchema,
+  partShapeSchema,
+  pullRequestStateSchema,
+  type SavedReview,
+} from "./saved-review";
 
 /** The thread ID of a saved review, or of a session that Med found by itself. */
 export const threadIdSchema = z
@@ -107,8 +112,64 @@ export const threadSchema = z.object({
   stub: z.boolean().optional(),
   /** The subagents that its lead session runs, or ran lately, newest first. */
   subagents: z.array(threadSubagentSchema).max(8).optional(),
+  /** A stack or a set of reviews (docs/STACKS.md): its parts in order, a
+   * stack's bottom first, with the counts of the current version. */
+  parts: z
+    .object({
+      shape: partShapeSchema,
+      items: z.array(threadPartSchema()),
+    })
+    .optional(),
 });
 export type Thread = z.infer<typeof threadSchema>;
+export type ThreadPart = NonNullable<Thread["parts"]>["items"][number];
+
+function threadPartSchema() {
+  const count = z.number().int().nonnegative();
+  return z.object({
+    id: z.string(),
+    title: z.string(),
+    pullRequestUrl: z.string().optional(),
+    state: pullRequestStateSchema.optional(),
+    base: z.string().optional(),
+    head: z.string().optional(),
+    /** The part's comparison in the current version. */
+    targetId: z.string().optional(),
+    files: count,
+    additions: count,
+    deletions: count,
+    comments: count,
+  });
+}
+
+/** A thread list's parts of a saved review, in order. */
+export function threadParts(review: Pick<SavedReview, "parts" | "partTotals">): Thread["parts"] {
+  if (!review.parts) return undefined;
+  return {
+    shape: review.parts.shape,
+    items: review.parts.items.map((part) => {
+      const totals = review.partTotals?.[part.id];
+      return {
+        id: part.id,
+        title: part.title,
+        ...(part.pullRequestUrl ? { pullRequestUrl: part.pullRequestUrl } : {}),
+        ...(part.state ? { state: part.state } : {}),
+        ...(part.base ? { base: part.base } : {}),
+        ...(part.head ? { head: part.head } : {}),
+        ...(totals ? { targetId: totals.targetId } : {}),
+        files: totals?.files ?? 0,
+        additions: totals?.additions ?? 0,
+        deletions: totals?.deletions ?? 0,
+        comments: totals?.comments ?? 0,
+      };
+    }),
+  };
+}
+
+/** `POST /api/threads/:id/group`: the thread goes on top of `onto`'s stack. */
+export const threadGroupSchema = z.object({ onto: threadIdSchema });
+/** `POST /api/threads/:id/shape`: a thread of parts is a stack or a set. */
+export const threadShapeSchema = z.object({ shape: partShapeSchema });
 
 export const threadListSchema = z.object({
   /** The tabs, in the user's order. History is `GET /api/threads/history`. */

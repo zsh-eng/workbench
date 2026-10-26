@@ -116,6 +116,8 @@ import {
   threadOpenSchema,
   threadNameSchema,
   threadOrderSchema,
+  threadGroupSchema,
+  threadShapeSchema,
   threadSlug,
   threadStartSchema,
   threadTitle,
@@ -1891,10 +1893,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 422,
               );
             // The brief and the guide arrive in one body.
+            // A stack's or a set's guides come in the same body.
             const input = savedReviewCreateSchema.parse(
-              await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
+              await readBody(request, MAX_BRIEF_BODY + 4 * MAX_GUIDE_BODY),
             );
-            const review = await savedReviews.create(input, captureTarget, assertRequestAccess);
+            const review = await savedReviews.create(
+              input,
+              captureTarget,
+              assertRequestAccess,
+              undefined,
+              (id) => threads.isTab(id),
+            );
             // A hand-off opens its thread as a tab, also a new iteration of a closed one.
             await threads.opened(review);
             send(review);
@@ -2314,11 +2323,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               return;
             }
             if (request.method === "POST" && action === "guide") {
+              // `part`: the key of a stack's or a set's part.
               const input = z
-                .object({ guide: z.unknown() })
+                .object({ guide: z.unknown(), part: z.string().max(400).optional() })
                 .parse(await readBody(request, MAX_GUIDE_BODY));
               assertRequestAccess();
-              send(await savedReviews.setGuide(id!, input.guide ?? null, assertRequestAccess));
+              send(
+                await savedReviews.setGuide(
+                  id!,
+                  input.guide ?? null,
+                  assertRequestAccess,
+                  input.part,
+                ),
+              );
               return;
             }
             if (request.method === "POST" && action === "brief-comments") {
@@ -2753,6 +2770,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (!thread)
               throw new HostError("thread-not-found", "History has no thread to reopen.", 404);
             send({ thread });
+            return;
+          }
+          // Stacks and sets (docs/STACKS.md): a thread goes on top of
+          // another's stack, a stack splits into threads, or changes shape.
+          const partAction = /^\/api\/threads\/(r_[a-f0-9]{24})\/(group|ungroup|shape)$/.exec(
+            url.pathname,
+          );
+          if (partAction && request.method === "POST") {
+            const [, id, action] = partAction;
+            const body = await readBody(request).catch(() => ({}));
+            if (action === "group") {
+              const { onto } = threadGroupSchema.parse(body ?? {});
+              const review = await savedReviews.group(id!, onto, assertRequestAccess);
+              await threads.close(id!);
+              await threads.opened(review);
+              send({ thread: review.id });
+            } else if (action === "ungroup") {
+              const made = await savedReviews.ungroup(id!, assertRequestAccess);
+              for (const review of made.toReversed()) await threads.opened(review);
+              send({ threads: made.map((review) => review.id) });
+            } else {
+              const { shape } = threadShapeSchema.parse(body ?? {});
+              await savedReviews.setShape(id!, shape, assertRequestAccess);
+              send({ ok: true });
+            }
             return;
           }
           const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(

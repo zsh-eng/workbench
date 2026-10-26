@@ -13,7 +13,7 @@ import {
   type AgentSession,
   type SavedReview,
 } from "../shared/saved-review";
-import type { Thread, ThreadList } from "../shared/threads";
+import { threadParts, type Thread, type ThreadList } from "../shared/threads";
 import { findTranscript, transcriptPrompt } from "./agent-transcripts";
 import { HostError } from "./runtime/errors";
 import type { SavedReviewStore } from "./saved-reviews";
@@ -146,6 +146,7 @@ export function createThreadService(options: ThreadServiceOptions) {
         }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
       ...(review.group && { group: review.group }),
+      ...(review.parts && { parts: threadParts(review) }),
     } satisfies Thread;
   };
 
@@ -244,6 +245,8 @@ export function createThreadService(options: ThreadServiceOptions) {
       branch &&
       branch !== "Detached HEAD" &&
       !review.pullRequestUrl &&
+      // A stack's layers have their own pull requests.
+      !review.parts &&
       changesBase(family, branch, target.base)
     )
       options.pullRequestLinks?.check(review.id, target.repo, branch);
@@ -507,6 +510,11 @@ export function createThreadService(options: ThreadServiceOptions) {
         ...(prompt && { prompt }),
       });
       await tabs.save();
+    },
+
+    /** Whether the thread is a tab. */
+    isTab(id: string) {
+      return tabs.isOpen(id);
     },
 
     /** Sends a tab to history. True when this call closed it. Closing never
