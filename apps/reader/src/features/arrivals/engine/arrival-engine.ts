@@ -90,11 +90,13 @@ function push(list: number[], value: number) {
   if (list.length > 240) list.shift();
 }
 
-/** One book's place in time and its images, kept across remounts. */
+/**
+ * One book's place in time and its images, kept across remounts. Several
+ * views can show one book (a tile, the arrival sheet, the cover between
+ * them); the book advances once a frame and each view draws it.
+ */
 interface ArrivalState {
   shown: number;
-  /** `shown` when this book was last drawn. */
-  drawn: number;
   paced: number;
   velocity: number;
   seed: number;
@@ -117,6 +119,10 @@ interface TextureSlot {
 interface View {
   options: ArrivalViewOptions;
   state: ArrivalState;
+  /** `state.shown` when this view last drew. */
+  drawn: number;
+  /** `onRest` has run for this view. */
+  restTold: boolean;
   present: (frame: Presenter) => void;
   width: number;
   height: number;
@@ -272,7 +278,6 @@ class ArrivalEngine {
     if (!state) {
       state = {
         shown: 0,
-        drawn: -1,
         paced: 0,
         velocity: 0,
         seed: Math.random(),
@@ -291,6 +296,8 @@ class ArrivalEngine {
     const view: View = {
       options,
       state,
+      drawn: -1,
+      restTold: false,
       width: 0,
       height: 0,
       paper: readPaper(options.slot),
@@ -309,7 +316,7 @@ class ArrivalEngine {
         if (!entry) return;
         view.width = entry.contentRect.width;
         view.height = entry.contentRect.height;
-        view.state.drawn = -1;
+        view.drawn = -1;
         this.requestFrame();
       }),
     };
@@ -321,7 +328,8 @@ class ArrivalEngine {
     this.observer.observe(options.slot);
     this.views.add(view);
     stats.views = this.views.size;
-    // A remounted tile shows its current frame before it paints.
+    // A remounted tile shows its current frame before it paints. A book
+    // already at rest tells the new view so in the next frame.
     this.drawView(view);
     this.requestFrame();
     return () => {
@@ -374,9 +382,14 @@ class ArrivalEngine {
     if (this.lastFrame) push(stats.frameGaps, now - this.lastFrame);
     stats.frames++;
     let moving = false;
+    const books = new Map<ArrivalState, View[]>();
     for (const view of this.views) {
-      if (this.step(view, dt, now)) moving = true;
+      const views = books.get(view.state);
+      if (views) views.push(view);
+      else books.set(view.state, [view]);
     }
+    for (const [state, views] of books)
+      if (this.step(state, views, dt, now)) moving = true;
     const spent = performance.now() - start;
     push(stats.frameMs, spent);
     if (stats.frameMs.length >= 30) {
@@ -391,24 +404,64 @@ class ArrivalEngine {
     }
   }
 
-  /** Advance one view and draw it if it is on screen. True while it moves. */
-  private step(view: View, dt: number, now: number): boolean {
-    const { state, options } = view;
-    const input = options.read();
+  /**
+   * Advance one book, then draw each of its views that is on screen. True
+   * while it moves.
+   */
+  private step(
+    state: ArrivalState,
+    views: View[],
+    dt: number,
+    now: number,
+  ): boolean {
+    const input = views[0]!.options.read();
     state.lastUsed = now;
     this.loadTextures(state, input);
-    if (options.fixed !== undefined) {
-      state.shown = options.fixed;
-      if (view.visible && state.drawn !== state.shown) this.drawView(view);
+    const fixed = views.find((view) => view.options.fixed !== undefined);
+    if (fixed) {
+      state.shown = fixed.options.fixed!;
+      this.drawViews(state, views);
       return false;
     }
-    if (state.rested) return false;
+    const moving = state.rested
+      ? false
+      : this.advance(state, views, input, dt, now);
+    this.drawViews(state, views);
+    if (state.rested)
+      for (const view of views) {
+        if (view.restTold) continue;
+        view.restTold = true;
+        view.options.onRest();
+      }
+    return moving;
+  }
+
+  private drawViews(state: ArrivalState, views: View[]) {
+    for (const view of views) {
+      if (!view.visible) continue;
+      const behind = Math.abs(state.shown - view.drawn);
+      if (behind > 0.0004 || (behind > 0 && state.rested)) {
+        this.drawView(view);
+        state.seen = true;
+      }
+    }
+  }
+
+  /** Move the book's place in time towards the import. */
+  private advance(
+    state: ArrivalState,
+    views: View[],
+    input: ArrivalFrameInput,
+    dt: number,
+    now: number,
+  ): boolean {
     const { stage } = input.progress;
     const ready = stage === "ready";
     // A book that finished while nobody saw it arrives at rest.
-    if (ready && !state.seen && !view.visible) {
+    if (ready && !state.seen && !views.some((view) => view.visible)) {
       state.shown = state.paced = 1;
-      return this.rest(view);
+      state.rested = true;
+      return false;
     }
     // The cover cannot develop before the import has found it.
     const ceiling = coverKnown(stage) ? 1 : COVER_START;
@@ -438,23 +491,13 @@ class ArrivalEngine {
       Math.abs(state.velocity) < 0.01;
     if (ready && state.paced >= 1 && resting) {
       state.shown = 1;
-      return this.rest(view);
-    }
-    if (view.visible && Math.abs(state.shown - state.drawn) > 0.0004) {
-      this.drawView(view);
-      state.seen = true;
+      state.rested = true;
+      return false;
     }
     // A working step creeps on; a queued, failed or duplicate one waits.
     const working =
       stage === "saving" || stage === "reading" || stage === "preparing";
     return !resting || state.paced < goal || working || ready;
-  }
-
-  private rest(view: View): false {
-    view.state.rested = true;
-    if (view.visible) this.drawView(view);
-    view.options.onRest();
-    return false;
   }
 
   private loadTextures(state: ArrivalState, input: ArrivalFrameInput) {
@@ -540,7 +583,7 @@ class ArrivalEngine {
       // Draw the views of this book again now that the image is in.
       for (const view of this.views)
         if (view.state.cover === slot || view.state.relief === slot)
-          view.state.drawn = -1;
+          view.drawn = -1;
       this.requestFrame();
     } catch {
       slot.failed = true;
@@ -596,7 +639,7 @@ class ArrivalEngine {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);
     view.present(canvas);
-    state.drawn = state.shown;
+    view.drawn = state.shown;
     stats.draws++;
   }
 }
