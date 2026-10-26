@@ -9,10 +9,11 @@ import { setChromeMode } from "../../src/web/data/chrome";
 import type { Comparison, PullRequestComments } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
+import "../../src/web/components/TitleRow.css";
 
 // GitHub threads on a thread's Changes, in quiet chrome: a branch whose tip is
 // the pull request head shows them at their lines, except in files with
-// edits after that commit; the review's row counts the comments in words.
+// edits after that commit; the window's title band counts the comments in words.
 
 const tip = "a".repeat(40);
 const base = "b".repeat(40);
@@ -366,36 +367,46 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request heads the thread's card with its number, title, author, and state; the tabs and the files keep their room", async () => {
+test("a pull request is the thread's title in the window's band, before its checkout; no row sits above the tabs", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
   await expect.element(link).toBeVisible();
   expect(link.element().getAttribute("href")).toBe(pullUrl);
   expect(link.element().getAttribute("target")).toBe("_blank");
-  const header = link.element().closest("header")!;
-  await expect.poll(() => header.textContent).toMatch(/#7\s*Rename the export.*mira\s*Open/);
-  // One row: the title gives way, cut at its end; the author and state stay.
+  // The window's title band leads with the pull request: its number and
+  // title, its state, and its author; the checkout follows it.
+  const band = link.element().closest<HTMLElement>('header[aria-label="Workspace"]')!;
+  expect(band).not.toBeNull();
+  await expect.poll(() => band.textContent).toMatch(/#7\s*Rename the export.*Open\s*mira/);
+  const checkout = page.getByRole("button", { name: /^fixture, feature/ });
+  await expect.element(checkout).toBeVisible();
   expect(
-    header.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
+    link.element().compareDocumentPosition(checkout.element()) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // One row: the title gives way, cut at its end; the state and author stay.
+  expect(
+    band.querySelector('[title="Opened by mira"]')!.getBoundingClientRect().width,
   ).toBeGreaterThan(0);
-  expect(header.getBoundingClientRect().height).toBeLessThanOrEqual(40);
+  expect(band.getBoundingClientRect().height).toBeLessThanOrEqual(40);
   const title = [...link.element().querySelectorAll("span")].at(-1)!;
   expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
-  // The header heads the review card. The tab row has no pull request in it,
-  // and the Changed files pane starts at the top of the workspace.
-  const review = header.closest<HTMLElement>("[data-pane]")!;
-  expect(review.dataset.pane).toBe("review");
-  expect(header.nextElementSibling?.querySelector('[role="tablist"]')).not.toBeNull();
-  expect(header.nextElementSibling?.textContent).not.toContain("Rename the export");
+  // The comments count is at the band's end.
+  const comments = page.getByRole("button", { name: "5 pull request comments" });
+  await expect.element(comments).toHaveTextContent("5 comments");
+  expect(band.contains(comments.element())).toBe(true);
+  // The band moves the window; its link and buttons take clicks.
+  const region = (element: Element) => getComputedStyle(element).getPropertyValue("app-region");
+  expect(region(band)).toBe("drag");
+  expect(region(link.element())).toBe("no-drag");
+  expect(region(comments.element())).toBe("no-drag");
+  // The review card starts with its tab row, with no pull request in it,
+  // level with the Changed files pane.
+  const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
+  const tabs = review.querySelector('[role="tablist"]')!;
+  expect(tabs.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
+  expect(review.textContent).not.toContain("Rename the export");
   const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
   expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
   expect(files.textContent).not.toContain("Rename the export");
-  // The comments count moved to the header too.
-  await expect
-    .element(page.getByRole("button", { name: "5 pull request comments" }))
-    .toHaveTextContent("5 comments");
-  expect(
-    header.contains(page.getByRole("button", { name: "5 pull request comments" }).element()),
-  ).toBe(true);
 });

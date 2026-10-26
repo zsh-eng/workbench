@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref } from "react";
 import type { Thread, ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
 import { useQuietChrome } from "../../data/chrome";
@@ -70,13 +70,17 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
  *
  * With quiet chrome, the band is the one place for the thread's branch. While
  * the sidebar, which lists the thread, is hidden, the band names the thread
- * too, and a dot on Show sidebar tells that a tab needs the reader.
+ * too, and a dot on Show sidebar tells that a tab needs the reader. A
+ * thread's pull request is its title here (InTitleBand): the checkout follows
+ * it, quieter.
  */
 export function WorkspaceBar({
   context,
   showSidebar,
   needs = 0,
   rename,
+  slots,
+  titled = false,
 }: {
   context?: BarContext;
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
@@ -86,9 +90,16 @@ export function WorkspaceBar({
   /** The thread on screen: a double-click on its name, or ⌘K, names it here
    * while the sidebar hides. */
   rename?: { thread: Thread; editing: boolean; start(): void; done(name: string | null): void };
+  /** Where the workspace on screen puts its own title (InTitleBand): `lead`
+   * before the checkout, `trail` at the band's end. */
+  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement> };
+  /** The workspace's own title leads the band, such as a thread's pull
+   * request: the checkout follows it, quieter, and goes in a narrow band. */
+  titled?: boolean;
 }) {
   const quiet = useQuietChrome();
-  const title = quiet && showSidebar && context?.kind === "checkout" ? context.title : undefined;
+  const title =
+    quiet && showSidebar && !titled && context?.kind === "checkout" ? context.title : undefined;
   return (
     <header
       aria-label="Workspace"
@@ -119,8 +130,14 @@ export function WorkspaceBar({
           </span>
         )
       )}
+      <span ref={slots?.lead} {...stylex.props(styles.lead, !titled && styles.empty)} />
       {context?.kind === "checkout" && (
-        <Checkout {...context} quiet={quiet} after={!!title || !!rename?.editing} />
+        <Checkout
+          {...context}
+          quiet={quiet}
+          after={!!title || !!rename?.editing || titled}
+          secondary={titled}
+        />
       )}
       {context?.kind === "label" && (
         <span {...stylex.props(styles.checkout)}>
@@ -128,6 +145,7 @@ export function WorkspaceBar({
           <span {...stylex.props(styles.name, styles.ellipsis)}>{context.text}</span>
         </span>
       )}
+      <span ref={slots?.trail} {...stylex.props(styles.trail, !titled && styles.empty)} />
     </header>
   );
 }
@@ -141,7 +159,12 @@ function Checkout({
   linked,
   quiet,
   after,
-}: Extract<BarContext, { kind: "checkout" }> & { quiet: boolean; after: boolean }) {
+  secondary,
+}: Extract<BarContext, { kind: "checkout" }> & {
+  quiet: boolean;
+  after: boolean;
+  secondary: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -159,7 +182,13 @@ function Checkout({
           () => {},
         )
       }
-      {...stylex.props(ui.button, ui.pressable, styles.checkout, styles.copy)}
+      {...stylex.props(
+        ui.button,
+        ui.pressable,
+        styles.checkout,
+        styles.copy,
+        secondary && styles.secondary,
+      )}
     >
       <span {...stylex.props(styles.name, after && styles.nameAfter)}>{repository}</span>
       <span {...stylex.props(styles.part)}>
@@ -192,6 +221,8 @@ const styles = stylex.create({
     color: tokens.muted,
     fontFamily: tokens.ui,
     fontSize: 12.5,
+    // A title in the band gives way to the band's width (InTitleBand).
+    containerType: "inline-size",
   },
   // Past the window controls, where the sidebar would otherwise start.
   afterControls: { paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 8px)" },
@@ -212,6 +243,25 @@ const styles = stylex.create({
     fontSize: 12.5,
     cursor: "default",
   },
+  // After a workspace's own title, the checkout keeps its width up to a
+  // limit, and goes where the band is narrow.
+  secondary: {
+    display: { default: "inline-flex", "@container (max-width: 720px)": "none" },
+    flexShrink: 0,
+    maxWidth: "36cqi",
+    overflow: "hidden",
+  },
+  // The workspace's own title (InTitleBand): it gives way first, cut at its end.
+  lead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingInlineStart: 8,
+  },
+  trail: { display: "flex", alignItems: "center", flexShrink: 0, marginInlineStart: "auto" },
+  empty: { display: "none" },
   name: { color: tokens.text, fontWeight: 500 },
   // After the thread's title, the repository is secondary.
   nameAfter: { color: tokens.muted },

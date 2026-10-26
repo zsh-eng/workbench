@@ -62,6 +62,7 @@ import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
+  InTitleBand,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
@@ -115,6 +116,7 @@ import {
   AgentReplyContext,
   CodexFindingCard,
   GuideNoteCard,
+  PullRequestPanel,
   type AgentReplyTarget,
   type FindingPlacement,
   useCodexReviews,
@@ -125,7 +127,7 @@ import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./da
 import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import {
-  PullRequestHeader,
+  PullRequestTitle,
   SavedReviewHeader,
   type SavedReviewActions,
 } from "./components/SavedReviewHeader";
@@ -5063,6 +5065,9 @@ export function App({
     commands: () => setCommandsOpen(true),
     shortcuts: () => setHelpOpen(true),
   });
+  // The card's own row, in full chrome without a thread beside it. It names
+  // a pull request; elsewhere the pull request is the window's title.
+  const savedCardHeader = !!state.savedReview && !zen && !sessionVisible && !quiet;
   const savedHeader = (compact: boolean) =>
     state.savedReview && (
       <SavedReviewHeader
@@ -5408,17 +5413,7 @@ export function App({
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {/* The review's own row heads the card; beside a thread, its actions
         join the tab row. */}
-          {state.savedReview && !zen && !sessionVisible && !quiet && savedHeader(false)}
-          {/* Beside a thread, a pull request heads the card, above the tabs. */}
-          {state.savedReview?.pullRequestUrl && !zen && (quiet || sessionVisible) && (
-            <PullRequestHeader
-              url={state.savedReview.pullRequestUrl}
-              title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-              pull={pullRequest.data?.pull}
-              pullRequest={pullRequest}
-              threadPlacement={pullRequestThreads.placement}
-            />
-          )}
+          {savedCardHeader && savedHeader(false)}
           {linkError}
           {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
           {quiet && state.status === "loading" && (
@@ -6085,6 +6080,24 @@ export function App({
           !workspace && <BranchStrip model={branches} />
         )}
         {branchPicker}
+        {state.savedReview?.pullRequestUrl && !savedCardHeader && (
+          <InTitleBand
+            lead={
+              <PullRequestTitle
+                url={state.savedReview.pullRequestUrl}
+                title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+                pull={pullRequest.data?.pull}
+              />
+            }
+            trail={
+              <PullRequestPanel
+                state={pullRequest}
+                placement={pullRequestThreads.placement}
+                words
+              />
+            }
+          />
+        )}
         <SaveReviewDialog
           brief={pendingBrief}
           files={state.files}

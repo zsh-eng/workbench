@@ -1,6 +1,6 @@
 import type { Thread } from "../../shared/threads";
 import * as stylex from "@stylexjs/stylex";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   Activity,
   createContext,
@@ -292,6 +292,51 @@ export function useTabCommands(): ReviewCommand[] {
     ];
   }, [isTab, notifying, tabs, thread]);
 }
+/** The title band's slots for the workspace on screen, and which one that
+ * is; null outside the shell. */
+interface TitleBand {
+  lead: HTMLElement | null;
+  trail: HTMLElement | null;
+  workspace: string | null;
+  /** The workspace's title leads the band until the returned function runs. */
+  claim(): () => void;
+}
+const Band = createContext<TitleBand | null>(null);
+
+/**
+ * A workspace's own title in the window's title band, while the workspace is
+ * on screen: `lead` before its checkout, which then follows quieter, and
+ * `trail` at the band's end. The portal keeps the workspace's context, so
+ * its controls work as in the workspace. Outside the shell, nothing shows.
+ */
+export function InTitleBand({ lead, trail }: { lead: ReactNode; trail?: ReactNode }) {
+  const band = use(Band);
+  const id = use(Current);
+  const shown = !!band?.workspace && band.workspace === id;
+  const claim = band?.claim;
+  useLayoutEffect(() => (shown && claim ? claim() : undefined), [shown, claim]);
+  if (!shown) return null;
+  return (
+    <>
+      {band.lead && createPortal(lead, band.lead)}
+      {trail && band.trail && createPortal(trail, band.trail)}
+    </>
+  );
+}
+
+/** The title band's slots, and whether a workspace's title leads it. */
+function useTitleBand(workspace: string | null) {
+  const [lead, setLead] = useState<HTMLElement | null>(null);
+  const [trail, setTrail] = useState<HTMLElement | null>(null);
+  const [claims, setClaims] = useState(0);
+  const claim = useCallback(() => {
+    setClaims((count) => count + 1);
+    return () => setClaims((count) => count - 1);
+  }, []);
+  const value = useMemo(() => ({ lead, trail, workspace, claim }), [lead, trail, workspace, claim]);
+  return { value, slots: { lead: setLead, trail: setTrail }, titled: claims > 0 };
+}
+
 /** Whether this workspace is the one on screen. One that renders out of
  * sight runs its effects but takes no keys. */
 const ShownCheck = createContext<() => boolean>(() => true);
@@ -1072,6 +1117,9 @@ export function WorkspaceHost({
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
   const barThread = barId ? tabs.find((thread) => thread.id === barId) : undefined;
+  // The band names the workspace on screen; none while a page covers them.
+  const covered = newThread || !!overlayAddress(pathname);
+  const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread =
@@ -1755,10 +1803,10 @@ export function WorkspaceHost({
                       <div {...stylex.props(styles.shellMain)}>
                         <WorkspaceBar
                           context={
-                            newThread || overlayAddress(pathname)
-                              ? undefined
-                              : barContext(activeEntry, threadList ?? null)
+                            covered ? undefined : barContext(activeEntry, threadList ?? null)
                           }
+                          slots={band.slots}
+                          titled={band.titled}
                           showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
                           needs={showsSidebar ? 0 : needs}
                           rename={
@@ -1778,7 +1826,9 @@ export function WorkspaceHost({
                             inert={newThread || !!attemptsGroupOf(pathname) || undefined}
                             {...stylex.props(styles.shellLayer)}
                           >
-                            <Warm value={warm}>{children}</Warm>
+                            <Band value={band.value}>
+                              <Warm value={warm}>{children}</Warm>
+                            </Band>
                           </div>
                           {!showsSidebar && noticeBar}
                           <AttemptsHost

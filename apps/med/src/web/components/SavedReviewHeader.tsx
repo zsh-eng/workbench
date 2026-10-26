@@ -153,7 +153,7 @@ export function SavedReviewHeader({
       {...(compact ? {} : paneHandle)}
       {...stylex.props(styles.header, compact && styles.inline)}
     >
-      {/* Beside a thread, the pull request heads the card (PullRequestHeader). */}
+      {/* Beside a thread, the pull request is the window's title (PullRequestTitle). */}
       {compact ? null : saved.pullRequestUrl ? (
         <a
           href={saved.pullRequestUrl}
@@ -415,30 +415,25 @@ const PULL_STATES: Record<PullRequestSummary["state"], string> = {
 };
 
 /**
- * A pull request's own row at the top of the review card, beside a thread:
- * its number and title, which open it on GitHub, its author and state, and
- * its comments. The tab row below keeps its room for the tabs and files. The
- * title gives way first; the author goes in a narrow card.
+ * A pull request as its thread's title, in the window's title band
+ * (InTitleBand): its number and title, which open it on GitHub, its state,
+ * and its author. The title gives way first, cut at its end; the author goes
+ * in a narrow band.
  */
-export function PullRequestHeader({
+export function PullRequestTitle({
   url,
   title,
   pull,
-  pullRequest,
-  threadPlacement,
 }: {
   url: string;
   /** The title that Med saved, until GitHub's arrives. */
   title: string;
   pull?: PullRequestSummary;
-  pullRequest?: PullRequestState;
-  threadPlacement?: ThreadPlacement;
 }) {
   const number = pull?.number ?? /\/pull\/(\d+)/.exec(url)?.[1];
   const heading = pull?.title ?? title;
   return (
-    <header aria-label="Pull request" {...paneHandle} {...stylex.props(styles.pull)}>
-      <Icon name="github" size={14} />
+    <>
       <a
         href={url}
         target="_blank"
@@ -447,47 +442,26 @@ export function PullRequestHeader({
         title={`#${number} ${heading}`}
         {...stylex.props(styles.pullLink)}
       >
+        <Icon name="github" size={14} />
         <span {...stylex.props(styles.pullNumber)}>#{number}</span>
         <span {...stylex.props(styles.ellipsis)}>{heading}</span>
         <Icon name="external" size={12} />
       </a>
       {pull && (
-        <span title={`Opened by ${pull.author}`} {...stylex.props(styles.pullAuthor)}>
-          {pull.author}
-        </span>
-      )}
-      {pull && (
         <span {...stylex.props(styles.pullState, styles[pull.state])}>
           {PULL_STATES[pull.state]}
         </span>
       )}
-      <span {...stylex.props(styles.grow)} />
-      {pullRequest && threadPlacement && (
-        <PullRequestPanel state={pullRequest} placement={threadPlacement} words />
+      {pull && (
+        <span title={`Opened by ${pull.author}`} {...stylex.props(styles.pullAuthor)}>
+          {pull.author}
+        </span>
       )}
-    </header>
+    </>
   );
 }
 
 const styles = stylex.create({
-  pull: {
-    containerType: "inline-size",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-    minWidth: 0,
-    // As tall as the headers of the panes beside it.
-    height: 38,
-    boxSizing: "border-box",
-    paddingInline: 12,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-  },
   pullLink: {
     display: "inline-flex",
     alignItems: "center",
@@ -495,12 +469,14 @@ const styles = stylex.create({
     minWidth: 0,
     flexShrink: 1,
     color: tokens.text,
+    fontSize: 13,
     fontWeight: 500,
+    whiteSpace: "nowrap",
     textDecoration: { default: "none", ":hover": "underline" },
   },
   pullNumber: { flexShrink: 0, color: tokens.muted, fontVariantNumeric: "tabular-nums" },
   pullAuthor: {
-    display: { default: "block", "@container (max-width: 480px)": "none" },
+    display: { default: "block", "@container (max-width: 520px)": "none" },
     flexShrink: 0,
     minWidth: 0,
     maxWidth: 160,

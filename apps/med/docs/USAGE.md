@@ -230,7 +230,8 @@ load it or read its agents until you open it again.
   sidebar opens over the workspace, and a choice closes it.
 - The band above the workspace names the checkout that it shows: the
   repository, the branch, and a linked worktree's folder. Click it to copy the
-  checkout's path. With the installed app's title bar hidden, the band is the
+  checkout's path. In a thread with a pull request, the pull request leads the
+  band, and the checkout follows it. With the installed app's title bar hidden, the band is the
   title bar, beside the window controls; while the sidebar is hidden, the band
   starts with **Show sidebar**.
 
@@ -313,10 +314,12 @@ comments**, **Commands**, and **Files** are in its **⋯** menu.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
 the title for the time Med saved the review and its repository. Beside a
-thread, a pull request heads the review card in a row of its own, above the
-tabs: its number and title, which open it on GitHub, its author, its state
-(**Open**, **Draft**, **Merged**, or **Closed**), and its comments. A long
-title is cut at its end, so the tabs and the files keep their room. See
+thread, and in quiet chrome, a pull request is the thread's title in the
+window's title band: its number and title, which open it on GitHub, its state
+(**Open**, **Draft**, **Merged**, or **Closed**), and its author, then the
+repository and branch in quieter text, and its comments at the band's end. A
+long title is cut at its end; in a narrow band, the repository and branch go
+first. The review card keeps its tabs as its first row. See
 [titles and pull requests](AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ### Agent sessions
