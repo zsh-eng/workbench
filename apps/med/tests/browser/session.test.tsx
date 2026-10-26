@@ -675,7 +675,7 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   const render = (showWork?: boolean) =>
     root!.render(<SessionThread snapshot={store.getSnapshot()} showWork={showWork} />);
   render();
-  const rows = page.getByRole("button", { name: /^Worked for 4\.0s · 1 tool call$/ });
+  const rows = page.getByRole("button", { name: /^Worked for 4s · 1 tool call$/ });
   await expect.poll(() => rows.elements().length).toBe(2);
   await expect.element(page.getByText("The tests 1 pass.")).toBeVisible();
   // The prompt and the final reply show; the commentary and the call fold.
@@ -785,7 +785,7 @@ test("a message from Med joins the thread where the agent took it, so the turn b
     await expect.element(page.getByText("Also check the import.")).toBeVisible();
     // The turn's work folds, and its reply stays in view above the message.
     await expect.element(page.getByText("The export keeps the old format.")).toBeVisible();
-    await expect.element(page.getByRole("button", { name: /^Worked for 8\.0s/ })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Worked for 8s/ })).toBeVisible();
     expect(page.getByText("Looking at the export.").query()).toBeNull();
     const reply = page.getByText("The export keeps the old format.").element();
     const sent = page.getByText("Also check the import.").element();
@@ -1007,4 +1007,72 @@ test("a long prompt shows its first lines until Show more, and Show less folds i
   await expect.element(toggle).toHaveTextContent("Show more");
   expect(body.clientHeight).toBeLessThan(body.scrollHeight);
   expect(body.textContent).not.toContain("Line 40");
+});
+
+test("a running turn's time ticks in whole seconds from 1 s and in minutes from 10 minutes; its calls spin", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const shell = (at: number, id: string, title: string, background = false) => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title,
+      kind: "execute" as const,
+      status: "in_progress" as const,
+      rawInput: { command: "bun test" },
+      ...(background ? { _meta: { med: { background: { id, kind: "shell" as const } } } } : {}),
+    },
+  });
+  // A turn that started `ago` ms before now, on the real clock: no `now`.
+  const working = (ago: number) => {
+    root?.unmount();
+    mount?.remove();
+    const startedAt = Date.now() - ago;
+    const store = longThread(0);
+    store.applyAll([
+      shell(startedAt - 2 * 60 * 60_000, "dev", "Start the dev server", true),
+      shell(startedAt - 30_000, "styles", "Watch the styles", true),
+      {
+        at: startedAt,
+        update: {
+          sessionUpdate: "user_message_chunk" as const,
+          content: { type: "text" as const, text: "Run the tests." },
+        },
+      },
+      shell(startedAt + 100, "tests", "Run the tests"),
+    ]);
+    store.setRunning(true);
+    root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  };
+  const time = () =>
+    page.getByText("Working", { exact: true }).element().parentElement!.lastElementChild!;
+
+  working(300);
+  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
+  // Nothing under a second, then whole seconds, each for a whole second.
+  expect(time().textContent).toBe("");
+  await expect.poll(() => time().textContent, { timeout: 2000 }).toBe("1s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("2s");
+  expect(getComputedStyle(time()).fontVariantNumeric).toContain("tabular-nums");
+  // The view's one clock: a running call spins and shows no time.
+  const call = page.getByRole("log").getByRole("button", { name: /Run the tests/ });
+  await expect.element(call.getByLabelText("Running")).toBeInTheDocument();
+  expect(call.element().textContent).not.toMatch(/\d+s\b/);
+  // The dock counts minutes: a dev server does not tick seconds.
+  const dock = page.getByRole("region", { name: "Background tasks" });
+  await expect.element(dock.getByText("2h 00m", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Running", { exact: true })).toBeVisible();
+
+  working(59_300);
+  await expect.poll(() => time().textContent).toBe("59s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("1m 00s");
+
+  working(9 * 60_000 + 59_300);
+  await expect.poll(() => time().textContent).toBe("9m 59s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("10 min");
+
+  working(65 * 60_000);
+  await expect.poll(() => time().textContent).toBe("1h 05m");
+  expect(document.body.textContent).not.toMatch(/\d\.\d+s\b/);
 });

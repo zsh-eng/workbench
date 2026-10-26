@@ -337,6 +337,12 @@ background shells and agents. It follows the session live.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn, or **Show work** to
   open every turn.
+- **Times** show only the digits that change as often as Med updates them. A
+  running turn's status line has the one clock: from 1 s it counts whole
+  seconds ("42s", "1m 05s"), from 10 minutes whole minutes ("12 min"), and
+  from an hour "1h 05m". It changes at each whole second or minute from the
+  turn's start. A running tool call spins and shows its time when it ends.
+  Finished times use the same form and show from 1 s.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
 - A turn that ended while you did not see its session ends with a recap,

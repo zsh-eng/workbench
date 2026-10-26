@@ -26,19 +26,13 @@ import { LinkedText } from "../FileRefs";
 import { ZenContext } from "../ZenExit";
 import { motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
+import { Elapsed, formatDuration } from "./Elapsed";
 import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
-import {
-  formatSeconds,
-  isSubagent,
-  OpenAgentContext,
-  RowOpen,
-  ToolCall,
-  useRowOpen,
-} from "./ToolCall";
+import { isSubagent, OpenAgentContext, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
 import {
   finalReplies,
   fold,
@@ -458,7 +452,7 @@ function Delivery({ message }: { message: SentMessage }) {
 function Thought({ item }: { item: Extract<SessionItem, { kind: "thought" }> }) {
   const [open, setOpen] = useRowOpen(item.id, false);
   const text = item.text.trim();
-  const seconds = Math.max(1, Math.round((item.durationMs ?? 0) / 1000));
+  const took = item.durationMs === undefined ? undefined : formatDuration(item.durationMs);
   return (
     <div>
       <button
@@ -471,7 +465,7 @@ function Thought({ item }: { item: Extract<SessionItem, { kind: "thought" }> }) 
         <span {...stylex.props(rowStyles.icon)}>
           <Icon name="brief" size={14} />
         </span>
-        {item.durationMs !== undefined ? `Thought for ${seconds}s` : "Thought"}
+        {took ? `Thought for ${took}` : "Thought"}
         {text && (
           <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>
             <Icon name="chevron" size={12} />
@@ -534,6 +528,13 @@ function Explore({
   );
 }
 
+/** "Worked for 1m 05s · 3 tool calls"; a turn under a second shows no time. */
+function worked(milliseconds: number, toolCalls: number) {
+  const took = formatDuration(milliseconds);
+  const calls = toolCalls > 0 ? ` · ${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}` : "";
+  return `${took ? `Worked for ${took}` : "Worked"}${calls}`;
+}
+
 /** A finished turn's work in one row; it opens to show the work below it. */
 function Work({ unit, onToggle }: { unit: WorkUnit; onToggle?(key: string): void }) {
   return (
@@ -543,11 +544,7 @@ function Work({ unit, onToggle }: { unit: WorkUnit; onToggle?(key: string): void
       onClick={() => onToggle?.(unit.key)}
       {...stylex.props(rowStyles.row, styles.groupHead, styles.work)}
     >
-      <span>
-        Worked for {formatSeconds(unit.durationMs)}
-        {unit.toolCalls > 0 &&
-          ` · ${unit.toolCalls} tool ${unit.toolCalls === 1 ? "call" : "calls"}`}
-      </span>
+      <span>{worked(unit.durationMs, unit.toolCalls)}</span>
       <span {...stylex.props(styles.chevron, unit.open && styles.chevronOpen)}>
         <Icon name="chevron" size={12} />
       </span>
@@ -825,7 +822,8 @@ function AgentView({
   onOpenLink,
 }: {
   agent: ToolItem;
-  now: number;
+  /** A fixed clock, for stills; without it a working subagent's time runs. */
+  now?: number;
   onClose(): void;
   onOpenLink?(href: string): void;
 }) {
@@ -834,7 +832,6 @@ function AgentView({
   const content = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const live = agent.call.status === "pending" || agent.call.status === "in_progress";
-  const elapsed = Math.max(0, (live ? now : (agent.endedAt ?? agent.at)) - agent.at);
   const list = useMemo(() => units(agent.items), [agent.items]);
   const renderThread = useCallback(
     (nested: SessionItem[]) => <Thread items={nested} live={live} onOpenLink={onOpenLink} />,
@@ -879,7 +876,7 @@ function AgentView({
           {...stylex.props(styles.agentState, agent.call.status === "failed" && styles.agentFailed)}
         >
           {agent.call.status === "failed" ? "Failed" : live ? "Working" : "Done"}
-          {elapsed >= 1000 && ` · ${formatSeconds(elapsed)}`}
+          <Elapsed from={agent.at} now={live ? now : (agent.endedAt ?? agent.at)} prefix=" · " />
         </span>
       </div>
       <div
@@ -950,7 +947,8 @@ export function SessionThread({
   earlier?: { load(): Promise<void>; loading: boolean; failed?: boolean };
   /** Scrolls to this item once for each nonce, such as a turn from the index. */
   reveal?: { id: string; nonce: number };
-  /** The clock for the elapsed time of a running session. */
+  /** A fixed clock, for stills and replays. Without it, the running turn's
+   * time and the background tasks' times follow the real clock (Elapsed.tsx). */
   now?: number;
   /** Finished turns show their work; otherwise it folds into one row. */
   showWork?: boolean;
@@ -1586,9 +1584,10 @@ export function SessionThread({
   // A message that waits for the agent ends the thread; the turn before it
   // already says how long it worked.
   const waitingMessage = last?.kind === "user" && (last.queued || !!last.sent);
-  const elapsed = Math.max(
+  // A finished turn took until its last update.
+  const took = Math.max(
     0,
-    turn.startedAt !== undefined ? (now ?? snapshot.updatedAt ?? 0) - turn.startedAt : 0,
+    turn.startedAt !== undefined ? (snapshot.updatedAt ?? 0) - turn.startedAt : 0,
   );
   const offsets = model.offsets;
   const scrollerProps = stylex.props(styles.scroller);
@@ -1683,7 +1682,12 @@ export function SessionThread({
                       <span {...stylex.props(motion.shimmer)}>
                         {thinking ? "Thinking" : "Working"}
                       </span>
-                      <span {...stylex.props(styles.elapsed)}>{formatSeconds(elapsed)}</span>
+                      {/* The view's one clock; a running call only spins. */}
+                      <span {...stylex.props(styles.elapsed)}>
+                        {turn.startedAt !== undefined && (
+                          <Elapsed from={turn.startedAt} now={now} />
+                        )}
+                      </span>
                     </div>
                   ) : endMark ? (
                     <div {...stylex.props(styles.endMark)}>{endMark}</div>
@@ -1694,9 +1698,7 @@ export function SessionThread({
                     !waitingMessage && (
                       <div {...stylex.props(styles.done)}>
                         <span {...stylex.props(styles.rule)} />
-                        Worked for {formatSeconds(elapsed)}
-                        {turn.toolCalls > 0 &&
-                          ` · ${turn.toolCalls} tool ${turn.toolCalls === 1 ? "call" : "calls"}`}
+                        {worked(took, turn.toolCalls)}
                         <span {...stylex.props(styles.rule)} />
                       </div>
                     )
@@ -1735,7 +1737,7 @@ export function SessionThread({
             <div inert={!!agent} {...stylex.props(styles.docks)}>
               <BackgroundDock
                 items={snapshot.items}
-                now={now ?? snapshot.updatedAt}
+                now={now}
                 // An agent task opens its thread; a shell's call shows in the thread.
                 onShow={(id) =>
                   agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
@@ -1744,12 +1746,7 @@ export function SessionThread({
               {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
             </div>
             {agent && (
-              <AgentView
-                agent={agent}
-                now={now ?? snapshot.updatedAt ?? agent.at}
-                onClose={closeAgent}
-                onOpenLink={onOpenLink}
-              />
+              <AgentView agent={agent} now={now} onClose={closeAgent} onOpenLink={onOpenLink} />
             )}
           </div>
         </div>

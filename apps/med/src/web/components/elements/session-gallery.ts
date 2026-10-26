@@ -230,7 +230,10 @@ const updates: [seconds: number, SessionUpdate][] = [
   ],
 ];
 
+const START = Date.UTC(2026, 9, 9, 9, 0, 0);
+/** The gallery's still clock: the dev server has run for 12 minutes. */
+export const GALLERY_NOW = START + 12 * 60_000 + 30_000;
+
 export function sessionGallery(): SessionEvent[] {
-  const start = Date.UTC(2026, 9, 9, 9, 0, 0);
-  return updates.map(([seconds, update]) => ({ at: start + seconds * 1000, update }));
+  return updates.map(([seconds, update]) => ({ at: START + seconds * 1000, update }));
 }

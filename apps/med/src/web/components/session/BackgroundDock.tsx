@@ -4,9 +4,9 @@ import type { SessionItem } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ZenContext } from "../ZenExit";
+import { Elapsed } from "./Elapsed";
 import { motion, rowStyles } from "./session-styles";
 import { isMedWait } from "./thread-model";
-import { formatSeconds } from "./ToolCall";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 
@@ -141,7 +141,6 @@ export function BackgroundDock({
           {ordered.map((item) => {
             const live = isRunning(item);
             const address = live ? addressOf(item) : undefined;
-            const elapsed = (live ? (now ?? item.at) : (item.endedAt ?? item.at)) - item.at;
             return (
               <li key={item.id} {...stylex.props(styles.task)}>
                 <span {...stylex.props(styles.kind)}>
@@ -170,13 +169,14 @@ export function BackgroundDock({
                 <span
                   {...stylex.props(styles.state, item.call.status === "failed" && styles.failed)}
                 >
-                  {live
-                    ? elapsed >= 1000
-                      ? formatSeconds(elapsed)
-                      : "Running"
-                    : item.call.status === "failed"
-                      ? "Failed"
-                      : "Done"}
+                  {live ? (
+                    // A dev server runs for hours: its time counts minutes.
+                    <Elapsed from={item.at} now={now} step="minute" empty="Running" />
+                  ) : item.call.status === "failed" ? (
+                    "Failed"
+                  ) : (
+                    "Done"
+                  )}
                 </span>
               </li>
             );
