@@ -149,8 +149,24 @@ export function savedLibrary(current: string, savedAt: number) {
   });
 }
 
-/** Longer than any title the extractor keeps. */
+/** The longest title the shared API accepts for a new link, in UTF-16 units. */
 export const MAX_TITLE_LENGTH = 1000;
+
+/**
+ * A page's title as a new link's title: one line of well-formed text, at
+ * most 300 characters, so a cut never splits a character.
+ */
+export function linkTitle(text: string) {
+  return [
+    ...text
+      .replace(/\p{Surrogate}/gu, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ]
+    .slice(0, 300)
+    .join("")
+    .trim();
+}
 const LINK_KEY = /^(article|library|tags)\/([0-9a-f]{64})$/;
 
 type Change = {

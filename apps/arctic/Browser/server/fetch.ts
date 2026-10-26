@@ -32,6 +32,8 @@ const publicAddress = (address: string, family: number) =>
     ? !denied.check(address, "ipv4")
     : globalV6.check(address, "ipv6") && !denied.check(address, "ipv6");
 export const MAX_BYTES = 4 * 1024 * 1024;
+/** A PDF is not an article that Defuddle can read, at any size. */
+export const PDF = "This link is a PDF, not an HTML article.";
 export class DownloadError extends Error {
   constructor(
     message: string,
@@ -114,7 +116,13 @@ export async function fetchPage(
           }
           if (Number(headers["content-length"]) > MAX_BYTES) {
             response.destroy();
-            reject(new DownloadError("This page is too large to download."));
+            reject(
+              new DownloadError(
+                /application\/pdf/i.test(headers["content-type"] ?? "")
+                  ? PDF
+                  : "This page is too large to download.",
+              ),
+            );
             return;
           }
           const decoder =

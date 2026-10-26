@@ -16,6 +16,7 @@ this one copy:
 | `localID`                 | The phone's UUID for an id, which names its offline copy      |
 | `newLinkRecords`          | `article/<id>`, `library/<id>` and `tags/<id>` for a new link |
 | `savedLibrary`            | A known link saved again: a field edit of `library/<id>`      |
+| `linkTitle`               | A page's title as a new link's title: one line, well-formed   |
 | `linkChangesProblem`      | Why a push does more than these two writes, or nothing        |
 | `encodeSorted`, `toSwift` | Sorted-key JSON and Swift reference dates                     |
 
