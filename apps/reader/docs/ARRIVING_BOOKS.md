@@ -204,9 +204,16 @@ batch is that nothing moves.
   whether it was told the book is at rest. So the ink in the sheet and the
   light in the grid show the same progress, and a place that appears after
   the book came to rest still settles.
-- The sheet and the flight are a lazy chunk, loaded only when one file is
-  added with the switch on. The flight is a WAAPI transform, so the
+- A book that finished while no view was on screen arrives at rest. A
+  book the sheet shows counts as seen from its first frame, before the
+  sheet's view reports that it is on screen, so its ink always plays.
+- The sheet and the flight are a lazy chunk. With the switch on it loads
+  when the file picker opens (or when a drop starts an import), so it is
+  ready before the files are. The flight is a WAAPI transform, so the
   compositor carries it through a main-thread stall.
+- An empty Library waits for its first book until that book settles on
+  the shelf, not only until the import writes it, so "Your library is
+  empty" does not come back while the Library reads its books.
 
 ### Measured
 
@@ -251,21 +258,22 @@ the GPU on an iPhone. The worst case is four covers on screen at 2×, about
 0.7 megapixels a frame of a short fragment shader; living covers draw more
 than that on the same phones.
 
-Round two, the same machine and build, 120 Hz rAF, two or three runs
-each. "Sheet arrival" is one real import into the sheet, from the press to
-rest. "Closing flight" is the 460 ms flight and the fade. "Five in light"
-is the real Library batch in raking light.
+Round two, the same machine and build, 120 Hz rAF, two runs each (the
+sheet after its cover grew to fill the detent; the batch three runs).
+"Sheet arrival" is one real import into the sheet, from the press to rest.
+"Closing flight" is the 460 ms flight and the fade. "Five in light" is the
+real Library batch in raking light.
 
 | CPU | Moment         | Frame p95 | Frame p99 | Longest frame             | Engine p95 | Engine max |
 | --- | -------------- | --------- | --------- | ------------------------- | ---------- | ---------- |
-| 1×  | Sheet arrival  | 9.6–9.8   | 10.2–16.7 | 16.7–25.1                 | 0.2–0.3    | 0.4–1.0    |
-| 1×  | Closing flight | 9.1–9.6   | –         | 10.3–10.4                 | –          | –          |
+| 1×  | Sheet arrival  | 10.0–10.1 | 10.3–16.5 | 15.5–16.7                 | 0.2        | 0.3–0.4    |
+| 1×  | Closing flight | 9.9       | 10.1–10.2 | 10.2–10.3                 | 0.2        | 0.3–0.4    |
 | 1×  | Five in light  | 9.8–9.9   | –         | 58–60 (the file read)     | 0.3–0.4    | 0.5–9.3    |
-| 4×  | Sheet arrival  | 10.2      | 43–52     | about 93 (the file read)  | 0.7–0.9    | 1.0–2.3    |
-| 4×  | Closing flight | –         | –         | 16.7–23.7                 | –          | –          |
+| 4×  | Sheet arrival  | 10.2–10.3 | 57        | 83–85 (the file read)     | 0.7–0.9    | 1.7–3.2    |
+| 4×  | Closing flight | 10.0–10.1 | 10.4–15.5 | 16.4–33.6                 | 0.8–0.9    | 3.2–3.5    |
 | 4×  | Five in light  | 10.2–16.4 | –         | about 225 (the file read) | 0.7–1.1    | 1.2–3.0    |
-| 6×  | Sheet arrival  | –         | –         | 142                       | 1.1–1.3    | 2.3–2.8    |
-| 6×  | Closing flight | –         | –         | 52–59 (one task, release) | –          | –          |
+| 6×  | Sheet arrival  | 15.5–15.9 | 57–93     | 143–144 (the file read)   | 1.3–1.4    | 2.6–3.9    |
+| 6×  | Closing flight | 10.2      | 43–60     | 51–82 (the release)       | 1.3–1.4    | 2.6–3.9    |
 | 6×  | Five in light  | –         | –         | 358–377                   | 1.3–1.5    | 2.7–5.1    |
 
 The engine never fell back to calm. The longest frames are the first file
@@ -285,9 +293,13 @@ transform.
   edge. It shows in Sheet Lab too, so it is not the arrival sheet's. The
   owner of the shared sheet should fix it. The arrival sheet's e2e tests
   close it with a press above it.
-- **The sheet opens a moment after the place.** On a slow phone (4× CPU)
-  the lazy chunk loads after the files are chosen. Preloading it when the
-  file picker opens would remove the wait.
+- **A small book can be ready before the sheet is up.** The sheet's code
+  now loads when the file picker opens, and the book is the sheet's from
+  the first frame, so the ink still plays (at its minimum pace) and the
+  grid never draws the cover first. But at 4× CPU a 200 KB EPUB is ready
+  within about 0.3 s, so the sheet comes up already saying "In your
+  library" while the ink finishes. That is true, and Read now works at
+  once.
 - **The activity glyph** still says "downloading" while a book is
   imported. Its words belong to background activity.
 
