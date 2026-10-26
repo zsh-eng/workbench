@@ -340,6 +340,23 @@ absolute, and it also limits a range (`--base`, `--head`). Each name must be
 in the repository. `med review update --key <name> --paths …` adds a new
 version of the working changes with those paths.
 
+### Mark generated files
+
+Med folds lockfiles, build output, snapshots, and files with a "generated"
+header after the other files, out of the line totals
+([generated files](GENERATED.md)). For other files that a tool wrote, such as
+a client from a code generator, name them with `--generated`:
+
+```sh
+med review create --title "API client" --repo ~/code/my-app --working \
+  --generated 'src/api/client/' 'src/**/*.pb.ts'
+```
+
+`--generated` takes files, folders (ending in `/`), and globs, as a guide
+names files; quote globs. `med review update --paths` and `med thread show`
+take it too. It marks files of that version only. A file that the
+repository's Git attributes unmark (`-linguist-generated`) stays unmarked.
+
 ### Several repositories
 
 For more than one repository, or more than one comparison in a repository,

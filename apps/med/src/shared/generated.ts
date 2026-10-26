@@ -14,6 +14,7 @@ export const generatedKinds = [
   "named",
   "header",
   "attributes",
+  "declared",
 ] as const;
 export type GeneratedKind = (typeof generatedKinds)[number];
 export const generatedMarkSchema = z.object({
@@ -32,6 +33,7 @@ export const GENERATED_LABELS: Record<GeneratedKind, string> = {
   named: "Generated",
   header: "Generated",
   attributes: "Marked generated",
+  declared: "Marked generated",
 };
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);

@@ -12,7 +12,7 @@ sentence or a table.
 
 ## Classification
 
-Med does not call a model to classify a file. Three layers decide, the first
+Med does not call a model to classify a file. Four layers decide, the first
 that answers wins:
 
 | Layer          | Where              | Signal                                                                                                                                                                                   |
@@ -20,16 +20,23 @@ that answers wins:
 | Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff`. Read only when the checkout has `.gitattributes` or `info/attributes`                                                                      |
 | Header         | host               | `@generated`, `DO NOT EDIT`, `auto-generated` in the first 5 lines: from the patch, or the first 1 KiB of a working file                                                                 |
 | Path           | shared             | lockfiles; `dist/`, `.vite/`, `.next/`, `coverage/`, `__generated__/`; `__snapshots__/`, `*.snap`, `-snapshots/`; `*.min.js`, `*.map`; `*.generated.*`, `*.gen.*`, `*.pb.go`, `*_pb2.py` |
+| Hand-off       | host, at capture   | `med review create --generated <path\|glob>…` (also `update --paths`, `thread show`): files, folders, and globs, as a guide names files                                                  |
 
 The host puts the answer on each `ReviewFile` as `generated: { kind, source? }`,
 or `generated: false` when an attribute unmarks a file that the path rule
-would mark. A response without the field (an older saved capture) falls back
-to the path rule in the browser, which gives the same answer as the host for
-every file that the host did not mark through attributes or a header.
+would mark. The hand-off layer runs when Med captures a saved review: it marks
+a file `declared` only when no other layer answered, so an attribute that
+unmarks a file wins over the agent. The capture keeps the mark; new notes on
+the version capture again and keep it too. A response without the field (an
+older saved capture) falls back to the path rule in the browser, which gives
+the same answer as the host for every file that the host did not mark through
+attributes, a header, or a hand-off.
 
 **Override, per repository.** Git attributes are the override, so Med needs
 no setting of its own. A committed `.gitattributes` applies for everyone and
-on GitHub; `.git/info/attributes` applies only to this clone:
+on GitHub; `.git/info/attributes` applies only to this clone. An agent that
+knows what its generator wrote names those files for one hand-off with
+`--generated`, and does not change the repository's attributes:
 
 ```gitattributes
 src/schema.ts linguist-generated
@@ -134,8 +141,6 @@ file. Stack progress and "all viewed" read the same set.
 
 - A model call. The rules answer for this monorepo's files; a wrong mark has
   an attribute override.
-- `med review --generated <glob>`. Git attributes cover it, also for agents
-  (`.git/info/attributes`).
 - Manifests other than `package.json` in the table. Cargo, Go, Ruby, Python,
   and Swift lockfiles still group, count, link to their manifests, and get
   provenance from their package managers.

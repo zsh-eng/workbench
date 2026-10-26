@@ -47,6 +47,7 @@ import {
 import { commitRoutes, pushRequestSchema } from "../shared/git-actions";
 import { route, routeTable } from "./routes";
 import { createDependencyInfo } from "./dependency-info";
+import { declareGenerated } from "./repository/generated";
 import { generatedRoutes } from "../shared/generated";
 import {
   endpointNames,
@@ -1857,9 +1858,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const repo = await requireRepo(target.repo);
             const owner = await registry.require(repo, abort.signal);
             const info = await resolveRepository(repo, abort.signal);
-            const review = await reviews.load(
-              { repo, comparison: target.comparison },
-              abort.signal,
+            // Files that the hand-off names as generated (docs/GENERATED.md).
+            const review = declareGenerated(
+              await reviews.load({ repo, comparison: target.comparison }, abort.signal),
+              target.generated,
             );
             if (review.files.length > 500)
               throw new HostError(

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Comparison, ReviewResponse } from "../../src/shared/protocol";
 import type { DependencyInfo, Provenance } from "../../src/shared/generated";
+import { runReviewCommand } from "../../src/cli/review";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { startHost, type RunningHost } from "../../src/host/server";
 
@@ -107,7 +108,13 @@ async function fixture(options: { dependencyApi?: string } = {}) {
     await hosts.splice(hosts.indexOf(host), 1)[0]!.close();
     host = await boot();
   };
-  return { repo, api, home, restart };
+  /** `med review` against this host, as an agent runs it. */
+  const med = (...args: string[]) =>
+    runReviewCommand([...args, "--state-dir", stateDir, "--port", String(host.port)], {
+      print: () => {},
+      environment: {},
+    });
+  return { repo, api, home, restart, med };
 }
 
 const marks = (review: Pick<ReviewResponse, "files">) =>
@@ -256,4 +263,59 @@ test("dependency lookups ask deps.dev once for each version and keep the answers
   await restart();
   expect((await lookup()).packages).toEqual(expected);
   expect(asked).toHaveLength(2);
+});
+
+test("med review --generated marks the files that a hand-off names, in each version", async () => {
+  const { repo, api, med } = await fixture();
+  type Saved = { id: string; targets: { id: string }[]; iterations?: { targetIds: string[] }[] };
+  const current = async (id: string) => {
+    const saved = await api<Saved>(`/api/reviews/${id}`);
+    const target = saved.iterations!.at(-1)!.targetIds[0]!;
+    return marks(await api<ReviewResponse>(`/api/reviews/${id}/targets/${target}/review`));
+  };
+  // A file, and a glob: the glob also names a lockfile that Git attributes
+  // unmark, which stays unmarked, and one that its path marks, which keeps its kind.
+  await med(
+    "create",
+    "--title",
+    "Regenerate client",
+    "--key",
+    "client",
+    "--repo",
+    repo,
+    "--working",
+    "--generated",
+    "src/app.ts",
+    "*.lock",
+    "--no-pr",
+    "--no-session",
+  );
+  const { id } = await api<{ id: string }>("/api/reviews/by-key", { key: "client" });
+  expect(await current(id)).toMatchObject({
+    "src/app.ts": { kind: "declared" },
+    "package.json": null,
+    "yarn.lock": false,
+    "bun.lock": { kind: "lockfile" },
+  });
+
+  // A version from update --paths marks its own files.
+  await med(
+    "update",
+    "--key",
+    "client",
+    "--paths",
+    join(repo, "src"),
+    "--generated",
+    "src/*.ts",
+    "--no-session",
+  );
+  expect(await current(id)).toMatchObject({
+    "src/app.ts": { kind: "declared" },
+    "src/marked.ts": { kind: "attributes" },
+    "src/schema.ts": { kind: "header", source: "scripts/gen.ts" },
+  });
+
+  // New notes capture the version again; the marks stay.
+  await api(`/api/reviews/${id}/iterations`, {});
+  expect((await current(id))["src/app.ts"]).toEqual({ kind: "declared" });
 });

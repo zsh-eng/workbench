@@ -7,6 +7,8 @@ import {
   HEADER_LINES,
   type GeneratedMark,
 } from "../../shared/generated";
+import { matchGuidePaths } from "../../shared/guide-paths";
+import type { ReviewResponse } from "../../shared/protocol";
 import { git } from "../runtime/process";
 
 // Marks the files of a review that a tool writes (docs/GENERATED.md): Git
@@ -204,4 +206,31 @@ export async function markGenerated(
     }
   };
   await Promise.all(Array.from({ length: PARALLEL_READS }, worker));
+}
+
+/**
+ * A copy of `review` whose files that `patterns` name, as a guide names files,
+ * are marked generated (`med review create --generated`). A file that the
+ * rules mark keeps its kind, and one that Git attributes unmark stays unmarked:
+ * the repository's override wins over a hand-off's.
+ */
+export function declareGenerated(
+  review: ReviewResponse,
+  patterns: readonly string[] | undefined,
+): ReviewResponse {
+  if (!patterns?.length) return review;
+  const names = (file: ReviewResponse["files"][number]) =>
+    file.previousPath ? [file.path, file.previousPath] : [file.path];
+  const named = new Set(
+    patterns.flatMap((pattern) => matchGuidePaths(pattern, review.files, names, review.repo)),
+  );
+  if (!named.size) return review;
+  return {
+    ...review,
+    files: review.files.map((file) =>
+      named.has(file) && file.generated === undefined
+        ? { ...file, generated: { kind: "declared" } }
+        : file,
+    ),
+  };
 }

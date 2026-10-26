@@ -175,6 +175,9 @@ export const partTotalsSchema = z.object({
 });
 export type PartTotals = z.infer<typeof partTotalsSchema>;
 
+/** Paths, folders, or globs of a comparison's files that a tool wrote, as a
+ * guide names files (`med review create --generated`, docs/GENERATED.md). */
+export const generatedPatternsSchema = z.array(z.string().trim().min(1).max(1024)).max(500);
 export const savedReviewCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   key: reviewKeySchema.optional(),
@@ -209,6 +212,8 @@ export const savedReviewCreateSchema = z.object({
             (comparison) => !("session" in comparison && comparison.session),
             "A saved review keeps paths, not a session's files. Use paths.",
           ),
+        /** Files that the capture marks generated, unless Git attributes unmark them. */
+        generated: generatedPatternsSchema.optional(),
       }),
     )
     .max(MAX_PARTS),

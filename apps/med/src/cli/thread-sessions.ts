@@ -26,6 +26,7 @@ import {
   reviewManifestSchema,
   showReview,
   takePaths,
+  takeWords,
   type ReviewManifest,
 } from "./review";
 
@@ -67,6 +68,8 @@ user to read. Comments go to that version.
                       that were there before you started
   --manifest <path>   the targets of a review manifest (see med review --help)
   --guide, --brief    attach a guide or a brief, as med review create does
+  --generated <path|glob>...  files that a tool wrote, as med review create
+                      --generated marks them
 The thread is MED_THREAD_KEY's in a Med thread, or else the thread that holds
 this Claude Code session; --key <key> or --session codex:<id> names another.
 --repo chooses the checkout (default: the thread's). --open shows the thread.
@@ -121,6 +124,7 @@ async function showInThread(
     json?: boolean;
   },
   paths: string[] | undefined,
+  generated: string[] | undefined,
   context: {
     environment: NodeJS.ProcessEnv;
     print: (text: string) => void;
@@ -214,7 +218,12 @@ async function showInThread(
       );
     }
   const added = await addVersion(connection, id, fetcher, {
-    targets,
+    targets: generated
+      ? targets.map((target) => ({
+          ...target,
+          generated: [...(target.generated ?? []), ...generated],
+        }))
+      : targets,
     ...(guide ? { guide } : {}),
     ...(brief ? { brief } : {}),
   });
@@ -242,7 +251,10 @@ export async function runThreadSessionsCommand(
   } = {},
 ): Promise<void> {
   const print = options.print ?? console.log;
-  const taken = takePaths(given);
+  const declared = takeWords(given, "--generated");
+  const taken = takePaths(declared.args);
+  if (declared.words && !declared.words.length)
+    throw new Error("Name one or more files, folders, or globs after --generated.");
   const { values, positionals } = parseArgs({
     args: taken.args,
     allowPositionals: true,
@@ -272,6 +284,7 @@ export async function runThreadSessionsCommand(
     throw new Error(threadSessionsHelp);
   const showOptions = [
     taken.paths,
+    declared.words,
     values.key,
     values.session,
     values.base,
@@ -312,7 +325,7 @@ export async function runThreadSessionsCommand(
     sessionsSchema.parse(await request(connection, "/api/sessions/find", fetcher, body)).sessions;
 
   if (action === "show")
-    return showInThread(connection, fetcher, values, taken.paths, {
+    return showInThread(connection, fetcher, values, taken.paths, declared.words, {
       environment,
       print,
       cwd: options.cwd ?? process.cwd(),

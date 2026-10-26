@@ -313,8 +313,11 @@ package names and versions to deps.dev, so it is off until you turn it on;
 the host keeps the answers. A licence change and a release less than a week
 old show in the warning colour.
 
-To change a file's mark, use Git attributes. A committed `.gitattributes`
-applies for everyone; `.git/info/attributes` applies only to your clone:
+An agent can mark other files that a tool wrote when it hands off a Review
+(`med review create --generated <glob>`). To change a file's mark yourself,
+use Git attributes; they win over the agent's mark. A committed
+`.gitattributes` applies for everyone; `.git/info/attributes` applies only to
+your clone:
 
 ```gitattributes
 src/schema.ts linguist-generated

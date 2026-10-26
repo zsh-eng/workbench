@@ -55,6 +55,7 @@ In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and i
 --merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
 --brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
 --guide <path|-> attaches a JSON guide: a summary and segments to review one at a time, each with a title, a summary, its files, and your comments on lines. See med docs agents.
+--generated <path|glob>... marks files that a tool wrote, such as a client from a code generator, with create or update --paths. Med folds them with lockfiles and build output, after the other files and out of the line totals. Name files, folders (ending in /), or globs, as a guide does; quote globs. A file that Git attributes unmark (-linguist-generated) stays unmarked.
 Open Med windows add each new review to their workspaces, marked unread. --open also shows it in the window used last, or opens a browser when no window is open.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
@@ -142,6 +143,8 @@ export interface ReviewCommand {
     guide?: ReviewGuide;
     paths?: string[];
     repo?: string;
+    /** With `paths`: files of the new version that a tool wrote. */
+    generated?: string[];
   };
   port: number;
   stateDir: string;
@@ -153,6 +156,8 @@ export interface ReviewCommand {
     repo: string;
     base?: string;
     guides?: (ReviewGuide | null)[];
+    /** Files of each part that a tool wrote. */
+    generated?: string[];
     manifest: Omit<ReviewManifest, "targets" | "parts" | "title"> & { title?: string };
   };
   keepTitle?: boolean;
@@ -233,7 +238,11 @@ export async function parseReviewCommand(
 ): Promise<ReviewCommand> {
   const stacked = takeWords(given, "--stack");
   const set = takeWords(stacked.args, "--set");
-  const { args, paths } = takePaths(set.args);
+  const declared = takeWords(set.args, "--generated");
+  const { args, paths } = takePaths(declared.args);
+  const generated = declared.words;
+  if (generated && !generated.length)
+    throw new Error("Name one or more files, folders, or globs after --generated.");
   if (stacked.words && set.words) throw new Error("Use --stack or --set, not both.");
   const partItems = stacked.words ?? set.words;
   const shape: PartShape = stacked.words ? "stack" : "set";
@@ -281,6 +290,8 @@ export async function parseReviewCommand(
     throw new Error(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
     throw new Error("Use --paths with create or update.");
+  if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
+    throw new Error("Use --generated with create, or with update --paths.");
   if (positionals[0] === "wait") {
     if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
     if (!values.key) throw new Error("Use wait with --key, the key the review was created with.");
@@ -318,6 +329,7 @@ export async function parseReviewCommand(
           paths: paths.map((path) => resolve(sessionOptions.cwd ?? process.cwd(), path)),
         }),
         ...(paths && repo ? { repo: resolve(repo) } : {}),
+        ...(generated && { generated }),
       },
     };
   }
@@ -385,6 +397,7 @@ export async function parseReviewCommand(
         repo: resolve(repo),
         ...(values.base ? { base: values.base } : {}),
         ...(guides ? { guides } : {}),
+        ...(generated && { generated }),
         manifest: {
           ...(values.title ? { title: values.title } : {}),
           ...(values.key ? { key: values.key } : {}),
@@ -490,7 +503,11 @@ export async function parseReviewCommand(
     );
   const manifest = {
     ...result.data,
-    targets: result.data.targets.map((target) => ({ ...target, repo: resolve(target.repo) })),
+    targets: result.data.targets.map((target) => ({
+      ...target,
+      repo: resolve(target.repo),
+      ...(generated && { generated: [...(target.generated ?? []), ...generated] }),
+    })),
   };
   return {
     ...common,
@@ -568,7 +585,7 @@ export async function runReviewCommand(
     return;
   }
   if (command.kind === "update") {
-    const { key, guide, paths, repo, ...details } = command.update!;
+    const { key, guide, paths, repo, generated, ...details } = command.update!;
     const title = details.pullRequestUrl && (await pullRequestTitle(details.pullRequestUrl));
     const found = z
       .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
@@ -583,7 +600,11 @@ export async function runReviewCommand(
       const checkout = repo ?? (await reviewCheckout(connection, found.id, fetcher));
       await addVersion(connection, found.id, fetcher, {
         targets: [
-          { repo: checkout, comparison: { kind: "working", paths: repoPaths(checkout, paths) } },
+          {
+            repo: checkout,
+            comparison: { kind: "working", paths: repoPaths(checkout, paths) },
+            ...(generated && { generated }),
+          },
         ],
         ...(guide ? { guide } : {}),
       });
@@ -678,7 +699,9 @@ async function partsManifest(
       wanted.manifest.title ??
       `${bottom} · ${items.length} ${wanted.shape === "stack" ? "layers" : "parts"}`
     ).slice(0, 200),
-    targets,
+    targets: wanted.generated
+      ? targets.map((target) => ({ ...target, generated: wanted.generated }))
+      : targets,
     parts: { shape: wanted.shape, items },
   };
 }

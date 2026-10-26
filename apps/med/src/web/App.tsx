@@ -4812,7 +4812,13 @@ export function App({
             <span
               data-generated-kind={generated.kind}
               title={[
-                generatedFrom ? `Follows from ${generatedFrom}` : "A tool writes this file",
+                generatedFrom
+                  ? `Follows from ${generatedFrom}`
+                  : generated.kind === "attributes"
+                    ? "Git attributes mark this file generated"
+                    : generated.kind === "declared"
+                      ? "The hand-off marks this file generated"
+                      : "A tool writes this file",
                 written?.command && `Written by ${written.command}`,
               ]
                 .filter(Boolean)
