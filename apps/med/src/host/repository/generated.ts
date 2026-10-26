@@ -80,7 +80,9 @@ async function hasAttributes(repo: string) {
 }
 
 /** `linguist-generated` and `diff` of each path: true marks a file, false
- * unmarks it, and a path without either is left out. */
+ * unmarks it, and a path without either is left out. `-diff` through the
+ * `binary` macro (`*.png binary`) does not mark a file: it says how to diff
+ * it, not that a tool wrote it. */
 async function readAttributes(
   repo: string,
   paths: readonly string[],
@@ -90,7 +92,7 @@ async function readAttributes(
   const args = ["check-attr", "-z", "--stdin"];
   if (source.kind === "index") args.push("--cached");
   if (source.kind === "tree") args.push(`--source=${source.oid}`);
-  args.push("linguist-generated", "diff");
+  args.push("linguist-generated", "diff", "binary");
   const output = (
     await git(repo, args, {
       signal,
@@ -100,13 +102,19 @@ async function readAttributes(
   )
     .toString("utf8")
     .split("\0");
-  const marks = new Map<string, boolean>();
+  const values = new Map<string, Map<string, string>>();
   for (let index = 0; index + 2 < output.length; index += 3) {
-    const [path, attribute, value] = [output[index]!, output[index + 1], output[index + 2]];
-    if (attribute === "linguist-generated") {
-      if (value === "set" || value === "true") marks.set(path, true);
-      else if (value === "unset" || value === "false") marks.set(path, false);
-    } else if (attribute === "diff" && value === "unset" && !marks.has(path)) marks.set(path, true);
+    const path = output[index]!;
+    const entry = values.get(path) ?? new Map<string, string>();
+    entry.set(output[index + 1]!, output[index + 2]!);
+    values.set(path, entry);
+  }
+  const marks = new Map<string, boolean>();
+  for (const [path, entry] of values) {
+    const generated = entry.get("linguist-generated");
+    if (generated === "set" || generated === "true") marks.set(path, true);
+    else if (generated === "unset" || generated === "false") marks.set(path, false);
+    else if (entry.get("diff") === "unset" && entry.get("binary") !== "set") marks.set(path, true);
   }
   return marks;
 }
@@ -174,8 +182,8 @@ export async function markGenerated(
   for (const file of files) {
     const attribute = attributes?.get(file.path);
     if (attribute === false) {
-      // Unmarked: only a mark that the path rule would give needs saying.
-      if (generatedByPath(file.path)) file.generated = false;
+      // Unmarked: no rule and no hand-off (declareGenerated) marks it.
+      file.generated = false;
       continue;
     }
     const mark =

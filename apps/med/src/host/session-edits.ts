@@ -27,6 +27,8 @@ const CLAUDE_EDITS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const MAX_FILES = 5000;
 /** At most this many shell commands are kept for a session; the oldest go first. */
 const MAX_COMMANDS = 500;
+/** Characters kept of each command. */
+const MAX_COMMAND = 2000;
 const CHUNK = 4 * 1024 * 1024;
 
 type Json = Record<string, unknown>;
@@ -206,7 +208,10 @@ async function readMore(agent: EditSession["agent"], path: string, state: Read) 
           if (state.files.size > MAX_FILES) state.files.delete(state.files.keys().next().value!);
         }
         for (const command of lineCommands(agent, line)) {
-          state.commands.push(command);
+          // A long command, such as one with a heredoc, keeps its start.
+          state.commands.push(
+            command.length > MAX_COMMAND ? command.slice(0, MAX_COMMAND) : command,
+          );
           if (state.commands.length > MAX_COMMANDS) state.commands.shift();
         }
       }

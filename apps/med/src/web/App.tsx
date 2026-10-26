@@ -1200,15 +1200,40 @@ export function App({
   const generatedFiles = useMemo(() => generatedIndex(state.files), [state.files]);
   const [generatedOpen, setGeneratedOpen] = useState(false);
   const generatedOpenRef = useRef(generatedOpen);
+  /** The generated files that the open group folded once; a later one folds too. */
+  const generatedFolded = useRef(new Set<string>());
+  // Another comparison starts with its group folded.
+  const [generatedScope, setGeneratedScope] = useState(reviewScope);
+  if (generatedScope !== reviewScope) {
+    setGeneratedScope(reviewScope);
+    setGeneratedOpen(false);
+  }
   useLayoutEffect(() => {
     generatedOpenRef.current = generatedOpen;
-  }, [generatedOpen]);
+    if (!generatedOpen) {
+      generatedFolded.current.clear();
+      return;
+    }
+    // A generated file that joins the open group, such as a bun.lock in live
+    // Changes after `bun install`, shows folded to its header.
+    const joined = [...generatedFiles.marks.keys()].filter(
+      (id) => !generatedFolded.current.has(id),
+    );
+    if (!joined.length) return;
+    for (const id of joined) generatedFolded.current.add(id);
+    setCollapsed((current) => {
+      const next = new Set(current);
+      for (const id of joined) next.add(id);
+      return next;
+    });
+  }, [generatedOpen, generatedFiles]);
   /** Opens the group, each file folded to its header but `show`. */
   const openGenerated = useCallback(
     (show?: string) => {
       if (generatedOpenRef.current) return;
       generatedOpenRef.current = true;
       setGeneratedOpen(true);
+      for (const id of generatedFiles.marks.keys()) generatedFolded.current.add(id);
       setCollapsed((current) => {
         const next = new Set(current);
         for (const id of generatedFiles.marks.keys()) if (id !== show) next.add(id);

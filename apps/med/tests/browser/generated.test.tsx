@@ -101,8 +101,11 @@ const files: (ReviewFile & { patch: string })[] = [
   },
 ];
 
+/** Files that a test leaves out of the comparison. */
+let omitted = new Set<string>();
 function review(comparison: Comparison): ReviewResponse {
-  const patch = files.map((file) => file.patch).join("");
+  const shown = files.filter((file) => !omitted.has(file.path));
+  const patch = shown.map((file) => file.patch).join("");
   return {
     id: "t1",
     repo: "/code/tide",
@@ -110,7 +113,7 @@ function review(comparison: Comparison): ReviewResponse {
     base,
     head,
     label: "Upgrade pg",
-    files: files.map(({ patch: _patch, ...file }) => file),
+    files: shown.map(({ patch: _patch, ...file }) => file),
     patch,
     warnings: [],
     metrics: { gitMs: 1, totalMs: 1, patchBytes: patch.length, cacheHit: false },
@@ -157,6 +160,7 @@ beforeEach(async () => {
       localStorage.removeItem(key);
 });
 afterEach(() => {
+  omitted = new Set();
   root?.unmount();
   mount?.remove();
   root = undefined;
@@ -164,7 +168,8 @@ afterEach(() => {
   window.dispatchEvent(new StorageEvent("storage", { key: `med:viewed:v1:${REVIEW}` }));
 });
 
-async function mountReview() {
+async function mountReview(options: { without?: string[] } = {}) {
+  omitted = new Set(options.without);
   initializeTheme();
   themeController.commit("graphite-dark");
   const reads: string[] = [];
@@ -421,4 +426,34 @@ test("a manifest's dependencies show above the stream, and lookups add licences 
   expect(line("dist/app.js")).toContain("Edited by hand");
   expect(line("tests/__snapshots__/app.test.ts.snap")).toContain("1 snapshot changed");
   await expect.element(group().getByText("1 to check")).toBeVisible();
+});
+
+test("a lockfile without its manifest is a warning, and the group's check marks every generated file", async () => {
+  await mountReview({ without: ["package.json"] });
+  const line = (path: string) =>
+    document.querySelector(`[data-generated-file="${path}"]`)?.textContent ?? "";
+  // Lockfile-only churn: no card, and each changed package is indirect.
+  await expect.poll(() => line("bun.lock")).toContain("No manifest changed");
+  expect(line("bun.lock")).toContain("2 indirect dependencies updated");
+  expect(document.querySelector("[data-dependency-card]")).toBeNull();
+  // The lockfile, and the build output that the session edited by hand.
+  await expect.element(group().getByText("2 to check")).toBeVisible();
+
+  await userEvent.click(page.getByRole("checkbox", { name: "Viewed all generated files" }));
+  await expect
+    .element(page.getByRole("checkbox", { name: "Viewed all generated files" }))
+    .toHaveAttribute("aria-checked", "true");
+  await userEvent.click(page.getByRole("button", { name: "Show 4 generated files" }));
+  for (const path of [
+    "bun.lock",
+    "dist/app.js",
+    "src/schema.ts",
+    "tests/__snapshots__/app.test.ts.snap",
+  ])
+    await expect
+      .element(page.getByRole("checkbox", { name: `Viewed ${path}` }))
+      .toHaveAttribute("aria-checked", "true");
+  await expect
+    .element(page.getByRole("checkbox", { name: "Viewed src/app.ts" }))
+    .toHaveAttribute("aria-checked", "false");
 });

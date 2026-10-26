@@ -220,26 +220,48 @@ export const generatedRoutes = {
   },
 } satisfies Record<string, RouteContract>;
 
+// A JavaScript package manager and its options before the script or the
+// command, such as `bun --cwd apps/med run build` or `pnpm --filter web add`.
+const JS = String.raw`(?:bun|npm|pnpm|yarn)\s+(?:(?:--cwd|--filter|-C|-w|--workspace)(?:=|\s+)\S+\s+|(?:run|exec)\s+)*`;
+/** A command's program, where a runner such as `bunx` or `bun run` comes first. */
+const RUNNER = String.raw`^(?:(?:bunx|npx|pnpx)\s+|${JS})?`;
 const PACKAGE_COMMANDS: Record<Ecosystem, RegExp> = {
-  npm: /\b(?:bun|npm|pnpm|yarn)\s+(?:install|i|add|remove|rm|uninstall|update|up|upgrade|ci|link)\b|^\s*yarn\s*$/,
-  cargo: /\bcargo\s+(?:build|update|add|remove|check|test|run|fetch|generate-lockfile)\b/,
-  go: /\bgo\s+(?:mod\s+(?:tidy|download)|get|build|test)\b/,
-  ruby: /\bbundle(?:\s+(?:install|update|add|lock))?\s*$|\bbundle\s+(?:install|update|add|lock)\b/,
-  python: /\b(?:uv|poetry|pdm|pipenv)\s+(?:lock|add|remove|sync|update|install)\b/,
-  swift: /\bswift\s+(?:package\s+(?:resolve|update)|build)\b/,
-  other:
-    /\b(?:bun|npm|pnpm|yarn|cargo|go|bundle|uv|poetry|pdm|pipenv|swift)\s+(?:install|add|remove|update|lock|sync|mod|get|build)\b/,
+  npm: new RegExp(
+    String.raw`^${JS}(?:install|i|add|remove|rm|uninstall|update|up|upgrade|ci|link)\b|^yarn$`,
+  ),
+  cargo: /^cargo\s+(?:build|update|add|remove|check|test|run|fetch|generate-lockfile)\b/,
+  go: /^go\s+(?:mod\s+(?:tidy|download)|get|build|test)\b/,
+  ruby: /^bundle(?:\s+(?:install|update|add|lock)\b|$)/,
+  python: /^(?:uv|poetry|pdm|pipenv)\s+(?:lock|add|remove|sync|update|install)\b/,
+  swift: /^swift\s+(?:package\s+(?:resolve|update)|build)\b/,
+  other: new RegExp(
+    String.raw`^(?:${JS}|(?:cargo|go|bundle|uv|poetry|pdm|pipenv|swift)\s+)(?:install|add|remove|update|lock|sync|mod|get|build)\b`,
+  ),
 };
-const TEST_RUNNER = /\b(?:test|vitest|jest|playwright)\b/;
+const TEST_RUNNER = new RegExp(String.raw`${RUNNER}(?:test|vitest|jest|playwright)\b`);
 const UPDATE_SNAPSHOTS = /\s(?:-u|--update(?:-snapshots|Snapshot)?)(?=\s|$)/;
-const BUILD = /\b(?:build|vite|tsc|webpack|rollup|esbuild|tsup)\b/;
-const GENERATE = /\b(?:generat\w*|codegen|protoc)\b/;
+const BUILD = new RegExp(String.raw`${RUNNER}(?:build|vite|tsc|webpack|rollup|esbuild|tsup)\b`);
+/** A script that a runner such as `bun` or `python3` runs: `bun scripts/gen.ts`. */
+const SCRIPT = String.raw`^(?:(?:bunx|npx|pnpx|node|deno|tsx|ts-node|python3?|ruby|sh|bash|zsh)\s+|${JS}|go\s+run\s+)?`;
+const GENERATE = new RegExp(
+  String.raw`${SCRIPT}(?:\S*(?:generat\w*|codegen)|protoc\b|\S+\s+(?:generat\w*|codegen))`,
+);
+/** Commands that only read or record: in `rg "bun install"` or `git commit
+ * -m "Run bun add"`, the words are arguments, not a run. */
+const READS =
+  /^(?:rg|grep|egrep|fgrep|ag|cat|bat|head|tail|less|more|sed|awk|echo|printf|git|gh|ls|find|fd|wc|diff|jq|cd|pwd|which|type|man|open|test|\[)$/;
+/** A heredoc's text, after its first line: input, not commands. */
+const HEREDOC = /(<<-?\s*(['"]?)([A-Za-z_]\w*)\2[^\n]*)\n[\s\S]*?\n[ \t]*\3[ \t]*(?=\n|$)/g;
+const QUOTED = /"(?:[^"\\]|\\[\s\S])*"|'[^']*'/g;
+const ENVIRONMENT = /^(?:(?:env|time|command)\s+|[A-Za-z_]\w*=\S*\s+)+/;
 
 /**
  * The part of a shell command that writes a generated file of this kind, or
  * null: a package manager for a lockfile, a test runner that updates
- * snapshots, a build tool for output, or a command that names the header's
- * generator. A command such as `cd app && bun install | tail` gives `bun install`.
+ * snapshots, a build tool for output, or a command that runs the header's
+ * generator. Only the program at the start of each part counts, so
+ * `rg "bun install"` and a heredoc's text do not. A command such as
+ * `cd app && bun install | tail` gives `bun install`.
  */
 export function commandWrites(
   file: { path: string; kind: GeneratedKind; source?: string },
@@ -247,7 +269,10 @@ export function commandWrites(
 ): string | null {
   const generator = file.source ? nameOf(file.source).replace(/\.[^.]+$/, "") : undefined;
   const writes = (part: string) => {
-    if (generator) return part.includes(generator);
+    if (generator) {
+      const program = new RegExp(SCRIPT).exec(part)?.[0].length ?? 0;
+      return part.slice(program).split(/\s/, 1)[0]!.includes(generator);
+    }
     switch (file.kind) {
       case "lockfile":
         return PACKAGE_COMMANDS[lockfileEcosystem(file.path)].test(part);
@@ -260,11 +285,20 @@ export function commandWrites(
         return GENERATE.test(part);
     }
   };
-  for (const part of command.split(/&&|\|\||[;|\n]/)) {
-    // Without its redirections, such as 2>&1.
-    const trimmed = part.replace(/\s+(?:\d?>>?|&>)\s*(?:&\d|\S+)/g, "").trim();
-    if (trimmed && writes(trimmed))
-      return trimmed.length > 80 ? `${trimmed.slice(0, 79)}…` : trimmed;
+  // Quoted text stands aside while the command splits, then comes back.
+  const quoted: string[] = [];
+  const text = command
+    .replace(HEREDOC, "$1")
+    .replace(QUOTED, (match) => `\0${quoted.push(match) - 1}\0`);
+  for (const part of text.split(/&&|\|\||[;|\n]/)) {
+    // Without its redirections, such as 2>&1, and its environment, such as CI=1.
+    const trimmed = part
+      .replace(/\s+(?:\d?>>?|&>)\s*(?:&\d|\S+)/g, "")
+      .trim()
+      .replace(ENVIRONMENT, "");
+    if (!trimmed || READS.test(trimmed.split(/\s/, 1)[0]!) || !writes(trimmed)) continue;
+    const shown = trimmed.replace(/\0(\d+)\0/g, (_, index: string) => quoted[Number(index)]!);
+    return shown.length > 80 ? `${shown.slice(0, 79)}…` : shown;
   }
   return null;
 }

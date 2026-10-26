@@ -109,6 +109,22 @@ test("the part of a command that writes a generated file", () => {
     "bun add zod@4",
   );
   expect(commandWrites(lockfile, "bun run test")).toBeNull();
+  expect(commandWrites(lockfile, "CI=1 bun --cwd apps/med install --frozen-lockfile")).toBe(
+    "bun --cwd apps/med install --frozen-lockfile",
+  );
+  // Only the program counts: a search, a commit message, or a heredoc's text
+  // that names a package manager does not write the lockfile.
+  expect(commandWrites(lockfile, 'rg -n "bun install" docs')).toBeNull();
+  expect(commandWrites(lockfile, 'git commit -qm "Upgrade pg\n\nbun add pg@8"')).toBeNull();
+  expect(
+    commandWrites(lockfile, "cat > notes.md <<'EOF'\nbun install\nEOF\nbun run lint"),
+  ).toBeNull();
+  expect(
+    commandWrites({ path: "dist/app.js", kind: "output" }, "bun test src/build.test.ts"),
+  ).toBeNull();
+  expect(
+    commandWrites({ path: "dist/app.js", kind: "output" }, "bun run --cwd apps/med build"),
+  ).toBe("bun run --cwd apps/med build");
   expect(commandWrites({ path: "Cargo.lock", kind: "lockfile" }, "cargo update -p serde")).toBe(
     "cargo update -p serde",
   );
@@ -117,6 +133,10 @@ test("the part of a command that writes a generated file", () => {
     "bunx vitest run -u src/a.test.ts",
   );
   expect(commandWrites(snapshot, "bunx vitest run src/a.test.ts")).toBeNull();
+  // Quoted words come back as written.
+  expect(commandWrites(snapshot, 'bunx vitest run -u -t "the totals"')).toBe(
+    'bunx vitest run -u -t "the totals"',
+  );
   expect(
     commandWrites(
       {

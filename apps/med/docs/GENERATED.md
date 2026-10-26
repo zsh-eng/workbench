@@ -17,20 +17,19 @@ that answers wins:
 
 | Layer          | Where              | Signal                                                                                                                                                                                   |
 | -------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff`. Read only when the checkout has `.gitattributes` or `info/attributes`                                                                      |
+| Git attributes | host, `check-attr` | `linguist-generated` (set or unset), `-diff` (not through the `binary` macro, as in `*.png binary`). Read only when the checkout has `.gitattributes` or `info/attributes`               |
 | Header         | host               | `@generated`, `DO NOT EDIT`, `auto-generated` in the first 5 lines: from the patch, or the first 1 KiB of a working file                                                                 |
 | Path           | shared             | lockfiles; `dist/`, `.vite/`, `.next/`, `coverage/`, `__generated__/`; `__snapshots__/`, `*.snap`, `-snapshots/`; `*.min.js`, `*.map`; `*.generated.*`, `*.gen.*`, `*.pb.go`, `*_pb2.py` |
 | Hand-off       | host, at capture   | `med review create --generated <path\|glob>…` (also `update --paths`, `thread show`): files, folders, and globs, as a guide names files                                                  |
 
 The host puts the answer on each `ReviewFile` as `generated: { kind, source? }`,
-or `generated: false` when an attribute unmarks a file that the path rule
-would mark. The hand-off layer runs when Med captures a saved review: it marks
-a file `declared` only when no other layer answered, so an attribute that
-unmarks a file wins over the agent. The capture keeps the mark; new notes on
-the version capture again and keep it too. A response without the field (an
-older saved capture) falls back to the path rule in the browser, which gives
-the same answer as the host for every file that the host did not mark through
-attributes, a header, or a hand-off.
+or `generated: false` when an attribute unmarks a file. The hand-off layer
+runs when Med captures a saved review: it marks a file `declared` only when no
+other layer answered, so an attribute that unmarks a file wins over the agent.
+The capture keeps the mark; new notes on the version capture again and keep it
+too. A response without the field (an older saved capture) falls back to the
+path rule in the browser, which gives the same answer as the host for every
+file that the host did not mark through attributes, a header, or a hand-off.
 
 **Override, per repository.** Git attributes are the override, so Med needs
 no setting of its own. A committed `.gitattributes` applies for everyone and
@@ -50,8 +49,11 @@ also the shell commands. For each generated file:
 - an Edit, Write, MultiEdit, or `apply_patch` on it is a **hand edit**: a warning;
 - else the last command that writes such files says **written by `bun install`**:
   package managers for lockfiles, test runners with `-u` or `--update` for
-  snapshots, build tools for output folders, and a command that names the
-  generator that a header names (`scripts/generate-editor-themes.ts`).
+  snapshots, build tools for output folders, and a command that runs the
+  generator that a header names (`bun scripts/generate-editor-themes.ts`).
+  Only the program at the start of each part of a command counts, after
+  `bunx`, `bun run`, and the like: `rg "bun install"`, a commit message, and a
+  heredoc's text do not.
 
 The browser asks for provenance after the diff shows
 (`POST /api/review/provenance`), and only when the comparison has generated
@@ -150,5 +152,8 @@ file. Stack progress and "all viewed" read the same set.
 - Attributes from a nested `.gitattributes` alone. Med reads attributes only
   when the root `.gitattributes` or `info/attributes` exists, to keep the Git
   process count flat.
+- Attributes in a review's identity. A change to `.git/info/attributes`
+  shows when the comparison changes or Med starts again; a change to a
+  tracked `.gitattributes` changes the comparison.
 - Warnings in the thread list. A thread row leaves generated lines out of its
   +/−, but does not say why.

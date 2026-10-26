@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type { Comparison, ReviewResponse } from "../../src/shared/protocol";
 import type { DependencyInfo, Provenance } from "../../src/shared/generated";
 import { runReviewCommand } from "../../src/cli/review";
+import { runThreadSessionsCommand } from "../../src/cli/thread-sessions";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { startHost, type RunningHost } from "../../src/host/server";
 
@@ -65,8 +66,19 @@ async function fixture(options: { dependencyApi?: string } = {}) {
     "src/marked.ts": lines(4, "export const marked ="),
     "tests/__snapshots__/app.test.ts.snap": lines(4, "exports[`app`] ="),
     "dist/app.js": lines(4, "var app ="),
-    // Attributes mark one hand-named file, and unmark one lockfile.
-    ".gitattributes": "src/marked.ts linguist-generated\nyarn.lock -linguist-generated\n",
+    "src/tables.ts": lines(4, "export const table ="),
+    "src/handmade.ts": lines(4, "export const handmade ="),
+    "logo.png": "\x89PNG\r\n\x1a\n\0\0one",
+    // Attributes mark one hand-named file and one without diffs, and unmark
+    // a lockfile and a file. The binary macro (-diff) does not mark images.
+    ".gitattributes": [
+      "src/marked.ts linguist-generated",
+      "src/tables.ts -diff",
+      "yarn.lock -linguist-generated",
+      "src/handmade.ts -linguist-generated",
+      "*.png binary",
+      "",
+    ].join("\n"),
   };
   for (const [path, text] of Object.entries(start)) await write(path, text);
   git(repo, ["add", "-f", "."]);
@@ -80,6 +92,9 @@ async function fixture(options: { dependencyApi?: string } = {}) {
   await write("src/marked.ts", lines(4, "export const marked = 2 +"));
   await write("tests/__snapshots__/app.test.ts.snap", lines(4, "exports[`app 2`] ="));
   await write("dist/app.js", lines(4, "var app = 2 +"));
+  await write("src/tables.ts", lines(4, "export const table = 2 +"));
+  await write("src/handmade.ts", lines(4, "export const handmade = 2 +"));
+  await write("logo.png", "\x89PNG\r\n\x1a\n\0\0two");
   await write("src/routes.gen.ts", "export const routes = [];\n");
   await write(
     "src/client.ts",
@@ -108,12 +123,17 @@ async function fixture(options: { dependencyApi?: string } = {}) {
     await hosts.splice(hosts.indexOf(host), 1)[0]!.close();
     host = await boot();
   };
-  /** `med review` against this host, as an agent runs it. */
-  const med = (...args: string[]) =>
-    runReviewCommand([...args, "--state-dir", stateDir, "--port", String(host.port)], {
-      print: () => {},
-      environment: {},
-    });
+  /** `med review` or `med thread` against this host, as an agent runs it. */
+  const med = (...args: string[]) => {
+    const connection = ["--state-dir", stateDir, "--port", String(host.port)];
+    return args[0] === "thread"
+      ? runThreadSessionsCommand([...args.slice(1), ...connection], {
+          print: () => {},
+          environment: {},
+          cwd: repo,
+        })
+      : runReviewCommand([...args, ...connection], { print: () => {}, environment: {} });
+  };
   return { repo, api, home, restart, med };
 }
 
@@ -135,6 +155,9 @@ test("a review marks lockfiles, output, snapshots, headers, and attributes, and 
     // The change is far from line 1: the working file's head names its generator.
     "src/schema.ts": { kind: "header", source: "scripts/gen.ts" },
     "src/marked.ts": { kind: "attributes" },
+    "src/tables.ts": { kind: "attributes" },
+    "src/handmade.ts": false,
+    "logo.png": null,
     "tests/__snapshots__/app.test.ts.snap": { kind: "snapshot" },
     "dist/app.js": { kind: "output" },
     "src/routes.gen.ts": { kind: "named" },
@@ -162,9 +185,45 @@ test("a review marks lockfiles, output, snapshots, headers, and attributes, and 
   });
   expect(marks(commit)).toMatchObject({
     "yarn.lock": false,
+    "src/handmade.ts": false,
+    "logo.png": null,
     "src/marked.ts": { kind: "attributes" },
     "src/schema.ts": null,
     "src/client.ts": { kind: "header" },
+  });
+});
+
+test("a linked worktree reads the repository's info/attributes", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med generated ")));
+  directories.push(directory);
+  const repo = join(directory, "tide");
+  const linked = join(directory, "tide-linked");
+  await mkdir(join(repo, "src"), { recursive: true });
+  git(repo, ["init", "-q", "-b", "main"]);
+  await writeFile(join(repo, "src/app.ts"), lines(4, "export const app ="));
+  git(repo, ["add", "."]);
+  git(repo, ["commit", "-q", "-m", "Start"]);
+  git(repo, ["worktree", "add", "-q", "-b", "linked", linked]);
+  // This clone's own override, with no .gitattributes in the checkout.
+  await mkdir(join(repo, ".git", "info"), { recursive: true });
+  await writeFile(join(repo, ".git", "info", "attributes"), "src/app.ts linguist-generated\n");
+  await writeFile(join(linked, "src/app.ts"), lines(4, "export const app = 2 +"));
+  vi.stubEnv("MED_HOME_DIR", join(directory, "home"));
+  const host = await startHost({
+    repo,
+    repos: [repo],
+    stateDir: join(directory, "state"),
+    port: 0,
+  });
+  hosts.push(host);
+  const response = await fetch(`http://127.0.0.1:${host.port}/api/review`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ repo: linked, comparison: { kind: "working" } }),
+  });
+  expect(response.status).toBe(200);
+  expect(marks((await response.json()) as ReviewResponse)).toEqual({
+    "src/app.ts": { kind: "attributes" },
   });
 });
 
@@ -273,8 +332,8 @@ test("med review --generated marks the files that a hand-off names, in each vers
     const target = saved.iterations!.at(-1)!.targetIds[0]!;
     return marks(await api<ReviewResponse>(`/api/reviews/${id}/targets/${target}/review`));
   };
-  // A file, and a glob: the glob also names a lockfile that Git attributes
-  // unmark, which stays unmarked, and one that its path marks, which keeps its kind.
+  // Files and a glob. Files that Git attributes unmark stay unmarked, and a
+  // lockfile that its path marks keeps its kind.
   await med(
     "create",
     "--title",
@@ -286,6 +345,7 @@ test("med review --generated marks the files that a hand-off names, in each vers
     "--working",
     "--generated",
     "src/app.ts",
+    "src/handmade.ts",
     "*.lock",
     "--no-pr",
     "--no-session",
@@ -293,6 +353,7 @@ test("med review --generated marks the files that a hand-off names, in each vers
   const { id } = await api<{ id: string }>("/api/reviews/by-key", { key: "client" });
   expect(await current(id)).toMatchObject({
     "src/app.ts": { kind: "declared" },
+    "src/handmade.ts": false,
     "package.json": null,
     "yarn.lock": false,
     "bun.lock": { kind: "lockfile" },
@@ -315,7 +376,14 @@ test("med review --generated marks the files that a hand-off names, in each vers
     "src/schema.ts": { kind: "header", source: "scripts/gen.ts" },
   });
 
+  // So does med thread show; a version marks only the files that it names.
+  await med("thread", "show", "--key", "client", "--working", "--generated", "package.json");
+  expect(await current(id)).toMatchObject({
+    "package.json": { kind: "declared" },
+    "src/app.ts": null,
+  });
+
   // New notes capture the version again; the marks stay.
   await api(`/api/reviews/${id}/iterations`, {});
-  expect((await current(id))["src/app.ts"]).toEqual({ kind: "declared" });
+  expect((await current(id))["package.json"]).toEqual({ kind: "declared" });
 });
