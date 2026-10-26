@@ -3,15 +3,15 @@ import { schedulesSchema, type Schedules } from "../../shared/schedules";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
 
-/** How often an open Scheduled list reads again. */
+/** How often the Scheduled list reads again. */
 const REFRESH_MS = 30_000;
 
 /**
- * The Scheduled list (docs/SCHEDULES.md), read while `open`: the tabs' Claude
- * Code jobs and the Claude app's scheduled tasks. Med only reads them. A host
- * without the route gives null.
+ * The Scheduled list (docs/SCHEDULES.md): the tabs' Claude Code jobs that
+ * will fire. Med only reads them. It reads also while the section is closed,
+ * since the section shows only when a job will fire.
  */
-export function useSchedules(fetcher: typeof fetch, open: boolean) {
+export function useSchedules(fetcher: typeof fetch) {
   const [state, setState] = useState<{
     data: Schedules | null;
     error: string | null;
@@ -20,7 +20,6 @@ export function useSchedules(fetcher: typeof fetch, open: boolean) {
     at: number;
   }>({ data: null, error: null, loading: false, at: 0 });
   useEffect(() => {
-    if (!open) return;
     const api = createApi(fetcher, readBrowserToken());
     const abort = new AbortController();
     const read = async () => {
@@ -46,6 +45,6 @@ export function useSchedules(fetcher: typeof fetch, open: boolean) {
       clearInterval(timer);
       window.removeEventListener("focus", focus);
     };
-  }, [fetcher, open]);
+  }, [fetcher]);
   return state;
 }

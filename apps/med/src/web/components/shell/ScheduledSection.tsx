@@ -1,10 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
-import {
-  scheduleStateLabels,
-  type ScheduleEntry,
-  type ScheduleState,
-} from "../../../shared/schedules";
+import type { ScheduleEntry } from "../../../shared/schedules";
 import { relativeTime } from "../../data/relative-time";
 import { useSchedules } from "../../data/schedules";
 import { tokens, ui } from "../../theme.stylex";
@@ -27,30 +23,11 @@ const places = {
   "other-app": "in another app",
 } as const;
 
-/** What a job's state means for whether it fires, in a few words. */
-function stateNote(entry: ScheduleEntry): string {
-  switch (entry.state) {
-    case "live":
-      return `Runs ${places[entry.runs ?? "other-app"]} · ends with its session`;
-    case "stopped":
-      return "Won't fire: its session ended · comes back if the session resumes";
-    case "cancelled":
-      return "Cancelled with CronDelete";
-    case "expired":
-      return "Ended after 7 days";
-    case "fired":
-      return "Fired once";
-    case "missed":
-      return "Won't fire: its time passed while its session was not running";
-  }
-}
-
-const OFF: ReadonlySet<ScheduleState> = new Set(["cancelled", "expired", "fired", "missed"]);
-
 /**
- * The Scheduled section of the sidebar: each tab's Claude Code jobs with their
- * thread, schedule, prompt, and whether they can fire, and the Claude app's
- * scheduled tasks. Read only: Med never runs, edits, or deletes a schedule.
+ * The Scheduled section of the sidebar: the tabs' Claude Code jobs that will
+ * fire, with their thread, schedule, and prompt. With none, there is no
+ * section; a thread's cards keep the jobs that ended or cannot fire. Read
+ * only: Med never runs, edits, or deletes a schedule (docs/SCHEDULES.md).
  */
 export function ScheduledSection({
   fetcher,
@@ -69,33 +46,19 @@ export function ScheduledSection({
       }
       return !value;
     });
-  const { data, error, at: now } = useSchedules(fetcher, open);
-  const live = data?.sessions.filter((entry) => !OFF.has(entry.state)) ?? [];
-  const ended = data?.sessions.filter((entry) => OFF.has(entry.state)) ?? [];
-  const count = data ? live.length + data.desktop.tasks.length : undefined;
+  const { data, at: now } = useSchedules(fetcher);
+  const jobs = data?.sessions ?? [];
+  if (!jobs.length) return null;
   const row = (entry: ScheduleEntry) => (
     <li key={`${entry.sessionId}:${entry.id ?? entry.createdAt}`}>
       <button
         type="button"
         data-sidebar-row=""
-        data-schedule={entry.state}
         onClick={() => onOpenThread(entry.threadId)}
         title={entry.prompt}
         {...stylex.props(styles.entry)}
       >
-        <span {...stylex.props(styles.line)}>
-          <span
-            {...stylex.props(
-              styles.schedule,
-              (entry.state === "cancelled" || entry.state === "expired") && styles.off,
-            )}
-          >
-            {entry.schedule}
-          </span>
-          <span {...stylex.props(styles.badge, badgeStyles[entry.state])}>
-            {scheduleStateLabels[entry.state]}
-          </span>
-        </span>
+        <span {...stylex.props(styles.schedule)}>{entry.schedule}</span>
         <span {...stylex.props(styles.prompt)}>{entry.prompt || "(no prompt)"}</span>
         <span {...stylex.props(styles.meta)}>
           <span {...stylex.props(styles.thread)}>{entry.threadTitle}</span>
@@ -105,13 +68,8 @@ export function ScheduledSection({
             ? ` · ran ${relativeTime(entry.lastFiredAt, now)}`
             : ""}
         </span>
-        <span
-          {...stylex.props(
-            styles.note,
-            (entry.state === "stopped" || entry.state === "missed") && styles.warn,
-          )}
-        >
-          {stateNote(entry)}
+        <span {...stylex.props(styles.note)}>
+          Runs {places[entry.runs]} · ends with its session
         </span>
       </button>
     </li>
@@ -123,69 +81,12 @@ export function ScheduledSection({
           <Icon name="chevron" size={12} />
         </span>
         <span {...stylex.props(ui.label)}>Scheduled</span>
-        {count !== undefined && <span {...stylex.props(styles.count)}>{count}</span>}
+        <span {...stylex.props(styles.count)}>{jobs.length}</span>
       </button>
-      {open && (
-        <div {...stylex.props(styles.body)}>
-          {error && !data && <p {...stylex.props(styles.empty)}>{error}</p>}
-          {data && !data.sessions.length && (
-            <p {...stylex.props(styles.empty)}>
-              No agent in a tab has scheduled a prompt. Claude Code's /loop and its cron jobs show
-              here, with whether they can fire.
-            </p>
-          )}
-          {live.length > 0 && <ul {...stylex.props(styles.list)}>{live.map(row)}</ul>}
-          {ended.length > 0 && (
-            <>
-              <h3 {...stylex.props(ui.label, styles.group)}>Ended</h3>
-              <ul {...stylex.props(styles.list)}>{ended.map(row)}</ul>
-            </>
-          )}
-          {data && (
-            <>
-              <h3 {...stylex.props(ui.label, styles.group)}>Claude app</h3>
-              {data.desktop.tasks.length ? (
-                <ul {...stylex.props(styles.list)}>
-                  {data.desktop.tasks.map((task) => (
-                    <li
-                      key={task.path}
-                      data-desktop-task={task.name}
-                      title={task.prompt}
-                      {...stylex.props(styles.entry, styles.task)}
-                    >
-                      <span {...stylex.props(styles.schedule)}>{task.name}</span>
-                      {task.description && (
-                        <span {...stylex.props(styles.prompt)}>{task.description}</span>
-                      )}
-                      <span {...stylex.props(styles.note)}>
-                        The Claude app runs it; its schedule is set there
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p {...stylex.props(styles.empty)}>
-                  {data.desktop.missing
-                    ? "No scheduled tasks: the Claude app has made none on this computer."
-                    : "No scheduled tasks."}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {open && <ul {...stylex.props(styles.list, styles.body)}>{jobs.map(row)}</ul>}
     </section>
   );
 }
-
-const badgeStyles = stylex.create({
-  live: { color: tokens.green },
-  stopped: { color: tokens.warning },
-  cancelled: { color: tokens.faint },
-  expired: { color: tokens.faint },
-  fired: { color: tokens.faint },
-  missed: { color: tokens.warning },
-});
 
 const styles = stylex.create({
   section: {
@@ -222,8 +123,15 @@ const styles = stylex.create({
   chevronOpen: { transform: "rotate(0deg)" },
   count: { color: tokens.faint, fontSize: 11, fontVariantNumeric: "tabular-nums" },
   body: { paddingBottom: 8 },
-  group: { marginTop: 10, marginBottom: 2, marginInline: 0, paddingInline: 8 },
-  list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" },
+  list: {
+    listStyle: "none",
+    marginBlock: 0,
+    marginInline: 0,
+    paddingTop: 0,
+    paddingInline: 0,
+    display: "flex",
+    flexDirection: "column",
+  },
   entry: {
     display: "flex",
     flexDirection: "column",
@@ -240,10 +148,7 @@ const styles = stylex.create({
     cursor: "pointer",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  task: { cursor: "default", backgroundColor: "transparent" },
-  line: { display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 },
   schedule: {
-    flex: "1",
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -251,8 +156,6 @@ const styles = stylex.create({
     fontSize: 12.5,
     fontWeight: 500,
   },
-  off: { color: tokens.muted, textDecorationLine: "line-through" },
-  badge: { flexShrink: 0, fontSize: 10.5, fontWeight: 500 },
   prompt: {
     display: "-webkit-box",
     WebkitBoxOrient: "vertical",
@@ -272,13 +175,4 @@ const styles = stylex.create({
   },
   thread: { color: tokens.muted },
   note: { color: tokens.faint, fontSize: 11 },
-  warn: { color: tokens.warning },
-  empty: {
-    margin: 0,
-    paddingBlock: 4,
-    paddingInline: 8,
-    color: tokens.faint,
-    fontSize: 11.5,
-    lineHeight: 1.5,
-  },
 });

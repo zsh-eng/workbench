@@ -686,10 +686,11 @@ Med shows what Claude Code scheduled and never runs a schedule
 call is a card in the thread: "Every hour at :23", its prompt, recurring or
 one-shot, when it expires, and Cancelled, Expired, Fired, or Missed. A job of
 a session ends with it, which the card says. The sidebar's **Scheduled**
-section lists the tabs' jobs with their thread and whether each can fire
-(**Live** while its session's process runs; **Stopped** once it ended, until
-the session resumes), and the Claude app's scheduled tasks from
-`~/.claude/scheduled-tasks`.
+section lists only the jobs that will fire: the tabs' jobs whose session's
+process runs, with their thread and prompt. A job whose session ended, or that
+ended, stays in its thread's cards only, and with no job to fire there is no
+section. The Claude app's scheduled tasks are not listed: Med cannot read
+their schedules ([why](SCHEDULES.md#desktop-scheduled-tasks-left-out)).
 
 ## Edit working files
 

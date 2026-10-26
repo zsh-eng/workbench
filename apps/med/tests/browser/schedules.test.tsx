@@ -67,109 +67,48 @@ test("schedule calls are cards: the schedule in words, the prompt, and what beca
 });
 
 const threadId = `r_${"a".repeat(24)}`;
-const schedules = (missing = false): Schedules => ({
-  sessions: [
-    {
-      kind: "cron",
-      id: "4c1e9a20",
-      threadId,
-      threadTitle: "Station search",
-      sessionId: "s1",
-      schedule: "Every hour at :23",
-      cron: "23 * * * *",
-      recurring: true,
-      prompt: RECURRING_PROMPT,
-      createdAt: Date.now() - 2 * HOUR,
-      endsAt: Date.now() + 6 * 24 * HOUR,
-      state: "live",
-      fires: 1,
-      lastFiredAt: Date.now() - HOUR,
-      runs: "med",
-    },
-    {
-      kind: "cron",
-      id: "77aa0001",
-      threadId,
-      threadTitle: "Station search",
-      sessionId: "s1",
-      schedule: "Weekdays at 09:03",
-      cron: "3 9 * * 1-5",
-      recurring: true,
-      prompt: "Summarize yesterday's CI failures.",
-      createdAt: Date.now() - 3 * HOUR,
-      state: "stopped",
-      fires: 0,
-    },
-    {
-      kind: "cron",
-      id: "9d03b7e1",
-      threadId,
-      threadTitle: "Station search",
-      sessionId: "s1",
-      schedule: "Oct 26 at 17:50",
-      cron: "50 17 26 10 *",
-      recurring: false,
-      prompt: "Ask Mira to review #101 if nobody has.",
-      createdAt: Date.now() - 3 * HOUR,
-      state: "cancelled",
-      fires: 0,
-    },
-  ],
-  desktop: {
-    folder: "/home/me/.claude/scheduled-tasks",
-    missing,
-    tasks: missing
-      ? []
-      : [
-          {
-            name: "morning-triage",
-            description: "Triage new issues each weekday morning",
-            prompt: "Read the new issues and label each one.",
-            path: "/home/me/.claude/scheduled-tasks/morning-triage/SKILL.md",
-            updatedAt: Date.now(),
-          },
-        ],
-  },
-});
+const live: Schedules["sessions"][number] = {
+  kind: "cron",
+  id: "4c1e9a20",
+  threadId,
+  threadTitle: "Station search",
+  sessionId: "s1",
+  schedule: "Every hour at :23",
+  cron: "23 * * * *",
+  recurring: true,
+  prompt: RECURRING_PROMPT,
+  createdAt: Date.now() - 2 * HOUR,
+  endsAt: Date.now() + 6 * 24 * HOUR,
+  fires: 1,
+  lastFiredAt: Date.now() - HOUR,
+  runs: "med",
+};
 
-test("the Scheduled list shows each job's thread, schedule, prompt, and whether it fires", async () => {
+test("the Scheduled list shows only the jobs that will fire, and no section when none will", async () => {
   await page.viewport(1280, 900);
   const reads: string[] = [];
-  let missing = false;
+  let sessions: Schedules["sessions"] = [live];
   const fetcher: typeof fetch = async (input) => {
     const url = new URL(String(input), "http://localhost");
     reads.push(url.pathname);
-    return Response.json(schedules(missing));
+    return Response.json({ sessions } satisfies Schedules);
   };
   const opened: string[] = [];
   render(<ScheduledSection fetcher={fetcher} onOpenThread={(id) => opened.push(id)} />);
-  // Closed, it reads nothing.
-  const toggle = page.getByRole("button", { name: "Scheduled" });
+  // Closed, it still reads, to show whether a job will fire.
+  const toggle = page.getByRole("button", { name: "Scheduled 1", exact: true });
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-  expect(reads).toEqual([]);
   await userEvent.click(toggle);
 
-  const live = page.getByRole("button", { name: /^Every hour at :23/ });
-  await expect.element(live).toBeVisible();
-  await expect.element(live.getByText("Live")).toBeVisible();
-  await expect.element(live.getByText(/Station search · recurring · ran /)).toBeVisible();
-  await expect.element(live.getByText("Runs in Med · ends with its session")).toBeVisible();
-  // A job of a session that ended says plainly that it won't fire.
-  const stopped = page.getByRole("button", { name: /^Weekdays at 09:03/ });
-  await expect
-    .element(stopped.getByText("Won't fire: its session ended · comes back if the session resumes"))
-    .toBeVisible();
-  const ended = page.getByRole("button", { name: /^Oct 26 at 17:50/ });
-  await expect.element(ended.getByText("Cancelled with CronDelete")).toBeVisible();
-  // The Claude app's tasks, which the app runs.
-  await expect.element(page.getByText("morning-triage")).toBeVisible();
-  await expect.element(page.getByText("Triage new issues each weekday morning")).toBeVisible();
-  // Two jobs can fire, and one task.
-  await expect
-    .element(page.getByRole("button", { name: "Scheduled 3", exact: true }))
-    .toBeVisible();
-
-  await userEvent.click(live);
+  const job = page.getByRole("button", { name: /^Every hour at :23/ });
+  await expect.element(job).toBeVisible();
+  await expect.element(job.getByText(/Station search · recurring · ran /)).toBeVisible();
+  await expect.element(job.getByText("Runs in Med · ends with its session")).toBeVisible();
+  // What will not fire stays in its thread's cards.
+  const section = page.getByRole("region", { name: "Scheduled" });
+  for (const gone of ["Ended", "Claude app", "Live", "Stopped"])
+    await expect.element(section.getByText(gone, { exact: true })).not.toBeInTheDocument();
+  await userEvent.click(job);
   expect(opened).toEqual([threadId]);
   // Nothing in the list runs, edits, or deletes a schedule: it only reads.
   expect(new Set(reads)).toEqual(new Set(["/api/schedules"]));
@@ -179,12 +118,14 @@ test("the Scheduled list shows each job's thread, schedule, prompt, and whether 
     ),
   ).not.toContain("Delete");
 
-  // Without the app's folder, the list says that the app made none.
+  // When nothing will fire, there is no section at all.
   root!.unmount();
   mount!.remove();
-  missing = true;
+  sessions = [];
+  const before = reads.length;
   render(<ScheduledSection fetcher={fetcher} onOpenThread={() => {}} />);
-  await expect
-    .element(page.getByText("No scheduled tasks: the Claude app has made none on this computer."))
-    .toBeVisible();
+  await expect.poll(() => reads.length).toBeGreaterThan(before);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(document.querySelector("[data-scheduled]")).toBeNull();
+  expect(document.body.textContent).not.toContain("Scheduled");
 });
