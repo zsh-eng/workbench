@@ -167,8 +167,8 @@ test("wb arctic save writes the web's records, restores History as the web does,
   const fromWb = await ours.records();
 
   // Byte for byte the web's records, but for the two inputs that differ:
-  // the web titles a link from its address and wb from its page (none
-  // with --no-text), and each records its own time.
+  // the web titles a link from its address and wb from its page (its
+  // host with --no-text), and each records its own time.
   const value = (records: typeof fromWeb, key: string) =>
     records.get(key)!.value;
   const savedAt = (records: typeof fromWeb, key: string) =>
@@ -186,7 +186,7 @@ test("wb arctic save writes the web's records, restores History as the web does,
       if (family === "article" && url === fresh)
         expected = expected.replace(
           '"title":"How sea ice keeps time"',
-          '"title":""',
+          '"title":"example.com"',
         );
       expect(value(fromWb, key), key).toBe(expected);
       expect(fromWb.get(key)!.isDeleted).toBe(false);
