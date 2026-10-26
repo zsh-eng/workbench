@@ -189,6 +189,8 @@ test("the same book again shows the copy you have in the sheet", async ({
 
   const sheet = page.locator('[data-arrival-sheet="duplicate"]');
   await expect(sheet).toBeVisible(READY);
+  // The sheet answers; the grid holds no place for a book that is not coming.
+  await expect(page.locator("[data-arrival-tile]")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Book already added" }),
   ).toHaveCount(0);
@@ -219,9 +221,9 @@ test("Design ideas compare the looks on a simulated batch", async ({
   page,
 }) => {
   await page.goto("/debug/ideas/arriving-books?look=develop&state=five");
-  await expect(page.getByRole("heading", { name: "Library" })).toBeVisible(
-    READY,
-  );
+  await expect(
+    page.getByRole("heading", { name: "Library", exact: true }),
+  ).toBeVisible(READY);
   await expect(page.getByText("Added 5 books.", { exact: true })).toBeVisible(
     READY,
   );

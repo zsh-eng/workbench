@@ -94,6 +94,15 @@ export function ArrivalSheet({
     return () => records.present(arrivalKey, false);
   }, [arrivalKey, records]);
 
+  // The same file again: the sheet says so and shows the copy you have, so
+  // the grid needs no place for a book that is not coming.
+  const isDuplicate = arrival?.progress.stage === "duplicate";
+  useEffect(() => {
+    if (!isDuplicate) return;
+    records.dismiss(arrivalKey);
+    source.dismiss(arrivalKey);
+  }, [arrivalKey, isDuplicate, records, source]);
+
   const finish = (after: number) =>
     window.setTimeout(() => done.current(), after);
 
