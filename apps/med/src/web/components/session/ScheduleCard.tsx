@@ -11,6 +11,7 @@ import {
 import type { SessionItem, ToolCallState } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { motion, rowStyles } from "./session-styles";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type CronCall = Extract<ScheduleCall, { kind: "cron" }>;
@@ -89,14 +90,48 @@ function cronLine(schedule: CronCall, call: ToolCallState, at: number, facts: Sc
 }
 
 /**
+ * A CronDelete as a row, where it ran: one schedule is one card, and the
+ * cancel turns its job's card to Cancelled. It names the job's schedule when
+ * the thread has its card.
+ */
+function CancelRow({ item, id }: { item: ToolItem; id: string }) {
+  const facts = useContext(ScheduleFactsContext);
+  const { call } = item;
+  const job = facts.jobs.get(id);
+  const running = call.status === "pending" || call.status === "in_progress";
+  return (
+    <div
+      data-schedule-cancel={id}
+      data-tool-call-id={call.toolCallId}
+      {...stylex.props(rowStyles.row)}
+    >
+      <span {...stylex.props(rowStyles.icon)}>
+        <Icon name="clock" size={13} />
+      </span>
+      <span {...stylex.props(styles.cancelLabel, running && motion.shimmer)}>
+        <span {...stylex.props(styles.cancelVerb)}>{running ? "Cancelling" : "Cancelled"} </span>
+        {job ? describeCron(job.cron) : `job ${id}`}
+      </span>
+      {running ? (
+        <span aria-label="Running" {...stylex.props(motion.spinner)} />
+      ) : (
+        call.status === "failed" && <span {...stylex.props(styles.failed)}>Failed</span>
+      )}
+    </div>
+  );
+}
+
+/**
  * A schedule tool's call as a card: what it schedules, its prompt, and what
- * became of it. A session-only job ends with its session, which it says.
+ * became of it. A session-only job ends with its session, which it says. A
+ * cancel is a row (CancelRow).
  */
 export function ScheduleCard({ item }: { item: ToolItem }) {
   const facts = useContext(ScheduleFactsContext);
   const { call } = item;
   const schedule = call.schedule;
   if (!schedule) return null;
+  if (schedule.kind === "cancel") return <CancelRow item={item} id={schedule.id} />;
   const running = call.status === "pending" || call.status === "in_progress";
   let title: string;
   let prompt: string | undefined;
@@ -117,12 +152,6 @@ export function ScheduleCard({ item }: { item: ToolItem }) {
     // A job that Claude Code did not write to disk dies with its process.
     if (!line.failed && schedule.durable !== true && line.state !== "cancelled")
       note = line.state === "expired" ? undefined : "Ends with its session";
-  } else if (schedule.kind === "cancel") {
-    const job = facts.jobs.get(schedule.id);
-    title = job ? `Cancelled: ${describeCron(job.cron)}` : "Cancelled a scheduled job";
-    prompt = job?.prompt;
-    meta = [`job ${schedule.id}`];
-    if (call.status === "failed") badge = { label: "Not cancelled", tone: "warn" };
   } else {
     if (schedule.stop) {
       title = "Stopped the loop";
@@ -229,4 +258,14 @@ const styles = stylex.create({
   },
   meta: { color: tokens.faint, fontSize: 11.5 },
   note: { color: tokens.warning },
+  cancelLabel: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.muted,
+  },
+  cancelVerb: { color: tokens.text, fontWeight: 500 },
+  failed: { flexShrink: 0, color: tokens.red, fontSize: 11.5 },
 });

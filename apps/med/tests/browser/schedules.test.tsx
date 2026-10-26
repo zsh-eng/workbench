@@ -31,7 +31,7 @@ function render(node: React.ReactNode) {
 
 const HOUR = 60 * 60_000;
 
-test("schedule calls are cards: the schedule in words, the prompt, and what became of each", async () => {
+test("schedule calls are cards, one for each schedule: the schedule in words, the prompt, and what became of it", async () => {
   await page.viewport(1280, 900);
   const startedAt = Date.now() - 2 * HOUR;
   const store = createSessionStore();
@@ -49,13 +49,12 @@ test("schedule calls are cards: the schedule in words, the prompt, and what beca
     .toBeVisible();
   await expect.element(recurring.getByText(/Ends with its session/)).toBeVisible();
 
-  // A CronDelete cancels the one-shot job, whose card says so.
+  // A CronDelete cancels the one-shot job: its card says so, and the cancel
+  // is no card of its own.
   const oneShot = page.getByRole("group", { name: /^Oct 26 at 17:50/ });
   await expect.element(oneShot.getByText("Cancelled", { exact: true })).toBeVisible();
   await expect.element(oneShot.getByText(/Ends with its session/)).not.toBeInTheDocument();
-  await expect
-    .element(page.getByRole("group", { name: /^Cancelled: Oct 26 at 17:50/ }))
-    .toBeVisible();
+  expect(page.getByRole("group", { name: /^Cancelled/ }).query()).toBeNull();
   const wakeup = page.getByRole("group", { name: /^Wakes up in 20 minutes/ });
   await expect.element(wakeup.getByText(/One-shot · watching CI/)).toBeVisible();
 
@@ -63,7 +62,14 @@ test("schedule calls are cards: the schedule in words, the prompt, and what beca
   const run = document.querySelector("[data-scheduled-run]");
   expect(run?.textContent).toContain("A scheduled prompt ran");
   expect(run?.textContent).toContain(RECURRING_PROMPT);
-  expect(document.querySelectorAll("[data-schedule-card]")).toHaveLength(4);
+  expect(document.querySelectorAll("[data-schedule-card]")).toHaveLength(3);
+  // The cancel folds with the turn's work; shown, it is a row that names the job.
+  expect(document.querySelector("[data-schedule-cancel]")).toBeNull();
+  root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
+  await expect
+    .poll(() => document.querySelector("[data-schedule-cancel]")?.textContent)
+    .toBe("Cancelled Oct 26 at 17:50");
+  expect(document.querySelectorAll("[data-schedule-card]")).toHaveLength(3);
 });
 
 const threadId = `r_${"a".repeat(24)}`;

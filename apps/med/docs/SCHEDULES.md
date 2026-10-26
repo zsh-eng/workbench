@@ -54,10 +54,12 @@ can list a task that is on, with its next time.
 
 ## In Med
 
-- **Cards.** A thread shows each schedule tool's call as a card, also when its
-  turn's work folds: the schedule in words ("Every hour at :23"), the prompt,
+- **Cards.** A thread shows each `CronCreate` and `ScheduleWakeup` call as a
+  card, also when its turn's work folds: the schedule in words ("Every hour at :23"), the prompt,
   recurring or one-shot, "expires in N days", and what became of it:
-  Cancelled (a later `CronDelete`), Expired, Fired, or Missed. A session-only
+  Cancelled (a later `CronDelete`), Expired, Fired, or Missed. One schedule
+  is one card: a `CronDelete` turns its job's card to Cancelled and is a row
+  of its turn's work ("Cancelled Oct 26 at 17:50"), not a card. A session-only
   job says **Ends with its session**. A prompt that a schedule enqueued shows
   as "A scheduled prompt ran", and starts its turn.
 - **Scheduled list.** The sidebar's Scheduled section lists only the jobs
