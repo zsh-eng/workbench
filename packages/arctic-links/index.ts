@@ -242,7 +242,8 @@ export async function linkChangesProblem(
         if (families.get(record.key.split("/")[0]!)!.value !== record.value)
           return `${record.key} is not a new link in the phone's format`;
     } else if (shape === "library") {
-      if (!inLibrary) return `library/${id}: this article is not in the library`;
+      if (!inLibrary)
+        return `library/${id}: this article is not in the library`;
       if (object(library!.value)?.saved !== false)
         return `library/${id} is already saved`;
       const value = families.get("library")!.value;

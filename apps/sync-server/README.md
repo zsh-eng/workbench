@@ -120,12 +120,26 @@ short-lived device grants, hashed 90-day credentials, and rate limits.
 CLI credentials resolve the authenticated user and are restricted to Reader and
 Spaced state/pull/file reads, state/pull reads of the four Arctic namespaces, `arctic-content` file
 reads (the `arctic` namespace has no file API),
-plus `/api/me` and `/api/namespaces`. Their one write is Arctic article text
-(`cliWritePath`): `arctic-content` pushes and file uploads, which the server
-checks as it checks the web app's copies. The owner approved this on
-20 October 2026 for `apps/arctic/Browser/scripts/upload.ts`. CLI credentials
-cannot write Reader, Spaced or the phone's `arctic` records, delete files, or
-inspect browser sessions. The browser approval requires
+plus `/api/me` and `/api/namespaces`. They have two writes (`cliWritePath`):
+
+- **Arctic article text**: `arctic-content` pushes and file uploads, which the
+  server checks as it checks the web app's copies. The owner approved this on
+  20 October 2026 for `apps/arctic/Browser/scripts/upload.ts`.
+- **Arctic links**: pushes to `arctic` for `wb arctic save`. Before the sync
+  route, `src/cli-links.ts` reads the push (at most 1 MiB) and the stored
+  records of the same articles, and refuses it unless every change is one of
+  two shapes (`linkChangesProblem` in `packages/arctic-links`). A new link is
+  the three records that Arctic for the web writes, byte for byte, for a
+  canonical URL whose SHA-256 is the key's id, when the article is not in
+  the library. A restore is only the `library/` record of an unsaved article,
+  equal to the stored value with `saved`, `archived` and `savedAt` changed.
+  A refusal is 403, and nothing is stored.
+
+CLI credentials cannot remove records or change any other `arctic` record,
+write Reader, Spaced, highlights or reading time, delete files, or inspect
+browser sessions. Permissions follow the route, not the credential: existing
+credentials gain link saves when this server is deployed, without a migration
+or a new sign-in. The browser approval requires
 an authenticated session, same-origin POST, and an explicit code confirmation.
 No Google credentials or browser cookies are transferred to the CLI.
 

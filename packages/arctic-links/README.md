@@ -9,15 +9,15 @@ this one copy:
 - `wb arctic save` saves links from the terminal (`apps/sync-backup`).
 - The shared API checks that command's writes (`apps/sync-server`).
 
-| Export | What it is |
-| --- | --- |
-| `canonicalURL` | The phone's canonical URL of a pasted link, or null |
-| `articleId` | SHA-256 of the canonical URL: the records' `<id>` |
-| `localID` | The phone's UUID for an id, which names its offline copy |
-| `newLinkRecords` | `article/<id>`, `library/<id>` and `tags/<id>` for a new link |
-| `savedLibrary` | A known link saved again: a field edit of `library/<id>` |
-| `linkChangesProblem` | Why a push does more than these two writes, or nothing |
-| `encodeSorted`, `toSwift` | Sorted-key JSON and Swift reference dates |
+| Export                    | What it is                                                    |
+| ------------------------- | ------------------------------------------------------------- |
+| `canonicalURL`            | The phone's canonical URL of a pasted link, or null           |
+| `articleId`               | SHA-256 of the canonical URL: the records' `<id>`             |
+| `localID`                 | The phone's UUID for an id, which names its offline copy      |
+| `newLinkRecords`          | `article/<id>`, `library/<id>` and `tags/<id>` for a new link |
+| `savedLibrary`            | A known link saved again: a field edit of `library/<id>`      |
+| `linkChangesProblem`      | Why a push does more than these two writes, or nothing        |
+| `encodeSorted`, `toSwift` | Sorted-key JSON and Swift reference dates                     |
 
 The phone validates every `arctic` record and stops a pull at one it cannot
 read. Keep these values in step with `ArticleSyncCodec.canonicalURL`,

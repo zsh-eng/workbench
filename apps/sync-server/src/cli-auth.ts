@@ -123,7 +123,7 @@ cliAuth.post("/token", async (c) => {
     access_token: token,
     token_type: "Bearer",
     expires_in: lifetime / 1000,
-    scope: "sync:read files:read arctic-content:write",
+    scope: "sync:read files:read arctic-content:write arctic:links",
   });
 });
 cliAuth.post("/revoke", async (c) => {
@@ -134,7 +134,7 @@ cliAuth.post("/revoke", async (c) => {
   return c.json({ ok: true });
 });
 
-/** This credential authorizes listed read routes and Arctic article text uploads only. */
+/** This credential authorizes listed read routes, Arctic article text uploads and Arctic link saves only. */
 export async function cliIdentity(c: Context<AppEnv>) {
   const header = c.req.header("Authorization");
   if (!header?.startsWith("Bearer wb_")) return null;
@@ -178,15 +178,19 @@ export const cliReadPath = (path: string) =>
   );
 
 /**
- * The one write a CLI credential may make: Arctic article text, which the
+ * The writes a CLI credential may make. Arctic article text, which the
  * server checks as it checks the web app's copies (HTML, no script, 2 MiB).
- * It never writes Reader, Spaced or the phone's Arctic records.
+ * And Arctic links: a push to `arctic` that only creates or restores links,
+ * which `cliLinkPushProblem` checks record by record before it reaches the
+ * sync route. It never writes Reader, Spaced, highlights or reading time,
+ * and never changes or removes another Arctic record.
  */
 export const cliWritePath = (method: string, path: string) => {
   const decoded = decodeURIComponent(path);
   return (
     (method === "POST" &&
-      decoded === "/api/apps/arctic-content/sync/v3/push") ||
+      (decoded === "/api/apps/arctic-content/sync/v3/push" ||
+        decoded === "/api/apps/arctic/sync/v3/push")) ||
     (method === "PUT" &&
       /^\/api\/apps\/arctic-content\/files\/xxh64:[a-f0-9]{16}$/.test(decoded))
   );
@@ -223,8 +227,9 @@ export function devicePage(local: boolean) {
       <h1>Authorize Workbench CLI</h1>
       <p>
         This allows a CLI to download your Reader, Spaced and Arctic data and
-        files for 90 days, and to upload Arctic article text. It cannot change
-        anything else. Only enter a code from a login you started.
+        files for 90 days, to save links to Arctic and to upload their text.
+        It cannot change anything else. Only enter a code from a login you
+        started.
       </p>
       <p id="identity"></p>
       <button id="google">Sign in with Google</button>
