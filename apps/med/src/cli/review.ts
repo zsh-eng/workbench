@@ -697,14 +697,16 @@ export async function runReviewCommand(
   // Off unless a repository opts in: then a practice is a check, before Med captures.
   const checks = await optInChecks(manifest.targets.map((target) => target.repo));
   if (checks.size) {
-    const problem = optInProblem(
-      checks,
-      readReviewOutput([
-        manifest.guide?.summary,
-        manifest.brief,
-        ...(manifest.parts?.items.map((part) => part.guide?.summary) ?? []),
-      ]),
-    );
+    const summaries = [
+      manifest.guide?.summary,
+      ...(manifest.parts?.items.map((part) => part.guide?.summary) ?? []),
+    ];
+    const output = readReviewOutput([...summaries, manifest.brief]);
+    // A guide's summary is its explainer, however short.
+    const problem = optInProblem(checks, {
+      ...output,
+      explainer: output.explainer ?? summaries.find(Boolean),
+    });
     if (problem) throw new Error(problem);
   }
   const result = await request(connection, "/api/reviews", fetcher, manifest);

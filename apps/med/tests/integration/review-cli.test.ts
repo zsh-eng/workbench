@@ -1037,6 +1037,22 @@ describe("hand-off checks that say what to do next", () => {
     );
     const { out } = await handoff("--brief", brief);
     expect((await f.saved(out.split("\n")[0]!)).iterations).toHaveLength(2);
+
+    // A guide's summary is an explainer, however short.
+    execFileSync("git", ["config", "med.checks", "explainer"], { cwd: repo });
+    await expect(handoff()).rejects.toThrow(
+      /asks for explainer with each hand-off .+ Add an explainer: why the change exists/,
+    );
+    const guide = join(f.root, "guide.json");
+    await writeFile(
+      guide,
+      JSON.stringify({
+        summary: "Retries stop.",
+        segments: [{ title: "Retry", files: ["file.txt"] }],
+      }),
+    );
+    await handoff("--guide", guide);
+    expect(await reviews(f)).toBe(saved);
   });
 });
 
