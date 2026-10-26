@@ -39,6 +39,8 @@ names. Do not deploy or run remote migrations as a side effect of a refactor.
 - Before you hand off, review your own diff with fresh context (`/code-review`
   or a fresh subagent) and fix the Important findings.
 - When you review a diff, read [REVIEW.md](REVIEW.md) first.
+- Why these rules, their sources, and when to revise them:
+  [Agent practices](docs/AGENT_PRACTICES.md).
 
 ## Fast test loop
 
