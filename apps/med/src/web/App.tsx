@@ -482,10 +482,18 @@ export function App({
   const [pickerResume, setPickerResume] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
-  const [beginFilePreview, setBeginFilePreview] = useState<BeginFileSymbolPreview>();
-  const onSymbolPreviewReady = useCallback(
-    (begin: BeginFileSymbolPreview | null) => setBeginFilePreview(() => begin ?? undefined),
-    [],
+  // The open editor's preview stays in a ref, and state holds only a count.
+  // A callback from an older render keeps that render's values alive, so an
+  // editor's function kept in state kept every closed editor in memory.
+  const filePreview = useRef<BeginFileSymbolPreview | null>(null);
+  const [filePreviewKey, setFilePreviewKey] = useState<number | null>(null);
+  const onSymbolPreviewReady = useCallback((begin: BeginFileSymbolPreview | null) => {
+    filePreview.current = begin;
+    setFilePreviewKey((key) => (begin ? (key ?? 0) + 1 : null));
+  }, []);
+  const beginFilePreview = useMemo<BeginFileSymbolPreview | undefined>(
+    () => (filePreviewKey === null ? undefined : () => filePreview.current!()),
+    [filePreviewKey],
   );
   const [symbolMode, setSymbolMode] = useState<"file" | "project">("file");
   const [vimEnabled, setVimEnabled] = useState(

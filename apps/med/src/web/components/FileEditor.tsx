@@ -142,6 +142,20 @@ const colors = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field),
 });
+/**
+ * A closed editor's state, kept in its draft for the undo history: without
+ * the editor's own extensions, whose closures hold the closed view and,
+ * through it, the editor's DOM. Colors and the line separator stay; the
+ * next editor adds the rest again.
+ */
+const parked = (state: EditorState) =>
+  state.update({
+    effects: StateEffect.reconfigure.of([
+      history(),
+      colors,
+      EditorState.lineSeparator.of(state.lineBreak),
+    ]),
+  }).state;
 const actions = new WeakMap<
   object,
   {
@@ -769,7 +783,7 @@ export default function FileEditor({
       worker.terminate();
       actions.delete(cm);
       drafts.update(draft, {
-        state: discardOnUnmount.current ? undefined : editor.state,
+        state: discardOnUnmount.current ? undefined : parked(editor.state),
         scrollTop: editor.scrollDOM.scrollTop,
       });
       view.current = null;
