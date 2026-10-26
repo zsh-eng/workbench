@@ -123,8 +123,11 @@ export function fold(
       "item" in unit &&
       (finals.has(unit.item.id) ||
         unit.item.kind === "user" ||
-        // A schedule's card stays in view when its turn's work folds.
-        (unit.item.kind === "tool" && !!unit.item.call.schedule) ||
+        // A schedule's card stays in view when its turn's work folds; a
+        // cancel is a row of the work, and its job's card says Cancelled.
+        (unit.item.kind === "tool" &&
+          !!unit.item.call.schedule &&
+          unit.item.call.schedule.kind !== "cancel") ||
         (unit.item.kind === "notice" && unit.item.severity === "error"));
     const work = rest.filter((unit) => !shown(unit));
     if (!work.length || (live && end === list.length)) {

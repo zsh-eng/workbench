@@ -1,9 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { parsePullUrl, type PullJob, type PullStep } from "../../shared/pull-workspace";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
-import { formatSeconds } from "./session/ToolCall";
+import { Elapsed, formatDuration } from "./session/Elapsed";
 import { motion } from "./session/session-styles";
 
 /** What a pull request's workspace knows about its job. */
@@ -54,16 +54,6 @@ export function pullTitle(url: string, job?: PullJob) {
   return address ? `${address.owner}/${address.name} #${address.number}` : url;
 }
 
-function useNow(running: boolean) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
-}
-
 /** Each step of opening the pull request, as the session's task list shows
  * an agent's steps, with what went wrong and a retry. */
 export function PullProgress({
@@ -81,8 +71,6 @@ export function PullProgress({
   const { job, error } = state;
   const failed = !!error || job?.status === "failed";
   const running = !failed && job?.status !== "done";
-  const clock = useNow(running && fixedNow === undefined);
-  const now = fixedNow ?? clock;
   const address = parsePullUrl(url);
   const steps: PullStep[] = job?.steps ?? [
     { id: "repository", label: "Send the link to Med", state: error ? "failed" : "running" },
@@ -120,7 +108,6 @@ export function PullProgress({
         </div>
         <ol {...stylex.props(styles.list)}>
           {steps.map((step) => {
-            const elapsed = (step.endedAt ?? now) - (step.startedAt ?? now);
             return (
               <li
                 key={step.id}
@@ -152,17 +139,21 @@ export function PullProgress({
                   </span>
                 )}
                 <span {...stylex.props(styles.state, step.state === "failed" && styles.failedText)}>
-                  {step.state === "running"
-                    ? elapsed >= 1000
-                      ? formatSeconds(elapsed)
-                      : "Running"
-                    : step.state === "failed"
-                      ? "Failed"
-                      : step.state === "skipped"
-                        ? "Skipped"
-                        : step.state === "done" && step.startedAt
-                          ? formatSeconds(Math.max(elapsed, 100))
-                          : ""}
+                  {step.state === "running" ? (
+                    step.startedAt === undefined ? (
+                      "Running"
+                    ) : (
+                      <Elapsed from={step.startedAt} now={fixedNow} empty="Running" />
+                    )
+                  ) : step.state === "failed" ? (
+                    "Failed"
+                  ) : step.state === "skipped" ? (
+                    "Skipped"
+                  ) : step.state === "done" && step.startedAt && step.endedAt ? (
+                    formatDuration(step.endedAt - step.startedAt)
+                  ) : (
+                    ""
+                  )}
                 </span>
               </li>
             );

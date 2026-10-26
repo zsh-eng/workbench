@@ -611,7 +611,7 @@ const SCHEDULE_CARD = 98;
 
 function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   const { call } = item;
-  if (call.schedule) return SCHEDULE_CARD;
+  if (call.schedule) return call.schedule.kind === "cancel" ? m.row : SCHEDULE_CARD;
   if (!open) return m.row;
   const diffs = call.content.filter((block) => block.type === "diff");
   const parts: number[] = [];

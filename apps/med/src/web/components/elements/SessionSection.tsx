@@ -12,7 +12,7 @@ import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { SessionComposer, type ComposerAttachment } from "../session/SessionComposer";
 import { SessionThread } from "../session/SessionThread";
-import { sessionGallery } from "./session-gallery";
+import { GALLERY_NOW, sessionGallery } from "./session-gallery";
 import transcript from "./session-fixture.jsonl?raw";
 import { Section, Specimen } from "./Specimen";
 
@@ -75,8 +75,8 @@ function Replay() {
   });
   useEffect(() => () => replay.dispose(), [replay]);
   const state = useSyncExternalStore(replay.subscribe, replay.getState);
-  // Elapsed labels change in tenths of a second.
-  const now = Math.floor(replay.clock() / 100) * 100;
+  // The replay's own clock, also while paused; times show whole seconds.
+  const now = Math.floor(replay.clock() / 1000) * 1000;
   return (
     <div {...stylex.props(styles.replay)}>
       <div {...stylex.props(styles.controls)} role="toolbar" aria-label="Replay">
@@ -116,7 +116,7 @@ function Replay() {
           ))}
         </span>
       </div>
-      <Panel title="Format trail durations" store={store} now={state.playing ? now : undefined}>
+      <Panel title="Format trail durations" store={store} now={now}>
         <SessionComposer
           agent="claude"
           name="Claude"
@@ -412,7 +412,116 @@ function Gallery() {
     store.applyAll(sessionGallery());
     return store;
   });
-  return <Panel title="Cache the branch list" store={store} work />;
+  return <Panel title="Cache the branch list" store={store} now={GALLERY_NOW} work />;
+}
+
+// A turn that runs on the real clock, from a start that each state picks, so
+// a change of the time's form shows a few seconds after the pick.
+const CLOCKS = [
+  { id: "start", label: "Starts", ago: 0 },
+  { id: "minute", label: "Near a minute", ago: 57_000 },
+  { id: "ten", label: "Near 10 minutes", ago: 9 * 60_000 + 57_000 },
+  { id: "hour", label: "Over an hour", ago: 72 * 60_000 },
+  { id: "end", label: "Tasks end", ago: 20_000 },
+] as const;
+
+const shell = (
+  at: number,
+  id: string,
+  title: string,
+  command: string,
+  background: boolean,
+): SessionEvent => ({
+  at,
+  update: {
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind: "execute",
+    status: "in_progress",
+    rawInput: { command },
+    _meta: { med: { tool: "Bash", ...(background ? { background: { id, kind: "shell" } } : {}) } },
+  },
+});
+
+function workingEvents(startedAt: number, ends: boolean): SessionEvent[] {
+  return [
+    shell(startedAt - 2 * 60 * 60_000, "dev", "Start the dev server", "bun run dev", true),
+    {
+      at: startedAt,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "Run the whole test suite and fix what fails." },
+      },
+    },
+    ...(ends
+      ? [
+          // New IDs for each pick: a failure that the reader saw stays seen.
+          shell(startedAt + 100, `styles-${startedAt}`, "Watch the styles", "bun run watch", true),
+          shell(startedAt + 200, `docs-${startedAt}`, "Build the docs", "bun run docs", true),
+        ]
+      : []),
+    shell(startedAt + 300, "tests", "Run the test suite", "bun test", false),
+  ];
+}
+
+/** "Tasks end": a second after the pick, one task ends well and one fails. */
+const endings = (startedAt: number, at: number): SessionEvent[] => [
+  {
+    at,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: `styles-${startedAt}`,
+      status: "completed",
+    },
+  },
+  {
+    at,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: `docs-${startedAt}`,
+      status: "failed",
+    },
+  },
+];
+
+function WorkingTime() {
+  const [pick, setPick] = useState<{ id: (typeof CLOCKS)[number]["id"]; at: number }>(() => ({
+    id: "start",
+    at: Date.now(),
+  }));
+  const store = useMemo(() => {
+    const store = createSessionStore();
+    const clock = CLOCKS.find((entry) => entry.id === pick.id)!;
+    store.applyAll(workingEvents(pick.at - clock.ago, pick.id === "end"));
+    store.setRunning(true);
+    return store;
+  }, [pick]);
+  useEffect(() => {
+    if (pick.id !== "end") return;
+    const startedAt = pick.at - CLOCKS.find((entry) => entry.id === "end")!.ago;
+    const timer = setTimeout(() => store.applyAll(endings(startedAt, Date.now())), 1000);
+    return () => clearTimeout(timer);
+  }, [pick, store]);
+  return (
+    <div {...stylex.props(styles.replay, styles.short)}>
+      <div {...stylex.props(styles.controls)} role="group" aria-label="Working time">
+        {CLOCKS.map((clock) => (
+          <button
+            key={clock.id}
+            type="button"
+            aria-pressed={pick.id === clock.id}
+            // Picking the same state again starts it over.
+            onClick={() => setPick({ id: clock.id, at: Date.now() })}
+            {...stylex.props(ui.button, styles.speed, pick.id === clock.id && styles.speedOn)}
+          >
+            {clock.label}
+          </button>
+        ))}
+      </div>
+      <Panel key={pick.at} title="Fix the failing tests" store={store} />
+    </div>
+  );
 }
 
 /**
@@ -444,6 +553,15 @@ export function SessionSection() {
         span="half"
       >
         <ReplyDemo />
+      </Specimen>
+      <Specimen
+        title="Working time"
+        note="The real clock. The turn's time shows from 1 s, then each second, and each minute from 10 minutes. A running call spins; the dev server's time counts minutes. Pick a state to see the next change. In Tasks end, Done leaves after a moment and Failed stays until you open it."
+        padded={false}
+        zoomable={false}
+        span="half"
+      >
+        <WorkingTime />
       </Specimen>
       <Specimen
         title="Every part"
@@ -484,6 +602,7 @@ export function SessionSection() {
 
 const styles = stylex.create({
   replay: { display: "flex", flexDirection: "column", height: 760 },
+  short: { height: 360 },
   links: { display: "flex", flexDirection: "column", height: 480 },
   controls: {
     display: "flex",

@@ -581,6 +581,8 @@ export function SessionPanel({
   useEffect(() => {
     store.setRunning(running);
     if (!running) return;
+    // To see a transcript go quiet (sessionRunning). The thread's times keep
+    // their own clocks (Elapsed.tsx).
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [running, store]);
@@ -792,7 +794,6 @@ export function SessionPanel({
                 showWork={showWork}
                 recap={turnRecap}
                 endMark={endMark}
-                now={running ? now : undefined}
                 before={
                   state.truncated && !pageable ? (
                     <p {...stylex.props(styles.note)}>

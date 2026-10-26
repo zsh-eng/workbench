@@ -252,24 +252,41 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
 });
 
-test("the Background dock lists this turn's tasks without Med's wait, and stays hidden until a new task", async () => {
+test("the Background dock lists only what runs: a task ends in its place, Done leaves, and Failed stays until seen", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   localStorage.removeItem("med:background-hidden");
-  const shell = (at: number, id: string, title: string, command: string, running = false) => ({
-    at,
+  localStorage.removeItem("med:background-seen");
+  // On the real clock: a running task's time follows it.
+  const base = Date.now() - 10_000;
+  const shell = (
+    at: number,
+    id: string,
+    title: string,
+    command: string,
+    status: "in_progress" | "completed" | "failed" = "completed",
+  ) => ({
+    at: base + at,
     update: {
       sessionUpdate: "tool_call" as const,
       toolCallId: id,
       title,
       kind: "execute" as const,
-      status: running ? ("in_progress" as const) : ("completed" as const),
+      status,
       rawInput: { command },
       _meta: { med: { background: { id, kind: "shell" as const } } },
     },
   });
+  const end = (at: number, id: string) => ({
+    at: base + at,
+    update: {
+      sessionUpdate: "tool_call_update" as const,
+      toolCallId: id,
+      status: "completed" as const,
+    },
+  });
   const prompt = (at: number, text: string) => ({
-    at,
+    at: base + at,
     update: {
       sessionUpdate: "user_message_chunk" as const,
       content: { type: "text" as const, text },
@@ -278,36 +295,76 @@ test("the Background dock lists this turn's tasks without Med's wait, and stays 
   const store = longThread(0);
   store.applyAll([
     prompt(0, "Format the durations."),
-    shell(100, "server", "Start the dev server", "bun run dev", true),
-    shell(200, "old", "Build the old bundle", "bun run build"),
+    shell(100, "server", "Start the dev server", "bun run dev", "in_progress"),
+    shell(200, "old", "Fail the old bundle", "bun run build", "failed"),
     prompt(5000, "Use minutes."),
     shell(6000, "tests", "Run the tests", "bun test"),
-    shell(6500, "wait", "Wait for the review", "med review wait --key durations", true),
+    shell(6200, "bundle", "Build the bundle", "bun run build", "failed"),
+    shell(6500, "wait", "Wait for the review", "med review wait --key durations", "in_progress"),
   ]);
   const render = () => root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   render();
   const dock = page.getByRole("region", { name: "Background tasks" });
-  await expect.element(dock.getByText("1 running")).toBeVisible();
+  await expect.element(dock.getByText("1 running · 1 failed")).toBeVisible();
   await expect.element(dock.getByRole("button", { name: "Start the dev server" })).toBeVisible();
-  await expect.element(dock.getByRole("button", { name: "Run the tests" })).toBeVisible();
-  // A task from an earlier turn has left; the agent's wait for the reader is not a task.
-  await expect.element(dock.getByText("Build the old bundle")).not.toBeInTheDocument();
+  // A failure since the last prompt stays until seen; a task that ended
+  // before the dock saw it run is gone, as is Med's own wait.
+  await expect.element(dock.getByText("Failed", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Run the tests")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("Fail the old bundle")).not.toBeInTheDocument();
   await expect.element(dock.getByText("Wait for the review")).not.toBeInTheDocument();
   await expect.element(page.getByRole("log").getByText("for your message in Med")).toBeVisible();
+  // Opening the failure is seeing it.
+  await userEvent.click(dock.getByRole("button", { name: "Build the bundle" }));
+  await expect.element(dock.getByText("Build the bundle")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
 
+  // A task that ends while the dock shows it says Done in its place, then leaves.
+  store.applyAll([shell(7000, "lint", "Lint the code", "bun run lint", "in_progress")]);
+  render();
+  const row = () => dock.getByRole("listitem").filter({ hasText: "Lint the code" });
+  await expect.element(row().getByText("Running", { exact: true })).toBeVisible();
+  const element = row().element();
+  store.applyAll([end(8000, "lint"), end(8000, "server")]);
+  render();
+  await expect.element(row().getByText("Done", { exact: true })).toBeVisible();
+  expect(row().element()).toBe(element);
+  expect(
+    dock
+      .getByRole("listitem")
+      .elements()
+      .map((item) => item.textContent),
+  ).toEqual([
+    expect.stringContaining("Start the dev server"),
+    expect.stringContaining("Lint the code"),
+  ]);
+  // Nothing runs: the dock goes.
+  await expect.element(dock, { timeout: 5000 }).not.toBeInTheDocument();
+
+  // A new task shows it; hiding it lasts until a new task starts.
+  store.applyAll([shell(9000, "styles", "Watch the styles", "bun run watch", "in_progress")]);
+  render();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
   await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
   await expect.element(dock).not.toBeInTheDocument();
   // The thread opens again, and the dock stays hidden.
   root!.unmount();
   root = createRoot(mount!);
   render();
-  await expect.element(page.getByRole("log").getByText("Run the tests")).toBeVisible();
+  await expect.element(page.getByRole("log").getByText("Watch the styles")).toBeVisible();
   await expect.element(dock).not.toBeInTheDocument();
-  // A new task shows it again.
-  store.applyAll([shell(7000, "styles", "Watch the styles", "bun run watch", true)]);
+  // A failure that the reader has not seen brings it back.
+  store.applyAll([shell(9000, "styles", "Watch the styles", "bun run watch", "failed")]);
   render();
-  await expect.element(dock.getByText("2 running")).toBeVisible();
+  await expect.element(dock.getByText("1 failed", { exact: true })).toBeVisible();
+  await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
+  await expect.element(dock).not.toBeInTheDocument();
+  store.applyAll([shell(10000, "docs", "Serve the docs", "bun run docs", "in_progress")]);
+  render();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Watch the styles")).not.toBeInTheDocument();
   localStorage.removeItem("med:background-hidden");
+  localStorage.removeItem("med:background-seen");
 });
 
 test("tabs switch between the session and its subagents, and Escape goes back", async () => {
@@ -675,7 +732,7 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   const render = (showWork?: boolean) =>
     root!.render(<SessionThread snapshot={store.getSnapshot()} showWork={showWork} />);
   render();
-  const rows = page.getByRole("button", { name: /^Worked for 4\.0s · 1 tool call$/ });
+  const rows = page.getByRole("button", { name: /^Worked for 4s · 1 tool call$/ });
   await expect.poll(() => rows.elements().length).toBe(2);
   await expect.element(page.getByText("The tests 1 pass.")).toBeVisible();
   // The prompt and the final reply show; the commentary and the call fold.
@@ -785,7 +842,7 @@ test("a message from Med joins the thread where the agent took it, so the turn b
     await expect.element(page.getByText("Also check the import.")).toBeVisible();
     // The turn's work folds, and its reply stays in view above the message.
     await expect.element(page.getByText("The export keeps the old format.")).toBeVisible();
-    await expect.element(page.getByRole("button", { name: /^Worked for 8\.0s/ })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Worked for 8s/ })).toBeVisible();
     expect(page.getByText("Looking at the export.").query()).toBeNull();
     const reply = page.getByText("The export keeps the old format.").element();
     const sent = page.getByText("Also check the import.").element();
@@ -1007,4 +1064,72 @@ test("a long prompt shows its first lines until Show more, and Show less folds i
   await expect.element(toggle).toHaveTextContent("Show more");
   expect(body.clientHeight).toBeLessThan(body.scrollHeight);
   expect(body.textContent).not.toContain("Line 40");
+});
+
+test("a running turn's time ticks in whole seconds from 1 s and in minutes from 10 minutes; its calls spin", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const shell = (at: number, id: string, title: string, background = false) => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title,
+      kind: "execute" as const,
+      status: "in_progress" as const,
+      rawInput: { command: "bun test" },
+      ...(background ? { _meta: { med: { background: { id, kind: "shell" as const } } } } : {}),
+    },
+  });
+  // A turn that started `ago` ms before now, on the real clock: no `now`.
+  const working = (ago: number) => {
+    root?.unmount();
+    mount?.remove();
+    const startedAt = Date.now() - ago;
+    const store = longThread(0);
+    store.applyAll([
+      shell(startedAt - 2 * 60 * 60_000, "dev", "Start the dev server", true),
+      shell(startedAt - 30_000, "styles", "Watch the styles", true),
+      {
+        at: startedAt,
+        update: {
+          sessionUpdate: "user_message_chunk" as const,
+          content: { type: "text" as const, text: "Run the tests." },
+        },
+      },
+      shell(startedAt + 100, "tests", "Run the tests"),
+    ]);
+    store.setRunning(true);
+    root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  };
+  const time = () =>
+    page.getByText("Working", { exact: true }).element().parentElement!.lastElementChild!;
+
+  working(300);
+  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
+  // Nothing under a second, then whole seconds, each for a whole second.
+  expect(time().textContent).toBe("");
+  await expect.poll(() => time().textContent, { timeout: 2000 }).toBe("1s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("2s");
+  expect(getComputedStyle(time()).fontVariantNumeric).toContain("tabular-nums");
+  // The view's one clock: a running call spins and shows no time.
+  const call = page.getByRole("log").getByRole("button", { name: /Run the tests/ });
+  await expect.element(call.getByLabelText("Running")).toBeInTheDocument();
+  expect(call.element().textContent).not.toMatch(/\d+s\b/);
+  // The dock counts minutes: a dev server does not tick seconds.
+  const dock = page.getByRole("region", { name: "Background tasks" });
+  await expect.element(dock.getByText("2h 00m", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Running", { exact: true })).toBeVisible();
+
+  working(59_300);
+  await expect.poll(() => time().textContent).toBe("59s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("1m 00s");
+
+  working(9 * 60_000 + 59_300);
+  await expect.poll(() => time().textContent).toBe("9m 59s");
+  await expect.poll(() => time().textContent, { timeout: 1500 }).toBe("10 min");
+
+  working(65 * 60_000);
+  await expect.poll(() => time().textContent).toBe("1h 05m");
+  expect(document.body.textContent).not.toMatch(/\d\.\d+s\b/);
 });
