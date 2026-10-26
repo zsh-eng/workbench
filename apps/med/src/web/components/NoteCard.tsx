@@ -58,7 +58,13 @@ function Timestamp({ note }: { note: Note }) {
 }
 
 /** A comment's text as Markdown; as plain text until the renderer loads. */
-function CommentText({ text, onOpenLink }: { text: string; onOpenLink?(href: string): void }) {
+export function CommentText({
+  text,
+  onOpenLink,
+}: {
+  text: string;
+  onOpenLink?(href: string): void;
+}) {
   return (
     <div className="med-comment-prose">
       <Suspense fallback={<p {...stylex.props(styles.content)}>{text}</p>}>

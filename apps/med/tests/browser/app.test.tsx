@@ -2566,7 +2566,7 @@ describe("review guide", () => {
                 line: 1,
                 side: "new",
                 kind: "risk",
-                body: "Callers still import the old name.",
+                body: "Callers still import the `old` name.",
               },
               {
                 file: "src/alpha.ts",
@@ -2594,7 +2594,11 @@ describe("review guide", () => {
 
     await userEvent.keyboard("j");
     await expect.element(page.getByRole("heading", { name: "Rename alpha" })).toBeVisible();
+    // The agent's comment shows its Markdown.
     await expect.element(page.getByText("Callers still import the old name.")).toBeVisible();
+    await expect
+      .poll(() => document.querySelector("[data-guide-note] p code")?.textContent)
+      .toBe("old");
     // A comment on the whole file follows the segment's summary.
     await expect.element(page.getByText("On whole files")).toBeVisible();
     await expect.element(page.getByText("The module keeps one export.")).toBeVisible();
@@ -3139,9 +3143,9 @@ describe("review brief", () => {
       name: "GitHub thread by mira at R1, read-only",
     });
     await expect.element(thread).toBeVisible();
-    expect(thread.element().textContent).toMatch(
-      /Rename after to next\..*sam.*Done in the next push/,
-    );
+    await expect
+      .poll(() => thread.element().textContent, { timeout: 10_000 })
+      .toMatch(/Rename after to next\..*sam.*Done in the next push/);
     expect(thread.element().querySelector("textarea, [contenteditable]")).toBeNull();
     expect(
       thread

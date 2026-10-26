@@ -67,6 +67,8 @@ const comment = (id: number, author: string, body: string) => ({
 });
 /** The pull request's head; a test moves it off the branch tip. */
 let pullHead = tip;
+/** The first comment's text; a test gives it more Markdown. */
+let firstBody = "Rename `after` to `next`.";
 const pullRequest = (): PullRequestComments => ({
   url: pullUrl,
   head: pullHead,
@@ -81,7 +83,7 @@ const pullRequest = (): PullRequestComments => ({
       originalLine: 1,
       // The last reply is the reader's draft, in their pending review on GitHub.
       comments: [
-        comment(11, "mira", "Rename `after` to `next`."),
+        comment(11, "mira", firstBody),
         comment(12, "sam", "Done."),
         { ...comment(13, "lee", "And in the docs."), draft: true },
       ],
@@ -220,6 +222,7 @@ const address = location.pathname + location.search;
 beforeEach(async () => {
   await page.viewport(1280, 800);
   pullHead = tip;
+  firstBody = "Rename `after` to `next`.";
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
   setChromeMode("quiet", false);
@@ -277,7 +280,10 @@ test("Branch changes at the pull request head show its threads at their lines, a
   await openChanges();
   // The thread on a committed file shows on its line.
   await expect.element(thread("mira", "R1")).toBeVisible();
-  expect(thread("mira", "R1").element().textContent).toMatch(/Rename after to next\..*Done\./);
+  // The comments render their Markdown once the renderer has loaded.
+  await expect
+    .poll(() => thread("mira", "R1").element().textContent, { timeout: 10_000 })
+    .toMatch(/Rename after to next\..*Done\./);
   // A draft reply shows, marked Pending as on GitHub.
   expect(thread("mira", "R1").element().textContent).toMatch(/lee\s*Pending.*And in the docs\./);
   expect(shown()!.querySelectorAll(inDiff)).toHaveLength(1);
@@ -310,4 +316,48 @@ test("Changes whose head is not the pull request head list every thread with the
   // The diff has none; the panel lists them.
   expect(shown()!.querySelector(inDiff)).toBeNull();
   expect(panel.element().querySelectorAll(inDiff)).toHaveLength(3);
+});
+
+test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and links that open in the browser; raw HTML stays out", async () => {
+  firstBody = [
+    "Rename `after` to `next`:",
+    "",
+    "```ts",
+    "export const next = 2;",
+    "```",
+    "",
+    "- [x] alpha",
+    "- [ ] beta",
+    "",
+    "> Quoted from the spec.",
+    "",
+    'See [the docs](https://example.com/docs). <img src="x" onerror="window.__injected = 1"> <b>loud</b>',
+    "",
+    "```suggestion",
+    "export const after = 3;",
+    "```",
+  ].join("\n");
+  await openChanges();
+  const card = thread("mira", "R1");
+  await expect.element(card).toBeVisible();
+  await expect
+    .poll(() => card.element().querySelector("pre code")?.textContent, { timeout: 10_000 })
+    .toContain("export const next = 2;");
+  const element = card.element();
+  expect(element.querySelector("p code")?.textContent).toBe("after");
+  const boxes = [...element.querySelectorAll<HTMLInputElement>("li input[type=checkbox]")];
+  expect(boxes.map((box) => [box.checked, box.disabled])).toEqual([
+    [true, true],
+    [false, true],
+  ]);
+  expect(element.querySelector("blockquote")?.textContent?.trim()).toBe("Quoted from the spec.");
+  const link = element.querySelector<HTMLAnchorElement>('a[href="https://example.com/docs"]')!;
+  expect(link.target).toBe("_blank");
+  expect(link.rel).toContain("noopener");
+  // GitHub's suggestion is code, under its label.
+  expect(element.textContent).toMatch(/Suggested change\s*export const after = 3;/);
+  // Raw HTML does not render, and no Markdown marks are left as text.
+  expect(element.querySelector("img[onerror], b")).toBeNull();
+  expect((window as { __injected?: number }).__injected).toBeUndefined();
+  expect(element.textContent).not.toContain("```");
 });

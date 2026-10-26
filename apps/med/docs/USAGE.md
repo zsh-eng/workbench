@@ -539,6 +539,10 @@ with `gh`; it never posts, replies, or resolves.
 - A thread whose agent opens a pull request later gets the link by itself: while
   the thread's tab is open, Med asks `gh` for an open pull request from its
   branch.
+- A comment shows its Markdown, as Med's own comments and the agent's Guide
+  comments do: code, lists, task lists, quotes, and links, which open in the
+  browser. Raw HTML stays out, and a suggestion shows as code under
+  **Suggested change**.
 - Hover a comment for **Copy** and **Open on GitHub**. **Copy comments** copies
   only Med's comments.
 - Med reads again when the window gets focus, at most every 30 seconds, or when
