@@ -26,7 +26,7 @@ export function ThemeToggle() {
       <div
         role="radiogroup"
         aria-labelledby={`${id}label`}
-        className="relative grid grid-cols-3 rounded-lg bg-muted p-0.5 dark:bg-background/60"
+        className="relative grid grid-cols-3 rounded-lg bg-foreground/8 p-0.5 dark:bg-background/60"
       >
         <span
           aria-hidden
