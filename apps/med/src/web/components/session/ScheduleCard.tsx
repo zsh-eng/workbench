@@ -109,14 +109,16 @@ function CancelRow({ item, id }: { item: ToolItem; id: string }) {
         <Icon name="clock" size={13} />
       </span>
       <span {...stylex.props(styles.cancelLabel, running && motion.shimmer)}>
-        <span {...stylex.props(styles.cancelVerb)}>{running ? "Cancelling" : "Cancelled"} </span>
+        <span {...stylex.props(styles.cancelVerb)}>
+          {running
+            ? "Cancelling"
+            : call.status === "failed"
+              ? "Could not cancel"
+              : "Cancelled"}{" "}
+        </span>
         {job ? describeCron(job.cron) : `job ${id}`}
       </span>
-      {running ? (
-        <span aria-label="Running" {...stylex.props(motion.spinner)} />
-      ) : (
-        call.status === "failed" && <span {...stylex.props(styles.failed)}>Failed</span>
-      )}
+      {running && <span aria-label="Running" {...stylex.props(motion.spinner)} />}
     </div>
   );
 }
@@ -267,5 +269,4 @@ const styles = stylex.create({
     color: tokens.muted,
   },
   cancelVerb: { color: tokens.text, fontWeight: 500 },
-  failed: { flexShrink: 0, color: tokens.red, fontSize: 11.5 },
 });

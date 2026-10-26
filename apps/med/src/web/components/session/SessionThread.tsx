@@ -17,6 +17,7 @@ import { flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
 import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
+import { useMinuteClock } from "../../data/relative-time";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
 import { tokens } from "../../theme.stylex";
@@ -1591,8 +1592,10 @@ export function SessionThread({
   );
   const offsets = model.offsets;
   const scrollerProps = stylex.props(styles.scroller);
-  // Schedule cards read the session's cancels and fires (ScheduleCard.tsx).
-  const scheduleFacts = useScheduleFacts(snapshot.items, now ?? snapshot.updatedAt ?? 0);
+  // Schedule cards read the session's cancels and fires (ScheduleCard.tsx);
+  // the clock moves their expiry, so a minute is fine enough.
+  const minute = useMinuteClock(now === undefined);
+  const scheduleFacts = useScheduleFacts(snapshot.items, now ?? minute);
   const above = metrics ? offsets[start]! : 0;
   const below = metrics ? offsets[count]! - offsets[end]! : 0;
 

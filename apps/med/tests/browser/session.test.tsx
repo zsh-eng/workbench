@@ -353,9 +353,16 @@ test("the Background dock lists only what runs: a task ends in its place, Done l
   render();
   await expect.element(page.getByRole("log").getByText("Watch the styles")).toBeVisible();
   await expect.element(dock).not.toBeInTheDocument();
+  // A failure that the reader has not seen brings it back.
+  store.applyAll([shell(9000, "styles", "Watch the styles", "bun run watch", "failed")]);
+  render();
+  await expect.element(dock.getByText("1 failed", { exact: true })).toBeVisible();
+  await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
+  await expect.element(dock).not.toBeInTheDocument();
   store.applyAll([shell(10000, "docs", "Serve the docs", "bun run docs", "in_progress")]);
   render();
-  await expect.element(dock.getByText("2 running")).toBeVisible();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Watch the styles")).not.toBeInTheDocument();
   localStorage.removeItem("med:background-hidden");
   localStorage.removeItem("med:background-seen");
 });

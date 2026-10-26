@@ -101,7 +101,11 @@ function useDone(tasks: readonly ToolItem[]) {
   }, [state.done]);
   useEffect(() => {
     const map = timers.current;
-    return () => map.forEach((timer) => clearTimeout(timer));
+    return () => {
+      map.forEach((timer) => clearTimeout(timer));
+      // Effects that run again set them again.
+      map.clear();
+    };
   }, []);
   return state.done;
 }
@@ -147,8 +151,9 @@ export function BackgroundDock({
       (failed(item) && (item.endedAt ?? item.at) >= since && !seen.includes(idOf(item))),
   );
   const ids = tasks.map(idOf);
-  // Zen leaves the waiting to the session's status.
-  if (zen || ids.every((id) => hidden.includes(id))) return null;
+  // Zen leaves the waiting to the session's status. A hidden dock comes back
+  // for a new task, or for a failure that the reader has not seen.
+  if (zen || tasks.every((item) => hidden.includes(idOf(item)) && !failed(item))) return null;
   const see = (list: string[]) => {
     if (list.every((id) => seen.includes(id))) return;
     const next = [...new Set([...list, ...seen])].slice(0, 200);
