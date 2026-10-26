@@ -124,7 +124,16 @@ export function ArrivalSheet({
       to.width > 0 &&
       to.bottom > 0 &&
       to.top < window.innerHeight;
-    if (from && to && inView && look !== "still" && !prefersReducedMotion()) {
+    // A file that failed has no cover to carry; its place shows Try again.
+    const carries = arrival?.progress.stage !== "failed";
+    if (
+      from &&
+      to &&
+      inView &&
+      carries &&
+      look !== "still" &&
+      !prefersReducedMotion()
+    ) {
       setFlight({ from, to });
       return;
     }
