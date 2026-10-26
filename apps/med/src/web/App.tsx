@@ -1198,16 +1198,12 @@ export function App({
   const files = state.visibleFiles;
   // Files that a tool writes fold at the end of the stream (docs/GENERATED.md).
   const generatedFiles = useMemo(() => generatedIndex(state.files), [state.files]);
-  const [generatedOpen, setGeneratedOpen] = useState(false);
+  // The comparison whose group is open: another comparison starts folded.
+  const [generatedOpenScope, setGeneratedOpenScope] = useState<string | null>(null);
+  const generatedOpen = generatedOpenScope === reviewScope;
   const generatedOpenRef = useRef(generatedOpen);
   /** The generated files that the open group folded once; a later one folds too. */
   const generatedFolded = useRef(new Set<string>());
-  // Another comparison starts with its group folded.
-  const [generatedScope, setGeneratedScope] = useState(reviewScope);
-  if (generatedScope !== reviewScope) {
-    setGeneratedScope(reviewScope);
-    setGeneratedOpen(false);
-  }
   useLayoutEffect(() => {
     generatedOpenRef.current = generatedOpen;
     if (!generatedOpen) {
@@ -1232,7 +1228,7 @@ export function App({
     (show?: string) => {
       if (generatedOpenRef.current) return;
       generatedOpenRef.current = true;
-      setGeneratedOpen(true);
+      setGeneratedOpenScope(reviewScope);
       for (const id of generatedFiles.marks.keys()) generatedFolded.current.add(id);
       setCollapsed((current) => {
         const next = new Set(current);
@@ -1240,7 +1236,7 @@ export function App({
         return next;
       });
     },
-    [generatedFiles],
+    [generatedFiles, reviewScope],
   );
   // A guide segment shows files that a path filter can hide, so headers read every file.
   const fileInfoById = useMemo(
@@ -5137,7 +5133,7 @@ export function App({
   const toggleGenerated = useCallback(() => {
     if (generatedOpenRef.current) {
       generatedOpenRef.current = false;
-      setGeneratedOpen(false);
+      setGeneratedOpenScope(null);
     } else openGenerated();
   }, [openGenerated]);
   const generatedGroup = useMemo(

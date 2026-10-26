@@ -308,20 +308,17 @@ export function setDependencyLookups(on: boolean) {
   }
   for (const listener of lookupListeners) listener();
 }
+const subscribeLookups = (listener: () => void) => {
+  lookupListeners.add(listener);
+  const storage = (event: StorageEvent) => event.key === LOOKUPS && listener();
+  window.addEventListener("storage", storage);
+  return () => {
+    lookupListeners.delete(listener);
+    window.removeEventListener("storage", storage);
+  };
+};
 export function useDependencyLookups() {
-  return useSyncExternalStore(
-    (listener) => {
-      lookupListeners.add(listener);
-      const storage = (event: StorageEvent) => event.key === LOOKUPS && listener();
-      window.addEventListener("storage", storage);
-      return () => {
-        lookupListeners.delete(listener);
-        window.removeEventListener("storage", storage);
-      };
-    },
-    readLookups,
-    () => false,
-  );
+  return useSyncExternalStore(subscribeLookups, readLookups, () => false);
 }
 
 /** The key of a package version in `useDependencyInfo`'s answer. */
