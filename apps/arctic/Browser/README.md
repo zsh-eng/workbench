@@ -156,7 +156,7 @@ with tombstones.
 **From the terminal**, `bun run wb arctic save <url…>` (Workbench Backup,
 `apps/sync-backup`) writes the same records from the same package, and then
 fetches each link's text (see Article text). Its title is the page's own, or
-empty when it does not read the page, for the phone to fill in. The shared API
+its host when the page has none, as the phone's own add writes. The shared API
 checks every record that its credential writes (`apps/sync-server`,
 `src/cli-links.ts`). `tests/cli.spec.ts` saves the same links here and with
 `wb`, and compares what the phone receives: the same bytes, but for the title

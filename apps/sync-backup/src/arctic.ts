@@ -196,7 +196,7 @@ export type LinkResult = {
     | "not in library"
     | "invalid"
     | "failed";
-  /** The new link's title: the page's own, or "" for the phone to fill in. */
+  /** The new link's title: the page's own, or its host, as the phone's own add writes. */
   title?: string;
   /** What happened to its text. */
   text: "uploaded" | "kept" | "none" | "skipped";
@@ -302,7 +302,7 @@ export async function arctic(options: {
           ]);
           result.status = "restored";
         } else {
-          result.title = linkTitle(read?.title ?? "");
+          result.title = linkTitle(read?.title ?? "") || new URL(url).hostname;
           await library.push(
             newLinkRecords(url, id, {
               title: result.title,
