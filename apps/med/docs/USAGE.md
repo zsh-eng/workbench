@@ -184,7 +184,9 @@ load it or read its agents until you open it again.
   its agent's title again.
 - A thread's pane has the tabs **Review**, **Changes**, and **Commit**.
   **Changes** are the checkout's Git changes as they are now; Med saves
-  nothing for them. On a branch other than the base, they start at the base:
+  nothing for them. Coming back to **Changes** shows the changes it showed
+  last at once, while Med reads them again and updates them if anything
+  changed. On a branch other than the base, they start at the base:
   the branch's commits and its uncommitted changes (**Branch changes**). On
   the base branch, they are the working changes. The comparison menu also has
   working, staged, and unstaged changes, and a commit that you open. In a
