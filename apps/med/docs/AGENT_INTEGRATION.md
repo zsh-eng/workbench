@@ -543,18 +543,18 @@ paths out of image references. See
 Two cases refuse, because they cannot make a right review; the others warn
 after the review is saved.
 
-| Case                                                             | What Med does                                                              |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `--repo` names a folder inside a repository                      | Uses the repository's root                                                 |
-| The repository is not registered                                 | Refuses: ask the user, then `med add <root>`                               |
-| The comparison has no changes                                    | Refuses, and names the comparison that holds the work                      |
-| `--base` has commits that `--head` lacks                         | Compares from the merge base; `--no-merge-base` keeps the tips             |
-| No `--key`, on a branch other than the base                      | Uses the branch as the key and prints it                                   |
-| The title is not 2–4 words, or names the repository              | Prints `med review update --title`                                         |
-| `--working` without `--paths` has files the session never edited | Names them and prints `med review update --paths` with the session's files |
-| `update --guide` after the checkout moved on                     | Prints `med review create` for the next version                            |
-| The guide puts lockfiles or generated files first                | The guide check names the segments                                         |
-| A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                    |
+| Case                                                             | What Med does                                                                                                      |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `--repo` names a folder inside a repository                      | Uses the repository's root                                                                                         |
+| The repository is not registered                                 | Refuses: ask the user, then `med add <root>`                                                                       |
+| The comparison has no changes                                    | Refuses, and names the comparison that holds the work                                                              |
+| `--base` has commits that `--head` lacks                         | Compares from the merge base; `--no-merge-base` keeps the tips                                                     |
+| No `--key`, on a branch other than the base                      | Uses the branch as the key and prints it; `<repository>/<branch>` when a review of another repository has that key |
+| The title is not 2–4 words, or names the repository              | Prints `med review update --title`                                                                                 |
+| `--working` without `--paths` has files the session never edited | Names them and prints `med review update --paths` with the session's files                                         |
+| `update --guide` after the checkout moved on                     | Prints `med review create` for the next version                                                                    |
+| The guide puts lockfiles or generated files first                | The guide check names the segments                                                                                 |
+| A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                                                            |
 
 Med suggests review practices and enforces none by default. A repository can
 opt in, so that `med review create` refuses a hand-off that lacks them and says
