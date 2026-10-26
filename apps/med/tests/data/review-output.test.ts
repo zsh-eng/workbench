@@ -134,6 +134,36 @@ describe("review output", () => {
     expect(output.nothingToFix).toBe(true);
   });
 
+  it("closes a finding only on a resolution marker, not on the word in a sentence", () => {
+    const states = (text: string) =>
+      readReviewOutput([text]).findings.map(({ title, state, reason }) => ({
+        title,
+        state,
+        ...(reason && { reason }),
+      }));
+    expect(
+      states(
+        [
+          "## Important",
+          "- `src/lock.ts:12` The race is not addressed; this must be fixed before merge.",
+          "- `src/buf.ts:3` A fixed-size buffer overflows.",
+          "- `src/seed.ts:4` The test is flaky.",
+          "  - Repro: run with a fixed seed.",
+          "- `src/a.ts:1` The cache leaks — fixed in the next commit",
+          "- `src/b.ts:2` The key leaves out the method (addressed: the key has it)",
+          "- **Fixed** `src/c.ts:3` The timer was not cleared.",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      { title: "The race is not addressed; this must be fixed before merge.", state: "open" },
+      { title: "A fixed-size buffer overflows.", state: "open" },
+      { title: "The test is flaky.", state: "open" },
+      { title: "The cache leaks", state: "fixed", reason: "in the next commit" },
+      { title: "The key leaves out the method", state: "fixed", reason: "the key has it" },
+      { title: "The timer was not cleared.", state: "fixed" },
+    ]);
+  });
+
   it("finds nothing in prose without its parts", () => {
     const output = readReviewOutput([
       "I changed the parser so that errors no longer stop it. The tests pass.",

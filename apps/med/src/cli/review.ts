@@ -38,6 +38,7 @@ import {
   optInChecks,
   optInProblem,
   rangeFacts,
+  registeredId,
   repositoryRoot,
   requireRegistered,
   sessionScope,
@@ -354,7 +355,7 @@ export async function parseReviewCommand(
         ...(paths && {
           paths: paths.map((path) => resolve(sessionOptions.cwd ?? process.cwd(), path)),
         }),
-        ...(paths && repo ? { repo: resolve(repo) } : {}),
+        ...(paths && repo ? { repo: await repositoryRoot(repo) } : {}),
         ...(generated && { generated }),
       },
     };
@@ -690,6 +691,13 @@ export async function runReviewCommand(
     const prepared = await prepareTargets(command, repositories, options);
     notes.push(...prepared.notes);
     defaultKey = prepared.key;
+    // A branch name is no task name across repositories: a key that Med chose
+    // joins a review of another repository only by accident.
+    const repo = command.manifest.targets[0]!.repo;
+    if (defaultKey && (await keyElsewhere(connection, defaultKey, repo, repositories, fetcher))) {
+      defaultKey = `${basename(repo)}/${defaultKey}`;
+      command.manifest.key = defaultKey;
+    }
   }
   const manifest = command.parts
     ? await partsManifest(command.parts, repositories)
@@ -763,7 +771,7 @@ export async function runReviewCommand(
     const scope = await sharedCheckout(connection, parsed.data.id, manifest, fetcher, options.home);
     if (scope)
       warn(
-        `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map(shellWord).join(" ")}`)}`,
+        `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
       );
   }
   // A Claude Code session outside a Med thread gets the user's comments by waiting.
@@ -779,6 +787,31 @@ const listed = (paths: readonly string[], limit = 8) =>
   paths.length > limit
     ? `${paths.slice(0, limit).join(", ")}, and ${paths.length - limit} more`
     : paths.join(", ");
+
+/** Whether a review with this key shows only other repositories. */
+async function keyElsewhere(
+  connection: RunningConnection,
+  key: string,
+  repo: string,
+  repositories: unknown,
+  fetcher: typeof fetch,
+) {
+  const id = await registeredId(repo, repositories);
+  if (!id) return false;
+  const found = await request(connection, "/api/reviews/by-key", fetcher, { key }).catch(
+    () => undefined,
+  );
+  const review = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) }).safeParse(found);
+  if (!review.success) return false;
+  const saved = z
+    .object({ targets: z.array(z.object({ repositoryId: z.string() })) })
+    .safeParse(await request(connection, `/api/reviews/${review.data.id}`, fetcher));
+  return (
+    saved.success &&
+    saved.data.targets.length > 0 &&
+    !saved.data.targets.some((target) => target.repositoryId === id)
+  );
+}
 
 /** A review by its key, or by its ID (r_…) when no review has that key. */
 async function reviewByKey(connection: RunningConnection, key: string, fetcher: typeof fetch) {
@@ -1004,7 +1037,7 @@ async function staleCapture(
       targets.length > 1
         ? "--manifest <file>"
         : target.comparison.kind === "working"
-          ? `--repo ${shellWord(target.repo)} --working${target.comparison.paths?.length ? ` --paths ${target.comparison.paths.map(shellWord).join(" ")}` : ""}`
+          ? `--repo ${shellWord(target.repo)} --working${target.comparison.paths?.length ? ` --paths ${target.comparison.paths.map((path) => shellWord(join(target.repo, path))).join(" ")}` : ""}`
           : `--repo ${shellWord(target.repo)} --base ${target.base.slice(0, 12)} --head HEAD`;
     return `Stale capture: the checkout changed after version ${number} was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version ${number + 1} with the same key: med review create --key ${shellWord(key)} ${comparison} --guide <file>`;
   } catch {

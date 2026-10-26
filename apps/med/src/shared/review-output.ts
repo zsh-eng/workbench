@@ -112,8 +112,14 @@ const LOCATION =
 const PATH_ONLY = /`((?:[\w@.+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z][\w]*)`/;
 const TAG =
   /(?:\[(important|nit|pre-?existing|p[0-3])\]|\*\*(important|nit|pre-?existing)\*\*:?|^\(?(important|nit|pre-?existing)\)?\s*(?:[:—–-]|\s(?=\S)))/i;
+// A resolution is a marker, not a word in a sentence: it starts the text or a
+// sentence, follows a dash or a bracket, and ends at a colon, a dash, a full
+// stop, or the end. "This must be fixed" and "a fixed seed" stay open.
 const RESOLUTION =
-  /(?:\*\*|_)?\b(fixed|addressed|intentional|won['’]?t fix|wont fix|will not fix|not fixing)\b(?:\*\*|_)?\s*(?:[:—–-]\s*|\(\s*)?([^)\n]*)\)?/i;
+  /(^[\s>*_[(]*|[.;!?)]\s+|\s[—–-]\s*|[([]\s*)(?:\*\*|_)?(fixed|addressed|intentional|won['’]?t fix|wont fix|will not fix|not fixing)(?:\*\*|_|\])?(?=\s*(?:[:—–(.,)\]-]|$)|\s+(?:in|by|with|as)\b)\s*(?:[:—–-]\s*|\(\s*|\.\s*)?([^)\n]*)\)?/i;
+/** A bold or bracketed resolution that leads the item: "**Fixed** src/a.ts:3 …". */
+const LEADING_RESOLUTION =
+  /^[\s>]*(?:\*\*|\[)(fixed|addressed|intentional|won['’]?t fix|wont fix|will not fix|not fixing)(?:\*\*|\])\s*:?\s*/i;
 
 const stateOf = (word: string): FindingState => {
   const lower = word.toLowerCase();
@@ -136,14 +142,23 @@ function findingOf(item: Item, fallback?: FindingSeverity): ReviewFinding | unde
   if (!severity) return undefined;
   let state: FindingState = "open";
   let reason: string | undefined;
-  for (const part of [text, ...item.children]) {
-    const resolved = RESOLUTION.exec(part);
-    if (!resolved) continue;
-    state = stateOf(resolved[1]!);
-    reason = clean(resolved[2] ?? "").replace(/^[—–-]\s*/, "") || undefined;
-    if (part === text) text = text.slice(0, resolved.index).trim();
-    break;
-  }
+  const leading = LEADING_RESOLUTION.exec(text);
+  if (leading) {
+    state = stateOf(leading[1]!);
+    text = text.slice(leading[0].length);
+  } else
+    for (const part of [text, ...item.children]) {
+      const resolved = RESOLUTION.exec(part);
+      if (!resolved) continue;
+      state = stateOf(resolved[2]!);
+      reason = clean(resolved[3] ?? "").replace(/^[—–-]\s*/, "") || undefined;
+      // The sentence before keeps its full stop.
+      if (part === text)
+        text = text
+          .slice(0, resolved.index + (/^[.;!?)]/.exec(resolved[1]!)?.[0].length ?? 0))
+          .trim();
+      break;
+    }
   if (state === "open" && item.checked) state = "fixed";
   let file: string | undefined;
   let line: number | undefined;

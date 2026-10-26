@@ -53,15 +53,15 @@ const real = (path: string) => realpath(path).catch(() => resolve(path));
 /** Refuses a repository that Med does not know, and names the next step. */
 export async function requireRegistered(repos: readonly string[], listing: unknown) {
   const known = new Set<string>();
-  const entries =
-    (listing as { repositories?: { path?: string; worktrees?: { path?: string }[] }[] })
-      ?.repositories ?? [];
+  const entries = (
+    listing as { repositories?: { path?: string; worktrees?: { path?: string }[] }[] }
+  )?.repositories;
+  // An unknown listing shape leaves the decision to the host.
+  if (!Array.isArray(entries)) return;
   for (const entry of entries) {
     if (entry.path) known.add(await real(entry.path));
     for (const tree of entry.worktrees ?? []) if (tree.path) known.add(await real(tree.path));
   }
-  // An unknown listing shape leaves the decision to the host.
-  if (!known.size) return;
   for (const repo of repos) {
     const root = await real(await repositoryRoot(repo));
     if (!known.has(root))
@@ -69,6 +69,22 @@ export async function requireRegistered(repos: readonly string[], listing: unkno
         `${root} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${shellWord(root)}`,
       );
   }
+}
+
+/** The ID of the registered repository that holds a checkout, if Med knows it. */
+export async function registeredId(repo: string, listing: unknown) {
+  const root = await real(repo);
+  const entries =
+    (
+      listing as {
+        repositories?: { id?: string; path?: string; worktrees?: { path?: string }[] }[];
+      }
+    )?.repositories ?? [];
+  for (const entry of entries) {
+    const paths = [entry.path, ...(entry.worktrees ?? []).map((tree) => tree.path)];
+    for (const path of paths) if (path && (await real(path)) === root) return entry.id;
+  }
+  return undefined;
 }
 
 /** A word that the shell reads back as itself. */

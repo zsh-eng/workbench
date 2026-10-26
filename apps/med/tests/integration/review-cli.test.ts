@@ -769,6 +769,21 @@ describe("hand-off checks that say what to do next", () => {
       repo,
       comparison: { kind: "working", paths: ["file.txt"] },
     });
+    // update --paths takes the folder too.
+    await writeFile(join(repo, "file.txt"), "again\n");
+    const again = await checked(f, [
+      "update",
+      "--key",
+      bundle.id,
+      "--repo",
+      join(repo, "src"),
+      "--paths",
+      join(repo, "file.txt"),
+    ]);
+    expect((await f.saved(again.out)).targets.at(-1)).toMatchObject({
+      repo,
+      comparison: { kind: "working", paths: ["file.txt"] },
+    });
   });
 
   it("refuses an empty hand-off and names the comparison that holds the work", async () => {
@@ -847,7 +862,7 @@ describe("hand-off checks that say what to do next", () => {
   });
 
   it("checks the title, defaults the key to the branch, and says how to wait", async () => {
-    const f = await fixture();
+    const f = await fixture(2);
     const repo = f.repos[0]!;
     git(repo, "switch", "-c", "feat/retry");
     const short = await checked(f, ["create", "--title", "Retry", "--repo", repo, "--working"], {
@@ -883,6 +898,22 @@ describe("hand-off checks that say what to do next", () => {
     const good = await checked(f, ["update", "--key", first.id, "--title", "Fetch retries"]);
     expect(good.out).toContain(first.id);
     expect((await f.api(`/api/reviews/${first.id}`)).title).toBe("Fetch retries");
+
+    // The same branch name in another repository is another task.
+    const other = f.repos[1]!;
+    git(other, "switch", "-c", "feat/retry");
+    const elsewhere = await checked(f, [
+      "create",
+      "--title",
+      "Retry policy",
+      "--repo",
+      other,
+      "--working",
+    ]);
+    const third = await f.saved(elsewhere.out);
+    expect(third.id).not.toBe(first.id);
+    expect(third.key).toBe("repo-1/feat/retry");
+    expect(elsewhere.advice).toContain("Key: repo-1/feat/retry, from the branch.");
   });
 
   it("warns when a guide update would describe code that the capture does not show", async () => {
@@ -965,7 +996,7 @@ describe("hand-off checks that say what to do next", () => {
       'Guide check: order the segments by review priority.\n- Put lockfiles and generated files in the last segments, after the code and tests: "Lockfile" before "Code"',
     );
     expect(run.advice).toContain(
-      "Shared checkout: file.txt changed, but this session did not edit it. If it is not part of your task, hand off only your files: med review update --key mine --paths bun.lock mine.ts",
+      `Shared checkout: file.txt changed, but this session did not edit it. If it is not part of your task, hand off only your files: med review update --key mine --paths ${join(repo, "bun.lock")} ${join(repo, "mine.ts")}`,
     );
   });
 
