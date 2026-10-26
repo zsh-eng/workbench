@@ -29,14 +29,30 @@ Plans are in [ROADMAP.md](ROADMAP.md).
 | `bun run test:client`    | Runs the client tests (Vitest with happy-dom and fake IndexedDB).                            |
 | `bun run test:server`    | Runs the Worker tests (Cloudflare Vitest integration).                                       |
 | `bun run test:e2e`       | Runs the Playwright tests on their own dev server, port 5190. Set `E2E_PORT` to use another. |
+| `bun run e2e:serve`      | Keeps that dev server running on `E2E_PORT`, so that each `test:e2e` starts warm.            |
 
 `dev`, `build` and the Vitest commands first build `text-highlighter` and
-`local-sync`, which the Reader imports from their `dist`. A package whose
-`dist` is newer than its source is skipped; `FORCE=1` builds it anyway.
+`local-sync`, which the Reader imports from their `dist`. A package is
+skipped while its last successful build is newer than its sources;
+`FORCE=1` builds it anyway.
+
+Locally, `test:e2e` reuses a server that `e2e:serve` keeps on its port and
+saves the server start (about 8 s a run). Start one in the background for
+each worktree, on its own port. The server runs without HMR: an edit
+reaches the next page load, and module URLs stay free of `?t=` stamps. The
+global setup fails if the server runs from another checkout, or started
+before its Vite config, `bun.lock`, `.dev.vars` or `wrangler.jsonc`
+changed; restart it then. It also rebuilds packages whose sources changed.
+CI always starts its own server. `test:e2e` runs in the machine-wide heavy
+lock (`scripts/heavy.sh`): at most two heavy jobs run at once, and the
+others wait.
 
 The e2e global setup loads the app once, so no test meets a cold Vite
 server, and imports the sample book once through the real importer. The
-`localBook` fixture restores those rows into each test's own database.
+`localBook` fixture restores those rows into each test's own database. For
+screenshots, clips and timings, use the agent kit
+([packages/agent-kit](../../packages/agent-kit/README.md)) with the setup
+modules in `test/e2e/kit/`.
 
 ## Local real data
 

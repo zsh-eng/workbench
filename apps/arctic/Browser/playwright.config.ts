@@ -21,6 +21,8 @@ const preview = `http://localhost:${previewPort}`;
 
 export default defineConfig({
   testDir: "./tests",
+  // Locally, a stack that is already running is reused; this checks it.
+  globalSetup: "./tests/global-setup.ts",
   // Each test signs up its own account, so tests run in parallel.
   fullyParallel: true,
   timeout: 60_000,
