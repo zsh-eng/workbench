@@ -13,6 +13,7 @@ import {
   BOOK_IMPORT_KIND,
   bookImportKind,
 } from "@/lib/book-arrivals";
+import { BookImportError } from "@/lib/book-import-errors";
 import { DuplicateBookError, type AddBookOptions } from "@/lib/book-service";
 import type { Book } from "@/lib/db";
 import type { FileId } from "@/lib/files";
@@ -42,8 +43,8 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * A stand-in for `addBookFromFile` that reports the same steps. Files named
- * in `duplicates` are already in the library; files in `failures` fail on
- * their first try.
+ * in `duplicates` are already in the library; files in `failures` run out of
+ * storage on their first try.
  */
 function fakeImport({
   duplicates = [] as string[],
@@ -73,7 +74,7 @@ function fakeImport({
       options.onStep?.({ stage: "reading", sourceFileId });
       await wait(2);
       if (failures.includes(name) && tried === 1)
-        throw new Error("Could not find OPF file in EPUB");
+        throw new BookImportError({ kind: "storage" });
       log("preparing");
       options.onStep?.({
         stage: "preparing",
@@ -157,7 +158,11 @@ describe("a batch of arriving books", () => {
     ]);
     const [, dup, bad] = records.getSnapshot();
     expect(dup?.existingBookId).toBe("book-dup");
-    expect(bad?.error).toMatch(/OPF/);
+    expect(bad?.error?.kind).toBe("storage");
+    expect(manager.get(keys[2]!)?.failure).toMatchObject({
+      reason: "storage",
+      message: "Not enough storage",
+    });
     expect(bad?.bookId).toBeNull();
 
     manager.retry(keys[2]!);

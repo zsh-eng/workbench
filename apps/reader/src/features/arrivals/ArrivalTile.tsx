@@ -1,9 +1,11 @@
 import { COVER_SHADOW } from "@/features/library/LibraryBooks";
+import { describeImportError } from "@/lib/book-import-errors";
 import type { Book } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  arrivalError,
   useArrival,
   useArrivalEnvironment,
   useArrivalPlaces,
@@ -89,7 +91,7 @@ export function TypeCover({
 }
 
 const STEP_WORDS = {
-  saving: "Saving the file…",
+  saving: "Opening the file…",
   reading: "Reading the book…",
   preparing: "Making the cover…",
 } as const;
@@ -132,6 +134,8 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
   const fileTitle = arrival.fileName.replace(/\.epub$/i, "");
   const title = arrival.title ?? fileTitle;
   const slowStep = useSlowStep(arrival);
+  const failure =
+    stage === "failed" ? describeImportError(arrivalError(arrival)) : null;
   const coverClass = cn(
     "aspect-[2/3] w-full rounded-[3px] transition-opacity duration-200",
     COVER_SHADOW,
@@ -154,8 +158,8 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
       <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
         {stage === "duplicate"
           ? "Already in your library"
-          : stage === "failed"
-            ? "Couldn’t add this file"
+          : failure
+            ? failure.title
             : (slowStep ?? arrival.author ?? " ")}
       </span>
     </>
@@ -176,7 +180,7 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
     );
   }
 
-  if (stage === "failed") {
+  if (failure) {
     return (
       <li className="relative min-w-0" data-arrival-tile={stage}>
         {/* The actions sit on the empty cover, so the tile keeps the height
@@ -184,13 +188,15 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
         <span className="relative block">
           <span className={cn("block bg-secondary", coverClass)} />
           <span className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-0.5 p-3 text-[12px]">
-            <button
-              type="button"
-              onClick={() => source.retry(arrival.key)}
-              className="h-8 rounded-full px-3 font-medium text-foreground outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              Try again
-            </button>
+            {failure.retry && (
+              <button
+                type="button"
+                onClick={() => source.retry(arrival.key)}
+                className="h-8 rounded-full px-3 font-medium text-foreground outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Try again
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

@@ -248,6 +248,23 @@ it("shows an import's step without a Cancel, and lets it finish in place", () =>
   ]);
 });
 
+it("offers Retry for a failed import only where the same file can work", () => {
+  const failedImport = (name: string, reason: "rejected" | "storage") =>
+    job(name, "failed", {
+      id: `import:1:${name}`,
+      kind: "book-import",
+      input: { key: `import:1:${name}` },
+      title: name,
+      failure: { reason, message: "", retryable: false },
+    });
+  const sheet = openSheet(
+    queue([failedImport("paper", "rejected"), failedImport("full", "storage")]),
+  );
+  expect(sheet.queryByRole("button", { name: "Retry paper" })).toBeNull();
+  expect(sheet.getByRole("button", { name: "Dismiss paper" })).toBeTruthy();
+  expect(sheet.getByRole("button", { name: "Retry full" })).toBeTruthy();
+});
+
 describe("arrangeWhileOpen", () => {
   it("returns the same rows when nothing changed, so nothing renders again", () => {
     const jobs = [job("emma", "running")];

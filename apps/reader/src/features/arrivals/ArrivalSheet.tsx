@@ -1,8 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { DetentSheet } from "@/components/ui/detent-sheet";
+import { CopyDetailsButton } from "@/features/library/ImportOutcomes";
 import { COVER_SHADOW } from "@/features/library/LibraryBooks";
 import { MEDIUM_DETENT } from "@/features/reader/ReaderDetentSheets";
 import { useFileUrl } from "@/hooks/use-file-url";
+import { describeImportError } from "@/lib/book-import-errors";
 import { cn } from "@/lib/utils";
 import {
   useEffect,
@@ -13,6 +15,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  arrivalError,
   useArrival,
   useArrivalEnvironment,
   type Arrival,
@@ -33,6 +36,8 @@ export interface ArrivalSheetProps {
   onOpenBook: (bookId: string, title: string) => void;
   /** The sheet has closed and the cover is in its place. */
   onDone: () => void;
+  /** Opens the file picker, for a file that cannot become a book. */
+  onChooseFile?: () => void;
   /** Covers of books already on the shelf, when files do not hold them. */
   coverUrlFor?: (bookId: string) => string | undefined;
   /** Ink; Design ideas also show the calm and still fallbacks here. */
@@ -106,12 +111,14 @@ function headline(arrival: Arrival): string {
  * cover down to the place the book holds in the grid, which waits empty
  * meanwhile, so the book stays one thing. A book still arriving goes on
  * arriving there, in the grid's look. The same file again shows the copy
- * you have; a file that fails offers Try again.
+ * you have. A file that fails says why and what to do: Try again when the
+ * same file can work, Choose another file when it cannot.
  */
 export function ArrivalSheet({
   arrivalKey,
   onOpenBook,
   onDone,
+  onChooseFile,
   coverUrlFor,
   look = "ink",
 }: ArrivalSheetProps) {
@@ -227,13 +234,21 @@ export function ArrivalSheet({
             <SheetWords arrival={arrival} />
           </div>
           {stage === "failed" ? (
-            <Button
-              size="lg"
-              className="h-11 w-full rounded-full text-[15px]"
-              onClick={() => source.retry(arrivalKey)}
-            >
-              Try again
-            </Button>
+            <FailedActions
+              arrival={arrival}
+              onRetry={() => source.retry(arrivalKey)}
+              onChooseFile={
+                onChooseFile &&
+                (() => {
+                  // You moved on: the file leaves no place in the grid.
+                  records.dismiss(arrivalKey);
+                  source.dismiss(arrivalKey);
+                  close();
+                  onChooseFile();
+                })
+              }
+              onClose={close}
+            />
           ) : (
             <Button
               size="lg"
@@ -262,17 +277,65 @@ export function ArrivalSheet({
   );
 }
 
+const SHEET_BUTTON = "h-11 rounded-full text-[15px]";
+
+/** What a failed file offers: another try only where it can work. */
+function FailedActions({
+  arrival,
+  onRetry,
+  onChooseFile,
+  onClose,
+}: {
+  arrival: Arrival;
+  onRetry: () => void;
+  onChooseFile: (() => void) | undefined;
+  onClose: () => void;
+}) {
+  const error = arrivalError(arrival);
+  if (!describeImportError(error).retry)
+    return (
+      <Button
+        size="lg"
+        className={cn(SHEET_BUTTON, "w-full")}
+        onClick={onChooseFile ?? onClose}
+      >
+        {onChooseFile ? "Choose another file" : "Close"}
+      </Button>
+    );
+  return (
+    <div className="flex gap-3">
+      {error.kind === "unexpected" && (
+        <CopyDetailsButton
+          error={error}
+          fileName={arrival.fileName}
+          className={cn(SHEET_BUTTON, "flex-1")}
+        />
+      )}
+      <Button
+        size="lg"
+        className={cn(SHEET_BUTTON, "flex-1")}
+        onClick={onRetry}
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
+
 function SheetWords({ arrival }: { arrival: Arrival }) {
   const slowStep = useSlowStep(arrival);
   const stage = arrival.progress.stage;
   const fileTitle = arrival.fileName.replace(/\.epub$/i, "");
-  const detail =
-    stage === "failed"
-      ? "Try again, or choose another file."
-      : (slowStep ??
-        (arrival.chapters
-          ? `${arrival.chapters} chapter${arrival.chapters === 1 ? "" : "s"}`
-          : null));
+  // A failure takes the author's line for what it is, and the detail's
+  // for what happened and what to do.
+  const failure =
+    stage === "failed" ? describeImportError(arrivalError(arrival)) : null;
+  const detail = failure
+    ? `${failure.what} ${failure.next}`
+    : (slowStep ??
+      (arrival.chapters
+        ? `${arrival.chapters} chapter${arrival.chapters === 1 ? "" : "s"}`
+        : null));
   return (
     <div className="min-w-0 flex-1 pb-1">
       <h2
@@ -283,10 +346,18 @@ function SheetWords({ arrival }: { arrival: Arrival }) {
       >
         {arrival.title ?? fileTitle}
       </h2>
-      <p className="mt-1.5 line-clamp-2 min-h-[1lh] text-[14px] text-muted-foreground">
-        {arrival.author ?? " "}
+      <p
+        className={cn(
+          "mt-1.5 line-clamp-2 min-h-[1lh] text-[14px] text-muted-foreground",
+          failure && "font-medium text-foreground",
+        )}
+      >
+        {failure?.title ?? arrival.author ?? " "}
       </p>
-      <p className="mt-3 min-h-[1lh] text-[12px] text-muted-foreground tabular-nums">
+      <p
+        className="mt-3 min-h-[1lh] text-[12px] text-muted-foreground tabular-nums"
+        data-arrival-detail=""
+      >
         {detail ?? " "}
       </p>
     </div>

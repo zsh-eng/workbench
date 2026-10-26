@@ -275,6 +275,96 @@ test("the same book again shows the copy you have in the sheet", async ({
   await waitForReaderReady(page);
 });
 
+/** What the database holds of books and their files. */
+function stored(page: Page) {
+  return page.evaluate(async () => {
+    const path = "/src/lib/db.ts";
+    const { db } = await import(path);
+    return {
+      books: await db.books.count(),
+      files: await db.files.count(),
+      uploads: await db.fileUploadOperations.count(),
+    };
+  });
+}
+
+test("a file that is no book says why in the sheet, and another file arrives", async ({
+  page,
+}) => {
+  await turnOnArrivingBooks(page);
+  await page.goto("/");
+
+  await chooseFiles(page, [
+    {
+      name: "Paper.epub",
+      mimeType: "application/epub+zip",
+      buffer: Buffer.from("%PDF-1.7\n1 0 obj"),
+    },
+  ]);
+
+  const sheet = page.locator('[data-arrival-sheet="failed"]');
+  const dialog = await waitForSheet(page, "Couldn’t add this book", READY);
+  await expect(sheet.getByText("Not an EPUB", { exact: true })).toBeVisible();
+  await expect(sheet.locator("[data-arrival-detail]")).toHaveText(
+    "It’s a PDF renamed to .epub. Reader opens EPUB books only. Add an EPUB copy instead.",
+  );
+  // The same file cannot work again: the sheet offers another instead.
+  await expect(sheet.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  expect(await stored(page)).toEqual({ books: 0, files: 0, uploads: 0 });
+
+  await waitForSheetToRest(dialog);
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    sheet.getByRole("button", { name: "Choose another file" }).click(),
+  ]);
+  await chooser.setFiles(books(["Arriving book 1"]));
+  await expect(
+    page
+      .locator("[data-arrival-sheet]")
+      .getByRole("heading", { name: "Arriving book 1" }),
+  ).toBeVisible(READY);
+  await expect(
+    page.locator("[data-arrival-sheet]").getByRole("button", {
+      name: "Read now",
+    }),
+  ).toBeEnabled(READY);
+  // The file you moved on from holds no place.
+  await expect(page.locator('[data-arrival-tile="failed"]')).toHaveCount(0);
+});
+
+test("a batch says how it went, and why a file was not added", async ({
+  page,
+}) => {
+  const [first, second] = books(["Arriving book 1", "Arriving book 2"]);
+  // Cut off mid-download.
+  const cut = {
+    name: "cut.epub",
+    mimeType: "application/epub+zip",
+    buffer: first!.buffer.subarray(0, first!.buffer.length / 2),
+  };
+  await turnOnArrivingBooks(page);
+  await page.goto("/");
+
+  await chooseFiles(page, [first!, cut, second!]);
+
+  await expect(
+    page.getByText("2 added, 1 couldn’t be added.", { exact: true }),
+  ).toBeVisible(READY);
+  // Its place stays and says why; the same file cannot work again.
+  const failed = page.locator('[data-arrival-tile="failed"]');
+  await expect(failed).toContainText("File is damaged");
+  await expect(failed.getByRole("button", { name: "Try again" })).toHaveCount(
+    0,
+  );
+  expect(await stored(page)).toMatchObject({ books: 2 });
+
+  await page.getByRole("button", { name: "See why", exact: true }).click();
+  const why = await waitForSheet(page, "1 file wasn’t added");
+  await expect(why.locator("[data-import-outcome]")).toHaveText([
+    /^cut\.epubFile is damaged.*Download it again, then add the new copy\.$/,
+  ]);
+});
+
 test("with reduced motion an arriving cover never moves", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const titles = ["Arriving book 1", "Arriving book 2"];

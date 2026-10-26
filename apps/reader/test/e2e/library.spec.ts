@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { readFile } from "node:fs/promises";
 import {
@@ -6,9 +7,24 @@ import {
   SAMPLE_EPUB_PATH,
   test,
   waitForReaderReady,
+  waitForSheet,
   nextSpread,
   showNotesCapsule,
 } from "./helpers/fixtures";
+
+/** What the database holds of books and their files. */
+function storedCounts(page: Page) {
+  return page.evaluate(async () => {
+    const path = "/src/lib/db.ts";
+    const { db } = await import(path);
+    return {
+      books: await db.books.count(),
+      bookFiles: await db.bookFiles.count(),
+      files: await db.files.count(),
+      uploads: await db.fileUploadOperations.count(),
+    };
+  });
+}
 
 test.describe("Library", () => {
   test("imports a book from the file picker and opens it at once", async ({
@@ -224,14 +240,62 @@ test("keeps duplicate and failed imports in the Library", async ({
   await expect(page).toHaveURL(`/reader/${localBook.id}`);
   await waitForReaderReady(page);
   await page.goto("/");
+  const before = await storedCounts(page);
   await drop("broken.epub", Buffer.from("invalid EPUB"));
+  // The toast says what the file is and what to do.
   await expect(
-    page.getByText("Could not add 1 book.", { exact: true }),
-  ).toBeVisible();
+    page.locator("[data-sonner-toast]").filter({ hasText: "Not an EPUB" }),
+  ).toContainText("another kind of file, such as a PDF, MOBI or AZW");
   await expect(page).toHaveURL("/");
+  // The file left nothing: no stored bytes, rows or upload.
+  expect(await storedCounts(page)).toEqual(before);
   await expect(
     page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
   ).toBeVisible();
+});
+
+test("a full disk says so, leaves nothing behind, and Try again adds the book", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // The next write of a book's files fails as a full disk does.
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name !== "bookFiles") return put.apply(this, args);
+      IDBObjectStore.prototype.put = put;
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    };
+  });
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page
+      .getByRole("button", { name: "Choose EPUB files", exact: true })
+      .click(),
+  ]);
+  await chooser.setFiles(SAMPLE_EPUB_PATH);
+
+  const toast = page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "Not enough storage" });
+  await expect(toast).toContainText("Free up some space, then try again.");
+  expect(await storedCounts(page)).toEqual({
+    books: 0,
+    bookFiles: 0,
+    files: 0,
+    uploads: 0,
+  });
+
+  // The same toast tries again and says how it went.
+  await toast.evaluate((element) => element.setAttribute("data-probe", ""));
+  await toast.getByRole("button", { name: "Try again", exact: true }).click();
+  const same = page.locator("[data-sonner-toast][data-probe]");
+  await expect(same).toContainText("Added 1 book.");
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
+  ).toBeVisible();
+  expect(await storedCounts(page)).toMatchObject({ books: 1 });
 });
 
 test("reports mixed multi-file import outcomes without opening a book", async ({
@@ -273,8 +337,18 @@ test("reports mixed multi-file import outcomes without opening a book", async ({
       buffer: Buffer.from("ignored"),
     },
   ]);
-  await expect(page.getByText("Added 2; skipped 2; failed 1.")).toBeVisible();
+  await expect(
+    page.getByText("2 added, 1 already in your library, 2 couldn’t be added."),
+  ).toBeVisible();
   await expect(page).toHaveURL("/");
+  // See why says, for each file, why it was not added.
+  await page.getByRole("button", { name: "See why", exact: true }).click();
+  const why = await waitForSheet(page, "3 files weren’t added");
+  await expect(why.locator("[data-import-outcome]")).toHaveText([
+    /^duplicate\.epubAlready in your library/,
+    /^broken\.epubNot an EPUB/,
+    /^notes\.txtNot an EPUB/,
+  ]);
   const count = await page.evaluate(async () => {
     const path = "/src/lib/db.ts";
     return (await (await import(path)).getAllBooks()).length;

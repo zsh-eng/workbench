@@ -11,6 +11,7 @@ import {
   BOOK_IMPORT_KIND,
   bookImportKind,
 } from "@/lib/book-arrivals";
+import { BookImportError } from "@/lib/book-import-errors";
 import { DuplicateBookError, type AddBookOptions } from "@/lib/book-service";
 import type { Book } from "@/lib/db";
 import type { FileId } from "@/lib/files";
@@ -91,7 +92,7 @@ interface SampleFile {
   steps: [number, number, number];
   /** Already in the library. */
   duplicate?: boolean;
-  /** The first attempt fails while reading; Try again works. */
+  /** The first attempt runs out of storage while reading; Try again works. */
   fails?: boolean;
 }
 
@@ -275,7 +276,7 @@ export function createArrivalDemo(
     options.onStep?.({ stage: "reading", sourceFileId });
     await sleep(reading);
     if (sample.fails && attempt === 1)
-      throw new Error("Failed to add book: Could not find OPF file in EPUB");
+      throw new BookImportError({ kind: "storage" });
     const scene = sample.book.scene ? assets.get(sample.book.scene) : undefined;
     options.onStep?.({
       stage: "preparing",

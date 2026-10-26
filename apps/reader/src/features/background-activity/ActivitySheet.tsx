@@ -177,14 +177,17 @@ function Trailing({
   if (job.state === "failed")
     return (
       <>
-        <button
-          type="button"
-          aria-label={`Retry ${job.title}`}
-          onClick={() => source.retry(job.id)}
-          className={ACTION}
-        >
-          <RotateCcw className="size-4" strokeWidth={1.8} />
-        </button>
+        {/* A file that is not a readable book stays so. */}
+        {!(isImport(job) && job.failure?.reason === "rejected") && (
+          <button
+            type="button"
+            aria-label={`Retry ${job.title}`}
+            onClick={() => source.retry(job.id)}
+            className={ACTION}
+          >
+            <RotateCcw className="size-4" strokeWidth={1.8} />
+          </button>
+        )}
         <button
           type="button"
           aria-label={`Dismiss ${job.title}`}

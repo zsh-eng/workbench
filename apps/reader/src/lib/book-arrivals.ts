@@ -1,4 +1,9 @@
 import {
+  asBookImportError,
+  describeImportError,
+  type BookImportError,
+} from "@/lib/book-import-errors";
+import {
   addBookFromFile,
   DuplicateBookError,
   type BookImportStep,
@@ -38,7 +43,8 @@ export interface ArrivalRecord {
   /** For a duplicate, the copy already in the library, and its cover. */
   existingBookId: string | null;
   existingCover: FileId | null;
-  error: string | null;
+  /** Why the file did not become a book, until it is tried again. */
+  error: BookImportError | null;
   /** The drawing has come to rest and the plain cover has taken over. */
   settled: boolean;
   /**
@@ -173,10 +179,8 @@ export class ArrivalRecords {
     this.outcomes.get(key)?.reject(error);
   }
 
-  failed(key: string, error: unknown) {
-    this.update(key, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+  failed(key: string, error: BookImportError) {
+    this.update(key, { error });
     this.outcomes.get(key)?.reject(error);
   }
 
@@ -296,10 +300,18 @@ export function bookImportKind(
           records.duplicate(input.key, error);
           return;
         }
-        records.failed(input.key, error);
+        const failure = asBookImportError(error);
+        records.failed(input.key, failure);
+        const copy = describeImportError(failure);
+        // A file that is not a readable book stays so: it offers no Retry.
         throw new JobError({
-          reason: "other",
-          message: error instanceof Error ? error.message : String(error),
+          reason:
+            failure.kind === "storage"
+              ? "storage"
+              : copy.retry
+                ? "other"
+                : "rejected",
+          message: copy.title,
           retryable: false,
         });
       }

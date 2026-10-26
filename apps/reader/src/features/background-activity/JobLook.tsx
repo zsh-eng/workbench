@@ -2,6 +2,7 @@ import { BookCover } from "@/features/library/LibraryBooks";
 import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
 import { appArrivals, BOOK_IMPORT_KIND } from "@/lib/book-arrivals";
+import { describeImportError } from "@/lib/book-import-errors";
 import type { Job } from "@workbench/background-activity";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
@@ -12,7 +13,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
  */
 
 const IMPORT_STEPS: Record<string, string> = {
-  saving: "Saving the file",
+  saving: "Opening the file",
   reading: "Reading the book",
   preparing: "Making the cover",
 };
@@ -98,7 +99,15 @@ export function JobLine({ job, line }: { job: Job; line: string }) {
   if (job.kind !== BOOK_IMPORT_KIND) return <>{line}</>;
   if (job.state === "running" && job.progress.phase)
     return <>{IMPORT_STEPS[job.progress.phase] ?? line}</>;
-  if (job.state === "failed") return <>Couldn't add this file</>;
+  // What went wrong, in the words the file's place in the Library uses.
+  if (job.state === "failed")
+    return (
+      <>
+        {arrival?.error
+          ? describeImportError(arrival.error).title
+          : "Couldn’t add this file"}
+      </>
+    );
   if (job.state === "done")
     return <>{duplicate ? "Already in your library" : "In your library"}</>;
   return <>{line}</>;
