@@ -6,7 +6,11 @@ import { join } from "node:path";
 // The real app against the local shared API, with a fresh database per run.
 // E2E_PORT, E2E_PREVIEW_PORT, E2E_API_PORT and E2E_INSPECTOR_PORT move the
 // servers, so two worktrees can run at once.
-const state = mkdtempSync(join(tmpdir(), "arctic-web-test-"));
+// Workers load this file too, and reuse the runner's directory: the release
+// test copies the production build from it.
+const state = (process.env.ARCTIC_E2E_STATE ??= mkdtempSync(
+  join(tmpdir(), "arctic-web-test-"),
+));
 const port = process.env.E2E_PORT ?? "5186";
 const previewPort = process.env.E2E_PREVIEW_PORT ?? "5187";
 const apiPort = process.env.E2E_API_PORT ?? "8792";
@@ -27,11 +31,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "dev", testIgnore: /offline\.spec\.ts$/ },
+    { name: "dev", testIgnore: /(offline|releases)\.spec\.ts$/ },
     // Only a production build registers the service worker.
     {
       name: "production",
-      testMatch: /offline\.spec\.ts$/,
+      testMatch: /(offline|releases)\.spec\.ts$/,
       use: { baseURL: preview },
     },
   ],

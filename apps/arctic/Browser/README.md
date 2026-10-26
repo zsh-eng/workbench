@@ -31,10 +31,12 @@ This writes only to the local API. Checks:
 - The Playwright tests in `tests/` run in parallel against the real app and a
   local API with a fresh database; each test signs up its own account. A test
   acts as the phone through the API and checks the records that the phone
-  receives. `tests/offline.spec.ts` runs against a production build, because
-  only that registers the service worker. `E2E_PORT`, `E2E_PREVIEW_PORT`,
-  `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move the app, the production build,
-  the API and its inspector, so two worktrees can run the tests at once.
+  receives. `tests/offline.spec.ts` and `tests/releases.spec.ts` run against
+  a production build, because only that registers the service worker.
+  `E2E_PORT`, `E2E_PREVIEW_PORT`, `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move
+  the app, the production build, the API and its inspector, and
+  `E2E_RELEASE_PORT` the releases test's own server, so two worktrees can run
+  the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
   `scripts/copies.ts` uses.
 
@@ -115,6 +117,15 @@ keeps the app shell, so the library and opened articles work offline.
 browser (`src/offline.ts`, four at a time, and asks the browser to keep the
 storage), and can download new text after each sync. Images still load from
 each publisher.
+
+Neither store grows with time alone. The service worker (`public/sw.js`)
+keeps the files of two versions, the newest and the one before, which an
+open tab may still run; a page of a new version replaces the older one.
+After the first sync of a visit, a copy that no text record names any more
+(one a longer copy replaced, or the text of a removed article) leaves
+IndexedDB, unless it was saved in the last day. A copy that a record names
+stays, whether its article is saved or not. `tests/releases.spec.ts` and
+`tests/storage.spec.ts` check both.
 
 ## Saving links
 

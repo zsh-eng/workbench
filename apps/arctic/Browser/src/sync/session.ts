@@ -28,6 +28,8 @@ const NAMESPACES = {
 } as const;
 type Channels = Record<keyof typeof NAMESPACES, Channel>;
 const MAX_COPY_BYTES = 2 * 1024 * 1024;
+/** An upload stores its copy before the record that names it. */
+const UNNAMED_COPY_GRACE_MS = 24 * 60 * 60_000;
 /** Sync on open, on reconnect, on return to the tab, and every five minutes. */
 const SYNC_INTERVAL_MS = 5 * 60_000;
 
@@ -206,6 +208,47 @@ export class Session {
       promised(tx.objectStore("files").getAllKeys()),
     );
     return new Set(keys as string[]);
+  }
+
+  /**
+   * Deletes the copies that no text record names: one that a longer copy
+   * replaced, or the text of an article that was removed. Copies that a
+   * record names stay, saved or not, and so does any copy from the last day.
+   */
+  async pruneFiles(now = Date.now()) {
+    const named = new Set<string>();
+    for (const key of this.copies.keys()) {
+      const view = this.copies.view(key);
+      if (!view || view.isDeleted) continue;
+      try {
+        const { file } = JSON.parse(view.value) as { file?: unknown };
+        if (typeof file === "string") named.add(file);
+      } catch {
+        // Not a copy's record: it names nothing.
+      }
+    }
+    const removed = await transact(
+      this.db,
+      ["files"],
+      "readwrite",
+      async (tx) => {
+        const store = tx.objectStore("files");
+        const ids = (await promised(store.getAllKeys())) as string[];
+        const removed: string[] = [];
+        for (const id of ids) {
+          if (named.has(id)) continue;
+          const row = await promised<{ savedAt?: number } | undefined>(
+            store.get(id),
+          );
+          if (now - (row?.savedAt ?? 0) < UNNAMED_COPY_GRACE_MS) continue;
+          store.delete(id);
+          removed.push(id);
+        }
+        return removed;
+      },
+    );
+    for (const id of removed) this.files.delete(id);
+    return removed.length;
   }
 
   /** Downloads a copy into this browser for offline reading, without holding it in memory. */

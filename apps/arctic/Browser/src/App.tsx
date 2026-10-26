@@ -56,16 +56,21 @@ function open(): Promise<Opened> {
 /**
  * The session's controller syncs on open, on reconnect, on return to the tab
  * and every five minutes. New text downloads after each sync when Offline is
- * on (see offline.ts).
+ * on (see offline.ts). After the first sync of a visit, copies that no record
+ * names any more leave this browser.
  */
 function downloadAfterSync(session: Session) {
   const { controller } = session;
   let last = controller.getSnapshot().lastSyncedAt;
+  let pruned = false;
   controller.subscribe(() => {
     const { lastSyncedAt } = controller.getSnapshot();
     if (lastSyncedAt === last) return;
     last = lastSyncedAt;
     void downloadNew(session, articles(session));
+    if (pruned) return;
+    pruned = true;
+    void session.pruneFiles().catch(() => {});
   });
 }
 // IndexedDB opens while React prepares its first render.
