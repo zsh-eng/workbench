@@ -106,6 +106,17 @@ a runtime cache (`scripts/pwa/precache.ts`). React and the bundler's helpers
 live in their own chunk, so a release changes only the files whose code
 changed and the chunks that name them.
 
+Split code by screen, then prefetch the next likely screen. The Reader is out
+of the bundle the Library paints with; the Library loads it in the background
+once it has painted and is idle, and at once when a pointer or focus reaches a
+book (`src/features/reader/load-reader.ts`), so a tap downloads and parses
+nothing. A launch straight into a book starts the Reader beside the app, not
+after it. Only the entry names the Reader's file, so a Reader release renames
+no Library chunk. The Reader route reads the loaded code with `use`, without a
+Suspense boundary: React.lazy would flash its fallback and then hold the page
+for React's 300 ms reveal throttle. Prefetch the next screen only, not every
+screen, to keep memory down on a phone.
+
 ## Measure and test real interactions
 
 Use Playwright, computer use, or the Reader Diagnostic Harness to exercise

@@ -1,5 +1,5 @@
 import { MotionConfig } from "motion/react";
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense, use, type ComponentType, type ReactNode } from "react";
 import { AppRouter } from "@/features/sync-lab/AppLocation";
 import { Settings } from "@/features/settings/Settings";
 import { DebugGate } from "@/features/settings/DebugGate";
@@ -8,7 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { PageLoadBoundary } from "@/components/PageLoadBoundary";
 import { Highlights } from "@/features/highlights/Highlights";
 import { Library } from "@/features/library/Library";
-import { Reader } from "@/features/reader";
+import { loadReader } from "@/features/reader/load-reader";
 import { ReadingSessions } from "@/features/reading-sessions/ReadingSessions";
 import { BackgroundActivityHost } from "@/features/background-activity/BackgroundActivityHost";
 import { InstallOfferHost } from "@/features/install/InstallOfferHost";
@@ -30,6 +30,18 @@ function lazyPage<Name extends string>(
   name: Name,
 ) {
   return lazy(() => load().then((module) => ({ default: module[name] })));
+}
+
+/**
+ * The Reader, out of the bundle the Library paints with (`load-reader.ts`).
+ * `use` renders code that has already loaded at once; React.lazy would show
+ * its fallback for a moment, then hold the page back by React's 300 ms reveal
+ * throttle. With no Suspense boundary above, code still loading keeps the
+ * Library on screen.
+ */
+function ReaderRoute() {
+  const { Reader } = use(loadReader());
+  return <Reader />;
 }
 
 // Debug pages stay out of the bundle that every visit loads.
@@ -190,7 +202,14 @@ function App() {
                   <Routes>
                     <Route element={<AppShell />}>
                       <Route index element={<Library />} />
-                      <Route path="/reader/:bookId" element={<Reader />} />
+                      <Route
+                        path="/reader/:bookId"
+                        element={
+                          <PageLoadBoundary>
+                            <ReaderRoute />
+                          </PageLoadBoundary>
+                        }
+                      />
                       <Route path="/highlights" element={<Highlights />} />
                       <Route path="/devices" element={<Devices />} />
                       <Route path="/settings" element={<Settings />} />

@@ -47,9 +47,13 @@ import "@fontsource/atkinson-hyperlegible-next/latin-700.css";
 
 import "./index.css";
 import { listenForInstallPrompt } from "./features/install/install-prompt";
+import { preloadReader, setReaderImport } from "./features/reader/load-reader";
 
 // Chromium's install prompt can fire before the app renders, and only once.
 listenForInstallPrompt();
+
+// Only the entry names the Reader's file (see load-reader.ts).
+setReaderImport(() => import("./features/reader/Reader"));
 
 /** Configure isolated clients before app modules create their singleton services. */
 async function bootstrap() {
@@ -86,6 +90,8 @@ async function bootstrap() {
     root.render(<SyncLab />);
     return;
   }
+  // A launch straight into a book loads the Reader beside the app, not after it.
+  if (location.pathname.startsWith("/reader/")) preloadReader();
   const [{ default: App }, { deleteLegacyClientDatabase }] = await Promise.all([
     import("./App"),
     import("./lib/sync-v2/db"),

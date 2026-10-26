@@ -20,6 +20,7 @@ import {
   prefetchReaderBook,
   prefetchReaderBooks,
 } from "@/features/reader/data/reader-cache/prefetch";
+import { preloadReader } from "@/features/reader/load-reader";
 import { useBooksWithStatuses } from "@/hooks/use-books-with-statuses";
 import { useLibraryCoverUrls } from "@/hooks/use-library-cover-urls";
 import { useLocalBookPreparationRepair } from "@/hooks/use-local-book-preparation-repair";
@@ -31,6 +32,7 @@ import type { Book } from "@/lib/db";
 import { compareBooksByLastReadDesc } from "@/lib/library-sort";
 import { MOTION } from "@/lib/motion";
 import { warmPaginationWorker } from "@/lib/pagination-v2/worker/pagination-worker-service";
+import { whenIdle } from "@/lib/prefetch";
 import { getReadingFont } from "@/lib/reading-fonts";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { cn } from "@/lib/utils";
@@ -216,6 +218,12 @@ export function Library() {
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
     };
   }, [displayReady, readingFont]);
+
+  // The Reader is the next screen. Its code loads once this page has painted
+  // and is idle, so opening a book downloads and parses nothing.
+  useEffect(() => {
+    if (displayReady) return whenIdle(preloadReader);
+  }, [displayReady]);
 
   useEffect(() => {
     const books = data?.categorized.continueReading ?? [];

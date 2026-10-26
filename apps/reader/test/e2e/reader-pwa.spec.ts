@@ -1,11 +1,22 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { READER_CODE_READY_MARK } from "../../src/features/reader/load-reader";
 import {
   importSampleBook,
   openAccountMenu,
+  openReaderTool,
   SAMPLE_BOOK_TITLE,
   waitForReaderReady,
   nextSpread,
 } from "./helpers/fixtures";
+
+/** Opens the app once online, so the service worker installs and controls it. */
+async function install(page: Page) {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+}
 
 test("cached production PWA opens in a fresh page offline and reconnects", async ({
   page,
@@ -212,4 +223,77 @@ test("an install keeps its web manifest and icons offline, and lists them for th
   ).toEqual([]);
   await context.unroute("**/*");
   await context.setOffline(false);
+});
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("once the Library has been idle, opening a book loads no code", async ({
+    page,
+  }) => {
+    await install(page);
+    await importSampleBook(page);
+    // The Library loads the Reader's code once it has painted and is idle.
+    await page.waitForFunction(
+      (mark) => performance.getEntriesByName(mark).length > 0,
+      READER_CODE_READY_MARK,
+    );
+    const scripts = await page.evaluate(async () => {
+      performance.clearResourceTimings();
+      document.querySelector<HTMLAnchorElement>('a[href^="/reader/"]')!.click();
+      // Until the first page is on screen.
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (
+            !document.querySelector(
+              '[data-reader-spread-layer="current"] [data-reader-page-content]',
+            )
+          )
+            return;
+          observer.disconnect();
+          resolve();
+        };
+        const observer = new MutationObserver(check);
+        observer.observe(document, { childList: true, subtree: true });
+      });
+      return performance
+        .getEntriesByType("resource")
+        .map((entry) => new URL(entry.name).pathname)
+        .filter((path) => path.endsWith(".js"));
+    });
+    expect(scripts).toEqual([]);
+    await waitForReaderReady(page);
+  });
+
+  test("offline after install, a book never opened before opens, and so does Appearance", async ({
+    page,
+    context,
+  }) => {
+    await install(page);
+    await importSampleBook(page);
+    await page.close();
+
+    // setOffline does not reach the service worker's own requests, so the
+    // network fails them too.
+    await context.setOffline(true);
+    await context.route("**/*", (route) => route.abort("internetdisconnected"));
+    const fresh = await context.newPage();
+    await fresh.goto("/");
+    await fresh.getByRole("heading", { name: SAMPLE_BOOK_TITLE }).click();
+    await waitForReaderReady(fresh);
+    await fresh.touchscreen.tap(195, 422);
+    const appearance = await openReaderTool(fresh, "Appearance", "Appearance");
+    await appearance
+      .getByRole("button", { name: "Garamond", exact: true })
+      .click();
+    await expect(
+      appearance.getByRole("button", { name: "Garamond", pressed: true }),
+    ).toBeVisible();
+    await context.unroute("**/*");
+    await context.setOffline(false);
+  });
 });
