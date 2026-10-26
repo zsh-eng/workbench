@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { generatedMarkSchema } from "../../shared/generated";
 import { apiErrorMessage, comparisonSchema } from "../../shared/protocol";
 import { savedCommitSchema } from "../../shared/review-guide";
 import type { RouteContract } from "../../shared/routes";
@@ -124,6 +125,11 @@ export const reviewSchema = z.object({
       binary: z.boolean(),
       tooLarge: z.boolean().optional(),
       untracked: z.boolean().optional(),
+      // A mark of a kind that this page does not know falls back to the path rule.
+      generated: z
+        .union([generatedMarkSchema, z.literal(false)])
+        .optional()
+        .catch(undefined),
     }),
   ),
   patch: z.string(),

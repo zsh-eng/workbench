@@ -38,7 +38,12 @@ const LONG_TITLES = [
 ];
 
 function git(cwd, args, env) {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env }).trim();
+  return execFileSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    env,
+    // The large diff, with --lockfile, is a few MB.
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim();
 }
 
 /** A seeded random source (mulberry32), so a synthetic set is the same each run. */
@@ -285,13 +290,26 @@ async function realTranscripts(now) {
   return picked;
 }
 
+/** A bun.lock with `count` packages; `round` changes each version and hash. */
+function lockfile(count, round) {
+  const lines = ["{", '  "lockfileVersion": 1,', '  "packages": {'];
+  for (let i = 0; i < count; i++) {
+    const name = `tide-${String(i).padStart(5, "0")}`;
+    const hash = createHash("sha256").update(`${name}@${round}`).digest("base64");
+    lines.push(`    "${name}": ["${name}@1.${round}.0", "", {}, "sha512-${hash}"],`);
+  }
+  return `${lines.join("\n")}\n  }\n}\n`;
+}
+
 /**
  * Two commits on the worktree's branch: one adds `files` files of 300 lines,
  * and the next changes ten places in each and adds a few files, as a large
  * refactor does. The review compares the two, so its diff has many hunks
- * with context. Returns the number of lines in that diff.
+ * with context. With `lockfile`, the commits also add and update a bun.lock
+ * of that many packages, as `bun update` does (docs/GENERATED.md). Returns the
+ * number of lines in that diff.
  */
-async function bigChange(tree, files, env) {
+async function bigChange(tree, files, env, lockfilePackages = 0) {
   const next = random(7);
   const regions = ["north-sea", "atlantic", "baltic", "mediterranean"];
   const paths = [];
@@ -301,6 +319,7 @@ async function bigChange(tree, files, env) {
     await writeFile(join(tree, path), codeLines(next, 300, path));
     paths.push(path);
   }
+  if (lockfilePackages) await writeFile(join(tree, "bun.lock"), lockfile(lockfilePackages, 0));
   git(tree, ["add", "-A"], env);
   git(tree, ["commit", "-qm", "Add the harbour atlas"], env);
   for (const path of paths) {
@@ -315,6 +334,7 @@ async function bigChange(tree, files, env) {
   }
   for (let i = 0; i < 4; i++)
     await writeFile(join(tree, `src/atlas/index-${i}.ts`), codeLines(next, 250, `index ${i}`));
+  if (lockfilePackages) await writeFile(join(tree, "bun.lock"), lockfile(lockfilePackages, 1));
   git(tree, ["add", "-A"], env);
   git(tree, ["commit", "-qm", "Use the harbour atlas"], env);
   return git(tree, ["diff", "HEAD~1", "HEAD"], env).split("\n").length;
@@ -322,7 +342,8 @@ async function bigChange(tree, files, env) {
 
 /**
  * Builds the test bed under `root` and returns it. `transcripts` is "auto"
- * (real when available), "real", or "synthetic".
+ * (real when available), "real", or "synthetic". `lockfile` adds a bun.lock
+ * of that many updated packages to the large diff.
  */
 /** The layers of the stack thread, bottom first: a branch each, on the one below. */
 const STACK_LAYERS = [
@@ -452,6 +473,7 @@ export async function buildStack(repo, trees, env) {
 export async function buildFixture({
   root,
   transcripts = "auto",
+  lockfile: lockfilePackages = 0,
   now = Date.now(),
   log = () => {},
 }) {
@@ -514,7 +536,7 @@ export async function buildFixture({
 
   // The large diff: about 10,000 lines in many hunks, with a short session.
   const atlasTree = worktree("atlas");
-  const atlasLines = await bigChange(atlasTree, 48, env);
+  const atlasLines = await bigChange(atlasTree, 48, env, lockfilePackages);
   const atlasSession = randomUUID();
   const atlasPath = join(
     world.home,

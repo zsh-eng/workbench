@@ -1,8 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
 import { StableFileTree, useStableFileTree } from "./StableFileTree";
 import type { GitStatusEntry } from "@pierre/trees";
-import { memo, useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { ParsedReviewFile } from "../data/controller";
+import { generatedIndex, splitGenerated } from "../data/generated";
 import { hoveredPath } from "../data/hovered-path";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -64,6 +73,100 @@ export const FileSidebar = memo(function FileSidebar({
   onPrefetch?(path: string): void;
   filterRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  // Files that a tool writes list apart, under a folded row (docs/GENERATED.md).
+  // The index reads the response's files, which a filter does not change.
+  const groups = useMemo(() => splitGenerated(files, generatedIndex(files)), [files]);
+  const [opened, setOpened] = useState(false);
+  // A generated file chosen elsewhere shows in its tree, until the reader folds it.
+  const [foldedAt, setFoldedAt] = useState<string | null>(null);
+  const generatedSelected = groups.generated.some((file) => file.id === selected);
+  const generatedOpen = opened || (generatedSelected && foldedAt !== selected);
+  const toggleGenerated = () => {
+    setOpened(!generatedOpen);
+    setFoldedAt(generatedOpen ? selected : null);
+  };
+  const tree = { selected, onSelect, onOpen, onPrefetch, repo, pathActions };
+  const additions = groups.generated.reduce((sum, file) => sum + file.info.additions, 0);
+  const deletions = groups.generated.reduce((sum, file) => sum + file.info.deletions, 0);
+  return (
+    <section {...stylex.props(styles.panel)} aria-label="Changed files">
+      <div {...(controls ? paneHandle : {})} {...stylex.props(styles.heading)}>
+        <span {...stylex.props(ui.label)}>Changes</span>
+        <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
+        {controls && <span {...stylex.props(styles.controls)}>{controls}</span>}
+      </div>
+      {top}
+      <div {...stylex.props(styles.filter)}>
+        <Icon name="search" size={14} />
+        <input
+          ref={filterRef}
+          value={filter}
+          onChange={(event) => onFilter(event.target.value)}
+          placeholder="Filter files…"
+          aria-label="Filter changed files"
+          {...stylex.props(styles.input)}
+        />
+        {filter && (
+          <button
+            {...stylex.props(ui.button, ui.iconButton, styles.clear)}
+            onClick={() => onFilter("")}
+            aria-label="Clear file filter"
+          >
+            <Icon name="close" size={13} />
+          </button>
+        )}
+      </div>
+      <ChangedTree files={groups.primary} {...tree} />
+      {files.length === 0 && (
+        <p {...stylex.props(styles.empty)}>{filter ? "No matching files" : "No changed files"}</p>
+      )}
+      {groups.generated.length > 0 && (
+        <div
+          {...stylex.props(styles.generated, generatedOpen && styles.generatedOpen)}
+          data-generated-files={generatedOpen ? "open" : "folded"}
+        >
+          <button
+            type="button"
+            aria-expanded={generatedOpen}
+            onClick={toggleGenerated}
+            {...stylex.props(styles.generatedRow)}
+          >
+            <span {...stylex.props(styles.chevron, !generatedOpen && styles.folded)}>
+              <Icon name="chevron" size={13} />
+            </span>
+            <span>Generated</span>
+            <span {...stylex.props(styles.generatedCount)}>{groups.generated.length}</span>
+            <span {...stylex.props(ui.grow)} />
+            <span {...stylex.props(styles.generatedStats)}>
+              <span {...stylex.props(ui.added)}>+{additions.toLocaleString()}</span>
+              <span {...stylex.props(ui.removed)}>−{deletions.toLocaleString()}</span>
+            </span>
+          </button>
+          {generatedOpen && <ChangedTree files={groups.generated} {...tree} />}
+        </div>
+      )}
+    </section>
+  );
+});
+
+/** One tree of changed files, with selection, previews, and Open. */
+function ChangedTree({
+  files,
+  selected,
+  onSelect,
+  onOpen,
+  onPrefetch,
+  repo,
+  pathActions,
+}: {
+  files: ParsedReviewFile[];
+  selected: string | null;
+  onSelect(id: string): void;
+  onOpen?(id: string, background?: boolean): void;
+  onPrefetch?(path: string): void;
+  repo: string | null;
+  pathActions?: PathActions;
+}) {
   const latest = useRef({ files, selected, onSelect });
   useLayoutEffect(() => {
     latest.current = { files, selected, onSelect };
@@ -110,7 +213,14 @@ export const FileSidebar = memo(function FileSidebar({
   }, [files, model]);
   useEffect(() => {
     const path = files.find((file) => file.id === selected)?.path;
-    if (!path || model.getSelectedPaths().includes(path)) return;
+    if (!path) {
+      // The selected file is in the other tree.
+      syncing.current = true;
+      for (const selectedPath of model.getSelectedPaths()) model.getItem(selectedPath)?.deselect();
+      syncing.current = false;
+      return;
+    }
+    if (model.getSelectedPaths().includes(path)) return;
     syncing.current = true;
     for (const selectedPath of model.getSelectedPaths()) model.getItem(selectedPath)?.deselect();
     model.getItem(path)?.select();
@@ -118,127 +228,96 @@ export const FileSidebar = memo(function FileSidebar({
     syncing.current = false;
   }, [selected, files, model]);
   return (
-    <section {...stylex.props(styles.panel)} aria-label="Changed files">
-      <div {...(controls ? paneHandle : {})} {...stylex.props(styles.heading)}>
-        <span {...stylex.props(ui.label)}>Changes</span>
-        <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
-        {controls && <span {...stylex.props(styles.controls)}>{controls}</span>}
-      </div>
-      {top}
-      <div {...stylex.props(styles.filter)}>
-        <Icon name="search" size={14} />
-        <input
-          ref={filterRef}
-          value={filter}
-          onChange={(event) => onFilter(event.target.value)}
-          placeholder="Filter files…"
-          aria-label="Filter changed files"
-          {...stylex.props(styles.input)}
-        />
-        {filter && (
-          <button
-            {...stylex.props(ui.button, ui.iconButton, styles.clear)}
-            onClick={() => onFilter("")}
-            aria-label="Clear file filter"
-          >
-            <Icon name="close" size={13} />
-          </button>
-        )}
-      </div>
-      <PathContextMenu
-        actions={pathActions}
-        render={<div />}
-        className={stylex.props(styles.treeFrame).className}
-        locate={(event) => {
-          const path = treeRowPath(event);
-          return path ? { repo, path } : null;
+    <PathContextMenu
+      actions={pathActions}
+      render={<div />}
+      className={stylex.props(styles.treeFrame).className}
+      locate={(event) => {
+        const path = treeRowPath(event);
+        return path ? { repo, path } : null;
+      }}
+    >
+      <StableFileTree
+        model={model}
+        onPointerDownCapture={(event) => {
+          pointer.current = true;
+          if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
+          if (
+            !event.nativeEvent
+              .composedPath()
+              .some((node) => node instanceof HTMLElement && node.dataset.itemType === "file")
+          )
+            return;
+          event.preventDefault();
+          event.stopPropagation();
         }}
-      >
-        <StableFileTree
-          model={model}
-          onPointerDownCapture={(event) => {
-            pointer.current = true;
-            if (!onOpen || (!event.metaKey && !event.ctrlKey)) return;
-            if (
-              !event.nativeEvent
-                .composedPath()
-                .some((node) => node instanceof HTMLElement && node.dataset.itemType === "file")
-            )
-              return;
+        onClickCapture={(event) => {
+          pointer.current = false;
+          const row = event.nativeEvent
+            .composedPath()
+            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+            | HTMLElement
+            | undefined;
+          const file = files.find((item) => item.path === row?.dataset.itemPath);
+          if (!file) return;
+          if (onOpen && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             event.stopPropagation();
-          }}
-          onClickCapture={(event) => {
-            pointer.current = false;
-            const row = event.nativeEvent
-              .composedPath()
-              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-              | HTMLElement
-              | undefined;
-            const file = files.find((item) => item.path === row?.dataset.itemPath);
-            if (!file) return;
-            if (onOpen && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              event.stopPropagation();
-              onOpen(file.id, true);
-            } else if (!event.shiftKey) onSelect(file.id);
-          }}
-          onKeyDownCapture={() => {
-            pointer.current = false;
-          }}
-          // A cut name shows its path in the app's tooltip (AppTooltip).
-          data-tooltip-tree=""
-          onPointerOver={(event) => {
-            const row = event.nativeEvent
-              .composedPath()
-              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-              | HTMLElement
-              | undefined;
-            if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
-            hoveredPath.set(row?.dataset.itemPath ?? null);
-          }}
-          onPointerLeave={() => hoveredPath.set(null)}
-          onDoubleClick={(event) => {
-            const row = event.nativeEvent
-              .composedPath()
-              .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
-              | HTMLElement
-              | undefined;
-            const file = files.find((item) => item.path === row?.dataset.itemPath);
-            if (file) onOpen?.(file.id);
-          }}
-          className={stylex.props(styles.tree).className}
-          style={
-            {
-              "--trees-font-family-override": tokens.ui,
-              "--trees-font-size-override": "12.5px",
-              "--trees-border-radius-override": `calc(6px * ${tokens.round})`,
-              "--trees-item-margin-x-override": "6px",
-              "--trees-fg-muted-override": tokens.faint,
-              "--trees-indent-guide-bg-override": tokens.line,
-              "--trees-theme-sidebar-header-fg": tokens.muted,
-              "--trees-accent-override": tokens.accent,
-              "--trees-theme-sidebar-bg": tokens.panel,
-              "--trees-theme-sidebar-fg": tokens.text,
-              "--trees-theme-list-active-selection-bg": tokens.selected,
-              "--trees-selected-bg-override": tokens.selected,
-              "--trees-theme-list-active-selection-fg": tokens.selectedText,
-              "--trees-selected-fg-override": tokens.selectedText,
-              "--trees-theme-list-hover-bg": tokens.fill,
-              "--trees-theme-focus-ring": tokens.accentLine,
-              "--trees-theme-git-added-fg": tokens.green,
-              "--trees-theme-git-deleted-fg": tokens.red,
-              "--trees-theme-git-modified-fg": tokens.accent,
-            } as CSSProperties
-          }
-        />
-      </PathContextMenu>
-      {files.length === 0 && (
-        <p {...stylex.props(styles.empty)}>{filter ? "No matching files" : "No changed files"}</p>
-      )}
-    </section>
+            onOpen(file.id, true);
+          } else if (!event.shiftKey) onSelect(file.id);
+        }}
+        onKeyDownCapture={() => {
+          pointer.current = false;
+        }}
+        // A cut name shows its path in the app's tooltip (AppTooltip).
+        data-tooltip-tree=""
+        onPointerOver={(event) => {
+          const row = event.nativeEvent
+            .composedPath()
+            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+            | HTMLElement
+            | undefined;
+          if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
+          hoveredPath.set(row?.dataset.itemPath ?? null);
+        }}
+        onPointerLeave={() => hoveredPath.set(null)}
+        onDoubleClick={(event) => {
+          const row = event.nativeEvent
+            .composedPath()
+            .find((node) => node instanceof HTMLElement && node.dataset.itemType === "file") as
+            | HTMLElement
+            | undefined;
+          const file = files.find((item) => item.path === row?.dataset.itemPath);
+          if (file) onOpen?.(file.id);
+        }}
+        className={stylex.props(styles.tree).className}
+        style={
+          {
+            "--trees-font-family-override": tokens.ui,
+            "--trees-font-size-override": "12.5px",
+            "--trees-border-radius-override": `calc(6px * ${tokens.round})`,
+            "--trees-item-margin-x-override": "6px",
+            "--trees-fg-muted-override": tokens.faint,
+            "--trees-indent-guide-bg-override": tokens.line,
+            "--trees-theme-sidebar-header-fg": tokens.muted,
+            "--trees-accent-override": tokens.accent,
+            "--trees-theme-sidebar-bg": tokens.panel,
+            "--trees-theme-sidebar-fg": tokens.text,
+            "--trees-theme-list-active-selection-bg": tokens.selected,
+            "--trees-selected-bg-override": tokens.selected,
+            "--trees-theme-list-active-selection-fg": tokens.selectedText,
+            "--trees-selected-fg-override": tokens.selectedText,
+            "--trees-theme-list-hover-bg": tokens.fill,
+            "--trees-theme-focus-ring": tokens.accentLine,
+            "--trees-theme-git-added-fg": tokens.green,
+            "--trees-theme-git-deleted-fg": tokens.red,
+            "--trees-theme-git-modified-fg": tokens.accent,
+          } as CSSProperties
+        }
+      />
+    </PathContextMenu>
   );
-});
+}
 
 const styles = stylex.create({
   controls: { display: "flex", alignItems: "center", marginBlock: -4, marginInlineEnd: -8 },
@@ -306,4 +385,46 @@ const styles = stylex.create({
   treeFrame: { flex: "1", minHeight: 0, display: "flex", flexDirection: "column" },
   tree: { flex: "1", minHeight: 0, width: "100%", overflow: "hidden" },
   empty: { color: tokens.muted, fontSize: 12, paddingInline: 14 },
+  // The generated files' row, under the tree; opened, it shares the height.
+  generated: {
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+  },
+  generatedOpen: { flexGrow: 0, flexShrink: 1, flexBasis: "40%", minHeight: 96 },
+  generatedRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+    height: 30,
+    marginInline: 6,
+    marginBlock: 3,
+    paddingInline: 8,
+    borderWidth: 0,
+    borderRadius: `calc(6px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  chevron: {
+    display: "inline-flex",
+    color: tokens.faint,
+    transitionProperty: "transform",
+    transitionDuration: "150ms",
+  },
+  folded: { transform: "rotate(-90deg)" },
+  generatedCount: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  generatedStats: { display: "inline-flex", gap: 6, fontFamily: tokens.code, fontSize: 10.5 },
 });

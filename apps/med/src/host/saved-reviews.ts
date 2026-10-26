@@ -18,6 +18,7 @@ import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
 import { attemptRefSchema } from "../shared/attempts";
+import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   comparisonSchema,
@@ -104,6 +105,7 @@ const responseSchema = z.object({
       binary: z.boolean(),
       tooLarge: z.boolean().optional(),
       untracked: z.boolean().optional(),
+      generated: z.union([generatedMarkSchema, z.literal(false)]).optional(),
     }),
   ),
   patch: text,
@@ -1000,12 +1002,20 @@ export class SavedReviewStore {
         saved.iterations?.at(-1)?.targetIds ??
           saved.targets.filter((target) => !target.commentReviewId).map((target) => target.id),
       );
-      // Saved reviews hold Git comparisons and working changes only.
-      const targets = saved.targets.flatMap(({ id, repo, comparison }) =>
-        current.has(id) && comparison.kind !== "files" && comparison.kind !== "patch"
-          ? [{ repo, comparison }]
-          : [],
-      );
+      // Saved reviews hold Git comparisons and working changes only. Files
+      // that the hand-off marked generated stay marked (docs/GENERATED.md).
+      const declared = (id: string) =>
+        record.captures
+          .find((capture) => capture.targetId === id)
+          ?.review.files.flatMap((file) =>
+            file.generated && file.generated.kind === "declared" ? [file.path] : [],
+          );
+      const targets = saved.targets.flatMap(({ id, repo, comparison }) => {
+        if (!current.has(id) || comparison.kind === "files" || comparison.kind === "patch")
+          return [];
+        const generated = declared(id);
+        return [{ repo, comparison, ...(generated?.length ? { generated } : {}) }];
+      });
       if (!targets.length)
         throw new HostError("saved-review-empty", "This review has no comparison to capture.", 409);
       return this.iterate(record, { title: saved.title, targets }, capture, beforeCommit, true);

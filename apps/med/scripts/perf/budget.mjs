@@ -38,6 +38,7 @@
 //   options: --out <file>  --runs 5  --idle 60  --port 6451 (6451–6459 or 5371–5379)
 //            --quick (3 runs, 20 s idle)
 //            --transcripts auto|real|synthetic  --no-react  --headed  --frames
+//            --lockfile 10000 (the large diff also updates a bun.lock of that many packages)
 //            --tolerance 0.25  --keep (leave the scratch folder and the profiling build)
 //            --only load,cold,warm,keys,soak,agent,idle (some actions; not with --check)
 //            --soak 120 (rounds in the soak; 0 leaves it out)
@@ -317,6 +318,7 @@ log("building the test bed …");
 const fixture = await buildFixture({
   root: join(scratch, "bed"),
   transcripts: option("transcripts", "auto"),
+  lockfile: Number(option("lockfile", 0)),
   log,
 });
 const shim = await makeGitShim(join(scratch, "shim"), fixture.world.env.PATH);

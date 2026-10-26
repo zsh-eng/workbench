@@ -1,51 +1,58 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import * as stylex from "@stylexjs/stylex";
+import type { ReviewFile } from "../../shared/protocol";
 import { changeKind, type ChangeKind } from "../data/file-filters";
+import { generatedMark } from "../data/generated";
 import { tokens, ui } from "../theme.stylex";
 
-const KINDS: { kind: ChangeKind; label: string }[] = [
+type TotalKind = Exclude<ChangeKind, "lockfiles"> | "generated";
+const KINDS: { kind: TotalKind; label: string }[] = [
   { kind: "code", label: "Code" },
   { kind: "tests", label: "Tests" },
   { kind: "docs", label: "Docs" },
   { kind: "other", label: "Config and data" },
-  { kind: "lockfiles", label: "Lockfiles" },
+  { kind: "generated", label: "Generated" },
 ];
 
-/** The comparison's line totals. Hover or focus splits them by kind of file,
- * so a large change made mostly of lockfiles or tests reads as such. */
+/** The comparison's line totals, without the files that a tool writes
+ * (docs/GENERATED.md). Hover or focus splits them by kind of file, with the
+ * generated lines apart, so a large change made mostly of tests reads as such. */
 export function ChangeTotals({
   files,
   range,
 }: {
-  files: readonly { path: string; additions: number; deletions: number; binary?: boolean }[];
+  files: readonly Pick<ReviewFile, "path" | "additions" | "deletions" | "generated">[];
   /** Base and head, such as "a1b2c3d → working". */
   range: string;
 }) {
-  const totals = new Map<ChangeKind, { files: number; additions: number; deletions: number }>();
+  const totals = new Map<TotalKind, { files: number; additions: number; deletions: number }>();
   let additions = 0;
   let deletions = 0;
   for (const file of files) {
-    const kind = changeKind(file.path);
+    const generated = !!generatedMark(file);
+    const kind = generated ? "generated" : (changeKind(file.path) as TotalKind);
     const entry = totals.get(kind) ?? { files: 0, additions: 0, deletions: 0 };
     entry.files++;
     entry.additions += file.additions;
     entry.deletions += file.deletions;
     totals.set(kind, entry);
+    if (generated) continue;
     additions += file.additions;
     deletions += file.deletions;
   }
+  const generated = totals.get("generated");
   const rows = KINDS.flatMap(({ kind, label }) => {
     const entry = totals.get(kind);
     return entry ? [{ kind, label, ...entry }] : [];
   });
-  const lines = additions + deletions;
+  const lines = rows.reduce((sum, row) => sum + row.additions + row.deletions, 0);
   return (
     <Tooltip.Root>
       <Tooltip.Trigger
         render={
           <button
             type="button"
-            aria-label={`Comparison total: ${additions} lines added, ${deletions} lines deleted`}
+            aria-label={`Comparison total: ${additions} lines added, ${deletions} lines deleted${generated ? `, without ${generated.additions + generated.deletions} generated lines` : ""}`}
             data-change-totals=""
             {...stylex.props(styles.totals)}
           >
@@ -172,7 +179,7 @@ const styles = stylex.create({
   tests: { backgroundColor: tokens.warning },
   docs: { backgroundColor: tokens.muted },
   other: { backgroundColor: tokens.faint },
-  lockfiles: { backgroundColor: tokens.lineStrong },
+  generated: { backgroundColor: tokens.lineStrong },
   zero: { color: tokens.faint },
   count: { paddingInlineEnd: 14, color: tokens.faint, whiteSpace: "nowrap", textAlign: "right" },
   number: {

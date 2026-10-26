@@ -27,6 +27,8 @@ import { git, measureGit, ProcessFailure } from "../runtime/process";
 import { resolveCommit } from "./history";
 import { parsePatchFiles } from "@pierre/diffs";
 import type { ReviewHunkSpan } from "../../shared/hunk/geometry";
+import { HEADER_LINES } from "../../shared/generated";
+import { markGenerated, patchHead } from "./generated";
 
 export const MAX_PATCH_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
@@ -49,6 +51,8 @@ interface SourceFile extends ReviewFile {
   fingerprint?: string;
   sourceUnavailable?: boolean;
   noteHunks?: ReviewHunkSpan[];
+  /** The new side's first lines, when the patch shows them; not sent. */
+  head?: string[];
 }
 export interface StoredReview {
   response: ReviewResponse;
@@ -189,6 +193,8 @@ function applyPatchStats(files: SourceFile[], patch: string) {
     const file = files[i]!;
     const section = sections[i] ?? "";
     file.binary = /^Binary files .* differ$/m.test(section) || /^GIT binary patch$/m.test(section);
+    const head = file.binary ? undefined : patchHead(section);
+    if (head) file.head = head;
     let inHunk = false;
     for (const line of section.split("\n")) {
       if (line.startsWith("@@")) {
@@ -453,11 +459,16 @@ export class ReviewService {
     const sections = patch
       .split(/(?=^diff --git )/m)
       .filter((part) => part.startsWith("diff --git "));
-    for (let index = 0; index < files.length; index++)
-      files[index]!.binary =
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index]!;
+      file.binary =
         binaryPair ||
         /^Binary files .* differ$/m.test(sections[index] ?? "") ||
         /^GIT binary patch$/m.test(sections[index] ?? "");
+      const head = file.binary ? undefined : patchHead(sections[index] ?? "");
+      if (head) file.head = head;
+    }
+    await markGenerated(request.repo, files);
     const id = createHash("sha256")
       .update(request.repo)
       .update(JSON.stringify(comparison))
@@ -482,6 +493,7 @@ export class ReviewService {
           sourceUnavailable: _s,
           noteHunks: _h,
           fingerprint: _f,
+          head: _head,
           ...file
         }) => file,
       ),
@@ -831,6 +843,7 @@ export class ReviewService {
             patch += added.patch;
             file.additions = added.lines;
           }
+          file.head = text.split("\n", HEADER_LINES);
         } catch (error) {
           if (error instanceof HostError && error.code === "binary-source") file.binary = true;
           else if (error instanceof HostError && error.code === "source-too-large")
@@ -841,6 +854,16 @@ export class ReviewService {
         files.push(file);
       }
     }
+    await markGenerated(repo, files, {
+      attributes:
+        comparison.kind === "staged"
+          ? { kind: "index" }
+          : live
+            ? { kind: "worktree" }
+            : { kind: "tree", oid: head },
+      worktree: live,
+      signal,
+    });
     if (mutable && !none) {
       const afterRaw = await git(repo, rawArgs, { signal, maxBytes: 4 * 1024 * 1024 });
       if (!raw.equals(afterRaw))
@@ -874,8 +897,15 @@ export class ReviewService {
       label,
       patch,
       files: files.map(
-        ({ oldOid: _old, newOid: _new, oldMode: _om, newMode: _nm, fingerprint: _fp, ...file }) =>
-          file,
+        ({
+          oldOid: _old,
+          newOid: _new,
+          oldMode: _om,
+          newMode: _nm,
+          fingerprint: _fp,
+          head: _head,
+          ...file
+        }) => file,
       ),
       warnings,
       metrics: {

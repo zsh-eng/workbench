@@ -313,8 +313,12 @@ test("Changes show a branch's changes, and in a shared checkout only one session
 test("Keep in Med and adopt capture nothing, also for an inactive session; the row counts live Changes", async () => {
   const { api, list, feature, home } = await fixture();
   await writeFile(join(feature, "a.ts"), "feature\n");
+  // Lockfiles count as files, not as lines (docs/GENERATED.md).
+  await writeFile(join(feature, "yarn.lock"), "one\ntwo\nthree\n");
+  git(feature, ["add", "yarn.lock"]);
   git(feature, ["commit", "-q", "-am", "Feature"]);
   await writeFile(join(feature, "b.ts"), "uncommitted\n");
+  await writeFile(join(feature, "bun.lock"), "one\ntwo\n");
   // An inactive session: idle, and older than the found window.
   const path = await claude(home, feature, ids.old, ["a.ts"]);
   const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -339,7 +343,7 @@ test("Keep in Med and adopt capture nothing, also for an inactive session; the r
         checkout: feature,
         branch: "feature",
         linked: true,
-        changes: { files: 2, additions: 2, deletions: 2 },
+        changes: { files: 4, additions: 2, deletions: 2 },
       }),
     { timeout: 10_000 },
   );

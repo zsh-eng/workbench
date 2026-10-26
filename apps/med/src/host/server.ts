@@ -46,6 +46,9 @@ import {
 } from "./repository/commit-flow";
 import { commitRoutes, pushRequestSchema } from "../shared/git-actions";
 import { route, routeTable } from "./routes";
+import { createDependencyInfo } from "./dependency-info";
+import { declareGenerated } from "./repository/generated";
+import { generatedRoutes } from "../shared/generated";
 import {
   endpointNames,
   loadCommitDetails,
@@ -173,6 +176,8 @@ export interface StartHostOptions {
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
   gh?: { command: string; args: string[] };
+  /** deps.dev's origin for dependency lookups; tests give a local server. */
+  dependencyApi?: string;
   /** The command that runs this Med again; agents that Med starts get it as `med`. */
   cli?: readonly string[];
   /** Repository watchers. Tests turn file events off, change the safety
@@ -459,8 +464,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     state: (checkout) => checkoutState(checkout, true),
     onChange: () => listChanged(),
   });
-  // The files that each agent session edited, for "Only this session's files".
+  // The files that each agent session edited, for "Only this session's files",
+  // and the commands that wrote generated files.
   const sessionEdits = createSessionEdits();
+  // Dependency licences and release dates, once the reader turns them on.
+  const dependencyInfo = createDependencyInfo({
+    stateDir: options.stateDir ?? temporaryState!,
+    api: options.dependencyApi,
+  });
   // Questions about lines: one-shot runs of a thread's agent, whose answers
   // go to the reader only. Their forks are not threads.
   const questions = new Questions({
@@ -929,6 +940,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     route(commitRoutes.pushBranch, async (input, { requireRepo, signal }) =>
       pushCurrentBranch({ ...input, repo: await requireRepo(input.repo) }, signal),
     ),
+    route(generatedRoutes.provenance, async (input, { requireRepo }) => ({
+      files: await sessionEdits.provenance(
+        input.sessions,
+        await requireRepo(input.repo),
+        input.files,
+      ),
+    })),
+    route(generatedRoutes.dependencies, async (input, { signal }) => ({
+      packages: await dependencyInfo.lookup(input.packages, signal),
+    })),
     ...attempts.routes(),
     ...questions.routes(),
   ]);
@@ -1837,9 +1858,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const repo = await requireRepo(target.repo);
             const owner = await registry.require(repo, abort.signal);
             const info = await resolveRepository(repo, abort.signal);
-            const review = await reviews.load(
-              { repo, comparison: target.comparison },
-              abort.signal,
+            // Files that the hand-off names as generated (docs/GENERATED.md).
+            const review = declareGenerated(
+              await reviews.load({ repo, comparison: target.comparison }, abort.signal),
+              target.generated,
             );
             if (review.files.length > 500)
               throw new HostError(

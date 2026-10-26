@@ -6,8 +6,8 @@ browser renders diffs, files, notes, and sessions. Selecting a commit reads Git
 objects; it does not change HEAD or check out files.
 
 Related: [file browsing](docs/FILE_BROWSING.md), [agent sessions](docs/SESSIONS.md),
-[agent integration](docs/AGENT_INTEGRATION.md), [usage](docs/USAGE.md), and
-[testing](docs/TESTING.md).
+[agent integration](docs/AGENT_INTEGRATION.md), [generated files](docs/GENERATED.md),
+[usage](docs/USAGE.md), and [testing](docs/TESTING.md).
 
 ## Layout
 
@@ -492,6 +492,17 @@ response has the last 8,000 characters of its output. Push from the Commit tab
 uses the same exact-commit push, to the branch's upstream; a branch without an
 upstream pushes only after the user agrees. There is no force push, amend, hunk
 staging, or branch switch.
+
+**Generated files.** `src/host/repository/generated.ts` marks each
+`ReviewFile` with `generated: { kind, source? }` from Git attributes, the
+first lines of the file, and the path rules in `src/shared/generated.ts`
+([design](docs/GENERATED.md)). It runs `git check-attr` only when the
+checkout has a root `.gitattributes` or `info/attributes`, and reads headers
+from the patch or with `open` (at most 1,000 files, 1 KiB each), so a review
+without attributes starts no more Git processes. Provenance
+(`POST /api/review/provenance`) and dependency lookups (`POST
+/api/dependencies`, deps.dev, kept in `dependency-info.json`) run after the
+diff shows, and lookups only after the user turns them on.
 
 ## Saved reviews and agent sessions
 

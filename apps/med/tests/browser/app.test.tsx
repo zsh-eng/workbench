@@ -1957,7 +1957,7 @@ describe("graphical review", () => {
     await expect.poll(offset).toBeLessThan(20);
   });
 
-  test("the comparison totals split lines into code, tests, and lockfiles", async () => {
+  test("the comparison totals split lines into code and tests, and leave generated lines apart", async () => {
     const file = (path: string, lines: number) =>
       `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,1 +1,${lines + 1} @@\n const kept = 1;\n` +
       Array.from({ length: lines }, (_, line) => `+const added${line} = ${line};\n`).join("");
@@ -1968,9 +1968,10 @@ describe("graphical review", () => {
         patch: file(paths[0], 2) + file(paths[1], 3) + file(paths[2], 40),
       },
     });
-    // The fixture reports one added and one deleted line for each file.
+    // The fixture reports one added and one deleted line for each file. The
+    // lockfile's lines are not in the headline (docs/GENERATED.md).
     const totals = page.getByRole("button", { name: /^Comparison total:/ });
-    await expect.element(totals).toHaveTextContent("+3−3");
+    await expect.element(totals).toHaveTextContent("+2−2");
     totals.element().focus();
     const tooltip = page.getByRole("table");
     await expect.element(tooltip).toBeVisible();
@@ -1982,7 +1983,7 @@ describe("graphical review", () => {
     ).toEqual([
       ["code", "Code1 file+1−1"],
       ["tests", "Tests1 file+1−1"],
-      ["lockfiles", "Lockfiles1 file+1−1"],
+      ["generated", "Generated1 file+1−1"],
     ]);
   });
 

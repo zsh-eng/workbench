@@ -54,6 +54,17 @@ import {
 import { DiffStat } from "./components/DiffStat";
 import { ChangeTotals } from "./components/ChangeTotals";
 import { FileSidebar } from "./components/FileSidebar";
+import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
+import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
+import { DependencyCard } from "./components/DependencyCard";
+import {
+  setDependencyLookups,
+  useDependencyInfo,
+  useDependencyLookups,
+  useGeneratedSummaries,
+  useManifestChanges,
+} from "./data/dependencies";
+import { GENERATED_LABELS } from "../shared/generated";
 import { NoteCard, NoteComposer, sameTarget, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
@@ -1183,6 +1194,48 @@ export function App({
     });
   }, [controller]);
   const files = state.visibleFiles;
+  // Files that a tool writes fold at the end of the stream (docs/GENERATED.md).
+  const generatedFiles = useMemo(() => generatedIndex(state.files), [state.files]);
+  // The comparison whose group is open: another comparison starts folded.
+  const [generatedOpenScope, setGeneratedOpenScope] = useState<string | null>(null);
+  const generatedOpen = generatedOpenScope === reviewScope;
+  const generatedOpenRef = useRef(generatedOpen);
+  /** The generated files that the open group folded once; a later one folds too. */
+  const generatedFolded = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    generatedOpenRef.current = generatedOpen;
+    if (!generatedOpen) {
+      generatedFolded.current.clear();
+      return;
+    }
+    // A generated file that joins the open group, such as a bun.lock in live
+    // Changes after `bun install`, shows folded to its header.
+    const joined = [...generatedFiles.marks.keys()].filter(
+      (id) => !generatedFolded.current.has(id),
+    );
+    if (!joined.length) return;
+    for (const id of joined) generatedFolded.current.add(id);
+    setCollapsed((current) => {
+      const next = new Set(current);
+      for (const id of joined) next.add(id);
+      return next;
+    });
+  }, [generatedOpen, generatedFiles]);
+  /** Opens the group, each file folded to its header but `show`. */
+  const openGenerated = useCallback(
+    (show?: string) => {
+      if (generatedOpenRef.current) return;
+      generatedOpenRef.current = true;
+      setGeneratedOpenScope(reviewScope);
+      for (const id of generatedFiles.marks.keys()) generatedFolded.current.add(id);
+      setCollapsed((current) => {
+        const next = new Set(current);
+        for (const id of generatedFiles.marks.keys()) if (id !== show) next.add(id);
+        return next;
+      });
+    },
+    [generatedFiles, reviewScope],
+  );
   // A guide segment shows files that a path filter can hide, so headers read every file.
   const fileInfoById = useMemo(
     () => new Map(state.files.map((file) => [file.id, file.info])),
@@ -1375,6 +1428,7 @@ export function App({
   const reveal = useCallback(
     (id: string) => {
       showInStream(id);
+      if (generatedFiles.marks.has(id)) openGenerated(id);
       controller.revealFile(id);
       setCollapsed((current) => {
         if (!current.has(id)) return current;
@@ -1388,7 +1442,7 @@ export function App({
         else viewer.current?.scrollTo({ type: "item", id, align: "start" });
       });
     },
-    [controller, showInStream],
+    [controller, showInStream, generatedFiles, openGenerated],
   );
   // The file whose line a jump is about to show. Selecting that file must not
   // scroll to the file as well, or the file scroll replaces the line scroll.
@@ -1398,6 +1452,7 @@ export function App({
       const serial = (lineJump.current?.serial ?? 0) + 1;
       lineJump.current = { id, serial };
       showInStream(id);
+      if (generatedFiles.marks.has(id)) openGenerated(id);
       controller.revealFile(id);
       setCollapsed((current) => {
         if (!current.has(id)) return current;
@@ -1425,7 +1480,7 @@ export function App({
         }),
       );
     },
-    [controller, showInStream],
+    [controller, showInStream, generatedFiles, openGenerated],
   );
 
   // A brief explains a saved review. Paste one with Command-V; its links open
@@ -1651,11 +1706,17 @@ export function App({
   const showNextUnreviewed = useCallback(() => {
     if (nextLayer >= 0) showLayer(nextLayer);
   }, [nextLayer, showLayer]);
+  // Outside the Guide, whose order the agent chose, generated files come
+  // last, and only while their group is open.
+  const fileGroups = useMemo(() => splitGenerated(files, generatedFiles), [files, generatedFiles]);
+  const groupGenerated = !guideDiff && fileGroups.generated.length > 0;
   const streamFiles = useMemo(() => {
+    if (groupGenerated)
+      return generatedOpen ? [...fileGroups.primary, ...fileGroups.generated] : fileGroups.primary;
     if (!guideDiff || !guideSection) return files;
     const byId = new Map(state.files.map((file) => [file.id, file]));
     return guideSection.fileIds.flatMap((id) => byId.get(id) ?? []);
-  }, [guideDiff, guideSection, files, state.files]);
+  }, [guideDiff, guideSection, files, state.files, groupGenerated, generatedOpen, fileGroups]);
   useLayoutEffect(() => {
     streamFilesRef.current = guideDiff ? streamFiles : NO_FILES;
   });
@@ -1672,9 +1733,17 @@ export function App({
     (list: readonly ParsedReviewFile[]) => {
       const ids = new Set<string>();
       for (const file of list) if (viewed.marks.has(viewKey(file))) ids.add(file.id);
+      // A generated file is viewed with the file whose change made it.
+      if (generatedFiles.sources.size) {
+        const byId = new Map(state.files.map((file) => [file.id, file]));
+        for (const file of list) {
+          const source = byId.get(generatedFiles.sources.get(file.id) ?? "");
+          if (source && viewed.marks.has(viewKey(source))) ids.add(file.id);
+        }
+      }
       return ids;
     },
-    [viewed.marks],
+    [viewed.marks, generatedFiles, state.files],
   );
   const viewedIds = useMemo(() => markedIds(state.files), [markedIds, state.files]);
   // The sidebar draws a stack's progress from each layer's viewed count.
@@ -2278,23 +2347,19 @@ export function App({
                   note.resolution !== "orphaned" &&
                   note.resolution !== "stale",
               )
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { note },
+              })),
             ...(guideNotesByFile?.get(file.id) ?? [])
               .filter(onLines)
               .filter((note) => shownLine(file.metadata, note))
-              .map(
-                (note): DiffLineAnnotation<Annotation> => ({
-                  side: note.side === "old" ? "deletions" : "additions",
-                  lineNumber: noteLine(file.metadata, note),
-                  metadata: { guide: note },
-                }),
-              ),
+              .map((note): DiffLineAnnotation<Annotation> => ({
+                side: note.side === "old" ? "deletions" : "additions",
+                lineNumber: noteLine(file.metadata, note),
+                metadata: { guide: note },
+              })),
           ]
         : [];
       if (visibleDraft?.path === file.path)
@@ -4597,6 +4662,100 @@ export function App({
     },
     [fileState.active, streamScope],
   );
+  // What the generated files and the dependency changes say in words, and
+  // what the thread's agents did to the generated files (docs/GENERATED.md).
+  const transcriptSessions = useMemo(
+    () =>
+      agentSessions.flatMap((session) =>
+        session.agent === "claude" || session.agent === "codex"
+          ? [{ agent: session.agent, id: session.id }]
+          : [],
+      ),
+    [agentSessions],
+  );
+  const provenance = useProvenance(
+    sessionFetch,
+    groupGenerated ? (state.review?.repo ?? null) : null,
+    transcriptSessions,
+    state.files,
+    generatedFiles,
+  );
+  const manifestPaths = useMemo(
+    () =>
+      guideDiff
+        ? []
+        : state.files
+            .filter((file) => /(?:^|\/)package\.json$/.test(file.path) && !file.info.binary)
+            .slice(0, 8)
+            .map((file) => file.path),
+    [guideDiff, state.files],
+  );
+  const loadManifest = useCallback(
+    async (path: string) => {
+      // After the diff: a read waits while others load.
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const read = controller.preloadSources(path);
+        if (read) return read;
+        await new Promise((done) => setTimeout(done, 250));
+      }
+      return controller.loadSources(path);
+    },
+    [controller],
+  );
+  const manifests = useManifestChanges(loadManifest, state.review?.id ?? null, manifestPaths);
+  const directDependencies = useMemo(() => {
+    const names = new Set<string>();
+    for (const changes of manifests.values())
+      if (Array.isArray(changes)) for (const change of changes) names.add(change.name);
+    return names;
+  }, [manifests]);
+  const generatedSummaries = useGeneratedSummaries(
+    reviewScope,
+    groupGenerated || manifestPaths.length ? state.files : NO_FILES,
+    generatedFiles.marks,
+    directDependencies,
+  );
+  const dependencyLookups = useDependencyLookups();
+  const lookupPackages = useMemo(() => {
+    const packages = new Map<string, { name: string; version: string }>();
+    for (const changes of manifests.values())
+      if (Array.isArray(changes))
+        for (const change of changes)
+          for (const version of [change.toVersion, change.fromVersion])
+            if (version) packages.set(`${change.name}@${version}`, { name: change.name, version });
+    return [...packages.values()];
+  }, [manifests]);
+  const dependencyInfo = useDependencyInfo(sessionFetch, lookupPackages, dependencyLookups);
+  const dependencyCard = useMemo(
+    () =>
+      manifestPaths.length > 0 && (
+        <DependencyCard
+          manifests={manifestPaths.map((path) => ({
+            id: state.files.find((file) => file.path === path)!.id,
+            path,
+            state: manifests.get(path) ?? "loading",
+          }))}
+          lockfiles={state.files.flatMap((file) => {
+            const summary = generatedSummaries.get(file.id);
+            return summary && generatedFiles.marks.get(file.id)?.kind === "lockfile"
+              ? [{ id: file.id, path: file.path, summary }]
+              : [];
+          })}
+          info={dependencyInfo}
+          onLookups={setDependencyLookups}
+          onReveal={reveal}
+        />
+      ),
+    [
+      manifestPaths,
+      state.files,
+      manifests,
+      generatedSummaries,
+      generatedFiles,
+      dependencyInfo,
+      reveal,
+    ],
+  );
   const renderCustomHeader = useCallback(
     (item: CodeViewItem<Annotation>) => {
       const path = item.type === "diff" ? item.fileDiff.name : item.file.name;
@@ -4619,6 +4778,9 @@ export function App({
                 ? { label: "Renamed", tone: styles.statusRenamed }
                 : null;
       const isViewed = viewedIds.has(item.id);
+      const generated = generatedFiles.marks.get(item.id);
+      const generatedFrom = fileInfoById.get(generatedFiles.sources.get(item.id) ?? "")?.path;
+      const written = generated ? provenance.get(path) : undefined;
       return (
         <div data-stream-file={item.id} {...stylex.props(styles.diffHeader)}>
           <button
@@ -4655,6 +4817,36 @@ export function App({
             <span {...stylex.props(styles.fileName)}>{path.slice(slash)}</span>
           </button>
           {status && <span {...stylex.props(styles.statusBadge, status.tone)}>{status.label}</span>}
+          {generated && (
+            <span
+              data-generated-kind={generated.kind}
+              title={[
+                generatedFrom
+                  ? `Follows from ${generatedFrom}`
+                  : generated.kind === "attributes"
+                    ? "Git attributes mark this file generated"
+                    : generated.kind === "declared"
+                      ? "The hand-off marks this file generated"
+                      : "A tool writes this file",
+                written?.command && `Written by ${written.command}`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              {...stylex.props(styles.statusBadge, styles.statusGenerated)}
+            >
+              {GENERATED_LABELS[generated.kind]}
+              {generatedFrom &&
+                ` · from ${generatedFrom.slice(generatedFrom.lastIndexOf("/") + 1)}`}
+            </span>
+          )}
+          {written?.edited && (
+            <span
+              title="An agent edited this generated file with an edit tool"
+              {...stylex.props(styles.statusBadge, styles.statusEdited)}
+            >
+              Edited by hand
+            </span>
+          )}
           <span {...stylex.props(ui.grow)} />
           {info && (
             <span {...stylex.props(styles.headerStats)}>
@@ -4690,6 +4882,8 @@ export function App({
       viewedIds,
       canMarkViewed,
       setFilesViewed,
+      generatedFiles,
+      provenance,
     ],
   );
   // A link to a file in a comment opens the file at its line.
@@ -4835,7 +5029,7 @@ export function App({
   const streamViewed =
     streamFiles.length > 0 && streamFiles.every((file) => viewedIds.has(file.id));
   const renderCodeViewHeader = useCallback(() => {
-    if (!guideDiff) return null;
+    if (!guideDiff) return dependencyCard || null;
     if (guideSection)
       return (
         <SegmentHeader
@@ -4884,7 +5078,65 @@ export function App({
     state.review,
     state.files,
     loadGuideCommit,
+    dependencyCard,
   ]);
+  const generatedRows = useMemo<GeneratedRow[]>(
+    () =>
+      groupGenerated
+        ? fileGroups.generated.map((file) => {
+            const mark = generatedFiles.marks.get(file.id)!;
+            const sourceId = generatedFiles.sources.get(file.id);
+            const source = sourceId ? fileInfoById.get(sourceId) : undefined;
+            const summary = generatedSummaries.get(file.id);
+            const done = provenance.get(file.path);
+            const warning = done?.edited
+              ? "Edited by hand"
+              : generatedFiles.lonelyLockfiles.has(file.id)
+                ? "No manifest changed"
+                : undefined;
+            return {
+              id: file.id,
+              path: file.path,
+              kind: mark.kind,
+              additions: file.info.additions,
+              deletions: file.info.deletions,
+              viewed: viewedIds.has(file.id),
+              ...(summary && { summary }),
+              ...(done?.command && { command: done.command }),
+              ...(source && sourceId ? { source: { id: sourceId, path: source.path } } : {}),
+              ...(warning && { warning }),
+            };
+          })
+        : [],
+    [
+      groupGenerated,
+      fileGroups,
+      generatedFiles,
+      fileInfoById,
+      viewedIds,
+      generatedSummaries,
+      provenance,
+    ],
+  );
+  const toggleGenerated = useCallback(() => {
+    if (generatedOpenRef.current) {
+      generatedOpenRef.current = false;
+      setGeneratedOpenScope(null);
+    } else openGenerated();
+  }, [openGenerated]);
+  const generatedGroup = useMemo(
+    () =>
+      generatedRows.length > 0 && (
+        <GeneratedGroup
+          rows={generatedRows}
+          open={generatedOpen}
+          onToggle={toggleGenerated}
+          onReveal={reveal}
+          onViewed={canMarkViewed ? setFilesViewed : undefined}
+        />
+      ),
+    [generatedRows, generatedOpen, toggleGenerated, reveal, canMarkViewed, setFilesViewed],
+  );
   const renderCodeViewFooter = useCallback(
     () =>
       guideDiff ? (
@@ -4904,19 +5156,25 @@ export function App({
             onOverview={() => openGuide({ kind: "overview" })}
           />
         </>
-      ) : skipped.length ? (
-        renderMetadataRows()
       ) : (
-        <div {...stylex.props(styles.streamEnd)}>
-          <span {...stylex.props(styles.streamRule)} />
-          End of review · {streamFiles.length} {streamFiles.length === 1 ? "file" : "files"}
-          <span {...stylex.props(styles.streamRule)} />
-        </div>
+        <>
+          {skipped.length > 0 && renderMetadataRows()}
+          {generatedGroup}
+          {!skipped.length && (
+            <div {...stylex.props(styles.streamEnd)}>
+              <span {...stylex.props(styles.streamRule)} />
+              End of review · {files.length} {files.length === 1 ? "file" : "files"}
+              <span {...stylex.props(styles.streamRule)} />
+            </div>
+          )}
+        </>
       ),
     [
       guideDiff,
       skipped,
       renderMetadataRows,
+      generatedGroup,
+      files.length,
       nextGuideLabel,
       streamViewed,
       setFilesViewed,
@@ -6027,8 +6285,13 @@ export function App({
                         renderCodeViewHeader={renderCodeViewHeader}
                         renderCodeViewFooter={renderCodeViewFooter}
                       />
-                    ) : skipped.length && state.status !== "loading" && !state.error ? (
-                      <div style={{ overflow: "auto", height: "100%" }}>{renderMetadataRows()}</div>
+                    ) : (skipped.length || generatedRows.length) &&
+                      state.status !== "loading" &&
+                      !state.error ? (
+                      <div style={{ overflow: "auto", height: "100%" }}>
+                        {renderCodeViewHeader()}
+                        {renderCodeViewFooter()}
+                      </div>
                     ) : state.status !== "loading" && !state.error ? (
                       <div {...stylex.props(styles.emptyState)}>
                         <span
@@ -7072,6 +7335,11 @@ const styles = stylex.create({
     backgroundColor: `color-mix(in srgb, ${tokens.red} 13%, transparent)`,
   },
   statusRenamed: { color: tokens.accent, backgroundColor: tokens.accentSoft },
+  statusGenerated: { color: tokens.muted, backgroundColor: tokens.fill },
+  statusEdited: {
+    color: tokens.warning,
+    backgroundColor: `color-mix(in srgb, ${tokens.warning} 14%, transparent)`,
+  },
   headerStats: {
     position: "relative",
     display: "inline-flex",

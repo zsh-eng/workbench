@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GeneratedMark } from "./generated";
 
 /** An agent session whose edited files a comparison can keep (session-edits.ts). */
 export const editSessionSchema = z.object({
@@ -195,6 +196,10 @@ export interface ReviewFile {
   binary: boolean;
   tooLarge?: boolean;
   untracked?: boolean;
+  /** A file that a tool writes (docs/GENERATED.md). False: Git attributes
+   * unmark a file that its path would mark. Absent in older captures, where
+   * the browser applies the path rule. */
+  generated?: GeneratedMark | false;
 }
 export interface ReviewMetrics {
   gitMs: number;

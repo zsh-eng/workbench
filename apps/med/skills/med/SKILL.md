@@ -34,6 +34,11 @@ takes `--base <ref>` (the branch's changes since it left `<ref>`), `--commit`,
 `--working`, `--manifest`, and `--brief`. `med review create --working` and
 `med review update` take `--paths` too.
 
+Med folds lockfiles, build output, and snapshots out of the user's way. When a
+tool wrote other files, such as a code generator's output, add
+`--generated <path|glob>...` (quote globs) to `med thread show`,
+`med review create`, or `med review update --paths`.
+
 ## Before you start work
 
 Record the repository root, the commit before your work (`git rev-parse HEAD`),

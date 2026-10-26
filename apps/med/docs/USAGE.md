@@ -266,7 +266,7 @@ To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
 keeps your line breaks; `$HOME` and `$3` stay text, and only `$$` starts math.
 **Edit** shows the text as you wrote it, and the agent gets that text. Hover the **+/−** totals to split them into code, tests, docs,
-config and data, and lockfiles.
+config and data, and generated files.
 
 To ask the thread's agent about lines, select line numbers in Review, Changes,
 or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
@@ -285,6 +285,44 @@ In a whole file, `⌥B` shows blame in the gutter; hover a label for the date an
 message. When the cursor rests on a line, its author, age, and commit subject
 show after the text. Click the short hash to copy the full hash. **Hide line
 blame at the cursor** in the palette turns this off.
+
+### Generated files and dependencies
+
+Lockfiles, build output (`dist/`, `.vite/`), snapshots, minified files, and
+files with a "generated" or "do not edit" header are **generated files**
+([rules](GENERATED.md)). Changes and Review show them last, in a folded
+**Generated** group, and the headline **+/−** does not count them. Each line
+of the group names the file's kind, what changed ("12 indirect dependencies
+updated", "3 snapshots: 1 changed, 2 added"), the agent command that wrote it
+("written by `bun add zod`"), and the file that it comes from. Click the
+group's row to add the files to the stream. Choosing a generated file in
+Changed files, a search, or a link opens the group. In Changed files, the
+generated files are in a second tree under a folded **Generated** row.
+
+A generated file counts as viewed when its source is viewed, for example a
+`bun.lock` when you mark its `package.json`. The group's check marks all of
+them. Two warnings show on a generated file: **Edited by hand**, when an agent
+session of the thread edited it directly, and **No manifest changed**, for a
+lockfile without a changed manifest (correct after `bun update`).
+
+A changed `package.json` gives a **Dependencies** card at the top of the
+stream: each added, removed, or changed package, its old and new version, and
+**major** when the major version goes up. **Look up licences and dates** adds
+the licence and the release date of each version from deps.dev. This sends
+package names and versions to deps.dev, so it is off until you turn it on;
+the host keeps the answers. A licence change and a release less than a week
+old show in the warning colour.
+
+An agent can mark other files that a tool wrote when it hands off a Review
+(`med review create --generated <glob>`). To change a file's mark yourself,
+use Git attributes; they win over the agent's mark. A committed
+`.gitattributes` applies for everyone; `.git/info/attributes` applies only to
+your clone:
+
+```gitattributes
+src/schema.ts linguist-generated
+bun.lock -linguist-generated
+```
 
 ## Saved reviews
 
