@@ -43,6 +43,8 @@ interface Job {
   prompt: string;
   createdAt: number;
   delaySeconds?: number;
+  /** A ScheduleWakeup that stops the loop: no wakeup before it fires. */
+  stop?: boolean;
   durable?: boolean;
   failed?: boolean;
 }
@@ -80,7 +82,6 @@ function readEntry(scan: Scan, entry: Json) {
         scan.pending.set(id, { cancel: call.id });
         continue;
       }
-      if (call.kind === "wakeup" && call.stop) continue;
       const job: Job =
         call.kind === "cron"
           ? {
@@ -98,6 +99,7 @@ function readEntry(scan: Scan, entry: Json) {
               prompt: call.prompt ?? "",
               createdAt: time(entry),
               ...(call.delaySeconds !== undefined ? { delaySeconds: call.delaySeconds } : {}),
+              ...(call.stop ? { stop: true } : {}),
             };
       scan.jobs.push(job);
       scan.pending.set(id, job);
@@ -290,6 +292,11 @@ export function createSchedules(options: SchedulesOptions) {
           return scan?.jobs.length ? { thread, session, scan } : undefined;
         }),
       );
+      // Only the tabs' sessions stay in the caches.
+      const ids = new Set(sessions.map(({ session }) => session.id));
+      for (const id of paths.keys()) if (!ids.has(id)) paths.delete(id);
+      const kept = new Set(paths.values());
+      for (const path of scans.keys()) if (!kept.has(path)) scans.delete(path);
       const withJobs = found.filter((entry) => !!entry);
       const places = withJobs.length
         ? await options.running(withJobs.map((entry) => entry.session.id))
@@ -299,10 +306,11 @@ export function createSchedules(options: SchedulesOptions) {
         // A session's jobs fire only while its process runs.
         const runs = places.get(session.id);
         if (!runs) return [];
-        // A wakeup is only the loop's next one: the latest stands for the loop.
+        // A wakeup is only the loop's next one: the latest stands for the
+        // loop, and a stop after it ends the loop.
         const wakeup = scan.jobs.findLast((job) => job.kind === "wakeup" && !job.failed);
         return scan.jobs.flatMap((job): ScheduleEntry[] => {
-          if (job.failed || (job.kind === "wakeup" && job !== wakeup)) return [];
+          if (job.failed || (job.kind === "wakeup" && (job !== wakeup || job.stop))) return [];
           const fired = scan.fires.get(job.prompt.trim());
           const common = {
             threadId: thread.id,

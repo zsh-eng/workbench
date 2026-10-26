@@ -77,7 +77,7 @@ test("the Scheduled list has only the jobs that will fire: a running session's l
   ).toEqual([]);
 });
 
-test("a wakeup that is still to come is listed; a recurring job past its 7 days is not", async () => {
+test("a wakeup that is still to come is listed until a stop; a recurring job past its 7 days is not", async () => {
   const { home, transcript } = await world();
   const schedules = createSchedules({
     home: () => home,
@@ -88,6 +88,38 @@ test("a wakeup that is still to come is listed; a recurring job past its 7 days 
   await writeFile(transcript, scheduleTranscript(session, Date.now() - 10 * 60_000, 0));
   expect((await schedules.list(threads)).sessions.map((entry) => entry.schedule)).toEqual([
     "In 14 minutes",
+    "Every hour at :23",
+  ]);
+  // A stop ends the loop: its next wakeup will not fire.
+  const at = new Date().toISOString();
+  await appendFile(
+    transcript,
+    [
+      {
+        type: "assistant",
+        timestamp: at,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "toolu_stop", name: "ScheduleWakeup", input: { stop: true } },
+          ],
+        },
+      },
+      {
+        type: "user",
+        timestamp: at,
+        message: {
+          role: "user",
+          content: [
+            { tool_use_id: "toolu_stop", type: "tool_result", content: "Stopped the loop." },
+          ],
+        },
+      },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n",
+  );
+  expect((await schedules.list(threads)).sessions.map((entry) => entry.schedule)).toEqual([
     "Every hour at :23",
   ]);
 
