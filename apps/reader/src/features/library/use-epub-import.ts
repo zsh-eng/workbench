@@ -118,7 +118,12 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
       if (arrivals) {
         preloadArrivals();
         navigate("/");
-        if (sheet) setSheetKey(arrivals.keys[0]!);
+        if (sheet) {
+          // The place waits for the sheet from the first frame, so the grid
+          // does not draw the cover before the sheet takes it.
+          appArrivals.present(arrivals.keys[0]!, true);
+          setSheetKey(arrivals.keys[0]!);
+        }
       }
 
       try {

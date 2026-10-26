@@ -39,6 +39,11 @@ export interface ArrivalFrameInput {
   cover: Blob | null;
   /** A living cover's depth map, when the book has a hand-made scene. */
   relief: string | null;
+  /**
+   * The arrival sheet shows this book: it is watched from the first frame,
+   * before its view reports that it is on screen.
+   */
+  watched?: boolean;
 }
 
 export interface ArrivalViewOptions {
@@ -458,7 +463,8 @@ class ArrivalEngine {
     const { stage } = input.progress;
     const ready = stage === "ready";
     // A book that finished while nobody saw it arrives at rest.
-    if (ready && !state.seen && !views.some((view) => view.visible)) {
+    const seen = input.watched || views.some((view) => view.visible);
+    if (ready && !state.seen && !seen) {
       state.shown = state.paced = 1;
       state.rested = true;
       return false;

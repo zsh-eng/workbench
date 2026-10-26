@@ -156,12 +156,14 @@ function ShaderArrival(props: ArrivingCoverProps & { look: ArrivalDirection }) {
     changedAt: arrival.changedAt,
     cover: arrival.cover,
     relief,
+    watched: arrival.presented,
   });
   input.current = {
     progress: arrival.progress,
     changedAt: arrival.changedAt,
     cover: arrival.cover,
     relief,
+    watched: arrival.presented,
   };
   useLayoutEffect(() => {
     const canvas = canvasRef.current;

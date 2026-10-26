@@ -94,7 +94,8 @@ export function ArrivalSheet({
   const done = useRef(onDone);
   done.current = onDone;
 
-  useEffect(() => {
+  // Before the first paint, so the grid never draws the book the sheet shows.
+  useLayoutEffect(() => {
     records.present(arrivalKey, true);
     return () => records.present(arrivalKey, false);
   }, [arrivalKey, records]);
