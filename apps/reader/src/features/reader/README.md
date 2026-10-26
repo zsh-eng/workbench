@@ -36,7 +36,7 @@ Epochs keep events from old layout work from overwriting newer results on the ma
 
 `src/lib/reading-fonts.ts` lists the fonts in Appearance → Type. Each has one CSS font-family list that the worker measures and the page renders, so the two lay text out alike. Name every family and end with a generic family. Pretext cannot measure `system-ui` reliably in Chrome or Firefox, so System is San Francisco only in Apple's WebKit, where widths match exactly, and Source Sans elsewhere.
 
-A bundled family (`@fontsource`) is imported twice with the same subsets and weights: in `main.tsx` for the page and in `pagination-v2/worker/fonts.ts` for the worker. The worker loads only the families the reading font names: the Library warms it with the saved font, and each `init` or `updatePaginationConfig` waits for its font before layout. Workbox precaches the font files, so every font works offline.
+A bundled family (`@fontsource`) is imported twice with the same subsets and weights: in `main.tsx` for the page and in `pagination-v2/worker/fonts.ts` for the worker. The worker loads only the families the reading font names: the Library warms it with the saved font, and each `init` or `updatePaginationConfig` waits for its font before layout. The service worker precaches the Latin faces of Lora, the default reading font, and of the interface fonts (DM Sans, Inter and EB Garamond, so Garamond too). The other faces and subsets download when text first uses them and stay in its `reader-assets` cache, so a font works offline once it has shown online.
 
 Design ideas → Reading fonts opens the book you read last in each sans font through the Debug-only `?font=<id>` parameter, which lays the book out without saving the font.
 

@@ -115,6 +115,26 @@ test("an update waits for Restart and then says Updated", async ({ page }) => {
     ),
   ).toBe(true);
   expect(await pageHas(page, label)).toBe(false);
+  // The progress counts sw-precache.json, so each of its files is now in the
+  // precache and the count reaches its total.
+  expect(
+    await page.evaluate(async () => {
+      const scope = (await navigator.serviceWorker.getRegistration())!.scope;
+      const entries = (await (
+        await fetch("/sw-precache.json", { cache: "no-store" })
+      ).json()) as { url: string; revision: string | null }[];
+      const cache = await caches.open(`workbox-precache-v2-${scope}`);
+      const stored = new Set((await cache.keys()).map((key) => key.url));
+      return entries
+        .filter((entry) => {
+          const url = new URL(entry.url, scope);
+          if (entry.revision)
+            url.searchParams.set("__WB_REVISION__", entry.revision);
+          return !stored.has(url.href);
+        })
+        .map((entry) => entry.url);
+    }),
+  ).toEqual([]);
 
   const reloaded = page.waitForEvent("load");
   await restart.click();
