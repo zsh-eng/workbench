@@ -30,9 +30,18 @@ import {
   type SheetRow,
 } from "./sheet-rows";
 
-/** Every row is this tall, whatever it says, so nothing shifts as it changes. */
+/**
+ * Every row is this tall, whatever it says, so nothing shifts as it
+ * changes. A row of This app (sync, the update) has a short title and more
+ * to say, such as "3 changes only on this device. Sign in to keep them.",
+ * so its words take up to two lines in a taller row.
+ */
 const ROW_HEIGHT = 56;
+const APP_ROW_HEIGHT = 72;
 const HEADING_HEIGHT = 30;
+
+const rowHeight = (row: SheetRow) =>
+  row.section === "app" ? APP_ROW_HEIGHT : ROW_HEIGHT;
 
 /**
  * Rows that join or leave: UITableView's insert and delete spring
@@ -247,7 +256,7 @@ function Row({
   return (
     <div
       className="flex items-center gap-3"
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: rowHeight(row) }}
       data-sheet-row={job.id}
       data-sheet-row-state={row.gone ? "gone" : job.state}
     >
@@ -258,7 +267,8 @@ function Row({
         </span>
         <span
           className={cn(
-            "block truncate font-numeric text-[12.5px] text-muted-foreground tabular-nums",
+            "font-numeric text-[12.5px] text-muted-foreground tabular-nums",
+            row.section === "app" ? "line-clamp-2" : "block truncate",
             warn && "text-[oklch(0.55_0.14_55)]",
           )}
         >
@@ -334,7 +344,7 @@ export function ActivitySheetBody() {
           ...rows.map((row) => (
             <Collapse
               key={row.job.id}
-              height={ROW_HEIGHT}
+              height={rowHeight(row)}
               className="ba-sheet-row"
             >
               <Row row={row} now={now} onRemove={remove} />

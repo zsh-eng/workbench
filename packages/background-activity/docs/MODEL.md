@@ -121,9 +121,10 @@ Podcasts do:
    section, and a row you cancel or dismiss leaves. Every row that changes
    in one update opens or closes its height on the same spring
    (UITableView's, response 0.30 s), never one jump per row.
-4. **Fixed sizes.** Every row is 56 px tall whatever it says, its actions
-   have one width, and numbers use tabular figures, so changing sizes and
-   counts do not jiggle the words.
+4. **Fixed sizes.** Every row is 56 px tall whatever it says (a This app
+   row 72 px, its words in up to two lines), its actions have one width,
+   and numbers use tabular figures, so changing sizes and counts do not
+   jiggle the words.
 5. **The sheet holds its height.** It fits its rows by the shared sheet
    rules (packages/elements/docs/MOTION.md, "Sheet behaviour"): it follows
    a row that joins, holds while one leaves, and settles once.

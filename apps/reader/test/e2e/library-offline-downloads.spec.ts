@@ -59,6 +59,18 @@ test("a book downloads for offline on its cover", async ({
     sheet.locator(`[data-sheet-cover="${localBook.id}"]`),
   ).toBeVisible();
   await expect(sheet.getByRole("button", { name: /^Cancel / })).toBeVisible();
+  // Signed out, sync says so under This app, in words that are all there.
+  const syncLine = sheet
+    .locator('[data-sheet-row="sync"]')
+    .getByText(/only on this device\. Sign in to keep them\.$/);
+  await expect(syncLine).toBeVisible();
+  expect(
+    await syncLine.evaluate(
+      (element) =>
+        element.scrollHeight <= element.clientHeight &&
+        element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
   await page.keyboard.press("Escape");
 
   // "On this device" keeps what it showed while you look at it.
