@@ -97,6 +97,7 @@ import {
   threadCheckout,
   type AgentSession,
   type SavedReviewTarget,
+  type Since,
 } from "../shared/saved-review";
 import { createBrowseApi, useBrowseFiles, useVaults, type BrowseApi } from "./data/browse";
 import { useMentionSources } from "./data/mentions";
@@ -194,6 +195,10 @@ import {
   type LayerProgress,
 } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
+import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
+import { isOpenFinding, readReviewOutput } from "../shared/review-output";
+import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
+import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
 import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
 import { useViewed, viewKey } from "./data/viewed";
@@ -249,6 +254,9 @@ const FoundSessionPane = lazy(() =>
 // The Question pane loads with the first question.
 const QuestionPane = lazy(() => import("./components/QuestionPane"));
 const NO_SESSIONS: AgentSession[] = [];
+/** What "Ask the agent to explain" puts in the session's message box (docs/PRACTICES.md). */
+const EXPLAIN_REQUEST =
+  "Before I read the diff, explain this change in an `## Explainer` section of at most 10 lines: why it exists, what to read first (with path:line), what changes in behaviour and what does not, and the risk.";
 const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
@@ -1555,7 +1563,38 @@ export function App({
       : state.savedReview.guide;
   const guideTarget = savedTarget;
   const guideCommits = guideTarget?.commits ?? NO_COMMITS;
-  const hasGuide = !!state.savedReview && (!!savedGuide || guideCommits.length >= 2);
+  // The review output of the shown version (docs/PRACTICES.md): its proof,
+  // findings, and explainer, read from its own notes and guide only, since an
+  // earlier version's proof is not this version's.
+  const ownBrief =
+    shownIteration === undefined || briefSource?.number === shownIteration ? savedBrief : undefined;
+  const ownGuideSummary =
+    shownIteration === undefined || guideSource?.number === shownIteration
+      ? savedGuide?.summary
+      : undefined;
+  const reviewOutput = useMemo(
+    () =>
+      readReviewOutput([
+        ownGuideSummary,
+        ownBrief?.text,
+        ...(savedPins ?? []).map((pin) => pin.text),
+      ]),
+    [ownGuideSummary, ownBrief, savedPins],
+  );
+  const openFindings = reviewOutput.findings.filter(isOpenFinding).length;
+  // A later version of a thread shows what changed since the reader's last review.
+  const capturedVersions = iterations.filter((entry) => entry.targetIds.length);
+  const laterVersion =
+    shownIteration !== undefined &&
+    capturedVersions.some((entry) => entry.number === shownIteration) &&
+    capturedVersions.some((entry) => entry.number < shownIteration);
+  const overviewParts =
+    !!savedGuide ||
+    guideCommits.length >= 2 ||
+    !!reviewOutput.proof ||
+    reviewOutput.findings.length > 0 ||
+    !!reviewOutput.counts;
+  const hasGuide = !!state.savedReview && (overviewParts || laterVersion);
   // Segments refer to the saved comparison's files. They stay while a commit
   // of the range shows in their place.
   const [guideFiles, setGuideFiles] = useState<{
@@ -1604,6 +1643,28 @@ export function App({
         state.comparison.kind === "commit" &&
         state.comparison.commit === guideCommit.id));
   const guideOverview = guideTab && !guideDiff;
+  // What changed since the reader's last review: the host compares the
+  // captures, and answers again when an approval or a comment moves the basis.
+  const approvals = state.savedReview?.approvals;
+  const sinceKey =
+    guideOverview && laterVersion && state.savedReview
+      ? `${state.savedReview.id} ${shownIteration} ${state.savedReview.revision} ${(approvals ?? []).map((entry) => entry.version).join(",")}`
+      : null;
+  const sinceScope = `${state.savedReview?.id} ${shownIteration}`;
+  const [since, setSince] = useState<{ scope: string; value: Since | null } | null>(null);
+  useEffect(() => {
+    if (!sinceKey || shownIteration === undefined) return;
+    let live = true;
+    controller.loadSince(shownIteration).then(
+      (value) => live && setSince({ scope: sinceScope, value }),
+      () => live && setSince({ scope: sinceScope, value: null }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [controller, sinceKey, sinceScope, shownIteration]);
+  // While a new answer loads, as after an approval, the last one for this version stays.
+  const shownSince = sinceKey && since?.scope === sinceScope ? since.value : null;
   // The tab row is Review · Changes · Commit. Review is what the agent handed
   // off: a saved version, with its Guide. Changes are the checkout's live
   // diff. The pane's "changes" view shows either diff, and "guide" is Review's.
@@ -2065,13 +2126,18 @@ export function App({
     if (reviewOpened.current === state.savedReview.id) return;
     reviewOpened.current = state.savedReview.id;
     // The controller opens a thread with a hand-off on its Review's diff.
+    // A later version with only a brief opens on the brief, which tells what
+    // the round changed; its Overview is the Review tab.
     if (reviewAvailable)
-      fileWorkspace.select(hasGuide ? "guide" : savedBrief ? "brief" : "changes");
+      fileWorkspace.select(
+        hasGuide && (overviewParts || !savedBrief) ? "guide" : savedBrief ? "brief" : "changes",
+      );
     else if (fileState.active === "guide" || fileState.active === "brief")
       fileWorkspace.select("changes");
   }, [
     reviewAvailable,
     hasGuide,
+    overviewParts,
     savedBrief,
     state.savedReview,
     state.status,
@@ -3603,10 +3669,11 @@ export function App({
                 ...(places > 1 ? [target.repo.split(/[\\/]/).at(-1)!] : []),
                 ...(Number.isFinite(time) ? [relativeTime(time, Math.max(reviewNow, time))] : []),
               ].join(" · "),
-              description:
-                number === latestVersion && latestVersion > 1
-                  ? `${placeOf(target)} · the latest version`
-                  : placeOf(target),
+              description: [
+                placeOf(target),
+                ...(number === latestVersion && latestVersion > 1 ? ["the latest version"] : []),
+                ...(approvals?.some((entry) => entry.version === number) ? ["approved"] : []),
+              ].join(" · "),
             };
           }),
         ...(state.savedReview?.targets ?? [])
@@ -5017,6 +5084,114 @@ export function App({
       reveal,
     ],
   );
+  // A finding or a changed file on the Overview opens its line in the
+  // Review's diff, in its segment when the guide has one.
+  const openOverviewLink = useCallback(
+    (href: string) => {
+      const target = parseBriefHref(href);
+      const file =
+        target && state.savedView
+          ? matchReviewFile(target, shownGuideFiles, guideFiles.root)
+          : undefined;
+      if (!target || !file || guideSections.some((section) => section.fileIds.includes(file.id)))
+        return openGuideLink(href);
+      if (target.line)
+        revealLine(
+          file.id,
+          target.line,
+          target.endLine ?? target.line,
+          file.info.status.startsWith("D") ? "deletions" : "additions",
+        );
+      else reveal(file.id);
+    },
+    [
+      state.savedView,
+      shownGuideFiles,
+      guideFiles.root,
+      guideSections,
+      openGuideLink,
+      revealLine,
+      reveal,
+    ],
+  );
+  // Proof: what the agent wrote, or else the checks that the session ran in
+  // the turn that made the latest version.
+  const shownEntry = iterations.find((entry) => entry.number === shownIteration);
+  const turn = thread?.turn;
+  const turnProof: OverviewProof | undefined =
+    !reviewOutput.proof &&
+    turn?.checks?.length &&
+    turn.startedAt !== undefined &&
+    shownEntry &&
+    shownEntry === iterations.at(-1) &&
+    Date.parse(shownEntry.createdAt) >= turn.startedAt
+      ? {
+          checks: turn.checks.map((check) => ({
+            command: check.name,
+            status: check.status,
+            ...(check.pass !== undefined || check.fail !== undefined
+              ? {
+                  result: [
+                    check.pass !== undefined && `${check.pass} passed`,
+                    check.fail && `${check.fail} failed`,
+                  ]
+                    .filter(Boolean)
+                    .join(", "),
+                }
+              : {}),
+          })),
+          media: [],
+          misses: [],
+          notes: [],
+          fromTurn: true,
+        }
+      : undefined;
+  const overviewProof = reviewOutput.proof ?? turnProof;
+  // Practices that would help this version, offered one at a time; each can
+  // be dismissed for good (docs/PRACTICES.md#d-suggestion-pack).
+  const overviewOffers: Offer[] = [];
+  if ((shownIteration ?? 1) >= 4)
+    overviewOffers.push({
+      id: "round-limit",
+      slot: "rounds",
+      title: `Version ${shownIteration}`,
+      text: "A change that needs a fourth round often needs another approach. The round-limit practice asks the agent to stop after 3 rounds and rethink.",
+      action: { kind: "copy", label: "Copy skill", text: roundLimitSkill },
+    });
+  if (!resolvedGuide?.summary && !reviewOutput.explainer && agentReply)
+    overviewOffers.push({
+      id: "explain-first",
+      slot: "explainer",
+      title: "No explanation yet",
+      text: "Why the change exists and what to read first make the diff faster to read.",
+      action: {
+        kind: "run",
+        label: "Ask the agent to explain",
+        run: () =>
+          agentReply.add({
+            label: "Explain this change",
+            text: EXPLAIN_REQUEST,
+            icon: "ask",
+          }),
+      },
+    });
+  if (!overviewProof)
+    overviewOffers.push({
+      id: "proof-first",
+      slot: "proof",
+      title: "No proof with this version",
+      text: "The proof-first practice asks the agent to list each check it ran with its result, and what the checks miss. Med shows them here.",
+      action: { kind: "copy", label: "Copy skill", text: proofFirstSkill },
+    });
+  const approveVersion = useCallback(
+    (version: number, approved: boolean) =>
+      void controller
+        .approveVersion(version, approved)
+        .catch((error: unknown) =>
+          showToast(error instanceof Error ? error.message : "Med could not save the approval."),
+        ),
+    [controller, showToast],
+  );
   const nextGuidePart = guideSection
     ? guideSections[guideSections.indexOf(guideSection) + 1]
     : undefined;
@@ -5981,7 +6156,7 @@ export function App({
                       "Review"
                     }
                     meta={guideMeta}
-                    summary={resolvedGuide?.summary}
+                    summary={resolvedGuide?.summary ?? reviewOutput.explainer}
                     from={
                       guideSource &&
                       shownIteration !== undefined &&
@@ -5996,9 +6171,25 @@ export function App({
                     viewed={guideViewedIds}
                     total={shownGuideFiles.length}
                     done={guideViewedIds.size}
+                    proof={overviewProof}
+                    findings={reviewOutput}
+                    openFindings={openFindings}
+                    since={shownSince}
+                    version={
+                      state.savedReview
+                        ? {
+                            number: shownIteration ?? 1,
+                            approved: !!approvals?.some(
+                              (entry) => entry.version === (shownIteration ?? 1),
+                            ),
+                            onApprove: (approved) => approveVersion(shownIteration ?? 1, approved),
+                          }
+                        : undefined
+                    }
+                    offers={overviewOffers}
                     onScope={openGuide}
                     onWhole={showReviewDiff}
-                    onOpenLink={openGuideLink}
+                    onOpenLink={openOverviewLink}
                   />
                 )}
                 <div {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}>

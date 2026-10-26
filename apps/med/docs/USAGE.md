@@ -637,6 +637,36 @@ request split into small ones.
 A range with several commits and no guide shows its commits in the Guide too.
 Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
 
+### Proof, findings, and later versions
+
+The Overview also shows what a version's notes and guide summary say about
+it, in whatever format the agent or your own review skills wrote it
+([review practices](PRACTICES.md#b-read-review-output-from-any-source)). A
+Review opens on the Overview when its version has a guide, two or more
+commits, proof, or findings. A later version opens there too, unless it has
+only a brief: then it opens on the brief, and the Overview is the **Review**
+tab. Each part shows only when the version has it.
+
+- **Proof.** First, under the title: each check with its result, the media,
+  and **Not covered**, what the checks miss. Without written proof, the checks
+  that the session ran in the turn that made the latest version show, marked
+  "from the session's last turn".
+- **Since version N.** From version 2: the files that changed since the last
+  version that you approved or commented on, or else the version before.
+  Click a file to open it in the diff.
+- **Findings.** Items tagged Important, Nit, or Pre-existing, with the ones
+  closed as Fixed, Intentional, or Won't fix and their reasons. The start row
+  counts the open ones. Click a finding to open its line.
+- **Approve version N.** Beside **Start reviewing**. Med keeps the approval
+  for the version and marks it in the version menu. It is your record, not a
+  gate: nothing waits for it.
+- **Practices.** Where one would help, the Overview offers a review practice:
+  **Ask the agent to explain** when there is no explanation, which puts the
+  request in the session's message box for you to send; the proof-first skill
+  to copy when there is no proof; the round-limit skill from version 4. One
+  shows at a time, and **Dismiss** hides it for good in this browser.
+  `med skills suggest` lists all of them.
+
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
@@ -658,7 +688,9 @@ the file under the pointer.
 A review's **Notes** hold the agent's brief and the replies that you pin from
 its session. A brief explains the change in Markdown, and its links open the
 lines that it cites. The **Notes** tab comes after **Review** and before
-**Changes**; a Review with a brief and no Guide opens on it.
+**Changes**; a Review with a brief opens on it unless the
+[Overview](#proof-findings-and-later-versions) has a guide, commits, proof, or
+findings to show.
 
 - **Attach a brief.** Copy the agent's last message and press `⌘V` outside a
   text field. On live changes, Med first asks for a title and saves the review,

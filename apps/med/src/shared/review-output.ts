@@ -104,6 +104,9 @@ interface Item {
 }
 
 const MEDIA = /(?:[\w./~-]+\/)?[\w.-]+\.(?:png|jpe?g|gif|webp|avif|svg|mp4|mov|webm|m4v)\b/gi;
+/** A line that names media as proof, such as "Screenshot: shots/a.png". */
+const MEDIA_LINE =
+  /^\W*(?:screenshots?|screen ?shots?|clips?|videos?|recordings?|screen recordings?|media|gifs?)\b[^:]{0,40}:/i;
 const LOCATION =
   /(?:^|[\s(`["*])((?:[\w@.+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z][\w]*)(?::(\d+)(?:[-–](\d+))?|#L(\d+)(?:-L?(\d+))?)/;
 const PATH_ONLY = /`((?:[\w@.+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z][\w]*)`/;
@@ -353,8 +356,12 @@ function readOne(text: string): ReviewOutput {
       }
     }
   }
-  // Media anywhere: screenshots and clips are proof wherever the text names them.
-  for (const match of text.matchAll(MEDIA)) {
+  // Media: screenshots and clips in a proof section, or on a line that names
+  // them as such anywhere. An image in an explanation is not proof.
+  const shown = sections.flatMap(({ section, lines: body }) =>
+    section === "proof" ? body : body.filter((line) => MEDIA_LINE.test(line)),
+  );
+  for (const match of shown.join("\n").matchAll(MEDIA)) {
     const path = match[0];
     if (!proof.media.includes(path)) proof.media.push(path);
   }

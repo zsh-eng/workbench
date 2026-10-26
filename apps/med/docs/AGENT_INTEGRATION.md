@@ -256,6 +256,35 @@ in the repository, and GitHub blob URLs. With `--manifest`, links resolve
 against the open target. A brief holds up to 100,000 characters. The user can
 also paste your final message into Med with `⌘V`.
 
+Med reads these sections of a brief, a pinned reply, or the guide's summary,
+and shows them on the Overview
+([proof, findings, and later versions](USAGE.md#proof-findings-and-later-versions));
+other text shows in the Notes as before:
+
+```markdown
+## Proof
+
+- `bun run test`: 42 passed
+- Screenshot: /tmp/shots/retry.png
+
+### Not covered
+
+- Safari
+
+## Findings
+
+- Important `src/http.ts:42` Retry ignores the abort signal. Fixed: the signal goes to each attempt.
+- Nit `src/util.ts:3` Rename `t`. Won't fix: matches the upstream name.
+
+## Generated
+
+- `src/api/client/**`
+```
+
+Headings such as Checks, Tests, or Verification also mark proof; `[P1]`-style
+tags read as Important (P0–P1) or Nit (P2–P3). Globs under Generated join
+`--generated`.
+
 ### Compare with a base branch
 
 `--base` and `--head` take branch names and other local refs. Run the command
@@ -527,8 +556,21 @@ after the review is saved.
 | The guide puts lockfiles or generated files first                | The guide check names the segments                                         |
 | A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                    |
 
-A repository can turn review practices into checks of its own; see
-[review practices](PRACTICES.md#d-suggestion-pack).
+Med suggests review practices and enforces none by default. A repository can
+opt in, so that `med review create` refuses a hand-off that lacks them and says
+what to add; nothing is captured until it passes:
+
+```sh
+git config med.checks proof,explainer,findings   # any of the three
+git config --unset-all med.checks                # off again
+```
+
+- `proof`: the brief has a Proof section with at least one check.
+- `explainer`: the guide's summary or the brief explains the change.
+- `findings`: no Important finding is left open.
+
+`med skills suggest` lists the practices as small skills to copy
+([review practices](PRACTICES.md#d-suggestion-pack)).
 
 ## AGENTS.md guidance
 

@@ -1,6 +1,6 @@
 # Review practices: read what exists, suggest the rest
 
-Status: proposal, 27 October 2026 (round 5). Built: A, E.
+Status: built, 27 October 2026 (round 5). Results and what was left out are at the end.
 
 **Med suggests review practices and never imposes them.** The user has their
 own skills and workflows. Med reads whatever review output a hand-off holds
@@ -76,7 +76,8 @@ always-loaded thread line already cover it.
 - `docs/explorations/agent-docs/` is deleted; its numbers are above.
 
 **Check.** One Sonnet run of the 11 tasks × 2 with the eval harness, on an
-isolated Med (ports 5461–5469), against this build's docs and CLI.
+isolated Med (ports 5461–5469), against this build's docs and CLI. Results
+are at the end.
 
 ## B. Read review output from any source
 
@@ -181,3 +182,40 @@ exploration.
   the refusal names the key, so the user can turn it off.
 - **The Sonnet check covers this build's docs and CLI together**, so a flip
   can come from either. Read flips with the transcripts.
+
+## Results
+
+**Sonnet 5.5, shipped docs and this CLI: 22/22**, against 19/22 with the full
+skill and 20/22 progressive before this round. The first pass was
+20/22: both stack runs left the bottom layer empty, because the agent gave no
+`--base` while its checkout was on the top branch. The CLI now starts a stack
+without `--base` at the usual base branch and refuses an empty part with the
+`--base` to give; the same commands then passed 2/2.
+
+| Measure                             | Result     |
+| ----------------------------------- | ---------- |
+| Graded tasks passed                 | 22/22      |
+| Title without the repository's name | 14/16      |
+| Guide passes its check              | 12/12      |
+| Wait after a hand-off (Claude Code) | 14/14      |
+| One key per task                    | 14/14      |
+| Turns, mean (hand-off turns)        | 8.6 (6.7)  |
+| Input tokens, mean (hand-off)       | 127k (91k) |
+| Med errors per run                  | 0.3        |
+
+Flips against the full skill: wait-comments 0/2 → 2/2 (the wait line now
+prints after the hand-off), comments-owned and branch now 2/2. The naive
+solutions for the branch and pull-request tasks now pass too, because the
+merge base and the key are defaults; that is the checks working, not a
+weaker grader. The 24 runs cost $1.84.
+
+**Left out:**
+
+- An automatic version when a Med-thread turn ends with changes, for the
+  reason under A.
+- `med review update` by repository and branch; the key or the review ID
+  still names the review.
+- Codex review runs and GitHub threads keep their own panels; the Overview
+  counts only findings written in a version's notes and guide summary.
+- The opt-in checks run on `med review create` only, not on
+  `update --paths` or `med thread show`.

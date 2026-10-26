@@ -13,6 +13,8 @@ import {
   type SavedReview,
   type SavedFeedback,
   type SavedReviewTarget,
+  type Since,
+  sinceSchema,
 } from "../../shared/saved-review";
 import { changesBase, comparisonKey } from "../../shared/protocol";
 import {
@@ -187,6 +189,11 @@ export interface ReviewController {
   refreshSavedReview(): Promise<void>;
   /** Codex reviews of the saved review's checkouts, with their findings. */
   loadCodexReviews(): Promise<CodexReviewRun[]>;
+  /** The files of a version that changed since the reader's last review;
+   * null before version 2. */
+  loadSince(version: number): Promise<Since | null>;
+  /** Marks a version approved, or not: a record for the reader, not a gate. */
+  approveVersion(version: number, approved: boolean): Promise<void>;
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
@@ -2483,6 +2490,37 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const repo = snapshot.session?.repository.path;
       if (!repo) throw new Error("Open a repository first.");
       return api.json(`/api/commit?${query({ repo, id })}`, commitDetailsSchema, { signal });
+    },
+    async loadSince(version) {
+      const saved = snapshot.savedReview;
+      if (!saved) return null;
+      return (
+        await api.json(
+          `/api/reviews/${encodeURIComponent(saved.id)}/since?${query({ version: String(version) })}`,
+          z.object({ since: sinceSchema.nullable() }),
+        )
+      ).since;
+    },
+    async approveVersion(version, approved) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to approve a version.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/approval`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version, approved }),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      // An approval does not move the comment revision. Keep newer comment counts.
+      update({
+        savedReview:
+          next.revision >= snapshot.savedReview.revision
+            ? next
+            : { ...snapshot.savedReview, approvals: next.approvals },
+      });
     },
     async loadCodexReviews() {
       const saved = snapshot.savedReview;

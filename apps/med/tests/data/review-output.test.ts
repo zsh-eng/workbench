@@ -92,6 +92,10 @@ describe("review output", () => {
     expect(output.explainer).toBe(
       "Retries now back off, so a flaky network no longer fails the sync.",
     );
+    // A screenshot outside the Proof section is proof when a line names it so.
+    expect(readReviewOutput(["Done.\n\nScreenshot: /tmp/a.png"]).proof?.media).toEqual([
+      "/tmp/a.png",
+    ]);
     expect(output.proof).toEqual({
       checks: [
         { command: "bun run test", result: "42 passed", status: "passed" },
@@ -134,6 +138,8 @@ describe("review output", () => {
     const output = readReviewOutput([
       "I changed the parser so that errors no longer stop it. The tests pass.",
       "- a plain list item\n- [ ] a task",
+      // An image in an explanation is not proof.
+      "![The new header](docs/header.png)",
     ]);
     expect(output).toEqual({
       findings: [],

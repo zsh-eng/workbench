@@ -22,6 +22,7 @@ import type {
   BriefCommentMutation,
   PinMutation,
   SavedPin,
+  Since,
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
 import type { ReviewGuide } from "../../src/shared/review-guide";
@@ -79,6 +80,9 @@ const storedPreferences = [
   "med:work",
   "med:viewed:v1:saved",
   "med:changes-rail",
+  "med:offer:proof-first",
+  "med:offer:explain-first",
+  "med:offer:round-limit",
 ];
 /** Message drafts and outboxes that a test leaves in the browser. */
 function forgetDrafts() {
@@ -182,6 +186,8 @@ async function mountApp(
     };
     /** A registered vault, notes, with a plan that links to a target note. */
     vault?: boolean;
+    /** The host's answer to "what changed since your last review". */
+    since?: Since;
   } = {},
 ) {
   initializeTheme();
@@ -258,6 +264,7 @@ async function mountApp(
   }));
   let brief = options.brief;
   let pins: SavedPin[] = [];
+  let approvals: { version: number; at: string }[] = [];
   let briefComments: BriefComment[] = [];
   let sessions: AgentSession[] = options.session
     ? [{ agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }]
@@ -352,6 +359,7 @@ async function mountApp(
     ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
     ...(briefComments.length ? { briefComments } : {}),
+    ...(approvals.length ? { approvals } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
@@ -520,6 +528,19 @@ async function mountApp(
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
         return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/since")
+        return Response.json({ since: options.since ?? null });
+      if (url.pathname === "/api/reviews/saved/approval" && init?.method === "POST") {
+        const { version, approved } = JSON.parse(String(init.body)) as {
+          version: number;
+          approved: boolean;
+        };
+        approvals = [
+          ...approvals.filter((entry) => entry.version !== version),
+          ...(approved ? [{ version, at: "2026-10-27T00:00:00Z" }] : []),
+        ];
+        return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/codex-reviews")
         return Response.json({ runs: options.codexReviews ?? [] });
@@ -882,6 +903,7 @@ async function mountApp(
     pageReads,
     questions,
     savedNotes,
+    approvals: () => approvals,
   };
 }
 
@@ -2565,6 +2587,133 @@ describe("review guide", () => {
   // The file headers in the diff stream, by their text.
   const streamFiles = () =>
     [...document.querySelectorAll("[data-stream-file]")].map((node) => node.textContent);
+
+  test("shows a version's proof first, what changed since the last review, its findings, and keeps an approval", async () => {
+    const { approvals } = await mountApp({
+      savedReview: true,
+      iterationBriefs: [
+        "The first round.",
+        [
+          "## Proof",
+          "- `bun run test`: 42 passed",
+          "- `bun run build` failed: 1 type error",
+          "- Screenshot: /tmp/shots/rename.png",
+          "",
+          "### Not covered",
+          "- Safari",
+          "",
+          "## Findings",
+          "- Important `src/alpha.ts:1` Callers still import the old name.",
+          "- Nit `src/beta.ts:2` Rename `shared`. Won't fix: it matches upstream.",
+        ].join("\n"),
+      ],
+      since: {
+        from: 1,
+        to: 2,
+        basis: "previous",
+        files: [
+          { path: "src/alpha.ts", change: "changed" },
+          { path: "src/old.ts", change: "gone" },
+        ],
+      },
+    });
+    // A second version opens on the Overview, though it has no guide.
+    await expect
+      .element(page.getByRole("tab", { name: "Review" }))
+      .toHaveAttribute("aria-selected", "true");
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof).toMatchTextContent(/^Proof1 of 2 failed/);
+    await expect.element(proof.getByText("bun run test")).toBeVisible();
+    await expect.element(proof.getByText("42 passed")).toBeVisible();
+    await expect.element(proof.getByLabelText("failed")).toBeVisible();
+    await expect.element(proof.getByText("/tmp/shots/rename.png")).toBeVisible();
+    await expect
+      .element(proof.getByRole("list", { name: "Not covered" }))
+      .toMatchTextContent("Safari");
+    const since = overview.getByRole("region", { name: "Since your last review" });
+    await expect
+      .element(since)
+      .toMatchTextContent(/^Since version 12 filesWhat changed since the version before\./);
+    await expect.element(since.getByRole("button", { name: /Gone src\/old\.ts/ })).toBeDisabled();
+    const findings = overview.getByRole("region", { name: "Findings" });
+    await expect.element(findings).toMatchTextContent(/^Findings1 open/);
+    await expect
+      .element(
+        findings.getByRole("button", {
+          name: /^Nit\s*Rename shared\.\s*src\/beta\.ts:2\s*Won't fix: it matches upstream\.$/,
+        }),
+      )
+      .toBeVisible();
+    await expect.element(overview.getByText(/1 open finding/)).toBeVisible();
+    // The proof is first, under the title; no offer shows beside it.
+    const order = [proof, since, findings].map((part) => part.element());
+    expect(
+      order[0]!.compareDocumentPosition(order[1]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      order[1]!.compareDocumentPosition(order[2]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(overview.getByRole("complementary").elements()).toHaveLength(0);
+
+    // An approval is the reader's record for the version, and the version menu shows it.
+    const approve = overview.getByRole("button", { name: "Approve version 2" });
+    await approve.click();
+    await expect
+      .element(overview.getByRole("button", { name: "Approved version 2" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(approvals()).toEqual([{ version: 2, at: expect.any(String) }]);
+
+    // A finding opens its line in the Review's diff.
+    await findings.getByRole("button", { name: /Callers still import the old name/ }).click();
+    await expect.element(overview).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("tab", { name: "Review" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll("diffs-container")].some(
+          (node) => !!node.shadowRoot?.querySelector("[data-selected-line]"),
+        ),
+      )
+      .toBe(true);
+  });
+
+  test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
+    const guide: ReviewGuide = { segments: [{ title: "Rename", files: ["src/**"] }] };
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proofOffer = overview.getByRole("complementary", { name: "No proof with this version" });
+    const explainOffer = overview.getByRole("complementary", { name: "No explanation yet" });
+    await mountApp({
+      savedReview: true,
+      guide,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], waiting: [], drafts: [] },
+    });
+    // Without an explanation, the agent can be asked for one. The request
+    // waits in the message box; the reader sends it.
+    await expect.element(explainOffer).toBeVisible();
+    await expect.element(proofOffer).not.toBeInTheDocument();
+    await explainOffer.getByRole("button", { name: "Ask the agent to explain" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    await expect
+      .element(panel.getByRole("button", { name: "Remove Explain this change" }))
+      .toBeVisible();
+    await explainOffer.getByRole("button", { name: "Dismiss" }).click();
+    // The next practice shows in its place: proof-first, to copy.
+    await expect.element(explainOffer).not.toBeInTheDocument();
+    await expect.element(proofOffer.getByRole("button", { name: "Copy skill" })).toBeVisible();
+    await proofOffer.getByRole("button", { name: "Dismiss" }).click();
+    await expect.element(proofOffer).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:offer:proof-first")).toBe("dismissed");
+
+    // Dismissed offers stay dismissed in the next review.
+    root?.unmount();
+    mount?.remove();
+    await mountApp({ savedReview: true, guide });
+    await expect.element(overview).toBeVisible();
+    expect(overview.getByRole("complementary").elements()).toHaveLength(0);
+  });
 
   test("opens on the overview, reads one segment at a time with its comments, and keeps viewed marks", async () => {
     await page.viewport(1280, 800);
