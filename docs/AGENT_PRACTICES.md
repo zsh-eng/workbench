@@ -52,7 +52,11 @@ This was read-only research: no repository changed. Links are collected at the e
   - credentials never reach the model;
   - the agent has its own User-Agent;
   - a task list shows what it does.
-- 26 Oct: Katelyn Lesse on X (already read): agent identity and authorization, isolation, tracing, kill switches [lesse].
+- 26 Oct: Katelyn Lesse (head of platform, Anthropic), "The new set of problems for engineers to solve" [lesse]. Read in full on 27 Oct. Multiagent systems need engineers to solve four problems:
+  - **infrastructure**: agents are isolated, stateful, single-instance workloads that sit idle while they wait for tools, models, other agents or people, which Kubernetes wasn't designed for;
+  - **identity and access**: authentication is mostly solved (workload identity, short-lived certificates), but authorization isn't. Hard questions: how a person meaningfully consents to what agents do on their behalf over weeks; how to tell an agent's action from the person's; how one agent trusts a request from another;
+  - **security and isolation**: a compromised agent can pass injected instructions to other agents and into memory that later agents trust, so run actions in strongly isolated sandboxes to limit the blast radius;
+  - **monitoring and halting**: OpenTelemetry tracing across agents that no agent can modify, and kill switches that stop the whole system at once and cut off its credentials. Persistence can look like malice (repeated tries at a domain off the allowlist).
 - Docs updated at unknown dates:
   - best practices adds `/goal` and Stop-hook gates, and warns that adversarial reviewers over-report [bp];
   - the memory page sets a target of under 200 lines per file [memory];
@@ -140,11 +144,13 @@ ask the author to reconsider the approach.
   - **Medium**: ordinary product changes, caching, shared `packages/elements` sheets and motion, Med's CLI. You read the diff once.
   - **High**: `**/migrations/`, `apps/spaced2/scripts/*migration`, `packages/local-sync`, `wrangler*.jsonc`, deploy scripts, auth and tokens. These get a Deep review (or `/code-review ultra`) plus your OK on the exact commit, and Med marks the segment `"critical": true`.
   - Deploys need your OK at every tier. An agent's approval never counts as yours, and an OK covers one commit only.
-- **Lesse's four** [lesse]:
-  - identity: Med already records sessions; name your subagents;
-  - isolation: worktrees plus the sandbox;
-  - tracing: the OpenTelemetry `safety_event` and `tool_decision` events (2.1.301, 2.1.307);
-  - kill switch: write down one command that stops a whole batch. `med thread close` keeps the agent running, so Med has no kill switch today.
+- **From Lesse's post** [lesse], at our scale (one person, local worktrees):
+  - identity: say which actions an agent took and which you took. Med already records the session behind each review; name your subagents;
+  - consent: show permission modes truthfully, and treat an approval as covering one commit. An agent's approval never counts as yours;
+  - isolation and injected instructions: worktrees plus the sandbox. Text from another agent, a hand-off or a fetched page is data, not instructions. Review what agents write into memory files before later agents rely on it;
+  - tracing: the OpenTelemetry `safety_event` and `tool_decision` events (2.1.301, 2.1.307). An agent can write its own transcript, and Med reads transcripts, so treat them as an agent's account, not a tamper-proof trace;
+  - kill switch: write down one command that stops a whole batch and its credentials. `med thread close` keeps the agent running, so Med has no kill switch today;
+  - infrastructure: out of scope here.
 
 ### (d) Med's agent docs
 - **Now:** SKILL.md is 193 lines and AGENT_INTEGRATION.md is 630. A loaded skill stays in context, so "every line is a recurring token cost. State what to do, not how or why" [skills].
@@ -232,7 +238,7 @@ Also offer a `verify` template, but never install it by default. The name `verif
   - the Code Review check run says REVIEW.md wasn't applied.
 
 ## Not confirmed
-- **Katelyn Lesse's post:** WebFetch returned 402. The browser pane was at its tab limit with tabs from other sessions, and I didn't close them. The date (26 Oct, 02:19 UTC) comes from the post ID; the summary comes from your brief only.
+- **Katelyn Lesse's post:** the first version of this file summarised it before anyone had read it (WebFetch returned 402). It was read in full in a browser on 27 Oct, and the summary above comes from that text. Posted 26 Oct, 02:19 UTC.
 - **Addy Osmani's post:** the date (26 Oct, 06:27 UTC) comes from the post ID. The content was matched to the blog post, which is dated 15 Oct (claude.com lists it as 16 Oct).
 - **Staff posts:** none from Boris Cherny or Cat Wu turned up in the window. The "2–3x" verification quote is background (Jan 2026).
 - **Changelog 2.1.297–2.1.298 (10–13 Oct):** only their bug-fix lines were readable; I couldn't see the Added and Changed sections.
