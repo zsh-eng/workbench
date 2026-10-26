@@ -26,11 +26,12 @@ export interface Arrival extends ArrivalRecord {
 /**
  * How arrivals draw: `develop`, `light` and `ink` are shaders, `calm` is
  * CSS only, and `still` is what reduced motion gets: paper, then the cover.
- * The Library uses the one chosen in the design review.
+ * The design review chose raking light for the Library's grid; one book on
+ * its own arrives in the arrival sheet, in ink.
  */
 export type ArrivalLook = "develop" | "light" | "ink" | "calm" | "still";
 
-export const LIBRARY_ARRIVAL_LOOK: ArrivalLook = "develop";
+export const LIBRARY_ARRIVAL_LOOK: ArrivalLook = "light";
 
 /** The jobs to read: the app's queue, or a demo's own. */
 export interface ArrivalSource {
