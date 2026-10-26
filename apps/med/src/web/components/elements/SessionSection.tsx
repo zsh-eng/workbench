@@ -422,25 +422,31 @@ const CLOCKS = [
   { id: "minute", label: "Near a minute", ago: 57_000 },
   { id: "ten", label: "Near 10 minutes", ago: 9 * 60_000 + 57_000 },
   { id: "hour", label: "Over an hour", ago: 72 * 60_000 },
+  { id: "end", label: "Tasks end", ago: 20_000 },
 ] as const;
 
-function workingEvents(startedAt: number): SessionEvent[] {
-  const shell = (at: number, id: string, title: string, command: string): SessionEvent => ({
-    at,
-    update: {
-      sessionUpdate: "tool_call",
-      toolCallId: id,
-      title,
-      kind: "execute",
-      status: "in_progress",
-      rawInput: { command },
-      _meta: {
-        med: { tool: "Bash", ...(id === "dev" ? { background: { id, kind: "shell" } } : {}) },
-      },
-    },
-  });
+const shell = (
+  at: number,
+  id: string,
+  title: string,
+  command: string,
+  background: boolean,
+): SessionEvent => ({
+  at,
+  update: {
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind: "execute",
+    status: "in_progress",
+    rawInput: { command },
+    _meta: { med: { tool: "Bash", ...(background ? { background: { id, kind: "shell" } } : {}) } },
+  },
+});
+
+function workingEvents(startedAt: number, ends: boolean): SessionEvent[] {
   return [
-    shell(startedAt - 2 * 60 * 60_000, "dev", "Start the dev server", "bun run dev"),
+    shell(startedAt - 2 * 60 * 60_000, "dev", "Start the dev server", "bun run dev", true),
     {
       at: startedAt,
       update: {
@@ -448,9 +454,36 @@ function workingEvents(startedAt: number): SessionEvent[] {
         content: { type: "text", text: "Run the whole test suite and fix what fails." },
       },
     },
-    shell(startedAt + 200, "tests", "Run the test suite", "bun test"),
+    ...(ends
+      ? [
+          // New IDs for each pick: a failure that the reader saw stays seen.
+          shell(startedAt + 100, `styles-${startedAt}`, "Watch the styles", "bun run watch", true),
+          shell(startedAt + 200, `docs-${startedAt}`, "Build the docs", "bun run docs", true),
+        ]
+      : []),
+    shell(startedAt + 300, "tests", "Run the test suite", "bun test", false),
   ];
 }
+
+/** "Tasks end": a second after the pick, one task ends well and one fails. */
+const endings = (startedAt: number, at: number): SessionEvent[] => [
+  {
+    at,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: `styles-${startedAt}`,
+      status: "completed",
+    },
+  },
+  {
+    at,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: `docs-${startedAt}`,
+      status: "failed",
+    },
+  },
+];
 
 function WorkingTime() {
   const [pick, setPick] = useState<{ id: (typeof CLOCKS)[number]["id"]; at: number }>(() => ({
@@ -460,10 +493,16 @@ function WorkingTime() {
   const store = useMemo(() => {
     const store = createSessionStore();
     const clock = CLOCKS.find((entry) => entry.id === pick.id)!;
-    store.applyAll(workingEvents(pick.at - clock.ago));
+    store.applyAll(workingEvents(pick.at - clock.ago, pick.id === "end"));
     store.setRunning(true);
     return store;
   }, [pick]);
+  useEffect(() => {
+    if (pick.id !== "end") return;
+    const startedAt = pick.at - CLOCKS.find((entry) => entry.id === "end")!.ago;
+    const timer = setTimeout(() => store.applyAll(endings(startedAt, Date.now())), 1000);
+    return () => clearTimeout(timer);
+  }, [pick, store]);
   return (
     <div {...stylex.props(styles.replay, styles.short)}>
       <div {...stylex.props(styles.controls)} role="group" aria-label="Working time">
@@ -517,7 +556,7 @@ export function SessionSection() {
       </Specimen>
       <Specimen
         title="Working time"
-        note="The real clock. The turn's time shows from 1 s, then each second, and each minute from 10 minutes. A running call spins; the dev server's time counts minutes. Pick a state to see the next change."
+        note="The real clock. The turn's time shows from 1 s, then each second, and each minute from 10 minutes. A running call spins; the dev server's time counts minutes. Pick a state to see the next change. In Tasks end, Done leaves after a moment and Failed stays until you open it."
         padded={false}
         zoomable={false}
         span="half"

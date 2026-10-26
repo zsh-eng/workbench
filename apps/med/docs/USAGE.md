@@ -343,6 +343,12 @@ background shells and agents. It follows the session live.
   from an hour "1h 05m". It changes at each whole second or minute from the
   turn's start. A running tool call spins and shows its time when it ends.
   Finished times use the same form and show from 1 s.
+- **Background**, above the message box, lists the shells and agents that run
+  in the background: the address that a dev server printed, and how long each
+  has run, in minutes. A task that ends shows how it ended in its place:
+  **Done** leaves after a few seconds, and **Failed** stays until you open it,
+  hide the list, or send the next prompt. With nothing to show, the list is
+  gone. × hides it until a new task starts.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
 - A turn that ended while you did not see its session ends with a recap,

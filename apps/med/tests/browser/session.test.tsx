@@ -252,24 +252,41 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
 });
 
-test("the Background dock lists this turn's tasks without Med's wait, and stays hidden until a new task", async () => {
+test("the Background dock lists only what runs: a task ends in its place, Done leaves, and Failed stays until seen", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
   localStorage.removeItem("med:background-hidden");
-  const shell = (at: number, id: string, title: string, command: string, running = false) => ({
-    at,
+  localStorage.removeItem("med:background-seen");
+  // On the real clock: a running task's time follows it.
+  const base = Date.now() - 10_000;
+  const shell = (
+    at: number,
+    id: string,
+    title: string,
+    command: string,
+    status: "in_progress" | "completed" | "failed" = "completed",
+  ) => ({
+    at: base + at,
     update: {
       sessionUpdate: "tool_call" as const,
       toolCallId: id,
       title,
       kind: "execute" as const,
-      status: running ? ("in_progress" as const) : ("completed" as const),
+      status,
       rawInput: { command },
       _meta: { med: { background: { id, kind: "shell" as const } } },
     },
   });
+  const end = (at: number, id: string) => ({
+    at: base + at,
+    update: {
+      sessionUpdate: "tool_call_update" as const,
+      toolCallId: id,
+      status: "completed" as const,
+    },
+  });
   const prompt = (at: number, text: string) => ({
-    at,
+    at: base + at,
     update: {
       sessionUpdate: "user_message_chunk" as const,
       content: { type: "text" as const, text },
@@ -278,36 +295,69 @@ test("the Background dock lists this turn's tasks without Med's wait, and stays 
   const store = longThread(0);
   store.applyAll([
     prompt(0, "Format the durations."),
-    shell(100, "server", "Start the dev server", "bun run dev", true),
-    shell(200, "old", "Build the old bundle", "bun run build"),
+    shell(100, "server", "Start the dev server", "bun run dev", "in_progress"),
+    shell(200, "old", "Fail the old bundle", "bun run build", "failed"),
     prompt(5000, "Use minutes."),
     shell(6000, "tests", "Run the tests", "bun test"),
-    shell(6500, "wait", "Wait for the review", "med review wait --key durations", true),
+    shell(6200, "bundle", "Build the bundle", "bun run build", "failed"),
+    shell(6500, "wait", "Wait for the review", "med review wait --key durations", "in_progress"),
   ]);
   const render = () => root!.render(<SessionThread snapshot={store.getSnapshot()} showWork />);
   render();
   const dock = page.getByRole("region", { name: "Background tasks" });
-  await expect.element(dock.getByText("1 running")).toBeVisible();
+  await expect.element(dock.getByText("1 running · 1 failed")).toBeVisible();
   await expect.element(dock.getByRole("button", { name: "Start the dev server" })).toBeVisible();
-  await expect.element(dock.getByRole("button", { name: "Run the tests" })).toBeVisible();
-  // A task from an earlier turn has left; the agent's wait for the reader is not a task.
-  await expect.element(dock.getByText("Build the old bundle")).not.toBeInTheDocument();
+  // A failure since the last prompt stays until seen; a task that ended
+  // before the dock saw it run is gone, as is Med's own wait.
+  await expect.element(dock.getByText("Failed", { exact: true })).toBeVisible();
+  await expect.element(dock.getByText("Run the tests")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("Fail the old bundle")).not.toBeInTheDocument();
   await expect.element(dock.getByText("Wait for the review")).not.toBeInTheDocument();
   await expect.element(page.getByRole("log").getByText("for your message in Med")).toBeVisible();
+  // Opening the failure is seeing it.
+  await userEvent.click(dock.getByRole("button", { name: "Build the bundle" }));
+  await expect.element(dock.getByText("Build the bundle")).not.toBeInTheDocument();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
 
+  // A task that ends while the dock shows it says Done in its place, then leaves.
+  store.applyAll([shell(7000, "lint", "Lint the code", "bun run lint", "in_progress")]);
+  render();
+  const row = () => dock.getByRole("listitem").filter({ hasText: "Lint the code" });
+  await expect.element(row().getByText("Running", { exact: true })).toBeVisible();
+  const element = row().element();
+  store.applyAll([end(8000, "lint"), end(8000, "server")]);
+  render();
+  await expect.element(row().getByText("Done", { exact: true })).toBeVisible();
+  expect(row().element()).toBe(element);
+  expect(
+    dock
+      .getByRole("listitem")
+      .elements()
+      .map((item) => item.textContent),
+  ).toEqual([
+    expect.stringContaining("Start the dev server"),
+    expect.stringContaining("Lint the code"),
+  ]);
+  // Nothing runs: the dock goes.
+  await expect.element(dock, { timeout: 5000 }).not.toBeInTheDocument();
+
+  // A new task shows it; hiding it lasts until a new task starts.
+  store.applyAll([shell(9000, "styles", "Watch the styles", "bun run watch", "in_progress")]);
+  render();
+  await expect.element(dock.getByText("1 running", { exact: true })).toBeVisible();
   await userEvent.click(dock.getByRole("button", { name: "Hide background tasks" }));
   await expect.element(dock).not.toBeInTheDocument();
   // The thread opens again, and the dock stays hidden.
   root!.unmount();
   root = createRoot(mount!);
   render();
-  await expect.element(page.getByRole("log").getByText("Run the tests")).toBeVisible();
+  await expect.element(page.getByRole("log").getByText("Watch the styles")).toBeVisible();
   await expect.element(dock).not.toBeInTheDocument();
-  // A new task shows it again.
-  store.applyAll([shell(7000, "styles", "Watch the styles", "bun run watch", true)]);
+  store.applyAll([shell(10000, "docs", "Serve the docs", "bun run docs", "in_progress")]);
   render();
   await expect.element(dock.getByText("2 running")).toBeVisible();
   localStorage.removeItem("med:background-hidden");
+  localStorage.removeItem("med:background-seen");
 });
 
 test("tabs switch between the session and its subagents, and Escape goes back", async () => {
