@@ -203,7 +203,12 @@ scenarios, on the real engine with simulated jobs:
    and the glyph and sheet for what has no subject on screen.
 
 The island was a fourth direction, dropped (see the critique). The Library
-wires the choice for books downloaded for offline, behind Debug → Offline
-downloads. A phone's header is full with the places, so there the glyph
-sits in the filter row beside Sort and layout, where Download all starts,
-and the update chip floats at the bottom of the Library.
+wires the choice. The glyph and its sheet show for everyone. Of sync, the
+glyph speaks only for a restore; what sync needs from you (a sign-in, two
+failures in a row) has the account menu, and the sheet lists it under This
+app. Books that download for offline, and their covers, stay behind
+Debug → Offline downloads. A phone's header is full with the places, so
+there the glyph sits in the filter row beside Sort and layout, where
+Download all starts, and the update chip floats at the bottom of the
+Library. The glyph goes first among the buttons of its row (before Search,
+with room), so they keep their places when it comes and goes.

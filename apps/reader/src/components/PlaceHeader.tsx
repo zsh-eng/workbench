@@ -105,7 +105,8 @@ export function usePlaceSearch(): PlaceSearch {
 /**
  * The header of a place that can be searched. The search replaces the
  * titles and keeps the row in view while you search. A page puts its own
- * controls before the account menu.
+ * controls before the account menu, and what comes and goes (`status`)
+ * before Search, so the buttons keep their places.
  */
 export function PlaceHeader({
   current,
@@ -114,6 +115,7 @@ export function PlaceHeader({
   placeholder,
   count,
   onSubmit,
+  status,
   actions,
 }: {
   current: AppPlace;
@@ -125,6 +127,8 @@ export function PlaceHeader({
   count?: string;
   /** Enter in the field, for example to open the first result. */
   onSubmit?: () => void;
+  /** Controls that come and go, such as the activity glyph. */
+  status?: ReactNode;
   actions?: ReactNode;
 }) {
   const searching = search !== null;
@@ -198,6 +202,7 @@ export function PlaceHeader({
           </AnimatePresence>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {status}
           {/* One button opens and closes the search and keeps its place, so
               the row beside it does not move. Its meaning changes in place:
               a 150 ms cross-fade of the glyph, no movement. */}

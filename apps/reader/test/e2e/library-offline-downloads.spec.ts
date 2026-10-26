@@ -7,7 +7,8 @@ import {
 } from "./helpers/fixtures";
 
 // Debug -> Offline downloads: a book that is only on the server downloads
-// from the Library, on its cover, with the glyph and its sheet.
+// from the Library, on its cover, with the glyph and its sheet (which show
+// without the switch).
 test.use({ viewport: { width: 390, height: 844 } });
 
 test("a book downloads for offline on its cover", async ({
