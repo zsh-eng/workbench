@@ -1,19 +1,40 @@
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import skill from "../../skills/med/SKILL.md" with { type: "text" };
 import guide from "../../skills/med/guide.md" with { type: "text" };
 import instructions from "../../skills/thread-instructions.md" with { type: "text" };
+import adversarialReview from "../../skills/suggestions/adversarial-review/SKILL.md" with { type: "text" };
+import explainFirst from "../../skills/suggestions/explain-first/SKILL.md" with { type: "text" };
+import proofFirst from "../../skills/suggestions/proof-first/SKILL.md" with { type: "text" };
+import reviewMd from "../../skills/suggestions/review-md/SKILL.md" with { type: "text" };
+import riskLevels from "../../skills/suggestions/risk-levels/SKILL.md" with { type: "text" };
+import roundLimit from "../../skills/suggestions/round-limit/SKILL.md" with { type: "text" };
 
 /** The files of the Med skill: the checklist, and the guide it points to. */
 const SKILL_FILES: Readonly<Record<string, string>> = { "SKILL.md": skill, "guide.md": guide };
+
+/**
+ * Review practices to copy into the user's own skills (docs/PRACTICES.md).
+ * Med suggests them; it never installs one unless asked.
+ */
+const SUGGESTIONS: Readonly<Record<string, string>> = {
+  "proof-first": proofFirst,
+  "explain-first": explainFirst,
+  "adversarial-review": adversarialReview,
+  "round-limit": roundLimit,
+  "risk-levels": riskLevels,
+  "review-md": reviewMd,
+};
+const describe = (text: string) => /^description: (.+)$/m.exec(text)?.[1] ?? "";
 
 export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--force]
        med skills uninstall [--claude] [--codex] [--force]
        med skills show
        med skills instructions
+       med skills suggest [<name> [--to <skills folder>] [--force]]
 
 install writes the Med skill, which tells an agent when and how to hand off
 changes in Med, for Claude Code (~/.claude/skills/med) and Codex
@@ -23,7 +44,11 @@ again after an update to refresh the skill. --force replaces another skill or
 link with the same name.
 uninstall removes the Med skill from those places. show prints the skill.
 instructions prints the lines to add to CLAUDE.md or AGENTS.md, so that an agent
-that Med starts in a thread hands off its work there. Edit them as you like.`;
+that Med starts in a thread hands off its work there. Edit them as you like.
+suggest lists review practices written as small skills, such as proof-first;
+suggest <name> prints one to copy into your own skills, and --to writes it to
+<skills folder>/<name>/SKILL.md, such as --to ~/.claude/skills. Med installs
+none of them by itself.`;
 
 /** Where to put the thread instructions, with the instructions. */
 const instructionsNote = `Add these lines to ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, or a repository's
@@ -47,11 +72,13 @@ export async function runSkillsCommand(
       claude: { type: "boolean" },
       codex: { type: "boolean" },
       force: { type: "boolean" },
+      to: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
   const action = positionals[0];
   if (values.help || !action) return print(skillsHelp);
+  if (action === "suggest") return suggest(positionals.slice(1), values, print);
   if (
     positionals.length !== 1 ||
     !["install", "uninstall", "show", "instructions"].includes(action)
@@ -119,6 +146,58 @@ export async function runSkillsCommand(
     if (!current) installed++;
   }
   if (action === "uninstall" && !removed) print("The Med skill is not installed.");
-  // A first install also shows the lines for the user's agent instructions.
-  if (installed) print(`\n${instructionsNote.trimEnd()}`);
+  // A first install also shows the lines for the user's agent instructions,
+  // and where the suggested practices are.
+  if (installed)
+    print(
+      `\n${instructionsNote.trimEnd()}\n\nReview practices to copy into your own skills: med skills suggest`,
+    );
+}
+
+async function suggest(
+  names: string[],
+  values: { to?: string; force?: boolean },
+  print: (text: string) => void,
+) {
+  const [name] = names;
+  if (!name) {
+    if (values.to)
+      throw new Error(
+        "Name the practice to write, such as med skills suggest proof-first --to ~/.claude/skills.",
+      );
+    const width = Math.max(...Object.keys(SUGGESTIONS).map((id) => id.length));
+    print(
+      [
+        "Review practices, written as small skills. Med suggests them and installs none by itself.",
+        "",
+        ...Object.entries(SUGGESTIONS).map(
+          ([id, text]) => `  ${id.padEnd(width)}  ${describe(text)}`,
+        ),
+        "",
+        "Print one to copy: med skills suggest <name>",
+        "Write one to your skills: med skills suggest <name> --to ~/.claude/skills",
+        "Make proof, an explainer, or no open Important finding a check for a repository: git config med.checks proof,explainer,findings",
+      ].join("\n"),
+    );
+    return;
+  }
+  const text = SUGGESTIONS[name];
+  if (!text || names.length > 1)
+    throw new Error(
+      `There is no suggested practice named ${names.join(" ")}. These are: ${Object.keys(SUGGESTIONS).join(", ")}.`,
+    );
+  if (!values.to) return print(text.trimEnd());
+  const home = homedir();
+  const folder = resolve(values.to.replace(/^~(?=$|\/)/, home), name);
+  const file = join(folder, "SKILL.md");
+  const shown = folder.startsWith(home) ? `~${folder.slice(home.length)}` : folder;
+  const current = await readFile(file, "utf8").catch(() => undefined);
+  if (current === text) return print(`${shown}/SKILL.md is up to date.`);
+  if (current !== undefined && !values.force)
+    throw new Error(
+      `${shown}/SKILL.md exists and differs, perhaps with your edits. Add --force to replace it.`,
+    );
+  await mkdir(folder, { recursive: true });
+  await writeFile(file, text);
+  print(`Wrote the ${name} practice: ${shown}/SKILL.md. Edit it as you like.`);
 }

@@ -1,5 +1,14 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -31,7 +40,11 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   expect(first).toMatch(
     /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med \(SKILL\.md, guide\.md\)\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
   );
-  expect(first.endsWith(instructions)).toBe(true);
+  expect(
+    first.endsWith(
+      `${instructions}\nReview practices to copy into your own skills: med skills suggest\n`,
+    ),
+  ).toBe(true);
   expect(await med("instructions")).toBe(instructions);
   // The setup guide shows the same lines.
   expect(await readFile(resolve("docs/USAGE.md"), "utf8")).toContain(instructions);
@@ -74,4 +87,51 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   await expect(readFile(codex)).rejects.toThrow("ENOENT");
   expect(await readFile(join(copy, "SKILL.md"), "utf8")).toBe(skill);
   expect(await med("show")).toBe(`${skill}\n`);
+});
+
+it("suggests review practices to copy, and writes one only where asked", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "med-suggest-")));
+  temporary.push(home);
+  const cli = resolve("src/cli/index.ts");
+  const med = async (...args: string[]) =>
+    (
+      await exec("bun", [cli, "skills", "suggest", ...args], {
+        env: { ...process.env, HOME: home },
+      })
+    ).stdout;
+  const proofFirst = await readFile(resolve("skills/suggestions/proof-first/SKILL.md"), "utf8");
+
+  // The list names each practice and how to copy one; nothing is written.
+  const list = await med();
+  for (const name of [
+    "proof-first",
+    "explain-first",
+    "adversarial-review",
+    "round-limit",
+    "risk-levels",
+    "review-md",
+  ]) {
+    expect(list).toMatch(new RegExp(`^  ${name} +\\S`, "m"));
+    const text = await readFile(resolve(`skills/suggestions/${name}/SKILL.md`), "utf8");
+    expect(text).toMatch(new RegExp(`^---\\nname: ${name}\\ndescription: `));
+    expect(text.split("\n").length).toBeLessThanOrEqual(40);
+  }
+  expect(list).toContain("git config med.checks proof,explainer,findings");
+  expect(await readdir(home)).not.toContain(".claude");
+
+  // A name prints the skill to copy; --to writes it, and keeps the user's edits.
+  expect(await med("proof-first")).toBe(proofFirst);
+  expect(await med("proof-first", "--to", "~/.claude/skills")).toBe(
+    "Wrote the proof-first practice: ~/.claude/skills/proof-first/SKILL.md. Edit it as you like.\n",
+  );
+  const file = join(home, ".claude", "skills", "proof-first", "SKILL.md");
+  expect(await readFile(file, "utf8")).toBe(proofFirst);
+  await writeFile(file, `${proofFirst}\n- My own step\n`);
+  await expect(med("proof-first", "--to", "~/.claude/skills")).rejects.toMatchObject({
+    stderr: expect.stringContaining("exists and differs, perhaps with your edits"),
+  });
+  expect(await readFile(file, "utf8")).toContain("My own step");
+  await expect(med("tidy-first")).rejects.toMatchObject({
+    stderr: expect.stringContaining("There is no suggested practice named tidy-first"),
+  });
 });

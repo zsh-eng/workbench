@@ -35,6 +35,8 @@ import {
   git,
   headBranch,
   keyFromBranch,
+  optInChecks,
+  optInProblem,
   rangeFacts,
   repositoryRoot,
   requireRegistered,
@@ -692,6 +694,19 @@ export async function runReviewCommand(
   const manifest = command.parts
     ? await partsManifest(command.parts, repositories)
     : await reviewMetadata(command.manifest!, !!command.keepTitle, !!command.inferPullRequest);
+  // Off unless a repository opts in: then a practice is a check, before Med captures.
+  const checks = await optInChecks(manifest.targets.map((target) => target.repo));
+  if (checks.size) {
+    const problem = optInProblem(
+      checks,
+      readReviewOutput([
+        manifest.guide?.summary,
+        manifest.brief,
+        ...(manifest.parts?.items.map((part) => part.guide?.summary) ?? []),
+      ]),
+    );
+    if (problem) throw new Error(problem);
+  }
   const result = await request(connection, "/api/reviews", fetcher, manifest);
   const parsed = z
     .object({

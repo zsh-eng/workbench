@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { findTranscript } from "../host/agent-transcripts";
 import { createSessionEdits } from "../host/session-edits";
+import { isOpenFinding, type ReviewOutput } from "../shared/review-output";
 import { reviewKeySchema, type AgentSession } from "../shared/saved-review";
 
 // The checks that `med review` makes before and after a hand-off
@@ -243,12 +244,44 @@ export async function sessionScope(
 export const OPT_IN_CHECKS = ["proof", "explainer", "findings"] as const;
 export type OptInCheck = (typeof OPT_IN_CHECKS)[number];
 export async function optInChecks(repos: readonly string[]) {
-  const found = new Set<OptInCheck>();
+  const found = new Map<OptInCheck, string[]>();
   for (const repo of new Set(repos)) {
     const value = await git(repo, "config", "--get-all", "med.checks");
-    for (const word of (value ?? "").split(/[\s,]+/))
-      if ((OPT_IN_CHECKS as readonly string[]).includes(word.toLowerCase()))
-        found.add(word.toLowerCase() as OptInCheck);
+    for (const word of new Set((value ?? "").toLowerCase().split(/[\s,]+/)))
+      if ((OPT_IN_CHECKS as readonly string[]).includes(word))
+        found.set(word as OptInCheck, [...(found.get(word as OptInCheck) ?? []), repo]);
   }
   return found;
+}
+
+/**
+ * Why a hand-off misses what its repositories opted in to, or undefined. Med
+ * suggests these practices; only `git config med.checks` makes them checks.
+ */
+export function optInProblem(checks: Map<OptInCheck, string[]>, output: ReviewOutput) {
+  const missing: string[] = [];
+  if (checks.has("proof") && !output.proof?.checks.length)
+    missing.push(
+      "a Proof section in the brief: each check that you ran, as a command in backticks with its result (med skills suggest proof-first shows the format)",
+    );
+  if (checks.has("explainer") && !output.explainer)
+    missing.push(
+      "an explainer: why the change exists and what to read first, in the guide's summary or the brief (med skills suggest explain-first)",
+    );
+  const open = output.findings.filter(
+    (finding) => finding.severity === "important" && isOpenFinding(finding),
+  );
+  if (checks.has("findings") && open.length)
+    missing.push(
+      `no open Important finding: fix ${open.length === 1 ? "it" : "them"}, or close each as Fixed, Intentional, or Won't fix with a reason (${open
+        .slice(0, 3)
+        .map((finding) =>
+          finding.file ? `${finding.file}${finding.line ? `:${finding.line}` : ""}` : finding.title,
+        )
+        .join("; ")})`,
+    );
+  if (!missing.length) return undefined;
+  const repos = [...new Set([...checks.values()].flat())];
+  const words = [...checks.keys()].join(",");
+  return `${repos.join(", ")} ${repos.length === 1 ? "asks" : "ask"} for ${words} with each hand-off (git config med.checks ${words}). Add ${missing.join("; and ")}. Then run med review create again. Nothing was captured. To turn the check off, the user runs: git config --unset-all med.checks`;
 }

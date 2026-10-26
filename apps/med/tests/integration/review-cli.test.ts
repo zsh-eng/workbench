@@ -1000,6 +1000,44 @@ describe("hand-off checks that say what to do next", () => {
     const bundle = await f.saved(out.trim());
     expect(bundle.targets.map((target: { repo: string }) => target.repo)).toEqual(f.repos);
   });
+
+  it("checks proof, an explainer, and open findings only when the repository opts in", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const brief = join(f.root, "brief.md");
+    const handoff = (...extra: string[]) =>
+      checked(f, [
+        "create",
+        "--key",
+        "t",
+        "--title",
+        "Retry policy",
+        "--repo",
+        repo,
+        "--working",
+        ...extra,
+      ]);
+    // Off by default: a hand-off without proof is captured as before.
+    await handoff();
+    const saved = await reviews(f);
+    expect(saved).toBeGreaterThan(0);
+
+    execFileSync("git", ["config", "med.checks", "proof,findings"], { cwd: repo });
+    await writeFile(brief, "## Findings\n- Important `file.txt:1` The retry never stops.\n");
+    const refused = await handoff("--brief", brief).catch((error: Error) => error.message);
+    expect(refused).toMatch(
+      /^.+ asks for proof,findings with each hand-off \(git config med\.checks proof,findings\)\. Add a Proof section in the brief: .+med skills suggest proof-first.+; and no open Important finding: fix it, or close each as Fixed, Intentional, or Won't fix with a reason \(file\.txt:1\)\. Then run med review create again\. Nothing was captured\. To turn the check off, the user runs: git config --unset-all med\.checks$/,
+    );
+    expect(await reviews(f)).toBe(saved);
+
+    // With proof, and the finding closed, the version is captured.
+    await writeFile(
+      brief,
+      "## Proof\n- `bun test`: 3 passed\n\n## Findings\n- Important `file.txt:1` The retry never stops. Fixed: it stops after 3 tries.\n",
+    );
+    const { out } = await handoff("--brief", brief);
+    expect((await f.saved(out.split("\n")[0]!)).iterations).toHaveLength(2);
+  });
 });
 
 describe("since your last review, and approvals", () => {
