@@ -40,6 +40,7 @@ import {
   sessionScope,
   shellWord,
   titleProblem,
+  usualBase,
 } from "./review-checks";
 
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
@@ -1016,11 +1017,18 @@ async function partsManifest(
     (entry) =>
       entry.path === wanted.repo || entry.worktrees.some((tree) => tree.path === wanted.repo),
   );
-  const base =
-    wanted.base ??
-    baseOf(family as Pick<RegisteredRepository, "path" | "worktrees"> | undefined) ??
-    "main";
-  const { targets, parts } = await resolveParts(wanted.repo, wanted.shape, wanted.items, base);
+  let base =
+    wanted.base ?? baseOf(family as Pick<RegisteredRepository, "path" | "worktrees"> | undefined);
+  // The main checkout can be on a branch of the stack, which is then no base.
+  if (!wanted.base && (!base || wanted.items.includes(base)))
+    base = (await usualBase(wanted.repo, wanted.items)) ?? base ?? "main";
+  const { targets, parts } = await resolveParts(wanted.repo, wanted.shape, wanted.items, base!);
+  // A part without changes cannot be reviewed: its base is wrong.
+  for (const [index, target] of targets.entries())
+    if (await comparisonEmpty(target.repo, target.comparison))
+      throw new Error(
+        `Part ${index + 1} (${parts[index]!.title ?? wanted.items[index]}) has no changes since ${parts[index]!.base ?? base}, so there is nothing to review. Name the bottom branch's base with --base <branch>, such as --base main.`,
+      );
   const items = parts.map((part, index) => {
     const guide = wanted.guides?.[index];
     return guide ? { ...part, guide } : part;

@@ -130,6 +130,20 @@ export async function headBranch(repo: string, comparison: { kind: string; head?
   return undefined;
 }
 
+/** The repository's usual base branch: the remote's default, or main, master,
+ * trunk, or develop, the first that exists and is not one of `except`. */
+export async function usualBase(repo: string, except: readonly string[] = []) {
+  const remote = (
+    await git(repo, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+  )?.replace(/^origin\//, "");
+  for (const name of [remote, "main", "master", "trunk", "develop"]) {
+    if (!name || except.includes(name)) continue;
+    if (await gitSucceeds(repo, "show-ref", "--verify", "--quiet", `refs/heads/${name}`))
+      return name;
+  }
+  return undefined;
+}
+
 /** A key from a branch name, when the branch name makes a valid key. */
 export const keyFromBranch = (branch: string | undefined) =>
   branch && reviewKeySchema.safeParse(branch).success ? branch : undefined;
