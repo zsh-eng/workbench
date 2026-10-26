@@ -1752,7 +1752,7 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   partTitle: { fontSize: 12 },
-  partDot: { flexGrow: 0, flexShrink: 0, width: 7, height: 7, borderRadius: "50%" },
+  partDot: { flexGrow: 0, flexShrink: 0, flexBasis: 7, width: 7, height: 7, borderRadius: "50%" },
 });
 
 const segments = stylex.create({

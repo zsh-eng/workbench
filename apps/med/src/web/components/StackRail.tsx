@@ -232,6 +232,12 @@ export function LayerMenu({
     <ChoiceSelect
       label={isStack ? "Layer" : "Part"}
       value={value}
+      // A short trigger, so the review's tabs keep their names in a narrow pane.
+      display={
+        mode.kind === "layer"
+          ? `${isStack ? "Layer" : "Part"} ${current + 1}/${layers.length}`
+          : modeLabel(stack, mode)
+      }
       choices={[
         ...layers
           .map((layer, index) => ({
