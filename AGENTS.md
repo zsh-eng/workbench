@@ -6,9 +6,7 @@ Include line numbers when useful. Preserve unrelated edits.
 
 ## Workspace layout
 
-- `apps/reader`: web Reader and deployed Cloudflare Worker. Follow its `AGENTS.md`.
-- `apps/arctic`: native Arctic iOS app. Follow its `AGENTS.md`.
-- `apps/spaced2`: Spaced flashcards and its Worker. Follow its `AGENTS.md`.
+- `apps/*`: one folder per app. An app's own `AGENTS.md` has its checks.
 - `packages`: shared libraries and private server support. Do not import app code.
 - Root guides document reusable patterns; keep them easy to read.
 
@@ -32,6 +30,15 @@ need a diff and link review, not a build.
 
 Keep deployment resource names and production data separate from repository
 names. Do not deploy or run remote migrations as a side effect of a refactor.
+
+## Hand-offs and review
+
+- End a hand-off with proof: the commands you ran and their results, and
+  screenshot or clip paths. Say what your checks don't cover. A claim without
+  proof is a report, not a result.
+- Before you hand off, review your own diff with fresh context (`/code-review`
+  or a fresh subagent) and fix the Important findings.
+- When you review a diff, read [REVIEW.md](REVIEW.md) first.
 
 ## Fast test loop
 
