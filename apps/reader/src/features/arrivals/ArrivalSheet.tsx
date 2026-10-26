@@ -19,7 +19,12 @@ import {
   type ArrivalLook,
 } from "./arrival-store";
 import { TypeCover, useSlowStep } from "./ArrivalTile";
-import { ArrivingCover, useCoverUrl, useDecoded } from "./ArrivingCover";
+import {
+  arrivalPainted,
+  ArrivingCover,
+  useCoverUrl,
+  useDecoded,
+} from "./ArrivingCover";
 import { prefersReducedMotion } from "./engine/arrival-engine";
 
 export interface ArrivalSheetProps {
@@ -51,6 +56,34 @@ const FLIGHT = {
 interface Flight {
   from: DOMRect;
   to: DOMRect;
+}
+
+/** The longest the flying cover waits for the grid to draw the book. */
+const PAINT_WAIT_MS = 1000;
+
+/**
+ * Resolves once the grid shows the book under the flying cover and a frame
+ * has painted it, so the flyer never fades over a blank card. It waits a
+ * second at most.
+ */
+function gridPainted(key: string, cancelled: () => boolean): Promise<void> {
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      if (cancelled()) return resolve();
+      const cover = [
+        ...document.querySelectorAll(`[data-arrival-key="${CSS.escape(key)}"]`),
+      ].find(
+        (element) =>
+          !element.closest("[data-arrival-flight], [data-arrival-sheet]"),
+      );
+      if (cover && arrivalPainted(cover))
+        requestAnimationFrame(() => resolve());
+      else if (performance.now() - start > PAINT_WAIT_MS) resolve();
+      else requestAnimationFrame(check);
+    };
+    check();
+  });
 }
 
 function headline(arrival: Arrival): string {
@@ -180,9 +213,10 @@ export function ArrivalSheet({
               )}
               style={{ height: COVER_HEIGHT, aspectRatio: "2 / 3" }}
             >
+              {/* While the cover flies, the flyer is its only drawing. */}
               {duplicate ? (
                 <ExistingCover arrival={arrival} coverUrlFor={coverUrlFor} />
-              ) : stage === "failed" ? null : (
+              ) : stage === "failed" || flight ? null : (
                 <SheetCover
                   arrival={arrival}
                   look={look}
@@ -215,6 +249,7 @@ export function ArrivalSheet({
       {flight &&
         createPortal(
           <CoverFlight
+            arrivalKey={arrivalKey}
             flight={flight}
             onLanded={() => records.present(arrivalKey, false)}
             onDone={() => done.current()}
@@ -331,14 +366,16 @@ function ExistingCover({
 /**
  * The cover on its way from the sheet to the grid: placed where it lands
  * and moved there by its transform alone, so the compositor carries it.
- * It fades once the place below it draws the book.
+ * It fades once the place below it has painted the book.
  */
 function CoverFlight({
+  arrivalKey,
   flight,
   onLanded,
   onDone,
   children,
 }: {
+  arrivalKey: string;
   flight: Flight;
   onLanded: () => void;
   onDone: () => void;
@@ -369,6 +406,10 @@ function CoverFlight({
       .then(() => {
         if (cancelled) return;
         landed.current();
+        return gridPainted(arrivalKey, () => cancelled);
+      })
+      .then(() => {
+        if (cancelled) return;
         return element.animate([{ opacity: 1 }, { opacity: 0 }], {
           duration: 160,
           fill: "forwards",
@@ -382,7 +423,7 @@ function CoverFlight({
       cancelled = true;
       move.cancel();
     };
-  }, [from, to]);
+  }, [arrivalKey, from, to]);
 
   return (
     <div

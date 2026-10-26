@@ -646,6 +646,10 @@ class ArrivalEngine {
     gl.bindVertexArray(null);
     view.present(canvas);
     view.drawn = state.shown;
+    // The canvas holds a whole frame: paper, or the cover with its image.
+    // The arrival sheet's flight waits for this before it lets go.
+    if (cover || state.shown < COVER_START)
+      options.canvas.dataset.arrivalPainted = "";
     stats.draws++;
   }
 }

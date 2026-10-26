@@ -102,6 +102,42 @@ async function chooseFiles(
   await chooser.setFiles(files);
 }
 
+/**
+ * Counts the frames in which the cover flying down from the arrival sheet
+ * fades, and those in which the first cover in the grid under it was not
+ * drawn yet: a blank card under the fade breaks the book's identity.
+ */
+async function watchLanding(page: Page) {
+  await page.evaluate(() => {
+    const landing = { fading: 0, blank: 0 };
+    Object.assign(window, { __landing: landing });
+    const sample = () => {
+      const flight = document.querySelector("[data-arrival-flight]");
+      if (flight && Number(getComputedStyle(flight).opacity) < 1) {
+        landing.fading++;
+        const tile = document.querySelector("ul.grid > li");
+        const canvas = tile?.querySelector("canvas[data-arrival-canvas]");
+        const images = [...(tile?.querySelectorAll("img") ?? [])];
+        const drawn = canvas
+          ? canvas.hasAttribute("data-arrival-painted")
+          : images.length > 0 &&
+            images.every((image) => image.complete && image.naturalWidth > 0);
+        if (!drawn) landing.blank++;
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+}
+
+function landing(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as unknown as { __landing: { fading: number; blank: number } })
+        .__landing,
+  );
+}
+
 async function shelfTitles(page: Page) {
   return page
     .getByRole("heading", { level: 3, name: /^Arriving book / })
@@ -165,10 +201,15 @@ test("closing the sheet early leaves the book arriving in its place", async ({
   await chooseFiles(page, books(["Arriving book 1"]));
   const sheet = page.locator("[data-arrival-sheet]");
   await expect(sheet).toBeVisible(READY);
+  await watchLanding(page);
   // A press on the page above the sheet closes it.
   await page.mouse.click(195, 120);
 
   await expect(sheet).toHaveCount(0, READY);
+  await expect(page.locator("[data-arrival-flight]")).toHaveCount(0, READY);
+  // The cover flew down and let go only over its place, drawn.
+  expect(await landing(page)).toMatchObject({ blank: 0 });
+  expect((await landing(page)).fading).toBeGreaterThan(0);
   const titles = page.getByRole("heading", { level: 3 });
   await expect(titles.first()).toHaveText("Arriving book 1", READY);
   await expect(titles.nth(1)).toHaveText(SAMPLE_BOOK_TITLE);
@@ -176,6 +217,26 @@ test("closing the sheet early leaves the book arriving in its place", async ({
   await expect(page.locator("[data-arrival-place]")).toHaveCount(0);
   await expect(page.locator("[data-arrival-tile]")).toHaveCount(0, READY);
   await expect(titles.first()).toHaveText("Arriving book 1");
+});
+
+test("closing the sheet once the book is ready lands it on its own cover", async ({
+  page,
+}) => {
+  await turnOnArrivingBooks(page);
+  await page.goto("/");
+
+  await chooseFiles(page, books(["Arriving book 1"]));
+  const sheet = page.locator("[data-arrival-sheet]");
+  await expect(sheet.getByRole("button", { name: "Read now" })).toBeEnabled(
+    READY,
+  );
+  await watchLanding(page);
+  await page.mouse.click(195, 120);
+
+  await expect(page.locator("[data-arrival-flight]")).toHaveCount(0, READY);
+  expect(await landing(page)).toMatchObject({ blank: 0 });
+  expect((await landing(page)).fading).toBeGreaterThan(0);
+  await expect(page.locator("[data-arrival-place]")).toHaveCount(0);
 });
 
 test("the same book again shows the copy you have in the sheet", async ({

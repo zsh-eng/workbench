@@ -91,6 +91,18 @@ function useEngineAvailable(): boolean {
 }
 
 /**
+ * Whether an arriving cover shows a whole picture: its drawing has a frame,
+ * or, without one, its images have loaded. Type needs nothing to load.
+ */
+export function arrivalPainted(cover: Element): boolean {
+  const canvas = cover.querySelector("canvas[data-arrival-canvas]");
+  if (canvas) return canvas.hasAttribute("data-arrival-painted");
+  return [...cover.querySelectorAll("img")].every(
+    (image) => image.complete && image.naturalWidth > 0,
+  );
+}
+
+/**
  * A book's cover while it arrives: paper while the file is saved and read,
  * then the chosen look, in step with the import, then the plain cover.
  * With reduced motion the paper simply gives way to the cover.
@@ -114,6 +126,7 @@ export function ArrivingCover(props: ArrivingCoverProps) {
   return (
     <span
       data-arrival={arrival.progress.stage}
+      data-arrival-key={arrival.key}
       data-arrival-look={look}
       className={cn("relative block overflow-hidden bg-secondary", className)}
     >
