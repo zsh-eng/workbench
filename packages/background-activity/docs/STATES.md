@@ -110,6 +110,7 @@ stateDiagram-v2
   failed --> downloading : a check finds it again
   ready --> applying : apply() posts SKIP_WAITING
   applying --> [*] : the worker takes over; the page reloads
+  applying --> ready : no switch within 10 s
   ready --> [*] : another tab took over (takenOver); apply() reloads
 ```
 

@@ -160,6 +160,23 @@ describe("an update", () => {
     expect(reloads()).toBe(1);
   });
 
+  test("a switch that does not happen is ready again, and a later apply tries again", async () => {
+    const { update, registration, container, clock, storage, reloads } =
+      await setup("wait");
+    registration.found();
+    registration.installed();
+    update.apply();
+    await clock.advance(9_999);
+    expect(update.getSnapshot().status).toBe("applying");
+    await clock.advance(1);
+    expect(update.getSnapshot().status).toBe("ready");
+    expect(storage.values.size).toBe(0);
+    update.apply();
+    expect(registration.waiting!.messages).toHaveLength(2);
+    container.change();
+    expect(reloads()).toBe(1);
+  });
+
   test("with the now policy, it switches as soon as it is ready, as an auto-updating PWA does", async () => {
     const { registration, container, reloads } = await setup("now");
     registration.found();
