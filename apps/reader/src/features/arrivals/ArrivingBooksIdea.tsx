@@ -27,22 +27,25 @@ import {
   type Arrival,
   type ArrivalLook,
 } from "./arrival-store";
+import { ArrivalSheet } from "./ArrivalSheet";
 import { ArrivalTile, useArrivalGrid } from "./ArrivalTile";
 
 /**
- * Design ideas → Arriving books. A phone's Library receiving one book, five,
- * or a slow, a failed and a duplicate one, in each look. The imports are
- * simulated, but they run through the real job queue, the real places in
- * the grid and the real drawing; `today` is what ships: nothing until a
- * book is done, then its cover.
+ * Design ideas → Arriving books. A phone's Library receiving one book, one
+ * it already has, five, or a slow, a failed and a duplicate one, in each
+ * look. One book on its own arrives in the arrival sheet, in ink; several
+ * arrive in the grid in the chosen look. The imports are simulated, but
+ * they run through the real job queue, the real places in the grid and the
+ * real drawing; `today` is what ships: nothing until a book is done, then
+ * its cover.
  */
 
 type IdeaLook = ArrivalLook | "today";
 
 const LOOKS: { id: IdeaLook; label: string }[] = [
   { id: "today", label: "Today" },
-  { id: "develop", label: "Develop" },
   { id: "light", label: "Raking light" },
+  { id: "develop", label: "Develop" },
   { id: "ink", label: "Ink" },
   { id: "calm", label: "Calm (CSS)" },
   { id: "still", label: "Reduced motion" },
@@ -59,7 +62,7 @@ function isScenario(value: string | null): value is ScenarioId {
 export function ArrivingBooksIdea() {
   const [params, setParams] = useSearchParams();
   const lookParam = params.get("look");
-  const look: IdeaLook = isLook(lookParam) ? lookParam : "develop";
+  const look: IdeaLook = isLook(lookParam) ? lookParam : "light";
   const scenarioParam = params.get("state");
   const scenario: ScenarioId = isScenario(scenarioParam)
     ? scenarioParam
@@ -215,7 +218,11 @@ function DemoWorld({ demo, look }: { demo: ArrivalDemo; look: IdeaLook }) {
   const [silent] = useState(() => new ArrivalRecords());
   const added = useSyncExternalStore(demo.added.subscribe, demo.added.get);
   const shown = useMemo(() => [...added, ...demo.shelf], [added, demo.shelf]);
+  // One book on its own arrives in the arrival sheet, which needs no toast.
+  const single = demo.keys.length === 1 && look !== "today";
+  const [sheetKey, setSheetKey] = useState(single ? demo.keys[0]! : null);
   useEffect(() => {
+    if (single) return;
     let cancelled = false;
     void demo.finished.then(({ added, duplicates, failed }) => {
       if (cancelled) return;
@@ -233,7 +240,7 @@ function DemoWorld({ demo, look }: { demo: ArrivalDemo; look: IdeaLook }) {
     return () => {
       cancelled = true;
     };
-  }, [demo]);
+  }, [demo, single]);
   return (
     <ArrivalProvider
       records={look === "today" ? silent : demo.records}
@@ -250,6 +257,20 @@ function DemoWorld({ demo, look }: { demo: ArrivalDemo; look: IdeaLook }) {
         </div>
         <DemoGrid shown={shown} coverUrls={demo.coverUrls} />
       </section>
+      {sheetKey && (
+        <ArrivalSheet
+          key={sheetKey}
+          arrivalKey={sheetKey}
+          onOpenBook={(_, title) =>
+            toast(`Read now opens ${title || "the book"} in the Reader.`, {
+              id: "arriving-books-demo",
+            })
+          }
+          onDone={() => setSheetKey(null)}
+          coverUrlFor={(bookId) => demo.coverUrls.get(bookId)}
+          look={look === "still" || look === "calm" ? look : "ink"}
+        />
+      )}
     </ArrivalProvider>
   );
 }

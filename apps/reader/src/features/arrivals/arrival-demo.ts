@@ -25,6 +25,8 @@ export interface SampleBook {
   author: string;
   /** A bundled living-cover scene, or none for a book without a cover. */
   scene: string | null;
+  /** Entries at the top of its table of contents. */
+  chapters?: number;
 }
 
 /** Books already on the demo's shelf, set in type. */
@@ -50,30 +52,35 @@ const ALICE: SampleBook = {
   title: "Alice’s Adventures in Wonderland",
   author: "Lewis Carroll",
   scene: "alice",
+  chapters: 12,
 };
 const PRIDE: SampleBook = {
   id: "pride",
   title: "Pride and Prejudice",
   author: "Jane Austen",
   scene: "pride-and-prejudice",
+  chapters: 61,
 };
 const TIME: SampleBook = {
   id: "time-machine",
   title: "The Time Machine",
   author: "H. G. Wells",
   scene: "time-machine",
+  chapters: 16,
 };
 const MOBY: SampleBook = {
   id: "moby-dick",
   title: "Moby-Dick",
   author: "Herman Melville",
   scene: null,
+  chapters: 135,
 };
 const FRANKENSTEIN: SampleBook = {
   id: "frankenstein",
   title: "Frankenstein",
   author: "Mary Shelley",
   scene: null,
+  chapters: 24,
 };
 
 /** One file in a scenario: its book, and how long each step takes. */
@@ -88,10 +95,11 @@ interface SampleFile {
   fails?: boolean;
 }
 
-export type ScenarioId = "one" | "five" | "trouble";
+export type ScenarioId = "one" | "again" | "five" | "trouble";
 
 export const SCENARIOS: { id: ScenarioId; label: string }[] = [
   { id: "one", label: "One book" },
+  { id: "again", label: "One already added" },
   { id: "five", label: "Five books" },
   { id: "trouble", label: "Slow, failed, duplicate" },
 ];
@@ -100,6 +108,14 @@ export const SCENARIOS: { id: ScenarioId; label: string }[] = [
 // would take for a small EPUB.
 const SCENARIO_FILES: Record<ScenarioId, SampleFile[]> = {
   one: [{ fileName: "alice.epub", book: ALICE, steps: [180, 260, 380] }],
+  again: [
+    {
+      fileName: "alice.epub",
+      book: ALICE,
+      steps: [180, 0, 0],
+      duplicate: true,
+    },
+  ],
   five: [
     { fileName: "alice.epub", book: ALICE, steps: [180, 260, 380] },
     {
@@ -171,7 +187,10 @@ export function sampleBook(
     metadata: {},
     manifest: [],
     spine: [],
-    toc: [],
+    toc: Array.from({ length: sample.chapters ?? 0 }, (_, index) => ({
+      label: `Chapter ${index + 1}`,
+      href: "",
+    })),
     cover: hasCover
       ? { fileId: `demo-cover:${sample.id}` as FileId, blurHash: null }
       : null,
@@ -186,6 +205,8 @@ export interface ArrivalDemo {
   /** Tells one run's world from the next. */
   id: number;
   records: ArrivalRecords;
+  /** The import's keys, one per file, in order. */
+  keys: string[];
   manager: ActivityManager;
   /** The shelf before the import, newest first. */
   shelf: Book[];
@@ -262,6 +283,7 @@ export function createArrivalDemo(
       title: sample.book.title,
       author: sample.book.author,
       cover: scene ? await coverBlob(scene.coverUrl) : null,
+      chapters: sample.book.chapters ?? null,
     });
     await sleep(preparing);
     const book = sampleBook(
@@ -313,6 +335,7 @@ export function createArrivalDemo(
   return {
     id: nextDemo++,
     records,
+    keys,
     manager,
     shelf,
     added: {
