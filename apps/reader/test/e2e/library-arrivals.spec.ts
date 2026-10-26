@@ -109,10 +109,11 @@ async function chooseFiles(
  */
 async function watchLanding(page: Page) {
   await page.evaluate(() => {
-    const landing = { fading: 0, blank: 0 };
+    const landing = { flying: 0, fading: 0, blank: 0 };
     Object.assign(window, { __landing: landing });
     const sample = () => {
       const flight = document.querySelector("[data-arrival-flight]");
+      if (flight) landing.flying++;
       if (flight && Number(getComputedStyle(flight).opacity) < 1) {
         landing.fading++;
         const tile = document.querySelector("ul.grid > li");
@@ -133,8 +134,11 @@ async function watchLanding(page: Page) {
 function landing(page: Page) {
   return page.evaluate(
     () =>
-      (window as unknown as { __landing: { fading: number; blank: number } })
-        .__landing,
+      (
+        window as unknown as {
+          __landing: { flying: number; fading: number; blank: number };
+        }
+      ).__landing,
   );
 }
 
@@ -230,8 +234,12 @@ test("closing the sheet once the book is ready lands it on its own cover", async
   await expect(sheet.getByRole("button", { name: "Read now" })).toBeEnabled(
     READY,
   );
+  // Focus is in the sheet once it has come up; Escape closes it.
+  await expect(
+    page.getByRole("dialog", { name: "In your library" }),
+  ).toBeFocused(READY);
   await watchLanding(page);
-  await page.mouse.click(195, 120);
+  await page.keyboard.press("Escape");
 
   await expect(page.locator("[data-arrival-flight]")).toHaveCount(0, READY);
   expect(await landing(page)).toMatchObject({ blank: 0 });
