@@ -1,6 +1,7 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { generatedRoutes, type DependencyInfo } from "../../shared/generated";
+import { generatedRoutes, type DependencyInfo, type GeneratedMark } from "../../shared/generated";
+import type { ParsedReviewFile } from "../../shared/review";
 import { createApi } from "./api";
 import { readBrowserToken } from "./auth";
 import { browserFetch } from "./live";
@@ -240,6 +241,63 @@ export function snapshotSummary(metadata: FileDiffMetadata): string | undefined 
           .join(", ")}`;
   snapshotCache.set(metadata, summary);
   return summary;
+}
+
+const NO_SUMMARIES: ReadonlyMap<string, string> = new Map();
+const sameSummaries = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>) =>
+  a.size === b.size && [...a].every(([id, text]) => b.get(id) === text);
+
+/**
+ * What each generated file of `files` changed, in words: a lockfile's
+ * packages, less the `direct` ones that the card shows, and a snapshot file's
+ * entries. The pass over each patch runs in idle time after the diff shows,
+ * so a 20,000-line bun.lock does not hold up the stream. Until it ends, the
+ * last answer for the same `scope` (the comparison) shows.
+ */
+export function useGeneratedSummaries(
+  scope: string,
+  files: readonly ParsedReviewFile[],
+  marks: ReadonlyMap<string, GeneratedMark>,
+  direct: ReadonlySet<string>,
+): ReadonlyMap<string, string> {
+  const [result, setResult] = useState<{ scope: string; summaries: ReadonlyMap<string, string> }>();
+  useEffect(() => {
+    if (!files.length || !marks.size) return;
+    let live = true;
+    const run = () => {
+      if (!live) return;
+      const summaries = new Map<string, string>();
+      for (const file of files) {
+        const mark = marks.get(file.id);
+        if (!mark || !file.metadata) continue;
+        const summary =
+          mark.kind === "lockfile"
+            ? lockfileSummary(lockfileChanges(file.metadata), direct)
+            : mark.kind === "snapshot" && file.path.endsWith(".snap")
+              ? snapshotSummary(file.metadata)
+              : undefined;
+        if (summary) summaries.set(file.id, summary);
+      }
+      setResult((current) =>
+        current?.scope === scope && sameSummaries(current.summaries, summaries)
+          ? current
+          : { scope, summaries },
+      );
+    };
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(run, { timeout: 500 });
+      return () => {
+        live = false;
+        cancelIdleCallback(handle);
+      };
+    }
+    const handle = setTimeout(run, 50);
+    return () => {
+      live = false;
+      clearTimeout(handle);
+    };
+  }, [scope, files, marks, direct]);
+  return result?.scope === scope ? result.summaries : NO_SUMMARIES;
 }
 
 export type ManifestState = DependencyChange[] | "loading" | "unavailable";

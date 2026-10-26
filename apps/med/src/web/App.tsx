@@ -58,12 +58,10 @@ import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
 import { DependencyCard } from "./components/DependencyCard";
 import {
-  lockfileChanges,
-  lockfileSummary,
   setDependencyLookups,
-  snapshotSummary,
   useDependencyInfo,
   useDependencyLookups,
+  useGeneratedSummaries,
   useManifestChanges,
 } from "./data/dependencies";
 import { GENERATED_LABELS } from "../shared/generated";
@@ -4711,22 +4709,12 @@ export function App({
       if (Array.isArray(changes)) for (const change of changes) names.add(change.name);
     return names;
   }, [manifests]);
-  const generatedSummaries = useMemo(() => {
-    const summaries = new Map<string, string>();
-    if (!groupGenerated && !manifestPaths.length) return summaries;
-    for (const file of state.files) {
-      const mark = generatedFiles.marks.get(file.id);
-      if (!mark || !file.metadata) continue;
-      const summary =
-        mark.kind === "lockfile"
-          ? lockfileSummary(lockfileChanges(file.metadata), directDependencies)
-          : mark.kind === "snapshot" && file.path.endsWith(".snap")
-            ? snapshotSummary(file.metadata)
-            : undefined;
-      if (summary) summaries.set(file.id, summary);
-    }
-    return summaries;
-  }, [groupGenerated, manifestPaths, state.files, generatedFiles, directDependencies]);
+  const generatedSummaries = useGeneratedSummaries(
+    reviewScope,
+    groupGenerated || manifestPaths.length ? state.files : NO_FILES,
+    generatedFiles.marks,
+    directDependencies,
+  );
   const dependencyLookups = useDependencyLookups();
   const lookupPackages = useMemo(() => {
     const packages = new Map<string, { name: string; version: string }>();

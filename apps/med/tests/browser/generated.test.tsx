@@ -434,7 +434,7 @@ test("a lockfile without its manifest is a warning, and the group's check marks 
     document.querySelector(`[data-generated-file="${path}"]`)?.textContent ?? "";
   // Lockfile-only churn: no card, and each changed package is indirect.
   await expect.poll(() => line("bun.lock")).toContain("No manifest changed");
-  expect(line("bun.lock")).toContain("2 indirect dependencies updated");
+  await expect.poll(() => line("bun.lock")).toContain("2 indirect dependencies updated");
   expect(document.querySelector("[data-dependency-card]")).toBeNull();
   // The lockfile, and the build output that the session edited by hand.
   await expect.element(group().getByText("2 to check")).toBeVisible();
