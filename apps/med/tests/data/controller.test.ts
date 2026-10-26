@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type { Comparison, NoteState, ReviewResponse } from "../../src/shared/protocol";
-import { createReviewController } from "../../src/web/data/controller";
+import { changesCommits, createReviewController } from "../../src/web/data/controller";
 import { parseReviewPatch } from "../../src/shared/review";
 
 const A = "a".repeat(40);
@@ -39,6 +39,7 @@ function fixture(
     source?: (id: string, path: string) => Promise<Response>;
     parse?: (patch: string) => Promise<FileDiffMetadata[]>;
     events?: () => ReadableStream<Uint8Array>;
+    commits?: (search: URLSearchParams) => Promise<Response>;
     cacheBytes?: number;
     initialComparison?: Comparison;
     git?: boolean;
@@ -65,6 +66,8 @@ function fixture(
       });
     if (url.pathname === "/api/branches") return Response.json([]);
     if (url.pathname === "/api/history") return json({ commits: [], cursor: null, hasMore: false });
+    if (url.pathname === "/api/commits")
+      return options.commits?.(url.searchParams) ?? json({ commits: [], more: false });
     if (url.pathname === "/api/events" && options.events)
       return new Response(options.events(), { headers: { "Content-Type": "text/event-stream" } });
     if (url.pathname === "/api/review") {
@@ -156,6 +159,71 @@ describe("review request ownership", () => {
       status: "ready",
       review: { id: "working-2" },
     });
+    controller.dispose();
+  });
+
+  test("a branch's Changes list its own commits, read once for each head, and All changes comes back from one", async () => {
+    // The merge base with main, and the branch's head.
+    const base = "c".repeat(40);
+    let head = A;
+    let edits = 0;
+    const branch = [
+      { id: B, subject: "Add the parser", author: "Ada", timestamp: 1 },
+      { id: A, subject: "Use the parser", author: "Ada", timestamp: 2 },
+    ];
+    const { controller, calls } = fixture({
+      review: async (comparison, repo) =>
+        json({
+          ...response(comparison, repo),
+          ...(comparison.kind === "working" &&
+            comparison.base && { id: `branch-${head}-${edits}`, base, headCommit: head }),
+        }),
+      commits: async (search) =>
+        json({ commits: search.get("head") === A ? branch : branch.slice(0, 1), more: false }),
+    });
+    const reads = () => calls.filter((call) => call.url.startsWith("/api/commits"));
+    const commitReads = () =>
+      calls
+        .filter((call) => call.url === "/api/review")
+        .map((call) => JSON.parse(String(call.init?.body)).comparison)
+        .filter((comparison: Comparison) => comparison.kind === "commit");
+    await controller.initialize();
+    // Working changes on the base list no commits.
+    expect(controller.getSnapshot().branchCommits).toBeNull();
+    const changes: Comparison = { kind: "working", base: "main" };
+    await controller.selectComparison(changes);
+    await vi.waitFor(() =>
+      expect(changesCommits(controller.getSnapshot())?.commits).toEqual(branch),
+    );
+    expect(reads().map((call) => call.url)).toEqual([
+      `/api/commits?repo=%2Frepo&base=${base}&head=${A}`,
+    ]);
+    // While the review is idle, the commits load ahead.
+    await vi.waitFor(() => expect(commitReads()).toHaveLength(2));
+    // An edit in the worktree keeps the head, so the list is not read again.
+    edits++;
+    await controller.refresh();
+    expect(controller.getSnapshot().review?.id).toBe(`branch-${A}-1`);
+    expect(reads()).toHaveLength(1);
+    // A commit picked from the list shows from the cache, and the list stays.
+    await controller.selectComparison({ kind: "commit", commit: B });
+    expect(controller.getSnapshot()).toMatchObject({
+      comparison: { kind: "commit", commit: B },
+      metrics: { cacheHit: true },
+    });
+    expect(changesCommits(controller.getSnapshot())?.commits).toEqual(branch);
+    await controller.showAllChanges();
+    expect(controller.getSnapshot().comparison).toEqual(changes);
+    // A new head reads its commits again.
+    head = B;
+    await controller.refresh();
+    await vi.waitFor(() =>
+      expect(changesCommits(controller.getSnapshot())?.commits).toEqual(branch.slice(0, 1)),
+    );
+    expect(reads()).toHaveLength(2);
+    // Changes other than the branch's list none.
+    await controller.selectComparison({ kind: "staged" });
+    expect(controller.getSnapshot().branchCommits).toBeNull();
     controller.dispose();
   });
 

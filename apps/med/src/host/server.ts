@@ -2710,6 +2710,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
             return;
           }
+          // A branch's own commits, from its merge base to its head, beside its Changes.
+          if (url.pathname === "/api/commits" && request.method === "GET") {
+            const range =
+              repository.git === false && !options.service
+                ? undefined
+                : await loadRangeCommits(
+                    await requireRepo(url.searchParams.get("repo")),
+                    url.searchParams.get("base") ?? "",
+                    url.searchParams.get("head") ?? "",
+                    abort.signal,
+                  );
+            send({ commits: range?.list ?? [], more: range?.more ?? false });
+            return;
+          }
           // Closing a workspace can remove its linked worktree. Git keeps one
           // with changes; an agent that works there keeps it too.
           if (url.pathname === "/api/worktrees/remove" && request.method === "POST") {

@@ -187,7 +187,11 @@ load it or read its agents until you open it again.
   nothing for them. Coming back to **Changes** shows the changes it showed
   last at once, while Med reads them again and updates them if anything
   changed. On a branch other than the base, they start at the base:
-  the branch's commits and its uncommitted changes (**Branch changes**). On
+  the branch's commits and its uncommitted changes (**Branch changes**). The
+  list of files also lists those commits, oldest first, when there are two or
+  more: a commit shows on its own, and **All changes** goes back. When the
+  thread's Review covers a range, as a pull request's does, **Changes** list
+  the commits of that range instead, the same list as **Review**. On
   the base branch, they are the working changes. The comparison menu also has
   working, staged, and unstaged changes, and a commit that you open. In a
   checkout that other sessions share, such as the main checkout, **Only this
@@ -450,12 +454,13 @@ Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
 
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
-its own; **Whole range** goes back. The rail shows by itself when the review
+its own; **Whole range** goes back. In **Changes**, the rail lists the
+branch's commits, or the Review's range, and **All changes** goes back. The rail shows by itself when the review
 pane has room; the toolbar's first button, or **Show files and commits** in
 `⌘K`, shows or hides it in any width, and Med keeps that choice. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,
-so each one shows at once.
+so each one shows at once, in **Review** and in **Changes**.
 
 Drag the right edge of the rail, the Guide's list, or the Commit tab's list to
 make it wider, or focus the edge and press `←` or `→`. Double-click the edge

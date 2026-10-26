@@ -152,6 +152,8 @@ async function mountApp(
     rangeCommits?: boolean;
     /** Both iterations are commits on the main branch of one repository. */
     oneBranch?: boolean;
+    /** Branch changes since main have the two fixture commits. */
+    branchCommits?: boolean;
     /** Replaces the two small files with these, as path and unified patch. */
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
@@ -735,10 +737,26 @@ async function mountApp(
       );
     if (url.pathname === "/api/history")
       return Response.json({ commits, cursor: null, hasMore: false });
+    if (options.branchCommits && url.pathname === "/api/commits")
+      return Response.json({
+        commits: commits.toReversed().map(({ id, subject, author, timestamp }) => ({
+          id,
+          subject,
+          author,
+          timestamp,
+        })),
+        more: false,
+      });
     if (url.pathname === "/api/review") {
       const { comparison, repo } = JSON.parse(String(init?.body));
       requests.push(comparison);
-      const review = { ...response(comparison), repo };
+      const review = {
+        ...response(comparison),
+        repo,
+        ...(options.branchCommits &&
+          comparison.kind === "working" &&
+          comparison.base && { base: "d".repeat(40), headCommit: firstCommit }),
+      };
       if (options.review) {
         review.patch = options.review.patch;
         review.files = options.review.paths.map((path) => ({
@@ -2806,13 +2824,18 @@ describe("review brief", () => {
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     await expect.element(reviewTab).toHaveAttribute("aria-selected", "true");
     // Changes are the checkout's live diff: on the base branch, its working
-    // changes. They list files, not the Review's commits.
+    // changes. Beside their files, they list the commits that the Review covers.
     await changesTab.click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
     expect(controller.getSnapshot().comparison).toEqual({ kind: "working" });
     await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
     await expect.element(rail).toBeVisible();
-    expect(list.query()).toBeNull();
+    await expect
+      .element(list.getByRole("button", { name: "All changes" }))
+      .toHaveAttribute("aria-current", "page");
+    await expect
+      .element(list.getByRole("button", { name: /Add the initial renderer/ }))
+      .toBeVisible();
     // The toolbar hides the rail, and the choice holds.
     await page.getByRole("button", { name: "Hide files and commits" }).click();
     await expect.element(rail).not.toBeInTheDocument();
@@ -2866,10 +2889,48 @@ describe("review brief", () => {
     expect(commitReads()).toEqual([firstCommit, secondCommit]);
     await list.getByRole("button", { name: "Whole range" }).click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
-    // Changes are live and list files only.
-    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    // Changes list the same commits, the ones that the Review covers. A commit
+    // picked there shows in Changes, from the read ahead, and All changes
+    // comes back to the live diff.
+    const changesTab = page.getByRole("tab", { name: "Changes", exact: true });
+    await changesTab.click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(false);
-    expect(list.query()).toBeNull();
+    await expect
+      .element(list.getByRole("button", { name: "All changes" }))
+      .toHaveAttribute("aria-current", "page");
+    expect(list.getByRole("button").elements()).toHaveLength(3);
+    await list.getByRole("button", { name: /Add the initial renderer/ }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: secondCommit });
+    expect(controller.getSnapshot().inReview).toBe(false);
+    await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+    expect(commitReads()).toEqual([firstCommit, secondCommit]);
+    await list.getByRole("button", { name: "All changes" }).click();
+    await expect.poll(() => controller.getSnapshot().comparison).toEqual({ kind: "working" });
+    await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("a branch's Changes list its own commits in the Changed files pane", async () => {
+    await page.viewport(1400, 900);
+    const { controller, requests } = await mountApp({ branchCommits: true });
+    await controller.selectComparison({ kind: "working", base: "main" });
+    const list = page.getByRole("list", { name: "Commits" });
+    await expect
+      .element(list.getByRole("button", { name: "All changes" }))
+      .toHaveAttribute("aria-current", "page");
+    await list.getByRole("button", { name: /Improve the review stream/ }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: firstCommit });
+    await expect
+      .element(list.getByRole("button", { name: /Improve the review stream/ }))
+      .toHaveAttribute("aria-current", "page");
+    await list.getByRole("button", { name: "All changes" }).click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "working", base: "main" });
+    expect(requests.filter((comparison) => comparison.kind === "commit")).toHaveLength(2);
   });
 
   test("a Review whose checkout changed offers a refresh or the live Changes", async () => {

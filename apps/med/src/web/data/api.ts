@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiErrorMessage, comparisonSchema } from "../../shared/protocol";
+import { savedCommitSchema } from "../../shared/review-guide";
 import type { RouteContract } from "../../shared/routes";
 import { browserFetch, liveStream } from "./live";
 
@@ -65,6 +66,11 @@ export const commitDetailsSchema = z.object({
   files: z.number(),
   additions: z.number(),
   deletions: z.number(),
+});
+/** A branch's own commits since its base, oldest first. */
+export const branchCommitsSchema = z.object({
+  commits: z.array(savedCommitSchema),
+  more: z.boolean(),
 });
 export const revealSchema = z.object({ revealed: z.literal(true) });
 const pullRequestCommentSchema = z.object({
