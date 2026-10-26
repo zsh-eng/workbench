@@ -238,11 +238,11 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
       "https://www.nytimes.com/2026/10/26/ice.html",
     ]);
 
-    // A new link: the web's three records, with the page's title, or none.
+    // A new link: the web's three records, with the page's title, or its host.
     const arcticRecords = api.stores.get("arctic")!;
     for (const [url, title] of [
       ["https://example.com/notes/sea-ice", "How sea ice keeps time"],
-      [removed, ""],
+      [removed, "example.com"],
       ["https://www.nytimes.com/2026/10/26/ice.html", "Ice, Paywalled"],
     ] as const) {
       const id = await articleId(url);
@@ -368,9 +368,9 @@ test("the wb command reads links from stdin, saves without text, and prints JSON
         result.title ?? null,
       ]),
     ).toEqual([
-      ["https://example.com/one", "saved", "skipped", ""],
+      ["https://example.com/one", "saved", "skipped", "example.com"],
       ["not-a-link", "invalid", "skipped", null],
-      ["https://example.com/two", "saved", "skipped", ""],
+      ["https://example.com/two", "saved", "skipped", "example.com"],
     ]);
     expect(api.files.size).toBe(0);
     expect(api.stores.get("arctic")!.size).toBe(6);
