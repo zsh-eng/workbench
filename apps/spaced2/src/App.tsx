@@ -6,6 +6,7 @@ import { SpacedIcon } from "@/components/nav/spaced-icon";
 import SessionExpiredBanner from "@/components/session-expired-banner";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner.tsx";
+import UpdatePill, { UpdateHost } from "@/components/update-pill";
 import SyncEngine from "@/lib/sync/engine.ts";
 import { cn } from "@/lib/utils.ts";
 import AllCardsRoute from "@/routes/AllCardsRoute";
@@ -86,6 +87,8 @@ function AppShell() {
       <NavBar />
       <SessionExpiredBanner />
       <ImagesActivityPill />
+      <UpdateHost />
+      <UpdatePill />
       {/* The content layer: nothing that a page stacks rises above the chrome. */}
       <main
         className={cn(

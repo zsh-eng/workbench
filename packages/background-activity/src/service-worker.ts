@@ -114,6 +114,12 @@ export interface AppUpdate {
 const UPDATED_KEY = "background-activity:updated";
 const POLL_MS = 250;
 const HOUR = 60 * 60 * 1000;
+/**
+ * A switch that has not happened by then is back to ready, so Restart does
+ * not spin. Now and then Chrome holds a waiting worker after SKIP_WAITING
+ * (in about one launch in fifty in Spaced's tests, for over 45 s).
+ */
+const APPLY_TIMEOUT_MS = 10_000;
 
 const defaultClock: ActivityClock = {
   now: () => Date.now(),
@@ -156,6 +162,7 @@ export function createAppUpdate(options: AppUpdateOptions): AppUpdate {
   let watched: ServiceWorkerLike | null = null;
   let pollTimer: unknown = null;
   let checkTimer: unknown = null;
+  let applyTimer: unknown = null;
 
   function publish(next: Partial<AppUpdateState>) {
     const keys = Object.keys(next) as (keyof AppUpdateState)[];
@@ -271,6 +278,8 @@ export function createAppUpdate(options: AppUpdateOptions): AppUpdate {
   function onControllerChange() {
     if (disposed) return;
     if (applyingHere) {
+      if (applyTimer !== null) clock.clearTimeout(applyTimer);
+      applyTimer = null;
       options.reload();
       return;
     }
@@ -297,6 +306,16 @@ export function createAppUpdate(options: AppUpdateOptions): AppUpdate {
     remember();
     publish({ status: "applying" });
     waiting.postMessage({ type: "SKIP_WAITING" });
+    if (applyTimer !== null) clock.clearTimeout(applyTimer);
+    applyTimer = clock.setTimeout(() => {
+      applyTimer = null;
+      if (disposed || state.status !== "applying") return;
+      // Ready again, for the next moment or tap. A switch that comes later
+      // is another tab's, as far as this page knows.
+      applyingHere = false;
+      forget();
+      publish({ status: "ready" });
+    }, APPLY_TIMEOUT_MS);
   }
 
   function remember() {
@@ -304,6 +323,14 @@ export function createAppUpdate(options: AppUpdateOptions): AppUpdate {
       options.storage?.setItem(UPDATED_KEY, String(clock.now()));
     } catch {
       // Without storage, the next page does not say "Updated".
+    }
+  }
+
+  function forget() {
+    try {
+      options.storage?.removeItem(UPDATED_KEY);
+    } catch {
+      // Blocked storage remembered nothing.
     }
   }
 
@@ -404,6 +431,7 @@ export function createAppUpdate(options: AppUpdateOptions): AppUpdate {
       disposed = true;
       stopPolling();
       if (checkTimer !== null) clock.clearTimeout(checkTimer);
+      if (applyTimer !== null) clock.clearTimeout(applyTimer);
       for (const cleanup of cleanups.splice(0)) cleanup();
       listeners.clear();
     },

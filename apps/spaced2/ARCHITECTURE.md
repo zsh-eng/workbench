@@ -42,6 +42,20 @@ The current review card is a session snapshot. Queue updates must not replace
 it while the user is thinking. A successful grade or explicit action advances
 the session; Undo restores the graded card. See `src/lib/review/session.ts`.
 
+## App updates
+
+The service worker precaches the app (`vite.config.ts`). A new version
+downloads in the background and waits; `src/lib/app-update.ts` runs the
+shared `createAppUpdate` from `@workbench/background-activity` and decides
+when it takes over (`src/lib/update-policy.ts`): never while a card is on
+the review screen or something a reload would lose is under way, by itself
+at a launch or after two minutes away, and at once on "Restart to update".
+Run `bun run test:update` after a build to check it on the real worker.
+
+The entry chunk names every lazy file, so its name changes with every
+release. The app code that Stats shares with the first load has its own
+chunk, so Stats and its charts keep their names across a release.
+
 ## Images
 
 `ImageCacheV2` separates metadata and image blobs. Review HTML checks the local

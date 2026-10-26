@@ -1,6 +1,7 @@
 import { useCards, useDecks } from "@/components/hooks/query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { holdUpdatesWhile } from "@/lib/app-update";
 import {
   availableDeckIds,
   createAssetLinkResolver,
@@ -85,6 +86,19 @@ export default function ImportRoute({
   const parseGeneration = useRef(0);
   const validSelectedDecks = availableDeckIds(selectedDecks, decks);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // The chosen bundle, an import and its Undo live only in this page, so an
+  // app update waits for them.
+  const holdingUpdates =
+    bundle !== null ||
+    isParsing ||
+    isImporting ||
+    isUndoingImport ||
+    lastImportedCardIds.length > 0;
+  useEffect(
+    () => (holdingUpdates ? holdUpdatesWhile(() => true) : undefined),
+    [holdingUpdates],
+  );
 
   useEffect(() => {
     persistSelectedDecks(selectedDecks);
