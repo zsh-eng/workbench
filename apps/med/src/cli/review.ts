@@ -10,7 +10,11 @@ import {
   savedReviewSchema,
   threadCheckout,
   type AgentSession,
+  type PartShape,
+  type SavedReviewCreate,
 } from "../shared/saved-review";
+import { baseOf, type RegisteredRepository } from "../shared/protocol";
+import { resolveParts } from "./review-parts";
 import { apiErrorMessage } from "../shared/protocol";
 import { checkGuide, guideCheckText } from "../shared/guide-paths";
 import { guideError, reviewGuideSchema, type ReviewGuide } from "../shared/review-guide";
@@ -32,6 +36,8 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
        med-diff review create --title <title> --repo <path> --working --paths <path>...
        med-diff review create --title <title> --repo <path> --working
        med-diff review create --manifest <json-path>
+       med-diff review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
+       med-diff review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
        med-diff review wait --key <key>
        med-diff review repos
@@ -52,6 +58,7 @@ In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and i
 Open Med windows add each new review to their workspaces, marked unread. --open also shows it in the window used last, or opens a browser when no window is open.
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
+--stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
 --group <name> --attempt <1-3> marks the review as one attempt at a task that several agents do, each in its own worktree. Med shows a group's attempts together and compares them.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}.
 The create command prints a Markdown review link without an access token.`;
@@ -61,24 +68,31 @@ The create command prints a Markdown review link without an access token.`;
  * after it, up to the next option. Undefined when it is not there.
  */
 export function takePaths(args: readonly string[]) {
+  const { args: rest, words: paths } = takeWords(args, "--paths");
+  if (paths && !paths.length) throw new Error("Name one or more files or folders after --paths.");
+  return { args: rest, paths };
+}
+
+/** Takes `option a b c` (and `option=a`) out of the arguments: the words
+ * after it, up to the next option. Undefined when it is not there. */
+export function takeWords(args: readonly string[], option: string) {
   const rest: string[] = [];
-  let paths: string[] | undefined;
+  let words: string[] | undefined;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
-    if (arg.startsWith("--paths=")) {
-      (paths ??= []).push(arg.slice("--paths=".length));
+    if (arg.startsWith(`${option}=`)) {
+      (words ??= []).push(arg.slice(option.length + 1));
       continue;
     }
-    if (arg !== "--paths") {
+    if (arg !== option) {
       rest.push(arg);
       continue;
     }
-    paths ??= [];
-    while (index + 1 < args.length && !args[index + 1]!.startsWith("-")) paths.push(args[++index]!);
+    words ??= [];
+    // "#12" names a pull request; other words that start with - are options.
+    while (index + 1 < args.length && !/^-/.test(args[index + 1]!)) words.push(args[++index]!);
   }
-  if (paths && !paths.filter(Boolean).length)
-    throw new Error("Name one or more files or folders after --paths.");
-  return { args: rest, paths: paths?.filter(Boolean) };
+  return { args: rest, words: words?.filter(Boolean) };
 }
 
 /** Paths from this directory (or absolute), as paths in the checkout `repo`. */
@@ -132,6 +146,15 @@ export interface ReviewCommand {
   port: number;
   stateDir: string;
   manifest?: ReviewManifest;
+  /** create --stack or --set: the items to resolve with gh and Git. */
+  parts?: {
+    shape: PartShape;
+    items: string[];
+    repo: string;
+    base?: string;
+    guides?: (ReviewGuide | null)[];
+    manifest: Omit<ReviewManifest, "targets" | "parts" | "title"> & { title?: string };
+  };
   keepTitle?: boolean;
   inferPullRequest?: boolean;
   /** Show the review now, not only add it to open windows. */
@@ -159,6 +182,45 @@ export async function readGuide(source: string): Promise<ReviewGuide> {
   return parsed.data;
 }
 
+/** Read a brief file, or standard input for "-". */
+async function readBrief(source: string) {
+  try {
+    return source === "-" ? await readStandardInput() : await readFile(resolve(source), "utf8");
+  } catch {
+    throw new Error(
+      "Could not read the brief. Supply a readable Markdown file, or - for standard input.",
+    );
+  }
+}
+
+/** A stack's or a set's guides: a JSON array with a guide, or null, for each part. */
+export async function readGuides(source: string, count: number) {
+  let text: string;
+  try {
+    text = source === "-" ? await readStandardInput() : await readFile(resolve(source), "utf8");
+  } catch {
+    throw new Error(
+      "Could not read the guides. Supply a readable JSON file, or - for standard input.",
+    );
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("The guides are not valid JSON.");
+  }
+  if (!Array.isArray(data) || data.length !== count)
+    throw new Error(
+      `With --stack or --set, --guide takes a JSON array of ${count} guides, one (or null) for each part, in order.`,
+    );
+  return data.map((entry, index) => {
+    if (entry === null) return null;
+    const parsed = reviewGuideSchema.safeParse(entry);
+    if (!parsed.success) throw new Error(`Part ${index + 1}: ${guideError(parsed.error)}`);
+    return parsed.data;
+  });
+}
+
 export async function readStandardInput() {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
@@ -169,7 +231,12 @@ export async function parseReviewCommand(
   given: string[],
   sessionOptions: { environment?: NodeJS.ProcessEnv; home?: string; cwd?: string } = {},
 ): Promise<ReviewCommand> {
-  const { args, paths } = takePaths(given);
+  const stacked = takeWords(given, "--stack");
+  const set = takeWords(stacked.args, "--set");
+  const { args, paths } = takePaths(set.args);
+  if (stacked.words && set.words) throw new Error("Use --stack or --set, not both.");
+  const partItems = stacked.words ?? set.words;
+  const shape: PartShape = stacked.words ? "stack" : "set";
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -275,6 +342,61 @@ export async function parseReviewCommand(
       throw new Error("The repos command accepts only --port and --state-dir.");
     return { ...common, kind: "repos" };
   }
+  if (partItems) {
+    if (positionals[0] !== "create") throw new Error(`Use --${shape} with create.`);
+    if (
+      values.manifest !== undefined ||
+      values.head !== undefined ||
+      values.working ||
+      values["merge-base"] ||
+      values.pr !== undefined ||
+      values.group !== undefined ||
+      paths
+    )
+      throw new Error(
+        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, --group, or --paths.`,
+      );
+    if (partItems.length < 2)
+      throw new Error(`Name two or more pull requests or branches after --${shape}.`);
+    const repo =
+      values.repo ??
+      (environment.MED_THREAD_REPO || undefined) ??
+      sessionOptions.cwd ??
+      process.cwd();
+    let guides: (ReviewGuide | null)[] | undefined;
+    if (values.guide !== undefined) {
+      if (values.guide === "-" && values.brief === "-")
+        throw new Error("Only one of --brief and --guide can read standard input.");
+      guides = await readGuides(values.guide, partItems.length);
+    }
+    let brief: string | undefined;
+    if (values.brief !== undefined) brief = await readBrief(values.brief);
+    if (values.key !== undefined) {
+      const key = reviewKeySchema.safeParse(values.key);
+      if (!key.success) throw new Error(`Invalid key: ${key.error.issues[0]!.message}`);
+    }
+    const found = await sessions();
+    return {
+      ...common,
+      kind: "create",
+      parts: {
+        shape,
+        items: partItems,
+        repo: resolve(repo),
+        ...(values.base ? { base: values.base } : {}),
+        ...(guides ? { guides } : {}),
+        manifest: {
+          ...(values.title ? { title: values.title } : {}),
+          ...(values.key ? { key: values.key } : {}),
+          ...(brief ? { brief } : {}),
+          ...(found.length ? { sessions: found } : {}),
+        },
+      },
+      keepTitle: values.title !== undefined,
+      inferPullRequest: false,
+      open: !!values.open,
+    };
+  }
   let input: unknown;
   if (values.manifest !== undefined) {
     if (targetOptions.some((value) => value !== undefined) || paths)
@@ -326,20 +448,8 @@ export async function parseReviewCommand(
       ],
     };
   }
-  if (values.brief !== undefined) {
-    let brief: string;
-    try {
-      brief =
-        values.brief === "-"
-          ? await readStandardInput()
-          : await readFile(resolve(values.brief), "utf8");
-    } catch {
-      throw new Error(
-        "Could not read the brief. Supply a readable Markdown file, or - for standard input.",
-      );
-    }
-    input = { ...(input as object), brief };
-  }
+  if (values.brief !== undefined)
+    input = { ...(input as object), brief: await readBrief(values.brief) };
   if (values.guide !== undefined) {
     if (values.guide === "-" && values.brief === "-")
       throw new Error("Only one of --brief and --guide can read standard input.");
@@ -478,7 +588,8 @@ export async function runReviewCommand(
         ...(guide ? { guide } : {}),
       });
     } else if (guide)
-      await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide });
+      // In a stack or a set, the key names the part that the guide is for.
+      await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide, part: key });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print);
@@ -489,32 +600,87 @@ export async function runReviewCommand(
     print(JSON.stringify(repositories, null, 2));
     return;
   }
-  const manifest = await reviewMetadata(
-    command.manifest!,
-    !!command.keepTitle,
-    !!command.inferPullRequest,
-  );
+  const manifest = command.parts
+    ? await partsManifest(command.parts, repositories)
+    : await reviewMetadata(command.manifest!, !!command.keepTitle, !!command.inferPullRequest);
   const result = await request(connection, "/api/reviews", fetcher, manifest);
   const parsed = z
     .object({
       id: z.string().regex(/^[A-Za-z0-9_-]+$/),
+      title: z.string().optional(),
       iterations: z.array(z.object({ number: z.number() })).optional(),
+      joined: z.object({ layer: z.number(), of: z.number() }).optional(),
     })
     .safeParse(result);
   if (!parsed.success) throw new Error("Med returned an invalid review ID.");
   const iteration = parsed.data.iterations?.at(-1)?.number ?? 1;
+  const joined = parsed.data.joined;
   await showReview(
     connection,
     parsed.data.id,
     !!command.open,
     fetcher,
     options.openUrl,
-    iteration > 1,
+    iteration > 1 || !!joined,
   );
   print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
-  if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
+  if (joined)
+    print(
+      `Added layer ${joined.layer} of ${joined.of} to the stack "${parsed.data.title ?? ""}": its base is the head of the layer below. Ungroup it in Med to make it a thread of its own.`,
+    );
+  else if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
+  if (manifest.parts)
+    print(
+      `${manifest.parts.items.length} ${manifest.parts.shape === "stack" ? "layers, bottom first" : "parts"}: ${manifest.parts.items.map((part) => part.title).join(" · ")}`,
+    );
   if (manifest.guide)
     await printGuideCheck(connection, parsed.data.id, manifest.guide, manifest.key, fetcher, print);
+}
+
+/** The manifest of `create --stack` or `--set`: each item read with gh or Git. */
+async function partsManifest(
+  wanted: NonNullable<ReviewCommand["parts"]>,
+  repositories: unknown,
+): Promise<SavedReviewCreate> {
+  const known = z
+    .object({
+      repositories: z.array(
+        z.object({
+          path: z.string(),
+          worktrees: z.array(
+            z.object({
+              path: z.string(),
+              branch: z.string().optional(),
+              linked: z.boolean().optional(),
+            }),
+          ),
+        }),
+      ),
+    })
+    .safeParse(repositories);
+  const family = known.data?.repositories.find(
+    (entry) =>
+      entry.path === wanted.repo || entry.worktrees.some((tree) => tree.path === wanted.repo),
+  );
+  const base =
+    wanted.base ??
+    baseOf(family as Pick<RegisteredRepository, "path" | "worktrees"> | undefined) ??
+    "main";
+  const { targets, parts } = await resolveParts(wanted.repo, wanted.shape, wanted.items, base);
+  const items = parts.map((part, index) => {
+    const guide = wanted.guides?.[index];
+    return guide ? { ...part, guide } : part;
+  });
+  const bottom = items[0]!.title;
+  return {
+    ...wanted.manifest,
+    title: (
+      wanted.manifest.title ??
+      `${bottom} · ${items.length} ${wanted.shape === "stack" ? "layers" : "parts"}`
+    ).slice(0, 200),
+    targets,
+    parts: { shape: wanted.shape, items },
+  };
 }
 
 /** The checkout that a thread works in. */

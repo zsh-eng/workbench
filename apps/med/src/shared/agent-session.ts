@@ -12,6 +12,7 @@
  * the time of each update (`SessionEvent.at`), a few `_meta.med` fields, and
  * the `notice` and `compaction_update` details marked below.
  */
+import type { ScheduleCall } from "./schedules";
 
 export type ContentBlock =
   | { type: "text"; text: string }
@@ -80,6 +81,10 @@ export interface MedMeta {
      * as interrupted (the durable sessions design). */
     interrupted?: boolean;
     model?: string;
+    /** What a schedule tool's call schedules or cancels (shared/schedules.ts). */
+    schedule?: ScheduleCall;
+    /** A notice of a prompt that a schedule enqueued, which starts a turn. */
+    scheduled?: boolean;
   };
 }
 

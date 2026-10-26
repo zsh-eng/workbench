@@ -16,6 +16,7 @@ export type IconName =
   | "close"
   | "split"
   | "sessions"
+  | "clock"
   | "unified"
   | "wrap"
   | "sun"
@@ -329,6 +330,12 @@ const icons: Record<IconName, ReactNode> = {
     <>
       <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" />
       <path d="M8 2.25v11.5M2.25 8h11.5" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M8 4.75V8l2.25 1.5" />
     </>
   ),
   tasks: <path d="m2.25 4.25 1.25 1.25 2-2.25M2.25 10.75 3.5 12l2-2.25M8 4.5h5.75M8 11h5.75" />,

@@ -51,6 +51,22 @@ export const orderThreads = (order: readonly string[], fetcher: typeof fetch) =>
 export const renameThread = (id: string, name: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/name`, z.object({ ok: z.boolean() }), post({ name }));
 
+/** Puts the thread on top of `onto`'s stack (docs/STACKS.md); `onto` stays. */
+export const groupThread = (id: string, onto: string, fetcher: typeof fetch) =>
+  api(fetcher)
+    .json(`/api/threads/${id}/group`, z.object({ thread: z.string() }), post({ onto }))
+    .then((result) => result.thread);
+
+/** Makes each part of a stack or a set above the first a thread again. */
+export const ungroupThread = (id: string, fetcher: typeof fetch) =>
+  api(fetcher)
+    .json(`/api/threads/${id}/ungroup`, z.object({ threads: z.array(z.string()) }), post())
+    .then((result) => result.threads);
+
+/** A thread of parts is a stack, its layers on each other, or a set. */
+export const setThreadShape = (id: string, shape: "stack" | "set", fetcher: typeof fetch) =>
+  api(fetcher).json(`/api/threads/${id}/shape`, z.object({ ok: z.boolean() }), post({ shape }));
+
 export const deleteThread = (id: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/delete`, z.object({ deleted: z.boolean() }), post());
 

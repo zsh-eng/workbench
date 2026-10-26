@@ -31,7 +31,10 @@ const countCalls = (list: SessionItem[]): number =>
 /** The last turn starts at the reader's last prompt that the agent took; a
  * tail without one starts at its first update. Subagent calls count too. */
 export function lastTurn(items: SessionItem[], startedAt?: number) {
-  const prompt = items.findLastIndex((item) => item.kind === "user" && !item.queued);
+  const prompt = items.findLastIndex(
+    (item) =>
+      (item.kind === "user" && !item.queued) || (item.kind === "notice" && item.scheduled === true),
+  );
   return {
     startedAt: prompt < 0 ? startedAt : items[prompt]!.at,
     toolCalls: countCalls(prompt < 0 ? items : items.slice(prompt + 1)),
@@ -90,7 +93,11 @@ export function finalReplies(list: Unit[], live: boolean) {
 }
 
 // A prompt that the agent took starts a turn; a queued one waits in the turn that runs.
-const isPrompt = (unit: Unit) => "item" in unit && unit.item.kind === "user" && !unit.item.queued;
+// A prompt that a schedule enqueued starts one too.
+const isPrompt = (unit: Unit) =>
+  "item" in unit &&
+  ((unit.item.kind === "user" && !unit.item.queued) ||
+    (unit.item.kind === "notice" && unit.item.scheduled === true));
 /** The items of a unit, in order. */
 export const itemsOf = (unit: Unit): SessionItem[] =>
   "item" in unit ? [unit.item] : "explore" in unit ? unit.explore : unit.work.flatMap(itemsOf);
@@ -105,7 +112,7 @@ export function fold(
   isOpen: (key: string) => boolean,
 ): Unit[] {
   const result: Unit[] = [];
-  for (let at = 0; at < list.length;) {
+  for (let at = 0; at < list.length; ) {
     let end = at + 1;
     while (end < list.length && !isPrompt(list[end]!)) end++;
     const turn = list.slice(at, end);
@@ -116,6 +123,8 @@ export function fold(
       "item" in unit &&
       (finals.has(unit.item.id) ||
         unit.item.kind === "user" ||
+        // A schedule's card stays in view when its turn's work folds.
+        (unit.item.kind === "tool" && !!unit.item.call.schedule) ||
         (unit.item.kind === "notice" && unit.item.severity === "error"));
     const work = rest.filter((unit) => !shown(unit));
     if (!work.length || (live && end === list.length)) {

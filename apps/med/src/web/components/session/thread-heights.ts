@@ -605,8 +605,13 @@ const CONSOLE_MAX_HEIGHT = 220;
 /** A console shows about a dozen lines; more text only scrolls. */
 const CONSOLE_TEXT = 4000;
 
+/** A schedule's card (ScheduleCard.tsx): its title, two lines of prompt, and
+ * its facts, in a bordered box with a margin above and below. */
+const SCHEDULE_CARD = 98;
+
 function toolHeight(item: ToolItem, m: ThreadMetrics, open = false) {
   const { call } = item;
+  if (call.schedule) return SCHEDULE_CARD;
   if (!open) return m.row;
   const diffs = call.content.filter((block) => block.type === "diff");
   const parts: number[] = [];

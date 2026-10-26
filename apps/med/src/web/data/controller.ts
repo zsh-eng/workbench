@@ -274,6 +274,21 @@ export function currentTargets(saved: SavedReview) {
  * thread made before Changes became live captured its checkout when it
  * started; that capture is version 1, unless it is empty and alone.
  */
+/** The layers next to the shown one in its version of a stack or a set: one
+ * above, one below, then two away; the rest wait until they are neighbours. */
+function layersAround(saved: SavedReview, shown: string | null) {
+  if (!saved.parts || !shown) return [];
+  const iteration = saved.iterations?.find((entry) => entry.targetIds.includes(shown));
+  const ids = iteration?.targetIds ?? [];
+  const at = ids.indexOf(shown);
+  if (at < 0) return [];
+  return [at + 1, at - 1, at + 2, at - 2].flatMap((index) => {
+    const id = ids[index];
+    const target = id ? saved.targets.find((entry) => entry.id === id) : undefined;
+    return target && !target.commentReviewId ? [target] : [];
+  });
+}
+
 export function hasReview(saved: SavedReview) {
   const own = saved.targets.filter((target) => !target.commentReviewId);
   if (!own.length) return false;
@@ -1423,10 +1438,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (!saved || (!saved.iterations?.length && !commits.length) || suspended || disposed) return;
     const abort = new AbortController();
     iterationAbort = abort;
-    const targets = (saved.iterations ?? [])
-      .toReversed()
-      .slice(0, 6)
-      .flatMap((iteration) => saved.targets.filter((entry) => entry.id === iteration.targetIds[0]));
+    // A stack's neighbours first, nearest first, so ⌥↑ and ⌥↓ show at once.
+    const neighbours = layersAround(saved, snapshot.savedTargetId);
+    const targets = [
+      ...neighbours,
+      ...(saved.iterations ?? [])
+        .toReversed()
+        .slice(0, 6)
+        .flatMap((iteration) =>
+          saved.targets.filter(
+            (entry) => entry.id === iteration.targetIds[0] && !neighbours.includes(entry),
+          ),
+        ),
+    ];
     void (async () => {
       for (const target of targets) {
         await idle();
@@ -1629,11 +1653,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const current = snapshot.savedReview?.targets.find(
       (entry) => entry.id === snapshot.savedTargetId,
     );
+    // A stack's or a set's layers all use the thread's one checkout, whatever
+    // branch it was on when each layer came (docs/STACKS.md).
     if (
       snapshot.session?.repository.path === checkout &&
       current?.repositoryId === target.repositoryId &&
       current.repo === target.repo &&
-      current.branch === target.branch
+      (current.branch === target.branch || !!snapshot.savedReview?.parts)
     )
       await loadSavedTarget(target);
     else await openWorkspace(checkout, branch, target.repositoryId, target);

@@ -324,6 +324,131 @@ async function bigChange(tree, files, env) {
  * Builds the test bed under `root` and returns it. `transcripts` is "auto"
  * (real when available), "real", or "synthetic".
  */
+/** The layers of the stack thread, bottom first: a branch each, on the one below. */
+const STACK_LAYERS = [
+  {
+    branch: "stack/parse",
+    title: "Parse station queries",
+    files: {
+      "src/query.ts": `/** A station search, split into its words and an optional region. */
+export interface Query {
+  words: string[];
+  region?: string;
+}
+
+export function parseQuery(text: string): Query {
+  const words = text.trim().toLowerCase().split(/\\s+/).filter(Boolean);
+  return { words };
+}
+`,
+    },
+  },
+  {
+    branch: "stack/rank",
+    title: "Rank search results",
+    files: {
+      "src/rank.ts": `/** How well a station's name matches the query's words: 0 is no match. */
+export function rank(name: string, words: readonly string[]): number {
+  const lower = name.toLowerCase();
+  let score = 0;
+  for (const word of words) {
+    if (lower === word) score += 3;
+    else if (lower.startsWith(word)) score += 2;
+    else if (lower.includes(word)) score += 1;
+  }
+  return score;
+}
+`,
+    },
+  },
+  {
+    branch: "stack/fold",
+    title: "Fold accents in station names",
+    files: {
+      "src/fold.ts": `/** A name without accents, so "Saint-Malo" and "saint malo" match. */
+export function fold(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[-_]/g, " ")
+    .toLowerCase();
+}
+`,
+      "src/rank.ts": `import { fold } from "./fold";
+
+/** How well a station's name matches the query's words: 0 is no match. */
+export function rank(name: string, words: readonly string[]): number {
+  const folded = fold(name);
+  let score = 0;
+  for (const word of words.map(fold)) {
+    if (folded === word) score += 3;
+    else if (folded.startsWith(word)) score += 2;
+    else if (folded.includes(word)) score += 1;
+  }
+  return score;
+}
+`,
+    },
+  },
+  {
+    branch: "stack/region",
+    title: "Search by region",
+    files: {
+      "src/query.ts": `/** A station search, split into its words and an optional region. */
+export interface Query {
+  words: string[];
+  region?: string;
+}
+
+const REGIONS = ["north sea", "atlantic", "baltic", "mediterranean"];
+
+export function parseQuery(text: string): Query {
+  let rest = text.trim().toLowerCase();
+  const region = REGIONS.find((name) => rest.startsWith(\`\${name}:\`));
+  if (region) rest = rest.slice(region.length + 1);
+  const words = rest.split(/\\s+/).filter(Boolean);
+  return region ? { words, region } : { words };
+}
+`,
+      "src/query.test.ts": `import { expect, test } from "bun:test";
+import { parseQuery } from "./query";
+
+test("a region prefix narrows the search", () => {
+  expect(parseQuery("Atlantic: brest")).toEqual({ words: ["brest"], region: "atlantic" });
+});
+`,
+    },
+  },
+];
+
+/**
+ * Four branches of the demo repository, each one commit on the one below,
+ * in a worktree of their own: a stack of reviews (docs/STACKS.md). Returns
+ * the worktree and each layer's branch, title, and head.
+ */
+export async function buildStack(repo, trees, env) {
+  const tree = join(trees, "stack");
+  git(repo, ["worktree", "add", "-q", "--detach", tree, "main"], env);
+  const layers = [];
+  for (const layer of STACK_LAYERS) {
+    for (const [path, text] of Object.entries(layer.files)) {
+      await mkdir(dirname(join(tree, path)), { recursive: true });
+      await writeFile(join(tree, path), text);
+    }
+    git(tree, ["add", "-A"], env);
+    git(tree, ["commit", "-qm", layer.title], env);
+    git(tree, ["branch", layer.branch], env);
+    layers.push({
+      branch: layer.branch,
+      title: layer.title,
+      head: git(tree, ["rev-parse", "HEAD"], env),
+    });
+  }
+  // The worktree is on the top layer, as an agent's checkout would be.
+  git(tree, ["switch", "-q", layers.at(-1).branch], env);
+  return { tree, layers };
+}
+
 export async function buildFixture({
   root,
   transcripts = "auto",
@@ -384,6 +509,9 @@ export async function buildFixture({
     log(`  ${name}: ${(bytes / 1e6).toFixed(0)} MB transcript (${kind})`);
   }
 
+  // A stack of four reviews in one thread, for switches between its layers.
+  const stack = await buildStack(world.repo, trees, env);
+
   // The large diff: about 10,000 lines in many hunks, with a short session.
   const atlasTree = worktree("atlas");
   const atlasLines = await bigChange(atlasTree, 48, env);
@@ -417,6 +545,12 @@ export async function buildFixture({
       session: atlasSession,
       lines: atlasLines,
     },
+    stack: {
+      key: "stack",
+      title: "Station search, in layers",
+      tree: stack.tree,
+      layers: stack.layers,
+    },
     glossary: {
       key: "glossary",
       title: "README glossary",
@@ -449,6 +583,19 @@ export async function buildFixture({
         ],
         { CLAUDE_CODE_SESSION_ID: thread.session },
       );
+    // The stack comes first, so the threads after it keep their ⌘ keys.
+    cli([
+      "review",
+      "create",
+      "--title",
+      fixture.stack.title,
+      "--repo",
+      fixture.stack.tree,
+      "--base",
+      "main",
+      "--stack",
+      ...fixture.stack.layers.map((layer) => layer.branch),
+    ]);
     create(fixture.glossary, ["--working"]);
     create(fixture.atlas, ["--base", "atlas~1", "--head", "atlas"]);
     for (const thread of long.toReversed()) create(thread, ["--working"]);

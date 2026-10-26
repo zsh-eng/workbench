@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type { ParsedReviewFile } from "../../../shared/review";
 import type { SavedCommit } from "../../../shared/review-guide";
 import type { GuideScope, GuideSection } from "../../data/guide";
@@ -25,6 +25,8 @@ export interface GuideRailProps {
   onScope(scope: GuideScope): void;
   onFile(section: string, fileId: string): void;
   onToggleViewed(fileIds: readonly string[], viewed: boolean): void;
+  /** Above the Guide, such as a stack's layers. */
+  top?: ReactNode;
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -45,10 +47,12 @@ export const GuideRail = memo(function GuideRail({
   onScope,
   onFile,
   onToggleViewed,
+  top,
 }: GuideRailProps) {
   const { measure, width, pane } = useColumnWidth("guide", () => 268);
   return (
     <nav ref={measure} aria-label="Guide" {...stylex.props(styles.rail, styles.width(width))}>
+      {top}
       <div {...stylex.props(styles.head)}>
         <span {...stylex.props(ui.label)}>Guide</span>
         <span {...stylex.props(ui.grow)} />

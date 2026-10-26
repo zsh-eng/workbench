@@ -10,6 +10,14 @@ import {
   type ToolCallStatus,
   type ToolKind,
 } from "./agent-session";
+import { SCHEDULE_TOOLS, scheduleCall } from "./schedules";
+
+/** A schedule tool's call, for its card (shared/schedules.ts). */
+function scheduled(name: string, input: Record<string, unknown>, output?: Record<string, unknown>) {
+  if (!SCHEDULE_TOOLS.has(name)) return {};
+  const schedule = scheduleCall(name, input, output);
+  return schedule ? { schedule } : {};
+}
 
 /* Claude Code's transcript: ~/.claude/projects/<project>/<session>.jsonl.
  * Claude Code appends one line per finished block: a text reply, a thought, a
@@ -211,7 +219,7 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       rawInput: input,
       ...(diff ? { content: [diff] } : {}),
       ...(locations ? { locations } : {}),
-      ...meta({ tool: name }),
+      ...meta({ tool: name, ...scheduled(name, input) }),
     });
     // A stopped background task sends no notification; the stop ends its call.
     if (name === "TaskStop" || name === "KillShell") {
@@ -286,7 +294,10 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
       type: "content",
       content: part,
     }));
-    const extra: NonNullable<MedMeta["med"]> = { tool: name };
+    const extra: NonNullable<MedMeta["med"]> = {
+      tool: name,
+      ...scheduled(name, input, detail),
+    };
     const updates: SessionUpdate[] = [];
     if (name === "Bash" && detail) {
       if (detail.interrupted) status = "failed";
@@ -490,6 +501,26 @@ export function createClaudeTranscriptReader(options: ClaudeReaderOptions = {}) 
             status: "completed",
             summary: body ? [{ type: "text", text: body }] : null,
             ...meta(),
+          },
+        ];
+      }
+      // A prompt that a schedule enqueued (CronCreate, a /loop) starts a turn
+      // that no one typed: the thread notes it.
+      if (entry.isMeta && entry.turnOrigin === "scheduled") {
+        idle = false;
+        const body =
+          typeof message.content === "string"
+            ? message.content
+            : list(message.content)
+                .map((part) => text(record(part)?.text) ?? "")
+                .join("");
+        return [
+          {
+            sessionUpdate: "notice",
+            title: "A scheduled prompt ran",
+            severity: "info",
+            description: body.trim().slice(0, 2000) || null,
+            ...meta({ scheduled: true }),
           },
         ];
       }

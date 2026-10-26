@@ -635,6 +635,50 @@ page.
 An agent can hand off one attempt with
 `med review create --working --group <task> --attempt <1-3>`.
 
+## Stacks and sets
+
+A thread can hold several reviews of one intent ([design](STACKS.md)): a
+**stack** of pull requests or branches, each on the one below, or a **set** of
+independent ones. An agent makes one with
+`med review create --stack 101 102 103 104` (bottom first) or `--set`; a
+hand-off of one range whose base is the head of an open thread's top layer,
+from the same session or with both pull requests, joins that thread as its
+next layer.
+
+- **Sidebar.** The thread is one row with a strip of segments, one for each
+  layer, bottom first: outlined when unreviewed, half filled in progress, green
+  when every file is viewed, orange when every file is viewed and you
+  commented. The chevron under its mark shows the layers, top first, with
+  their `+`/`−`; a click shows that layer.
+- **Stack rail.** At the top of the Review's rail: the layers top to bottom,
+  the base branch (such as `main`) under the bottom one, each with its number,
+  title, pull request state, and `+`/`−`. A pull request that GitHub moved to
+  another base says "on main". **This layer** shows the layer's own diff;
+  **Whole stack** shows the base to the top layer's head; Shift-click a layer
+  for the layers from the shown one to it. In a narrow pane the layers are a
+  menu in the review's row.
+- **Keys.** `⌥↑` and `⌥↓` go up and down the stack (in a sidebar row they move
+  the tab). **Next unreviewed**, in the rail and in `⌘K`, shows the lowest
+  layer that is not done and not merged or closed.
+- The title band names the shown layer's pull request. All layers use the
+  thread's one checkout, so a switch keeps the session and its files.
+- Drag a row onto the middle of another row of its repository and hold until
+  that row is outlined to stack it on top; a quick drop only moves the row.
+  The row's menu has **Stack on**, **Ungroup** (each layer above the
+  first is a thread again), and **Treat as a set** or **Treat as a stack**.
+
+## Scheduled
+
+Med shows what Claude Code scheduled and never runs a schedule
+([details](SCHEDULES.md)). A `CronCreate`, `CronDelete`, or `ScheduleWakeup`
+call is a card in the thread: "Every hour at :23", its prompt, recurring or
+one-shot, when it expires, and Cancelled, Expired, Fired, or Missed. A job of
+a session ends with it, which the card says. The sidebar's **Scheduled**
+section lists the tabs' jobs with their thread and whether each can fire
+(**Live** while its session's process runs; **Stopped** once it ended, until
+the session resumes), and the Claude app's scheduled tasks from
+`~/.claude/scheduled-tasks`.
+
 ## Edit working files
 
 Working files and files outside Git open in Vim Normal mode; press `i` to
@@ -980,6 +1024,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Next tab that needs you          | `⌘0`          |
 | Close tab / reopen closed tab    | `⌘⌥W` / `⌘⌥T` |
 | Move the focused tab             | `⌥↑` / `⌥↓`   |
+| Layer above / below in a stack   | `⌥↑` / `⌥↓`   |
 | Switch, or search history        | `⌃Tab`        |
 | Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
 | Next permission mode (message)   | `⇧Tab`        |

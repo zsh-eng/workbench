@@ -80,6 +80,7 @@ import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore } from "./saved-reviews";
+import { createSchedules } from "./schedules";
 import { createThreadTabs } from "./thread-tabs";
 import { createThreadService } from "./thread-service";
 import { createThreadSubagents } from "./thread-subagents";
@@ -116,6 +117,8 @@ import {
   threadOpenSchema,
   threadNameSchema,
   threadOrderSchema,
+  threadGroupSchema,
+  threadShapeSchema,
   threadSlug,
   threadStartSchema,
   threadTitle,
@@ -348,6 +351,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     environment: agentEnvironment,
   });
   await ownedSessions.restore();
+  // The Scheduled list: a session's jobs fire while its process runs, in Med
+  // or elsewhere.
+  const schedules = createSchedules({
+    async running(ids) {
+      const places = new Map<string, "med" | SessionPlace>();
+      const rest = ids.filter((id) => {
+        const runner = ownedSessions.get(id);
+        if (runner?.pid() === undefined || runner.dormant()) return true;
+        places.set(id, "med");
+        return false;
+      });
+      if (rest.length)
+        for (const [id, place] of await ownedSessions.elsewhere(rest, 1000)) places.set(id, place);
+      return places;
+    },
+  });
   /**
    * The review's Claude sessions that Med does not run now, or restored
    * without a process: those that another process runs, such as Claude Code
@@ -1891,10 +1910,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 422,
               );
             // The brief and the guide arrive in one body.
+            // A stack's or a set's guides come in the same body.
             const input = savedReviewCreateSchema.parse(
-              await readBody(request, MAX_BRIEF_BODY + MAX_GUIDE_BODY),
+              await readBody(request, MAX_BRIEF_BODY + 4 * MAX_GUIDE_BODY),
             );
-            const review = await savedReviews.create(input, captureTarget, assertRequestAccess);
+            const review = await savedReviews.create(
+              input,
+              captureTarget,
+              assertRequestAccess,
+              undefined,
+              (id) => threads.isTab(id),
+            );
             // A hand-off opens its thread as a tab, also a new iteration of a closed one.
             await threads.opened(review);
             send(review);
@@ -2314,11 +2340,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               return;
             }
             if (request.method === "POST" && action === "guide") {
+              // `part`: the key of a stack's or a set's part.
               const input = z
-                .object({ guide: z.unknown() })
+                .object({ guide: z.unknown(), part: z.string().max(400).optional() })
                 .parse(await readBody(request, MAX_GUIDE_BODY));
               assertRequestAccess();
-              send(await savedReviews.setGuide(id!, input.guide ?? null, assertRequestAccess));
+              send(
+                await savedReviews.setGuide(
+                  id!,
+                  input.guide ?? null,
+                  assertRequestAccess,
+                  input.part,
+                ),
+              );
               return;
             }
             if (request.method === "POST" && action === "brief-comments") {
@@ -2739,6 +2773,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(await threads.list());
             return;
           }
+          // The tabs' Claude Code schedules and the Claude app's scheduled
+          // tasks, read only (docs/SCHEDULES.md).
+          if (url.pathname === "/api/schedules" && request.method === "GET") {
+            send(await schedules.list((await threads.list()).threads));
+            return;
+          }
           if (url.pathname === "/api/threads/history" && request.method === "GET") {
             send({ threads: await threads.history() });
             return;
@@ -2753,6 +2793,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (!thread)
               throw new HostError("thread-not-found", "History has no thread to reopen.", 404);
             send({ thread });
+            return;
+          }
+          // Stacks and sets (docs/STACKS.md): a thread goes on top of
+          // another's stack, a stack splits into threads, or changes shape.
+          const partAction = /^\/api\/threads\/(r_[a-f0-9]{24})\/(group|ungroup|shape)$/.exec(
+            url.pathname,
+          );
+          if (partAction && request.method === "POST") {
+            const [, id, action] = partAction;
+            const body = await readBody(request).catch(() => ({}));
+            if (action === "group") {
+              const { onto } = threadGroupSchema.parse(body ?? {});
+              const review = await savedReviews.group(id!, onto, assertRequestAccess);
+              await threads.close(id!);
+              await threads.opened(review);
+              send({ thread: review.id });
+            } else if (action === "ungroup") {
+              const made = await savedReviews.ungroup(id!, assertRequestAccess);
+              for (const review of made.toReversed()) await threads.opened(review);
+              send({ threads: made.map((review) => review.id) });
+            } else {
+              const { shape } = threadShapeSchema.parse(body ?? {});
+              await savedReviews.setShape(id!, shape, assertRequestAccess);
+              send({ ok: true });
+            }
             return;
           }
           const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { findPort, getStateDirectory } from "../host/runtime/connection";
 import { pullRequestUrlSchema, type SavedReviewCreate } from "../shared/saved-review";
 import { openBrowser, request, showReview } from "./review";
+import { remoteFor } from "./review-parts";
 
 const exec = promisify(execFile);
 
@@ -135,25 +136,6 @@ async function hasCommit(repo: string, oid: string) {
     return false;
   }
 }
-/** The local remote for a GitHub repository URL, or the URL itself. */
-async function remoteFor(repo: string, pullRequestUrl: string) {
-  const url = new URL(pullRequestUrl);
-  const [, owner, name] = url.pathname.split("/");
-  const slug = `${url.host}/${owner}/${name}`.toLowerCase();
-  const remotes = await output("git", ["remote", "-v"], repo);
-  for (const line of remotes.split("\n")) {
-    const [remote, address] = line.split(/\s+/);
-    if (!remote || !address) continue;
-    const normalized = address
-      .toLowerCase()
-      .replace(/^(?:ssh:\/\/)?git@([^:/]+)[:/]/, "$1/")
-      .replace(/^https?:\/\/(?:[^@/]+@)?/, "")
-      .replace(/\.git$/, "");
-    if (normalized === slug) return remote;
-  }
-  return `${url.origin}/${owner}/${name}.git`;
-}
-
 export async function runPullRequestCommand(
   args: string[],
   options: {

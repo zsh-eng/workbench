@@ -10,6 +10,7 @@ import {
   type ToolKind,
 } from "../../shared/agent-session";
 import type { SentMessage } from "./agent-inbox";
+import type { ScheduleCall } from "../../shared/schedules";
 
 export interface ToolCallState {
   toolCallId: string;
@@ -25,6 +26,8 @@ export interface ToolCallState {
   background?: { id: string; kind: "shell" | "agent" };
   /** A restart cut the call before it ended. */
   interrupted?: boolean;
+  /** What a schedule tool's call schedules or cancels (shared/schedules.ts). */
+  schedule?: ScheduleCall;
 }
 
 /** One row of a thread. Items never change in place; an update replaces the item. */
@@ -64,6 +67,8 @@ export type SessionItem =
       title: string;
       severity: "info" | "warning" | "error";
       description?: string | null;
+      /** A prompt that a schedule enqueued ran: it starts a turn. */
+      scheduled?: boolean;
     }
   | { kind: "compaction"; id: string; at: number; summary?: string; failed?: boolean };
 
@@ -260,6 +265,7 @@ export function createSessionStore() {
           ...(meta?.tool ? { tool: meta.tool } : {}),
           ...(meta?.background ? { background: meta.background } : {}),
           ...(meta?.interrupted ? { interrupted: true } : {}),
+          ...(meta?.schedule ? { schedule: meta.schedule } : {}),
         };
         const ended = call.status === "completed" || call.status === "failed";
         // Updates that waited for this call, or for the task it started.
@@ -311,6 +317,7 @@ export function createSessionStore() {
           title: update.title,
           severity: update.severity,
           description: update.description,
+          ...(update._meta?.med?.scheduled ? { scheduled: true } : {}),
         });
         return;
       case "compaction_update": {

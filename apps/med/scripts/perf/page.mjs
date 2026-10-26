@@ -187,6 +187,15 @@ export function instrument({ react }) {
   /** The commit that the shown workspace's list marks as current. */
   perf.currentCommit = () =>
     perf.shown()?.querySelector('[aria-label="Commits"] [aria-current="page"]')?.textContent ?? "";
+  /** The number of the stack layer that the shown Review's rail marks as shown. */
+  perf.currentLayer = () =>
+    Number(
+      perf.shown()?.querySelector("[data-stack-rail] [data-layer][aria-current='page']")?.dataset
+        .layer ?? 0,
+    );
+  /** Layer `n` of the stack shows, with nothing pending. */
+  perf.showsLayer = (n) =>
+    perf.currentLayer() === n && !perf.shown()?.querySelector("[data-pending]");
   // A press starts a step too, as a click on a commit does.
   window.addEventListener(
     "pointerdown",

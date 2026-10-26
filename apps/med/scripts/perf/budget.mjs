@@ -15,13 +15,15 @@
 //   fileOpen        Enter in the file picker (⌘⇧K), to the file's tab
 //   fileTab         ⌥ to a file's tab that is open, from Review
 //   commitPick      a commit picked beside a Review of two commits
+//   layerSwitch     ⌥↑ and ⌥↓ between the layers of a stack of four reviews
 //   soak            rounds of ⌘ switches, files, and the palette: memory growth
 //   agentSteps      three agent steps in a thread that is not on screen
 //   idle1, idle2    idle seconds with one window, and with two
 //   memory          heap, DOM nodes, and workers when all threads have loaded
 //
 // Each switch (the warm ⌘ switches, the ⌥ and Enter steps after a first
-// visit, and a commit picked) must paint within 50 ms at the 95th percentile.
+// visit, a commit picked, and a layer of a stack) must paint within 50 ms at
+// the 95th percentile.
 //
 // For each, it records Git processes (count, time, arguments), HTTP requests
 // and WebSocket messages with bytes, host CPU, main-thread time by kind
@@ -33,7 +35,8 @@
 // Usage (from apps/med, after `bun run build`):
 //   node scripts/perf/budget.mjs                        write .benchmarks/perf/budget.json
 //   node scripts/perf/budget.mjs --check scripts/perf/baseline.json
-//   options: --out <file>  --runs 5  --idle 60  --port 6451  --quick (3 runs, 20 s idle)
+//   options: --out <file>  --runs 5  --idle 60  --port 6451 (6451–6459 or 5371–5379)
+//            --quick (3 runs, 20 s idle)
 //            --transcripts auto|real|synthetic  --no-react  --headed  --frames
 //            --tolerance 0.25  --keep (leave the scratch folder and the profiling build)
 //            --only load,cold,warm,keys,soak,agent,idle (some actions; not with --check)
@@ -82,7 +85,8 @@ const SOAK_ROUNDS = Number(option("soak", quick ? 40 : 120));
 /** Action groups to run: load, cold, warm, keys, soak, agent, idle (all by default). */
 const only = option("only") ? new Set(option("only").split(",")) : undefined;
 if (only && checkFile) throw new Error("Use --check with a full run, without --only.");
-if (PORT < 6451 || PORT > 6459) throw new Error("Use a port from 6451 to 6459.");
+if (!((PORT >= 6451 && PORT <= 6459) || (PORT >= 5371 && PORT <= 5379)))
+  throw new Error("Use a port from 6451 to 6459, or from 5371 to 5379.");
 
 const log = (...parts) => console.log(...parts);
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -342,6 +346,8 @@ const ids = {
   atlas: idOf(fixture.atlas.title),
   /** A branch of two commits, which its Review lists beside the diff. */
   commits: idOf("Forgiving station search"),
+  /** A stack of four reviews in one thread (docs/STACKS.md). */
+  stack: idOf(fixture.stack.title),
 };
 /** The threads that the warm switches visit: the long ones, the large diff, and the agent's. */
 const switchIds = new Set(
@@ -736,6 +742,51 @@ async function keyPaths(session, results, rounds) {
   } finally {
     await context.close();
   }
+  await layerPaths(results, rounds);
+}
+
+/**
+ * ⌥↑ and ⌥↓ through the layers of the stack thread, top to bottom and back,
+ * `rounds` times after a first pass that loads each layer. Its Review shows
+ * the stack's rail, in a page wide enough for the rail beside the diff.
+ */
+async function layerPaths(results, rounds) {
+  if (!ids.stack) {
+    log("  the test bed has no stack: layerSwitch left out");
+    return;
+  }
+  const context = await browser.newContext({
+    viewport: { width: 2200, height: 900 },
+    deviceScaleFactor: 2,
+    colorScheme: "dark",
+  });
+  const wide = await newPage({ context });
+  try {
+    await wide.page.goto(`${host.origin}/review/${ids.stack}`);
+    await wide.page.waitForFunction(() => window.__perf.currentLayer() > 0, null, {
+      timeout: 30_000,
+    });
+    await wait(2000);
+    const count = fixture.stack.layers.length;
+    for (let round_ = -1; round_ < rounds; round_++) {
+      // Down to the bottom layer, then up to the top.
+      for (const key of ["Alt+ArrowDown", "Alt+ArrowUp"]) {
+        for (let step = 1; step < count; step++) {
+          const from = await wide.page.evaluate(() => window.__perf.currentLayer());
+          const to = key === "Alt+ArrowUp" ? from + 1 : from - 1;
+          if (to < 1 || to > count) continue;
+          const result = await keyStep(wide, key, "showsLayer", to);
+          if (round_ < 0)
+            log(`  first visit, ${key} to layer ${to}: ${result.ms.PAINTED ?? "timed out"} ms`);
+          else results.layerSwitch.push(result);
+          if (result.timedOut) log(`  ${key} did not show layer ${to} within 8 s`);
+          await wait(250);
+        }
+      }
+    }
+  } finally {
+    await context.close();
+  }
 }
 
 /** Heap after a collection, DOM nodes, and listeners. */
@@ -1057,6 +1108,7 @@ async function pass({ react }) {
     fileOpen: [],
     fileTab: [],
     commitPick: [],
+    layerSwitch: [],
     soak: [],
     agentSteps: [],
     idle1: [],
@@ -1162,7 +1214,7 @@ async function pass({ react }) {
         95,
       );
     log(
-      `  painted p95: Review ${p95(results.reviewTab)} ms, Changes ${p95(results.changesTab)} ms, Commit ${p95(results.commitTab)} ms, file open ${p95(results.fileOpen)} ms, file tab ${p95(results.fileTab)} ms${results.commitPick.length ? `, commit ${p95(results.commitPick)} ms` : ""}`,
+      `  painted p95: Review ${p95(results.reviewTab)} ms, Changes ${p95(results.changesTab)} ms, Commit ${p95(results.commitTab)} ms, file open ${p95(results.fileOpen)} ms, file tab ${p95(results.fileTab)} ms${results.commitPick.length ? `, commit ${p95(results.commitPick)} ms` : ""}${results.layerSwitch.length ? `, layer ${p95(results.layerSwitch)} ms` : ""}`,
     );
     await showThread(session, ids.open);
   }
