@@ -144,21 +144,27 @@ describe("sync, as a tracked job", () => {
         getSnapshot: () => status,
       }),
     );
-    const restore = (restoring: boolean) => {
-      status = { ...status, running: restoring, restoring };
+    const set = (patch: Partial<SyncStatusLike>) => {
+      status = { ...status, ...patch };
       listeners.forEach((listener) => listener());
     };
+    const titles = () => summary().shown.map((job) => job.title);
     await clock.advance(5_000);
-    restore(true);
+    set({ running: true, restoring: true });
     await clock.advance(300);
-    expect(summary().shown).toHaveLength(0);
-    restore(false);
-    await clock.advance(5_000);
-    restore(true);
-    await clock.advance(500);
-    expect(summary().shown.map((job) => job.title)).toEqual([
-      "Restoring your library",
-    ]);
+    expect(titles()).toEqual([]);
+    set({ running: false, restoring: false });
+
+    // A long wait for a sign-in, then a routine pass that
+    // turns into a restore: it too begins when the restore does.
+    set({ auth: { status: "signed-out" }, pending: 3 });
+    await clock.advance(60_000);
+    set({ auth: { status: "signed-in" }, running: true });
+    set({ restoring: true });
+    await clock.advance(300);
+    expect(titles()).toEqual([]);
+    await clock.advance(200);
+    expect(titles()).toEqual(["Restoring your library"]);
   });
 
   test("a sync pass is silent, and so is a healthy idle sync", () => {
