@@ -18,6 +18,7 @@ import { resolveParts } from "./review-parts";
 import { apiErrorMessage } from "../shared/protocol";
 import { checkGuide, guideCheckText } from "../shared/guide-paths";
 import { guideError, reviewGuideSchema, type ReviewGuide } from "../shared/review-guide";
+import { readReviewOutput } from "../shared/review-output";
 import { agentSessions } from "./agent-sessions";
 import {
   DEFAULT_PORT,
@@ -543,13 +544,15 @@ export async function parseReviewCommand(
               ? "Invalid group: use a name of letters, digits, and . _ -, and an attempt from 1 to 3."
               : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
+  // A brief can name generated files too (docs/PRACTICES.md): they join --generated.
+  const named = [...(generated ?? []), ...readReviewOutput([result.data.brief]).generated];
   const manifest = {
     ...result.data,
     targets: await Promise.all(
       result.data.targets.map(async (target) => ({
         ...target,
         repo: await repositoryRoot(target.repo),
-        ...(generated && { generated: [...(target.generated ?? []), ...generated] }),
+        ...(named.length && { generated: [...new Set([...(target.generated ?? []), ...named])] }),
       })),
     ),
   };
