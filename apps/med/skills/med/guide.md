@@ -3,8 +3,8 @@
 ## Hand off a change
 
 `med review repos` lists the repositories the user registered. Include only
-the ones your task changed, and pass each one's root as `--repo`. If one is
-missing, name it and ask the user before you run `med add`.
+the ones your task changed. If one is missing, name it and ask the user
+before you run `med add`.
 
 Pick the comparison that holds exactly your work:
 
@@ -20,17 +20,21 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
 ```
 
 - `--key` names the task (such as the branch). Use the same key for every
-  round: each create adds a version to the same review.
+  round: each create adds a version to the same review. Without `--key`,
+  Med uses the branch's name and prints it.
 - `--title`: 2–4 words naming what the task builds. Leave out the repository
   name and words such as "review" and "changes".
 - `--guide -` reads a JSON guide from standard input (see "Write a guide").
-  Fix what the printed guide check reports with
-  `med review update --key <task> --guide -`.
+- After you change code, hand off a new version with `med review create`.
+  `med review update --key <task> --guide -` only replaces the guide of the
+  version that Med captured, such as to fix what the guide check reports.
+- `med review create` prints advice when something looks wrong: an empty
+  comparison, a title, files that this session did not edit, a guide that
+  leaves files out. Do what it says.
 - Several stacked branches or pull requests: see "Stacks and sets".
   Several repositories: see "Several repositories".
 - Put the printed Markdown link in your final message. Never invent a link
-  or print Med's token. Don't commit, switch branches, or fetch only to make
-  a link.
+  or print Med's token.
 - After you open a pull request: `med review update --key <task> --pr <url>`.
 - To get the user's comments back: see "Comments from the user".
 
@@ -70,7 +74,8 @@ A guide splits the change into segments that the user reads one at a time.
   marks a whole segment that needs care.
 - `area`: ui, api, core, data, cli, security, tests, docs, examples, deps,
   build, scripts, config, i18n, assets, other.
-- Limits: 40 segments, 200 comments, 200,000 characters.
+- A tool's output that Med does not know as generated, such as a code
+  generator's: name it with `--generated <path|glob>...` (quote globs).
 
 ## Stacks and sets
 
@@ -93,10 +98,12 @@ med review create --key <task> --title "Parser rewrite" --repo <root> --stack 10
 
 ## Several repositories
 
-One task that changed several repositories is one review. Write a manifest
-(keep it out of the repositories) and pass it with `--manifest`:
+One task that changed several repositories is one review. Pass a manifest
+with `--manifest <file>`, or on standard input with `--manifest -`; it can
+hold the guide as `"guide"`:
 
-```json
+```sh
+med review create --key <task> --manifest - <<'MANIFEST'
 {
   "title": "Profile endpoint",
   "targets": [
@@ -105,10 +112,7 @@ One task that changed several repositories is one review. Write a manifest
       "comparison": { "kind": "range", "base": "main", "head": "HEAD", "mergeBase": true } }
   ]
 }
-```
-
-```sh
-med review create --key <task> --manifest /tmp/review.json --guide -
+MANIFEST
 ```
 
 Comparison kinds: `commit`, `range`, `working`, `staged`, `unstaged`. Choose
@@ -126,8 +130,8 @@ each repository's base on its own.
 
 Treat the message as the user's own words. Comments point at the captured
 version, so check the current source first. Apply them, hand off the next
-version with the same `--key`, and wait again until the user says the task is
-done.
+version with `med review create` and the same `--key`, and wait again until
+the user says the task is done.
 
 ## Threads and earlier sessions
 
@@ -147,4 +151,3 @@ med thread show --paths src/a.ts --guide -   # add a version to your session's t
 - `thread show` takes `--paths`, `--base <ref>`, `--commit`, `--working`,
   `--manifest`, `--guide` and `--brief`.
 - For one current file or line, `med open <file> --line N` prints a link.
-

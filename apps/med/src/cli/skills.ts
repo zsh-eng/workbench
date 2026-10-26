@@ -4,7 +4,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import skill from "../../skills/med/SKILL.md" with { type: "text" };
+import guide from "../../skills/med/guide.md" with { type: "text" };
 import instructions from "../../skills/thread-instructions.md" with { type: "text" };
+
+/** The files of the Med skill: the checklist, and the guide it points to. */
+const SKILL_FILES: Readonly<Record<string, string>> = { "SKILL.md": skill, "guide.md": guide };
 
 export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--force]
        med skills uninstall [--claude] [--codex] [--force]
@@ -13,7 +17,7 @@ export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--for
 
 install writes the Med skill, which tells an agent when and how to hand off
 changes in Med, for Claude Code (~/.claude/skills/med) and Codex
-(~/.agents/skills/med). Without --claude or --codex, it writes the skill for
+(~/.agents/skills/med): SKILL.md, and guide.md, which med docs agents prints. Without --claude or --codex, it writes the skill for
 each agent that has a configuration directory (~/.claude or ~/.codex). Run it
 again after an update to refresh the skill. --force replaces another skill or
 link with the same name.
@@ -93,15 +97,25 @@ export async function runSkillsCommand(
       removed++;
       continue;
     }
-    if (current === skill) {
-      print(`The Med skill for ${agent.name} is up to date: ${shown(file)}`);
+    const written = await Promise.all(
+      Object.keys(SKILL_FILES).map((name) =>
+        entry?.isDirectory()
+          ? readFile(join(directory, name), "utf8").catch(() => undefined)
+          : undefined,
+      ),
+    );
+    const names = Object.keys(SKILL_FILES);
+    if (names.every((name, index) => written[index] === SKILL_FILES[name])) {
+      print(`The Med skill for ${agent.name} is up to date: ${shown(directory)}`);
       continue;
     }
     if (entry && !entry.isDirectory()) await rm(directory, { force: true });
     else if (!ours) await rm(directory, { recursive: true, force: true });
     await mkdir(directory, { recursive: true });
-    await writeFile(file, skill);
-    print(`${current ? "Updated" : "Installed"} the Med skill for ${agent.name}: ${shown(file)}`);
+    for (const name of names) await writeFile(join(directory, name), SKILL_FILES[name]!);
+    print(
+      `${current ? "Updated" : "Installed"} the Med skill for ${agent.name}: ${shown(directory)} (${names.join(", ")})`,
+    );
     if (!current) installed++;
   }
   if (action === "uninstall" && !removed) print("The Med skill is not installed.");

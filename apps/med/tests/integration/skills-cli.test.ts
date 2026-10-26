@@ -18,6 +18,7 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   const med = async (...args: string[]) =>
     (await exec("bun", [cli, "skills", ...args], { env: { ...process.env, HOME: home } })).stdout;
   const skill = await readFile(resolve("skills/med/SKILL.md"), "utf8");
+  const guide = await readFile(resolve("skills/med/guide.md"), "utf8");
   const claude = join(home, ".claude", "skills", "med", "SKILL.md");
   const codex = join(home, ".agents", "skills", "med", "SKILL.md");
 
@@ -28,15 +29,24 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   await mkdir(join(home, ".claude"));
   const first = await med("install");
   expect(first).toMatch(
-    /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med\/SKILL\.md\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
+    /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med \(SKILL\.md, guide\.md\)\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
   );
   expect(first.endsWith(instructions)).toBe(true);
   expect(await med("instructions")).toBe(instructions);
   // The setup guide shows the same lines.
-  expect(await readFile(resolve("docs/AGENT_INTEGRATION.md"), "utf8")).toContain(instructions);
+  expect(await readFile(resolve("docs/USAGE.md"), "utf8")).toContain(instructions);
+  // The skill points at its guide, which med docs agents prints too.
   expect(await readFile(claude, "utf8")).toBe(skill);
+  expect(await readFile(join(home, ".claude", "skills", "med", "guide.md"), "utf8")).toBe(guide);
+  expect(
+    (await exec("bun", [cli, "docs", "agents"], { env: { ...process.env, HOME: home } })).stdout,
+  ).toBe(`${guide.trimEnd()}\n`);
   await expect(readFile(codex)).rejects.toThrow("ENOENT");
   expect(await med("install")).toContain("is up to date");
+  // A skill from an earlier version, without its guide, is brought up to date.
+  await rm(join(home, ".claude", "skills", "med", "guide.md"));
+  expect(await med("install")).toContain("Updated the Med skill for Claude Code");
+  expect(await readFile(join(home, ".claude", "skills", "med", "guide.md"), "utf8")).toBe(guide);
 
   // Codex reads ~/.agents/skills. A different skill named med stays unless forced.
   await mkdir(join(home, ".codex"));

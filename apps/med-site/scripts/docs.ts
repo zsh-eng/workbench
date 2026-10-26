@@ -65,8 +65,11 @@ export const pages = [
  * section: a page's slug, then a section's anchor and the prototype. They are
  * on the website only; `med docs` prints the guides without them. */
 const prototypes: Record<string, Record<string, string>> = {
-  usage: { "notes-and-briefs": "notes", "commit-and-push": "commit" },
-  agents: { "review-in-med": "comment" },
+  usage: {
+    "review-in-med": "comment",
+    "notes-and-briefs": "notes",
+    "commit-and-push": "commit",
+  },
 };
 
 export interface DocPage {
