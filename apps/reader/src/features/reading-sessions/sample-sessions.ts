@@ -1,10 +1,11 @@
-import { SAMPLE_LIBRARY } from "@/features/elements/specimens/library-fixture";
+import type { SAMPLE_LIBRARY } from "@/features/elements/specimens/library-fixture";
 import {
   useReadingSessionsQuery,
   type ReadingSessionsData,
 } from "@/hooks/use-reading-sessions-query";
 import type { ReadingSession } from "@/lib/db";
-import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
@@ -42,7 +43,10 @@ function random(seed: number) {
   };
 }
 
-function buildSample(now: number): {
+function buildSample(
+  library: typeof SAMPLE_LIBRARY,
+  now: number,
+): {
   data: ReadingSessionsData;
   coverUrls: ReadonlyMap<string, string>;
 } {
@@ -97,11 +101,11 @@ function buildSample(now: number): {
   }
   return {
     data: {
-      books: SAMPLE_LIBRARY.map((sample) => sample.book),
+      books: library.map((sample) => sample.book),
       sessions,
     },
     coverUrls: new Map(
-      SAMPLE_LIBRARY.map((sample) => [sample.book.id, sample.coverUrl]),
+      library.map((sample) => [sample.book.id, sample.coverUrl]),
     ),
   };
 }
@@ -110,22 +114,30 @@ function buildSample(now: number): {
  * The Sessions page's records. With `?sample` in the address, a made-up
  * year of reading with the Elements sample books replaces them, for
  * reviewing the page where there is no reading history, such as a dev
- * server.
+ * server. The sample books load only then, so they stay out of the code
+ * that every visit loads.
  */
 export function useSessionsSource() {
   const query = useReadingSessionsQuery();
-  const sample = useMemo(
-    () =>
-      new URLSearchParams(window.location.search).has("sample")
-        ? buildSample(Date.now())
-        : null,
-    [],
+  const [showSample] = useState(() =>
+    new URLSearchParams(window.location.search).has("sample"),
   );
+  const sample = useQuery({
+    queryKey: ["readingSessionsSample"],
+    queryFn: async () => {
+      const { SAMPLE_LIBRARY } =
+        await import("@/features/elements/specimens/library-fixture");
+      return buildSample(SAMPLE_LIBRARY, Date.now());
+    },
+    enabled: showSample,
+    staleTime: Infinity,
+  });
+  const source = showSample ? sample : query;
   return {
-    data: sample?.data ?? query.data,
-    isLoading: sample ? false : query.isLoading,
-    error: sample ? null : query.error,
+    data: showSample ? sample.data?.data : query.data,
+    isLoading: source.isLoading,
+    error: source.error,
     /** Covers for the sample books, which have no files to read covers from. */
-    sampleCoverUrls: sample?.coverUrls ?? null,
+    sampleCoverUrls: sample.data?.coverUrls ?? null,
   };
 }
