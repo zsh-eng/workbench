@@ -368,7 +368,10 @@ tool call that needs an answer shows **Allow** and **Deny**.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
-  ask**, or **Bypass permissions**. `⇧Tab` in the message box steps through
+  ask**, or **Bypass permissions**. Med starts a new Claude Code session in
+  **Auto**, where a classifier allows safe actions and asks about risky ones.
+  A thread's next session starts in the mode that the thread chose last,
+  except Bypass. A session keeps its own mode when it resumes. `⇧Tab` in the message box steps through
   Ask, Accept edits, Plan, and Auto, as in the terminal; Bypass joins them once
   you chose it. **Bypass permissions** asks first. If Claude Code started
   without it, Med starts it again with the same session, between turns.
