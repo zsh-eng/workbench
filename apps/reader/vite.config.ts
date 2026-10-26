@@ -112,13 +112,55 @@ export default defineConfig(({ command, mode }) => ({
       },
       includeAssets: ["favicon.ico", "apple-touch-icon-180x180.png"],
       manifest: {
+        // Chrome's identity for an install: the start URL it used before.
+        id: "/",
         name: "Reader",
         short_name: "Reader",
-        description: "A modern ebook reader",
+        description:
+          "An EPUB reader for your own books. Your library works offline, and highlights, notes and your place follow you across devices.",
+        categories: ["books", "education", "productivity"],
+        lang: "en",
+        start_url: "/",
+        display: "standalone",
         theme_color: "#ffffff",
+        // Android's splash screen: the Library's light page colour, as on
+        // the iOS launch screens (scripts/launch-screens.ts).
+        background_color: "#ffffff",
         icons: [
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
+        ],
+        // Chrome's richer install dialog. Public-domain books only; made
+        // by scripts/pwa-screenshots.ts. Not precached.
+        screenshots: [
+          {
+            src: "screenshots/library-narrow.jpg",
+            sizes: "780x1688",
+            type: "image/jpeg",
+            form_factor: "narrow",
+            label: "Your library, with the books you are reading first",
+          },
+          {
+            src: "screenshots/reader-narrow.jpg",
+            sizes: "780x1688",
+            type: "image/jpeg",
+            form_factor: "narrow",
+            label: "A page of Alice's Adventures in Wonderland",
+          },
+          {
+            src: "screenshots/library-wide.jpg",
+            sizes: "1280x800",
+            type: "image/jpeg",
+            form_factor: "wide",
+            label: "Your library on a computer",
+          },
+          {
+            src: "screenshots/reader-wide.jpg",
+            sizes: "1280x800",
+            type: "image/jpeg",
+            form_factor: "wide",
+            label: "Two pages side by side",
+          },
         ],
       },
     }),

@@ -32,6 +32,9 @@ dist-ssr
 apps/reader/diagnostics/*
 !apps/reader/diagnostics/**/*.md
 
+# Reader's launch screens: written by scripts/launch-screens.ts on dev and build
+apps/reader/public/launch/
+
 # Browser test output
 playwright-report/
 test-results/
