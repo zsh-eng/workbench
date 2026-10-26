@@ -296,7 +296,8 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
 const path = args.find((arg) => arg.startsWith("repos/acme/med/")).replace("repos/acme/med/", "").split("?")[0];
 const replies = ${JSON.stringify(replies)};
-process.stdout.write(path === "pulls/7" ? "abc123\\n" : (replies[path] ?? []).join("\\n") + "\\n");
+const pull = { head: "abc123", number: 7, title: "Rename the export", author: "ada", state: "closed", draft: false, merged: true };
+process.stdout.write(path === "pulls/7" ? JSON.stringify(pull) + "\\n" : (replies[path] ?? []).join("\\n") + "\\n");
 `,
     { mode: 0o755 },
   );
@@ -315,6 +316,7 @@ process.stdout.write(path === "pulls/7" ? "abc123\\n" : (replies[path] ?? []).jo
     expect(comments).toMatchObject({
       url: "https://github.com/acme/med/pull/7",
       head: "abc123",
+      pull: { number: 7, title: "Rename the export", author: "ada", state: "merged" },
       threads: [
         {
           id: 1,
