@@ -721,4 +721,41 @@ describe("notes and source ownership", () => {
     expect((await rejected).map((result) => result.status)).toEqual(["rejected", "rejected"]);
     controller.dispose();
   });
+
+  test("reads a file ahead quietly, and an expansion that comes meanwhile takes that read", async () => {
+    const late = deferred<Response>();
+    const { controller, calls } = fixture({ source: async () => late.promise });
+    await controller.initialize();
+    const sources = () => calls.filter((call) => call.url.startsWith("/api/source"));
+    const status = () => {
+      const snapshot = controller.getSnapshot();
+      const file = snapshot.files.find((entry) => entry.path === "a.ts")!;
+      return snapshot.semantic?.sourceStatusByFileKey[file.id];
+    };
+    controller.preloadSources("a.ts");
+    controller.preloadSources("a.ts");
+    controller.preloadSources("not-in-review.ts");
+    expect(sources()).toHaveLength(1);
+    expect(status()).toBeUndefined();
+    const expanding = controller.loadSources("a.ts");
+    expect(sources()).toHaveLength(1);
+    expect(status()).toEqual({ kind: "loading" });
+    late.resolve(json({ reviewId: "working", path: "a.ts", old: "old", new: "new" }));
+    expect((await expanding).new).toBe("new");
+    expect(status()).toEqual({ kind: "loaded", text: "new" });
+    expect((await controller.preloadSources("a.ts"))?.new).toBe("new");
+    expect(sources()).toHaveLength(1);
+    controller.dispose();
+  });
+
+  test("a hidden workspace reads nothing ahead", async () => {
+    const { controller, calls } = fixture({
+      source: async () => json({ reviewId: "working", path: "a.ts", old: "old", new: "new" }),
+    });
+    await controller.initialize();
+    controller.suspend();
+    expect(controller.preloadSources("a.ts")).toBeUndefined();
+    expect(calls.filter((call) => call.url.startsWith("/api/source"))).toHaveLength(0);
+    controller.dispose();
+  });
 });

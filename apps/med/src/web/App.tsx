@@ -32,6 +32,7 @@ import {
   type Note,
   type NoteInput,
   type PullRequestThread,
+  type SourceResponse,
 } from "../shared/protocol";
 import { hasReview, useReviewController, type ReviewController } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
@@ -51,6 +52,7 @@ import { FileSidebar } from "./components/FileSidebar";
 import { NoteCard, NoteComposer, sameTarget, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
+import { hydratePartialDiff } from "@pierre/diffs";
 import { useTheme } from "./themes";
 import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
@@ -217,6 +219,26 @@ const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
+
+/** A file's two sides for Pierre, from its full text. The cache keys name
+ * the review's version, so a read ahead and an expansion share highlighting. */
+function loadedDiffFiles(metadata: FileDiffMetadata, source: SourceResponse) {
+  return {
+    oldFile:
+      metadata.type === "rename-pure"
+        ? null
+        : {
+            name: metadata.prevName ?? metadata.name,
+            contents: source.old,
+            cacheKey: `${source.reviewId}:${source.path}:old`,
+          },
+    newFile: {
+      name: metadata.name,
+      contents: source.new,
+      cacheKey: `${source.reviewId}:${source.path}:new`,
+    },
+  };
+}
 
 /** A note's card sits below the last line of its range, as on GitHub, when
  * one hunk shows the whole range; otherwise below its first line. */
@@ -2282,21 +2304,7 @@ export function App({
             path: metadata.name,
           });
           setContextError(null);
-          return {
-            oldFile:
-              metadata.type === "rename-pure"
-                ? null
-                : {
-                    name: metadata.prevName ?? metadata.name,
-                    contents: source.old,
-                    cacheKey: `${source.reviewId}:${source.path}:old`,
-                  },
-            newFile: {
-              name: metadata.name,
-              contents: source.new,
-              cacheKey: `${source.reviewId}:${source.path}:new`,
-            },
-          };
+          return loadedDiffFiles(metadata, source);
         } catch (error) {
           if (controller.getSnapshot().review?.id === reviewId)
             setContextError(error instanceof Error ? error.message : "Could not load file context");
@@ -4329,10 +4337,65 @@ export function App({
     ),
     [skipped, reviewId, savedReviewId, savedImages, collapsed, openWorkingFile, prefetchFile],
   );
+  // Once the reader pauses, the changed files in sight read their full text
+  // ahead, and the workers highlight it, so that a first context expansion
+  // waits for neither.
+  const readAhead = useRef(() => {});
+  const reviewReady = state.status === "ready";
+  useEffect(() => {
+    const host = streamRef.current;
+    if (!host || !reviewReady) return;
+    const byId = new Map(streamFiles.map((file) => [file.id, file]));
+    const highlighted = new Set<string>();
+    const highlight = (metadata: FileDiffMetadata, source: SourceResponse) => {
+      const key = `${source.reviewId}:${source.path}`;
+      // A large file's highlighting would take memory that it may not use.
+      if (!workerPool || !metadata.isPartial || highlighted.has(key)) return;
+      if (source.old.length + source.new.length > 1024 * 1024) return;
+      highlighted.add(key);
+      void workerPool
+        .primeDiffHighlightCache(
+          hydratePartialDiff("clone", metadata, loadedDiffFiles(metadata, source)),
+        )
+        .catch(() => {});
+    };
+    let cancel = () => {};
+    readAhead.current = () => {
+      cancel();
+      cancel = whenFree(() => {
+        const view = host.getBoundingClientRect();
+        const inSight: string[] = [];
+        for (const header of host.querySelectorAll<HTMLElement>("[data-stream-file]")) {
+          const box = header.getBoundingClientRect();
+          if (box.top > view.bottom) break;
+          // The file whose header has scrolled away above still shows.
+          if (box.top <= view.top) inSight.length = 0;
+          inSight.push(header.dataset.streamFile!);
+        }
+        for (const id of inSight) {
+          const metadata = byId.get(id)?.metadata;
+          if (
+            metadata?.hunks.length &&
+            (metadata.type === "change" || metadata.type === "rename-changed")
+          )
+            void controller
+              .preloadSources(metadata.name)
+              ?.then((source) => highlight(metadata, source))
+              .catch(() => {});
+        }
+      });
+    };
+    readAhead.current();
+    return () => {
+      cancel();
+      readAhead.current = () => {};
+    };
+  }, [controller, reviewReady, streamFiles, workerPool]);
   // The diff stream's renderers stay the same between unrelated renders, so
   // Pierre does not render every file header and comment again.
   const onReviewScroll = useCallback(
     (position: number) => {
+      readAhead.current();
       if (
         (fileState.active === "changes" || fileState.active === "guide") &&
         !restoringScroll.current

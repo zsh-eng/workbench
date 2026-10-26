@@ -186,6 +186,10 @@ export interface ReviewController {
   revealFile(id: string): void;
   setFilter(text: string): void;
   loadSources(path: string): Promise<SourceResponse>;
+  /** Reads a file's full text ahead, while nothing else loads, so that its
+   * first context expansion does not wait for the host. Undefined when it
+   * does not read now. */
+  preloadSources(path: string): Promise<SourceResponse> | undefined;
   mutateNote(mutation: NoteMutation): Promise<void>;
   dispose(): void;
 }
@@ -436,7 +440,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   let reconnectDelay = 500;
   const sourceRequests = new Map<
     string,
-    { abort: AbortController; promise: Promise<SourceResponse> }
+    { abort: AbortController; promise: Promise<SourceResponse>; ahead: boolean }
   >();
   const update = (patch: Partial<ReviewControllerSnapshot>) => {
     if (disposed) return;
@@ -1505,7 +1509,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (!disposed && snapshot.savedTargetId === id) void checkDrift();
   }
 
-  async function loadSources(path: string): Promise<SourceResponse> {
+  function preloadSources(path: string) {
+    if (disposed || suspended || !snapshot.review || snapshot.status !== "ready") return;
+    if (!snapshot.files.some((file) => file.path === path)) return;
+    const key = JSON.stringify([snapshot.review.id, path]);
+    const cached = sourceCache.get(key);
+    if (cached) return Promise.resolve(cached);
+    if (sourceRequests.has(key) || sourceRequests.size >= 2) return;
+    const read = loadSources(path, true);
+    read.catch(() => {});
+    return read;
+  }
+
+  async function loadSources(path: string, ahead = false): Promise<SourceResponse> {
     const review = snapshot.review;
     if (!review || snapshot.status !== "ready")
       throw new Error("Wait for the current review to load.");
@@ -1532,11 +1548,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return cached;
     }
     const pending = sourceRequests.get(key);
-    if (pending) return pending.promise;
+    if (pending) {
+      // A read ahead that the reader now waits for reports as theirs.
+      if (pending.ahead && !ahead) {
+        pending.ahead = false;
+        setSourceStatus({ kind: "loading" });
+      }
+      return pending.promise;
+    }
     if (sourceRequests.size >= 4)
       throw new Error("Four files are loading. Wait before expanding another file.");
     const abort = new AbortController();
-    setSourceStatus({ kind: "loading" });
+    const entry = { abort, promise: undefined as unknown as Promise<SourceResponse>, ahead };
+    if (!ahead) setSourceStatus({ kind: "loading" });
     const promise = api
       .json(
         savedTargetUrl()
@@ -1553,6 +1577,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           throw new Error("The source belongs to a different file version.");
         const bytes = estimateRetainedBytes(source);
         sourceCache.set(key, source, bytes);
+        if (entry.ahead) return source;
         if (bytes <= sourceCache.maxBytes)
           setSourceStatus({
             kind: "loaded",
@@ -1562,13 +1587,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         return source;
       })
       .catch((error: unknown) => {
-        setSourceStatus({ kind: "error" });
+        if (!entry.ahead) setSourceStatus({ kind: "error" });
         throw error;
       })
       .finally(() => {
         if (sourceRequests.get(key)?.abort === abort) sourceRequests.delete(key);
       });
-    sourceRequests.set(key, { abort, promise });
+    entry.promise = promise;
+    sourceRequests.set(key, entry);
     return promise;
   }
 
@@ -2305,7 +2331,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         body: JSON.stringify({ repo, path }),
       });
     },
-    loadSources,
+    loadSources: (path) => loadSources(path),
+    preloadSources,
     mutateNote,
     revealFile(id) {
       if (!snapshot.files.some((file) => file.id === id)) return;
