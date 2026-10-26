@@ -319,10 +319,14 @@ those messages as another session's, not as the user's.
   the reader's move up (wheel, touch, keys, or the pointer) stops it. A thread
   that gets shorter also moves the view up, and that move does not stop it.
   The Background and Tasks docks sit under the thread. The Background dock
-  lists running tasks and the tasks that ended since the last prompt. The
+  lists only the tasks that run. A task that the dock saw run ends in its
+  row: "Done" leaves after 3 seconds, and "Failed" stays until the reader
+  opens it, hides the dock, or sends the next prompt (`med:background-seen`).
+  With no row left, the dock is gone. A running task's time counts minutes
+  (`Elapsed.tsx`); the turn's status line is the thread's one clock. The
   skill's `med review wait` is not a task: its row reads "Waiting for your
   message in Med" and does not spin. The dock stays closed as the reader left
-  it; **Hide** keeps it hidden until a new task starts.
+  it; **Hide** keeps it hidden until a new task starts or a task fails.
 - The turn recap (`TurnRecap.tsx`, `data/turn-recap.ts`) ends the thread of
   the latest session when its turn ended unseen. A turn is seen when it ends
   while the reader watches the session (the pane on screen, the workspace
