@@ -38,6 +38,9 @@ const BUSY =
  * - At a calm moment: four seconds without a touch or key, with no import,
  *   menu, dialog or toast showing, so the "Added" toast and its Open book
  *   come first.
+ * - Online: iOS fetches the icon and launch screen from the network when
+ *   Add to Home Screen is tapped, and the Home Screen app starts with its
+ *   own empty storage, so it has to open online once.
  * - Once: closing the sheet, by Not now, a swipe or Install, is remembered,
  *   and it never opens by itself again. The account menu and Settings
  *   always offer it while Reader is not installed.
@@ -90,6 +93,7 @@ export function InstallOfferHost() {
     const check = () => {
       if (
         document.visibilityState !== "visible" ||
+        !navigator.onLine ||
         document.querySelector(BUSY)
       )
         wait();
