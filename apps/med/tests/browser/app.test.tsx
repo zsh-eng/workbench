@@ -2677,6 +2677,15 @@ describe("review guide", () => {
         ),
       )
       .toBe(true);
+    // The version menu marks the approved version.
+    await page.getByRole("combobox", { name: "Review version" }).click();
+    await expect
+      .element(page.getByRole("option", { name: /^Version 2 · .*approved/ }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("option", { name: /^Version 1 · / }))
+      .not.toHaveTextContent("approved");
+    await userEvent.keyboard("{Escape}");
   });
 
   test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
