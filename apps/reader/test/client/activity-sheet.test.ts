@@ -294,6 +294,8 @@ describe("arrangeWhileOpen", () => {
 });
 
 describe("the activity glyph", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   const sync = (state: JobState, patch: Partial<Job> = {}) =>
     job("sync", state, {
       id: "sync",
@@ -313,12 +315,11 @@ describe("the activity glyph", () => {
   }
 
   it("speaks for a restore, and leaves what sync needs from you to the account menu", () => {
-    window.matchMedia ??= () =>
-      ({
-        matches: false,
-        addEventListener() {},
-        removeEventListener() {},
-      }) as unknown as MediaQueryList;
+    vi.stubGlobal("matchMedia", () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
     expect(
       glyphFor([sync("running", { title: "Restoring your library" })]),
     ).toBe("progress");

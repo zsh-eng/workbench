@@ -1,33 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
-import { expect, test, waitForSheet } from "./helpers/fixtures";
+import { expect, startRestore, test, waitForSheet } from "./helpers/fixtures";
 
 // The activity glyph and its sheet show without a Debug switch; a restore
 // is the sync they speak for. Covers that fill as books download stay
 // behind Debug -> Offline downloads.
 
 const glyph = (page: Page) => page.locator("[data-activity-glyph]");
-
-/**
- * Makes the next sync this device's first, a restore, and holds its pull
- * until the returned function runs.
- */
-async function holdRestore(page: Page): Promise<() => void> {
-  let release = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/api/sync/v2/pull*", async (route) => {
-    await gate;
-    await route.fallback();
-  });
-  await page.evaluate(async () => {
-    const { readSyncClientState, writeSyncClientState } =
-      await import("/src/lib/sync-v2/client-state.ts");
-    writeSyncClientState({ ...readSyncClientState()!, bootstrapped: false });
-  });
-  await page.reload();
-  return release;
-}
 
 /** Each button's and link's place in `area`, except the glyph's. */
 function places(area: Locator) {
@@ -50,7 +28,15 @@ async function restoreComesAndGoes(page: Page, area: Locator) {
   await page.addInitScript(() =>
     localStorage.setItem("reader-debug-enabled-v1", "true"),
   );
-  const release = await holdRestore(page);
+  // The sync that follows the reload ends before the restore starts.
+  const synced = page.waitForResponse("**/api/sync/v2/pull*");
+  await page.reload();
+  await synced;
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await startRestore(page, () => released);
   try {
     await expect(glyph(page)).toHaveAttribute(
       "data-activity-glyph",

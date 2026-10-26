@@ -87,6 +87,38 @@ export const test = base.extend<{
 
 export { expect };
 
+/**
+ * Makes the next sync this device's first, a restore, and starts it once
+ * the sync that runs now has ended. Each of its pulls waits for `hold()`.
+ */
+export async function startRestore(
+  page: Page,
+  hold: () => Promise<unknown>,
+): Promise<void> {
+  let armed = false;
+  await page.route("**/api/sync/v2/pull*", async (route) => {
+    if (armed) await hold();
+    await route.fallback();
+  });
+  const idle = async () => {
+    const { syncService } = await import("/src/lib/sync-service.ts");
+    while (syncService.controller.getSnapshot().running)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+  await page.evaluate(idle);
+  armed = true;
+  await page.evaluate(async () => {
+    const { readSyncClientState, writeSyncClientState } =
+      await import("/src/lib/sync-v2/client-state.ts");
+    const { syncService } = await import("/src/lib/sync-service.ts");
+    const { controller } = syncService;
+    if (controller.getSnapshot().running)
+      throw new Error("A sync began before the restore could");
+    writeSyncClientState({ ...readSyncClientState()!, bootstrapped: false });
+    controller.requestSync();
+  });
+}
+
 /** Opens the account menu at the end of a page header. */
 export async function openAccountMenu(page: Page) {
   await page.getByRole("button", { name: /^Account/ }).click();

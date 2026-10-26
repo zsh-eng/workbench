@@ -322,7 +322,7 @@ export function ActivitySheetBody() {
     <div className="px-1 pb-2" data-activity-sheet="">
       {!snapshot.online && (
         <p className="mb-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-[12.5px] text-muted-foreground">
-          Offline. Downloads continue when you are back online.
+          Offline. What needs the network waits until you are back online.
         </p>
       )}
       {groups.length === 0 && (
