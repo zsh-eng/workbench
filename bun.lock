@@ -383,6 +383,12 @@
         "react": ">=18",
       },
     },
+    "packages/agent-kit": {
+      "name": "@workbench/agent-kit",
+      "devDependencies": {
+        "@playwright/test": "1.59.1",
+      },
+    },
     "packages/arctic-sync-server": {
       "name": "@workbench/arctic-sync-server",
       "dependencies": {
@@ -1577,6 +1583,8 @@
     "@vitest/utils": ["@vitest/utils@4.1.5", "", { "dependencies": { "@vitest/pretty-format": "4.1.5", "convert-source-map": "^2.0.0", "tinyrainbow": "^3.1.0" } }, "sha512-76wdkrmfXfqGjueGgnb45ITPyUi1ycZ4IHgC2bhPDUfWHklY/q3MdLOAB+TF1e6xfl8NxNY0ZYaPCFNWSsw3Ug=="],
 
     "@workbench/activity-time": ["@workbench/activity-time@workspace:packages/activity-time"],
+
+    "@workbench/agent-kit": ["@workbench/agent-kit@workspace:packages/agent-kit"],
 
     "@workbench/arctic-browser": ["@workbench/arctic-browser@workspace:apps/arctic/Browser"],
 

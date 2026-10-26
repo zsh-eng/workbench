@@ -33,6 +33,7 @@
     "format:check": "oxfmt --config ../../.oxfmtrc.json --check .",
     "build:packages": "bun ../../scripts/build-packages.ts",
     "heavy": "sh ../../scripts/heavy.sh",
+    "kit": "bun ../../packages/agent-kit/kit.ts",
     "launch-screens": "bun scripts/launch-screens.ts",
     "pwa-screenshots": "bun scripts/pwa-screenshots.ts",
     "test:sync": "bun run --cwd ../../packages/local-sync build && bun run --cwd ../../packages/local-sync test"
