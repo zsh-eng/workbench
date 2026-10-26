@@ -151,6 +151,13 @@ version's files, so nothing breaks while it waits.
 - **Required updates:** when sync says "Update to keep syncing" (410), its
   Reload applies the waiting update.
 
+Spaced uses the same engine with its own moments
+(`apps/spaced2/src/lib/update-policy.ts`): never while a card is on the
+review screen, a dialog is open, an import is under way or "Download all
+images" runs; by itself at a launch before your first tap, or when you come
+back after two minutes away; and at once on a tap of "Restart to update", a
+pill above the tab bar that a review hides. "Updated" is a toast.
+
 ## Critique of the starting points
 
 - **An island with mini covers** is strong for one to three downloads while

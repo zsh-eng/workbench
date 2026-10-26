@@ -3,6 +3,10 @@ import DeckCard from "@/components/deck/deck-card";
 import { ConnectionNotice } from "@/components/profile/connection-notice";
 import EmptyReviewUi from "@/components/review/empty";
 import EmptyStats from "@/components/stats/empty";
+import {
+  UpdatePillButton,
+  type UpdatePillPhase,
+} from "@/components/update-pill";
 import { SyncBoundary, type SyncStatusSource } from "@/components/sync-status";
 import EmptyImages from "@/lib/images/empty";
 import { useMemo, useState } from "react";
@@ -57,6 +61,30 @@ function Offline() {
   );
 }
 
+const UPDATE_STATES = [
+  { id: "ready", label: "Ready" },
+  { id: "restarting", label: "Restarting" },
+] as const;
+
+function Update() {
+  const selection = useSelection(UPDATE_STATES);
+  return (
+    <Specimen
+      title="Update"
+      note="A new version is ready. The pill floats above the tab bar, except while a card is on the review screen; a tap restarts into it. After the reload, a toast says Updated."
+      states={UPDATE_STATES}
+      selection={selection}
+    >
+      <div className="flex justify-center">
+        <UpdatePillButton
+          phase={selection.state as UpdatePillPhase}
+          onRestart={() => selection.choose("restarting")}
+        />
+      </div>
+    </Specimen>
+  );
+}
+
 const EMPTY_STATES = [
   { id: "done", label: "Done for now" },
   { id: "new", label: "No cards yet" },
@@ -94,12 +122,13 @@ export function FeedbackSection() {
     <ElementsSection
       id="feedback"
       title="Feedback"
-      description="Toasts after actions, sync and session notices, and empty states. Toasts and the session banner cover the screen, so they show in device frames."
+      description="Toasts after actions, sync and session notices, the app update, and empty states. Toasts and the session banner cover the screen, so they show in device frames."
     >
       <FrameSpecimen id="toasts" />
       <FrameSpecimen id="session" />
       <Restore />
       <Offline />
+      <Update />
       <EmptyStates />
     </ElementsSection>
   );

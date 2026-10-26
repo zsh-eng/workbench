@@ -55,8 +55,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      // The app registers the worker itself (src/lib/app-update.ts) and
+      // decides when a new version takes over: never during a review.
+      registerType: "prompt",
+      injectRegister: false,
       workbox: {
+        // A new version waits after it installs, keeping this version's
+        // files, and takes over when the page posts SKIP_WAITING.
+        skipWaiting: false,
+        clientsClaim: true,
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
         globPatterns: [
           "**/*.{js,css,html}",
