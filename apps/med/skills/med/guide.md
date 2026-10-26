@@ -52,8 +52,13 @@ A guide splits the change into segments that the user reads one at a time.
       "summary": "Why this part exists, and what to check.",
       "files": ["src/http.ts", "src/retry/"],
       "comments": [
-        { "file": "src/http.ts", "line": 42, "endLine": 58, "kind": "risk",
-          "body": "Callers now wait up to 7 s before an error." }
+        {
+          "file": "src/http.ts",
+          "line": 42,
+          "endLine": 58,
+          "kind": "risk",
+          "body": "Callers now wait up to 7 s before an error."
+        }
       ]
     },
     { "title": "Tests", "area": "tests", "files": ["test/**"] }
