@@ -346,6 +346,9 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return parseReviewPatch(patch);
     });
   const reviewCache = new ByteLru<CachedReview>(options.cacheBytes ?? 24 * 1024 * 1024, 24);
+  /** The live comparison shown last. Coming back to Changes shows it at once
+   * while a read checks it, as an edit in the worktree does. */
+  let lastLive: { key: string; entry: CachedReview } | undefined;
   const sourceCache = new ByteLru<SourceResponse>(8 * 1024 * 1024, 12, (_key, source) => {
     if (snapshot.review?.id !== source.reviewId || !snapshot.semantic) return;
     const file = snapshot.files.find((entry) => entry.path === source.path);
@@ -633,13 +636,24 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     reviewAbort?.abort();
     reviewAbort = new AbortController();
     cancelSources();
-    if (!background) update({ comparison, status: "loading", error: null });
     const key = JSON.stringify([repo, comparisonKey(comparison)]);
+    const last =
+      !force &&
+      !background &&
+      lastLive?.key === key &&
+      snapshot.review?.id !== lastLive.entry.response.id
+        ? lastLive.entry
+        : undefined;
+    if (!background && !last) update({ comparison, status: "loading", error: null });
     const cached = !force && immutableComparison(comparison) ? reviewCache.get(key) : undefined;
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
       if (reviewSide && comparison.kind === "commit") prefetchIterations();
       return;
+    }
+    if (last) {
+      update({ comparison, error: null });
+      publishReview(last, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
     }
     const start = performance.now();
     try {
@@ -663,14 +677,15 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         );
       }
       // A review id names its content, so the same id means nothing changed.
-      if (background && response.id === snapshot.review?.id) return;
+      if ((background || last) && response.id === snapshot.review?.id) return;
       const parseStart = performance.now();
       const parsed = await parse(response.patch);
       if (!isCurrent(generation)) return;
       const { files, document } = projectResponse(response, parsed);
       const entry = { response, files, document };
-      if (immutableComparison(comparison))
-        reviewCache.set(key, entry, estimateRetainedBytes(entry));
+      const bytes = estimateRetainedBytes(entry);
+      if (immutableComparison(comparison)) reviewCache.set(key, entry, bytes);
+      else lastLive = bytes <= reviewCache.maxBytes / 3 ? { key, entry } : undefined;
       publishReview(entry, generation, {
         requestMs: parseStart - start,
         parseMs: performance.now() - parseStart,
@@ -746,6 +761,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       for (const key of navigation.keys())
         if (removedIds.has(JSON.parse(key)[0])) navigation.delete(key);
       reviewCache.clear();
+      lastLive = undefined;
     }
     if (removedActive) activeTarget = undefined;
     update({
@@ -2376,6 +2392,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       stopEvents();
       cancelSources();
       reviewCache.clear();
+      lastLive = undefined;
       sourceCache.clear();
       listeners.clear();
     },

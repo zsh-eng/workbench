@@ -131,6 +131,34 @@ describe("review request ownership", () => {
     },
   );
 
+  test("coming back to live changes shows them at once, and the read that checks them replaces them", async () => {
+    let working = 0;
+    const late = deferred<Response>();
+    const { controller } = fixture({
+      review: async (comparison) =>
+        comparison.kind === "working" && ++working === 2
+          ? late.promise
+          : json(response(comparison)),
+    });
+    await controller.initialize();
+    expect(controller.getSnapshot().review?.id).toBe("working");
+    await controller.selectComparison({ kind: "commit", commit: B });
+    expect(controller.getSnapshot().review?.id).toBe(B);
+    const back = controller.selectComparison({ kind: "working" });
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "ready",
+      comparison: { kind: "working" },
+      review: { id: "working" },
+    });
+    late.resolve(json({ ...response({ kind: "working" }), id: "working-2", patch: "working-2" }));
+    await back;
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "ready",
+      review: { id: "working-2" },
+    });
+    controller.dispose();
+  });
+
   test("comparison identity ignores key order and omitted false flags, but keeps inclusive ranges distinct", async () => {
     const { controller, calls } = fixture();
     await controller.initialize();
