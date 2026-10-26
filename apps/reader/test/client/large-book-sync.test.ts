@@ -1,6 +1,7 @@
 import { MemorySyncServer } from "@/features/sync-lab/core/memory-server";
 import { buildChapterEntries } from "@/features/reader/data/chapter-content-pipeline";
 import { prepareBook } from "@/lib/book-preparation";
+import { BookImportError, describeImportError } from "@/lib/book-import-errors";
 import { addBookFromFile } from "@/lib/book-service";
 import { db, getBook, type Book, type TOCItem } from "@/lib/db";
 import { getOrCreateDeviceId } from "@/lib/device";
@@ -191,6 +192,27 @@ describe("a book whose table of contents is larger than a synced record", () => 
     expect(tocEntries((await getBook(parsed.book.id))!.toc)).toBe(
       epub.tocEntries,
     );
+    expect(await db._sync_outbox.count()).toBe(0);
+  });
+
+  it("says plainly when a book's own details cannot sync", async () => {
+    const epub = largeEpub({
+      ...LARGE_TECHNICAL_BOOK,
+      title: "A very long title ".repeat(MAX_SYNC_VALUE_BYTES / 16),
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const failure = await addBookFromFile(chosen(epub.bytes)).catch(
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(BookImportError);
+    expect(failure).toMatchObject({ kind: "too-large" });
+    expect(describeImportError(failure as BookImportError)).toMatchObject({
+      title: "Too large to sync",
+      retry: false,
+    });
+    expect(await db.books.count()).toBe(0);
     expect(await db._sync_outbox.count()).toBe(0);
   });
 });

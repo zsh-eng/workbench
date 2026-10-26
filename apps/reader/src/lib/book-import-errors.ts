@@ -1,4 +1,5 @@
 import type { Book } from "@/lib/db";
+import { SyncValueTooLargeError } from "@zsh-eng/local-sync";
 
 /**
  * Why a file did not become a book. The importer decides the kind where the
@@ -11,6 +12,7 @@ export type BookImportFailure =
   | { kind: "drm" }
   | { kind: "incomplete"; missing: "package" | "contents" }
   | { kind: "storage" }
+  | { kind: "too-large" }
   | { kind: "unexpected" };
 
 /** What a file that is not an EPUB turned out to be. */
@@ -47,27 +49,46 @@ function technicalMessage(failure: BookImportFailure, cause: unknown) {
       : failure.kind === "incomplete"
         ? ` (no ${failure.missing})`
         : "";
-  const reason = cause instanceof Error ? `: ${cause.message}` : "";
+  const reason = cause instanceof Error ? `: ${plainMessage(cause)}` : "";
   return `${failure.kind}${detail}${reason}`;
+}
+
+/**
+ * A schema failure's message is its issues as JSON. Its issues' own
+ * messages read as a sentence, for the details a reader copies.
+ */
+function plainMessage(error: Error): string {
+  const issues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(issues)) return error.message;
+  return issues
+    .map((issue: { message?: unknown }) => String(issue.message))
+    .join("; ");
 }
 
 /**
  * Any failure of an import as a BookImportError. The browser reports a full
  * disk as QuotaExceededError, which Dexie passes on as the error itself or
- * as the `inner` error of the aborted transaction.
+ * as the `inner` error of the aborted transaction. A row too large to sync
+ * fails the same write.
  */
 export function asBookImportError(error: unknown): BookImportError {
   if (error instanceof BookImportError) return error;
-  return new BookImportError(
-    { kind: isQuotaError(error) ? "storage" : "unexpected" },
-    error,
-  );
+  const kind = findCause(error, isQuotaError)
+    ? "storage"
+    : findCause(error, (cause) => cause instanceof SyncValueTooLargeError)
+      ? "too-large"
+      : "unexpected";
+  return new BookImportError({ kind }, error);
 }
 
 function isQuotaError(error: unknown): boolean {
-  let current = error as { name?: unknown; inner?: unknown; cause?: unknown };
+  return (error as { name?: unknown }).name === "QuotaExceededError";
+}
+
+function findCause(error: unknown, test: (cause: unknown) => boolean) {
+  let current = error as { inner?: unknown; cause?: unknown } | undefined;
   for (let depth = 0; current && depth < 4; depth += 1) {
-    if (current.name === "QuotaExceededError") return true;
+    if (test(current)) return true;
     current = (current.inner ?? current.cause) as typeof current;
   }
   return false;
@@ -137,6 +158,13 @@ export function describeImportError(error: BookImportError): ImportErrorCopy {
         next: "Free up some space, then try again.",
         retry: true,
       };
+    case "too-large":
+      return {
+        title: "Too large to sync",
+        what: "Its details, such as its title, are too long to sync between your devices.",
+        next: "Edit the book’s details in an EPUB editor, such as Calibre, then add it again.",
+        retry: false,
+      };
     case "unexpected":
       return {
         title: "Couldn’t add this book",
@@ -155,9 +183,11 @@ export function importErrorDetails(
   const cause = error.cause;
   const trace =
     cause instanceof Error
-      ? cause.stack?.includes(cause.message)
-        ? cause.stack
-        : `${cause.name}: ${cause.message}\n${cause.stack ?? ""}`
+      ? plainMessage(cause) !== cause.message
+        ? `${cause.name}: ${plainMessage(cause)}`
+        : cause.stack?.includes(cause.message)
+          ? cause.stack
+          : `${cause.name}: ${cause.message}\n${cause.stack ?? ""}`
       : String(cause ?? error.message);
   return [
     `File: ${fileName}`,

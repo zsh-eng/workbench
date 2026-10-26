@@ -7,6 +7,7 @@ import {
 import { withReaderTraceSpan } from "@/lib/reader-performance-trace";
 import type { Highlight } from "@/types/highlight";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { SyncValueTooLargeError } from "@zsh-eng/local-sync";
 import { toast } from "sonner";
 
 /**
@@ -61,7 +62,12 @@ export function useAddHighlightMutation(bookId: string | undefined) {
     onError: (err, _newHighlight, context) => {
       queryClient.setQueryData(queryKey, context?.previousHighlights);
       console.error("Failed to add highlight:", err);
-      toast.error("Could not save highlight.", { id: "highlight-save-failed" });
+      toast.error(
+        err instanceof SyncValueTooLargeError
+          ? "This passage is too long to highlight. Select less text."
+          : "Could not save highlight.",
+        { id: "highlight-save-failed" },
+      );
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });

@@ -11,6 +11,7 @@ import {
 } from "@/data/note-drafts";
 import { deleteNote, restoreNote } from "@/data/notes";
 import type { Note, NoteTarget } from "@/types/note";
+import { SyncValueTooLargeError } from "@zsh-eng/local-sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type ReaderDraft = {
@@ -251,10 +252,12 @@ export function useReaderNotes(bookId: string) {
       if (mounted.current) setDraft(current.current);
       await client.invalidateQueries({ queryKey: noteKeys.book(bookId) });
       return true;
-    } catch {
+    } catch (error) {
       if (mounted.current)
         setError(
-          "Could not save the note. Your draft is still here; try sending again.",
+          error instanceof SyncValueTooLargeError
+            ? "This note is too long to sync. Shorten it, or quote a shorter passage. Your draft is still here."
+            : "Could not save the note. Your draft is still here; try sending again.",
         );
       return false;
     } finally {
