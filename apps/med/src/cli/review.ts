@@ -28,6 +28,19 @@ import {
 } from "../host/runtime/connection";
 
 import { pullRequestTitle, reviewMetadata } from "./review-metadata";
+import {
+  comparisonEmpty,
+  emptyMessage,
+  git,
+  headBranch,
+  keyFromBranch,
+  rangeFacts,
+  repositoryRoot,
+  requireRegistered,
+  sessionScope,
+  shellWord,
+  titleProblem,
+} from "./review-checks";
 
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
@@ -42,7 +55,7 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
        med-diff review wait --key <key>
        med-diff review repos
 
---key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current.
+--key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
 --paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
@@ -52,7 +65,7 @@ In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and i
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
---merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches).
+--merge-base compares the common ancestor of --base and --head with --head (for pull requests and stacked branches). When --base has commits that --head does not have, create uses the merge base by itself and says so; --no-merge-base compares the two tips.
 --brief <path|-> attaches a Markdown explanation; - reads standard input. Links such as [App.tsx:42](src/App.tsx:42) open the cited lines.
 --guide <path|-> attaches a JSON guide: a summary and segments to review one at a time, each with a title, a summary, its files, and your comments on lines. See med docs agents.
 --generated <path|glob>... marks files that a tool wrote, such as a client from a code generator, with create or update --paths. Med folds them with lockfiles and build output, after the other files and out of the line totals. Name files, folders (ending in /), or globs, as a guide does; quote globs. A file that Git attributes unmark (-linguist-generated) stays unmarked.
@@ -61,7 +74,7 @@ Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STA
 The running host must already have the target repositories registered.
 --stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
 --group <name> --attempt <1-3> marks the review as one attempt at a task that several agents do, each in its own worktree. Med shows a group's attempts together and compares them.
-A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}.
+A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}. --manifest - reads it from standard input.
 The create command prints a Markdown review link without an access token.`;
 
 /**
@@ -164,6 +177,14 @@ export interface ReviewCommand {
   inferPullRequest?: boolean;
   /** Show the review now, not only add it to open windows. */
   open?: boolean;
+  /** create with --repo and one comparison: Med may choose the key and the merge base. */
+  fromFlags?: boolean;
+  /** --no-merge-base: compare the two tips even when the base moved on. */
+  noMergeBase?: boolean;
+  /** The agent named the review (--title, or a manifest's title). */
+  titleGiven?: boolean;
+  /** Med started this session in a thread, and sends it the user's messages. */
+  owned?: boolean;
 }
 
 /** Read and check a guide file, or standard input for "-". */
@@ -261,6 +282,7 @@ export async function parseReviewCommand(
       head: { type: "string" },
       working: { type: "boolean" },
       "merge-base": { type: "boolean" },
+      "no-merge-base": { type: "boolean" },
       manifest: { type: "string" },
       brief: { type: "string" },
       guide: { type: "string" },
@@ -361,6 +383,7 @@ export async function parseReviewCommand(
       values.head !== undefined ||
       values.working ||
       values["merge-base"] ||
+      values["no-merge-base"] ||
       values.pr !== undefined ||
       values.group !== undefined ||
       paths
@@ -370,11 +393,12 @@ export async function parseReviewCommand(
       );
     if (partItems.length < 2)
       throw new Error(`Name two or more pull requests or branches after --${shape}.`);
-    const repo =
+    const repo = await repositoryRoot(
       values.repo ??
-      (environment.MED_THREAD_REPO || undefined) ??
-      sessionOptions.cwd ??
-      process.cwd();
+        (environment.MED_THREAD_REPO || undefined) ??
+        sessionOptions.cwd ??
+        process.cwd(),
+    );
     let guides: (ReviewGuide | null)[] | undefined;
     if (values.guide !== undefined) {
       if (values.guide === "-" && values.brief === "-")
@@ -411,23 +435,40 @@ export async function parseReviewCommand(
     };
   }
   let input: unknown;
+  if (values["merge-base"] && values["no-merge-base"])
+    throw new Error("Use --merge-base or --no-merge-base, not both.");
   if (values.manifest !== undefined) {
-    if (targetOptions.some((value) => value !== undefined) || paths)
+    if (targetOptions.some((value) => value !== undefined) || paths || values["no-merge-base"])
       throw new Error(
         "Use --manifest without --title, --repo, --base, --head, --working, or --paths.",
       );
+    if (values.manifest === "-" && (values.guide === "-" || values.brief === "-"))
+      throw new Error(
+        'Only one of --manifest, --brief, and --guide can read standard input. Put the guide in the manifest as "guide".',
+      );
     try {
-      input = JSON.parse(await readFile(resolve(values.manifest), "utf8"));
+      input = JSON.parse(
+        values.manifest === "-"
+          ? await readStandardInput()
+          : await readFile(resolve(values.manifest), "utf8"),
+      );
     } catch {
-      throw new Error("Could not read the review manifest. Supply a readable JSON file.");
+      throw new Error(
+        "Could not read the review manifest. Supply a readable JSON file, or - for standard input.",
+      );
     }
   } else {
     values.repo ??= environment.MED_THREAD_REPO || undefined;
     if (!values.repo) throw new Error("Use --repo, or supply --manifest.");
+    // A folder inside the repository names the repository.
+    values.repo = await repositoryRoot(values.repo);
     if (values.pr && values["no-pr"]) throw new Error("Use --pr without --no-pr.");
     if (
       values.working &&
-      (values.base !== undefined || values.head !== undefined || values["merge-base"])
+      (values.base !== undefined ||
+        values.head !== undefined ||
+        values["merge-base"] ||
+        values["no-merge-base"])
     )
       throw new Error("Use --working without --base, --head, or --merge-base.");
     if (!values.working && (!values.base || !values.head))
@@ -503,11 +544,13 @@ export async function parseReviewCommand(
     );
   const manifest = {
     ...result.data,
-    targets: result.data.targets.map((target) => ({
-      ...target,
-      repo: resolve(target.repo),
-      ...(generated && { generated: [...(target.generated ?? []), ...generated] }),
-    })),
+    targets: await Promise.all(
+      result.data.targets.map(async (target) => ({
+        ...target,
+        repo: await repositoryRoot(target.repo),
+        ...(generated && { generated: [...(target.generated ?? []), ...generated] }),
+      })),
+    ),
   };
   return {
     ...common,
@@ -516,6 +559,10 @@ export async function parseReviewCommand(
     keepTitle: values.title !== undefined || values.manifest !== undefined,
     inferPullRequest: !values["no-pr"],
     open: !!values.open,
+    fromFlags: values.manifest === undefined,
+    noMergeBase: !!values["no-merge-base"],
+    titleGiven: values.title !== undefined || values.manifest !== undefined,
+    owned,
   };
 }
 
@@ -564,10 +611,13 @@ export async function runReviewCommand(
     home?: string;
     /** How long wait pauses before it retries a lost connection. */
     retryDelay?: number;
+    /** Where the checks' advice goes: standard error by default. */
+    warn?: (text: string) => void;
   } = {},
 ): Promise<void> {
   const command = await parseReviewCommand(args, options);
   const print = options.print ?? console.log;
+  const warn = options.warn ?? console.error;
   if (command.kind === "help") {
     print(reviewHelp);
     return;
@@ -587,9 +637,11 @@ export async function runReviewCommand(
   if (command.kind === "update") {
     const { key, guide, paths, repo, generated, ...details } = command.update!;
     const title = details.pullRequestUrl && (await pullRequestTitle(details.pullRequestUrl));
-    const found = z
-      .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
-      .parse(await request(connection, "/api/reviews/by-key", fetcher, { key }));
+    const found = await reviewByKey(connection, key, fetcher);
+    // A guide for code that changed after the capture describes code that the
+    // review does not show: the fix belongs in a new version.
+    const stale =
+      guide && !paths ? await staleCapture(connection, found.id, key, fetcher) : undefined;
     if (details.title || details.pullRequestUrl || details.sessions?.length)
       await request(connection, `/api/reviews/${found.id}/details`, fetcher, {
         ...details,
@@ -614,12 +666,24 @@ export async function runReviewCommand(
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
     if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print);
+    if (stale) warn(stale);
     return;
   }
   const repositories = await request(connection, "/api/repositories", fetcher);
   if (command.kind === "repos") {
     print(JSON.stringify(repositories, null, 2));
     return;
+  }
+  await requireRegistered(
+    command.parts ? [command.parts.repo] : command.manifest!.targets.map((target) => target.repo),
+    repositories,
+  );
+  const notes: string[] = [];
+  let defaultKey: string | undefined;
+  if (command.manifest) {
+    const prepared = await prepareTargets(command, repositories, options);
+    notes.push(...prepared.notes);
+    defaultKey = prepared.key;
   }
   const manifest = command.parts
     ? await partsManifest(command.parts, repositories)
@@ -656,6 +720,275 @@ export async function runReviewCommand(
     );
   if (manifest.guide)
     await printGuideCheck(connection, parsed.data.id, manifest.guide, manifest.key, fetcher, print);
+  const key = manifest.key;
+  const update = (option: string) =>
+    `med review update --key ${shellWord(key ?? parsed.data.id)} ${option}`;
+  for (const note of notes) warn(note);
+  if (defaultKey)
+    warn(
+      `Key: ${defaultKey}, from the branch. Hand off each later round of this task with the same key: med review create --key ${shellWord(defaultKey)} …`,
+    );
+  if (!manifest.parts) {
+    const repos = manifest.targets.map((target) => target.repo);
+    const problem = command.titleGiven
+      ? titleProblem(manifest.title, repos)
+      : manifest.pullRequestTitle
+        ? undefined
+        : "is not set";
+    if (problem)
+      warn(
+        `Title check: the title ${problem}. Use 2–4 words that name what the task builds, without the repository's name or words such as "review" and "changes": ${update('--title "<2-4 words>"')}`,
+      );
+    const scope = await sharedCheckout(connection, parsed.data.id, manifest, fetcher, options.home);
+    if (scope)
+      warn(
+        `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map(shellWord).join(" ")}`)}`,
+      );
+  }
+  // A Claude Code session outside a Med thread gets the user's comments by waiting.
+  const environment = options.environment ?? process.env;
+  if (key && !command.owned && environment.CLAUDE_CODE_SESSION_ID)
+    warn(
+      `To get the user's comments, run this as a background command: med review wait --key ${shellWord(key)}. Its output is the user's message.`,
+    );
+}
+
+/** Up to 8 paths, for a line of advice. */
+const listed = (paths: readonly string[], limit = 8) =>
+  paths.length > limit
+    ? `${paths.slice(0, limit).join(", ")}, and ${paths.length - limit} more`
+    : paths.join(", ");
+
+/** A review by its key, or by its ID (r_…) when no review has that key. */
+async function reviewByKey(connection: RunningConnection, key: string, fetcher: typeof fetch) {
+  const shape = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) });
+  try {
+    return shape.parse(await request(connection, "/api/reviews/by-key", fetcher, { key }));
+  } catch (error) {
+    if (!/^r_[a-z0-9]+$/.test(key)) throw error;
+    return shape.parse(await request(connection, `/api/reviews/${key}`, fetcher)).id === key
+      ? { id: key }
+      : Promise.reject(error);
+  }
+}
+
+/**
+ * Checks a single hand-off before Med captures it: an empty comparison is
+ * refused; a base that moved on uses the merge base; a branch gives the key.
+ * Returns the advice to print after the link.
+ */
+async function prepareTargets(
+  command: ReviewCommand,
+  repositories: unknown,
+  options: { environment?: NodeJS.ProcessEnv; home?: string },
+) {
+  const manifest = command.manifest!;
+  const notes: string[] = [];
+  const environment = options.environment ?? process.env;
+  const running = environment.CLAUDE_CODE_SESSION_ID;
+  const session = running ? { agent: "claude" as const, id: running } : undefined;
+  const empty: string[] = [];
+  for (const target of manifest.targets) {
+    const comparison = target.comparison;
+    if (comparison.kind === "range" && !comparison.mergeBase) {
+      const facts = await rangeFacts(target.repo, comparison.base, comparison.head);
+      if (facts?.baseAhead && facts.mergeBase) {
+        const ahead = `${comparison.base} has ${facts.baseAhead} ${facts.baseAhead === 1 ? "commit" : "commits"} that ${comparison.head} does not have`;
+        if (command.fromFlags && !command.noMergeBase) {
+          comparison.mergeBase = true;
+          notes.push(
+            `Merge base: ${ahead}, so Med compared ${comparison.head} with their merge base, as a pull request does. Add --no-merge-base to compare the two tips.`,
+          );
+        } else if (!command.noMergeBase)
+          notes.push(
+            `Merge base: in ${target.repo}, ${ahead}, so the review shows them as removed. For a branch, set "mergeBase": true in the manifest and create the review again with the same key.`,
+          );
+      }
+    }
+    const nothing = await comparisonEmpty(target.repo, comparison);
+    if (nothing)
+      empty.push(
+        await emptyMessage(
+          target.repo,
+          comparison as Parameters<typeof emptyMessage>[1],
+          session,
+          options.home,
+        ),
+      );
+  }
+  if (empty.length && empty.length === manifest.targets.length) throw new Error(empty.join("\n"));
+  for (const message of empty) notes.push(`${message} Leave this repository out of the review.`);
+  let key: string | undefined;
+  if (command.fromFlags && !manifest.key && !command.owned) {
+    const target = manifest.targets[0]!;
+    const branch = keyFromBranch(await headBranch(target.repo, target.comparison));
+    const listing = z
+      .object({
+        repositories: z.array(
+          z.object({
+            path: z.string(),
+            worktrees: z.array(
+              z.object({
+                path: z.string(),
+                branch: z.string().optional(),
+                linked: z.boolean().optional(),
+              }),
+            ),
+          }),
+        ),
+      })
+      .safeParse(repositories);
+    const family = listing.data?.repositories.find(
+      (entry) =>
+        entry.path === target.repo || entry.worktrees.some((tree) => tree.path === target.repo),
+    );
+    // The repository's base branch: the main checkout's branch (for a linked
+    // worktree), the remote's default, or a usual name.
+    const remote = (
+      await git(target.repo, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+    )?.replace(/^origin\//, "");
+    const bases = new Set(
+      [
+        family?.path !== target.repo
+          ? baseOf(family as Pick<RegisteredRepository, "path" | "worktrees"> | undefined)
+          : undefined,
+        remote,
+        "main",
+        "master",
+        "trunk",
+        "develop",
+      ].filter(Boolean),
+    );
+    if (branch && !bases.has(branch)) {
+      manifest.key = branch;
+      key = branch;
+    }
+  }
+  return { notes, key };
+}
+
+/**
+ * The changed files of a working hand-off without --paths that this
+ * session's transcript never edited: other work in a shared checkout.
+ */
+async function sharedCheckout(
+  connection: RunningConnection,
+  id: string,
+  manifest: ReviewManifest,
+  fetcher: typeof fetch,
+  home?: string,
+) {
+  const target = manifest.targets[0];
+  const found = manifest.sessions?.find((entry) => entry.agent !== "acp");
+  const session = found && { agent: found.agent as "claude" | "codex", id: found.id };
+  if (
+    manifest.targets.length !== 1 ||
+    !target ||
+    target.comparison.kind !== "working" ||
+    target.comparison.paths ||
+    !session
+  )
+    return undefined;
+  try {
+    const files = await currentFiles(connection, id, fetcher);
+    const scope = await sessionScope(
+      session,
+      target.repo,
+      files.flatMap((entry) => entry.files.map((file) => file.path)),
+      home,
+    );
+    return scope?.others.length && scope.own.length ? scope : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The changed files of each comparison in the review's current version. */
+async function currentFiles(connection: RunningConnection, id: string, fetcher: typeof fetch) {
+  const saved = z
+    .object({
+      targets: z.array(z.object({ id: z.string(), repo: z.string() })),
+      iterations: z.array(z.object({ targetIds: z.array(z.string()) })).optional(),
+    })
+    .parse(await request(connection, `/api/reviews/${id}`, fetcher));
+  const current = saved.iterations?.findLast((entry) => entry.targetIds.length)?.targetIds;
+  const targets = current
+    ? saved.targets.filter((target) => current.includes(target.id))
+    : saved.targets;
+  const fileList = z.object({
+    files: z.array(
+      z.object({
+        path: z.string(),
+        previousPath: z.string().optional(),
+        generated: z.unknown().optional(),
+      }),
+    ),
+  });
+  return Promise.all(
+    targets.map(async (target) => ({
+      root: target.repo,
+      files: fileList.parse(
+        await request(
+          connection,
+          `/api/reviews/${id}/targets/${encodeURIComponent(target.id)}/review`,
+          fetcher,
+        ),
+      ).files,
+    })),
+  );
+}
+
+/**
+ * Whether the checkout moved past the capture of the review's current
+ * version: what `update --guide` would describe is then not what Med shows.
+ * Returns the advice, with the command that makes the next version.
+ */
+async function staleCapture(
+  connection: RunningConnection,
+  id: string,
+  key: string,
+  fetcher: typeof fetch,
+) {
+  try {
+    const saved = savedReviewSchema.parse(await request(connection, `/api/reviews/${id}`, fetcher));
+    const version = saved.iterations?.findLast((entry) => entry.targetIds.length);
+    const targets = saved.targets.filter((target) =>
+      version ? version.targetIds.includes(target.id) : !target.commentReviewId,
+    );
+    if (!targets.length || saved.parts) return undefined;
+    const changed: string[] = [];
+    for (const target of targets) {
+      if (target.captured) {
+        const drift = z
+          .object({ changed: z.boolean() })
+          .parse(
+            await request(
+              connection,
+              `/api/reviews/${id}/targets/${encodeURIComponent(target.id)}/drift`,
+              fetcher,
+            ),
+          );
+        if (drift.changed) changed.push(target.repo);
+      } else if (target.comparison.kind === "range") {
+        const head = target.names?.head ?? target.names?.on?.branch;
+        const now = head && (await git(target.repo, "rev-parse", "--verify", "--quiet", head));
+        const dirty = await git(target.repo, "status", "--porcelain", "--untracked-files=no");
+        if ((now && now !== target.head) || dirty) changed.push(target.repo);
+      }
+    }
+    if (!changed.length) return undefined;
+    const number = version?.number ?? 1;
+    const target = targets[0]!;
+    const comparison =
+      targets.length > 1
+        ? "--manifest <file>"
+        : target.comparison.kind === "working"
+          ? `--repo ${shellWord(target.repo)} --working${target.comparison.paths?.length ? ` --paths ${target.comparison.paths.map(shellWord).join(" ")}` : ""}`
+          : `--repo ${shellWord(target.repo)} --base ${target.base.slice(0, 12)} --head HEAD`;
+    return `Stale capture: the checkout changed after version ${number} was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version ${number + 1} with the same key: med review create --key ${shellWord(key)} ${comparison} --guide <file>`;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The manifest of `create --stack` or `--set`: each item read with gh or Git. */
@@ -748,31 +1081,7 @@ export async function printGuideCheck(
   print: (text: string) => void,
 ) {
   try {
-    const saved = z
-      .object({
-        targets: z.array(z.object({ id: z.string(), repo: z.string() })),
-        iterations: z.array(z.object({ targetIds: z.array(z.string()) })).optional(),
-      })
-      .parse(await request(connection, `/api/reviews/${id}`, fetcher));
-    const current = saved.iterations?.findLast((entry) => entry.targetIds.length)?.targetIds;
-    const targets = current
-      ? saved.targets.filter((target) => current.includes(target.id))
-      : saved.targets;
-    const fileList = z.object({
-      files: z.array(z.object({ path: z.string(), previousPath: z.string().optional() })),
-    });
-    const comparisons = await Promise.all(
-      targets.map(async (target) => ({
-        root: target.repo,
-        files: fileList.parse(
-          await request(
-            connection,
-            `/api/reviews/${id}/targets/${encodeURIComponent(target.id)}/review`,
-            fetcher,
-          ),
-        ).files,
-      })),
-    );
+    const comparisons = await currentFiles(connection, id, fetcher);
     const text = guideCheckText(
       checkGuide(guide, comparisons),
       key
