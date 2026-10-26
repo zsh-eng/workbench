@@ -283,6 +283,27 @@ test("System theme follows appearance changes and removes its listener for a fix
   expect(document.documentElement.classList.contains("light")).toBe(true);
 });
 
+test("choosing Dark on the Profile page makes the app dark, and the choice survives a reload", async () => {
+  globalThis.fetch = (async () =>
+    new Response(null, { status: 401 })) as typeof fetch;
+  const theme = (view: { container: HTMLElement }, name: string) =>
+    [
+      ...view.container.querySelectorAll<HTMLLabelElement>(
+        '[role="radiogroup"] label',
+      ),
+    ].find((label) => label.textContent === name)!;
+  const first = await mountProfile();
+  await click(theme(first, "Dark"));
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+  // A reload starts the app again from what this browser stored.
+  await first.unmount();
+  document.documentElement.classList.remove("dark", "light");
+  const reloaded = await mountProfile();
+  expect(theme(reloaded, "Dark").querySelector("input")?.checked).toBe(true);
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+});
+
 test("the session-expired notice follows the server: a refused session shows it, being offline never does, and a new sign-in clears it", async () => {
   await signedInAs(ada);
   await mount(<SessionExpiredBanner />);

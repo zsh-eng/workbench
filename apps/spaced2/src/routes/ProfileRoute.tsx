@@ -1,4 +1,7 @@
-import { AccountSection } from "@/components/profile/account-section";
+import {
+  AccountSection,
+  AccountSignOut,
+} from "@/components/profile/account-section";
 import { ImagesLinkButton } from "@/components/profile/images-link-button";
 import { ConnectionNotice } from "@/components/profile/connection-notice";
 import { StatsLinkButton } from "@/components/profile/stats-link-button";
@@ -20,11 +23,15 @@ export default function ProfileRoute() {
       <ConnectionNotice
         status={connection === "offline" ? "offline" : "online"}
       />
-      <ThemeToggle />
-      <StatsLinkButton />
-      <ImagesLinkButton />
-
       <AccountSection />
+
+      <div className="mt-4 flex flex-col gap-2">
+        <ThemeToggle />
+        <StatsLinkButton />
+        <ImagesLinkButton />
+      </div>
+
+      <AccountSignOut />
 
       <Link
         to="https://github.com/zsh-eng"

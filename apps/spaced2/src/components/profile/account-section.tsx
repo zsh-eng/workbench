@@ -5,29 +5,22 @@ import type { SyncIdentity, SyncSummary } from "@zsh-eng/local-sync";
 import { useSyncStatus, useSyncSummary } from "@zsh-eng/local-sync/react";
 
 /**
- * The account on the Profile page, as this device knows it (the shared sync
- * status, `spacedSync`). Only the server's answer ends a session, so a
- * remembered account shows offline too, with Sign out disabled until the
- * connection returns. Before anyone has answered, the account is neutral:
- * neither the user nor Sign in.
+ * The account at the top of the Profile page, as this device knows it (the
+ * shared sync status, `spacedSync`). Only the server's answer ends a session,
+ * so a remembered account shows offline too. Before anyone has answered, the
+ * account is neutral: neither the user nor Sign in.
  */
 export function AccountSection() {
   const auth = useSyncStatus(spacedSync, (status) => status.auth);
   const summary = useSyncSummary(spacedSync);
   switch (auth.status) {
     case "signed-in":
-      return (
-        <>
-          <AccountCard user={auth.user} summary={summary} />
-          <LogoutButton />
-        </>
-      );
+      return <AccountCard user={auth.user} summary={summary} />;
     case "expired":
       return (
         <>
           <AccountCard user={auth.user} summary={summary} />
           <LoginButton label="Sign in again" />
-          <LogoutButton />
         </>
       );
     case "signed-out":
@@ -47,6 +40,20 @@ export function AccountSection() {
         </div>
       );
   }
+}
+
+/**
+ * Sign out, last on the Profile page, while this device remembers an account.
+ * Offline it stays, disabled until the connection returns.
+ */
+export function AccountSignOut() {
+  const auth = useSyncStatus(spacedSync, (status) => status.auth.status);
+  if (auth !== "signed-in" && auth !== "expired") return null;
+  return (
+    <div className="mt-4 flex flex-col">
+      <LogoutButton />
+    </div>
+  );
 }
 
 /** Who is signed in, and the sync status in the shared words. */
