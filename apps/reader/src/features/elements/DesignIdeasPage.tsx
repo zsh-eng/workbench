@@ -431,7 +431,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "background-current",
       title: "Covers with a glyph",
       description:
-        "The choice, in the real Library behind Settings → Debug tools → Try on this device → Offline downloads: each cover fills as its book downloads, and a glyph opens the activity sheet (beside the account, or beside Sort and layout on a phone). Turn the switch on, then Sort and layout → Download all for offline.",
+        "The choice, in the real Library. A glyph opens the activity sheet (before Search, or beside Sort and layout on a phone), for everyone. Covers that fill as their books download are behind Settings → Debug tools → Try on this device → Offline downloads: turn the switch on, then Sort and layout → Download all for offline.",
       src: "/",
     },
     ideas: [

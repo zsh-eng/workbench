@@ -3394,7 +3394,7 @@ describe("agent session", () => {
     await expect.element(panel.getByText(/Rename the export in/)).toBeVisible();
     // The finished turn's work folds into one row; Show work opens it, and stays on.
     await expect
-      .element(panel.getByRole("button", { name: "Worked for 2.0s · 1 tool call" }))
+      .element(panel.getByRole("button", { name: "Worked for 2s · 1 tool call" }))
       .toBeVisible();
     expect(panel.getByRole("button", { name: /Run the tests/ }).query()).toBeNull();
     // The session's menu, named for its agent, holds Show work.
@@ -4025,7 +4025,7 @@ describe("agent session", () => {
       idle: true,
       modifiedAt: now + 1000,
     });
-    await expect.element(thread.getByText("Worked for 3.0s")).toBeVisible();
+    await expect.element(thread.getByText("Worked for 3s")).toBeVisible();
     expect(thread.element().textContent).not.toContain("Working");
 
     // A turn that Med runs ends when its runner says so, though the transcript
@@ -4038,7 +4038,8 @@ describe("agent session", () => {
     });
     await expect.element(thread.getByText("Working")).toBeVisible();
     setOwned({ status: "idle", updatedAt: now + 4000 });
-    await expect.element(thread.getByText(/^Worked for/)).toBeVisible();
+    // The transcript ends at the prompt: under a second, the turn shows no time.
+    await expect.element(thread.getByText("Worked", { exact: true })).toBeVisible();
     expect(thread.element().textContent).not.toContain("Working");
   });
 

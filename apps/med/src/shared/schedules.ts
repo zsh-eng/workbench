@@ -3,8 +3,6 @@ import { z } from "zod";
 // Claude Code's schedules, which Med shows and never runs (docs/SCHEDULES.md).
 // A session's CronCreate and ScheduleWakeup calls schedule prompts in that
 // session only: they fire while its process runs and are gone when it ends.
-// Desktop scheduled tasks are folders of ~/.claude/scheduled-tasks that the
-// Claude app runs.
 
 /** The tools whose calls the thread shows as schedule cards. */
 export const SCHEDULE_TOOLS = new Set(["CronCreate", "CronDelete", "ScheduleWakeup"]);
@@ -126,7 +124,7 @@ export function cronTime(cron: string, from: number): number | undefined {
   return undefined;
 }
 
-/** A schedule's state, for its card and the Scheduled list. */
+/** A schedule's state, for its card. The Scheduled list has only live jobs. */
 export type ScheduleState =
   /** Its session's process runs, so it can fire. */
   | "live"
@@ -182,7 +180,8 @@ export function scheduleState(
   return running ? "live" : "stopped";
 }
 
-/** One entry of the Scheduled list (`GET /api/schedules`). */
+/** One entry of the Scheduled list (`GET /api/schedules`): a job that will
+ * fire, since its session's process runs. */
 export const scheduleEntrySchema = z.object({
   /** The session's job: a cron, or the next wakeup of a dynamic /loop. */
   kind: z.enum(["cron", "wakeup"]),
@@ -198,32 +197,13 @@ export const scheduleEntrySchema = z.object({
   createdAt: z.number(),
   /** When a recurring job ends, or when a wakeup fires. */
   endsAt: z.number().optional(),
-  state: z.enum(["live", "stopped", "cancelled", "expired", "fired", "missed"]),
   /** How many times it fired, from the session's transcript. */
   fires: z.number().int().nonnegative(),
   lastFiredAt: z.number().optional(),
-  /** Where its session's process runs, while it runs. */
-  runs: z.enum(["med", "terminal", "claude-app", "other-app"]).optional(),
+  /** Where its session's process runs. */
+  runs: z.enum(["med", "terminal", "claude-app", "other-app"]),
 });
 export type ScheduleEntry = z.infer<typeof scheduleEntrySchema>;
 
-/** A desktop scheduled task: a folder with a SKILL.md, which the Claude app runs. */
-export const desktopTaskSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-  prompt: z.string(),
-  path: z.string(),
-  updatedAt: z.number(),
-});
-export type DesktopTask = z.infer<typeof desktopTaskSchema>;
-
-export const schedulesSchema = z.object({
-  sessions: z.array(scheduleEntrySchema),
-  desktop: z.object({
-    folder: z.string(),
-    /** The folder is missing: the Claude app has made no scheduled task here. */
-    missing: z.boolean(),
-    tasks: z.array(desktopTaskSchema),
-  }),
-});
+export const schedulesSchema = z.object({ sessions: z.array(scheduleEntrySchema) });
 export type Schedules = z.infer<typeof schedulesSchema>;

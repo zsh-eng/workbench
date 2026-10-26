@@ -395,8 +395,8 @@ export function Library() {
     </DropdownMenu>
   );
 
-  // Debug mode: straight to the newest Design ideas. It goes first, so the
-  // other controls keep their places.
+  // Debug mode: straight to the newest Design ideas. It goes before the
+  // other controls, so they keep their places.
   const designIdeas = debugEnabled && (
     <Link
       to="/debug/ideas"
@@ -436,15 +436,13 @@ export function Library() {
         placeholder="Title or author"
         count={`${found.length} of ${data?.books.length ?? 0}`}
         onSubmit={openFirstMatch}
+        status={<LibraryActivity place="header" />}
         actions={
-          <>
-            <LibraryActivity place="header" />
-            <div className="flex items-center gap-0.5 max-md:hidden">
-              {designIdeas}
-              {addBooks(false)}
-              {viewMenu}
-            </div>
-          </>
+          <div className="flex items-center gap-0.5 max-md:hidden">
+            {designIdeas}
+            {addBooks(false)}
+            {viewMenu}
+          </div>
         }
       />
 
@@ -545,9 +543,11 @@ export function Library() {
               <span className="shrink-0 font-numeric text-[12px] text-muted-foreground tabular-nums max-md:hidden">
                 {shown.length} {shown.length === 1 ? "book" : "books"}
               </span>
+              {/* The glyph goes first: when it comes or goes, the buttons
+                  after it keep their places. */}
               <div className="flex shrink-0 items-center md:hidden">
-                {designIdeas}
                 <LibraryActivity place="row" />
+                {designIdeas}
                 {addBooks(true)}
                 {viewMenu}
               </div>

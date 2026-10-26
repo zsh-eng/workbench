@@ -7,6 +7,7 @@ import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { diffSurfaceStyle } from "../diff-surface";
 import { Icon, type IconName } from "../Icon";
+import { formatDuration } from "./Elapsed";
 import { motion, rowStyles } from "./session-styles";
 import { ScheduleCard } from "./ScheduleCard";
 import { isMedWait } from "./thread-model";
@@ -71,15 +72,6 @@ export function diffStat(diff: DiffContent) {
   )
     end++;
   return { added: after.length - start - end, removed: before.length - start - end };
-}
-
-export function formatSeconds(milliseconds: number) {
-  const seconds = milliseconds / 1000;
-  if (seconds < 10) return `${seconds.toFixed(1)}s`;
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const whole = Math.round(seconds);
-  if (whole < 3600) return `${Math.floor(whole / 60)}m ${whole % 60}s`;
-  return `${Math.floor(whole / 3600)}h ${Math.floor((whole % 3600) / 60)}m`;
 }
 
 function phrase(call: ToolCallState): { verb?: string; target: string } {
@@ -165,7 +157,8 @@ function ToolRow({
   const command = commandOf(call);
   const hasDetails =
     diffs.length > 0 || Boolean(output) || Boolean(command) || item.items.length > 0;
-  const duration = item.endedAt !== undefined ? item.endedAt - item.at : undefined;
+  // A running call spins; the session's status line has the one clock.
+  const took = item.endedAt !== undefined ? formatDuration(item.endedAt - item.at) : undefined;
   const openAgent = useContext(OpenAgentContext);
 
   const head = (
@@ -200,7 +193,7 @@ function ToolRow({
         {running ? (
           <span aria-label="Running" {...stylex.props(motion.spinner)} />
         ) : (
-          duration !== undefined && duration >= 1000 && <span>{formatSeconds(duration)}</span>
+          took && <span>{took}</span>
         )}
         {hasDetails && (
           <span {...stylex.props(styles.chevron, open && styles.chevronOpen)}>

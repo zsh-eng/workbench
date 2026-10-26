@@ -705,11 +705,19 @@ export function createActivityManager<K extends JobKinds>(
     const now = clock.now();
     const progress = { ...EMPTY_PROGRESS, ...view.progress };
     const same = entry.job.kind === view.kind && entry.job.state === view.state;
+    const origin = view.origin ?? "app";
+    // The work began when its owner started to report it, or when it became
+    // work you wait for: a restore that ends within half a second never
+    // shows, even after a routine pass or a wait for a sign-in.
+    const began =
+      entry.job.kind !== view.kind ||
+      (origin === "user" && entry.job.origin !== "user");
     set(entry, {
+      createdAt: began ? now : entry.job.createdAt,
       kind: view.kind,
       title: view.title,
       state: view.state,
-      origin: view.origin ?? "app",
+      origin,
       waitingFor: view.waitingFor ?? null,
       failure: view.failure ?? null,
       retryAt: view.retryAt ?? null,

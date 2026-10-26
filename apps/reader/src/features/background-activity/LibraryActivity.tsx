@@ -16,21 +16,21 @@ import { CoverActivity } from "./CoverActivity";
 import { UpdateChip } from "./UpdateChip";
 
 /**
- * The Library's background parts: the update chip, and the activity glyph
- * (Debug → Offline downloads). With room,
- * both sit in the header. A phone's header is full with the places, so the
- * glyph joins Sort and layout in the filter row, where Download all starts,
- * and the chip floats at the bottom of the page.
+ * The Library's background parts: the update chip, and the activity glyph.
+ * With room, both sit in the header. A phone's header is full with the
+ * places, so the glyph joins Sort and layout in the filter row, where
+ * Download all starts, and the chip floats at the bottom of the page. The
+ * page puts each first in its row of buttons, so the buttons keep their
+ * places when it comes or goes.
  */
 export function LibraryActivity({ place }: { place: "header" | "row" }) {
-  const downloads = useDebugSwitch(offlineDownloads);
   const phone = usePhoneLayout();
-  if (place === "row") return downloads && phone ? <ActivityGlyph /> : null;
+  if (place === "row") return phone ? <ActivityGlyph /> : null;
   if (phone) return <UpdateChip floating />;
   return (
     <>
       <UpdateChip className="mr-1" />
-      {downloads && <ActivityGlyph />}
+      <ActivityGlyph />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { appendFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSchedules, readDesktopTasks } from "../../src/host/schedules";
+import { createSchedules } from "../../src/host/schedules";
 import { describeCron } from "../../src/shared/schedules";
 import {
   ONE_SHOT_PROMPT,
@@ -29,7 +29,7 @@ async function world() {
 
 const thread = { id: `r_${"a".repeat(24)}`, title: "Station search" };
 
-test("the Scheduled list reads each tab's jobs from its transcript, with their state", async () => {
+test("the Scheduled list has only the jobs that will fire: a running session's live ones", async () => {
   const { home, transcript } = await world();
   const started = Date.now() - 2 * HOUR;
   await writeFile(transcript, scheduleTranscript(session, started, 1));
@@ -43,30 +43,8 @@ test("the Scheduled list reads each tab's jobs from its transcript, with their s
     },
   });
   const threads = [{ ...thread, sessions: [{ agent: "claude", id: session }] }];
-  const first = await schedules.list(threads);
-  const cron = first.sessions.find((entry) => entry.id === "4c1e9a20")!;
-  expect(cron).toMatchObject({
-    kind: "cron",
-    threadId: thread.id,
-    threadTitle: "Station search",
-    schedule: "Every hour at :23",
-    recurring: true,
-    prompt: RECURRING_PROMPT,
-    fires: 1,
-    // Its session's process does not run: it won't fire until the session resumes.
-    state: "stopped",
-  });
-  expect(cron.endsAt).toBe(cron.createdAt + 7 * 24 * HOUR);
-  expect(first.sessions.find((entry) => entry.id === "9d03b7e1")).toMatchObject({
-    prompt: ONE_SHOT_PROMPT,
-    recurring: false,
-    state: "cancelled",
-  });
-  // The wakeup's time passed and no prompt of its ran.
-  expect(first.sessions.find((entry) => entry.kind === "wakeup")).toMatchObject({
-    state: "missed",
-    prompt: "/loop watch the stack's CI",
-  });
+  // No process runs the session: none of its jobs can fire.
+  expect((await schedules.list(threads)).sessions).toEqual([]);
   expect(asked).toEqual([[session]]);
 
   // The process runs in Med now, and the job fires again: the read goes on
@@ -76,55 +54,81 @@ test("the Scheduled list reads each tab's jobs from its transcript, with their s
     transcript,
     scheduleTranscript(session, started, 2).split("\n").slice(-3).join("\n"),
   );
-  const second = await schedules.list(threads);
-  expect(second.sessions.find((entry) => entry.id === "4c1e9a20")).toMatchObject({
-    state: "live",
-    runs: "med",
+  const list = await schedules.list(threads);
+  // The cancelled one-shot and the wakeup whose time passed are left out.
+  expect(list.sessions).toHaveLength(1);
+  const cron = list.sessions[0]!;
+  expect(cron).toMatchObject({
+    kind: "cron",
+    id: "4c1e9a20",
+    threadId: thread.id,
+    threadTitle: "Station search",
+    schedule: "Every hour at :23",
+    recurring: true,
+    prompt: RECURRING_PROMPT,
     fires: 2,
+    runs: "med",
   });
+  expect(cron.endsAt).toBe(cron.createdAt + 7 * 24 * HOUR);
+  expect(list.sessions.map((entry) => entry.prompt)).not.toContain(ONE_SHOT_PROMPT);
   // Only Claude Code sessions of tabs count.
   expect(
     (await schedules.list([{ ...thread, sessions: [{ agent: "codex", id: session }] }])).sessions,
   ).toEqual([]);
 });
 
-test("a recurring job past its 7 days is expired", async () => {
+test("a wakeup that is still to come is listed until a stop; a recurring job past its 7 days is not", async () => {
   const { home, transcript } = await world();
-  await writeFile(transcript, scheduleTranscript(session, Date.now() - 8 * 24 * HOUR, 0));
-  const schedules = createSchedules({ home: () => home, running: async () => new Map() });
-  const list = await schedules.list([{ ...thread, sessions: [{ agent: "claude", id: session }] }]);
-  expect(list.sessions.find((entry) => entry.id === "4c1e9a20")?.state).toBe("expired");
-});
-
-test("desktop scheduled tasks come from SKILL.md files, and a missing folder is none", async () => {
-  const { home } = await world();
-  const folder = join(home, ".claude", "scheduled-tasks");
-  expect(await readDesktopTasks(folder)).toEqual({ folder, missing: true, tasks: [] });
-  await mkdir(join(folder, "morning-triage"), { recursive: true });
-  await writeFile(
-    join(folder, "morning-triage", "SKILL.md"),
-    "---\nname: morning-triage\ndescription: Triage new issues each weekday morning\n---\n\nRead the new issues and label each one.\n",
-  );
-  // A folder without a SKILL.md is not a task.
-  await mkdir(join(folder, "draft"));
   const schedules = createSchedules({
     home: () => home,
-    configDir: () => join(home, ".claude"),
-    running: async () => new Map(),
+    running: async () => new Map([[session, "terminal" as const]]),
   });
-  const list = await schedules.list([]);
-  expect(list.desktop).toMatchObject({
-    folder,
-    missing: false,
-    tasks: [
+  const threads = [{ ...thread, sessions: [{ agent: "claude", id: session }] }];
+  // The wakeup was set 4 minutes after the start, for 20 minutes.
+  await writeFile(transcript, scheduleTranscript(session, Date.now() - 10 * 60_000, 0));
+  expect((await schedules.list(threads)).sessions.map((entry) => entry.schedule)).toEqual([
+    "In 14 minutes",
+    "Every hour at :23",
+  ]);
+  // A stop ends the loop: its next wakeup will not fire.
+  const at = new Date().toISOString();
+  await appendFile(
+    transcript,
+    [
       {
-        name: "morning-triage",
-        description: "Triage new issues each weekday morning",
-        prompt: "Read the new issues and label each one.",
-        path: join(folder, "morning-triage", "SKILL.md"),
+        type: "assistant",
+        timestamp: at,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "toolu_stop", name: "ScheduleWakeup", input: { stop: true } },
+          ],
+        },
       },
-    ],
+      {
+        type: "user",
+        timestamp: at,
+        message: {
+          role: "user",
+          content: [
+            { tool_use_id: "toolu_stop", type: "tool_result", content: "Stopped the loop." },
+          ],
+        },
+      },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n",
+  );
+  expect((await schedules.list(threads)).sessions.map((entry) => entry.schedule)).toEqual([
+    "Every hour at :23",
+  ]);
+
+  await writeFile(transcript, scheduleTranscript(session, Date.now() - 8 * 24 * HOUR, 0));
+  const fresh = createSchedules({
+    home: () => home,
+    running: async () => new Map([[session, "terminal" as const]]),
   });
+  expect((await fresh.list(threads)).sessions).toEqual([]);
 });
 
 test("cron expressions read as words", () => {

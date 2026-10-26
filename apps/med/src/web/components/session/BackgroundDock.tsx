@@ -1,12 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
-import { useContext, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionItem } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ZenContext } from "../ZenExit";
+import { Elapsed } from "./Elapsed";
 import { motion, rowStyles } from "./session-styles";
 import { isMedWait } from "./thread-model";
-import { formatSeconds } from "./ToolCall";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 
@@ -16,27 +16,29 @@ const ADDRESS =
 
 const isRunning = (item: ToolItem) =>
   item.call.status === "pending" || item.call.status === "in_progress";
+const failed = (item: ToolItem) => item.call.status === "failed";
+const idOf = (item: ToolItem) => item.call.background!.id;
 
-/** Running tasks, and tasks that ended after `since`. Med's own wait is not a task. */
-function backgroundTasks(items: SessionItem[], since: number, found: ToolItem[] = []) {
+/** How long a task that ends well shows "Done" in its place. */
+const DONE_MS = 3000;
+
+/** Background tasks, also in subagents. Med's own wait is not a task. */
+function backgroundTasks(items: SessionItem[], found: ToolItem[] = []) {
   for (const item of items) {
     if (item.kind !== "tool") continue;
-    if (
-      item.call.background &&
-      !isMedWait(item.call) &&
-      (isRunning(item) || (item.endedAt ?? item.at) >= since)
-    )
-      found.push(item);
-    backgroundTasks(item.items, since, found);
+    if (item.call.background && !isMedWait(item.call)) found.push(item);
+    backgroundTasks(item.items, found);
   }
   return found;
 }
 
 /** Tasks that the reader hid the dock over; a new task shows it again. */
 const HIDDEN = "med:background-hidden";
-function readHidden(): string[] {
+/** Failed tasks that the reader saw: opened, or hid the dock over. */
+const SEEN = "med:background-seen";
+function readIds(key: string): string[] {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(HIDDEN) ?? "[]");
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(value) ? value.filter((id) => typeof id === "string") : [];
   } catch {
     return [];
@@ -60,11 +62,62 @@ function addressOf(item: ToolItem) {
 }
 
 /**
+ * The tasks that ended well while the dock watched them run, until each has
+ * shown "Done" for DONE_MS. A task that ended before the dock saw it run has
+ * no place to end in, so it does not show.
+ */
+function useDone(tasks: readonly ToolItem[]) {
+  const [state, setState] = useState(() => ({
+    tasks,
+    running: new Set(tasks.filter(isRunning).map(idOf)),
+    done: new Set<string>(),
+  }));
+  // Read in the render that sees a task end, so its row changes in place.
+  if (state.tasks !== tasks) {
+    const ended = tasks
+      .filter((task) => !isRunning(task) && !failed(task) && state.running.has(idOf(task)))
+      .map(idOf);
+    setState({
+      tasks,
+      running: new Set(tasks.filter(isRunning).map(idOf)),
+      done: ended.length ? new Set([...state.done, ...ended]) : state.done,
+    });
+  }
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const map = timers.current;
+    for (const id of state.done)
+      if (!map.has(id))
+        map.set(
+          id,
+          setTimeout(() => {
+            map.delete(id);
+            setState((current) => ({
+              ...current,
+              done: new Set([...current.done].filter((entry) => entry !== id)),
+            }));
+          }, DONE_MS),
+        );
+  }, [state.done]);
+  useEffect(() => {
+    const map = timers.current;
+    return () => {
+      map.forEach((timer) => clearTimeout(timer));
+      // Effects that run again set them again.
+      map.clear();
+    };
+  }, []);
+  return state.done;
+}
+
+/**
  * Shells and agents that run in the background, as Claude Desktop lists
- * them: running ones first, with the local address a dev server printed,
- * then the ones that ended since the last prompt. A task's name scrolls the
- * thread to the call that started it. The dock stays closed or hidden as the
- * reader left it; a hidden dock comes back for a new task.
+ * them: only what runs, with the local address a dev server printed. A task
+ * that ends shows how it ended in its place: "Done" leaves after a moment,
+ * and "Failed" stays until the reader opens it, hides the dock, or sends the
+ * next prompt. With nothing to show, the dock is gone. A task's name scrolls
+ * the thread to the call that started it. The dock stays closed or hidden as
+ * the reader left it; a hidden dock comes back for a new task.
  */
 export function BackgroundDock({
   items,
@@ -72,6 +125,7 @@ export function BackgroundDock({
   onShow,
 }: {
   items: SessionItem[];
+  /** A fixed clock, for stills; without it, running times follow the clock. */
   now?: number;
   /** Scrolls the thread to the call, which a long thread may not have rendered. */
   onShow?(id: string): void;
@@ -83,17 +137,34 @@ export function BackgroundDock({
       return true;
     }
   });
-  const [hidden, setHidden] = useState(readHidden);
+  const [hidden, setHidden] = useState(() => readIds(HIDDEN));
+  const [seen, setSeen] = useState(() => readIds(SEEN));
   const zen = useContext(ZenContext);
+  const all = useMemo(() => backgroundTasks(items), [items]);
+  const done = useDone(all);
   let since = 0;
   for (const item of items) if (item.kind === "user") since = item.at;
-  const tasks = backgroundTasks(items, since);
-  const ids = tasks.map((item) => item.call.background!.id);
-  // Zen leaves the waiting to the session's status.
-  if (zen || ids.every((id) => hidden.includes(id))) return null;
-  const running = tasks.filter(isRunning);
-  const ordered = [...running, ...tasks.filter((item) => !isRunning(item)).reverse()];
+  const tasks = all.filter(
+    (item) =>
+      isRunning(item) ||
+      done.has(idOf(item)) ||
+      (failed(item) && (item.endedAt ?? item.at) >= since && !seen.includes(idOf(item))),
+  );
+  const ids = tasks.map(idOf);
+  // Zen leaves the waiting to the session's status. A hidden dock comes back
+  // for a new task, or for a failure that the reader has not seen.
+  if (zen || tasks.every((item) => hidden.includes(idOf(item)) && !failed(item))) return null;
+  const see = (list: string[]) => {
+    if (list.every((id) => seen.includes(id))) return;
+    const next = [...new Set([...list, ...seen])].slice(0, 200);
+    setSeen(next);
+    store(SEEN, JSON.stringify(next));
+  };
+  const running = tasks.filter(isRunning).length;
+  const failures = tasks.filter(failed);
   const hide = () => {
+    // Hiding the dock is seeing its failures.
+    see(failures.map(idOf));
     const next = [...new Set([...ids, ...hidden])].slice(0, 200);
     setHidden(next);
     store(HIDDEN, JSON.stringify(next));
@@ -111,7 +182,7 @@ export function BackgroundDock({
           {...stylex.props(rowStyles.row, styles.head)}
         >
           <span {...stylex.props(rowStyles.icon)}>
-            {running.length ? (
+            {running ? (
               <span {...stylex.props(motion.spinner)} />
             ) : (
               <Icon name="terminal" size={14} />
@@ -119,7 +190,9 @@ export function BackgroundDock({
           </span>
           <span {...stylex.props(styles.label)}>Background</span>
           <span {...stylex.props(styles.count)}>
-            {running.length ? `${running.length} running` : `${tasks.length} done`}
+            {[running && `${running} running`, failures.length && `${failures.length} failed`]
+              .filter(Boolean)
+              .join(" · ") || "Done"}
           </span>
           <span {...stylex.props(styles.grow)} />
           <span {...stylex.props(styles.chevron, open ? styles.chevronOpen : styles.chevronUp)}>
@@ -138,10 +211,10 @@ export function BackgroundDock({
       </div>
       {open && (
         <ul {...stylex.props(styles.list)}>
-          {ordered.map((item) => {
+          {/* In the order they started, so a task ends in its place. */}
+          {tasks.map((item) => {
             const live = isRunning(item);
             const address = live ? addressOf(item) : undefined;
-            const elapsed = (live ? (now ?? item.at) : (item.endedAt ?? item.at)) - item.at;
             return (
               <li key={item.id} {...stylex.props(styles.task)}>
                 <span {...stylex.props(styles.kind)}>
@@ -152,7 +225,10 @@ export function BackgroundDock({
                 </span>
                 <button
                   type="button"
-                  onClick={() => onShow?.(item.id)}
+                  onClick={() => {
+                    if (failed(item)) see([idOf(item)]);
+                    onShow?.(item.id);
+                  }}
                   {...stylex.props(styles.name, !live && styles.finished)}
                 >
                   {item.call.title}
@@ -167,16 +243,15 @@ export function BackgroundDock({
                     {address.replace(/^https?:\/\//, "")}
                   </a>
                 )}
-                <span
-                  {...stylex.props(styles.state, item.call.status === "failed" && styles.failed)}
-                >
-                  {live
-                    ? elapsed >= 1000
-                      ? formatSeconds(elapsed)
-                      : "Running"
-                    : item.call.status === "failed"
-                      ? "Failed"
-                      : "Done"}
+                <span {...stylex.props(styles.state, failed(item) && styles.failedText)}>
+                  {live ? (
+                    // A dev server runs for hours: its time counts minutes.
+                    <Elapsed from={item.at} now={now} step="minute" empty="Running" />
+                  ) : failed(item) ? (
+                    "Failed"
+                  ) : (
+                    "Done"
+                  )}
                 </span>
               </li>
             );
@@ -271,6 +346,15 @@ const styles = stylex.create({
     fontSize: 11,
     textDecoration: "none",
   },
-  state: { flexShrink: 0, color: tokens.faint, fontSize: 11.5, fontVariantNumeric: "tabular-nums" },
-  failed: { color: tokens.red },
+  // One width for "Running", "12 min", and "Done", so the name and the
+  // address keep their place as the time changes.
+  state: {
+    flexShrink: 0,
+    minWidth: 46,
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontVariantNumeric: "tabular-nums",
+    textAlign: "end",
+  },
+  failedText: { color: tokens.red },
 });

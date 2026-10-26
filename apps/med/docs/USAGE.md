@@ -375,6 +375,18 @@ background shells and agents. It follows the session live.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn, or **Show work** to
   open every turn.
+- **Times** show only the digits that change as often as Med updates them. A
+  running turn's status line has the one clock: from 1 s it counts whole
+  seconds ("42s", "1m 05s"), from 10 minutes whole minutes ("12 min"), and
+  from an hour "1h 05m". It changes at each whole second or minute from the
+  turn's start. A running tool call spins and shows its time when it ends.
+  Finished times use the same form and show from 1 s.
+- **Background**, above the message box, lists the shells and agents that run
+  in the background: the address that a dev server printed, and how long each
+  has run, in minutes. A task that ends shows how it ended in its place:
+  **Done** leaves after a few seconds, and **Failed** stays until you open it,
+  hide the list, or send the next prompt. With nothing to show, the list is
+  gone. × hides it until a new task starts.
 - With focus in the thread, `[` and `]` step through prompts and replies. A
   task in **Background** goes to its call.
 - A turn that ended while you did not see its session ends with a recap,
@@ -708,14 +720,17 @@ next layer.
 ## Scheduled
 
 Med shows what Claude Code scheduled and never runs a schedule
-([details](SCHEDULES.md)). A `CronCreate`, `CronDelete`, or `ScheduleWakeup`
-call is a card in the thread: "Every hour at :23", its prompt, recurring or
-one-shot, when it expires, and Cancelled, Expired, Fired, or Missed. A job of
-a session ends with it, which the card says. The sidebar's **Scheduled**
-section lists the tabs' jobs with their thread and whether each can fire
-(**Live** while its session's process runs; **Stopped** once it ended, until
-the session resumes), and the Claude app's scheduled tasks from
-`~/.claude/scheduled-tasks`.
+([details](SCHEDULES.md)). A `CronCreate` or `ScheduleWakeup` call is a card
+in the thread: "Every hour at :23", its prompt, recurring or one-shot, when it
+expires, and Cancelled, Expired, Fired, or Missed. A `CronDelete` changes its
+job's card to Cancelled and is a row of its turn's work, so one schedule is
+one card. A job of a session ends with it, which the card says. The sidebar's
+**Scheduled** section lists only the jobs that will fire: the tabs' jobs whose
+session's process runs, with their thread and prompt. A job whose session
+ended, or that ended, stays in its thread's cards only, and with no job to
+fire there is no section. The Claude app's scheduled tasks are not listed: Med
+cannot read their schedules
+([why](SCHEDULES.md#desktop-scheduled-tasks-left-out)).
 
 ## Edit working files
 

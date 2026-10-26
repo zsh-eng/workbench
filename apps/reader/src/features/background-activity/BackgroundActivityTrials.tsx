@@ -16,7 +16,7 @@ const TRIALS: {
     id: "offline-downloads",
     title: "Offline downloads",
     description:
-      "Library → Sort and layout → Download all for offline. Each cover fills as its book downloads, and a glyph beside your account opens the activity sheet.",
+      "Library → Sort and layout → Download all for offline. Each cover fills as its book downloads, and the activity glyph shows them together.",
     switch: offlineDownloads,
   },
   {

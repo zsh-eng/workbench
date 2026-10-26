@@ -15,14 +15,17 @@ import { DrawnCheck, ProgressRing } from "./marks";
 type GlyphKind = "attention" | "progress" | "update" | "waiting" | "done";
 
 /**
- * Jobs the glyph speaks for. Sync has the account menu, and an update that
- * waits for you has its chip, so neither shows twice. A file that could not
- * be added says so on its own place in the Library, where you just added
- * it, with Try again: the glyph does not raise it a second time. The sheet
- * still lists it.
+ * Jobs the glyph speaks for, of those the summary shows. Sync speaks here
+ * only while you wait for it, in a restore. What it needs from you (a
+ * sign-in, or two failures in a row) has the account menu, and an update
+ * that waits for you has its chip, so neither shows twice; changes kept
+ * only on this device would otherwise hold the glyph at an alert for as
+ * long as you stay signed out. A file that could not be added says so on
+ * its own place in the Library, where you just added it, with Try again:
+ * the glyph does not raise it a second time. The sheet lists all of them.
  */
 function forGlyph(job: Job, updateChipShown: boolean): boolean {
-  if (job.kind === "sync") return false;
+  if (job.kind === "sync") return job.origin === "user";
   if (job.kind === "app-update") return !updateChipShown;
   if (job.kind === "book-import" && job.state === "failed") return false;
   return true;
@@ -39,10 +42,13 @@ function glyphLabel(kind: GlyphKind, jobs: readonly Job[]): string {
   );
   const downloads = active.filter((job) => job.kind === "book-download");
   const imports = active.filter((job) => job.kind === "book-import");
-  const others = active.length - downloads.length - imports.length;
+  const restoring = active.some((job) => job.kind === "sync");
+  const others =
+    active.length - downloads.length - imports.length - Number(restoring);
   if (kind === "waiting")
     return `Activity: ${downloads.length ? books(downloads.length) : `${active.length} items`} waiting for a connection`;
   const parts = [
+    restoring && "restoring your library",
     downloads.length > 0 && `downloading ${books(downloads.length)}`,
     imports.length > 0 && `adding ${books(imports.length)}`,
     others > 0 && `${others} ${others === 1 ? "item" : "items"} in progress`,
@@ -51,9 +57,9 @@ function glyphLabel(kind: GlyphKind, jobs: readonly Job[]): string {
 }
 
 /**
- * A glyph beside the account button that shows only while work you asked
- * for runs or something needs you: a ring for downloads together, a cloud
- * for a wait, an alert for a failure, a check once. Tap for the sheet.
+ * A glyph that shows only while work you asked for or wait for runs, or
+ * something needs you: a ring for that work together, a cloud for a wait,
+ * an alert for a failure, a check once. Tap for the sheet.
  */
 export function ActivityGlyph({
   className,
