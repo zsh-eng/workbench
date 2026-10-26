@@ -75,7 +75,7 @@ function Replay() {
   });
   useEffect(() => () => replay.dispose(), [replay]);
   const state = useSyncExternalStore(replay.subscribe, replay.getState);
-  // Times show whole seconds.
+  // The replay's own clock, also while paused; times show whole seconds.
   const now = Math.floor(replay.clock() / 1000) * 1000;
   return (
     <div {...stylex.props(styles.replay)}>
@@ -116,7 +116,7 @@ function Replay() {
           ))}
         </span>
       </div>
-      <Panel title="Format trail durations" store={store} now={state.playing ? now : undefined}>
+      <Panel title="Format trail durations" store={store} now={now}>
         <SessionComposer
           agent="claude"
           name="Claude"
