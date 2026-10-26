@@ -137,6 +137,28 @@ export default defineConfig(({ command, mode }) => ({
   build: {
     outDir: "dist",
   },
+  environments: {
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            advancedChunks: {
+              groups: [
+                {
+                  // Nearly every chunk imports React and the bundler's
+                  // helpers. Kept out of the entry chunk, which names every
+                  // page's file, they keep their file names across releases,
+                  // and so do the chunks that import them.
+                  name: "framework",
+                  test: /node_modules[\\/](react|react-dom|scheduler)[\\/]|vite\/preload-helper/,
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
   resolve: {
     // Workspace packages with a React peer (local-sync/react, elements,
     // activity-time) must use this app's React, not the copy linked beside
