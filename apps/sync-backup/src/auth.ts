@@ -15,10 +15,19 @@ const account = (origin: string) =>
   new Bun.CryptoHasher("sha256").update(origin).digest("hex");
 const credentialPath = (directory: string) =>
   join(directory, "credential.json");
+/**
+ * The saved credential for an origin. On a loopback origin (a local test
+ * API), WORKBENCH_TOKEN replaces it, so tests need no Keychain entry.
+ */
 export function getCredential(
   origin: string,
   directory: string,
 ): string | null {
+  if (
+    process.env.WORKBENCH_TOKEN &&
+    ["localhost", "127.0.0.1"].includes(new URL(origin).hostname)
+  )
+    return process.env.WORKBENCH_TOKEN;
   if (process.platform === "darwin") {
     const p = Bun.spawnSync(
       [

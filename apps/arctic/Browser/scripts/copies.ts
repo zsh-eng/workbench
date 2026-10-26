@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { parseHTML } from "linkedom";
 import { chromium } from "playwright";
 import { Extractor, fromHTML } from "../server/extractor";
+import { onUnwallList, readThroughUnwall, UNWALL_MIN_WORDS } from "./text";
 
 const args = process.argv.slice(2);
 const output = args.find(
@@ -226,65 +227,20 @@ if (args.includes("--extract")) {
   );
 }
 
-/** Unwall shows the publisher's teaser when it cannot open a page: 200–250 words. */
-const UNWALL_MIN_WORDS = 400;
-
 if (args.includes("--unwall")) {
   // As the phone routes links (Sources/ArticleBrowser.swift): listed hosts open through unwall.app.
-  const domains: string[] = JSON.parse(
-    await readFile(
-      join(import.meta.dir, "../../Resources/unwall-domains.json"),
-      "utf8",
-    ),
-  );
-  const listed = (url: string) => {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      domains.includes(host) ||
-      domains.some((domain) => host.endsWith(`.${domain}`))
-    );
-  };
-  const queue = [...saved]
-    .filter(([key, url]) => !done.has(key) && listed(url))
-    .slice(0, limit);
+  const queue: [string, string][] = [];
+  for (const [key, url] of saved)
+    if (!done.has(key) && (await onUnwallList(url))) queue.push([key, url]);
+  queue.splice(limit);
   const browser = await chromium.launch();
   let read = 0;
   const worker = async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
       const [key, url] = next;
-      const page = await browser.newPage();
       try {
-        await page.goto(`https://unwall.app/${url}`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        // The article arrives in a frame; wait up to 15 s for one with text.
-        let best = { words: 0, html: "" };
-        for (let tries = 0; tries < 15 && best.words < UNWALL_MIN_WORDS; tries++) {
-          await page.waitForTimeout(1000);
-          for (const frame of page.frames().slice(1)) {
-            const words = await frame
-              .evaluate(
-                () =>
-                  (document.body?.innerText ?? "").split(/\s+/).filter(Boolean)
-                    .length,
-              )
-              .catch(() => 0);
-            // Unwall's frame carries its own scripts; extract from a copy without them.
-            if (words > best.words)
-              best = {
-                words,
-                html: await frame.evaluate(() => {
-                  const copy = document.documentElement.cloneNode(true) as Element;
-                  copy
-                    .querySelectorAll("script,style,noscript,template")
-                    .forEach((element) => element.remove());
-                  return copy.outerHTML;
-                }),
-              };
-          }
-        }
-        const result = fromHTML(best.html || "<html></html>", url);
+        const html = await readThroughUnwall(browser, url);
+        const result = fromHTML(html || "<html></html>", url);
         if (result.wordCount < UNWALL_MIN_WORDS)
           throw new Error(`${result.wordCount} words`);
         await write(url, result.content, result.author, "extractor");
@@ -294,8 +250,6 @@ if (args.includes("--unwall")) {
         console.log(
           `  ${new URL(url).hostname} (Unwall): ${error instanceof Error ? error.message.split("\n")[0] : error}`,
         );
-      } finally {
-        await page.close();
       }
     }
   };

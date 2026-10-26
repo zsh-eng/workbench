@@ -20,7 +20,8 @@ import {
   listSnapshots,
   verifySnapshot,
 } from "./snapshot";
-const help = `Workbench Backup — read-only sync and local SQLite inspection
+import { arctic, describe } from "./arctic";
+const help = `Workbench Backup — sync, local SQLite inspection and Arctic links
 
 Usage: wb <command> [options]
 
@@ -42,6 +43,9 @@ Usage: wb <command> [options]
   snapshot list                 List local snapshots
   snapshot verify ID            Verify SQLite and object checksums
   export --output DIRECTORY     Write a portable, verified snapshot
+  arctic save [URL...]          Save links to Arctic, then fetch their text
+                                (URLs from stdin when none are given)
+  arctic text [URL...]          Fetch the text of links already in Arctic
 
 Options:
   --namespace NAME  Repeat to select namespaces (sync/table/tree)
@@ -51,11 +55,14 @@ Options:
   --data-dir PATH   Private local state, outside Git
   --json            Machine-readable output; progress remains on stderr
   --no-browser      Print login URL without opening it
+  --no-text         arctic save: save the links without fetching text
+  --unwall          arctic: read the phone's paywalled sites through Unwall
   -h, --help        Show help
   --version         Print version
 
 Sync is download-only. Table selections have independent cursors. Counts are
-local, including tombstones. No remote restore, automatic pruning, or uploads.
+local, including tombstones. No remote restore or automatic pruning. The only
+writes are arctic save and arctic text: new or restored links, and their text.
 `;
 const options = {
   namespace: { type: "string", multiple: true },
@@ -66,6 +73,8 @@ const options = {
   json: { type: "boolean" },
   "records-only": { type: "boolean" },
   "no-browser": { type: "boolean" },
+  "no-text": { type: "boolean" },
+  unwall: { type: "boolean" },
   help: { type: "boolean", short: "h" },
   version: { type: "boolean" },
 } as const;
@@ -128,7 +137,10 @@ async function main() {
             ? ["path", "schema"].includes(sub)
             : command === "snapshot"
               ? ["create", "list", "verify"].includes(sub)
-              : ["sync", "status", "tree", "export"].includes(command) && !sub;
+              : command === "arctic"
+                ? ["save", "text"].includes(sub)
+                : ["sync", "status", "tree", "export"].includes(command) &&
+                  !sub;
   if (!known) throw Error("Unknown command. Run wb --help.");
   if (v.namespace && !["sync", "table", "tree"].includes(command))
     throw Error("--namespace is only valid for sync, table list, and tree");
@@ -143,7 +155,14 @@ async function main() {
     throw Error("--records-only is only valid for sync");
   if (v["no-browser"] && !(command === "auth" && sub === "login"))
     throw Error("--no-browser is only valid for auth login");
-  if (p.length > (command === "snapshot" && sub === "verify" ? 3 : sub ? 2 : 1))
+  if (v["no-text"] && !(command === "arctic" && sub === "save"))
+    throw Error("--no-text is only valid for arctic save");
+  if (v.unwall && (command !== "arctic" || v["no-text"]))
+    throw Error("--unwall is only valid for arctic save and arctic text");
+  if (
+    command !== "arctic" &&
+    p.length > (command === "snapshot" && sub === "verify" ? 3 : sub ? 2 : 1)
+  )
     throw Error("Unexpected positional argument");
   if (v.table?.length && command === "sync" && v.namespace?.length !== 1)
     throw Error("--table requires exactly one --namespace");
@@ -174,6 +193,33 @@ async function main() {
       return;
     }
     print(await identity(readFetch(origin, token), origin), json);
+    return;
+  }
+  if (command === "arctic") {
+    const token = getCredential(origin, directory);
+    if (!token) throw Error("Not signed in. Run wb auth login.");
+    let inputs = p.slice(2);
+    if (!inputs.length || inputs.includes("-")) {
+      if (process.stdin.isTTY)
+        throw Error("Give links as arguments, or pipe them on stdin");
+      inputs = [
+        ...inputs.filter((input) => input !== "-"),
+        ...(await Bun.stdin.text()).split(/\s+/).filter(Boolean),
+      ];
+    }
+    if (!inputs.length) throw Error("No links given");
+    console.error(`Reading your Arctic library at ${origin}…`);
+    const results = await arctic({
+      command: sub as "save" | "text",
+      origin,
+      token,
+      inputs,
+      text: !v["no-text"],
+      unwall: !!v.unwall,
+      onResult: json ? undefined : (result) => console.log(describe(result)),
+    });
+    if (json) print(results, json);
+    if (results.some((result) => result.error)) process.exitCode = 1;
     return;
   }
   if (command === "db" && sub === "path") {

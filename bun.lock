@@ -14,6 +14,7 @@
       "dependencies": {
         "@base-ui/react": "1.8.0",
         "@workbench/activity-time": "workspace:*",
+        "@workbench/arctic-links": "workspace:*",
         "@workbench/elements": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
         "defuddle": "0.19.4",
@@ -329,6 +330,7 @@
         "wb": "src/cli.ts",
       },
       "dependencies": {
+        "@workbench/arctic-links": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
       },
       "devDependencies": {
@@ -340,6 +342,7 @@
       "name": "@workbench/sync-server",
       "dependencies": {
         "@hono/zod-validator": "0.7.6",
+        "@workbench/arctic-links": "workspace:*",
         "@workbench/arctic-sync-server": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",
         "better-auth": "1.6.9",
@@ -388,6 +391,9 @@
       "devDependencies": {
         "@playwright/test": "1.59.1",
       },
+    },
+    "packages/arctic-links": {
+      "name": "@workbench/arctic-links",
     },
     "packages/arctic-sync-server": {
       "name": "@workbench/arctic-sync-server",
@@ -1587,6 +1593,8 @@
     "@workbench/agent-kit": ["@workbench/agent-kit@workspace:packages/agent-kit"],
 
     "@workbench/arctic-browser": ["@workbench/arctic-browser@workspace:apps/arctic/Browser"],
+
+    "@workbench/arctic-links": ["@workbench/arctic-links@workspace:packages/arctic-links"],
 
     "@workbench/arctic-sync-server": ["@workbench/arctic-sync-server@workspace:packages/arctic-sync-server"],
 

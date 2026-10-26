@@ -38,6 +38,8 @@ export type AppEnv = {
   Variables: {
     user: User;
     session: Session;
+    /** Set when a Workbench Backup credential (`wb`) authenticated the request. */
+    cli?: boolean;
     namespace: Namespace;
     scope: { origin: string; userId: string; namespace: string; epoch: string };
   };

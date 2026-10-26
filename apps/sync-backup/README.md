@@ -1,8 +1,11 @@
 # Workbench Backup CLI
 
-A read-only sync client for Reader, Spaced and Arctic. Uses Bun's native SQLite, HTTP,
-crypto and xxHash. Its only runtime package is the existing workspace
-`@zsh-eng/local-sync` (including its protocol validator). No ORM or new UI.
+A read-only sync client for Reader, Spaced and Arctic, and one domain command
+that saves links to Arctic (`wb arctic save`). Uses Bun's native SQLite, HTTP,
+crypto and xxHash. Its runtime packages are the workspace `@zsh-eng/local-sync`
+(including its protocol validator) and `@workbench/arctic-links` (Arctic's link
+records). `wb arctic` loads Arctic's extractor from `apps/arctic/Browser` only
+when it reads a page. No ORM or new UI.
 
 From the workspace root:
 
@@ -16,6 +19,7 @@ bun run wb db schema --table records
 bun run wb snapshot create
 bun run wb snapshot list
 bun run wb snapshot verify <id>
+bun run wb arctic save https://example.com/article
 ```
 
 Use `bun run wb --help` for all commands. Every command accepts `--json`.
@@ -30,9 +34,11 @@ browser opening to you. Credentials expire after 90 days; sign in again when
 needed. `auth logout` revokes the current CLI credential and keeps local data.
 Browser sign-out does not revoke this independent CLI credential.
 
-`wb` itself only downloads. The server also lets this credential upload Arctic
-article text (`arctic-content` only), which `apps/arctic/Browser/scripts/upload.ts`
-uses; it cannot change any other data.
+`wb sync` only downloads. The credential may write two things, and the server
+checks both: Arctic article text (`arctic-content`), which `wb arctic` and
+`apps/arctic/Browser/scripts/upload.ts` upload, and Arctic links: a new link in
+the phone's three records, or a link from History saved again. It cannot
+change or remove any other record.
 
 This is a first-party device-code flow, not a general OAuth authorization
 server. Device grants expire after ten minutes, can be approved/exchanged once,
@@ -45,6 +51,62 @@ the user ID. There are no production database credentials in the client.
 On macOS, credentials live in Keychain, keyed by API origin. On other platforms
 they use a mode-0600 credential file in the private data directory. No silent
 Keychain-to-file fallback occurs. Login codes are shown, credentials are not.
+
+## Saving links to Arctic
+
+```sh
+bun run wb arctic save https://example.com/article https://news.example/story
+pbpaste | bun run wb arctic save            # links on stdin, any whitespace
+bun run wb arctic save --no-text <url>      # save only
+bun run wb arctic save --unwall <url>       # paywalled sites through Unwall
+bun run wb arctic text <url>                # text for a link already saved
+```
+
+`arctic save` reads the account's `arctic` and `arctic-content` records, then
+handles each link in turn, as Arctic for the web and the phone do:
+
+- A new link gets the phone's three records (`article/<id>`, `library/<id>`,
+  `tags/<id>`) for its canonical URL, from `@workbench/arctic-links`: the same
+  bytes as the web's, but for the title and the time. The title is the page's
+  own; with `--no-text`, or when there is no page to read (a PDF), it is
+  empty. The phone then fetches the title, image and topics when it next
+  opens, as for a link the web saves; until it does, or if it cannot (a
+  PDF), the phone shows no title and the web shows the host.
+- A link in History is saved again: its library record alone changes (saved,
+  not archived, saved now), as a field edit. Nothing else about it changes.
+- A link already saved (or archived) is reported and left alone.
+
+Then it fetches the text with Arctic's extractor (`server/extractor.ts`, the
+same Defuddle extraction as `scripts/copies.ts`) and uploads the copy by the
+Article text page's rules: at least 120 words, at most 2 MiB, no scripts, and
+it replaces a copy only when it is 30% longer. A link that already has text is
+not read again; `arctic text` reads it again and applies the 30% rule. A site
+on the phone's Unwall list, or a page that marks itself not free
+(`isAccessibleForFree`), needs 400 words: less is its paywall preview.
+`--unwall` reads such sites through unwall.app, as the phone opens them.
+Reading a page that needs a browser uses Playwright's Chromium:
+`bun run --cwd apps/arctic/Browser browser:install`.
+
+Each link prints one line as it finishes; `--json` prints an array of results
+(`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`, `error`).
+
+```text
+saved          https://example.com/article · text: 2,140 words
+restored       https://example.com/polar-night · text: has text (1,312 words)
+already saved  https://example.com/older · text: has text (980 words)
+saved          https://www.nytimes.com/… · no text: paywall preview (210 words)
+saved          https://arxiv.org/pdf/1706.03762 · no text: PDF
+invalid        "not a link" · not a web address
+```
+
+A link that is not a web address, `arctic text` for a link that is not in the
+library, a refused write or a network error makes the command exit with 1; a
+page without text does not. A link push is not retried: if its answer is
+lost, run the command again, and the link shows as already saved. The command uses a
+transport that allows only the requests it needs (`src/arctic.ts`). An older
+server that does not allow link saves answers "this server does not let wb
+save links yet". On a loopback `--origin`, `WORKBENCH_TOKEN` replaces the
+Keychain credential, for tests against a local API.
 
 ## Local state and selections
 
@@ -157,6 +219,7 @@ old clocks can lose to current tombstones, while new clocks overwrite live data.
 ```sh
 bun run test:sync-backup
 bun run --cwd apps/sync-backup test:e2e
+bun run --cwd apps/sync-server test -- test/cli-links.test.ts
 bun run --cwd apps/sync-server test -- --maxWorkers=1 --testTimeout=60000
 bun run build:sync-server
 bun apps/sync-backup/test/benchmark.ts /private/path/mirror.sqlite
@@ -176,7 +239,12 @@ state and closes its server/browser afterward. The fixture creates only syntheti
 local data, deletes its mirror, and revokes its credential. Production origins
 are rejected by the fixture.
 
+`test/arctic.test.ts` runs `wb arctic` against a small fake API and checks
+every request it sends. `apps/arctic/Browser/tests/cli.spec.ts` runs it against
+the local shared API and compares its records with the web's.
+
 Review: this guide, `src/cli.ts`, `src/sync.ts`, `src/store.ts`,
-`src/snapshot.ts`, `src/auth.ts`, then the sync-server device-auth routes/tests.
+`src/snapshot.ts`, `src/auth.ts`, `src/arctic.ts`, then the sync-server
+device-auth routes/tests and `src/cli-links.ts`.
 
 See [verified live timings](BENCHMARKS.md) for measured results.

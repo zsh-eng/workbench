@@ -12,12 +12,13 @@
     "test": "playwright test",
     "copies": "bun scripts/copies.ts",
     "upload": "bun scripts/upload.ts",
-    "test:service": "bun test server/service.test.ts",
+    "test:service": "bun test server/service.test.ts scripts/text.test.ts",
     "browser:install": "playwright install chromium"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
     "@workbench/activity-time": "workspace:*",
+    "@workbench/arctic-links": "workspace:*",
     "@workbench/elements": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",
     "defuddle": "0.19.4",

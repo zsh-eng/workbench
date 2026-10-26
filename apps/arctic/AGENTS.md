@@ -27,7 +27,9 @@ Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
   uploads its files and pulls the web's; keep both sides' encodings equal
   (`Checks/AnnotationStoreChecks.swift` compares the bytes). The web saves new links (approved 21 October
   2026) by writing the phone's `article/`, `library/` and `tags/` records for
-  a new article; keep `Browser/src/links.ts` in step with
+  a new article. `wb arctic save` writes the same records with the Workbench
+  Backup credential, and the shared API checks them. All three use
+  `../../packages/arctic-links`; keep it in step with
   `ArticleSyncCodec.canonicalURL`, `identity` and `values`.
 - Shared auth and v3 sync are owned by `../sync-server`; reusable native auth
   support lives in `../../packages/arctic-sync-server`. Legacy Reader-hosted
