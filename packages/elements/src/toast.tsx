@@ -112,8 +112,10 @@ function DoneMark() {
 /**
  * The time left to undo: a ring drains once, linearly, and the digit counts
  * down each second, as Telegram's does. CSS animations keep both on one
- * clock, so they hold together and nothing renders while it runs. Mount a
- * new countdown (a new `key`) to start again.
+ * clock, so they hold together and nothing renders while it runs. Each
+ * second of the digit's roll ends with an `animationiteration` event, which
+ * writes the seconds left: the number holds when the animations hold. Mount
+ * a new countdown (a new `key`) to start again.
  */
 export function UndoCountdown({
   seconds = UNDO_SECONDS,
@@ -147,7 +149,21 @@ export function UndoCountdown({
           pathLength={1}
         />
       </svg>
-      <span className="wb-countdown-digit" />
+      <span
+        className="wb-countdown-digit"
+        onAnimationIteration={(event) => {
+          if (event.animationName !== "wb-countdown-tick") return;
+          // One event can stand for several seconds after a stall, so the
+          // number comes from the time elapsed, not from a count of events.
+          // React wrote the first number, and it leaves the text alone while
+          // `seconds` stays the same.
+          event.currentTarget.textContent = String(
+            seconds - Math.round(event.elapsedTime),
+          );
+        }}
+      >
+        {seconds}
+      </span>
     </span>
   );
 }
