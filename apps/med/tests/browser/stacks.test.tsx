@@ -402,3 +402,76 @@ test("a stack is one sidebar row with a progress strip, and its layers under the
   localStorage.removeItem(`med:layers:v1:${thread.id}`);
   localStorage.removeItem("med:sidebar-parts");
 });
+
+test("a drag held on a row's middle stacks the thread on it, and a quick drop only moves it", async () => {
+  initializeTheme();
+  const plain = (letter: string, title: string): Thread => ({
+    id: `r_${letter.repeat(24)}`,
+    title,
+    createdAt: "2026-10-26T00:00:00.000Z",
+    updatedAt: Date.now() - 60_000,
+    repository: { id: "repo-0", name: "tide", path: "/code/tide" },
+    agent: "claude",
+    state: "idle",
+  });
+  const below = plain("d", "Rank search results");
+  const above = plain("e", "Fold accents");
+  const grouped: string[][] = [];
+  const orders: string[][] = [];
+  const snapshot = { workspaces: [], active: null } as unknown as WorkspaceSnapshot;
+  mount = document.createElement("div");
+  mount.style.cssText = "width: 300px; height: 700px; display: flex;";
+  document.body.append(mount);
+  root = createRoot(mount);
+  root.render(
+    <ThreadSidebar
+      threads={[below, above]}
+      sources={[]}
+      snapshot={snapshot}
+      loaded
+      onOpen={() => {}}
+      onHide={() => {}}
+      onSources={() => {}}
+      onReorder={(ids) => orders.push([...ids])}
+      onGroup={(thread, onto) => grouped.push([thread.id, onto.id])}
+    />,
+  );
+  await expect.element(page.getByRole("button", { name: /^Fold accents/ })).toBeVisible();
+  const row = (thread: Thread) =>
+    document.querySelector<HTMLElement>(`[data-thread="${thread.id}"]`)!;
+  const drag = async (holdMs: number) => {
+    const data = new DataTransfer();
+    const event = (type: string, target: HTMLElement) => {
+      const box = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: data,
+          clientX: box.left + 20,
+          clientY: box.top + box.height / 2,
+        }),
+      );
+    };
+    event("dragstart", row(above));
+    const started = performance.now();
+    do {
+      event("dragover", row(below));
+      await new Promise((done) => setTimeout(done, 50));
+    } while (performance.now() - started < holdMs);
+    event("dragover", row(below));
+    await new Promise((done) => requestAnimationFrame(done));
+    const shown = row(below).closest("li")!.getAttribute("data-drop");
+    event("drop", row(below));
+    event("dragend", row(above));
+    return shown;
+  };
+  // A quick drop on the middle reorders, as it always did.
+  expect(await drag(0)).not.toBe("onto");
+  expect(grouped).toEqual([]);
+  expect(orders).toHaveLength(1);
+  // Held there, the row is outlined, and the drop stacks the thread on it.
+  expect(await drag(700)).toBe("onto");
+  expect(grouped).toEqual([[above.id, below.id]]);
+  expect(orders).toHaveLength(1);
+});

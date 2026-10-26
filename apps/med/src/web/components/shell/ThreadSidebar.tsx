@@ -260,13 +260,16 @@ export function ThreadSidebar({
   // A drag moves a tab within its repository; a line shows where it lands.
   const [drag, setDrag] = useState<{ id: string; group: string } | null>(null);
   const [drop, setDrop] = useState<{ id: string; at: DropAt } | null>(null);
+  // Since when the drag has held on a row's middle, which stacks it there.
+  const hold = useRef<{ id: string; since: number } | null>(null);
   const endDrag = () => {
+    hold.current = null;
     setDrag(null);
     setDrop(null);
   };
   const dropOn = (group: { key: string; threads: Thread[] }, target: string, at: DropAt) => {
     if (!drag || drag.group !== group.key || drag.id === target) return endDrag();
-    // The middle of a row stacks the dragged thread on it.
+    // A hold on the middle of a row stacks the dragged thread on it.
     if (at === "onto") {
       const source = group.threads.find((thread) => thread.id === drag.id);
       const onto = group.threads.find((thread) => thread.id === target);
@@ -323,8 +326,15 @@ export function ThreadSidebar({
       const source = groups
         .find((entry) => entry.key === group)
         ?.threads.find((entry) => entry.id === drag.id);
+      // A quick drop reorders; one that holds on the row's middle for
+      // STACK_HOLD_MS stacks, and the row's outline says so before the drop.
+      const middle =
+        place.middle && !!onGroup && stackable(thread) && !!source && stackable(source);
+      if (!middle) hold.current = null;
+      else if (hold.current?.id !== thread.id)
+        hold.current = { id: thread.id, since: performance.now() };
       const at: DropAt =
-        place.middle && onGroup && stackable(thread) && source && stackable(source)
+        middle && performance.now() - hold.current!.since >= STACK_HOLD_MS
           ? "onto"
           : place.after
             ? "after"
@@ -657,7 +667,7 @@ interface RowActions {
   prefetch(thread: Thread): void;
   dragStart(thread: Thread, group: string): void;
   /** Whether the dragged tab can land here: before or after the row, or on
-   * its middle, which stacks the dragged thread on it. */
+   * its middle after a hold, which stacks the dragged thread on it. */
   dragOver(thread: Thread, group: string, place: { after: boolean; middle: boolean }): boolean;
   drop(thread: Thread, group: string): void;
   dragEnd(): void;
@@ -672,6 +682,8 @@ interface RowActions {
 
 /** Where a dragged tab lands on a row. */
 type DropAt = "before" | "after" | "onto";
+/** How long a drag holds on a row's middle before a drop there stacks. */
+const STACK_HOLD_MS = 500;
 
 /** A thread that can be a part of a stack: a saved review, not a found session
  * or an attempt. */
@@ -856,6 +868,7 @@ const ThreadRow = memo(function ThreadRow({
   return (
     <li
       data-thread-row={thread.id}
+      data-drop={drop}
       {...stylex.props(
         styles.item,
         drop === "before" && styles.dropBefore,
@@ -1382,7 +1395,7 @@ const styles = stylex.create({
   // Where a dragged tab lands: a line above or below the row.
   dropBefore: { boxShadow: `inset 0 2px 0 ${tokens.accent}` },
   dropAfter: { boxShadow: `inset 0 -2px 0 ${tokens.accent}` },
-  // A thread dropped on the middle of a row goes on top of its stack.
+  // A thread held on the middle of a row goes on top of its stack.
   dropOnto: {
     borderRadius: `calc(7px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 2px ${tokens.accent}`,

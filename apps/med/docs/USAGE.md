@@ -662,8 +662,9 @@ next layer.
   layer that is not done and not merged or closed.
 - The title band names the shown layer's pull request. All layers use the
   thread's one checkout, so a switch keeps the session and its files.
-- Drag a row onto the middle of another row of its repository to stack it on
-  top. The row's menu has **Stack on**, **Ungroup** (each layer above the
+- Drag a row onto the middle of another row of its repository and hold until
+  that row is outlined to stack it on top; a quick drop only moves the row.
+  The row's menu has **Stack on**, **Ungroup** (each layer above the
   first is a thread again), and **Treat as a set** or **Treat as a stack**.
 
 ## Scheduled

@@ -82,7 +82,8 @@ lost, but no comparison or comment is.
   that this removes, and the evidence (a commit chain from one session, or
   GitHub's own base) is strong. **Ungroup** undoes it.
 - **Manual grouping.** Drag a row onto the middle of another row of the same
-  repository to stack it on top; the row's menu has **Stack on ▸** and
+  repository and hold for half a second (the row is outlined) to stack it on
+  top, so a quick drop still reorders; the row's menu has **Stack on ▸** and
   **Ungroup**, and **Treat as a set** / **Treat as a stack**. Grouping moves the
   dragged thread's current comparisons, with their comments and guide, its pull
   request, key, and sessions; what stays (its brief, pins, and older versions)
