@@ -761,8 +761,14 @@ describe("hand-off checks that say what to do next", () => {
       "--repo",
       join(repo, "src"),
       "--working",
+      "--paths",
+      join(repo, "file.txt"),
     ]);
-    expect((await f.saved(out)).targets[0].repo).toBe(repo);
+    const bundle = await f.saved(out);
+    expect(bundle.targets[0]).toMatchObject({
+      repo,
+      comparison: { kind: "working", paths: ["file.txt"] },
+    });
   });
 
   it("refuses an empty hand-off and names the comparison that holds the work", async () => {
