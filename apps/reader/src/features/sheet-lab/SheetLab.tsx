@@ -3,6 +3,12 @@ import { Switch } from "@/components/ui/switch";
 import { MEDIUM_DETENT } from "@/features/reader/ReaderDetentSheets";
 import { MOTION } from "@/lib/motion";
 import { sheetSnaps } from "@workbench/elements/sheet-motion";
+import {
+  isCompactHeight,
+  isTabletScreen,
+  tabletSheets,
+  widthClass,
+} from "@workbench/elements/size-class";
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
@@ -535,17 +541,87 @@ function ShapeScenario() {
 }
 
 /**
+ * The window in the size classes every app shares, as a device reports it:
+ * the window and the screen in CSS pixels (a dp in Chrome on Android), the
+ * device pixels per CSS pixel (Android's density), the width and height
+ * classes, and whether the screen counts as a tablet's. Read it on a new
+ * device to place it in packages/elements/docs/SIZE_CLASSES.md.
+ */
+function windowReadout() {
+  const tablet = isTabletScreen();
+  return {
+    window: `${innerWidth}×${innerHeight}`,
+    screen: `${screen.width}×${screen.height}`,
+    density: String(Math.round(devicePixelRatio * 1000) / 1000),
+    widthClass: widthClass(),
+    heightClass: isCompactHeight()
+      ? "compact"
+      : innerHeight >= 900
+        ? "expanded"
+        : "medium",
+    device: tablet
+      ? "tablet"
+      : matchMedia("(any-pointer: coarse)").matches
+        ? "phone"
+        : "no touch",
+    sheets: tabletSheets() ? "form" : "phone",
+  };
+}
+
+/**
  * The topmost sheet's state, written straight to the DOM each frame so the
- * readout itself does not render the page again. Tests read its data
- * attributes.
+ * readout itself does not render the page again, under a line that reads
+ * the window (`windowReadout`). Tests read their data attributes.
+ *
+ * It also marks each opening (a case's tap until the sheet rests) and each
+ * drag (a finger on a resting sheet until it rests or closes) with
+ * `performance.mark("kit:open:start")` and the like, so `kit frames` reads
+ * a Performance trace recorded on a device (docs/MOTION.md).
  */
 function Readout() {
   const ref = useRef<HTMLDivElement>(null);
+  const windowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let frame = 0;
     let last = "";
+    let lastWindow = "";
+    let part: "open" | "drag" | "rest" | null = null;
+    // A drag ends once the sheet has left its rest and found one again.
+    let moved = false;
+    const end = () => {
+      if (part === "open" || part === "drag")
+        performance.mark(`kit:${part}:end`);
+    };
+    const onTap = (event: Event) => {
+      if (!(event.target as Element).closest?.("[data-lab-scenario]")) return;
+      performance.mark("kit:open:start");
+      part = "open";
+      moved = false;
+    };
+    const onTouch = (event: Event) => {
+      if (part !== "rest") return;
+      if (!(event.target as Element).closest?.(".reader-sheet")) return;
+      performance.mark("kit:drag:start");
+      part = "drag";
+      moved = false;
+    };
+    document.addEventListener("click", onTap, true);
+    document.addEventListener("touchstart", onTouch, {
+      capture: true,
+      passive: true,
+    });
     const sample = () => {
       frame = requestAnimationFrame(sample);
+      const line = windowRef.current;
+      if (line) {
+        const read = windowReadout();
+        const text = `window ${read.window} · screen ${read.screen} · density ${read.density} · ${read.widthClass} width, ${read.heightClass} height · ${read.device} · ${read.sheets} sheets`;
+        if (text !== lastWindow) {
+          lastWindow = text;
+          line.textContent = text;
+          Object.assign(line.dataset, read);
+        }
+      }
       const element = ref.current;
       if (!element) return;
       const overlays = document.querySelectorAll<HTMLElement>(
@@ -562,6 +638,8 @@ function Readout() {
       );
       const landscape = innerWidth > innerHeight;
       if (!overlay || !scroller || !sheet) {
+        if (part === "drag") end();
+        if (part !== "open") part = null;
         const text = `No sheet · ${landscape ? "landscape" : "portrait"} · keyboard ${keyboard}`;
         if (text !== last) {
           last = text;
@@ -603,6 +681,13 @@ function Readout() {
         if (full && Math.abs(full.position - resting.position) < 1)
           detent = "full";
       }
+      const atRest = detent.startsWith("detent") || detent === "full";
+      if (!atRest) moved = true;
+      else if (part !== "open" && part !== "drag") part = "rest";
+      else if (moved) {
+        end();
+        part = "rest";
+      }
       const text = [
         `top ${top}`,
         `height ${Math.round(innerHeight - top)}`,
@@ -626,15 +711,20 @@ function Readout() {
       element.dataset.top = String(top);
     };
     frame = requestAnimationFrame(sample);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("click", onTap, true);
+      document.removeEventListener("touchstart", onTouch, true);
+    };
   }, []);
   return (
     <div
-      ref={ref}
-      data-lab-readout=""
       aria-hidden="true"
       className="pointer-events-none fixed inset-x-0 top-0 z-[60] bg-foreground/80 px-3 pt-[max(env(safe-area-inset-top),0.25rem)] pb-1 font-mono text-[10px] leading-4 text-background"
-    />
+    >
+      <div ref={windowRef} data-lab-window="" />
+      <div ref={ref} data-lab-readout="" />
+    </div>
   );
 }
 
@@ -704,7 +794,7 @@ export function SheetLab() {
       <MotionConfig reducedMotion={reduce ? "always" : "user"}>
         <div className="min-h-dvh bg-background text-foreground">
           <Readout />
-          <div className="mx-auto max-w-2xl px-4 pt-14 pb-16">
+          <div className="mx-auto max-w-2xl px-4 pt-16 pb-16">
             <header className="mb-6 flex items-center gap-3">
               <Link
                 to="/debug"

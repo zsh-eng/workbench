@@ -1,7 +1,7 @@
 import { useDebugEnabled } from "@/lib/debug-preference";
 import { HighlightToolbarContainer } from "@/features/reader/shared/HighlightToolbarContainer";
 import { useInputBehavior } from "@/features/reader/hooks/use-input-behavior";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useCompactWindow } from "@/hooks/use-compact-window";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -66,7 +66,7 @@ export function Reader() {
   const paper = resolvePaper(debugEnabled, usePaperPreference(), searchParams);
   // Set while the curl turns pages, so a tap turns the page the same way.
   const pageTurnerRef = useRef<PageTurner | null>(null);
-  const isMobile = useIsMobile();
+  const isMobile = useCompactWindow();
   const { toast } = useToast();
   const [noteComposerPresent, setNoteComposerPresent] = useState(false);
   const [noteDraftPresent, setNoteDraftPresent] = useState(false);

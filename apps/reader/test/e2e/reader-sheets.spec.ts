@@ -321,36 +321,46 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     else expect(await springs()).toBeGreaterThan(3);
   });
 
-// Reader's own sheets show below 768 px, the Reader's phone layout; wider,
-// its tools are a sidebar and popovers, as an iPad app's are in regular
-// width. A window beside another app on an iPad is that narrow, and touch
-// gives it the form layout from 640 px (sheet-ipad.spec.ts has the rest).
-for (const [width, tools, contents] of [
-  [500, "phone", "phone"],
-  [678, "form centred", "form"],
-] as const)
-  test(`In a ${width} px window on an iPad, Reader tools and Contents take the ${tools} layout`, async ({
-    page,
-    localBook,
-  }) => {
-    await page.setViewportSize({ width, height: 1180 });
-    await openLocalBook(page, localBook.id);
-    // A tap on the page shows the header.
-    await page.touchscreen.tap(width / 2, 590);
-    const layout = (dialog: Locator) =>
-      dialog.evaluate((element) => {
-        const overlay = element.closest<HTMLElement>(".wb-sheet-overlay")!;
-        return `${overlay.dataset.sheetLayout}${overlay.dataset.position === "center" ? " centred" : ""}`;
-      });
-    const sheet = await openReaderTools(page);
-    expect(await layout(sheet)).toBe(tools);
-    // Contents stacks over Reader tools.
-    await sheet.getByRole("button", { name: /Contents/ }).click();
-    const list = await waitForSheet(page, "Contents");
-    expect(await layout(list)).toBe(contents);
-    const box = await list.evaluate((element) =>
-      element.closest(".reader-sheet")!.getBoundingClientRect().toJSON(),
-    );
-    // A phone sheet is at most 28rem wide; a form sheet is UIKit's 580.
-    expect(box.width).toBeCloseTo(width === 500 ? 448 : 580, 0);
-  });
+// Reader's own sheets show in a compact window, below 600 px: the Reader's
+// phone layout. From medium width its tools are a sidebar and popovers, as
+// an iPad app's are in regular width (@workbench/elements/size-class). A
+// window beside another app on an iPad can be either.
+test("In a 500 px window on an iPad, Reader tools and Contents are phone sheets", async ({
+  page,
+  localBook,
+}) => {
+  await page.setViewportSize({ width: 500, height: 1180 });
+  await openLocalBook(page, localBook.id);
+  // A tap on the page shows the header.
+  await page.touchscreen.tap(250, 590);
+  const sheet = await openReaderTools(page);
+  // Contents stacks over Reader tools.
+  await sheet.getByRole("button", { name: /Contents/ }).click();
+  const list = await waitForSheet(page, "Contents");
+  const overlay = await list.evaluate(
+    (element) => element.closest<HTMLElement>(".wb-sheet-overlay")!.dataset,
+  );
+  expect(overlay.sheetLayout).toBe("phone");
+  const box = await list.evaluate((element) =>
+    element.closest(".reader-sheet")!.getBoundingClientRect().toJSON(),
+  );
+  // A phone sheet is at most 28rem wide.
+  expect(box.width).toBeCloseTo(448, 0);
+});
+
+test("In a 678 px window on an iPad, Reader tools are a sidebar", async ({
+  page,
+  localBook,
+}) => {
+  await page.setViewportSize({ width: 678, height: 1180 });
+  await openLocalBook(page, localBook.id);
+  await page.touchscreen.tap(339, 590);
+  await page
+    .getByRole("button", { name: "Open reader tools", exact: true })
+    .click();
+  const sidebar = page.getByRole("complementary", { name: "Reader tools" });
+  await expect(
+    sidebar.getByRole("button", { name: "Contents", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".reader-sheet-overlay")).toHaveCount(0);
+});
