@@ -14,7 +14,7 @@ export type ReaderTablesMode = "auto" | "grid" | "flat";
  * chapter that the change moves parses its canonical text again on each
  * open until a `READER_BODY_CACHE_SCHEMA_VERSION` bump rebuilds the cache.
  */
-export const GRID_TABLE_CELL_LIMIT = 700;
+export const GRID_TABLE_CELL_LIMIT = 1500;
 
 /** Whether a chapter with `cellCount` table cells reads them as grids. */
 export function chapterTablesAsGrid(
