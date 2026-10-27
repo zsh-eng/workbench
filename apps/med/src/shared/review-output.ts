@@ -204,6 +204,23 @@ const FAILED =
 const failedText = (text: string) =>
   FAILED.test(text.replace(/\b(?:0|no) (?:fail(?:ed|ures?|s)?|errors?)\b/gi, ""));
 
+/** A result without the parentheses that hold all of it, as in "(42 passed)".
+ * Parentheses inside it stay: "633 passed (106 files)". */
+function unwrap(text: string) {
+  // A parenthesis without its pair goes: "(42 passed".
+  if (!text.includes(")")) return text.replace(/^\(\s*/, "");
+  if (!text.includes("(")) return text.replace(/\s*\)$/, "");
+  if (!text.startsWith("(") || !text.endsWith(")")) return text;
+  let depth = 0;
+  for (let index = 0; index < text.length - 1; index++) {
+    if (text[index] === "(") depth++;
+    else if (text[index] === ")") depth--;
+    // The first parenthesis closes before the end: "(a) and (b)".
+    if (depth === 0) return text;
+  }
+  return text.slice(1, -1).trim();
+}
+
 /** A check from a proof item: a command in backticks or after `$`, then its result. */
 function checkOf(text: string): ProofCheck | undefined {
   const quoted = /`([^`]+)`/.exec(text);
@@ -217,7 +234,7 @@ function checkOf(text: string): ProofCheck | undefined {
   const rest = quoted
     ? text.slice(0, quoted.index) + text.slice(quoted.index + quoted[0].length)
     : (shell?.[2] ?? "");
-  const result = clean(rest.replace(/^[\s:—–→>()-]+|[\s:—–()-]+$/g, "").replace(/^-?>\s*/, ""));
+  const result = clean(unwrap(rest.replace(/^[\s:—–→>-]+|[\s:—–-]+$/g, "").replace(/^-?>\s*/, "")));
   const status = failedText(result) ? "failed" : PASSED.test(result) ? "passed" : "unknown";
   return {
     command: command.slice(0, 300),

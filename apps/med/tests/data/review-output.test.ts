@@ -164,6 +164,21 @@ describe("review output", () => {
     ]);
   });
 
+  it("keeps the parentheses inside a check's result and drops the ones around it", () => {
+    const results = (lines: string[]) =>
+      readReviewOutput([["## Proof", ...lines].join("\n")]).proof?.checks.map(
+        (check) => check.result,
+      );
+    expect(
+      results([
+        "- `bun run test` — 633 passed (106 files)",
+        "- `bun run lint` (0 warnings)",
+        "- `bun run e2e`: (3 passed) and (1 skipped)",
+        "- `bun run build` (passed",
+      ]),
+    ).toEqual(["633 passed (106 files)", "0 warnings", "(3 passed) and (1 skipped)", "passed"]);
+  });
+
   it("finds nothing in prose without its parts", () => {
     const output = readReviewOutput([
       "I changed the parser so that errors no longer stop it. The tests pass.",
