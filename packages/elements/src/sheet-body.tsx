@@ -2,12 +2,14 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useSyncExternalStore,
   type FocusEvent,
   type ReactNode,
   type RefObject,
 } from "react";
 import { fitSheetHeight, trackSheetShape } from "./sheet-fit";
 import {
+  holdRestOnResize,
   sheetInView,
   sheetSnaps,
   springSheetScroller,
@@ -21,6 +23,55 @@ const TEXT_FIELD =
 
 export function isTextField(element: Element | null): element is HTMLElement {
   return element instanceof HTMLElement && element.matches(TEXT_FIELD);
+}
+
+/**
+ * A touch screen with room for an iPad's form sheet: regular width and
+ * regular height in UIKit's terms ("iPad" in docs/MOTION.md). A phone in
+ * either orientation, and a narrow window beside another app, stay below it;
+ * so does a desktop without touch. A laptop with a touch screen matches.
+ */
+export const SHEET_FORM_QUERY =
+  "(any-pointer: coarse) and (min-width: 640px) and (min-height: 600px)";
+
+let formQuery: MediaQueryList | undefined;
+const sheetFormQuery = () => (formQuery ??= matchMedia(SHEET_FORM_QUERY));
+const subscribeSheetForm = (listener: () => void) => {
+  const query = sheetFormQuery();
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+};
+
+/**
+ * Whether sheets take an iPad's form layout now. It changes when the
+ * window turns or is resized, and an open sheet changes with it.
+ */
+export function useSheetForm(): boolean {
+  return useSyncExternalStore(
+    subscribeSheetForm,
+    () => sheetFormQuery().matches,
+    () => false,
+  );
+}
+
+/**
+ * Where a React Aria `SheetOverlay` puts its sheet, as UIKit does in each
+ * size class (`.wb-sheet-overlay` in sheet.css draws it):
+ *
+ * - On a phone, or in a narrow window, a sheet rises from the bottom edge.
+ * - In the form layout, a sheet without detents is a form sheet: centred,
+ *   at most 580 px wide, over a dimmed page. A sheet with detents stays on
+ *   the bottom edge, as wide as a form sheet and lifted 20 px from it, so
+ *   the page above stays in view.
+ *
+ * Every sheet leaves by a swipe down. Spread the result on the overlay.
+ */
+export function sheetPlacement(form: boolean, hasDetents: boolean) {
+  return {
+    position: form && !hasDetents ? "center" : "bottom",
+    swipeDirection: "bottom",
+    "data-sheet-layout": form ? "form" : "phone",
+  } as const;
 }
 
 export interface SheetBodyOptions {
@@ -43,6 +94,8 @@ export interface SheetBodyOptions {
  *
  * - The sheet's own moves run on its spring, and it floats below full
  *   height (`trackSheetShape`; `.wb-sheet-overlay` and `.wb-sheet`).
+ * - Turning or resizing the window keeps it on its detent
+ *   (`holdRestOnResize`).
  * - A closing sheet that a React commit stopped scrolls out again.
  * - With detents, the phone keyboard and the detents stay apart: the
  *   keyboard covers the lower screen without resizing the page. A field
@@ -73,6 +126,13 @@ export function useSheetBody(
     if (!scroller || !spring) return;
     return springSheetScroller(scroller, spring);
   }, [ref, spring]);
+
+  // Turning the window keeps the sheet on its detent or in full view.
+  useLayoutEffect(() => {
+    const scroller = ref.current?.closest<HTMLElement>("[data-sheet-scroll]");
+    if (!scroller) return;
+    return holdRestOnResize(scroller);
+  }, [ref]);
 
   // The sheet floats below full height and meets the screen's edges at
   // the large detent (sheet.css).

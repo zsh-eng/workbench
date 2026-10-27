@@ -22,8 +22,9 @@ demo contract.
   easing) and `springTransition` (for `motion`).
 - `@workbench/elements/sheet-motion`: `springSheetScroller`, which moves a
   React Aria `Sheet` on a spring instead of a smooth scroll, `springSheetTo`
-  (one move on another spring, as the keyboard's), and `sheetSnaps` and
-  `snapPosition`, where a sheet can rest.
+  (one move on another spring, as the keyboard's), `holdRestOnResize`
+  (a resting sheet keeps its detent when the window turns), and
+  `sheetSnaps` and `snapPosition`, where a sheet can rest.
 - `@workbench/elements/sheet-fit`: `fitSheetHeight`, which keeps a sheet's
   height in step with its content without chasing the content's own
   animations, and `trackSheetShape`, which tells `sheet.css` where the sheet
@@ -33,11 +34,13 @@ demo contract.
 - `@workbench/elements/sheet-body`: `useSheetBody`, the behaviour of a React
   Aria sheet's body (its spring and shape, the scroll out on close, and the
   keyboard kept clear of its detents), `SheetFitHeight`, which holds the
-  height for the content, and `isTextField`.
+  height for the content, `isTextField`, and `useSheetForm` and
+  `sheetPlacement`, which give a sheet an iPad's form layout on a wide
+  touch screen.
 
 Arctic for the web and Reader use the sheet parts. See
 [docs/MOTION.md](docs/MOTION.md) for the measurements behind them and the
-rules they follow ("Sheet behaviour").
+rules they follow ("Sheet behaviour", "iPad").
 
 The package exports TypeScript source. It works with React 18 and 19; the
 toast needs 19. The toast uses no hooks, so an app whose React is another copy

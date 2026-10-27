@@ -10,6 +10,7 @@ in `apps/reader`.
 bun run kit shot <url|/route> [--steps file]                 # PNG, 60 s cap
 bun run kit clip <url|/route> [--steps file] [--sheet 6]     # MP4, 120 s cap
 bun run kit time <url|/route> --steps file [--throttle 4]    # JSON, 180 s cap
+bun run kit frames <trace.json> [--out chart.png]            # PNG, 60 s cap
 ```
 
 A route such as `/settings` is served from `http://127.0.0.1:$E2E_PORT`.
@@ -24,6 +25,9 @@ If the server answers `/__e2e`, the kit refuses a server from another checkout.
 | `--wait <selector>`   | Waits for a Playwright selector after the page loads.           |
 | `--out <file>`        | Output path. The default is in the system temp folder.          |
 | `--dark`, `--desktop` | Dark colour scheme; a 1280 × 800 window without touch.          |
+| `--size <w>x<h>`      | Another window size, e.g. an iPad's `820x1180`.                 |
+| `--browser webkit`    | WebKit instead of Chromium (no `--throttle` or `--trace`).      |
+| `--trace <file>`      | Records a Chrome trace of the steps, for `kit frames`.          |
 | `--throttle <rate>`   | Makes the CPU that many times slower, after the page loads.     |
 | `--seconds <n>`       | `clip` without steps: how long to record (3).                   |
 | `--sheet <n>`         | `clip`: also writes n frames side by side as a PNG.             |
@@ -45,4 +49,19 @@ cd apps/reader
 bun run kit shot '/reader/{book}' --before test/e2e/kit/sample-book.ts
 bun run kit time '/reader/{book}' --before test/e2e/kit/sample-book.ts \
   --steps test/e2e/kit/reader-tools.ts --throttle 4
+```
+
+`kit frames` reads a trace that `--trace` recorded and splits it into the
+parts that the steps marked with `performance.mark("kit:<name>:start")` and
+`kit:<name>:end`. For each it counts Chrome's frames as complete, a frame
+behind (the page's own update for the frame before), partial (no update
+from the page), dropped or idle, gives the longest run without an update and
+the main thread's long tasks, and draws them as a strip chart. Reader's
+`test/e2e/kit/sheet-lab-frames.ts` marks a sheet's opening and a drag:
+
+```sh
+bun run kit time /debug/sheet-lab --storage reader-debug-enabled-v1=true \
+  --steps test/e2e/kit/sheet-lab-frames.ts --throttle 4 --runs 1 \
+  --trace open.json
+bun run kit frames open.json
 ```

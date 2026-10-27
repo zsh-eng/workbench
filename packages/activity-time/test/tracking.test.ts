@@ -211,6 +211,22 @@ it("counts a scroll only just after an input, and ignores synthetic events", () 
   expect(tracker.session).toMatchObject({ activeMs: 800 });
 });
 
+it("counts a pen that hovers over the page, as on an iPad with Apple Pencil", () => {
+  const tab = page();
+  const tracker = track(tab);
+  tracker.begin({ kind: "article", id: "ice" });
+  wait(40_000);
+  tab.fire(tab.win, "pointermove", { pointerType: "pen" });
+  expect(tracker.session).toMatchObject({ activeMs: 40_000 });
+  // A finger's or a mouse's moves count by their own events, once each.
+  wait(30_000);
+  tab.fire(tab.win, "pointermove", { pointerType: "touch" });
+  tab.fire(tab.win, "pointermove", { pointerType: "mouse" });
+  expect(tracker.session).toMatchObject({ activeMs: 40_000 });
+  tab.fire(tab.win, "mousemove");
+  expect(tracker.session).toMatchObject({ activeMs: 70_000 });
+});
+
 it("keeps one session per tab, and counts only the tab the person uses", async () => {
   const first = page();
   const second = page();

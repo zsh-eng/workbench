@@ -1,7 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
-import { SheetFitHeight, useSheetBody } from "@workbench/elements/sheet-body";
+import {
+  SheetFitHeight,
+  sheetPlacement,
+  useSheetBody,
+  useSheetForm,
+} from "@workbench/elements/sheet-body";
 import { SPRINGS, type Spring } from "@workbench/elements/spring";
 import "@workbench/elements/sheet.css";
 import {
@@ -70,6 +75,8 @@ export interface DetentSheetProps {
 /**
  * A bottom sheet on React Aria's Sheet. The browser's own scrolling moves
  * it, so a drag follows the finger, rests on detents, and keeps momentum.
+ * On an iPad it takes UIKit's form layout (`sheetPlacement`): centred
+ * without detents, on the bottom edge at a form sheet's width with them.
  * Opening, closing and a new detent run UIKit's sheet spring
  * (`SheetSpringContext`). Below full height it floats, inset from the
  * screen's edges, and it meets them at full height; its height follows its
@@ -106,11 +113,13 @@ export function DetentSheet({
   }
   const detents =
     hasDetents && opensFull ? ["100%", ...snapPoints] : snapPoints;
+  const form = useSheetForm();
   return (
     <SheetOverlay
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       snapPoints={detents}
+      {...sheetPlacement(form, hasDetents)}
       className="reader-sheet-overlay wb-sheet-overlay"
       // The lower sheet hides each new node outside it. A sheet marks itself
       // visible in an effect, which runs too late when a timer or an async

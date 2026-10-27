@@ -1,5 +1,8 @@
 # Estimate reading time with activity sessions
 
+A plain-language account, with how it fits an iPad, is in
+[docs/READING_TIME_GUIDE.md](docs/READING_TIME_GUIDE.md).
+
 Track time between deliberate actions, not the number of actions. Keep one
 small session record for each article visit. Do not write a database row for
 every scroll event, and do not treat an open screen as proof of reading.

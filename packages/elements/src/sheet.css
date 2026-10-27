@@ -7,10 +7,17 @@
    Mark the overlay `wb-sheet-overlay` and the sheet `wb-sheet`, and run
    `trackSheetShape` (sheet-fit.ts) on them. The app colours the surface:
 
-     --wb-sheet-surface   background
-     --wb-sheet-edge      hairline border
-     --wb-sheet-shadow    box shadow
-     --wb-sheet-max-width widest sheet (default 28rem)
+     --wb-sheet-surface      background
+     --wb-sheet-edge         hairline border
+     --wb-sheet-shadow       box shadow
+     --wb-sheet-float-shadow box shadow of a centred form sheet
+     --wb-sheet-max-width    widest sheet on a phone (default 28rem)
+
+   and reads `--wb-sheet-full`, the tallest a sheet gets, for its height.
+
+   On an iPad (`sheetPlacement` in sheet-body.tsx, `data-sheet-layout`
+   "form") a sheet without detents is a centred form sheet, and one with
+   detents stays on the bottom edge at a form sheet's width.
 
    The sheet's own box keeps one width, so its content never reflows while
    the shape changes: the surface behind it widens, and the scroller's clip
@@ -61,6 +68,8 @@
     100dvw - 2 * var(--wb-sheet-inset),
     var(--wb-sheet-max-width, 28rem)
   );
+  /* Full height leaves the status bar and a little of the page above. */
+  --wb-sheet-full: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
 }
 
 /* The scroller is two screens tall and does not move, so its mask stays on
@@ -168,6 +177,51 @@
     animation: none !important;
     --wb-sheet-float: 0;
   }
+}
+
+/* iPad, regular width and height (iPadOS 27 simulator, iPad Air 11-inch
+   and iPad Pro 13-inch, docs/MOTION.md "iPad"). A sheet with detents rests
+   on the bottom edge as wide as a form sheet, 580 pt, lifted 20 pt, its
+   bottom corners as round as its top. It never meets the screen's edges,
+   and at full height its top is 32 pt down, as a page sheet's. */
+.wb-sheet-overlay[data-sheet-layout="form"] {
+  --wb-sheet-inset: 20px;
+  --wb-sheet-display-radius: calc(
+    var(--wb-sheet-radius) + var(--wb-sheet-inset)
+  );
+  --wb-sheet-width: min(100dvw - 40px, var(--wb-sheet-form-width, 580px));
+  --wb-sheet-full: calc(100dvh - 32px);
+}
+.wb-sheet-overlay[data-sheet-layout="form"] [data-sheet-scroll],
+.wb-sheet-overlay[data-sheet-layout="form"] .wb-sheet::before {
+  animation: none !important;
+  --wb-sheet-float: 1;
+}
+
+/* A sheet without detents is a form sheet: centred over the dimmed page,
+   rounded at every corner. It keeps clear of the keyboard, centred in the
+   space above it, as UIKit's does; React Aria measures the keyboard as the
+   gap between the screen and the visual viewport. */
+.wb-sheet-overlay[data-sheet-layout="form"][data-position="center"] {
+  --wb-sheet-inset: 0px;
+  --wb-sheet-full: calc(100dvh - 64px - var(--sheet-scroll-padding-y, 0px));
+}
+.wb-sheet-overlay[data-sheet-layout="form"][data-position="center"]
+  [data-sheet-scroll] {
+  mask: none;
+}
+.wb-sheet-overlay[data-sheet-layout="form"][data-position="center"] .wb-sheet {
+  max-height: var(--wb-sheet-full);
+  margin-bottom: var(--sheet-scroll-padding-y, 0px);
+  overflow: clip;
+  border-radius: var(--wb-sheet-radius);
+  box-shadow: var(--wb-sheet-float-shadow, var(--wb-sheet-shadow, none));
+}
+.wb-sheet-overlay[data-sheet-layout="form"][data-position="center"]
+  .wb-sheet::before {
+  border-bottom: 1px solid var(--wb-sheet-edge, transparent);
+  border-radius: var(--wb-sheet-radius);
+  box-shadow: none;
 }
 
 /* A sheet that fits its content (fitSheetHeight in sheet-fit.ts): the fit

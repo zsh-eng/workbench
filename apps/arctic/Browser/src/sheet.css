@@ -10,14 +10,16 @@
   --wb-sheet-surface: var(--raised);
   --wb-sheet-edge: var(--edge);
   --wb-sheet-shadow: 0 -12px 40px rgb(0 0 0 / 0.08);
+  --wb-sheet-float-shadow: 0 12px 40px rgb(0 0 0 / 0.14);
   --wb-sheet-max-width: 560px;
 }
 :root[data-mode="dark"] .sheet-overlay {
   --wb-sheet-shadow: 0 -12px 40px rgb(0 0 0 / 0.4);
+  --wb-sheet-float-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
 }
 
 .sheet {
-  max-height: calc(100dvh - max(env(safe-area-inset-top), 12px) - 8px);
+  max-height: var(--wb-sheet-full);
   display: flex;
   flex-direction: column;
   color: var(--fg);

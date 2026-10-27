@@ -203,6 +203,50 @@ export function springSheetScroller(
 }
 
 /**
+ * Keeps a resting sheet where it rests when the window turns or is resized,
+ * as UIKit keeps a sheet's selected detent: on the same detent, or in full
+ * view. Detents and full view move with the window's size, and the browser
+ * would snap the sheet to whichever is nearest its old offset (WebKit does).
+ * A sheet shorter than its detent rests at both, and keeps the one it had.
+ * Returns a function that stops.
+ */
+export function holdRestOnResize(scroller: HTMLElement): () => void {
+  let rest: HTMLElement | null = null;
+  let frame = 0;
+  const note = () => {
+    if (scroller.hasAttribute("data-sheet-spring")) return;
+    const top = scroller.scrollTop;
+    const here = sheetSnaps(scroller).filter(
+      (snap) =>
+        (snap.full || snap.marker.hasAttribute("data-sheet-detent")) &&
+        Math.abs(snap.position - top) < 1,
+    );
+    if (!here.length) rest = null;
+    else if (!here.some((snap) => snap.marker === rest))
+      rest = (here.find((snap) => !snap.full) ?? here[0]!).marker;
+  };
+  // After the frame's media query changes, which can move the sheet to
+  // another layout first.
+  const hold = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      if (!rest?.isConnected || scroller.hasAttribute("data-sheet-spring"))
+        return;
+      const position = snapPosition(scroller, rest);
+      if (Math.abs(position - scroller.scrollTop) >= 1)
+        scroller.scrollTop = position;
+    });
+  };
+  scroller.addEventListener("scrollend", note);
+  window.addEventListener("resize", hold);
+  return () => {
+    cancelAnimationFrame(frame);
+    scroller.removeEventListener("scrollend", note);
+    window.removeEventListener("resize", hold);
+  };
+}
+
+/**
  * Moves a sheet that `springSheetScroller` drives to `top` on another
  * spring than its own, once: the keyboard's, when a field raises the sheet.
  */

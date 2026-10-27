@@ -42,6 +42,7 @@ The session has 75 s; the 165 s gap counts nothing. An input at 250 s adds
 | Signal             | Events                                                                    | Report          |
 | ------------------ | ------------------------------------------------------------------------- | --------------- |
 | Input              | `pointerdown`, `mousemove`, `touchstart`, `touchmove`, `keydown`, `wheel` | input           |
+| Pen hover          | `pointermove` from a pen, as an Apple Pencil over an iPad                 | input           |
 | Scroll             | `scroll` within one second of an input                                    | input           |
 | Hidden, visible    | `visibilitychange`                                                        | pause, return   |
 | Window focus       | `blur` (focus left the page and its frames), `focus`                      | pause, return   |

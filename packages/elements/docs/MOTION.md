@@ -136,6 +136,106 @@ Residuals are about 0.1 pt. Medium rests at 393.6 pt, large at 47 pt.
 - At large the top edge does not rubber-band upward. A drag has about 25 pt
   of slop before the sheet follows.
 
+## iPad
+
+**What Apple says.** In regular width and height, an iPad app's sheet is a
+page or form sheet, centred over a dimmed page; detents are "designed for
+iPhone".
+
+- [HIG: Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets):
+  prefer the page or form sheet styles on iPad; each centres its content
+  over a dimmed background. People expect to swipe a sheet down to dismiss
+  it. Medium is about half of the fully expanded height.
+- [`formSheet`](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/formsheet):
+  centred in regular width and height, smaller than a page sheet, sized by
+  `preferredContentSize`, with part of the page always in view. In compact
+  width it is a phone's sheet; in compact height, full screen.
+- [`pageSheet`](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/pagesheet):
+  roughly a page, taller than wide, centred over a dimming layer; the same
+  fallbacks.
+- [`prefersPageSizing`](https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/prefersPageSizing)
+  (iOS 17): a sheet follows the readable width (page) by default, or
+  `preferredContentSize` (form).
+- SwiftUI's [`presentationSizing`](https://developer.apple.com/documentation/swiftui/presentationsizing):
+  [`.automatic`](https://developer.apple.com/documentation/swiftui/presentationsizing/automatic)
+  resolves to [`.form`](https://developer.apple.com/documentation/swiftui/presentationsizing/form),
+  "slightly less wide than `.page`", on iOS and iPadOS.
+- [`medium()`](<https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/detent/medium()>)
+  is about half the screen and inactive in compact height;
+  [`largestUndimmedDetentIdentifier`](https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/largestundimmeddetentidentifier)
+  is `nil` by default, so every detent dims.
+- [WWDC21 "Customize and resize sheets in UIKit"](https://developer.apple.com/videos/play/wwdc2021/10063/):
+  on iPad a popover that adapts to a sheet in compact width is often wanted
+  instead of a sheet with detents. Reader (from 768 px) and Arctic (above
+  720 px) already do this: their tools are a sidebar, popovers and menus.
+
+**What it does.** Measured on the iPadOS 27 simulator, iPad Air 11-inch
+(820 × 1180 pt) and iPad Pro 13-inch (1032 × 1376 pt), portrait, with the
+probe app:
+
+| Sheet               | 820 pt wide                               | 1032 pt wide             |
+| ------------------- | ----------------------------------------- | ------------------------ |
+| Form sheet          | 580 × 660, centred, every corner round    | the same                 |
+| Page sheet          | full width, top 32 pt down                | 928 wide, floating       |
+| Form sheet, detents | 580 wide on the bottom edge, lifted 20 pt | the same                 |
+| Page sheet, detents | full width, 8 pt from the edges           | page width, lifted 20 pt |
+
+The page under every one is dimmed, about 20%. A form sheet with a field
+in focus moves to the centre of the space above the keyboard; a sheet with
+detents goes to large.
+
+**What the web sheets do.** On a touch screen at least 640 × 600
+(`SHEET_FORM_QUERY`, `sheetPlacement` in `src/sheet-body.tsx`):
+
+- A sheet without detents is a form sheet: centred, 580 px wide at most,
+  every corner round, over the dimmed page. It moves to the middle of the
+  space above the keyboard, by React Aria's measure of it
+  (`--sheet-scroll-padding-y`).
+- A sheet with detents stays on the bottom edge at 580 px, lifted 20 px,
+  floating at every height; at full height its top is 32 px down. It keeps
+  its detents, so the page above stays in view.
+- Every sheet leaves by a swipe down, as on a phone (but see "Not
+  confirmed").
+- A phone in either orientation, a window narrower than 640 px beside
+  another app, and a desktop without touch keep the phone sheet. A laptop
+  with a touch screen takes the form layout. The layout
+  follows the window as it turns or is resized, and an open sheet keeps its
+  detent or full view (`holdRestOnResize`): WebKit otherwise snaps it to
+  whichever is nearest its old offset.
+
+`sheet-ipad.spec.ts` (Reader, WebKit with touch) covers 820 × 1180,
+1180 × 820, 1024 × 1366, 1366 × 1024, a phone, a desktop, turning, and
+widths of 500 and 678 px; Arctic's `ipad.spec.ts` its own sheets.
+
+**Not confirmed.**
+
+- The 640 px line. A page cannot read UIKit's size classes, and
+  [Layout](https://developer.apple.com/design/human-interface-guidelines/layout)
+  no longer lists them per device or Split View width: it says the system
+  sets them by device, window and multitasking, and to lay out by them, not
+  by device or orientation. The simulator would not turn or split here, so
+  landscape, Split View and Stage Manager widths were not measured. 640
+  keeps every phone (up to 440 pt wide) and a third of an iPad below it,
+  and half of a 13-inch iPad in landscape (678 pt) above it.
+- The dimming on the web stays the app's own; only its strength was read
+  from the simulator.
+- A real iPad: the tests run Playwright's WebKit with touch, which replays
+  no touch drag (a trackpad's scroll stands in for the swipe) and reports
+  no touch points (the tests report five, as iPadOS Safari does). The
+  keyboard check sets React Aria's measure by hand; iPadOS may also pan the
+  page to show a field.
+- Swiping away a sheet with detents. React Aria closes a sheet once its
+  IntersectionObserver has seen it on screen and then off it. In
+  Playwright's WebKit with Chrome's user agent (Reader's tests), that
+  observer at times never saw a docked form sheet arrive, and a swipe left
+  it open below the screen; with Safari's user agent (Arctic's tests, and
+  an iPad), React Aria watches 58 px past the bottom edge, and the swipe
+  closed it every time. In Chromium with touch at 678 px, a fast touch
+  swipe left Reader's Contents, docked over the centred Reader tools, open
+  below the screen in 3 of 5 runs; at 500 px, as a phone sheet, it closed
+  in 5 of 5. Neither was traced to its cause; the swipe has not been tried
+  on an iPad.
+
 ## Telegram for iOS
 
 From the source (`TelegramUI` and `Display`, revision `fb0e62ba`):
@@ -210,7 +310,71 @@ a busy main thread drops frames.
   cut. A home-screen app is not affected.
 - A thrown sheet settles with the browser's snap, not UIKit's 0.8-ratio
   release spring.
-- 60 Hz on a 120 Hz phone.
+- 60 Hz on a 120 Hz phone, and an opening that lags in Chrome on Android
+  ("Chrome on Android").
+
+## Chrome on Android
+
+Opening a sheet looks less smooth than dragging it in Chrome on a 120 Hz
+Android phone. No Android device was at hand: what follows is Chrome's
+source, Android's documentation and desktop Chrome traces of a phone
+viewport with the CPU slowed, not a measurement on a phone.
+
+**What runs.** An opening is `springSheetScroller`'s spring: each frame,
+`requestAnimationFrame` sets the scroller's offset on the main thread, and
+the dimming, the shape and React Aria's observer follow the offset. A drag
+is the browser's own scrolling, on the compositor; the main thread only
+follows it.
+
+**Traced** (`kit time --trace` with `test/e2e/kit/sheet-lab-frames.ts`,
+`kit frames`; production build, 390 × 844, CPU 4× and 6× slower; Sheet
+Lab's "Long list" opening, then a 120 px drag by the handle):
+
+| Part     | Frames (120 Hz) | Complete | A frame behind | Dropped | Long tasks                       |
+| -------- | --------------- | -------- | -------------- | ------- | -------------------------------- |
+| Open, 4× | 70 in 642 ms    | 11       | 48             | 11      | 11, 14 ms at start; 13 ms at end |
+| Drag, 4× | 63 in 660 ms    | 52       | 11             | 0       | 10 ms                            |
+| Open, 6× | 73 in 660 ms    | 9        | 49             | 15      | four of 9–19 ms                  |
+| Drag, 6× | 65 in 667 ms    | 54       | 11             | 0       | none                             |
+
+The opening loses frames at its start, while the sheet's content mounts,
+and runs a frame behind for most of the rest: Chrome shows each frame with
+the page's update for the frame before, because the main thread does not
+finish a frame in time. The drag keeps up.
+
+**Not Safari's limit.** WebKit's "Prefer Page Rendering Updates near
+60fps" (`PreferPageRenderingUpdatesNear60FPSEnabled`, on by default)
+holds a page's rendering updates, and so `requestAnimationFrame`, near
+60 fps; Core Animation animations that WebKit creates for a page opt into a
+high frame rate (`PlatformCAAnimationRemote.mm`). Chrome has no such
+setting: on Android it asks the system for "no preference" for ordinary
+frames (`root_compositor_frame_sink_impl.cc`), and an adaptive rate that
+follows scroll speed is behind a flag that is off by default
+(`kUseFrameIntervalDeciderAdaptiveFrameRate`, `features.cc`). Android then
+picks the display's rate: higher while a finger is on the screen and lower
+when it idles
+([multiple refresh rate](https://source.android.com/docs/core/graphics/multiple-refresh-rate)).
+So a drag likely runs at 120 Hz because a finger is down, and an opening
+after a tap may run at whatever rate Android drops to. That is a guess
+until a phone shows it.
+
+**Tried and set aside: opening on the compositor.** The sheet went to rest
+at once and a transform on its scroller brought it up on the same spring,
+with the dimming fading in alongside. In Playwright's WebKit, React Aria's
+IntersectionObserver then never reported the sheet in view (a new observer
+did), so a swipe left it open below the screen; it could only run in
+Chromium, where Reader's sheet tests passed with it. In a trace at 4× it
+changed little (20 complete frames of 68 against 12 of 61, 46 and 47 a
+frame behind, 2 dropped each), since Sheet Lab's readout keeps the main
+thread updating every frame. Without a phone to show a gain, the patch is
+not in the tree.
+
+**A phone check needs** a 120 Hz Android phone with Chrome, USB debugging
+and `chrome://inspect`: record a Performance trace of an opening and of a
+drag, and show the display's rate with the developer option "Show refresh
+rate" or `adb shell dumpsys SurfaceFlinger`. If an opening runs at 60 Hz
+and a drag at 120 Hz with the frames complete, the rate is Android's
+choice; if the opening's frames are late or dropped, it is the main thread.
 
 ## Sheet behaviour
 
