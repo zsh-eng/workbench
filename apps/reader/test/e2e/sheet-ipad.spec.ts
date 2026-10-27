@@ -235,9 +235,12 @@ test("A window resized beside another app turns a form sheet into a phone sheet 
 });
 
 // Only the centred one: React Aria closes a sheet that its
-// IntersectionObserver saw on screen and then off it, and in Playwright's
-// WebKit that observer at times never reported a sheet with detents on
-// screen, so a swipe left it open below the screen.
+// IntersectionObserver saw on screen and then off it, and with this
+// project's user agent (Chrome's) that observer in Playwright's WebKit at
+// times never saw a docked sheet arrive, so a swipe left it open below the
+// screen. Arctic's ipad.spec.ts, with Safari's user agent as on an iPad,
+// swipes a docked sheet away ("Not confirmed" in packages/elements/docs/
+// MOTION.md).
 test("A swipe down dismisses a centred form sheet", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 820 });
   await openLab(page);

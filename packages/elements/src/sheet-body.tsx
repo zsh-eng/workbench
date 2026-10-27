@@ -29,13 +29,18 @@ export function isTextField(element: Element | null): element is HTMLElement {
  * A touch screen with room for an iPad's form sheet: regular width and
  * regular height in UIKit's terms ("iPad" in docs/MOTION.md). A phone in
  * either orientation, and a narrow window beside another app, stay below it;
- * so does a desktop without touch.
+ * so does a desktop without touch. A laptop with a touch screen matches.
  */
 export const SHEET_FORM_QUERY =
   "(any-pointer: coarse) and (min-width: 640px) and (min-height: 600px)";
 
 let formQuery: MediaQueryList | undefined;
 const sheetFormQuery = () => (formQuery ??= matchMedia(SHEET_FORM_QUERY));
+const subscribeSheetForm = (listener: () => void) => {
+  const query = sheetFormQuery();
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+};
 
 /**
  * Whether sheets take an iPad's form layout now. It changes when the
@@ -43,11 +48,7 @@ const sheetFormQuery = () => (formQuery ??= matchMedia(SHEET_FORM_QUERY));
  */
 export function useSheetForm(): boolean {
   return useSyncExternalStore(
-    (listener) => {
-      const query = sheetFormQuery();
-      query.addEventListener("change", listener);
-      return () => query.removeEventListener("change", listener);
-    },
+    subscribeSheetForm,
     () => sheetFormQuery().matches,
     () => false,
   );

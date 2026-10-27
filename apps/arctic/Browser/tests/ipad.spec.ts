@@ -4,6 +4,8 @@ import { addText, article, paragraphs, phone, signUp } from "./phone";
 // An iPad: WebKit with touch. Arctic shows sheets up to 720 px, so an iPad
 // shows them in a window beside another app; there they take UIKit's form
 // layout (sheetPlacement in @workbench/elements) from 640 px.
+// WebKit's own user agent is Safari's, as an iPad's is; React Aria's iOS
+// path depends on it (sheet-ipad.spec.ts in Reader runs with Chrome's).
 test.use({ browserName: "webkit", hasTouch: true });
 
 test.beforeEach(async ({ context }) => {

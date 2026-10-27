@@ -188,14 +188,17 @@ detents goes to large.
 (`SHEET_FORM_QUERY`, `sheetPlacement` in `src/sheet-body.tsx`):
 
 - A sheet without detents is a form sheet: centred, 580 px wide at most,
-  every corner round, over the dimmed page. It stays centred above the
-  keyboard (React Aria's `--sheet-scroll-padding-y`).
+  every corner round, over the dimmed page. It moves to the middle of the
+  space above the keyboard, by React Aria's measure of it
+  (`--sheet-scroll-padding-y`).
 - A sheet with detents stays on the bottom edge at 580 px, lifted 20 px,
   floating at every height; at full height its top is 32 px down. It keeps
   its detents, so the page above stays in view.
-- Every sheet leaves by a swipe down, as on a phone.
+- Every sheet leaves by a swipe down, as on a phone (but see "Not
+  confirmed").
 - A phone in either orientation, a window narrower than 640 px beside
-  another app, and a desktop without touch keep the phone sheet. The layout
+  another app, and a desktop without touch keep the phone sheet. A laptop
+  with a touch screen takes the form layout. The layout
   follows the window as it turns or is resized, and an open sheet keeps its
   detent or full view (`holdRestOnResize`): WebKit otherwise snaps it to
   whichever is nearest its old offset.
@@ -218,7 +221,20 @@ widths of 500 and 678 px; Arctic's `ipad.spec.ts` its own sheets.
   from the simulator.
 - A real iPad: the tests run Playwright's WebKit with touch, which replays
   no touch drag (a trackpad's scroll stands in for the swipe) and reports
-  no touch points (the tests report five, as iPadOS Safari does).
+  no touch points (the tests report five, as iPadOS Safari does). The
+  keyboard check sets React Aria's measure by hand; iPadOS may also pan the
+  page to show a field.
+- Swiping away a sheet with detents. React Aria closes a sheet once its
+  IntersectionObserver has seen it on screen and then off it. In
+  Playwright's WebKit with Chrome's user agent (Reader's tests), that
+  observer at times never saw a docked form sheet arrive, and a swipe left
+  it open below the screen; with Safari's user agent (Arctic's tests, and
+  an iPad), React Aria watches 58 px past the bottom edge, and the swipe
+  closed it every time. In Chromium with touch at 678 px, a fast touch
+  swipe left Reader's Contents, docked over the centred Reader tools, open
+  below the screen in 3 of 5 runs; at 500 px, as a phone sheet, it closed
+  in 5 of 5. Neither was traced to its cause; the swipe has not been tried
+  on an iPad.
 
 ## Telegram for iOS
 
