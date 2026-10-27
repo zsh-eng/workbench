@@ -34,8 +34,8 @@ import {
 } from "../publisher-font-faces";
 
 /**
- * 7: each chapter's table cell count, and its table cells' canonical starts
- * where it reads tables as grids (docs/0005-tables.md).
+ * 7: each chapter's table cell count, whether it reads tables as grids, and
+ * its table cells' canonical starts where it does (docs/0005-tables.md).
  */
 export const READER_BODY_CACHE_SCHEMA_VERSION = 7;
 export const READER_CHAPTER_ARTIFACTS_SCHEMA_VERSION = 1;
@@ -74,6 +74,7 @@ function buildBaseContentByChapter(
   chapterEntries: ChapterEntry[],
   chapterContentsByPath: Map<string, ReaderChapterCachedContent>,
   tablesMode: ReaderTablesMode,
+  canonicalTextStyled: boolean,
   publisherFontFaces: PublisherFontFace[] = [],
   publisherBodyFontScale?: number,
 ): Map<number, ReaderBaseChapterContent> {
@@ -91,6 +92,7 @@ function buildBaseContentByChapter(
       chapter,
       publisherBodyFontScale,
       tablesMode,
+      canonicalTextStyled,
     });
     baseContent.publisherFontFaces = publisherFontFaces;
     baseContentByChapter.set(chapterIndex, baseContent);
@@ -159,6 +161,7 @@ async function buildChapterContentsFromFiles(
     chaptersByPath[chapter.href] = {
       bodyHtml: chapterContent.bodyHtml,
       tableCellCount: chapterContent.tableCellCount,
+      tables: chapterContent.tables,
       canonicalText: chapterContent.canonicalText,
       bookStylesheets: chapterContent.bookStylesheets,
     };
@@ -242,6 +245,8 @@ export async function loadReaderBodyCache(options: {
       chapterEntries,
       chapterContentsByPath,
       tablesMode,
+      // Body scale collection parses canonical text with publisher styling.
+      cachedChapterSourceRow.publisherBodyScaleLoaded === true,
       cachedChapterSourceRow.publisherFontFaces ?? [],
       cachedChapterSourceRow.publisherBodyFontScale,
     );
@@ -307,6 +312,7 @@ export async function loadReaderBodyCache(options: {
     chapterEntries,
     builtChapterContents.chapterContentsByPath,
     tablesMode,
+    includePublisherBodyScale,
     builtChapterContents.publisherFontFaces,
     builtChapterContents.publisherBodyFontScale,
   );

@@ -407,6 +407,46 @@ describe("reader body cache", () => {
     expect(new Set(texts).size).toBe(1);
   });
 
+  it("reads a chapter the cell limit has moved as the limit says", async () => {
+    const body = "<p>Before</p><table><tr><td>A</td><td>B</td></tr></table>";
+    await db.bookFiles.add(createChapterFile("book-1", body));
+    // A row cached while a lower limit read this chapter as a paragraph.
+    await db.bookChapterSourceCache.put({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      cacheVersion: READER_BODY_CACHE_SCHEMA_VERSION,
+      publisherResourcesLoaded: false,
+      publisherBodyScaleLoaded: false,
+      chaptersByPath: {
+        [chapterEntry.href]: {
+          bodyHtml: body,
+          tableCellCount: 2,
+          tables: false,
+          canonicalText: {
+            fullText: "BeforeAB",
+            blockStarts: new Map([
+              ["text-1", 0],
+              ["text-2", 6],
+            ]),
+          },
+        },
+      },
+      publisherFontFaces: [],
+      updatedAt: 0,
+    });
+    const { loadKind, baseContentByChapter } = await loadReaderBodyCache({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      chapterEntries: [chapterEntry],
+      publisherBookStylingEnabled: false,
+      matchPublisherBodyTextSize: false,
+    });
+    expect(loadKind).toBe("cache-hit");
+    const content = baseContentByChapter.get(0)!;
+    expect(content.tables).toBe(true);
+    expect(content.canonicalText.blockStarts.get("text-2-c1")).toBe(7);
+  });
+
   it("removes the body cache when a book is deleted", async () => {
     const book = createBook({
       id: "book-delete",
@@ -426,6 +466,7 @@ describe("reader body cache", () => {
         [chapterEntry.href]: {
           bodyHtml: "<p>Cached</p>",
           tableCellCount: 0,
+          tables: false,
           canonicalText: {
             fullText: "Cached",
             blockStarts: new Map([["block-1", 0]]),

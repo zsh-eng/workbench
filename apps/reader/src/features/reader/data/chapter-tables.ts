@@ -10,8 +10,9 @@ export type ReaderTablesMode = "auto" | "grid" | "flat";
 /**
  * The most table cells a chapter reads as grids in Auto: the largest count
  * measured within the agreed cost (docs/0005-tables.md). The body cache
- * stores each chapter's canonical text for this choice, so a change here
- * needs a `READER_BODY_CACHE_SCHEMA_VERSION` bump.
+ * stores each chapter's canonical text for the choice it was built with. A
+ * chapter that the change moves parses its canonical text again on each
+ * open until a `READER_BODY_CACHE_SCHEMA_VERSION` bump rebuilds the cache.
  */
 export const GRID_TABLE_CELL_LIMIT = 700;
 

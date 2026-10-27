@@ -49,7 +49,11 @@ export interface ReaderChapterCachedContent {
   bodyHtml: string;
   /** The chapter's `td` and `th` cells, which decide how it reads tables. */
   tableCellCount: number;
-  /** Canonical text for the chapter's Auto table mode (`chapter-tables.ts`). */
+  /**
+   * Whether `canonicalText` was parsed with the tables as grids: Auto's
+   * choice (`chapter-tables.ts`) when it was built.
+   */
+  tables: boolean;
   canonicalText: ChapterCanonicalText;
   bookStylesheets?: BookStylesheet[];
   publisherFontFaces?: PublisherFontFace[];
@@ -215,6 +219,7 @@ export async function buildReaderChapterCachedContent(options: {
     return {
       bodyHtml,
       tableCellCount,
+      tables,
       canonicalText: parsedChapter.canonicalText,
       bookStylesheets,
       publisherFontFaces: [],
@@ -232,6 +237,7 @@ export async function buildReaderChapterCachedContent(options: {
   return {
     bodyHtml,
     tableCellCount,
+    tables,
     canonicalText: parsedChapter.canonicalText,
     bookStylesheets,
     publisherFontFaces,
@@ -242,9 +248,11 @@ export async function buildReaderChapterCachedContent(options: {
 }
 
 /**
- * A cached chapter as the Reader reads it in `tablesMode`. A Debug choice
- * that differs from the chapter's Auto mode parses canonical text again,
- * since table cells hold canonical starts only in grids.
+ * A cached chapter as the Reader reads it in `tablesMode`. When that differs
+ * from the way its canonical text was cached (a Debug choice, or a cell
+ * limit changed since), the canonical text is parsed again, with the
+ * publisher styling it was cached with, since table cells hold canonical
+ * starts only in grids.
  */
 export function loadBaseChapterContent(options: {
   chapterIndex: number;
@@ -252,6 +260,8 @@ export function loadBaseChapterContent(options: {
   chapter: ChapterEntry;
   publisherBodyFontScale?: number;
   tablesMode: ReaderTablesMode;
+  /** The cached canonical text was parsed with publisher styling. */
+  canonicalTextStyled?: boolean;
 }): ReaderBaseChapterContent {
   const {
     chapterIndex,
@@ -259,14 +269,21 @@ export function loadBaseChapterContent(options: {
     chapter,
     publisherBodyFontScale,
     tablesMode,
+    canonicalTextStyled = false,
   } = options;
-  const { tableCellCount } = chapterContent;
-  const tables = chapterTablesAsGrid(tableCellCount, tablesMode);
+  const tables = chapterTablesAsGrid(chapterContent.tableCellCount, tablesMode);
   const canonicalText =
-    tables === chapterTablesAsGrid(tableCellCount, "auto")
+    tables === chapterContent.tables
       ? chapterContent.canonicalText
-      : parseChapterHtmlWithCanonicalText(chapterContent.bodyHtml, { tables })
-          .canonicalText;
+      : parseChapterHtmlWithCanonicalText(chapterContent.bodyHtml, {
+          tables,
+          ...(canonicalTextStyled
+            ? {
+                publisherBookStylingEnabled: true,
+                bookStylesheets: chapterContent.bookStylesheets ?? [],
+              }
+            : {}),
+        }).canonicalText;
 
   return {
     chapterIndex,

@@ -51,6 +51,8 @@ export interface BookChapterSourceCacheEntry {
   bodyHtml: string;
   /** The chapter's `td` and `th` cells; they decide how it reads tables. */
   tableCellCount: number;
+  /** Whether `canonicalText` was parsed with the tables as grids. */
+  tables: boolean;
   canonicalText: {
     fullText: string;
     blockStarts: ReadonlyMap<string, number>;
