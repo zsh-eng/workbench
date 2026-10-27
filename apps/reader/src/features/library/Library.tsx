@@ -27,6 +27,9 @@ import { useLocalBookPreparationRepair } from "@/hooks/use-local-book-preparatio
 import { useDebugEnabled } from "@/lib/debug-preference";
 import { useReaderSettings } from "@/hooks/use-reader-settings";
 import { useSync } from "@/hooks/use-sync";
+import { files } from "@/lib/files";
+import { syncService } from "@/lib/sync-service";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
 import { useToast } from "@/hooks/use-toast";
 import type { Book } from "@/lib/db";
 import { compareBooksByLastReadDesc } from "@/lib/library-sort";
@@ -45,6 +48,7 @@ import {
   useLayoutEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type DragEvent,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -225,17 +229,46 @@ export function Library() {
     if (displayReady) return whenIdle(preloadReader);
   }, [displayReady]);
 
+  // The books you are reading open at once: those whose EPUB is on this
+  // device are prepared now. A new device has none of them, and downloading
+  // them all would hold back the covers for many seconds, so only the book
+  // you read last downloads, once the restore has ended and no download,
+  // such as a cover's, is under way.
+  const restoring = useSyncStatus(
+    syncService.controller,
+    (status) => status.restoring,
+  );
+  const downloading = useSyncExternalStore(
+    files.subscribe,
+    () => files.getSnapshot().downloading.length > 0,
+  );
   useEffect(() => {
     const books = data?.categorized.continueReading ?? [];
     if (books.length === 0) return;
-    void prefetchReaderBooks(queryClient, books, {
-      includeArtifacts: false,
-      publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
-      matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
+    let cancelled = false;
+    void Promise.all(
+      books.map((book) => files.hasLocal(book.sourceFileId)),
+    ).then((local) => {
+      if (cancelled) return;
+      const prepared = books.filter(
+        (_, index) =>
+          local[index] || (index === 0 && !restoring && !downloading),
+      );
+      if (prepared.length === 0) return;
+      void prefetchReaderBooks(queryClient, prepared, {
+        includeArtifacts: false,
+        publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
+        matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
+      });
     });
+    return () => {
+      cancelled = true;
+    };
   }, [
     data?.categorized.continueReading,
+    downloading,
     queryClient,
+    restoring,
     settings.matchPublisherBodyTextSize,
     settings.publisherBookStylingEnabled,
   ]);
