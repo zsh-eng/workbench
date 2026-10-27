@@ -34,11 +34,7 @@ export {
   getLineHeight,
   headingScale,
 } from "./shared/spacing";
-export {
-  DEFAULT_SPREAD_CONFIG,
-  sliceShowsBlock,
-  textSlicesOf,
-} from "./types";
+export { DEFAULT_SPREAD_CONFIG, sliceShowsBlock, textSlicesOf } from "./types";
 export type {
   Block,
   BookPageBreakHints,

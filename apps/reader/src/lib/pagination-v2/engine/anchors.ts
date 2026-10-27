@@ -182,9 +182,7 @@ export function pickAnchorForPage(
   const anchorableSlices = page.slices.flatMap((slice): PageSlice[] => {
     if (slice.type === "spacer") return [];
     if (slice.type !== "table") return [slice];
-    const cells = textSlicesOf([slice]).filter(
-      (cell) => cell.lines.length > 0,
-    );
+    const cells = textSlicesOf([slice]).filter((cell) => cell.lines.length > 0);
     return cells.length > 0 ? cells : [slice];
   });
   const slices = anchorableSlices.length > 0 ? anchorableSlices : page.slices;

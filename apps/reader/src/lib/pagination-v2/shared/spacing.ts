@@ -153,7 +153,10 @@ export function getBlockSpacing(
   }
 
   if (tag === "table") {
-    const tableSpacing = rhythmLinesToPixels(theme.paragraphSpacingFactor, theme);
+    const tableSpacing = rhythmLinesToPixels(
+      theme.paragraphSpacingFactor,
+      theme,
+    );
     return { above: tableSpacing, below: tableSpacing };
   }
 

@@ -1024,9 +1024,11 @@ function parseChapterHtmlInternal(
         return;
       }
       const tag = node.tagName.toLowerCase();
-      const length = getNodeTextLength(node);
+      // Only a leaf (ignored, caption or cell) needs its own length; rows
+      // and groups advance through their children.
+      const length = () => getNodeTextLength(node);
       if (IGNORE_TAGS.has(tag)) {
-        offset += length;
+        offset += length();
         return;
       }
       if (tag === "caption") {
@@ -1046,7 +1048,7 @@ function parseChapterHtmlInternal(
           recordBlockStart(context, caption.id, offset);
           blocks.push(caption);
         }
-        offset += length;
+        offset += length();
         return;
       }
       if (tag === "tr") {
@@ -1072,19 +1074,17 @@ function parseChapterHtmlInternal(
         );
         const runs = result.runs.filter((run) => run.text.length > 0);
         if (runs.some(isVisibleRun) || cellTargets.length > 0) {
-          const pageBreak =
-            context.bookPageBreakHintResolver?.resolvePageBreakHints(node);
+          // No page break hints: the table breaks between its rows.
           cellBlocks.push({
             type: "text",
             id: cellId,
             tag,
             ...(cellTargets.length > 0 ? { targetIds: cellTargets } : {}),
-            ...(pageBreak ? { pageBreakHints: pageBreak } : {}),
             runs,
           });
           recordBlockStart(context, cellId, offset);
         }
-        offset += length;
+        offset += length();
         return;
       }
       const head = inHead || tag === "thead";

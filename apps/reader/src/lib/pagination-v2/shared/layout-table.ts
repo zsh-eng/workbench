@@ -343,9 +343,11 @@ export function getTableStartHeight(
 ): number {
   if (plan.rows.length === 0) return 0;
   const header = headerHeight(plan);
+  // The split rule applies to the room left under the header.
+  const bodyRoom = room && { ...room, remaining: room.remaining - header };
   const firstBody =
     plan.headerRowCount < plan.rows.length
-      ? leastGroupHeight(plan, plan.headerRowCount, room)
+      ? leastGroupHeight(plan, plan.headerRowCount, bodyRoom)
       : 0;
   return header + firstBody;
 }
@@ -447,7 +449,10 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
     partHasBody = false;
   };
 
-  const pushRow = (row: PlannedRow, options: Parameters<typeof sliceRow>[2]) => {
+  const pushRow = (
+    row: PlannedRow,
+    options: Parameters<typeof sliceRow>[2],
+  ) => {
     rows.push(sliceRow(plan, row, options));
     partHeight += options.height;
   };
@@ -480,10 +485,15 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
     const isHeader = index < plan.headerRowCount;
     const end = isHeader ? plan.headerRowCount - 1 : plan.rows[index]!.groupEnd;
     const height = isHeader ? header : groupHeight(plan, index);
-    // The header goes with the first body group, or its first lines.
+    // The header goes with the first body group, or its first lines where
+    // the room left under the header lets that group split.
     const needed =
       isHeader && end + 1 < plan.rows.length
-        ? height + leastGroupHeight(plan, end + 1, room())
+        ? height +
+          leastGroupHeight(plan, end + 1, {
+            remaining: available() - height,
+            pageHeight: page.pageHeight,
+          })
         : height;
 
     if (needed <= available() || (height <= available() && !canBreak())) {
@@ -528,10 +538,8 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
         pushRow(row, {
           repeated: false,
           continued: from > 0,
-          height:
-            from === 0 && count === left
-              ? row.height
-              : plan.paddingY * 2 + count * plan.lineHeight,
+          // The lines this piece shows, row spans clipped to it included.
+          height: plan.paddingY * 2 + count * plan.lineHeight,
           lines: { from, count },
           rowsLeftInPart: 1,
         });

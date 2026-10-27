@@ -125,7 +125,10 @@ function getWorkerTraceDetails(
  * chapters an event reports, so a trace separates them from waiting.
  */
 function getWorkerStageDetails(
-  diagnostics: PaginationChapterDiagnostics | PaginationChapterDiagnostics[] | null,
+  diagnostics:
+    | PaginationChapterDiagnostics
+    | PaginationChapterDiagnostics[]
+    | null,
 ): Record<string, number> {
   const chapters = Array.isArray(diagnostics)
     ? diagnostics

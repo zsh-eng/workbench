@@ -8,12 +8,7 @@ import {
   type PreviousBlockKind,
 } from "./layout-pages";
 import { getBlockSpacing, getCollapsedBlockGap } from "./spacing";
-import type {
-  LayoutTheme,
-  Page,
-  PageSlice,
-  PreparedBlock,
-} from "./types";
+import type { LayoutTheme, Page, PageSlice, PreparedBlock } from "./types";
 
 /** One placed slice of a chapter column. It belongs to exactly one page. */
 export interface ColumnSlice {

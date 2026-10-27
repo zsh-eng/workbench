@@ -269,6 +269,8 @@ function getFollowingMinimumHeight(
   safeWidth: number,
   safeHeight: number,
   getTablePlan: (table: PreparedTableBlock) => TablePlan,
+  /** Height left on the page under the current block. */
+  remainingAfterBlock: number,
 ): number | null {
   if (!nextBlock || nextBlock.type === "page-break") return null;
   if (hasHardPageBreakBefore(nextBlock)) return null;
@@ -310,9 +312,14 @@ function getFollowingMinimumHeight(
       theme,
       currentSpacingBelow,
     );
+    // As the table itself will decide where it starts.
     return Math.min(
       safeHeight,
-      gap + getTableStartHeight(getTablePlan(nextBlock)),
+      gap +
+        getTableStartHeight(getTablePlan(nextBlock), {
+          remaining: remainingAfterBlock - gap,
+          pageHeight: safeHeight,
+        }),
     );
   }
 
@@ -442,8 +449,8 @@ export function layoutPages(
 
     if (block.type === "table") {
       const plan = getTablePlan(block);
-      blockIndex = collectTableCells(block, preparedBlocks, blockIndex)
-        .nextIndex - 1;
+      blockIndex =
+        collectTableCells(block, preparedBlocks, blockIndex).nextIndex - 1;
       if (plan.rows.length === 0) continue;
       for (const row of plan.rows)
         for (const cell of row.cells) totalLineCount += cell.lines.length;
@@ -579,6 +586,7 @@ export function layoutPages(
             safeWidth,
             safeHeight,
             getTablePlan,
+            availableBeforeBlock - effectiveGap - blockHeight,
           )
         : null;
     if (

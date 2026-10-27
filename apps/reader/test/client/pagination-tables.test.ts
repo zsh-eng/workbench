@@ -11,9 +11,18 @@ import {
   type TableSlice,
 } from "@/lib/pagination-v2";
 import {
+  buildScrollRows,
+  findAnchorOffset,
+  findFirstFullyVisibleLine,
+  findLineAtOrAfter,
+  findLineTextPosition,
+  findTextPositionOffset,
+} from "@/features/reader/scroll/scroll-model";
+import {
   pickAnchorForPage,
   resolveAnchorToPage,
 } from "@/lib/pagination-v2/engine/anchors";
+import { layoutChapterColumn } from "@/lib/pagination-v2/shared/layout-column";
 import {
   canonicalOffsetToContentAnchor,
   resolveTextAnchorToCanonicalOffset,
@@ -226,6 +235,42 @@ describe("laying out tables", () => {
     expect(full[0]?.pageIndex).toBe(1);
   });
 
+  it("gives every row piece room for its lines, row spans included", () => {
+    const long = "word ".repeat(150);
+    const html = `<body><p>Opening.</p><table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td rowspan="3">${long}</td><td>one</td></tr><tr><td>two</td></tr><tr><td>three</td></tr><tr><td>x</td><td>four</td></tr></tbody></table></body>`;
+    const parsed = parse(html, true);
+    const { pages } = layoutPages(
+      prepareBlocks(parsed.blocks, FONT_CONFIG),
+      360,
+      400,
+      LAYOUT_THEME,
+    );
+    const slices = tableSlices(pages);
+    expect(slices.length).toBeGreaterThan(1);
+    for (const slice of slices) {
+      for (const row of slice.rows) {
+        for (const cell of row.cells) {
+          if (cell.rowSpan > 1) continue;
+          expect(row.height).toBeGreaterThanOrEqual(
+            slice.cellPaddingY * 2 +
+              cell.slice.lines.length * cell.slice.lineHeight,
+          );
+        }
+      }
+      expect(slice.height).toBeLessThanOrEqual(400);
+    }
+    // Every word of the spanning cell shows once, over the pieces.
+    const words = slices
+      .flatMap((slice) => textSlicesOf([slice]))
+      .filter((cell) => cell.blockId.endsWith("-c2"))
+      .flatMap((cell) => cell.lines)
+      .flatMap((line) => line.fragments.map((fragment) => fragment.text))
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean);
+    expect(words).toHaveLength(150);
+  });
+
   it("scrolls a table sideways when its words cannot fit", () => {
     const wide = `<table><tr>${Array.from(
       { length: 8 },
@@ -241,6 +286,46 @@ describe("laying out tables", () => {
     const [slice] = tableSlices(result.pages);
     expect(slice?.overflows).toBe(true);
     expect(slice!.width).toBeGreaterThan(360);
+  });
+});
+
+describe("tables in scroll mode", () => {
+  const { blocks } = parse(CHAPTER, true);
+  const prepared = prepareBlocks(blocks, FONT_CONFIG);
+  const { pages } = layoutPages(prepared, 360, 400, LAYOUT_THEME);
+  const column = layoutChapterColumn(prepared, pages, 360, LAYOUT_THEME);
+  const rows = buildScrollRows(column);
+  const parts = rows.filter((row) => row.slice.type === "table");
+
+  it("places each part where its page puts it", () => {
+    expect(parts.length).toBeGreaterThan(2);
+    for (const part of parts)
+      expect(part.y).toBeGreaterThanOrEqual(column.pageStarts[part.pageIndex]!);
+  });
+
+  it("keeps the reading place inside a later part", () => {
+    const part = parts[2]!;
+    // Halfway down the part, below its repeated header.
+    const y = part.y + part.height / 2;
+    const line = findLineAtOrAfter(rows, 0, y)!;
+    expect(line.anchor.blockId).toMatch(/-c\d+$/);
+    expect(line.y).toBeGreaterThan(part.y);
+    expect(line.y).toBeLessThan(part.y + part.height);
+    // The anchor resolves to the first line of the same table row.
+    const anchored = findAnchorOffset(rows, line.anchor)!;
+    expect(anchored).toBeGreaterThanOrEqual(line.y);
+    expect(anchored).toBeLessThan(line.y + line.height);
+
+    const visible = findFirstFullyVisibleLine(rows, 0, y)!;
+    expect(visible.y).toBeGreaterThanOrEqual(y);
+    expect(visible.anchor.blockId).toMatch(/-c\d+$/);
+
+    // A relayout finds the same row again by its text.
+    const position = findLineTextPosition(rows, line.y)!;
+    expect(position.blockId).toBe(line.anchor.blockId);
+    const offset = findTextPositionOffset(rows, position)!;
+    expect(offset).toBeGreaterThanOrEqual(line.y);
+    expect(offset).toBeLessThan(line.y + line.height);
   });
 });
 
