@@ -6,17 +6,26 @@
  *   bun run kit shot <url|/route> [--steps file]
  *   bun run kit clip <url|/route> [--steps file | --seconds 3] [--sheet 6]
  *   bun run kit time <url|/route> --steps file [--runs 10] [--throttle 4]
+ *   bun run kit frames <trace.json> [--out chart.png]
  */
 import {
   chromium,
+  webkit,
   type BrowserContext,
+  type CDPSession,
   type Page,
   type ViewportSize,
 } from "@playwright/test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { loadavg, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -35,7 +44,7 @@ interface KitModule {
   reset?: (kit: KitContext) => Promise<unknown>;
 }
 
-const CAPS = { shot: 60, clip: 120, time: 180 } as const;
+const CAPS = { shot: 60, clip: 120, time: 180, frames: 60 } as const;
 type Command = keyof typeof CAPS;
 
 const { values: options, positionals } = parseArgs({
@@ -49,6 +58,9 @@ const { values: options, positionals } = parseArgs({
     port: { type: "string" },
     dark: { type: "boolean" },
     desktop: { type: "boolean" },
+    size: { type: "string" },
+    browser: { type: "string", default: "chromium" },
+    trace: { type: "string" },
     full: { type: "boolean" },
     throttle: { type: "string", default: "1" },
     timeout: { type: "string" },
@@ -61,6 +73,7 @@ const { values: options, positionals } = parseArgs({
 const [command, target] = positionals as [Command, string];
 if (!(command in CAPS) || !target) {
   console.error("usage: kit shot|clip|time <url|/route> [options]");
+  console.error("       kit frames <trace.json> [--out chart.png]");
   process.exit(64);
 }
 const cap = Number(options.timeout ?? CAPS[command]);
@@ -69,9 +82,31 @@ setTimeout(() => {
   process.exit(124);
 }, cap * 1000);
 const throttle = Number(options.throttle);
-const viewport: ViewportSize = options.desktop
-  ? { width: 1280, height: 800 }
-  : { width: 390, height: 844 };
+if (command === "frames") {
+  const { summarizeFrames } = await import("./frames");
+  const out = output("png");
+  console.log(
+    await summarizeFrames(
+      readFileSync(target, "utf8"),
+      out,
+      chromium,
+      basename(target),
+    ),
+  );
+  process.exit(0);
+}
+const sized = /^(\d+)x(\d+)$/.exec(options.size ?? "");
+const viewport: ViewportSize = sized
+  ? { width: Number(sized[1]), height: Number(sized[2]) }
+  : options.desktop
+    ? { width: 1280, height: 800 }
+    : { width: 390, height: 844 };
+const touch = !options.desktop;
+const engine = options.browser === "webkit" ? webkit : chromium;
+if (engine === webkit && (throttle > 1 || options.trace)) {
+  console.error("kit: --throttle and --trace need Chromium");
+  process.exit(64);
+}
 const origin = target.startsWith("/")
   ? `http://127.0.0.1:${options.port ?? process.env.E2E_PORT ?? 5190}`
   : new URL(target).origin;
@@ -87,13 +122,14 @@ process.exit(0);
 
 async function run() {
   const videoDir = join(tmpdir(), "agent-kit", `video-${process.pid}`);
-  const browser = await chromium.launch();
+  const browser = await engine.launch();
   const context = await browser.newContext({
     baseURL: origin,
     viewport,
     deviceScaleFactor: 2,
-    isMobile: !options.desktop,
-    hasTouch: !options.desktop,
+    // WebKit on a Mac has no mobile viewport; touch still works.
+    isMobile: touch && engine === chromium,
+    hasTouch: touch,
     colorScheme: options.dark ? "dark" : "light",
     serviceWorkers: "block",
     recordVideo:
@@ -142,9 +178,21 @@ async function run() {
     ).send("Emulation.setCPUThrottlingRate", { rate: throttle });
 
   const cpu = throttle > 1 ? `, CPU ${throttle}x slower` : "";
-  const size = `${viewport.width}×${viewport.height}${options.dark ? " dark" : ""}`;
+  const size = `${viewport.width}×${viewport.height}${options.dark ? " dark" : ""}${engine === webkit ? " WebKit" : ""}`;
+  const tracing = options.trace
+    ? await startTrace(await context.newCDPSession(page))
+    : undefined;
+  // Stops the trace once the steps end, before the page closes.
+  const saveTrace = async () => {
+    if (!tracing) return;
+    const out = resolve(options.trace!);
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, await tracing());
+    console.log(`trace ${out} (bun run kit frames ${options.trace})`);
+  };
   if (command === "shot") {
     await steps?.default(kit);
+    await saveTrace();
     const out = output("png");
     await page.screenshot({ path: out, fullPage: options.full });
     console.log(`shot ${out} (${size}, ${url})`);
@@ -154,6 +202,7 @@ async function run() {
     if (steps) await steps.default(kit);
     else await page.waitForTimeout(Number(options.seconds) * 1000);
     await page.waitForTimeout(300);
+    await saveTrace();
     const length = (performance.now() - pageStarted) / 1000 - from;
     const video = page.video()!;
     await context.close();
@@ -174,6 +223,7 @@ async function run() {
       if (run >= warmup) samples.push(ms);
       await steps.reset?.(kit);
     }
+    await saveTrace();
     const sorted = [...samples].sort((a, b) => a - b);
     const last = sorted.length - 1;
     const median =
@@ -194,6 +244,45 @@ async function run() {
       `page errors: ${errors.length}; first: ${errors[0]!.slice(0, 200)}`,
     );
   await browser.close();
+}
+
+/**
+ * Starts a Chrome performance trace with the categories DevTools records,
+ * frame reports included. Returns a function that stops it and gives the
+ * trace's JSON.
+ */
+async function startTrace(cdp: CDPSession) {
+  const events: unknown[] = [];
+  cdp.on("Tracing.dataCollected", ({ value }) => events.push(...value));
+  await cdp.send("Tracing.start", {
+    transferMode: "ReportEvents",
+    traceConfig: {
+      includedCategories: [
+        "devtools.timeline",
+        "disabled-by-default-devtools.timeline",
+        "disabled-by-default-devtools.timeline.frame",
+        "blink.user_timing",
+        "benchmark",
+        "cc",
+        "viz",
+        "gpu",
+        "input",
+        "latencyInfo",
+        "loading",
+        "v8.execute",
+        // JavaScript samples, so a long task names its functions.
+        "disabled-by-default-v8.cpu_profiler",
+      ],
+    },
+  });
+  return async () => {
+    const done = new Promise((resolve) =>
+      cdp.once("Tracing.tracingComplete", resolve),
+    );
+    await cdp.send("Tracing.end");
+    await done;
+    return JSON.stringify({ traceEvents: events });
+  };
 }
 
 /** Refuses a server from another checkout (see the Reader's `/__e2e`). */
