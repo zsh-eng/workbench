@@ -52,7 +52,6 @@ export function createNamespacedHttpClient(options: {
   const origin = new URL(options.origin).origin;
   const base = `${origin}/api/apps/${encodeURIComponent(options.namespace)}`;
   const send = options.fetch ?? globalThis.fetch.bind(globalThis);
-  let scope: SyncScope | undefined;
   const signal = (other?: AbortSignal | null) =>
     AbortSignal.any([
       ...(options.signal ? [options.signal] : []),
@@ -70,7 +69,6 @@ export function createNamespacedHttpClient(options: {
       throw new SyncScopeError("Incorrect sync server scope");
     options.signal?.throwIfAborted();
     bindSyncScope(options.stateStore, next);
-    scope = next;
     return next;
   }
   let asking: Promise<SyncScope> | undefined;
