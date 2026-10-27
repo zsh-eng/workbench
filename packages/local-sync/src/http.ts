@@ -89,7 +89,12 @@ export function createNamespacedHttpClient(options: {
     });
     return asking;
   }
-  async function request(path: string, init: RequestInit = {}, refresh = true) {
+  /** A request and the scope it sent, which the response carried back. */
+  async function scopedRequest(
+    path: string,
+    init: RequestInit,
+    refresh: boolean,
+  ) {
     const expected = refresh ? await getScope() : await knownScope();
     const headers = new Headers(init.headers);
     headers.set("X-Sync-Scope", JSON.stringify(expected));
@@ -104,7 +109,10 @@ export function createNamespacedHttpClient(options: {
     if (!response.ok) throw new SyncHttpError(response.status, response);
     if (response.headers.get("X-Sync-Scope") !== JSON.stringify(expected))
       throw new SyncScopeError("Sync response scope changed");
-    return response;
+    return { response, expected };
+  }
+  async function request(path: string, init: RequestInit = {}, refresh = true) {
+    return (await scopedRequest(path, init, refresh)).response;
   }
   const remote: SyncRemote = {
     getScope,
@@ -126,13 +134,13 @@ export function createNamespacedHttpClient(options: {
       const params = new URLSearchParams(
         Object.entries(query).map(([key, value]) => [key, String(value)]),
       );
-      const response = await request(
+      const { response, expected } = await scopedRequest(
         `/sync/v3/pull-stream?${params}`,
         { headers: { "X-Device-ID": deviceId }, signal: streamSignal },
         false,
       );
       for await (const page of readSyncPullStream(response, streamSignal)) {
-        bindSyncScope(options.stateStore, scope!);
+        bindSyncScope(options.stateStore, expected);
         yield page;
       }
     },
