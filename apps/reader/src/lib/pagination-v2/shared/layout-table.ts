@@ -30,6 +30,8 @@ import type {
 
 /** Horizontal cell padding, in ems of the reading size. */
 const CELL_PADDING_X_EM = 0.45;
+/** The least horizontal padding a cell keeps to make a table fit. */
+const MIN_CELL_PADDING_X_PX = 2;
 /** Vertical cell padding, in ems of the reading size. */
 const CELL_PADDING_Y_EM = 0.3;
 /**
@@ -194,21 +196,28 @@ export function planTable(
   pageWidth: number,
 ): TablePlan {
   const lineHeight = getLineHeight("td", theme);
-  const paddingX = Math.round(theme.baseFontSizePx * CELL_PADDING_X_EM);
   const paddingY = Math.round(theme.baseFontSizePx * CELL_PADDING_Y_EM);
-  const chrome = paddingX * 2 + LINE_FIT_SAFETY_PX;
   const { placed, columnCount } = placeCells(table);
   const columns = Math.max(1, columnCount);
-  const minCap = Math.max(chrome + 1, pageWidth * MAX_COLUMN_MIN_SHARE);
+  const content = new Map(
+    placed.flatMap((row) =>
+      row.map(
+        (cell) =>
+          [cell, cellContentWidths(cells.get(cell.spec.blockId))] as const,
+      ),
+    ),
+  );
 
-  const mins = new Array<number>(columns).fill(chrome);
-  const maxes = new Array<number>(columns).fill(chrome);
-  const spanning: { cell: PlacedCell; min: number; max: number }[] = [];
-  for (const row of placed) {
-    for (const cell of row) {
-      const content = cellContentWidths(cells.get(cell.spec.blockId));
-      const min = Math.min(minCap, Math.ceil(content.min) + chrome);
-      const max = Math.max(min, Math.ceil(content.max) + chrome);
+  /** Each column's min- and max-content width with cells of this padding. */
+  const columnContentWidths = (paddingX: number) => {
+    const chrome = paddingX * 2 + LINE_FIT_SAFETY_PX;
+    const minCap = Math.max(chrome + 1, pageWidth * MAX_COLUMN_MIN_SHARE);
+    const mins = new Array<number>(columns).fill(chrome);
+    const maxes = new Array<number>(columns).fill(chrome);
+    const spanning: { cell: PlacedCell; min: number; max: number }[] = [];
+    for (const [cell, widths] of content) {
+      const min = Math.min(minCap, Math.ceil(widths.min) + chrome);
+      const max = Math.max(min, Math.ceil(widths.max) + chrome);
       if (cell.spec.colSpan > 1) {
         spanning.push({ cell, min, max });
         continue;
@@ -216,20 +225,32 @@ export function planTable(
       mins[cell.column] = Math.max(mins[cell.column]!, min);
       maxes[cell.column] = Math.max(maxes[cell.column]!, max);
     }
-  }
-  // A spanning cell widens the columns it spans evenly, if they are short.
-  for (const { cell, min, max } of spanning) {
-    const span = Array.from(
-      { length: cell.spec.colSpan },
-      (_, offset) => cell.column + offset,
-    ).filter((column) => column < columns);
-    const spanMin = span.reduce((sum, column) => sum + mins[column]!, 0);
-    const spanMax = span.reduce((sum, column) => sum + maxes[column]!, 0);
-    for (const column of span) {
-      if (min > spanMin) mins[column]! += (min - spanMin) / span.length;
-      if (max > spanMax) maxes[column]! += (max - spanMax) / span.length;
-      maxes[column] = Math.max(maxes[column]!, mins[column]!);
+    // A spanning cell widens the columns it spans evenly, if they are short.
+    for (const { cell, min, max } of spanning) {
+      const span = Array.from(
+        { length: cell.spec.colSpan },
+        (_, offset) => cell.column + offset,
+      ).filter((column) => column < columns);
+      const spanMin = span.reduce((sum, column) => sum + mins[column]!, 0);
+      const spanMax = span.reduce((sum, column) => sum + maxes[column]!, 0);
+      for (const column of span) {
+        if (min > spanMin) mins[column]! += (min - spanMin) / span.length;
+        if (max > spanMax) maxes[column]! += (max - spanMax) / span.length;
+        maxes[column] = Math.max(maxes[column]!, mins[column]!);
+      }
     }
+    return { mins, maxes };
+  };
+
+  // A table that misses the page by less than its padding narrows its
+  // padding instead of scrolling a few pixels sideways.
+  let paddingX = Math.round(theme.baseFontSizePx * CELL_PADDING_X_EM);
+  let { mins, maxes } = columnContentWidths(paddingX);
+  const excess = mins.reduce((a, b) => a + b, 0) - Math.floor(pageWidth);
+  const spare = columns * 2 * (paddingX - MIN_CELL_PADDING_X_PX);
+  if (excess > 0 && excess <= spare) {
+    paddingX -= Math.ceil(excess / (columns * 2));
+    ({ mins, maxes } = columnContentWidths(paddingX));
   }
 
   const columnWidths = distributeWidths(mins, maxes, pageWidth);

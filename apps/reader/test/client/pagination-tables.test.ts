@@ -271,6 +271,30 @@ describe("laying out tables", () => {
     expect(words).toHaveLength(150);
   });
 
+  it("narrows its padding when it misses the page by a little", () => {
+    const layoutWords = (word: string) => {
+      const html = `<body><table><tr>${Array.from(
+        { length: 4 },
+        () => `<td>${word}</td>`,
+      ).join("")}</tr></table></body>`;
+      const parsed = parse(html, true);
+      const { pages } = layoutPages(
+        prepareBlocks(parsed.blocks, FONT_CONFIG),
+        360,
+        400,
+        LAYOUT_THEME,
+      );
+      return tableSlices(pages)[0]!;
+    };
+    const near = layoutWords("abcdefghij");
+    expect(near.overflows).toBe(false);
+    expect(near.width).toBeLessThanOrEqual(360);
+    expect(near.cellPaddingX).toBeLessThan(7);
+    const far = layoutWords("abcdefghijk");
+    expect(far.overflows).toBe(true);
+    expect(far.cellPaddingX).toBe(7);
+  });
+
   it("scrolls a table sideways when its words cannot fit", () => {
     const wide = `<table><tr>${Array.from(
       { length: 8 },
