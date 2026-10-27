@@ -19,7 +19,10 @@ export default async function epubFileBook(kit: {
   const file = process.env.KIT_EPUB;
   if (!file) throw new Error("Set KIT_EPUB to an EPUB's path");
   await signedOut(kit);
-  const title = new RegExp(process.env.KIT_TITLE ?? basename(file, ".epub"), "i");
+  const title = new RegExp(
+    process.env.KIT_TITLE ?? basename(file, ".epub"),
+    "i",
+  );
   const book = await importAndOpenEpub(kit.page, file, title);
   if (process.env.KIT_CHAPTER)
     await openContentsEntry(kit.page, new RegExp(process.env.KIT_CHAPTER));

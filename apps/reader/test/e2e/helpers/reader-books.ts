@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import {
   currentPages,
   expect,
@@ -35,24 +35,45 @@ export async function importAndOpenEpub(
 }
 
 /**
- * Opens the Contents entry that matches `entry` from the phone's footer and
- * waits for its page. The jump saves the reading place, so the
- * book reopens there.
+ * Opens the Contents entry that matches `entry` from the footer and waits
+ * for its page: Contents is a sheet on a phone and a side panel on an iPad.
+ * The jump saves the reading place, so the book reopens there.
  */
 export async function openContentsEntry(
   page: Page,
   entry: RegExp,
 ): Promise<void> {
-  await showPhoneChrome(page);
-  await page
-    .getByRole("button", { name: "Open table of contents", exact: true })
-    .click();
-  const contents = await waitForSheet(page, "Contents");
+  // Setup for timings and table specs, not the interaction under test: a
+  // toast or the chrome's own motion must not hold the taps up, and a busy
+  // machine may drop the first open. Contents navigation has its own specs.
+  const sheet = page.getByRole("dialog", { name: "Contents", exact: true });
+  const entryIn = (scope: Page | Locator) =>
+    scope.getByRole("button", { name: entry }).first();
+  const open = async () =>
+    (await sheet.isVisible()) || (await entryIn(page).isVisible());
+  for (let attempt = 0; attempt < 3 && !(await open()); attempt++) {
+    await showPhoneChrome(page);
+    await page
+      .getByRole("button", { name: "Open table of contents", exact: true })
+      .dispatchEvent("click");
+    await expect
+      .poll(open, { timeout: 5000 })
+      .toBe(true)
+      .catch(() => {});
+  }
+  // A phone's Contents is a sheet; an iPad's is the tools panel.
+  const item = (await sheet.isVisible()) ? entryIn(sheet) : entryIn(page);
+  if (await sheet.isVisible()) await waitForSheet(page, "Contents");
   const pages = await currentPages(page);
-  await contents.getByRole("button", { name: entry }).first().click();
+  await item.dispatchEvent("click");
   await expect.poll(() => currentPages(page)).not.toEqual(pages);
-  if (await contents.isVisible()) await page.keyboard.press("Escape");
-  await expect(contents).toBeHidden();
+  for (let attempt = 0; attempt < 3 && (await sheet.isVisible()); attempt++) {
+    await page.keyboard.press("Escape");
+    await expect(sheet)
+      .toBeHidden({ timeout: 3000 })
+      .catch(() => {});
+  }
+  await expect(sheet).toBeHidden();
   await waitForReaderReady(page);
 }
 
