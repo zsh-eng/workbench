@@ -97,11 +97,14 @@ type CoverLane = "now" | "screen" | "background";
  * Loads and decodes a cover once for the application session. Keeping the
  * object URL across library mounts prevents a second blank-to-cover swap when
  * the user returns from the reader. A cover already on this device loads
- * `now`; downloads wait for a turn, `screen` before `background`.
+ * `now`; downloads wait for a turn, `screen` before `background`. A
+ * background load that holds a queued cover adds it to `holds`, to give back
+ * with `releaseBackgroundCovers`.
  */
 function loadDecodedCoverUrl(
   fileId: FileId,
   lane: CoverLane,
+  holds?: QueuedCover[],
 ): Promise<string | null> {
   const cachedUrl = decodedCoverUrls.get(fileId);
   if (cachedUrl) return Promise.resolve(cachedUrl);
@@ -109,8 +112,10 @@ function loadDecodedCoverUrl(
   const pendingLoad = pendingCoverLoads.get(fileId);
   if (pendingLoad) {
     const queued = queuedCovers.find((cover) => cover.fileId === fileId);
-    if (queued && lane === "background" && queued.backgroundHolders > 0)
+    if (queued && lane === "background" && queued.backgroundHolders > 0) {
       queued.backgroundHolders += 1;
+      holds?.push(queued);
+    }
     if (queued && lane !== "background") {
       queued.backgroundHolders = 0;
       if (lane === "now") {
@@ -122,6 +127,7 @@ function loadDecodedCoverUrl(
     return pendingLoad;
   }
 
+  let created: QueuedCover | undefined;
   const loadPromise = new Promise<string | null>((resolve) => {
     const cover: QueuedCover = {
       fileId,
@@ -139,21 +145,27 @@ function loadDecodedCoverUrl(
         resolve(null);
       },
     };
+    created = cover;
     if (lane === "now") {
       loadingCovers += 1;
       cover.start();
     } else queuedCovers.push(cover);
   });
+  if (lane === "background") holds?.push(created!);
   pendingCoverLoads.set(fileId, loadPromise);
   startQueuedCovers();
   return loadPromise;
 }
 
-/** Background covers that nobody wants any more leave the queue unstarted. */
-function releaseBackgroundCovers(fileIds: ReadonlySet<FileId>): void {
-  for (let index = queuedCovers.length - 1; index >= 0; index -= 1) {
-    const cover = queuedCovers[index]!;
-    if (cover.backgroundHolders === 0 || !fileIds.has(cover.fileId)) continue;
+/**
+ * Gives back the holds a background load took. A cover that nobody wants any
+ * more leaves the queue unstarted; one that has started, or that the screen
+ * asked for, holds nothing and stays.
+ */
+function releaseBackgroundCovers(holds: readonly QueuedCover[]): void {
+  for (const cover of holds) {
+    const index = queuedCovers.indexOf(cover);
+    if (index < 0 || cover.backgroundHolders === 0) continue;
     cover.backgroundHolders -= 1;
     if (cover.backgroundHolders > 0) continue;
     queuedCovers.splice(index, 1);
@@ -297,19 +309,18 @@ export function useLibraryCoverUrls(
     if (preparedKey !== initialKey) return;
 
     let cancelled = false;
-    const wanted = new Set<FileId>();
+    const holds: QueuedCover[] = [];
     for (const book of books.slice(initialCoverLimit)) {
       const fileId = getBookCoverFileId(book);
       if (!fileId) continue;
-      wanted.add(fileId);
-      void loadDecodedCoverUrl(fileId, "background").then((url) => {
+      void loadDecodedCoverUrl(fileId, "background", holds).then((url) => {
         if (!cancelled && url) addCoverUrl(book.id, url);
       });
     }
 
     return () => {
       cancelled = true;
-      releaseBackgroundCovers(wanted);
+      releaseBackgroundCovers(holds);
     };
   }, [
     addCoverUrl,
