@@ -234,26 +234,26 @@ OPPO Pad Mini at three densities; Arctic's `ipad.spec.ts` its own sheets.
 
 **A swipe that left a sheet open (fixed).** React Aria closes a sheet once
 its IntersectionObserver has reported some of the sheet on screen and then
-none of it. A docked sheet, or one at a partial detent, has part of itself
-below the screen at rest, so the observer reports it once, as it arrives.
-Two things lost that report, and a fast swipe then left the sheet open
-below the screen (Reader's Contents over the centred Reader tools, in
-Chromium with touch, 3 of 5 runs):
+none of it. The observer reports only when the sheet crosses one of its
+thresholds, 0 and 1, or starts or stops touching the screen. A sheet that
+rests at a partial detent, part of it below the screen, arrives touching
+the bottom edge, which counts as in view with nothing showing (ratio 0). As
+it rises to its detent it crosses no threshold, so it never counts as
+entered, and a fast swipe left it open below the screen: Reader's Contents
+over Reader tools in Chromium with touch (3 of 5 runs), and Arctic's Text
+and theme in 3 of 3. A patch (`patches/react-aria-components@1.22.1.patch`):
 
-- The spring started an entering sheet with its top exactly on the bottom
-  edge. The observer counts an edge that touches as in view at ratio 0, so
-  it saw no change when the sheet moved up, and did not report it.
-  `springTo` now starts it a pixel in.
-- The observer can deliver several entries in one call, oldest first: the
-  sheet still below the screen, then in view. React Aria read only the
-  first. A patch (`patches/react-aria-components@1.22.1.patch`) acts on
-  the newest and counts the sheet as entered if any entry showed some of
-  it.
+- adds a threshold at 0.01, so the observer reports the sheet once some of
+  it shows;
+- acts on the newest entry of a batch, and counts the sheet as entered if
+  any entry showed some of it. The observer can deliver several entries in
+  one call, oldest first, and React Aria read only the first.
 
-Each fix alone left failures (3 of 6 runs with the pixel, 1 of 8 with the
-patch); together, 16 of 16 in Chromium with touch and 6 of 6 in WebKit.
-`sheet-android.spec.ts` and `sheet-ipad.spec.ts` swipe each sheet away.
-Remove the patch when React Aria reads the newest entry.
+With it, Reader's Chromium spec passed six times over (42 runs), its
+WebKit swipe test (a centred and a docked form sheet) 4 of 4, and Arctic's
+Chromium spec 5 of 5. `sheet-android.spec.ts` and `sheet-ipad.spec.ts` in
+Reader and `android.spec.ts` in Arctic swipe each sheet away. Remove the
+patch when React Aria reports a partial detent.
 
 ## Telegram for iOS
 

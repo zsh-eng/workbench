@@ -90,13 +90,7 @@ export function springSheetScroller(
     const edge = sheet
       ? scroller.scrollTop + sheet.getBoundingClientRect().top - screenBottom()
       : -Infinity;
-    // An entering sheet starts a pixel in. React Aria counts a sheet as
-    // entered once its IntersectionObserver reports some of it on screen,
-    // and the observer reports again only when all of it shows or none
-    // does. A sheet that touches the edge is reported as intersecting with
-    // none of it showing; at a partial detent it then never counts as
-    // entered, and a swipe out of view leaves it open.
-    if (goal > from && from < edge) from = Math.min(edge + 1, goal);
+    if (goal > from && from < edge) from = Math.min(edge, goal);
     const leaving = goal < from && goal < edge;
     // A leaving sheet stops a pixel past the edge, where React Aria's
     // IntersectionObserver sees none of it.
