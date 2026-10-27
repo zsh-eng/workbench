@@ -1,4 +1,5 @@
 import { runMigrationScenario } from "@/features/sync-lab/core/migrations";
+import { SYNC_V2_DATABASE_VERSION } from "@/lib/sync-v2/db";
 import Dexie from "dexie";
 import { Blob as NodeBlob } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +15,7 @@ describe("Sync Lab historical database migrations", () => {
       const report = await runMigrationScenario(version);
       expect(report.databaseName).toMatch(/^sync-lab-migration-/);
       expect(report.before.version).toBe(version);
-      expect(report.toVersion).toBe(7);
+      expect(report.toVersion).toBe(SYNC_V2_DATABASE_VERSION);
       expect(report.passed).toBe(true);
       expect(report.checks).toHaveLength(7);
       expect(report.after.counts.books).toBe(1);

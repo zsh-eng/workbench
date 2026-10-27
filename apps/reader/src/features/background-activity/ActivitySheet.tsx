@@ -284,7 +284,7 @@ function Row({
 }
 
 /** A row or a heading that joins or leaves by opening or closing its height. */
-function Collapse({
+export function Collapse({
   height,
   className,
   children,
@@ -312,7 +312,12 @@ function Collapse({
  * Waiting, Couldn't finish, Done, and This app (sync's exceptions and the
  * update). Rows hold still while the sheet is open (sheet-rows.ts).
  */
-export function ActivitySheetBody() {
+export function ActivitySheetBody({
+  emptyLabel = "Nothing in the background. Everything is on this device and synced.",
+}: {
+  /** What an empty sheet says. */
+  emptyLabel?: string;
+}) {
   const { source } = useActivityEnvironment();
   const snapshot = useActivity(source);
   const now = useNow(true, 1_000);
@@ -327,7 +332,7 @@ export function ActivitySheetBody() {
       )}
       {groups.length === 0 && (
         <p className="py-8 text-center text-[13px] text-muted-foreground">
-          Nothing in the background. Everything is on this device and synced.
+          {emptyLabel}
         </p>
       )}
       <AnimatePresence initial={false}>

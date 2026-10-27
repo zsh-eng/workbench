@@ -26,10 +26,10 @@ import {
   getOrCreateSyncClientState,
   nextSyncHlcBatch,
 } from "@/lib/sync-v2/client-state";
-import { installSync } from "@zsh-eng/local-sync/dexie";
+import { installSync, SYNC_JOURNAL_SCHEMA } from "@zsh-eng/local-sync/dexie";
 import { READER_SYNC_TABLES } from "./tables";
 export { SYNC_V2_SYNCED_TABLES } from "./tables";
-import type { SyncPushChange } from "@zsh-eng/local-sync";
+import type { SyncJournalEntry, SyncPushChange } from "@zsh-eng/local-sync";
 import type { Highlight } from "@/types/highlight";
 import type { NoteDraft, Note } from "@/types/note";
 import type { ReadingState } from "@/types/reading-state";
@@ -37,6 +37,8 @@ import Dexie, { type Table, type Transaction } from "dexie";
 
 export const SYNC_V2_DATABASE_NAME =
   "epub-reader-db-v2" + SHARED_STORAGE_SUFFIX;
+/** The schema version this code opens. Sync Lab checks a source library against it. */
+export const SYNC_V2_DATABASE_VERSION = 8;
 const LEGACY_DATABASE_NAME = "epub-reader-db";
 
 export interface SyncV2DeletionState {
@@ -90,6 +92,8 @@ export const SYNC_V2_STORES = {
   fileUploadOperations: "id, createdAt",
   bookMaterializations: "bookId, sourceFileId, recipeVersion",
   bookStructures: "bookId",
+  // What each sync pass moved, on this device only: never synced.
+  _sync_journal: SYNC_JOURNAL_SCHEMA,
 } as const;
 
 export const SYNC_V2_VERSION_4_STORES = {
@@ -255,6 +259,7 @@ export class EPUBReaderSyncV2DB extends Dexie {
   bookChapterSourceCache!: Table<BookChapterSourceCache, string>;
 
   _sync_outbox!: Table<SyncPushChange, string>;
+  _sync_journal!: Table<SyncJournalEntry, string>;
 
   constructor(databaseName = SYNC_V2_DATABASE_NAME) {
     super(databaseName);
@@ -278,6 +283,9 @@ export class EPUBReaderSyncV2DB extends Dexie {
       noteDrafts: SYNC_V2_STORES.noteDrafts,
     });
     this.version(7).stores({ bookStructures: SYNC_V2_STORES.bookStructures });
+    this.version(SYNC_V2_DATABASE_VERSION).stores({
+      _sync_journal: SYNC_V2_STORES._sync_journal,
+    });
   }
 }
 

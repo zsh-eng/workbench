@@ -4,6 +4,7 @@ import {
   EPUBReaderSyncV2DB,
   SYNC_V2_SYNCED_TABLES,
   SYNC_V2_DATABASE_NAME,
+  SYNC_V2_DATABASE_VERSION,
 } from "@/lib/sync-v2/db";
 import { computeFileId } from "@/lib/files/file-id";
 import type { LocalFile } from "@/lib/files/types";
@@ -28,7 +29,7 @@ export async function listSourceBooks(): Promise<SourceBook[]> {
   const source = new Dexie(SYNC_V2_DATABASE_NAME);
   try {
     await source.open();
-    if (source.verno !== 7)
+    if (source.verno !== SYNC_V2_DATABASE_VERSION)
       throw new Error(
         "Open Reader to update the local library before capturing it in Sync Lab.",
       );
@@ -51,7 +52,7 @@ export async function captureLocalSeed(
   const source = new Dexie(SYNC_V2_DATABASE_NAME);
   try {
     await source.open();
-    if (source.verno !== 7) {
+    if (source.verno !== SYNC_V2_DATABASE_VERSION) {
       throw new Error(
         "Open Reader to update the local library before capturing it in Sync Lab.",
       );
