@@ -13,7 +13,7 @@ export type Settings = {
   spacing: "tight" | "normal" | "loose";
   width: "narrow" | "normal" | "wide";
   align: "left" | "justify";
-  layout: "cards" | "list";
+  layout: "cards" | "list" | "magazine";
   /** Download every saved text after each sync. */
   offline: boolean;
 };
@@ -26,8 +26,13 @@ const DEFAULT_SETTINGS: Settings = {
   spacing: "normal",
   width: "normal",
   align: "left",
-  // A phone shows more of the library as a list.
-  layout: matchMedia("(max-width: 720px)").matches ? "list" : "cards",
+  // A phone shows more of the library as a list; a wider touch screen, such
+  // as an iPad's, shows each link's picture (docs/MAGAZINE.md).
+  layout: matchMedia("(max-width: 720px)").matches
+    ? "list"
+    : matchMedia("(any-pointer: coarse)").matches
+      ? "magazine"
+      : "cards",
   offline: false,
 };
 

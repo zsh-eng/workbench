@@ -42,6 +42,15 @@ export function useArticles(): Article[] {
   );
 }
 
+/** Whether the links' first pull on this device is still under way. */
+export function useRestoring() {
+  const session = useSession();
+  return useSyncExternalStore(
+    (listener) => session.subscribe(listener),
+    () => session.restoring,
+  );
+}
+
 /** Each derivation's last value, per storage: one per record change. */
 const derived = new WeakMap<
   RecordStorage,

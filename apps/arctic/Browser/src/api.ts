@@ -1,3 +1,5 @@
+import { syncScopeSchema, type SyncScope } from "@zsh-eng/local-sync";
+
 /** The shared Workbench API. Local development uses `bun run dev:shared` on 8792. */
 const configured = import.meta.env.VITE_SHARED_API_URL as string | undefined;
 export const API_ORIGIN = new URL(
@@ -30,7 +32,20 @@ export function rememberedAccount(): Account | null {
  * account, so this browser's copy still opens; signing out forgets it.
  */
 export async function currentAccount(): Promise<Account | null> {
-  const response = await fetch(`${API_ORIGIN}/api/me`, {
+  return (await checkAccount())?.account ?? null;
+}
+
+/**
+ * The account check, with the links' sync scope. `/api/apps/arctic/me`
+ * answers as `/api/me` does, and like every namespaced route it sends the
+ * scope in `X-Sync-Scope`, so a new device's first pull needs no
+ * `/sync/v3/state` request (docs/FIRST_SYNC.md).
+ */
+export async function checkAccount(): Promise<{
+  account: Account;
+  scope?: SyncScope;
+} | null> {
+  const response = await fetch(`${API_ORIGIN}/api/apps/arctic/me`, {
     credentials: "include",
     signal: AbortSignal.timeout(15_000),
   });
@@ -47,7 +62,23 @@ export async function currentAccount(): Promise<Account | null> {
     ...(user.image ? { image: user.image } : {}),
   };
   localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account));
-  return account;
+  return { account, scope: linksScope(response, account) };
+}
+
+/** The scope in the answer's header, when it is this server's, for these links. */
+function linksScope(response: Response, account: Account) {
+  try {
+    const scope = syncScopeSchema.parse(
+      JSON.parse(response.headers.get("X-Sync-Scope") ?? "null"),
+    );
+    return scope.origin === API_ORIGIN &&
+      scope.namespace === "arctic" &&
+      scope.userId === account.userId
+      ? scope
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function auth(path: string, body: object) {

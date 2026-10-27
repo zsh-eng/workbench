@@ -42,6 +42,7 @@ export function SettingsPage() {
               label="Layout"
               value={settings.layout}
               options={[
+                ["magazine", "Magazine"],
                 ["cards", "Cards"],
                 ["list", "List"],
               ]}

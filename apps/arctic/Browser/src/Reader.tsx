@@ -21,6 +21,7 @@ import {
 import { useArticles, useDerived, useSession, useSyncing } from "./state";
 import { articleText, isCover, readyText, type Text } from "./text";
 import { duration, readingSessions, useReadingClock } from "./reading";
+import { readPosition, savePosition } from "./position";
 import { NotesPanel, Passages } from "./Passages";
 import { Sheet, useCompact } from "./surface";
 import { ArticleMenu, Tip, useActions, usePageTitle } from "./ui";
@@ -603,8 +604,7 @@ function TypePanel() {
 function useReadingPosition(id: string, ready: boolean) {
   useEffect(() => {
     if (!ready) return;
-    const key = `arctic:position:${id}`;
-    const saved = Number(localStorage.getItem(key));
+    const saved = readPosition(id);
     const height = () =>
       document.documentElement.scrollHeight - window.innerHeight;
     if (saved > 0.02 && saved < 0.98)
@@ -612,15 +612,7 @@ function useReadingPosition(id: string, ready: boolean) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const save = () => {
       const max = height();
-      if (max <= 0) return;
-      try {
-        localStorage.setItem(
-          key,
-          String(Math.round((window.scrollY / max) * 1000) / 1000),
-        );
-      } catch {
-        /* Storage is full or blocked; position is a convenience. */
-      }
+      if (max > 0) savePosition(id, window.scrollY / max);
     };
     const onScroll = () => {
       clearTimeout(timer);

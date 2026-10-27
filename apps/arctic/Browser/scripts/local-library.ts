@@ -2,8 +2,9 @@
  * Copies the account's Arctic library from the Workbench Backup mirror into an
  * account on the local shared API (`bun run dev:shared`), for design work with
  * real titles and images. With --text it also copies the article text
- * (`arctic-content` records and files). It writes only to
- * http://localhost:8792.
+ * (`arctic-content` records and files). It writes only to a local API:
+ * http://localhost:8792, or ARCTIC_LOCAL_API with ARCTIC_LOCAL_APP, the app
+ * origin that API trusts (the first-sync lab's are 5541 and 5543).
  *
  *   bun scripts/local-library.ts <email> <password> [--text]
  */
@@ -11,7 +12,10 @@ import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const API = "http://localhost:8792";
+const API = process.env.ARCTIC_LOCAL_API ?? "http://localhost:8792";
+const APP = process.env.ARCTIC_LOCAL_APP ?? "http://localhost:5186";
+if (!["localhost", "127.0.0.1"].includes(new URL(API).hostname))
+  throw new Error("This script writes to a local API only.");
 const [email, password] = process.argv.slice(2);
 const withText = process.argv.includes("--text");
 if (!email || !password) {
@@ -20,7 +24,7 @@ if (!email || !password) {
 }
 const headers = {
   "Content-Type": "application/json",
-  Origin: "http://localhost:5186",
+  Origin: APP,
 };
 const auth = (path: string, body: object) =>
   fetch(`${API}/api/auth/${path}`, {

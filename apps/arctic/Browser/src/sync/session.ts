@@ -10,6 +10,7 @@ import {
   type SyncClientStateStore,
   type SyncController,
   type SyncRecord,
+  type SyncScope,
 } from "@zsh-eng/local-sync";
 import { API_ORIGIN, type Account } from "../api";
 import { normalizeLibrary } from "../articles";
@@ -66,6 +67,12 @@ export class Session {
   readonly controller: SyncController;
   /** Changes only when a library or text record changes. */
   records = 0;
+  /**
+   * The links' first pull on this device is under way in this page's first
+   * sync. Pages of a first pull arrive in the phone's upload order, not the
+   * library's, so the library waits for the last one (docs/FIRST_SYNC.md).
+   */
+  restoring: boolean;
   private listeners = new Set<() => void>();
   private files = new Map<string, Promise<string>>();
 
@@ -74,12 +81,69 @@ export class Session {
     private readonly db: IDBDatabase,
     private readonly channels: Channels,
   ) {
+    // The first sync of a page load is timed: arctic:sync:<namespace> for
+    // each pull and push, and arctic:commit for each page that IndexedDB
+    // commits (see the first-sync lab, docs/FIRST_SYNC.md).
+    let timed = true;
+    for (const channel of Object.values(channels))
+      channel.storage.timeCommits = true;
+    this.restoring = !channels.library.stateStore.read()?.bootstrapped;
     this.controller = createSyncController({
       run: async ({ signal, markRestoring }) => {
         if (!channels.library.stateStore.read()?.bootstrapped) markRestoring();
-        for (const channel of Object.values(channels)) {
+        // On a new device the links go first: every client commits to one
+        // IndexedDB store, and the library waits for the links. The others
+        // start at once, so their requests overlap the links' pull, and
+        // commit their pages once it ends, or after five seconds
+        // (docs/FIRST_SYNC.md). Their streams stay open while they wait,
+        // so the wait is short beside a request's 30-second limit.
+        let release = () => {};
+        if (this.restoring) {
+          const linksFirst = new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 5_000);
+            release = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+          });
+          for (const channel of Object.values(channels))
+            if (channel !== channels.library) channel.storage.hold = linksFirst;
+        }
+        const sync = async ([name, channel]: [string, Channel]) => {
           signal.throwIfAborted();
-          await channel.client.sync();
+          const start = performance.now();
+          try {
+            await channel.client.pull();
+          } finally {
+            if (channel === channels.library) {
+              this.restored();
+              release();
+            }
+          }
+          // A push asks for the scope first; with nothing to send it is a
+          // wasted request. An edit made from here on asks for another sync.
+          if (channel.storage.pendingCount > 0) await channel.client.push();
+          if (timed) performance.measure(`arctic:sync:${name}`, { start });
+        };
+        try {
+          // Each client has its own state, records and cursor, so they sync
+          // at once. The attempt fails with the first error once all have
+          // ended.
+          const ended = await Promise.allSettled(
+            Object.entries(channels).map(sync),
+          );
+          for (const result of ended)
+            if (result.status === "rejected") throw result.reason;
+        } finally {
+          release();
+          for (const channel of Object.values(channels))
+            channel.storage.hold = undefined;
+          // A failed first pull shows what arrived.
+          this.restored();
+          if (timed) performance.mark("arctic:synced");
+          timed = false;
+          for (const channel of Object.values(channels))
+            channel.storage.timeCommits = false;
         }
       },
       intervalMs: SYNC_INTERVAL_MS,
@@ -100,7 +164,12 @@ export class Session {
       });
   }
 
-  static async open(account: Account) {
+  /**
+   * `linksScope` is the `arctic` scope that the account check brought
+   * (`checkAccount`). A new device's first pull uses it instead of asking
+   * `/sync/v3/state`; the server checks it on the pull.
+   */
+  static async open(account: Account, linksScope?: SyncScope) {
     const db = await openDatabase(account.userId);
     const channel = async (ns: string, normalize?: typeof normalizeLibrary) => {
       const stateStore = createSyncClientStateStore(
@@ -115,9 +184,22 @@ export class Session {
         namespace: ns,
         stateStore,
       });
+      let known =
+        ns === NAMESPACES.library &&
+        linksScope?.userId === account.userId &&
+        !stateStore.read()?.scope
+          ? linksScope
+          : undefined;
       const client = new SyncClient({
         storage,
-        remote: http.remote,
+        remote: {
+          ...http.remote,
+          getScope: () => {
+            const scope = known;
+            known = undefined;
+            return scope ? Promise.resolve(scope) : http.remote.getScope!();
+          },
+        },
         stateStore,
       });
       return {
@@ -348,6 +430,12 @@ export class Session {
     for (const ns of Object.values(NAMESPACES))
       localStorage.removeItem(stateKey(this.account.userId, ns));
     localStorage.removeItem(statusKey(this.account.userId));
+  }
+
+  private restored() {
+    if (!this.restoring) return;
+    this.restoring = false;
+    this.emit();
   }
 
   private emit() {
