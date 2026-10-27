@@ -105,7 +105,7 @@ Are.na (their help pages did not describe their grids).
    picture in the reader).
 
 **The default:** Magazine on a touch screen wider than 720 px (an iPad
-full screen or in a wide window, or a touch laptop); Cards with a mouse;
+full screen or in a wide window, or a touch laptop); Cards on a screen without touch;
 List on a phone. The layout switch offers all three. Why: the request came
 from the iPad; at arm's length a picture finds an article faster than a
 line of text, and the larger cards cost little on a screen that scrolls by

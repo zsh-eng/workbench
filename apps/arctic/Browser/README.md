@@ -250,7 +250,7 @@ repeats in its opening shows once.
 
 **Layouts.** The library is Magazine, Cards or List (the switch beside the
 title, and Settings). Magazine is the default on a touch screen wider than a
-phone, such as an iPad; Cards with a mouse; List on a phone. A choice this
+phone, such as an iPad; Cards on a screen without touch; List on a phone. A choice this
 browser saved stays. Magazine gives each link's og:image the card: 1.91:1
 pictures in two columns on every iPad (one below 600 px of list, three from
 1,240 px), a lead when the first link has a picture, and links without one as

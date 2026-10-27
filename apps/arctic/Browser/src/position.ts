@@ -26,14 +26,18 @@ export function savePosition(id: string, value: number) {
   for (const listener of listeners) listener();
 }
 
-/** The article's position, or 0 when it is unread or finished. */
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * The article's position, or 0 when it is unread or finished: the reader
+ * returns to a position between these too.
+ */
 export function useProgress(id: string) {
-  const position = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => readPosition(id),
-  );
-  return position > 0.02 && position < 0.97 ? position : 0;
+  const position = useSyncExternalStore(subscribe, () => readPosition(id));
+  return position > 0.02 && position < 0.98 ? position : 0;
 }

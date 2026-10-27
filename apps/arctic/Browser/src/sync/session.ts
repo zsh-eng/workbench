@@ -94,12 +94,13 @@ export class Session {
         // On a new device the links go first: every client commits to one
         // IndexedDB store, and the library waits for the links. The others
         // start at once, so their requests overlap the links' pull, and
-        // commit their pages once it ends, or after ten seconds
-        // (docs/FIRST_SYNC.md).
+        // commit their pages once it ends, or after five seconds
+        // (docs/FIRST_SYNC.md). Their streams stay open while they wait,
+        // so the wait is short beside a request's 30-second limit.
         let release = () => {};
         if (this.restoring) {
           const linksFirst = new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, 10_000);
+            const timer = setTimeout(resolve, 5_000);
             release = () => {
               clearTimeout(timer);
               resolve();

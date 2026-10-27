@@ -21,6 +21,9 @@ import path from "node:path";
 import { xxh64 } from "../src/sync/xxh64";
 
 export const LAB_API = process.env.LAB_API ?? "http://localhost:5541";
+// The lab signs in, seeds and sets delays: never on a shared API.
+if (!["localhost", "127.0.0.1"].includes(new URL(LAB_API).hostname))
+  throw new Error("The first-sync lab runs against a local API only");
 export const LAB_APP = process.env.LAB_APP ?? "http://localhost:5543";
 export const LAB_IMAGE_PORT = Number(process.env.LAB_IMAGE_PORT ?? 5544);
 const CACHE = path.resolve(
@@ -520,8 +523,6 @@ async function makeImages() {
 
 /** Seeds one account, unless it already has records, straight to the lab API. */
 async function seed(size: LabSize) {
-  if (!["localhost", "127.0.0.1"].includes(new URL(LAB_API).hostname))
-    throw new Error("The lab seeds a local API only");
   const account = labAccount(size);
   const headers = { Origin: LAB_APP, "Content-Type": "application/json" };
   await fetch(`${LAB_API}/__lab`, {

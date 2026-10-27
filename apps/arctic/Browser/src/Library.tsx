@@ -150,7 +150,8 @@ export function Library({ folder }: { folder: Folder }) {
   const { layout } = useSettings();
   const grid = useRef<HTMLElement>(null);
   const [area, columns] = useColumns();
-  const intent = usePrefetch(grid, visible);
+  // While the placeholder shows, the grid is not there to prefetch from.
+  const intent = usePrefetch(grid, waiting ? NO_ARTICLES : visible);
   const search = useRef<HTMLInputElement>(null);
   usePasteToSave();
   useSearchKey(search);
@@ -166,9 +167,11 @@ export function Library({ folder }: { folder: Folder }) {
 
   const count = (
     <span className="shelf-count">
-      {waiting
-        ? gettingLibrary(articles.length)
-        : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+      {waiting ? (
+        <WaitingText count={articles.length} />
+      ) : (
+        `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`
+      )}
     </span>
   );
   const layoutToggle = (
@@ -219,13 +222,19 @@ export function Library({ folder }: { folder: Folder }) {
       )}
     </button>
   );
-  const renderedArticles = visible.slice(0, rendered);
+  const cells = useMemo(
+    () =>
+      layout === "magazine"
+        ? magazineCells(visible.slice(0, rendered), columns, !deferredQuery)
+        : [],
+    [layout, visible, rendered, columns, deferredQuery],
+  );
   const list = waiting ? (
     <Waiting layout={layout} count={articles.length} />
   ) : visible.length > 0 ? (
     <main className="grid" data-layout={layout} ref={grid} {...intent}>
       {layout === "magazine"
-        ? magazineCells(renderedArticles, columns, !deferredQuery).map((cell) =>
+        ? cells.map((cell) =>
             cell.kind === "band" ? (
               <div key={cell.articles[0]!.id} className="band">
                 {cell.articles.map((article) => (
@@ -248,14 +257,16 @@ export function Library({ folder }: { folder: Folder }) {
               />
             ),
           )
-        : renderedArticles.map((article, index) => (
-            <Card
-              key={article.id}
-              article={article}
-              state={opened}
-              eager={index < (compact ? 10 : 12)}
-            />
-          ))}
+        : visible
+            .slice(0, rendered)
+            .map((article, index) => (
+              <Card
+                key={article.id}
+                article={article}
+                state={opened}
+                eager={index < (compact ? 10 : 12)}
+              />
+            ))}
     </main>
   ) : (
     <div className="empty">
@@ -398,10 +409,17 @@ export function Library({ folder }: { folder: Folder }) {
   );
 }
 
-const gettingLibrary = (count: number) =>
-  count > 0
+const NO_ARTICLES: Article[] = [];
+
+/** What a new device's library is waiting for: its links, or a connection. */
+function WaitingText({ count }: { count: number }) {
+  const syncing = useSyncing();
+  const status = useStatusText();
+  if (!syncing) return status.label;
+  return count > 0
     ? `Getting your library… ${count.toLocaleString()} ${count === 1 ? "link" : "links"}`
     : "Getting your library…";
+}
 
 /**
  * A new device's library before its links arrive: quiet cards in the
@@ -409,12 +427,10 @@ const gettingLibrary = (count: number) =>
  * real cards replace them. Nothing animates; the note says what happens.
  */
 function Waiting({ layout, count }: { layout: string; count: number }) {
-  const syncing = useSyncing();
-  const status = useStatusText();
   return (
     <main className="grid waiting" data-layout={layout} aria-busy="true">
       <p className="waiting-note" role="status">
-        {syncing ? gettingLibrary(count) : status.label}
+        <WaitingText count={count} />
       </p>
       {Array.from({ length: 12 }, (_, index) => (
         <div key={index} className="card" data-image="" aria-hidden>

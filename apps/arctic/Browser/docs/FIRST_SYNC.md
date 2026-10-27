@@ -159,8 +159,9 @@ pull).
 ## What was built
 
 The proposal, with one change found by measuring: **the four clients start
-at once, but the others' commits wait for the links' first pull** (or ten
-seconds). All four write one IndexedDB object store, so fully parallel
+at once, but the others' commits wait for the links' first pull** (or five
+seconds: their streams stay open meanwhile, inside each request's 30-second
+limit). All four write one IndexedDB object store, so fully parallel
 commits queued in front of the links': large, near, every link listed at
 2,757 ms instead of 1,344 ms before. Holding the other commits keeps their
 requests in flight while the links commit alone. And the placeholder
