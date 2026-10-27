@@ -3,6 +3,7 @@ import {
   expect,
   nextSpread,
   openLocalBook,
+  selectPassage,
   test,
   waitForReaderReady,
 } from "./helpers/fixtures";
@@ -100,6 +101,35 @@ test("copies a selection as paragraphs, not as page lines", async ({
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .not.toBe("");
   expectReadableCopy(await page.evaluate(() => navigator.clipboard.readText()));
+});
+
+test("Highlight takes a selection that keys grew after the toolbar opened", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let turn = 0; turn < 3; turn++) await nextSpread(page);
+  await selectPassage(page, { length: 12 });
+  const yellow = page.getByRole("button", { name: "Highlight with yellow" });
+  await expect(yellow).toBeVisible();
+
+  // Keys change a selection without the pointer release the Reader reads.
+  for (let key = 0; key < 9; key++)
+    await page.keyboard.press("Shift+ArrowRight");
+  const final = await page.evaluate(() => getSelection()!.toString());
+  expect(final.length).toBeGreaterThan(12);
+  await yellow.click();
+  await expect
+    .poll(() =>
+      page.evaluate(async (bookId) => {
+        const path = "/src/lib/db.ts";
+        const highlights: { selectedText: string }[] = await (
+          await import(path)
+        ).getBookHighlights(bookId);
+        return highlights.map((highlight) => highlight.selectedText);
+      }, localBook.id),
+    )
+    .toEqual([final.replace(/\s+/g, " ").trim()]);
 });
 
 test("two highlights that split a word meet flush without moving the text", async ({

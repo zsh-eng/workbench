@@ -283,13 +283,18 @@ export function IslandTools({
   onNote,
 }: {
   tools: ReactNode;
-  /** The whole passage, from the chapter text, as Copy writes it. */
-  copyText: string;
+  /** The whole passage, from the chapter text, as Copy writes it. Read at
+   * the tap, as a selection can change while the tools show. */
+  copyText: () => string;
   actionLabel: "Note" | "Attach";
   onNote: () => void;
 }) {
   return (
-    <div className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap">
+    <div
+      // A press here reads the selection for the action (useReaderAnnotations).
+      data-selection-tools=""
+      className="flex h-[52px] items-center gap-3 pr-1.5 pl-4 whitespace-nowrap"
+    >
       {tools}
       <span aria-hidden="true" className="h-5 w-px bg-border" />
       <div className="-ml-1.5 flex items-center gap-1">
@@ -319,7 +324,7 @@ function CopyPassageButton({
   className,
   iconClassName,
 }: {
-  text: string;
+  text: () => string;
   className?: string;
   iconClassName: string;
 }) {
@@ -330,7 +335,10 @@ function CopyPassageButton({
       aria-label="Copy text"
       // Keep the page selection and focus where they are.
       onPointerDown={(event) => event.preventDefault()}
-      onClick={() => copy(text)}
+      onClick={() => {
+        const passage = text();
+        if (passage) copy(passage);
+      }}
       className={cn(
         "flex size-11 items-center justify-center rounded-full transition-colors duration-150 hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
         className,
@@ -358,7 +366,7 @@ export function IslandNote({
   text: string;
   meta: string;
   /** The highlighted passage, from the chapter text. */
-  copyText: string;
+  copyText: () => string;
   onEdit: () => void;
   onDelete: () => void;
   onShowTools: () => void;

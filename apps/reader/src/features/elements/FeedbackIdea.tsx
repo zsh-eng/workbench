@@ -308,7 +308,7 @@ export function FeedbackIdea() {
                     width={Math.min(368, window.innerWidth - 22)}
                     text={NOTE}
                     meta="p. 1 · Today"
-                    copyText={PASSAGE}
+                    copyText={() => PASSAGE}
                     onEdit={() => setIsland("compose")}
                     onDelete={remove}
                     onShowTools={() => setIsland("tools")}

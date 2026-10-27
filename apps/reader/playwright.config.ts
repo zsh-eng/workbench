@@ -54,6 +54,12 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      // Specs that also run on an iPhone's engine. A spec sets its own size.
+      name: "webkit-iphone",
+      testMatch: ["selection-actions.spec.ts"],
+      use: { ...devices["iPhone 13"] },
+    },
   ],
 
   /*

@@ -102,8 +102,8 @@ export function ReaderNotes({
     /** The existing highlight being edited, if any. */
     highlightId?: string;
     /** The whole passage as Copy writes it: canonical chapter text, which
-     * runs past the page when the passage does. */
-    copyText: string;
+     * runs past the page when the passage does. Read at the tap. */
+    copyText: () => string;
     captureTarget: () => NoteTarget | null;
     close: () => void;
   };
