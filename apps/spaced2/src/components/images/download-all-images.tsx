@@ -1,6 +1,6 @@
 import BouncyButton from "@/components/bouncy-button";
 import { Progress } from "@/components/ui/progress";
-import type { downloadImageLocally } from "@/lib/images/db";
+import type { downloadImagesLocally } from "@/lib/images/db";
 import type { searchForLinks } from "@/lib/images/download-all";
 import {
   ALL_IMAGES_JOB,
@@ -27,7 +27,7 @@ export default function DownloadAllImages({
   download,
   findLinks,
 }: {
-  download?: typeof downloadImageLocally;
+  download?: typeof downloadImagesLocally;
   findLinks?: typeof searchForLinks;
 } = {}) {
   const [activity] = useState<ImagesActivity>(() =>

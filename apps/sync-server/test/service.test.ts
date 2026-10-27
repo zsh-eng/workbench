@@ -3,10 +3,17 @@ import { expect, it } from "vitest";
 import {
   createNamespacedHttpClient,
   createSyncClientState,
+  SyncHttpError,
   type SyncClientState,
 } from "@zsh-eng/local-sync";
 import xxhash from "xxhash-wasm";
+import {
+  downloadFiles,
+  FILE_BATCH_TYPE,
+  readFileBatch,
+} from "@workbench/file-batch";
 import worker from "../src/index";
+import { digest } from "../src/cli-auth";
 import {
   migratedAccount,
   MIGRATED_PASSWORD,
@@ -351,4 +358,176 @@ it("authenticates migrated verified PBKDF2 accounts through the real sign-in rou
     (await SELF.fetch(`${origin}/api/me`, { headers: { Cookie: cookie } }))
       .status,
   ).toBe(200);
+});
+
+it("sends many files in one streamed batch: the account's own, within its byte limit, and Reader's one at a time", async () => {
+  const cookie = await user();
+  const content = client(cookie, "arctic-content"),
+    spaced = client(cookie, "spaced"),
+    reader = client(cookie, "reader");
+  const hash = await xxhash();
+  const put = async (
+    app: ReturnType<typeof client>,
+    bytes: Uint8Array,
+    type: string,
+  ) => {
+    const id = `xxh64:${hash.h64Raw(bytes).toString(16).padStart(16, "0")}`;
+    await app.request(`/files/${id}`, {
+      method: "PUT",
+      body: bytes,
+      headers: { "Content-Type": type },
+    });
+    return id;
+  };
+  const html = (n: number) =>
+    `<article><p>Copy ${n}.</p>${"<p>Sea ice keeps its own time.</p>".repeat(80)}</article>`;
+  const texts = new Map<string, string>();
+  for (let n = 0; n < 40; n++)
+    texts.set(
+      await put(content, new TextEncoder().encode(html(n)), "text/html; charset=utf-8"),
+      html(n),
+    );
+  const removed = await put(content, new TextEncoder().encode(html(99)), "text/html");
+  await content.request(`/files/${removed}`, { method: "DELETE" });
+  const foreign = await put(
+    client(await user(), "arctic-content"),
+    new TextEncoder().encode(html(98)),
+    "text/html",
+  );
+  // Answers of any status, as the apps pass them on.
+  const answer = (error: unknown) =>
+    error instanceof SyncHttpError && error.response
+      ? error.response
+      : Promise.reject(error);
+  const transport = (app: ReturnType<typeof client>) => ({
+    fetchBatch: (ids: string[], signal: AbortSignal) =>
+      app
+        .request(
+          "/files/batch",
+          {
+            method: "POST",
+            body: JSON.stringify({ ids }),
+            headers: {
+              "Content-Type": "application/json",
+              "Accept-Encoding": "gzip",
+            },
+            signal,
+          },
+          false,
+        )
+        .catch(answer),
+    fetchOne: (id: string, signal: AbortSignal) =>
+      app.request(`/files/${id}`, { signal }, false).catch(answer),
+    backoffMs: 0,
+  });
+  const kept = new Map<string, { text: string; type: string }>();
+  const failed: string[] = [];
+  const result = await downloadFiles({
+    ids: [...texts.keys(), removed, foreign],
+    ...transport(content),
+    store: async (id, bytes, type) => {
+      kept.set(id, { text: new TextDecoder().decode(bytes), type });
+    },
+    onFailed: (id) => failed.push(id),
+  });
+  expect(result).toEqual({ stored: 40, failed: 2 });
+  expect(failed.sort()).toEqual([removed, foreign].sort());
+  for (const [id, text] of texts)
+    expect(kept.get(id)).toEqual({
+      text,
+      type: "text/html; charset=utf-8",
+    });
+
+  // Text arrives compressed; one answer stops at 1 MiB of file bytes.
+  const images = [] as string[];
+  for (let n = 0; n < 3; n++)
+    images.push(
+      await put(spaced, new Uint8Array(400 * 1024).fill(n + 1), "image/png"),
+    );
+  const textBatch = await transport(content).fetchBatch(
+    [...texts.keys()].slice(0, 2),
+    new AbortController().signal,
+  );
+  expect(textBatch.headers.get("Content-Encoding")).toBe("gzip");
+  const first = await transport(spaced).fetchBatch(
+    images,
+    new AbortController().signal,
+  );
+  expect(first.headers.get("Content-Type")).toBe(FILE_BATCH_TYPE);
+  const frames = [];
+  for await (const item of readFileBatch(first.body!)) frames.push(item);
+  expect(frames.map((item) => [item.id, item.status])).toEqual([
+    [images[0], 200],
+    [images[1], 200],
+  ]);
+  const sizes = new Map<string, number>();
+  expect(
+    await downloadFiles({
+      ids: images,
+      ...transport(spaced),
+      store: async (id, bytes) => {
+        sizes.set(id, bytes.byteLength);
+      },
+    }),
+  ).toEqual({ stored: 3, failed: 0 });
+  expect([...sizes.values()]).toEqual([409600, 409600, 409600]);
+
+  // Reader's books stay one request each: its batch route is absent.
+  const books = [
+    await put(reader, new TextEncoder().encode("book one"), "application/epub+zip"),
+    await put(reader, new TextEncoder().encode("book two"), "application/epub+zip"),
+  ];
+  const fetched: string[] = [];
+  const readerTransport = transport(reader);
+  expect(
+    await downloadFiles({
+      ids: books,
+      ...readerTransport,
+      fetchOne: (id, signal) => {
+        fetched.push(id);
+        return readerTransport.fetchOne(id, signal);
+      },
+      store: async () => {},
+    }),
+  ).toEqual({ stored: 2, failed: 0 });
+  expect(fetched.sort()).toEqual([...books].sort());
+
+  // Requests that are not a batch of file IDs.
+  const status = (body: string, type = "application/json") =>
+    content
+      .request(
+        "/files/batch",
+        { method: "POST", body, headers: { "Content-Type": type } },
+        false,
+      )
+      .then((r) => r.status, (error: SyncHttpError) => error.status);
+  const ids = (n: number) =>
+    Array.from({ length: n }, (_, i) => `xxh64:${i.toString(16).padStart(16, "0")}`);
+  expect(await status(JSON.stringify({ ids: ids(33) }))).toBe(400);
+  expect(await status(JSON.stringify({ ids: ["batch"] }))).toBe(400);
+  expect(await status(JSON.stringify({ ids: ids(1) }), "text/plain")).toBe(415);
+
+  // A Workbench Backup credential reads batches as it reads single files.
+  const token = `wb_${"1".repeat(64)}`;
+  const me = (await (
+    await SELF.fetch(`${origin}/api/me`, { headers: { Cookie: cookie } })
+  ).json()) as { userId: string };
+  await env.DATABASE.prepare(
+    "INSERT INTO cli_tokens(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)",
+  )
+    .bind(await digest(token), me.userId, Date.now(), Date.now() + 60_000)
+    .run();
+  const cli = (namespace: string) =>
+    SELF.fetch(`${origin}/api/apps/${namespace}/files/batch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids: images.slice(0, 1) }),
+    });
+  const read = await cli("spaced");
+  expect(read.status).toBe(200);
+  await read.body?.cancel();
+  expect((await cli("reader")).status).toBe(403);
 });

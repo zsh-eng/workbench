@@ -44,6 +44,10 @@ and local development files. Shared packages must not import app code.
   reloads, sync as a tracked job, and service-worker updates that wait for a
   safe moment. Its [model](../packages/background-activity/docs/MODEL.md)
   says what shows and when. It sits beside local-sync and does not import it.
+- **file-batch** owns the format of many small files in one streamed
+  response: the sync server's `files/batch` frames and the browser's reader
+  and download scheduler. Arctic for the web and Spaced use it for bulk
+  downloads; see [Bulk file downloads](FILE_BATCH.md).
 - **arctic-sync-server** exposes private auth and sync route factories. The
   Reader Worker supplies authentication and database/object-storage bindings.
   It is a package, not a separate deployed service.

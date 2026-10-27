@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import xxhash from "xxhash-wasm";
+import {
+  encodeFrameHeader,
+  FILE_BATCH_TYPE,
+  MAX_BATCH_BYTES,
+  MAX_BATCH_IDS,
+  parseBatchRequest,
+} from "@workbench/file-batch";
 import type { AppEnv, Namespace } from "./env";
 
 let hasher: ReturnType<typeof xxhash> | undefined;
@@ -20,8 +27,72 @@ function refuseArcticContent(mediaType: string, bytes: ArrayBuffer) {
   if (/<script\b/i.test(new TextDecoder().decode(bytes))) return "Article text cannot contain scripts";
   return undefined;
 }
+/** Namespaces of small files, which `POST /batch` serves; Reader's books
+ * stay one request each. */
+const BATCHED: readonly Namespace[] = ["spaced", "arctic-content"];
+/** R2 reads waiting for headers at once: the Workers limit per request. */
+const R2_AT_ONCE = 6;
 export function createFileRoutes() {
   const app = new Hono<AppEnv>();
+  // Many files in one streamed body (packages/file-batch). Before
+  // `/:fileId`, which refuses "batch" as an ID.
+  app.post(
+    "/batch",
+    bodyLimit({
+      maxSize: 16 * 1024,
+      onError: (c) => c.json({ error: "Request too large" }, 413),
+    }),
+    async (c) => {
+      const namespace = c.get("namespace");
+      if (!BATCHED.includes(namespace))
+        return c.json({ error: "Batch downloads are not available here" }, 404);
+      if (!/^application\/json\b/i.test(c.req.header("Content-Type") ?? ""))
+        return c.json({ error: "Expected JSON" }, 415);
+      const ids = parseBatchRequest(await c.req.json().catch(() => null));
+      if (!ids)
+        return c.json({ error: `Expected 1 to ${MAX_BATCH_IDS} file IDs` }, 400);
+      const { results } = await c.env.DATABASE.prepare(
+        `SELECT * FROM file_storage WHERE user_id=? AND namespace=? AND deleted_at IS NULL AND id IN (${ids.map(() => "?").join(",")})`,
+      )
+        .bind(c.get("user").id, namespace, ...ids)
+        .all<FileRow>();
+      const rows = new Map(results.map((row) => [row.id, row]));
+      // Files up to the byte limit, and always one; the client asks again
+      // for the ids that this answer leaves out.
+      const plan: { id: string; row?: FileRow }[] = [];
+      let bytes = 0;
+      for (const id of ids) {
+        const row = rows.get(id);
+        if (row && bytes > 0 && bytes + row.file_size > MAX_BATCH_BYTES)
+          continue;
+        bytes += row?.file_size ?? 0;
+        plan.push({ id, row });
+      }
+      const { readable, writable } = new IdentityTransformStream();
+      void writeBatch(c.env.FILES, plan, writable);
+      // Text compresses well, as Cloudflare compresses single text files;
+      // images do not.
+      const gzip =
+        namespace === "arctic-content" &&
+        /\bgzip\b/i.test(c.req.header("Accept-Encoding") ?? "");
+      const init: ResponseInit & { encodeBody: "manual" } = {
+        encodeBody: "manual",
+        headers: {
+          "Content-Type": FILE_BATCH_TYPE,
+          "Content-Disposition": "attachment",
+          "Content-Security-Policy": "sandbox; default-src 'none'",
+          "X-Content-Type-Options": "nosniff",
+          Vary: "Accept-Encoding",
+          ...(gzip ? { "Content-Encoding": "gzip" } : {}),
+        },
+      };
+      // Workers must not compress these bytes a second time.
+      return new Response(
+        gzip ? readable.pipeThrough(new CompressionStream("gzip")) : readable,
+        init,
+      );
+    },
+  );
   app.get("/", async (c) => {
     const rows = await c.env.DATABASE.prepare(
       "SELECT * FROM file_storage WHERE user_id=? AND namespace=? AND deleted_at IS NULL ORDER BY created_at DESC",
@@ -121,6 +192,64 @@ export function createFileRoutes() {
     return c.body(null, 204);
   });
   return app;
+}
+/**
+ * Writes each planned file as a frame, in order, reading at most six from R2
+ * ahead of the one being written. A failed read is a 500 frame; a missing
+ * file a 404. A body that fails part-way ends the response without its end
+ * frame, so the client asks again for what did not arrive.
+ */
+async function writeBatch(
+  files: R2Bucket,
+  plan: { id: string; row?: FileRow }[],
+  writable: WritableStream<Uint8Array>,
+) {
+  const reads: (Promise<R2ObjectBody | null> | undefined)[] = [];
+  const read = (index: number) => {
+    const row = plan[index]?.row;
+    if (row) reads[index] = files.get(row.r2_key);
+  };
+  for (let index = 0; index < R2_AT_ONCE; index++) read(index);
+  let writer = writable.getWriter();
+  let index = 0;
+  try {
+    for (; index < plan.length; index++) {
+      const { id, row } = plan[index]!;
+      const object = row
+        ? await reads[index]!.catch(() => undefined)
+        : null;
+      read(index + R2_AT_ONCE);
+      if (object === undefined) {
+        await writer.write(encodeFrameHeader({ id, status: 500 }));
+        continue;
+      }
+      if (!object || !row) {
+        await writer.write(encodeFrameHeader({ id, status: 404 }));
+        continue;
+      }
+      await writer.write(
+        encodeFrameHeader({
+          id,
+          status: 200,
+          size: object.size,
+          type: row.media_type,
+        }),
+      );
+      writer.releaseLock();
+      await object.body.pipeTo(writable, { preventClose: true });
+      writer = writable.getWriter();
+    }
+    await writer.write(encodeFrameHeader({ end: true }));
+    await writer.close();
+  } catch (error) {
+    // The client left, or a body failed: stop, and free the reads ahead.
+    for (const pending of reads.slice(index))
+      void pending?.then(
+        (object) => object?.body.cancel().catch(() => {}),
+        () => {},
+      );
+    await writer.abort(error).catch(() => {});
+  }
 }
 interface FileRow {
   id: string;

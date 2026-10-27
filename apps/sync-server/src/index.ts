@@ -7,6 +7,7 @@ import { UAParser } from "ua-parser-js";
 import { createAuth } from "./auth";
 import {
   cliAuth,
+  cliBatchReadPath,
   cliIdentity,
   cliReadPath,
   cliWritePath,
@@ -78,6 +79,7 @@ const requireUser = createMiddleware<AppEnv>(async (c, next) => {
     if (!identity) return c.json({ error: "Unauthorized" }, 401);
     const allowed =
       (c.req.method === "GET" && cliReadPath(c.req.path)) ||
+      cliBatchReadPath(c.req.method, c.req.path) ||
       cliWritePath(c.req.method, c.req.path);
     if (!allowed) return c.json({ error: "Not allowed for a CLI credential" }, 403);
     c.set("cli", true);

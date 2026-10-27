@@ -63,6 +63,13 @@ cache before assigning an image URL. The current card and next 20 cards retain
 deduplicated object URLs and decoded images, with four concurrent preloads.
 Images outside the window release their references. Missing images can download
 independently; cached display and local grading do not wait for network sync.
+"Download all images" (`src/lib/images/images-activity.ts`) skips stored
+images, asks for Spaced's own files up to 32 to a request, six requests at
+once (`downloadMany` in `src/lib/images/db.ts`,
+[bulk file downloads](../../docs/FILE_BATCH.md)), and keeps each image as it
+arrives. Images on other sites download five at a time. One client keeps the
+account's sync scope for file reads (`src/lib/files/shared-request.ts`), so a
+read no longer asks `/sync/v3/state` first.
 
 ## Source and checks
 

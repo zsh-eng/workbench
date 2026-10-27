@@ -15,6 +15,7 @@
     "@hono/zod-validator": "0.7.6",
     "@workbench/arctic-links": "workspace:*",
     "@workbench/arctic-sync-server": "workspace:*",
+    "@workbench/file-batch": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",
     "better-auth": "1.6.9",
     "drizzle-orm": "0.45.2",

@@ -1,15 +1,11 @@
 import { memoryReady } from "@/lib/db/memory";
-import { downloadImageLocally } from "@/lib/images/db";
+import { downloadImagesLocally } from "@/lib/images/db";
 import { searchForLinks } from "@/lib/images/download-all";
-import { PromiseRateLimiterQueue } from "@/lib/images/promise-limiter";
 import {
   createActivityManager,
   type ActivityManager,
   type ActivityStorage,
 } from "@workbench/background-activity";
-
-/** Images that download at once. */
-const IMAGES_AT_ONCE = 5;
 
 export const ALL_IMAGES_JOB = "images:all";
 
@@ -33,17 +29,18 @@ export interface ImagesActivity {
 
 /**
  * "Download all images" as a background job: it runs from anywhere and
- * keeps going when you leave the Images page. Five images download at once;
- * one that fails is counted and the rest carry on. Offline, the job waits
- * and starts again when the network returns, skipping images already here.
+ * keeps going when you leave the Images page. Spaced's own images come many
+ * to a request (`downloadMany` in db.ts); one that fails is counted and the
+ * rest carry on. Offline, the job waits and starts again when the network
+ * returns, skipping images already here.
  */
 export function createImagesActivity({
-  download = downloadImageLocally,
+  download = downloadImagesLocally,
   findLinks = searchForLinks,
   storage,
   ready,
 }: {
-  download?: typeof downloadImageLocally;
+  download?: typeof downloadImagesLocally;
   findLinks?: typeof searchForLinks;
   /** Keeps the job across a reload. */
   storage?: ActivityStorage;
@@ -68,30 +65,21 @@ export function createImagesActivity({
           const links = [...findLinks().entries()];
           current = { done: 0, total: links.length, downloaded: 0, failed: 0 };
           progress({ phase: "downloading", done: 0, total: links.length });
-          const limiter = new PromiseRateLimiterQueue(IMAGES_AT_ONCE);
-          await Promise.allSettled(
-            links.map(([url, altText]) =>
-              limiter.add(async () => {
-                // A cancel stops the images still queued; those already
-                // downloading finish and count.
-                if (signal.aborted) return;
-                try {
-                  const { newlyDownloaded } = await download(url, altText);
-                  if (newlyDownloaded) current.downloaded += 1;
-                } catch (error) {
-                  console.error(error);
-                  current.failed += 1;
-                } finally {
-                  current.done += 1;
-                  progress({ done: current.done });
-                  // After a cancel, the images already downloading still
-                  // finish, and the row counts them.
-                  if (outcome?.state === "cancelled")
-                    settle({ ...outcome, done: current.done });
-                }
-              }),
-            ),
-          );
+          // A cancel stops the requests; images already arriving are kept
+          // and counted.
+          await download(links, {
+            signal,
+            onSettled(_url, result) {
+              if ("error" in result) {
+                console.error(result.error);
+                current.failed += 1;
+              } else if (result.newlyDownloaded) current.downloaded += 1;
+              current.done += 1;
+              progress({ done: current.done });
+              if (outcome?.state === "cancelled")
+                settle({ ...outcome, done: current.done });
+            },
+          });
           signal.throwIfAborted();
           settle({ state: "finished", ...current });
         },

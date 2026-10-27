@@ -115,8 +115,11 @@ words is refused as a preview or sign-in page; a new copy replaces one only
 when it is 30% longer. Opened copies stay in IndexedDB, and a service worker
 keeps the app shell, so the library and opened articles work offline.
 **Settings → Offline** downloads the text of every saved article into this
-browser (`src/offline.ts`, four at a time, and asks the browser to keep the
-storage), and can download new text after each sync. Images still load from
+browser (`src/offline.ts`, and asks the browser to keep the storage), and can
+download new text after each sync. It asks for up to 32 texts in one request,
+six requests at once, and keeps each text as it arrives
+([bulk file downloads](../../../docs/FILE_BATCH.md)); against a server without
+that route it asks for one text at a time. Images still load from
 each publisher.
 
 Neither store grows with time alone. The service worker (`public/sw.js`)
@@ -328,7 +331,7 @@ prefetching), or 148 ms on a phone-sized window with a 4× CPU slowdown (177 ms
 before). The first cards of any folder paint 14–36 ms after the click, and
 Back from the reader takes 56 ms.
 
-The first load is 645 kB of JavaScript (211 kB gzip): React, React Router,
-Base UI menus, popovers and tooltips, DOMPurify, zod/mini (through local-sync)
-and the app. The sheet (81 kB, 27 kB gzip) and Defuddle (309 kB, 87 kB gzip,
+The first load is 651 kB of JavaScript (213 kB gzip): React, React Router,
+Base UI menus, popovers and tooltips, DOMPurify, zod/mini (through local-sync),
+the file-batch downloader and the app. The sheet (81 kB, 27 kB gzip) and Defuddle (309 kB, 87 kB gzip,
 only to extract a page) load separately.

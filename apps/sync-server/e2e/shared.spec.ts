@@ -158,13 +158,25 @@ test("Reader and Spaced share login and restore their own local data in a fresh 
         }),
       )
       .toBe("Edited offline");
+    // "Download all images" asks for Spaced's own images in batches.
+    const batches: string[] = [];
+    cards.on("request", (request) => {
+      if (request.url() === `${api}/api/apps/spaced/files/batch`)
+        batches.push(request.method());
+    });
     await cards.evaluate(async (url) => {
       const imagesPath = "/src/lib/images/db.ts";
       const images = await import(imagesPath);
-      await images.downloadImageLocally(url, "Restored fixture");
+      const outcomes: unknown[] = [];
+      await images.downloadImagesLocally([[url, "Restored fixture"]], {
+        onSettled: (_url: string, outcome: unknown) => outcomes.push(outcome),
+      });
+      if (JSON.stringify(outcomes) !== '[{"newlyDownloaded":true}]')
+        throw new Error(`Unexpected outcome ${JSON.stringify(outcomes)}`);
       if ((await images.listUsableCachedImages()).length !== 1)
         throw new Error("Spaced image did not restore");
     }, imageUrl);
+    expect(batches.filter((method) => method === "POST")).toHaveLength(1);
     await reader.evaluate(async (id) => {
       const dataPath = "/src/lib/db.ts",
         filesPath = "/src/lib/files/index.ts";

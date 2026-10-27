@@ -38,6 +38,7 @@
     "@uidotdev/usehooks": "2.4.1",
     "@workbench/activity-time": "workspace:*",
     "@workbench/background-activity": "workspace:*",
+    "@workbench/file-batch": "workspace:*",
     "@workbench/elements": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",
     "better-auth": "1.6.9",
