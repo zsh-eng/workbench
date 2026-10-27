@@ -47,11 +47,11 @@ Library at 390 × 844. `fresh-restore.ts` records the milestones and each API
 request to `RESTORE_LAB_OUT`. With `RESTORE_LAB_TRACE` it saves a Chrome
 trace; with `RESTORE_LAB_SECONDS` it suits `kit clip`.
 
-| Size | Books | Reading | Highlights | Sessions | Notes |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| small | 8 | 2 | 40 | 30 | 2 |
-| medium | 40 | 12 | 600 | 500 | 11 |
-| large | 300 | 20 | 5,000 | 3,000 | 100 |
+| Size   | Books | Reading | Highlights | Sessions | Notes |
+| ------ | ----: | ------: | ---------: | -------: | ----: |
+| small  |     8 |       2 |         40 |       30 |     2 |
+| medium |    40 |      12 |        600 |      500 |    11 |
+| large  |   300 |      20 |      5,000 |    3,000 |   100 |
 
 Every eighth book has no cover. Books being read have EPUBs of 10 MB. Records
 are pushed in the order of a migrated account, so books come last in the
@@ -67,14 +67,14 @@ edge, D1 latency for each pull page, or Google sign-in.
 Medians in ms from navigation: 5 runs for small and medium, 3 for large,
 Chrome on an Apple silicon Mac with load averages of 4 to 11 from other work.
 
-| Size | Build | Empty until | First shelf | Restore done | Screen covers | All covers | Scope requests |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| small | before | 752 | 769 | 762 | 2,686 | 3,059 | 11 |
-| small | after | 305 | 781 | 767 | 1,096 | 1,096 | 2 |
-| medium | before | 988 | 1,033 | 1,024 | 5,781 | 25,220 | 50 |
-| medium | after | 276 | 865 | 863 | 1,218 | 1,716 | 2 |
-| large | before | 3,503 | 3,623 | 3,923 | 13,937 | 142,421 | 296 |
-| large | after | 279 | 3,033 | 3,307 | 4,036 | 9,158 | 2 |
+| Size   | Build  | Empty until | First shelf | Restore done | Screen covers | All covers | Scope requests |
+| ------ | ------ | ----------: | ----------: | -----------: | ------------: | ---------: | -------------: |
+| small  | before |         752 |         769 |          762 |         2,686 |      3,059 |             11 |
+| small  | after  |         305 |         781 |          767 |         1,096 |      1,096 |              2 |
+| medium | before |         988 |       1,033 |        1,024 |         5,781 |     25,220 |             50 |
+| medium | after  |         276 |         865 |          863 |         1,218 |      1,716 |              2 |
+| large  | before |       3,503 |       3,623 |        3,923 |        13,937 |    142,421 |            296 |
+| large  | after  |         279 |       3,033 |        3,307 |         4,036 |      9,158 |              2 |
 
 "Empty until" is the last frame that said "Your library is empty". "Screen
 covers" is when every book on the first screen shows its cover.
@@ -87,16 +87,16 @@ but the load was a little higher in the before runs.
 
 Where the time goes in the large restore (ms from navigation, medians):
 
-| Step | Before | After |
-| --- | ---: | ---: |
-| Session check (`get-session`) | 123–329 | 73–283 |
-| Scope (`/sync/v3/state`) | 331–533 | 288–505 |
+| Step                                       |    Before |     After |
+| ------------------------------------------ | --------: | --------: |
+| Session check (`get-session`)              |   123–329 |    73–283 |
+| Scope (`/sync/v3/state`)                   |   331–533 |   288–505 |
 | Pull stream, network (about 8,400 records) | 580–2,149 | 559–1,915 |
-| Last page committed | 3,923 | 3,307 |
-| First book on screen | 3,623 | 3,033 |
-| First cover request | 3,961 | 3,102 |
-| Covers on the first screen | 13,937 | 4,036 |
-| All 264 covers | 142,421 | 9,158 |
+| Last page committed                        |     3,923 |     3,307 |
+| First book on screen                       |     3,623 |     3,033 |
+| First cover request                        |     3,961 |     3,102 |
+| Covers on the first screen                 |    13,937 |     4,036 |
+| All 264 covers                             |   142,421 |     9,158 |
 
 Before, each cover waited for its own scope request, and the browser sent
 those one at a time: 264 covers took 138 s, about 520 ms each, one after

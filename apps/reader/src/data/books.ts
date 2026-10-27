@@ -77,9 +77,9 @@ export async function getAllBooks(): Promise<Book[]> {
   const structureByBook = new Map(
     structures.map((structure) => [structure.bookId, structure]),
   );
-  return books.filter(isNotDeleted).map((book) =>
-    withBookStructure(book, structureByBook.get(book.id)),
-  );
+  return books
+    .filter(isNotDeleted)
+    .map((book) => withBookStructure(book, structureByBook.get(book.id)));
 }
 
 /** The book with this device's structure, when it was read from the same EPUB. */

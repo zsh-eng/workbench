@@ -80,7 +80,9 @@ export default async function freshRestore({
   await page.goto(`${LAB_APP_ORIGIN}/`);
   const seconds = process.env.RESTORE_LAB_SECONDS;
   if (trace) {
-    await page.waitForTimeout(Number(process.env.RESTORE_LAB_TRACE_MS ?? 12_000));
+    await page.waitForTimeout(
+      Number(process.env.RESTORE_LAB_TRACE_MS ?? 12_000),
+    );
     await context.browser()!.stopTracing();
   }
   if (seconds) await page.waitForTimeout(Number(seconds) * 1000);

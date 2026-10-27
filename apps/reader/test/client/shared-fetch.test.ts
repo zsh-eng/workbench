@@ -30,7 +30,9 @@ it("sends the bound sync scope with file requests instead of asking before each"
       });
     }),
   );
-  const files = ["1", "2", "3"].map((n) => `/api/files/xxh64:000000000000000${n}`);
+  const files = ["1", "2", "3"].map(
+    (n) => `/api/files/xxh64:000000000000000${n}`,
+  );
 
   // Signed out: the refusal is the caller's answer, and is not remembered.
   const first = await import("@/lib/shared-fetch");
@@ -43,12 +45,11 @@ it("sends the bound sync scope with file requests instead of asking before each"
   const next = await import("@/lib/shared-fetch");
   await Promise.all(files.map((file) => next.readerApiFetch(file)));
 
-  expect(requests.map((request) => request.path)).toEqual([
-    "/sync/v3/state",
-    "/sync/v3/state",
-    ...files,
-    ...files,
-  ].map((path) => path.replace("/api", "")));
+  expect(requests.map((request) => request.path)).toEqual(
+    ["/sync/v3/state", "/sync/v3/state", ...files, ...files].map((path) =>
+      path.replace("/api", ""),
+    ),
+  );
   for (const request of requests.slice(2))
     expect(request.scope).toBe(JSON.stringify(scope));
 });
