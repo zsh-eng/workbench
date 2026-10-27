@@ -1,9 +1,10 @@
-import type {
-  ChapterColumnLayout,
-  ContentAnchor,
-  PageSlice,
-  ResolvedSpread,
-  TextCursorOffset,
+import {
+  sliceShowsBlock,
+  type ChapterColumnLayout,
+  type ContentAnchor,
+  type PageSlice,
+  type ResolvedSpread,
+  type TextCursorOffset,
 } from "@/lib/pagination-v2";
 
 /**
@@ -142,7 +143,8 @@ export function findFirstFullyVisibleLine(
     const row = rows[index]!;
     const { slice } = row;
     if (slice.type === "spacer") continue;
-    if (slice.type === "image") {
+    // An image or a table part is one unit, as tall as its row.
+    if (slice.type === "image" || slice.type === "table") {
       if (row.y < viewTop - tolerance) continue;
       return {
         y: row.y,
@@ -203,7 +205,8 @@ export function findLineAtOrAfter(
     const row = rows[index]!;
     const { slice } = row;
     if (slice.type === "spacer") continue;
-    if (slice.type === "image") {
+    // An image or a table part is one unit, as tall as its row.
+    if (slice.type === "image" || slice.type === "table") {
       return {
         y: row.y,
         height: row.height,
@@ -283,7 +286,9 @@ export function findLineTextPosition(
   const target = rows[findFirstRowEndingAfter(rows, y)];
   if (!target || target.slice.type === "spacer") return null;
   const { blockId } = target.slice;
-  if (target.slice.type === "image") return { blockId, textOffset: 0 };
+  if (target.slice.type === "image" || target.slice.type === "table") {
+    return { blockId, textOffset: 0 };
+  }
 
   let textOffset = 0;
   for (const row of rows) {
@@ -313,7 +318,7 @@ export function findTextPositionOffset(
     if (slice.blockId !== position.blockId || slice.type === "spacer") {
       continue;
     }
-    if (slice.type === "image") return row.y;
+    if (slice.type === "image" || slice.type === "table") return row.y;
     for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
       const top = row.y + lineIndex * slice.lineHeight;
       const length = lineTextLength(slice.lines[lineIndex]!);
@@ -336,7 +341,7 @@ export function findAnchorOffset(
   let best: number | null = null;
   for (const row of rows) {
     const { slice } = row;
-    if (slice.blockId !== anchor.blockId) continue;
+    if (!sliceShowsBlock(slice, anchor.blockId)) continue;
     if (anchor.type === "block" || slice.type !== "text") return row.y;
 
     for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
@@ -421,7 +426,7 @@ export function buildColumnViewSpread(
   let firstSlice: PageSlice | null = null;
   if (topAnchor) {
     const index = column.slices.findIndex(
-      (entry) => entry.slice.blockId === topAnchor.blockId,
+      (entry) => sliceShowsBlock(entry.slice, topAnchor.blockId),
     );
     if (index >= 0) {
       startIndex = index;

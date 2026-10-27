@@ -1,6 +1,7 @@
-import type {
-  ResolvedLeafPage,
-  ResolvedSpread,
+import {
+  textSlicesOf,
+  type ResolvedLeafPage,
+  type ResolvedSpread,
 } from "@/lib/pagination-v2/types";
 
 /**
@@ -11,10 +12,18 @@ import type {
 export function getPageContentKey(page: ResolvedLeafPage): string {
   const first = page.content[0];
   if (!first) return `${page.chapterIndex}`;
-  const start = first.type === "text" ? first.lines[0]?.startOffset : null;
+  // A table part starts at its first own row, and maybe partway through it.
+  const firstText =
+    first.type === "table" ? textSlicesOf([first])[0] : first;
+  const start =
+    firstText?.type === "text" ? firstText.lines[0]?.startOffset : null;
+  const blockId =
+    first.type === "table"
+      ? `${first.blockId}:${first.rows.find((row) => !row.repeated)?.index ?? 0}`
+      : first.blockId;
   return start
-    ? `${page.chapterIndex}:${first.blockId}:${start.itemIndex}.${start.segmentIndex}.${start.graphemeIndex}`
-    : `${page.chapterIndex}:${first.blockId}`;
+    ? `${page.chapterIndex}:${blockId}:${start.itemIndex}.${start.segmentIndex}.${start.graphemeIndex}`
+    : `${page.chapterIndex}:${blockId}`;
 }
 
 /** Identifies the pages a spread shows; see getPageContentKey. */

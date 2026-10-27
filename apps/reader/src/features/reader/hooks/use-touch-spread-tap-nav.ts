@@ -85,6 +85,8 @@ const CONTROL_TARGET_SELECTOR = [
   "select",
   "[contenteditable='true']",
   "[contenteditable='']",
+  // A table wider than the page scrolls sideways under the finger.
+  "[data-reader-table-scroll]",
 ].join(", ");
 const INTERACTIVE_TARGET_SELECTOR = `${HIGHLIGHT_TARGET_SELECTOR}, ${CONTROL_TARGET_SELECTOR}`;
 
