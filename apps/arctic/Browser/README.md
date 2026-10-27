@@ -248,6 +248,17 @@ usable image (none, a blank spacer, or a site icon under 300 px) is a text
 card: its title and the start of its description. A description that the text
 repeats in its opening shows once.
 
+**Layouts.** The library is Magazine, Cards or List (the switch beside the
+title, and Settings). Magazine is the default on a touch screen wider than a
+phone, such as an iPad; Cards with a mouse; List on a phone. A choice this
+browser saved stays. Magazine gives each link's og:image the card: 1.91:1
+pictures in two columns on every iPad (one below 600 px of list, three from
+1,240 px), a lead when the first link has a picture, and links without one as
+site covers (the title on the site's colour) or, in longer runs, a band of
+headlines in whole rows. Its pictures show how far this browser has read
+each article. [docs/MAGAZINE.md](docs/MAGAZINE.md) has the design, its
+references and its sizes.
+
 **Sheets.** On a phone, Notes, Text and theme, More and the account are
 React Aria sheets (`src/sheet.tsx`, after the EPUB Reader's). The
 browser's own scrolling moves them, so a drag follows the finger, keeps its
@@ -308,6 +319,14 @@ A library of 600 or more articles stays quick:
   after the page starts (140 ms with a 4× CPU slowdown and 150 ms latency),
   where the account check first made it 300 ms. The performance marks
   `arctic:script`, `arctic:open` and `arctic:cards` time each step.
+- A new device's first sync runs the four sync clients at once; the links
+  commit to IndexedDB first, and the account check brings their scope. Until
+  every link is in, the library shows placeholder cards, then all the cards
+  at once, in order. On a production-like link (medium library, SIN colo)
+  every link is listed at 0.8 s and the sync ends at 0.9 s (3.0 s before).
+  `arctic:account`, `arctic:sync:<namespace>`, `arctic:commit` and
+  `arctic:synced` time it; [docs/FIRST_SYNC.md](docs/FIRST_SYNC.md) has the
+  lab and the numbers.
 - A long folder renders 36 cards first (12 on a phone), then 72 more each
   frame. Back and Forward render all cards at once, so the scroll position
   returns.

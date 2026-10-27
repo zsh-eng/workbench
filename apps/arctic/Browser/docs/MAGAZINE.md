@@ -125,6 +125,19 @@ a browser stays.
   1,038 device pixels of it, so the file is about the size needed; the lead
   at 692 px shows it a little enlarged.
 
+**Scrolling check.** A production build, Chromium at 1180 × 820 with touch
+and a 4× CPU slowdown, flicking 9,000 px in 8 s down the real library from
+the top (`tests/kit/scroll-library.ts`, `kit time --trace`, `kit frames`):
+
+| Layout   | Frames | Complete | Partial | Dropped | Main thread busy | Longest without an update |
+| -------- | -----: | -------: | ------: | ------: | ---------------: | ------------------------: |
+| Magazine |  1,048 |      70% |     189 |       0 |              69% |                    118 ms |
+| Cards    |  1,274 |      56% |     414 |       0 |              81% |                    116 ms |
+
+Magazine renders fewer cards for the same distance, so it is no slower
+than Cards. Not measured: memory, and WebKit (the kit traces only
+Chromium).
+
 ## Critique
 
 - **A lead is a custom layout.** HIG warns against layouts that confuse.
@@ -147,6 +160,7 @@ a browser stays.
   which publishers do not send.
 - **Pictures cost memory.** Hundreds of decoded 1200 px images; browsers
   drop decoded data off screen, and `content-visibility` skips their
-  painting. See the scrolling check below.
+  painting. The scrolling check above found no cost over Cards; memory
+  was not measured.
 - **Split View.** Below 720 px the page is the phone's. Magazine there has
   two columns down to 600 px, then one; List stays the phone default.
