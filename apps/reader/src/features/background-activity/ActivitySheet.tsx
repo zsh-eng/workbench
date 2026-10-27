@@ -40,6 +40,10 @@ const ROW_HEIGHT = 56;
 const APP_ROW_HEIGHT = 72;
 const HEADING_HEIGHT = 30;
 
+/** A section's title in the sheet: Now, Waiting, This app, Recent. */
+export const SECTION_HEADING =
+  "flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase";
+
 const rowHeight = (row: SheetRow) =>
   row.section === "app" ? APP_ROW_HEIGHT : ROW_HEIGHT;
 
@@ -313,10 +317,14 @@ export function Collapse({
  * update). Rows hold still while the sheet is open (sheet-rows.ts).
  */
 export function ActivitySheetBody({
-  emptyLabel = "Nothing in the background. Everything is on this device and synced.",
+  empty = (
+    <p className="py-8 text-center text-[13px] text-muted-foreground">
+      Nothing in the background. Everything is on this device and synced.
+    </p>
+  ),
 }: {
-  /** What an empty sheet says. */
-  emptyLabel?: string;
+  /** What an empty sheet shows. */
+  empty?: ReactNode;
 }) {
   const { source } = useActivityEnvironment();
   const snapshot = useActivity(source);
@@ -330,11 +338,7 @@ export function ActivitySheetBody({
           Offline. What needs the network waits until you are back online.
         </p>
       )}
-      {groups.length === 0 && (
-        <p className="py-8 text-center text-[13px] text-muted-foreground">
-          {emptyLabel}
-        </p>
-      )}
+      {groups.length === 0 && empty}
       <AnimatePresence initial={false}>
         {groups.flatMap(({ section, rows }) => [
           <Collapse
@@ -342,7 +346,7 @@ export function ActivitySheetBody({
             height={HEADING_HEIGHT}
             className="ba-sheet-heading"
           >
-            <h3 className="flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
+            <h3 className={SECTION_HEADING}>
               {SECTION_TITLES[section]}
             </h3>
           </Collapse>,

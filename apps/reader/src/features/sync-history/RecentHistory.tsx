@@ -1,4 +1,7 @@
-import { Collapse } from "@/features/background-activity/ActivitySheet";
+import {
+  Collapse,
+  SECTION_HEADING,
+} from "@/features/background-activity/ActivitySheet";
 import { cn } from "@/lib/utils";
 import type { DeviceType } from "@/types/session";
 import type {
@@ -25,7 +28,6 @@ import { holdRecentRows, recentRows, type RecentRow } from "./history-rows";
 
 /** Every row is this tall: a title and up to two lines, so words that change never move a row. */
 const ROW_HEIGHT = 72;
-const HEADING_HEIGHT = 30;
 const DAY_HEIGHT = 26;
 const WARN_TEXT = "text-[oklch(0.55_0.14_55)]";
 const WARN_ICON = "text-[oklch(0.62_0.16_55)]";
@@ -49,9 +51,6 @@ function dayLabel(at: number): string {
   return format(at, "EEE d MMM");
 }
 
-const capital = (words: string) =>
-  words.charAt(0).toUpperCase() + words.slice(1);
-
 const FAILURE_WORDS: Record<SyncFailure["kind"], string> = {
   network: "Couldn't reach the server",
   unauthorized: "The session ended",
@@ -63,91 +62,116 @@ const FAILURE_WORDS: Record<SyncFailure["kind"], string> = {
   failed: "Sync failed",
 };
 
-/** "3 highlights in _Systems Performance_", with the book's title set in italics. */
-export function ItemPhrase({
-  item,
-  counted = false,
-}: {
-  item: SyncHistoryItem;
-  /** Counts only, as a restore says them: "52 books". */
-  counted?: boolean;
-}) {
+const Title = ({ children }: { children: ReactNode }) => (
+  <em className="not-italic text-foreground/80">{children}</em>
+);
+
+/**
+ * An item without its book: "2 new highlights", "1 changed note",
+ * "reading progress". `counted` gives the count alone ("52 books"), and
+ * `plain` leaves out "changed", where the row already says it.
+ */
+function bare(
+  item: SyncHistoryItem,
+  form: "phrase" | "counted" | "plain" = "phrase",
+): string {
   const noun = item.count === 1 ? item.one : item.other;
   const count = item.count.toLocaleString();
-  if (counted) return <>{item.mass ? item.one : `${count} ${noun}`}</>;
+  if (item.mass)
+    return item.verb === "removed" && form !== "counted"
+      ? `${item.one} removed`
+      : item.one;
+  if (form === "counted" || (form === "plain" && item.verb === "changed"))
+    return `${count} ${noun}`;
+  if (item.kind === "book") return `${count} ${noun} ${item.verb}`;
+  return `${count} ${item.verb === "added" ? "new" : item.verb} ${noun}`;
+}
+
+/** "a, b and c" */
+function list(parts: readonly string[]): string {
+  return parts.length < 2
+    ? (parts[0] ?? "")
+    : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
+/** One item with its books: "3 new highlights in _X_", "5 changed notes in 2 books". */
+function ItemPhrase({
+  item,
+  plain = false,
+}: {
+  item: SyncHistoryItem;
+  plain?: boolean;
+}) {
   const only = item.containers.length === 1 ? item.containers[0]! : null;
-  const where: ReactNode = only ? (
-    <em className="not-italic text-foreground/80">{only.label}</em>
-  ) : item.containers.length > 1 ? (
-    `${item.containers.length} ${item.containerNoun!.other}`
-  ) : null;
   if (item.kind === "book" && only && item.count === 1)
     return (
       <>
-        {where} {item.verb}
+        <Title>{only.label}</Title> {item.verb}
       </>
     );
-  if (item.kind === "book")
-    return (
-      <>
-        {count} {noun} {item.verb}
-      </>
-    );
-  if (item.mass)
-    return where ? (
-      <>
-        {item.one}
-        {item.verb === "removed" ? " removed" : ""} in {where}
-      </>
-    ) : (
-      <>{item.one}</>
-    );
-  if (item.verb === "added")
-    return where ? (
-      <>
-        {count} new {noun} in {where}
-      </>
-    ) : (
-      <>
-        {count} {noun} added
-      </>
-    );
-  if (item.verb === "removed")
-    return where ? (
-      <>
-        {count} {noun} removed from {where}
-      </>
-    ) : (
-      <>
-        {count} {noun} removed
-      </>
-    );
-  return where ? (
+  if (item.kind === "book" || item.containers.length === 0)
+    return <>{bare(item, plain ? "plain" : "phrase")}</>;
+  return (
     <>
-      {count} {noun} in {where}
-    </>
-  ) : (
-    <>
-      {count} {noun} changed
+      {bare(item, plain ? "plain" : "phrase")} in{" "}
+      {only ? (
+        <Title>{only.label}</Title>
+      ) : (
+        `${item.containers.length} ${item.containerNoun!.other}`
+      )}
     </>
   );
 }
 
-function Items({
+/**
+ * A group's changes in one line. When they are all in one book, the book
+ * is named once: "2 new highlights and 1 new note in _Alice_", or "_Alice_
+ * added, with reading progress". Otherwise each item names its own books.
+ * `counted` gives counts only, as a restore says them: "52 books".
+ */
+function GroupItems({
   items,
-  counted,
+  counted = false,
 }: {
   items: readonly SyncHistoryItem[];
   counted?: boolean;
 }) {
+  if (counted)
+    return <>{items.map((item) => bare(item, "counted")).join(" · ")}</>;
+  const first = items[0]?.containers[0];
+  const shared =
+    first &&
+    items.every(
+      (item) =>
+        item.containers.length === 1 && item.containers[0]!.id === first.id,
+    )
+      ? first
+      : null;
+  if (!shared)
+    return (
+      <>
+        {items.map((item, index) => (
+          <Fragment key={`${item.kind}:${item.verb}`}>
+            {index > 0 && " · "}
+            <ItemPhrase item={item} />
+          </Fragment>
+        ))}
+      </>
+    );
+  const book = items.find((item) => item.kind === "book");
+  const rest = list(
+    items.filter((item) => item !== book).map((item) => bare(item)),
+  );
+  if (book)
+    return (
+      <>
+        <Title>{shared.label}</Title> {book.verb}
+        {rest && `, with ${rest}`}
+      </>
+    );
   return (
     <>
-      {items.map((item, index) => (
-        <Fragment key={`${item.kind}:${item.verb}`}>
-          {index > 0 && " · "}
-          <ItemPhrase item={item} counted={counted} />
-        </Fragment>
-      ))}
+      {rest} in <Title>{shared.label}</Title>
     </>
   );
 }
@@ -183,7 +207,7 @@ function groupWords(group: SyncHistoryGroup, names: DeviceNamer): RowWords {
       when,
       detail: (
         <>
-          <Items items={group.items} />
+          <GroupItems items={group.items} />
           {group.keptLocal > 0 &&
             ` · ${group.keptLocal} kept your newer ${group.keptLocal === 1 ? "edit" : "edits"} here`}
           {late &&
@@ -197,7 +221,7 @@ function groupWords(group: SyncHistoryGroup, names: DeviceNamer): RowWords {
       icon: <CloudUpload className="size-[18px]" strokeWidth={1.7} />,
       title: "Sent from this device",
       when,
-      detail: <Items items={group.items} />,
+      detail: <GroupItems items={group.items} />,
     };
   if (group.direction === "restored") {
     const devices = group.devices ?? [];
@@ -213,7 +237,7 @@ function groupWords(group: SyncHistoryGroup, names: DeviceNamer): RowWords {
         <>
           {group.changes.toLocaleString()}{" "}
           {group.changes === 1 ? "change" : "changes"} from {from} ·{" "}
-          <Items items={group.items} counted />
+          <GroupItems items={group.items} counted />
         </>
       ),
     };
@@ -251,13 +275,13 @@ function rowWords(row: RecentRow, names: DeviceNamer): RowWords {
       when: time(row.waiting.since),
       detail: (
         <>
-          <Items items={row.waiting.items} />
+          <GroupItems items={row.waiting.items} />
           {!row.gone && ` · since ${time(row.waiting.since)}`}
         </>
       ),
     };
   const { lost } = row;
-  const winner = capital(names.name(lost.winner.deviceId));
+  const winner = names.name(lost.winner.deviceId);
   return {
     icon: (
       <CircleAlert className={cn("size-[18px]", WARN_ICON)} strokeWidth={1.8} />
@@ -267,10 +291,10 @@ function rowWords(row: RecentRow, names: DeviceNamer): RowWords {
     warn: true,
     detail: (
       <>
-        <ItemPhrase item={lost.item} /> · yours at {time(lost.at)};{" "}
+        <ItemPhrase item={lost.item} plain /> ·{" "}
         {lost.winner.deleted
           ? `${winner} removed it at ${time(lost.winner.at)}`
-          : `${winner}'s from ${time(lost.winner.at)} was kept`}
+          : `kept ${winner}'s edit from ${time(lost.winner.at)}`}
       </>
     ),
   };
@@ -342,11 +366,7 @@ export function RecentHistory({
   }
   return (
     <section aria-labelledby="recent-history-title" data-sync-history="">
-      <h3
-        id="recent-history-title"
-        className="flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase"
-        style={{ height: HEADING_HEIGHT }}
-      >
+      <h3 id="recent-history-title" className={SECTION_HEADING}>
         Recent
       </h3>
       {rows.length === 0 ? (
@@ -387,10 +407,9 @@ export function RecentHistory({
         </div>
       )}
       <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">
-        Times are when each change was made, by that device's clock, which can
-        be a few minutes off. Sync keeps only the latest version of each item,
-        so several edits show as one change, and another device's changes show
-        here once this device has synced.
+        Times come from each device's clock and can be a few minutes off.
+        Several edits to one item show as one change, and other devices' changes
+        show once this device syncs.
       </p>
     </section>
   );

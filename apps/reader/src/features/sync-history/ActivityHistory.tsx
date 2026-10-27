@@ -1,5 +1,8 @@
 import { DetentSheet } from "@/components/ui/detent-sheet";
-import { ActivitySheetBody } from "@/features/background-activity/ActivitySheet";
+import {
+  ActivitySheetBody,
+  SECTION_HEADING,
+} from "@/features/background-activity/ActivitySheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Popover } from "@base-ui/react/popover";
 import type { ReactNode, RefObject } from "react";
@@ -15,7 +18,16 @@ import { useReaderSyncHistory } from "./use-reader-sync-history";
 export function ActivityHistoryBody({ recent }: { recent?: ReactNode }) {
   return (
     <div data-activity-history="">
-      <ActivitySheetBody emptyLabel="Nothing in the background right now." />
+      <ActivitySheetBody
+        empty={
+          <>
+            <h3 className={SECTION_HEADING}>Now</h3>
+            <p className="pb-2 text-[13px] text-muted-foreground">
+              Nothing in the background right now.
+            </p>
+          </>
+        }
+      />
       <div className="px-1 pb-2">{recent ?? <LiveRecent />}</div>
     </div>
   );
