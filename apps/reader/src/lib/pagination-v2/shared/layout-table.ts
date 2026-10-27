@@ -242,15 +242,23 @@ export function planTable(
     return { mins, maxes };
   };
 
-  // A table that misses the page by less than its padding narrows its
-  // padding instead of scrolling a few pixels sideways.
+  // A table that misses the page by less than its padding takes the widest
+  // narrower padding that fits, instead of scrolling a few pixels sideways.
+  // Capped and spanned columns shrink by less than the padding, so each
+  // padding is tried rather than estimated.
+  const fits = (widths: number[]) =>
+    widths.reduce((a, b) => a + b, 0) <= Math.floor(pageWidth);
   let paddingX = Math.round(theme.baseFontSizePx * CELL_PADDING_X_EM);
   let { mins, maxes } = columnContentWidths(paddingX);
-  const excess = mins.reduce((a, b) => a + b, 0) - Math.floor(pageWidth);
-  const spare = columns * 2 * (paddingX - MIN_CELL_PADDING_X_PX);
-  if (excess > 0 && excess <= spare) {
-    paddingX -= Math.ceil(excess / (columns * 2));
-    ({ mins, maxes } = columnContentWidths(paddingX));
+  for (
+    let narrower = paddingX - 1;
+    !fits(mins) && narrower >= MIN_CELL_PADDING_X_PX;
+    narrower--
+  ) {
+    const widths = columnContentWidths(narrower);
+    if (!fits(widths.mins)) continue;
+    paddingX = narrower;
+    ({ mins, maxes } = widths);
   }
 
   const columnWidths = distributeWidths(mins, maxes, pageWidth);

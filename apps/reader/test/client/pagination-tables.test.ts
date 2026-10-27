@@ -271,13 +271,9 @@ describe("laying out tables", () => {
     expect(words).toHaveLength(150);
   });
 
-  it("narrows its padding when it misses the page by a little", () => {
-    const layoutWords = (word: string) => {
-      const html = `<body><table><tr>${Array.from(
-        { length: 4 },
-        () => `<td>${word}</td>`,
-      ).join("")}</tr></table></body>`;
-      const parsed = parse(html, true);
+  it("narrows its padding only when that makes it fit", () => {
+    const layoutTable = (rows: string) => {
+      const parsed = parse(`<body><table>${rows}</table></body>`, true);
       const { pages } = layoutPages(
         prepareBlocks(parsed.blocks, FONT_CONFIG),
         360,
@@ -286,13 +282,29 @@ describe("laying out tables", () => {
       );
       return tableSlices(pages)[0]!;
     };
-    const near = layoutWords("abcdefghij");
-    expect(near.overflows).toBe(false);
-    expect(near.width).toBeLessThanOrEqual(360);
-    expect(near.cellPaddingX).toBeLessThan(7);
-    const far = layoutWords("abcdefghijk");
-    expect(far.overflows).toBe(true);
-    expect(far.cellPaddingX).toBe(7);
+    const long = "abcdefghij".repeat(4);
+    // Words of growing length in: four equal columns; beside a column
+    // capped at 60% of the page; under a header cell spanning two columns.
+    const shapes = [
+      (word: string) => `<tr>${`<td>${word}</td>`.repeat(4)}</tr>`,
+      (word: string) => `<tr><td>${long}</td><td>${word}</td></tr>`,
+      (word: string) =>
+        `<tr><td>${word}</td><td colspan="2">${long}</td></tr><tr><td>a</td><td>b</td><td>c</td></tr>`,
+    ];
+    for (const shape of shapes) {
+      const slices = Array.from({ length: 13 }, (_, index) =>
+        layoutTable(shape("n".repeat(8 + index))),
+      );
+      for (const slice of slices) {
+        // A table that still scrolls keeps its padding; one that fits fits.
+        if (slice.overflows) expect(slice.cellPaddingX).toBe(7);
+        else expect(slice.width).toBeLessThanOrEqual(360);
+      }
+      expect(
+        slices.some((slice) => !slice.overflows && slice.cellPaddingX < 7),
+      ).toBe(true);
+      expect(slices.at(-1)!.overflows).toBe(true);
+    }
   });
 
   it("scrolls a table sideways when its words cannot fit", () => {
