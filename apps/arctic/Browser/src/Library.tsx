@@ -45,6 +45,7 @@ import {
 import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
+import { useReservedPictures } from "./links";
 import type { SyncSummary } from "@zsh-eng/local-sync";
 import {
   useArticles,
@@ -222,12 +223,18 @@ export function Library({ folder }: { folder: Folder }) {
       )}
     </button>
   );
+  const reserved = useReservedPictures();
   const cells = useMemo(
     () =>
       layout === "magazine"
-        ? magazineCells(visible.slice(0, rendered), columns, !deferredQuery)
+        ? magazineCells(
+            visible.slice(0, rendered),
+            columns,
+            !deferredQuery,
+            reserved,
+          )
         : [],
-    [layout, visible, rendered, columns, deferredQuery],
+    [layout, visible, rendered, columns, deferredQuery, reserved],
   );
   const list = waiting ? (
     <Waiting layout={layout} count={articles.length} />
@@ -244,6 +251,7 @@ export function Library({ folder }: { folder: Folder }) {
                     state={opened}
                     eager={false}
                     kind="headline"
+                    reserved={reserved.has(article.id)}
                   />
                 ))}
               </div>
@@ -254,6 +262,7 @@ export function Library({ folder }: { folder: Folder }) {
                 state={opened}
                 eager={cell.eager}
                 kind={cell.kind}
+                reserved={reserved.has(cell.article.id)}
               />
             ),
           )
@@ -265,6 +274,7 @@ export function Library({ folder }: { folder: Folder }) {
                 article={article}
                 state={opened}
                 eager={index < (compact ? 10 : 12)}
+                reserved={reserved.has(article.id)}
               />
             ))}
     </main>
@@ -812,6 +822,7 @@ const Card = memo(function Card({
   state,
   eager,
   kind = "card",
+  reserved = false,
 }: {
   article: Article;
   state: { from: string };
@@ -822,6 +833,8 @@ const Card = memo(function Card({
    * a tile (a picture, or its site's cover), or a headline in a band.
    */
   kind?: "card" | "lead" | "tile" | "headline";
+  /** A link saved here whose preview is on its way: it keeps a picture's place. */
+  reserved?: boolean;
 }) {
   const path = `/read/${article.id}`;
   // An article without a working image is a text card: its title and the
@@ -829,16 +842,18 @@ const Card = memo(function Card({
   // shows its site's cover instead, with the title set large.
   const [failed, setFailed] = useState(false);
   const image = failed ? undefined : article.image;
+  // The picture's place, empty, while its preview loads (src/links.ts).
+  const pictured = !!image || (reserved && !failed);
   const [fresh] = useState(() => isFresh(article.id));
   const magazine = kind !== "card";
-  const siteCover = !image && (kind === "lead" || kind === "tile");
+  const siteCover = !pictured && (kind === "lead" || kind === "tile");
   return (
     <article
       className="card"
       data-id={article.id}
       data-read={article.read || undefined}
       data-copy={article.copy ? "" : undefined}
-      data-image={image ? "" : undefined}
+      data-image={pictured ? "" : undefined}
       data-fresh={fresh || undefined}
       data-kind={magazine ? kind : undefined}
       style={
@@ -847,7 +862,7 @@ const Card = memo(function Card({
           : undefined
       }
     >
-      {image && kind !== "headline" && (
+      {pictured && kind !== "headline" && (
         <Link
           to={path}
           state={state}
@@ -857,7 +872,9 @@ const Card = memo(function Card({
           aria-hidden
           onClick={mark}
         >
-          <Cover src={image} eager={eager} onFail={() => setFailed(true)} />
+          {image && (
+            <Cover src={image} eager={eager} onFail={() => setFailed(true)} />
+          )}
           {magazine && <Progress id={article.id} />}
         </Link>
       )}
@@ -891,7 +908,8 @@ const Card = memo(function Card({
           {article.title}
         </Link>
       )}
-      {(kind === "lead" || (!image && kind === "card")) && article.subtitle && (
+      {(kind === "lead" || (!pictured && kind === "card")) &&
+        article.subtitle && (
         <p className="card-excerpt">{article.subtitle}</p>
       )}
     </article>
@@ -910,7 +928,15 @@ type Cell =
  * covers. So every row of the grid is full, and a band's lines align.
  * Pictures in the first two rows, above any band, load first.
  */
-function magazineCells(articles: Article[], columns: number, lead: boolean) {
+function magazineCells(
+  articles: Article[],
+  columns: number,
+  lead: boolean,
+  /** Links whose picture is on its way count as pictures (src/links.ts). */
+  reserved: ReadonlySet<string>,
+) {
+  const pictured = (article: Article | undefined) =>
+    !!article && (!!article.image || reserved.has(article.id));
   const cells: Cell[] = [];
   let at = 0; // Cells already in the current row.
   let eager = 2 * columns;
@@ -919,17 +945,17 @@ function magazineCells(articles: Article[], columns: number, lead: boolean) {
     at = (at + 1) % columns;
   };
   let index = 0;
-  if (lead && articles[0]?.image) {
+  if (lead && pictured(articles[0])) {
     cells.push({ kind: "lead", article: articles[0], eager: true });
     index = 1;
   }
   while (index < articles.length) {
-    if (articles[index]!.image) {
+    if (pictured(articles[index])) {
       tile(articles[index++]!);
       continue;
     }
     let end = index;
-    while (end < articles.length && !articles[end]!.image) end++;
+    while (end < articles.length && !pictured(articles[end])) end++;
     while (index < end && at !== 0) tile(articles[index++]!);
     const rows = Math.floor((end - index) / columns);
     if (rows >= 2) {
@@ -1026,7 +1052,10 @@ function Cover({
       referrerPolicy="no-referrer"
       // A cover already in memory shows at once; one from the network fades in.
       ref={(image) => {
-        if (image?.complete && isCover(image)) loaded(image);
+        // A picture already in memory shows, or gives way, before paint.
+        if (!image?.complete || !image.naturalWidth) return;
+        if (isCover(image)) loaded(image);
+        else onFail();
       }}
       onLoad={(event) => {
         if (isCover(event.currentTarget)) loaded(event.currentTarget);

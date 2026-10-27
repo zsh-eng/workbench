@@ -11,7 +11,7 @@ import {
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { editLibrary, removeArticle, type Article } from "./articles";
-import { articleId, canonicalURL, saveLink } from "./links";
+import { articleId, canonicalURL, saveWithPreview } from "./links";
 import { listMotion } from "./motion";
 import {
   articles as projected,
@@ -46,7 +46,8 @@ async function addLink(session: Session, input: string, show: () => void) {
   // Not a link: nothing moves.
   if (!url) return { kind: "invalid" } as const;
   if (!document.startViewTransition) fresh = await articleId(url);
-  const result = await listMotion(() => saveLink(session, input, known));
+  // The list motion brings the card in; its preview follows (links.ts).
+  const result = await saveWithPreview(session, input, known);
   if (result.kind === "invalid") return result;
   show();
   if (result.kind === "already") {
@@ -228,7 +229,7 @@ function LinkForm({ onDone }: { onDone: () => void }) {
       </label>
       <p className={link.error ? "link-note error" : "link-note"} role="status">
         {link.error ||
-          "Arctic on your iPhone adds the title, image and topics when it next opens."}
+          "Arctic adds the title and image from the page, and your iPhone its topics."}
       </p>
       <div className="link-actions">
         <button
