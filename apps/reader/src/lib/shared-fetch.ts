@@ -5,6 +5,16 @@ import {
   getOrCreateSyncClientState,
   readerSyncStateStore,
 } from "./sync-v2/client-state";
+
+/**
+ * One client for the page's file and account requests. Each request sends
+ * the scope that sync bound, and the server refuses it (409) if the account
+ * or its sync epoch has changed since. Asking for the scope before every
+ * request cost a round trip each, and the browser sends identical requests
+ * one at a time, so a new device's covers downloaded one after another.
+ */
+let client: ReturnType<typeof createNamespacedHttpClient> | undefined;
+
 export function readerApiFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -19,12 +29,13 @@ export function readerApiFetch(
         : input.url,
     window.location.origin,
   );
-  return createNamespacedHttpClient({
+  client ??= createNamespacedHttpClient({
     origin: SHARED_API_ORIGIN,
     namespace: "reader",
     stateStore: readerSyncStateStore(),
-  })
-    .request(url.pathname.replace(/^\/api/, "") + url.search, init)
+  });
+  return client
+    .request(url.pathname.replace(/^\/api/, "") + url.search, init, false)
     .catch((error: unknown) => {
       // Preserve fetch semantics for Hono callers and the file manager's 401/404 handling.
       if (error instanceof SyncHttpError && error.response)

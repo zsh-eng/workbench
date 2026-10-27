@@ -73,8 +73,29 @@ export function createNamespacedHttpClient(options: {
     scope = next;
     return next;
   }
-  async function request(path: string, init: RequestInit = {}, refresh = true) {
-    const expected = refresh || !scope ? await getScope() : scope;
+  let asking: Promise<SyncScope> | undefined;
+  /**
+   * Without `refresh`, the scope the store has bound, which the server
+   * checked when it was bound; with none bound, one request that concurrent
+   * callers share. The store, not this client, is read each time, so a
+   * store that sync resets and binds again is followed. The server still
+   * refuses a request whose scope no longer holds.
+   */
+  function knownScope() {
+    const known = options.stateStore.read()?.scope;
+    if (known) return known;
+    asking ??= getScope().finally(() => {
+      asking = undefined;
+    });
+    return asking;
+  }
+  /** A request and the scope it sent, which the response carried back. */
+  async function scopedRequest(
+    path: string,
+    init: RequestInit,
+    refresh: boolean,
+  ) {
+    const expected = refresh ? await getScope() : await knownScope();
     const headers = new Headers(init.headers);
     headers.set("X-Sync-Scope", JSON.stringify(expected));
     const response = await fetchOrNetworkError(send, `${base}${path}`, {
@@ -88,7 +109,10 @@ export function createNamespacedHttpClient(options: {
     if (!response.ok) throw new SyncHttpError(response.status, response);
     if (response.headers.get("X-Sync-Scope") !== JSON.stringify(expected))
       throw new SyncScopeError("Sync response scope changed");
-    return response;
+    return { response, expected };
+  }
+  async function request(path: string, init: RequestInit = {}, refresh = true) {
+    return (await scopedRequest(path, init, refresh)).response;
   }
   const remote: SyncRemote = {
     getScope,
@@ -110,13 +134,13 @@ export function createNamespacedHttpClient(options: {
       const params = new URLSearchParams(
         Object.entries(query).map(([key, value]) => [key, String(value)]),
       );
-      const response = await request(
+      const { response, expected } = await scopedRequest(
         `/sync/v3/pull-stream?${params}`,
         { headers: { "X-Device-ID": deviceId }, signal: streamSignal },
         false,
       );
       for await (const page of readSyncPullStream(response, streamSignal)) {
-        bindSyncScope(options.stateStore, scope!);
+        bindSyncScope(options.stateStore, expected);
         yield page;
       }
     },

@@ -63,17 +63,23 @@ export async function getBook(id: string): Promise<Book | undefined> {
     : undefined;
 }
 
+/**
+ * Whole-table reads filter tombstones after the read: a Dexie `filter`
+ * walks a cursor, one request per row, where `toArray` reads the table at
+ * once. The Library reads these on every change, and a new device's
+ * restore changes them page after page.
+ */
 export async function getAllBooks(): Promise<Book[]> {
   const [books, structures] = await Promise.all([
-    db.books.filter(isNotDeleted).toArray(),
+    db.books.toArray(),
     db.bookStructures.toArray(),
   ]);
   const structureByBook = new Map(
     structures.map((structure) => [structure.bookId, structure]),
   );
-  return books.map((book) =>
-    withBookStructure(book, structureByBook.get(book.id)),
-  );
+  return books
+    .filter(isNotDeleted)
+    .map((book) => withBookStructure(book, structureByBook.get(book.id)));
 }
 
 /** The book with this device's structure, when it was read from the same EPUB. */
