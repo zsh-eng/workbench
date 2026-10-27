@@ -171,7 +171,7 @@ export function ReaderToolsSidebar({
       onPointerDownCapture={() => {
         returnFocusToTrigger.current = false;
       }}
-      className="pointer-events-none fixed inset-0 z-40 hidden text-foreground md:block"
+      className="pointer-events-none fixed inset-0 z-40 text-foreground"
     >
       <button
         type="button"

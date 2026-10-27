@@ -1,3 +1,4 @@
+import { isTabletScreen, widthClass } from "@workbench/elements/size-class";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -26,13 +27,15 @@ const DEFAULT_SETTINGS: Settings = {
   spacing: "normal",
   width: "normal",
   align: "left",
-  // A phone shows more of the library as a list; a wider touch screen, such
-  // as an iPad's, shows each link's picture (docs/MAGAZINE.md).
-  layout: matchMedia("(max-width: 720px)").matches
-    ? "list"
-    : matchMedia("(any-pointer: coarse)").matches
-      ? "magazine"
-      : "cards",
+  // A phone shows more of the library as a list; a tablet, such as an
+  // iPad, shows each link's picture (docs/MAGAZINE.md). The shared size
+  // classes decide (@workbench/elements/size-class).
+  layout:
+    widthClass() === "compact"
+      ? "list"
+      : isTabletScreen()
+        ? "magazine"
+        : "cards",
   offline: false,
 };
 

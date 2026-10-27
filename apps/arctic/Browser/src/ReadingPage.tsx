@@ -106,9 +106,9 @@ export function ReadingPage() {
         )}
         <p className="footnote">
           Arctic counts time while an article with text is open and you scroll,
-          type or move the pointer. A pause over two minutes counts for nothing.
-          A visit belongs to the day it started; an article counts after a
-          minute of reading in the last seven days.
+          type or move the pointer. A pause over three minutes counts for
+          nothing. A visit belongs to the day it started; an article counts
+          after a minute of reading in the last seven days.
         </p>
       </main>
     </>

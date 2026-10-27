@@ -118,7 +118,7 @@ it("counts time between inputs, pauses while hidden, and saves on the pause", as
   expect(tracker.session).toMatchObject({ activeMs: 90_000 });
 });
 
-it("discards a whole gap longer than two minutes", () => {
+it("counts a quiet stretch of three minutes, and nothing of a longer one", () => {
   const tab = page();
   const tracker = track(tab);
   tracker.begin({ kind: "article", id: "ice" });
@@ -126,9 +126,12 @@ it("discards a whole gap longer than two minutes", () => {
   tab.key();
   wait(180_000);
   tab.key();
+  expect(tracker.session).toMatchObject({ activeMs: 230_000 });
+  wait(180_001);
+  tab.key();
   wait(20_000);
   tab.key();
-  expect(tracker.session).toMatchObject({ activeMs: 70_000 });
+  expect(tracker.session).toMatchObject({ activeMs: 250_000 });
 });
 
 it("saves on the timer without counting time, at most every five seconds", async () => {

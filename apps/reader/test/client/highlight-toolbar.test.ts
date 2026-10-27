@@ -9,8 +9,8 @@ import {
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => false,
+vi.mock("@/hooks/use-compact-window", () => ({
+  useCompactWindow: () => false,
 }));
 
 vi.mock("@tanstack/react-hotkeys", () => ({

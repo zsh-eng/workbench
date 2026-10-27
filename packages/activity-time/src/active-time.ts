@@ -1,5 +1,8 @@
-/** The default gap: two minutes, as Arctic on iPhone counts reading time. */
-export const DEFAULT_GAP_MS = 120_000;
+/**
+ * The default gap: three minutes, as Arctic (on iPhone and on the web) and
+ * Spaced count time. It was two minutes until 28 October 2026.
+ */
+export const DEFAULT_GAP_MS = 180_000;
 
 /**
  * Active time under the gap rule.

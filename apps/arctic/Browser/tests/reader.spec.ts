@@ -90,13 +90,14 @@ test("counts reading time as the phone does and syncs it in the phone's format",
   // time counts all the same and uploads when the network returns.
   await context.setOffline(true);
 
-  // 50 s between two actions counts; a 3-minute pause counts for nothing.
+  // 50 s between two actions counts; a pause over 3 minutes counts for
+  // nothing.
   let x = 100;
   const act = () => page.mouse.move((x += 10), 300);
   await act();
   await page.clock.runFor(50_000);
   await act();
-  await page.clock.runFor(180_000);
+  await page.clock.runFor(240_000);
   await act();
   await page.clock.runFor(20_000);
   await act();

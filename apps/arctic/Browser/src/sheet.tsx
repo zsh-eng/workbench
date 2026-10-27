@@ -50,9 +50,10 @@ export type SheetProps = {
  * rests on detents. Opening, closing and a new detent run UIKit's sheet
  * spring. Below full height it floats, inset from the screen's edges, and
  * its height follows its content as "Sheet behaviour" in
- * packages/elements/docs/MOTION.md describes. On an iPad it takes UIKit's
- * form layout (`sheetPlacement`): centred without detents, on the bottom
- * edge at a form sheet's width with them. It is modal: the page turns
+ * packages/elements/docs/MOTION.md describes. Arctic shows sheets only in a
+ * compact window (`useCompact` in surface.tsx), where they are phone sheets;
+ * `sheetPlacement` would give a tablet's form layout in a wider one. It is
+ * modal: the page turns
  * inert, focus stays inside, and a press outside or Escape closes it.
  */
 export function Sheet({

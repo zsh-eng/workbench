@@ -3,6 +3,9 @@
   ---break---
 */
 @custom-variant dark (&:is(.dark *));
+/* Medium width and up, 600 px: past the phone layout (useCompactWindow, the
+   size classes in @workbench/elements/size-class). */
+@custom-variant medium (@media (width >= 600px));
 
 @config '../tailwind.config.js';
 

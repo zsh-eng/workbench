@@ -1,4 +1,4 @@
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useCompactWindow } from "@/hooks/use-compact-window";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, SlidersHorizontal } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -29,7 +29,7 @@ import {
 export function ReaderDebug() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
+  const isMobile = useCompactWindow();
   const { toast } = useToast();
 
   const [isPanelOpen, setIsPanelOpen] = useState(true);

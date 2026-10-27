@@ -15,7 +15,7 @@ struct ArticleReadingSession: Codable, Identifiable, Equatable, Sendable {
 /// A timer may checkpoint dirty values, but it must never manufacture activity.
 @MainActor final class ReadingSessions {
   static let shared = ReadingSessions()
-  static let inactivityThreshold: TimeInterval = 120
+  static let inactivityThreshold: TimeInterval = 180
   static let checkpointInterval: TimeInterval = 5
 
   private(set) var isLoaded = false

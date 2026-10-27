@@ -30,7 +30,7 @@ import {
 } from "@/lib/review/actions";
 import { gradeCardOperation } from "@/lib/sync/operation";
 import { cn } from "@/lib/utils";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 import { SPACED_GAP_MS } from "@workbench/activity-time";
 import { useActivitySession } from "@workbench/activity-time/react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -61,13 +61,13 @@ export default function ReviewRoute() {
   );
 
   // Time on the card under the shared rule (packages/activity-time): a hidden
-  // tab or another window pauses it, and a pause over two minutes counts
+  // tab or another window pauses it, and a pause over three minutes counts
   // nothing.
   const cardTime = useActivitySession(
     nextReviewCard ? { kind: "card", id: nextReviewCard.id } : null,
     { app: "spaced", gapMs: SPACED_GAP_MS },
   );
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
 
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -153,13 +153,13 @@ export default function ReviewRoute() {
       >
         <div
           className={cn(
-            "relative col-span-12 flex flex-col gap-x-4 gap-y-0 [@media(width>640px)]:gap-y-1 bg-background/60 backdrop-blur-sm dark:bg-muted/30 rounded-t-2xl [@media(width>640px)]:rounded-b-2xl px-1 md:px-0 pt-1 h-full animate-fade-in",
+            "relative col-span-12 flex flex-col gap-x-4 gap-y-0 medium:gap-y-1 bg-background/60 backdrop-blur-sm dark:bg-muted/30 rounded-t-2xl medium:rounded-b-2xl px-1 md:px-0 pt-1 h-full animate-fade-in",
             "dark:border",
-            "[@media(width>640px)]:shadow-lg",
+            "medium:shadow-lg",
           )}
         >
           {/* Actions dropdown menu */}
-          <div className="absolute top-1 [@media(width>640px)]:-top-1 right-2 flex z-20">
+          <div className="absolute top-1 medium:-top-1 right-2 flex z-20">
             {/* <div className='px-2 py-3'>
                 <Redo2 className='size-6 text-muted-foreground/50 hover:text-muted-foreground transition-all rotate-180' />
               </div> */}
@@ -181,7 +181,7 @@ export default function ReviewRoute() {
             )}
           </div>
 
-          <div className="w-full flex flex-col-reverse [@media(width>640px)]:flex-row justify-between items-center gap-4 px-2">
+          <div className="w-full flex flex-col-reverse medium:flex-row justify-between items-center gap-4 px-2">
             <div className="flex gap-2 items-center ml-2">
               <CardCountBadges />
               {nextReviewCard && <CurrentCardBadge card={nextReviewCard} />}
@@ -192,7 +192,7 @@ export default function ReviewRoute() {
             renderItem={(ref) => {
               return (
                 <div
-                  className="flex flex-col md:flex-row justify-stretch md:justify-center items-center gap-2 lg:gap-4 w-full h-full [@media(width>640px)]:bg-background rounded-b-2xl [@media(width>640px)]:border-t"
+                  className="flex flex-col md:flex-row justify-stretch md:justify-center items-center gap-2 lg:gap-4 w-full h-full medium:bg-background rounded-b-2xl medium:border-t"
                   ref={ref}
                 >
                   {nextReviewCard ? (

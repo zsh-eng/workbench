@@ -31,24 +31,24 @@ import Foundation
     clock.advance(10)
     store.activity()
     precondition(store.total(for: first) == 20)
-    clock.advance(120)
+    clock.advance(180)
     store.activity()
-    precondition(store.total(for: first) == 140)
-    clock.advance(121)
+    precondition(store.total(for: first) == 200)
+    clock.advance(181)
     store.activity()
-    precondition(store.total(for: first) == 140)  // Not capped to 120: discard all 121 seconds.
+    precondition(store.total(for: first) == 200)  // Not capped to 180: discard all 181 seconds.
     clock.advance(3)
     store.pause()
-    precondition(store.total(for: first) == 143)
+    precondition(store.total(for: first) == 203)
     clock.advance(80)
     store.activity()
     store.pause()
-    precondition(store.total(for: first) == 143)
+    precondition(store.total(for: first) == 203)
     store.begin(url: first)
     clock.advance(5)
     store.end()
     try await settled(store)
-    precondition(store.total(for: first) == 148)
+    precondition(store.total(for: first) == 208)
     precondition(store.sessions(for: first).count == 1)
 
     // Crossing a document boundary closes the old interval before starting a new one.
@@ -60,16 +60,16 @@ import Foundation
     precondition(store.total(for: next) == 0)  // An outgoing document cannot report for this visit.
     store.end()
     try await settled(store)
-    precondition(store.total(for: first) == 155)
+    precondition(store.total(for: first) == 215)
     precondition(store.total(for: next) == 8)
     precondition(store.sessions(for: first).count == 2)
 
     // A checkpoint never credits elapsed time or waits for a user's next action.
     store.begin(url: first)
-    clock.advance(100)
+    clock.advance(150)
     store.flush(force: true)
-    precondition(store.total(for: first) == 155)
-    clock.advance(30)
+    precondition(store.total(for: first) == 215)
+    clock.advance(40)
     store.end()
     precondition(store.sessions(for: first).count == 2)  // Empty idle visit is not persisted.
 
@@ -100,7 +100,7 @@ import Foundation
     try await settled(store)
     let restored = ReadingSessions(directory: directory)
     try await ready(restored)
-    precondition(restored.total(for: first) == 158)
+    precondition(restored.total(for: first) == 218)
     precondition(restored.total(for: next) == 17)
     precondition(restored.sessions(for: first).count == 3)
 
@@ -109,7 +109,7 @@ import Foundation
     try Data("broken".utf8).write(to: directory.appending(path: "damaged.json"))
     let partial = ReadingSessions(directory: directory)
     try await ready(partial)
-    precondition(partial.loadError != nil && partial.total(for: first) == 158)
+    precondition(partial.loadError != nil && partial.total(for: first) == 218)
     let failureDirectory = directory.appending(path: "failure")
     let failing = ReadingSessions(
       directory: failureDirectory, monotonicNow: { clock.tick }, wallNow: { clock.date })
@@ -182,7 +182,7 @@ import Foundation
     try await ready(reopened)
     precondition(reopened.total(for: next) == 55 && reopened.total(for: first) == 6)
     print(
-      "Reading sessions: 120-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation, retained retry, scoped page lifecycle and account merges passed"
+      "Reading sessions: 180-second boundary, discarded idle gaps, pause/resume, navigation, clock regression, checkpoint ordering, restart, damaged record isolation, retained retry, scoped page lifecycle and account merges passed"
     )
   }
 

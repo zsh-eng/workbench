@@ -111,17 +111,17 @@ function setVisibility(state: DocumentVisibilityState) {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
-test("a card's time is the time between actions; a silent card over two minutes counts nothing", async () => {
+test("a card's time is the time between actions; a silent card over three minutes counts nothing", async () => {
   at(0);
   const view = await review(["activity-A", -2000], ["activity-B", -1000]);
   expect(view.container.textContent).toContain("Question activity-A");
 
-  at(121000);
+  at(181000);
   await grade(view.container, "activity-A");
   expect(view.container.textContent).toContain("Question activity-B");
-  at(123000);
+  at(183000);
   window.dispatchEvent(new MouseEvent("mousemove"));
-  at(126000);
+  at(186000);
   await grade(view.container, "activity-B");
   expect(await duration("activity-A")).toBe(0);
   expect(await duration("activity-B")).toBe(5000);
@@ -132,9 +132,9 @@ test("a long pause on a card drops only the pause", async () => {
   const view = await review(["activity-gap", -1000]);
   at(30000);
   window.dispatchEvent(new MouseEvent("mousemove"));
-  at(200000);
+  at(240000);
   window.dispatchEvent(new MouseEvent("mousemove"));
-  at(210000);
+  at(250000);
   await grade(view.container, "activity-gap");
   expect(await duration("activity-gap")).toBe(40000);
 });

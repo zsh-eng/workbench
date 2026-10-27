@@ -7,7 +7,7 @@ import MobileGradeButtons from "@/components/review/mobile-grade-buttons";
 import MobileReviewCarousel from "@/components/review/review-carousel";
 import { RATING_TO_KEY } from "@/lib/card-mapping";
 import { cn } from "@/lib/utils";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 import { useEffect, useState } from "react";
 import { Rating } from "ts-fsrs";
 import { sampleReviewQueue } from "./card-fixture";
@@ -24,7 +24,7 @@ function sendKey(type: "keydown" | "keyup", key: string) {
  * route's classes; a grade only moves to the next sample card.
  */
 export function ReviewScreen({ state, nonce = 0 }: FrameSpecimenProps) {
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
   const [queue, setQueue] = useState(() =>
     state === "done" || state === "empty" ? [] : sampleReviewQueue(),
   );
@@ -57,12 +57,12 @@ export function ReviewScreen({ state, nonce = 0 }: FrameSpecimenProps) {
       <div className="mx-auto w-full md:mt-12 md:w-2/3">
         <div
           className={cn(
-            "relative flex h-full flex-col gap-x-4 gap-y-0 rounded-t-2xl bg-background/60 px-1 pt-1 backdrop-blur-sm dark:bg-muted/30 md:px-0 [@media(width>640px)]:gap-y-1 [@media(width>640px)]:rounded-b-2xl",
+            "relative flex h-full flex-col gap-x-4 gap-y-0 rounded-t-2xl bg-background/60 px-1 pt-1 backdrop-blur-sm dark:bg-muted/30 md:px-0 medium:gap-y-1 medium:rounded-b-2xl",
             "dark:border",
-            "[@media(width>640px)]:shadow-lg",
+            "medium:shadow-lg",
           )}
         >
-          <div className="absolute top-1 right-2 z-20 flex [@media(width>640px)]:-top-1">
+          <div className="absolute top-1 right-2 z-20 flex medium:-top-1">
             {card && (
               <ActionsDropdownMenu
                 key={card.id}
@@ -81,12 +81,12 @@ export function ReviewScreen({ state, nonce = 0 }: FrameSpecimenProps) {
               />
             )}
           </div>
-          <div className="flex w-full flex-col-reverse items-center justify-between gap-4 px-2 [@media(width>640px)]:flex-row">
+          <div className="flex w-full flex-col-reverse items-center justify-between gap-4 px-2 medium:flex-row">
             <div className="ml-2 flex items-center gap-2">
               {card && <CurrentCardBadge card={card} />}
             </div>
           </div>
-          <div className="flex h-full w-full flex-col items-center justify-stretch gap-2 rounded-b-2xl md:flex-row md:justify-center lg:gap-4 [@media(width>640px)]:border-t [@media(width>640px)]:bg-background">
+          <div className="flex h-full w-full flex-col items-center justify-stretch gap-2 rounded-b-2xl md:flex-row md:justify-center lg:gap-4 medium:border-t medium:bg-background">
             {card ? (
               isMobile ? (
                 <MobileReviewCarousel card={card} />

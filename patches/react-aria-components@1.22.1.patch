@@ -1,0 +1,90 @@
+diff --git a/dist/private/Sheet.cjs b/dist/private/Sheet.cjs
+index 85bf08b..d64b064 100644
+--- a/dist/private/Sheet.cjs
++++ b/dist/private/Sheet.cjs
+@@ -142,7 +142,11 @@ const $9579386d37d5da6e$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $cvivY$react
+         let rootMargin = `0px 0px ${$9579386d37d5da6e$var$calcToPx($9579386d37d5da6e$var$viewportPadding(after, axis))} 0px`;
+         let hasEntered = false;
+         let observer = new IntersectionObserver((entries)=>{
+-            let entry = entries[0];
++            // Patched: the observer can deliver several entries at once, oldest first (the sheet
++            // still below the screen, then in view). Act on the newest, and count the sheet as
++            // entered if any of them showed some of it.
++            let entry = entries[entries.length - 1];
++            if (entries.some((e)=>e.intersectionRatio > 0)) hasEntered = true;
+             // Expose whether the sheet is resting at its fully-entered detent (all of it revealed). Apps
+             // can use `[data-expanded]` to only make the sheet's inner content scrollable once expanded,
+             // so that at a partial detent a swipe on the content expands the sheet instead (like iOS).
+@@ -155,8 +159,12 @@ const $9579386d37d5da6e$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $cvivY$react
+                 element.dispatchEvent(new CustomEvent('react-aria-sheet-close'));
+             }
+         }, {
++            // Patched: a sheet that arrives touching the screen's edge is reported in view at
++            // ratio 0, and 0 and 1 alone then report nothing as it rises to a partial detent.
++            // 0.01 reports it once some of it shows.
+             threshold: [
+                 0,
++                0.01,
+                 1
+             ],
+             rootMargin: rootMargin
+diff --git a/dist/private/Sheet.js b/dist/private/Sheet.js
+index 8cc1b03..f629c5d 100644
+--- a/dist/private/Sheet.js
++++ b/dist/private/Sheet.js
+@@ -129,7 +129,11 @@ const $393b9725ff54df2c$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $d0bvy$forwa
+         let rootMargin = `0px 0px ${$393b9725ff54df2c$var$calcToPx($393b9725ff54df2c$var$viewportPadding(after, axis))} 0px`;
+         let hasEntered = false;
+         let observer = new IntersectionObserver((entries)=>{
+-            let entry = entries[0];
++            // Patched: the observer can deliver several entries at once, oldest first (the sheet
++            // still below the screen, then in view). Act on the newest, and count the sheet as
++            // entered if any of them showed some of it.
++            let entry = entries[entries.length - 1];
++            if (entries.some((e)=>e.intersectionRatio > 0)) hasEntered = true;
+             // Expose whether the sheet is resting at its fully-entered detent (all of it revealed). Apps
+             // can use `[data-expanded]` to only make the sheet's inner content scrollable once expanded,
+             // so that at a partial detent a swipe on the content expands the sheet instead (like iOS).
+@@ -142,8 +146,12 @@ const $393b9725ff54df2c$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $d0bvy$forwa
+                 element.dispatchEvent(new CustomEvent('react-aria-sheet-close'));
+             }
+         }, {
++            // Patched: a sheet that arrives touching the screen's edge is reported in view at
++            // ratio 0, and 0 and 1 alone then report nothing as it rises to a partial detent.
++            // 0.01 reports it once some of it shows.
+             threshold: [
+                 0,
++                0.01,
+                 1
+             ],
+             rootMargin: rootMargin
+diff --git a/dist/private/Sheet.mjs b/dist/private/Sheet.mjs
+index 02b94be..8cf9374 100644
+--- a/dist/private/Sheet.mjs
++++ b/dist/private/Sheet.mjs
+@@ -128,7 +128,11 @@ const $f44b3686778108d5$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $dnWcj$forwa
+         let rootMargin = `0px 0px ${$f44b3686778108d5$var$calcToPx($f44b3686778108d5$var$viewportPadding(after, axis))} 0px`;
+         let hasEntered = false;
+         let observer = new IntersectionObserver((entries)=>{
+-            let entry = entries[0];
++            // Patched: the observer can deliver several entries at once, oldest first (the sheet
++            // still below the screen, then in view). Act on the newest, and count the sheet as
++            // entered if any of them showed some of it.
++            let entry = entries[entries.length - 1];
++            if (entries.some((e)=>e.intersectionRatio > 0)) hasEntered = true;
+             // Expose whether the sheet is resting at its fully-entered detent (all of it revealed). Apps
+             // can use `[data-expanded]` to only make the sheet's inner content scrollable once expanded,
+             // so that at a partial detent a swipe on the content expands the sheet instead (like iOS).
+@@ -141,8 +145,12 @@ const $f44b3686778108d5$export$48dbb295cbd054d8 = /*#__PURE__*/ (0, $dnWcj$forwa
+                 element.dispatchEvent(new CustomEvent('react-aria-sheet-close'));
+             }
+         }, {
++            // Patched: a sheet that arrives touching the screen's edge is reported in view at
++            // ratio 0, and 0 and 1 alone then report nothing as it rises to a partial detent.
++            // 0.01 reports it once some of it shows.
+             threshold: [
+                 0,
++                0.01,
+                 1
+             ],
+             rootMargin: rootMargin

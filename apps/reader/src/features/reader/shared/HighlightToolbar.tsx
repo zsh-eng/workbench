@@ -1,5 +1,5 @@
 import { MessageSquarePlus } from "lucide-react";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useCompactWindow } from "@/hooks/use-compact-window";
 import { CopyFeedbackIcon } from "@/components/ui/copy-feedback-icon";
 import {
   HIGHLIGHT_COLORS,
@@ -41,7 +41,7 @@ export function HighlightToolbar({
   textToCopy,
   onNoteSubmit,
 }: HighlightToolbarProps) {
-  const isMobile = useIsMobile();
+  const isMobile = useCompactWindow();
   const prefersReducedMotion = useReducedMotion();
   const [noteText, setNoteText] = useState("");
   const { copied, copy } = useCopyFeedback("Could not copy highlight.");
@@ -205,7 +205,10 @@ export function HighlightToolbar({
                 "[@media(hover:hover)_and_(pointer:fine)]:hover:scale-110",
                 isBareDesktopPicker
                   ? "size-7 shadow-inner shadow-foreground/10 focus-visible:ring-offset-popover"
-                  : "size-10 border-2 border-background/80 shadow-[0_2px_10px_color-mix(in_srgb,var(--foreground)_18%,transparent)] focus-visible:ring-offset-background md:size-8",
+                  : cn(
+                      "border-2 border-background/80 shadow-[0_2px_10px_color-mix(in_srgb,var(--foreground)_18%,transparent)] focus-visible:ring-offset-background",
+                      isMobile ? "size-10" : "size-8",
+                    ),
                 currentColor &&
                   color.name === currentColor &&
                   (isBareDesktopPicker

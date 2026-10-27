@@ -2,7 +2,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useSyncExternalStore,
   type FocusEvent,
   type ReactNode,
   type RefObject,
@@ -15,6 +14,7 @@ import {
   springSheetScroller,
   springSheetTo,
 } from "./sheet-motion";
+import { useTabletSheets } from "./size-class";
 import { SPRINGS, type Spring } from "./spring";
 
 /** Fields that open the phone keyboard. */
@@ -26,33 +26,13 @@ export function isTextField(element: Element | null): element is HTMLElement {
 }
 
 /**
- * A touch screen with room for an iPad's form sheet: regular width and
- * regular height in UIKit's terms ("iPad" in docs/MOTION.md). A phone in
- * either orientation, and a narrow window beside another app, stay below it;
- * so does a desktop without touch. A laptop with a touch screen matches.
+ * Whether sheets take an iPad's form layout now: on a tablet's touch screen
+ * in a window compact in neither width nor height (`tabletSheets` in
+ * size-class.ts). It
+ * changes when the window turns or is resized, and an open sheet changes
+ * with it.
  */
-export const SHEET_FORM_QUERY =
-  "(any-pointer: coarse) and (min-width: 640px) and (min-height: 600px)";
-
-let formQuery: MediaQueryList | undefined;
-const sheetFormQuery = () => (formQuery ??= matchMedia(SHEET_FORM_QUERY));
-const subscribeSheetForm = (listener: () => void) => {
-  const query = sheetFormQuery();
-  query.addEventListener("change", listener);
-  return () => query.removeEventListener("change", listener);
-};
-
-/**
- * Whether sheets take an iPad's form layout now. It changes when the
- * window turns or is resized, and an open sheet changes with it.
- */
-export function useSheetForm(): boolean {
-  return useSyncExternalStore(
-    subscribeSheetForm,
-    () => sheetFormQuery().matches,
-    () => false,
-  );
-}
+export const useSheetForm: () => boolean = useTabletSheets;
 
 /**
  * Where a React Aria `SheetOverlay` puts its sheet, as UIKit does in each

@@ -67,10 +67,10 @@ Are.na (their help pages did not describe their grids).
    | Screen           | Pictures (Cards) | Magazine pictures |      Lead |
    | ---------------- | ---------------: | ----------------: | --------: |
    | 820 × 1180       |        364 × 182 |         366 × 192 | 756 × 396 |
-   | 1024 × 1366      |        301 × 151 |         468 × 245 | 624 × 327 |
+   | 1024 × 1366      |        346 × 173 |         348 × 182 | 720 × 377 |
    | 1180 × 820       |        273 × 137 |         426 × 223 | 568 × 297 |
    | 1366 × 1024      |        335 × 168 |         519 × 272 | 692 × 362 |
-   | 678 (Split View) |        311 × 156 |         309 × 162 | 642 × 336 |
+   | 678 (Split View) |        293 × 147 |         295 × 154 | 614 × 321 |
    | 504 (Split View) |       one column |         468 × 245 |           |
 
    At 1366 a third column would make the pictures Cards' size again, so
@@ -104,12 +104,14 @@ Are.na (their help pages did not describe their grids).
    the picture into the reader (not from a site cover, which has no
    picture in the reader).
 
-**The default:** Magazine on a touch screen wider than 720 px (an iPad
-full screen or in a wide window, or a touch laptop); Cards on a screen without touch;
-List on a phone. The layout switch offers all three. Why: the request came
-from the iPad; at arm's length a picture finds an article faster than a
-line of text, and the larger cards cost little on a screen that scrolls by
-flicks. A desktop window keeps the denser Cards. A choice already saved in
+**The default:** Magazine on a tablet (a touch screen whose shortest side
+is 600 px or more: an iPad, an Android tablet or a touch laptop) in a
+window 600 px or wider; List in a window narrower than 600 px; Cards
+otherwise (a screen without touch, or a phone on its side). The size
+classes are shared (`packages/elements/docs/SIZE_CLASSES.md`). The layout
+switch offers all three. Why: the request came from the iPad; at arm's
+length a picture finds an article faster than a line of text, and the
+larger cards cost little on a screen that scrolls by flicks. A desktop window keeps the denser Cards. A choice already saved in
 a browser stays.
 
 ## Performance
@@ -162,5 +164,5 @@ Chromium).
   drop decoded data off screen, and `content-visibility` skips their
   painting. The scrolling check above found no cost over Cards; memory
   was not measured.
-- **Split View.** Below 720 px the page is the phone's. Magazine there has
-  two columns down to 600 px, then one; List stays the phone default.
+- **Split View.** Below 600 px the page is the phone's, with one column;
+  List stays the phone default. From 600 px it is the tablet's, with two.

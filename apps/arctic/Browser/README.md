@@ -92,7 +92,7 @@ highlighted on either shows on both:
 Reading time counts as on the phone, with the shared rule of
 [activity-time](../../../packages/activity-time/README.md): time between two of
 the reader's own actions (keys, pointer, touch, wheel, and a scroll just after
-one) counts when the gap is two minutes or less. A hidden tab, or another
+one) counts when the gap is three minutes or less. A hidden tab, or another
 window in focus, pauses. A scroll that restores the position is not an action.
 A visit saves every five seconds and uploads within a minute; a visit under a
 second is not kept. **Reading** (`/reading`) shows the last seven days, today, articles
@@ -243,9 +243,10 @@ reading, a neutral palette, hairline rules, and untreated publisher images.
 Glacier blue marks only small details, such as the favourite star and the
 reading progress. Each width gets the layout that suits its hands:
 
-- **Phone** (720 px and narrower). The top holds the folders on one line, the
-  current one on a capsule that slides, and the account. Search and **+** sit
-  at the bottom, in thumb reach; search turns the top line into the field.
+- **Phone** (narrower than 600 px, Android's compact width class; see
+  `packages/elements/docs/SIZE_CLASSES.md`). The top holds the folders on
+  one line, the current one on a capsule that slides, and the account.
+  Search and **+** sit at the bottom, in thumb reach; search turns the top line into the field.
   **+** saves a link the way Safari edits its address: the search capsule
   becomes a link field above the keyboard, with Paste while it is empty and
   Save once it is not; the **+** turns to × and the list waits under a light
@@ -258,9 +259,10 @@ reading progress. Each width gets the layout that suits its hands:
   the bottom holds Back, Notes, Text, Favourite, Archive and More, and steps
   down while you read on. A selection turns that toolbar into the highlight
   bar, clear of the system's selection menu.
-- **Wide** (1100 px and wider). A sidebar holds Save a link, the folders and
-  topics with counts, Highlights, Reading time and the account; the search,
-  title and cards share one left edge.
+- **Wide** (840 px and wider, the expanded class, in a window 480 px or
+  taller, so not a phone on its side). A sidebar holds Save a link, the
+  folders and topics with counts, Highlights, Reading time and the
+  account; the search, title and cards share one left edge.
 - Between the two, the large folder tabs and the top bar remain.
 
 A card is a 2:1 cover, the source line and the title. An article without a

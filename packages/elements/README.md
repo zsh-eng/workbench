@@ -35,8 +35,12 @@ demo contract.
   Aria sheet's body (its spring and shape, the scroll out on close, and the
   keyboard kept clear of its detents), `SheetFitHeight`, which holds the
   height for the content, `isTextField`, and `useSheetForm` and
-  `sheetPlacement`, which give a sheet an iPad's form layout on a wide
-  touch screen.
+  `sheetPlacement`, which give a sheet an iPad's form layout on a tablet.
+- `@workbench/elements/size-class`: the one rule for phone, tablet and
+  desktop layouts. `useWidthClass` (Android's compact, medium and expanded
+  widths), `useCompactHeight`, `isTabletScreen` (a touch screen whose
+  shortest side is 600 px or more) and `useTabletSheets`. See
+  [docs/SIZE_CLASSES.md](docs/SIZE_CLASSES.md).
 
 Arctic for the web and Reader use the sheet parts. See
 [docs/MOTION.md](docs/MOTION.md) for the measurements behind them and the

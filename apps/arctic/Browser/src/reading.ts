@@ -15,7 +15,7 @@ import type { Session } from "./sync/session";
  * the shared rule in `packages/activity-time`: a visit is one opening of an
  * article with text, `session/<UUID>` in `arctic-reading`, in the phone's
  * format. Time between two of the reader's own actions counts when the gap is
- * two minutes or less; a longer gap counts for nothing. A hidden tab, or
+ * three minutes or less; a longer gap counts for nothing. A hidden tab, or
  * another window in focus, pauses.
  */
 type ReadingSession = ActivitySession<null>;

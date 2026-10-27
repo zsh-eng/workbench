@@ -24,7 +24,7 @@ function session(fields: Partial<ActivitySession>): ActivitySession {
     lastActiveAt: day(20, 9) + 70_123,
     endedAt: null,
     activeMs: 70_123,
-    gapMs: 120_000,
+    gapMs: 180_000,
     position: null,
     ...fields,
   };

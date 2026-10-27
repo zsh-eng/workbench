@@ -141,8 +141,11 @@ export function ReaderHeader({
               aria-pressed={isMobile ? undefined : isMenuOpen}
               className={`${CHROME_BUTTON_CLASS_NAME} aria-pressed:bg-secondary/70 aria-pressed:text-foreground`}
             >
-              <MoreHorizontal className="size-4 md:hidden" />
-              <PanelRight className="hidden size-4 md:block" />
+              {isMobile ? (
+                <MoreHorizontal className="size-4" />
+              ) : (
+                <PanelRight className="size-4" />
+              )}
             </Button>
           </div>
         </div>

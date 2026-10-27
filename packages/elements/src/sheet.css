@@ -15,9 +15,10 @@
 
    and reads `--wb-sheet-full`, the tallest a sheet gets, for its height.
 
-   On an iPad (`sheetPlacement` in sheet-body.tsx, `data-sheet-layout`
-   "form") a sheet without detents is a centred form sheet, and one with
-   detents stays on the bottom edge at a form sheet's width.
+   On a tablet (`sheetPlacement` in sheet-body.tsx, `data-sheet-layout`
+   "form"; docs/SIZE_CLASSES.md) a sheet without detents is a centred form
+   sheet, and one with detents stays on the bottom edge at a form sheet's
+   width.
 
    The sheet's own box keeps one width, so its content never reflows while
    the shape changes: the surface behind it widens, and the scroller's clip

@@ -12,7 +12,8 @@
     "./sheet-motion": "./src/sheet-motion.ts",
     "./sheet-fit": "./src/sheet-fit.ts",
     "./sheet-body": "./src/sheet-body.tsx",
-    "./sheet.css": "./src/sheet.css"
+    "./sheet.css": "./src/sheet.css",
+    "./size-class": "./src/size-class.ts"
   },
   "devDependencies": {
     "@types/react": "19.3.0"
