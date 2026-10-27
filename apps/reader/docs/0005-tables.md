@@ -1,7 +1,8 @@
 # Tables in Reader
 
-Status: prototype behind a Debug switch. This document is the proposal, its
-critique, and the benchmark evidence for the decision.
+Status: prototype behind a Debug switch (Appearance → Layout → Tables →
+Grid, or `?tables=grid`). This document is the proposal, its critique, the
+benchmark evidence and the recommendation.
 
 ## What happens today
 
@@ -91,8 +92,11 @@ Design ideas and benchmarks):
 - **Pages.** Rows are the unit. A table moves to the next page when its
   header and first row do not fit. On each continuation page the header rows
   repeat; repeated headers carry no anchors and cannot be selected. A row
-  taller than a page splits at a line boundary (every cell's lines share the
-  grid). A preceding `figcaption` is kept with the table.
+  splits at a line boundary (every cell's lines share the grid) when it is
+  taller than a page, or when keeping it whole would leave a quarter of the
+  page or more empty; a split leaves at least two lines before the break.
+  Rows joined by a `rowspan` stay together unless the group is taller than a
+  page. A preceding `figcaption` is kept with the table.
 - **Too wide.** When min-content widths exceed the page, the table keeps
   min-content widths and scrolls sideways inside its slice; a swipe that
   starts in such a table scrolls it instead of turning the page.
@@ -108,8 +112,8 @@ Design ideas and benchmarks):
 - **Width algorithm drift.** The worker's widths decide line breaks; the
   browser must not re-decide them. Fixed layout plus explicit widths removes
   the browser's choice. The remaining risk is a cell line wider than its
-  column by font-measurement error; lines are measured with the same 2 px
-  safety the prose uses.
+  column by font-measurement error; cells keep 3 px free, the prose line
+  breaker's safety plus rounding, and column widths are whole pixels.
 - **Repeated headers duplicate text.** Without care they would duplicate
   anchors (a page anchor could point back to the first page of the table) and
   copy text. They are rendered without anchor attributes and are skipped
@@ -119,7 +123,12 @@ Design ideas and benchmarks):
   rare; the catalogue decides whether it is rare enough.
 - **Scroll mode.** The column reuses page slices, so a long table keeps its
   page splits and repeated headers in the column. Acceptable for a
-  prototype; a shipped version should drop repeats in scroll mode.
+  prototype; a shipped version should drop repeats in scroll mode. The
+  reading place inside a table is its row's first cell, so a relayout or a
+  reopen returns to that row, not to the table's start.
+- **Search, selection and marks.** Cells are text blocks, so search hits,
+  selection and highlights map through the same character alignment as
+  paragraphs; the DOM side reads each cell's text element.
 - **Copy.** Cells are blocks, so copied text separates cells with blank
   lines, not tabs. Acceptable for a prototype.
 - **Cache rebuild.** Turning the switch rebuilds the body cache once per
@@ -141,3 +150,151 @@ Design ideas and benchmarks):
 Measured on the private copy of the book (table-heavy chapters) and on
 synthetic chapters at 1×, 5× and 20× the book's average table density, at
 390 px (CPU 4×) and iPad sizes, in Chromium and WebKit.
+
+## Results
+
+Production build on one shared 8-core Mac, Chromium at 390 × 844 with the
+CPU 4× slower unless noted. Medians of 3–5 timed runs after a warm-up.
+Other agents shared the machine (1-minute load average 2–15), so runs were
+repeated in alternating Paragraph/Grid rounds. The reopen rows marked
+*final* are two such rounds on the final build at a load of 2.3–3.5, the
+quietest the machine got. Other rows ran on an earlier build of the
+prototype, and a range there covers pairs whose two sides ran at a similar
+load of about 4. Paragraph in the prototype build
+matched the build before it within noise (same pages and lines; first page
+in the table chapter 349 → 346 ms, at 5× density 387 → 382 ms), so Paragraph
+is the baseline below.
+
+Books: the user's copy of *Systems Performance* (catalogue above; its
+Chapter 15 is the densest for its size, 9 tables and 395 cells in a 105 KB
+file),
+and the sample book's first chapter run 20 times over (about 227,000
+characters) with synthetic tables at 0, 1, 5 and 20 times the book's
+average density (0, 11, 55 and 220 tables).
+
+| Measure | Paragraph | Grid | Change |
+| --- | --- | --- | --- |
+| **No tables** (synthetic, 0×): whole-book decoration / worker prepare / layout | 12.4 / 101.5 / 122.5 ms | 12.6 / 105.4 / 126.6 ms | within noise; same 340 pages |
+| No tables: first page on reopen, *final* | 311 ms | 299 ms | none (−4%, noise) |
+| No tables, WebKit (no throttle): prepare / layout | 93 / 134 ms | 95 / 130 ms | within noise |
+| **Book, Chapter 15**: first page on reopen, *final* | 353 ms | 366 ms | +4% (earlier build: +9% to +21%) |
+| Book, Chapter 15: main-thread chapter decoration, *final* | 29 ms | 37 ms | +8 ms (earlier build: +14 ms) |
+| Book, Chapter 15: worker prepare + layout, opening chapter, *final* | 85 ms | 93 ms | +8 ms |
+| **Book, page turns** (40 turns through Chapter 15): main-thread task that renders the new page, median / p90 / max | 18.0–18.6 / 22.9–23.9 / 27 ms | 18.8–19.9 / 26.4–27.4 / 30 ms | +1 / +3.5 / +3 ms |
+| Book, page turns: longest garbage collection in the run | 20 ms | 31–32 ms | +11 ms |
+| **Book, whole**: decoration / body-cache build / worker prepare / layout | 177 / 294 / 758 / 845 ms | 198 / 312 / 809 / 876 ms | +12% / +6% / +7% / +4% |
+| Book, whole: pages (phone / iPad 820 × 1180) | 2983 / 1954 | 3043 / 1980 | +2% / +1%; 16 of 54 chapters gain 1–8 pages |
+| Book, whole: JavaScript heap, main / worker | 12.5 / 106 MB | 13.6 / 112 MB | +1.1 / +6 MB |
+| Book, whole, iPad: decoration / prepare / layout | 182 / 764 / 820 ms | 209 / 831 / 876 ms | +15% / +9% / +7% |
+| Book, whole, WebKit: decoration / prepare / layout | 237 / 879 / 862 ms | 252 / 868 / 838 ms | +6% / within noise |
+| **Synthetic 1×**: first page on reopen | 318 ms | 380 ms | +20% |
+| Synthetic 5×: first page on reopen, *final* | 382 ms | 492 ms | +29% (earlier pairs +25% to +42%) |
+| Synthetic 5×: chapter decoration / worker prepare + layout, *final* | 46 / 142 ms | 96 / 189 ms | ×2.1 / +33% |
+| Synthetic 5×, iPad: first page on reopen | 372 ms | 549 ms | +48% |
+| Synthetic 5×, WebKit (no throttle): first page on reopen | 286 ms | 357 ms | +25% |
+| Synthetic 5×: page render task median / max | 18.4 / 26.8 ms | 22.6 / 24.9 ms | +4 ms median |
+| Synthetic 5×: table chapter pages / worker heap | 260 / 18.3 MB | 381 / 27.0 MB | +47% / +8.7 MB |
+| **Synthetic 20×**: first page on reopen | 578 ms | 1117 ms | +93% |
+| Synthetic 20×: chapter decoration / worker heap | 117 ms / 29 MB | 388 ms / 62 MB | ×3.3 / ×2.1 |
+
+Two turn runs had load spikes and are left out of the pairs above: a
+Paragraph run at a load of 15 (render task median 28 ms, max 42 ms, a 56 ms
+task) and a Grid run at 11 (median 28 ms, max 45 ms, an 89 ms task holding an
+86 ms collection). Each mode's other runs at a load of about 4 did not
+reproduce them.
+
+Where the time goes in Grid: decoration (parsing a chapter's highlighted
+HTML into blocks, on the main thread) and the worker's per-cell preparation
+grow with the number of cells, and both sit before the first page. A page
+turn's cost is React building the new page's DOM, and each cell adds a
+`td`, a text element, a line `span` and fragment `span`s where prose adds a
+line and its fragments.
+
+### Against the thresholds
+
+- Page turns, at most +16 ms: met on the book (+1 ms median, +3.5 ms p90,
+  +3 ms max at 4×) and at 5× (+4 ms median).
+- Books without tables, at most +10%, and a table-free first page at most
+  +10%: met (no measurable change; Paragraph is unchanged byte for byte).
+- First page of a table-heavy chapter, at most +25% at 4×: met on the
+  book (+4% on the final build, at most +21% under load) and at 1× (+20%);
+  missed at 5× (+29%, iPad +48%) and 20× (+93%).
+- Memory no larger than the table text: missed. The book's 93 tables hold
+  about 70,000 characters of text, and the worker heap grows by about 6 MB
+  (about 85 bytes per character, 65 KB per table) for per-cell blocks, lines
+  and fragments.
+
+## Recommendation
+
+Ship with limits. The book in hand reads well and turns pages as before;
+books without tables are untouched. The costs that miss the bar grow with
+cell count: the first page of a very table-dense chapter and the worker's
+memory.
+
+1. Turn Grid on by default for chapters up to about 1,000 table cells
+   (the book's largest chapter holds 530), and keep Paragraph above
+   that until decoration and preparation are cheaper. The cut-off still
+   needs its own measurement.
+2. Before that, replace the cache-row flag with one cache version bump, and
+   drop repeated headers from scroll mode.
+3. Next optimisations, in order of payoff: parse table cells off the main
+   thread or lazily per page; share font objects across a cell's fragments
+   to cut worker memory and structured-clone work; render a single-line cell
+   without its line `span`.
+
+Alternatives considered and not built: measuring real tables in the page
+(A) breaks worker-only relayout; a tap-to-open sheet (C) avoids every cost
+but loses in-page highlights and search marks; stacked cards (D) need text
+that is not in canonical text. C remains the fallback for tables too wide
+to scroll comfortably.
+
+## What the prototype does
+
+- Parse (`shared/parse-html.ts`): with `tables`, a `<table>` becomes a
+  `table` block (rows, cells, spans, header rows) and one `td`/`th` text
+  block per non-empty cell. A `<caption>` becomes a `figcaption` block kept
+  with the table. Canonical text is unchanged, so highlights, notes and
+  search offsets are the same in both modes.
+- Layout (`shared/layout-table.ts`): column widths in whole pixels from
+  min- and max-content, cells laid out with the prose line breaker, rows
+  broken across pages as above. Each page gets one `TableSlice` with its
+  rows and cells; `textSlicesOf` gives the cells to every path that reads
+  page text (anchors, selection, notes, page-break selection, search).
+- Render (`PageSliceView.tsx`): a fixed-layout `<table>` per part with
+  `<colgroup>` widths and row heights; a too-wide part scrolls sideways
+  (`data-reader-table-scroll`), and taps and swipes there do not turn the
+  page. Scroll mode uses the same slices; its reading place inside a table
+  is a row.
+- Switch (`tables-preference.ts`, `TablesRow.tsx`): Debug only. The mode is
+  part of the body cache row (`tableCellsLoaded`), the chapter artifact key
+  and the artifact signature, so each mode has its own caches and Paragraph
+  parses exactly as before.
+
+## Not covered
+
+- Nested tables (none in the book) lay out as text inside the outer cell.
+- `<caption>` and `figcaption` are a block before the table, not part of
+  the `<table>` element, so assistive technology does not associate them.
+- Copy separates cells with blank lines, not tabs.
+- A cell's own alignment (`text-align`, `align`, `valign`) and publisher
+  table styles are ignored: cells are left-aligned and top-aligned.
+- Images inside cells are dropped, as the flattened paragraph did.
+- Scroll mode keeps the page splits and repeated headers.
+- The tap-to-open sheet (option C) is not built; a very wide table only
+  scrolls in place.
+- The sideways scroller has no `tabindex` or accessible name, so keyboard
+  access to a wide table's hidden columns depends on the browser.
+- Not measured: a real iPad or iPhone (WebKit ran unthrottled on the Mac),
+  books with `colspan`/`rowspan` beyond the synthetic ones, and the cost of
+  switching modes (one body-cache rebuild per book).
+
+## Decisions for the user
+
+1. Default: Grid for everyone (with a cell cap), or opt-in under
+   Appearance → Layout?
+2. Cell cap per chapter: about 1,000 cells, or measure a lower one?
+3. Very wide tables: keep sideways scrolling, or add the tap-to-open sheet
+   (option C) for tables that overflow?
+4. Copy from a table: tab-separated rows, or leave cells as paragraphs?
+5. Shipping costs one body-cache rebuild per book (a cache version bump):
+   acceptable on the next release?
