@@ -197,12 +197,12 @@ try {
     api(new URL(/\((http[^)]+)\)/.exec(link)[1]).pathname.replace("/review/", "/api/reviews/"));
   git(repositories[0], "remote", "set-url", "origin", "git@github.com:example/repo.git");
   const inferred = await fromLink(
-    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD"),
+    runCli("create", "--repo", repositories[0], "--base", "HEAD~1", "--head", "HEAD"),
   );
   assert.equal(inferred.title, "Faster lookups");
   assert.equal(inferred.pullRequestUrl, prResult.url);
   const exact = await fromLink(
-    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", prResult.headRefOid),
+    runCli("create", "--repo", repositories[0], "--base", "HEAD~1", "--head", prResult.headRefOid),
   );
   assert.equal(exact.title, "Faster lookups");
   assert.equal(exact.targets[0].comparison.head, prResult.headRefOid);
@@ -225,7 +225,7 @@ try {
   );
   assert.equal(linked.title, "Faster lookups");
   const skipped = await fromLink(
-    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD", "--no-pr"),
+    runCli("create", "--repo", repositories[0], "--base", "HEAD~1", "--head", "HEAD", "--no-pr"),
   );
   assert.equal(skipped.pullRequestUrl, undefined);
   assert.throws(() =>
@@ -234,7 +234,7 @@ try {
   prResult = { ...prResult, headRefOid: "0".repeat(40) };
   answerGh();
   const mismatch = await fromLink(
-    runCli("create", "--repo", repositories[0], "--base", "HEAD", "--head", "HEAD"),
+    runCli("create", "--repo", repositories[0], "--base", "HEAD~1", "--head", "HEAD"),
   );
   assert.equal(mismatch.pullRequestUrl, undefined);
   assert.notEqual(mismatch.title, "Faster lookups");
