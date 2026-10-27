@@ -47,6 +47,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type DragEvent,
@@ -111,6 +112,11 @@ function useMoreToTheRight() {
     };
   }, [row]);
   return { ref: setRow, more };
+}
+
+/** Which of these books have their EPUB on this device. */
+function readingBooksOnDevice(books: readonly Book[]): Promise<boolean[]> {
+  return Promise.all(books.map((book) => files.hasLocal(book.sourceFileId)));
 }
 
 /**
@@ -231,9 +237,10 @@ export function Library() {
 
   // The books you are reading open at once: those whose EPUB is on this
   // device are prepared now. A new device has none of them, and downloading
-  // them all would hold back the covers for many seconds, so only the book
-  // you read last downloads, once the restore has ended and no download,
-  // such as a cover's, is under way.
+  // them all at once held back the covers for many seconds. So they download
+  // one at a time, the book read last first, once the restore has ended and
+  // no other download, such as a cover's, is under way. Each is tried once
+  // while the Library is open, so a failed download does not repeat at once.
   const restoring = useSyncStatus(
     syncService.controller,
     (status) => status.restoring,
@@ -242,36 +249,49 @@ export function Library() {
     files.subscribe,
     () => files.getSnapshot().downloading.length > 0,
   );
+  const triedDownloads = useRef(new Set<string>());
+  const prefetchOptions = useMemo(
+    () => ({
+      includeArtifacts: false,
+      publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
+      matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
+    }),
+    [
+      settings.matchPublisherBodyTextSize,
+      settings.publisherBookStylingEnabled,
+    ],
+  );
+  const continueReading = data?.categorized.continueReading;
   useEffect(() => {
-    const books = data?.categorized.continueReading ?? [];
-    if (books.length === 0) return;
+    const books = continueReading ?? [];
     let cancelled = false;
-    void Promise.all(
-      books.map((book) => files.hasLocal(book.sourceFileId)),
-    ).then((local) => {
+    void readingBooksOnDevice(books).then((local) => {
       if (cancelled) return;
-      const prepared = books.filter(
-        (_, index) =>
-          local[index] || (index === 0 && !restoring && !downloading),
-      );
-      if (prepared.length === 0) return;
-      void prefetchReaderBooks(queryClient, prepared, {
-        includeArtifacts: false,
-        publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
-        matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
-      });
+      const prepared = books.filter((_, index) => local[index]);
+      if (prepared.length > 0)
+        void prefetchReaderBooks(queryClient, prepared, prefetchOptions);
     });
     return () => {
       cancelled = true;
     };
-  }, [
-    data?.categorized.continueReading,
-    downloading,
-    queryClient,
-    restoring,
-    settings.matchPublisherBodyTextSize,
-    settings.publisherBookStylingEnabled,
-  ]);
+  }, [continueReading, prefetchOptions, queryClient]);
+  useEffect(() => {
+    if (restoring || downloading) return;
+    const books = continueReading ?? [];
+    let cancelled = false;
+    void readingBooksOnDevice(books).then((local) => {
+      if (cancelled) return;
+      const next = books.find(
+        (book, index) => !local[index] && !triedDownloads.current.has(book.id),
+      );
+      if (!next) return;
+      triedDownloads.current.add(next.id);
+      void prefetchReaderBooks(queryClient, [next], prefetchOptions);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [continueReading, downloading, prefetchOptions, queryClient, restoring]);
 
   const handlePrefetch = useCallback(
     (book: Book) => {
