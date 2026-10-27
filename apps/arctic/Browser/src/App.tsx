@@ -40,7 +40,10 @@ let opening: Promise<Opened> | undefined;
 function open(): Promise<Opened> {
   opening ??= (async () => {
     const account =
-      rememberedAccount() ?? (await currentAccount().catch(() => null));
+      rememberedAccount() ??
+      (await currentAccount()
+        .catch(() => null)
+        .finally(() => performance.mark("arctic:account")));
     if (!account) return { account: null };
     const session = await Session.open(account);
     performance.mark("arctic:open", {

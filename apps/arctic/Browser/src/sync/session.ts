@@ -74,12 +74,27 @@ export class Session {
     private readonly db: IDBDatabase,
     private readonly channels: Channels,
   ) {
+    // The first sync of a page load is timed: arctic:sync:<namespace> for
+    // each pull and push, and arctic:commit for each page that IndexedDB
+    // commits (see the first-sync lab, docs/FIRST_SYNC.md).
+    let timed = true;
+    for (const channel of Object.values(channels))
+      channel.storage.timeCommits = true;
     this.controller = createSyncController({
       run: async ({ signal, markRestoring }) => {
         if (!channels.library.stateStore.read()?.bootstrapped) markRestoring();
-        for (const channel of Object.values(channels)) {
-          signal.throwIfAborted();
-          await channel.client.sync();
+        try {
+          for (const [name, channel] of Object.entries(channels)) {
+            signal.throwIfAborted();
+            const start = performance.now();
+            await channel.client.sync();
+            if (timed) performance.measure(`arctic:sync:${name}`, { start });
+          }
+        } finally {
+          if (timed) performance.mark("arctic:synced");
+          timed = false;
+          for (const channel of Object.values(channels))
+            channel.storage.timeCommits = false;
         }
       },
       intervalMs: SYNC_INTERVAL_MS,

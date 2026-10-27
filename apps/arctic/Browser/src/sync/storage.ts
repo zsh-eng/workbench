@@ -56,6 +56,8 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
   private listeners = new Set<(keys: string[]) => void>();
   /** Changes whenever a record changes. */
   revision = 0;
+  /** Measures each committed page as `arctic:commit` (the first sync). */
+  timeCommits = false;
 
   constructor(
     private readonly db: IDBDatabase,
@@ -258,6 +260,7 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
       else if (!accepted) pending.set(record.key, this.rebase(current, record));
       // An edit made while its upload was in flight stays queued.
     }
+    const start = performance.now();
     await transact(this.db, ["records", "outbox"], "readwrite", async (tx) => {
       const records = tx.objectStore("records");
       const outbox = tx.objectStore("outbox");
@@ -266,6 +269,11 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
         if (item) outbox.put(item);
         else outbox.delete([this.ns, key]);
     });
+    if (this.timeCommits)
+      performance.measure("arctic:commit", {
+        start,
+        detail: { ns: this.ns, rows: rows.length },
+      });
     for (const row of rows) this.rows.set(row.key, row);
     for (const [key, item] of pending)
       if (item) this.pending.set(key, item);
