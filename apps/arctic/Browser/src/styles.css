@@ -1623,6 +1623,168 @@ a.article-source:hover {
   font-size: 16px;
   line-height: 1.32;
 }
+/* Magazine (docs/MAGAZINE.md): each link's picture carries its card, at the
+   og:image's 1.91:1. The columns follow the list's own width, not the
+   device (useColumns sets --columns and data-columns on .shelf-area). */
+.shelf-area {
+  container-type: inline-size;
+}
+.grid[data-layout="magazine"] {
+  grid-template-columns: repeat(var(--columns, 1), minmax(0, 1fr));
+  gap: 40px 24px;
+}
+/* The site's colour: a hue from its name (siteHue). It fills a picture's
+   place until the picture comes, a site's cover, and an icon's stand-in. */
+.grid[data-layout="magazine"] .card {
+  --site: oklch(0.935 0.032 var(--site-hue));
+  --site-ink: oklch(0.42 0.075 var(--site-hue));
+  contain-intrinsic-size: auto 330px;
+}
+:root[data-mode="dark"] .grid[data-layout="magazine"] .card {
+  --site: oklch(0.29 0.036 var(--site-hue));
+  --site-ink: oklch(0.86 0.06 var(--site-hue));
+}
+.grid[data-layout="magazine"] .cover {
+  aspect-ratio: 1.91 / 1;
+  background: var(--site, var(--fill));
+}
+.grid[data-layout="magazine"] .cover img[data-shape="upright"] {
+  object-fit: contain;
+}
+.grid[data-layout="magazine"] .card:hover .cover img[data-shape="upright"] {
+  transform: none;
+}
+.grid[data-layout="magazine"] .card-title {
+  font-size: 18px;
+  line-height: 1.27;
+}
+.grid[data-layout="magazine"] span.favicon {
+  background: var(--site);
+  color: var(--site-ink);
+}
+/* A tile whose link has no picture: its title set large on the site's
+   colour, with the description under it. */
+.grid[data-layout="magazine"] .site-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6% 7%;
+  color: var(--site-ink);
+  text-decoration: none;
+  container-type: inline-size;
+}
+.grid[data-layout="magazine"] .site-cover .card-title {
+  margin: 0;
+  font-family: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  font-size: clamp(19px, 6.4cqi, 30px);
+  font-weight: 600;
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  -webkit-line-clamp: 3;
+}
+.grid[data-layout="magazine"] .site-quote {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.4;
+  opacity: 0.78;
+}
+/* A run of links without a picture, as headlines in the grid's own columns
+   and whole rows, so their lines align (magazineCells). */
+.band {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  row-gap: 0;
+}
+.band .card {
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--rule);
+  contain-intrinsic-size: auto 100px;
+}
+.shelf-area[data-columns="1"] .band .card:first-child,
+.shelf-area[data-columns="2"] .band .card:nth-child(-n + 2),
+.shelf-area[data-columns="3"] .band .card:nth-child(-n + 3) {
+  padding-top: 0;
+  border-top: 0;
+}
+.grid[data-layout="magazine"] .site-cover + .card-line {
+  margin-top: 12px;
+}
+.grid[data-layout="magazine"] .band .card-line {
+  margin-top: 0;
+}
+.grid[data-layout="magazine"] .band .card-title {
+  -webkit-line-clamp: 2;
+}
+/* How far this browser has read the article. */
+.progress-line {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: rgb(0 0 0 / 0.18);
+}
+.progress-line::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--progress) * 100%);
+  background: var(--accent);
+}
+/* The lead: the first link, when it has a picture. Its picture spans the
+   row; from 860 px of cards its words stand beside it. */
+.grid[data-layout="magazine"] .card[data-kind="lead"] {
+  grid-column: 1 / -1;
+  /* Always on the first screen; and layout containment would stop it
+     being a subgrid. */
+  content-visibility: visible;
+}
+.card[data-kind="lead"] .card-title {
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 680;
+  line-height: 1.16;
+  letter-spacing: -0.022em;
+  -webkit-line-clamp: 4;
+}
+.card[data-kind="lead"] .card-excerpt {
+  margin-top: 10px;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-line-clamp: 3;
+}
+@container (min-width: 924px) {
+  .grid[data-layout="magazine"] .card[data-kind="lead"] {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: 24px;
+  }
+  .card[data-kind="lead"] .cover {
+    grid-row: 1 / -1;
+  }
+  .card[data-kind="lead"] .card-line {
+    margin-top: 0;
+  }
+  .card[data-kind="lead"] .card-title {
+    font-size: 28px;
+    -webkit-line-clamp: 5;
+  }
+  .card[data-kind="lead"] .card-excerpt {
+    -webkit-line-clamp: 6;
+  }
+}
+/* With three columns, the lead's picture takes exactly two of them. */
+.shelf-area[data-columns="3"] .card[data-kind="lead"] {
+  grid-template-columns: subgrid;
+}
+.shelf-area[data-columns="3"] .card[data-kind="lead"] .cover {
+  grid-column: 1 / 3;
+}
+
 .panel-link {
   display: block;
   padding: 12px 0 4px;

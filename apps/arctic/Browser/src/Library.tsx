@@ -5,6 +5,7 @@ import {
   Highlighter,
   History,
   LayoutGrid,
+  LayoutPanelTop,
   List,
   Search,
   Star,
@@ -12,6 +13,8 @@ import {
 import {
   memo,
   startTransition,
+  type CSSProperties,
+  useCallback,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -52,6 +55,7 @@ import {
 } from "./state";
 import { useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
+import { useProgress } from "./position";
 import { AccountMenu, CardMenu, CardMenuButton } from "./ui";
 
 export function Library({ folder }: { folder: Folder }) {
@@ -145,6 +149,7 @@ export function Library({ folder }: { folder: Folder }) {
   const title = folders.find((item) => item.id === folder)!;
   const { layout } = useSettings();
   const grid = useRef<HTMLElement>(null);
+  const [area, columns] = useColumns();
   const intent = usePrefetch(grid, visible);
   const search = useRef<HTMLInputElement>(null);
   usePasteToSave();
@@ -172,6 +177,13 @@ export function Library({ folder }: { folder: Folder }) {
       className="layout-toggle"
       value={layout}
       options={[
+        [
+          "magazine",
+          <>
+            <LayoutPanelTop size={16} />
+            <span className="visually-hidden">Magazine</span>
+          </>,
+        ],
         [
           "cards",
           <>
@@ -207,18 +219,43 @@ export function Library({ folder }: { folder: Folder }) {
       )}
     </button>
   );
+  const renderedArticles = visible.slice(0, rendered);
   const list = waiting ? (
     <Waiting layout={layout} count={articles.length} />
   ) : visible.length > 0 ? (
     <main className="grid" data-layout={layout} ref={grid} {...intent}>
-      {visible.slice(0, rendered).map((article, index) => (
-        <Card
-          key={article.id}
-          article={article}
-          state={opened}
-          eager={index < (compact ? 10 : 12)}
-        />
-      ))}
+      {layout === "magazine"
+        ? magazineCells(renderedArticles, columns, !deferredQuery).map((cell) =>
+            cell.kind === "band" ? (
+              <div key={cell.articles[0]!.id} className="band">
+                {cell.articles.map((article) => (
+                  <Card
+                    key={article.id}
+                    article={article}
+                    state={opened}
+                    eager={false}
+                    kind="headline"
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card
+                key={cell.article.id}
+                article={cell.article}
+                state={opened}
+                eager={cell.eager}
+                kind={cell.kind}
+              />
+            ),
+          )
+        : renderedArticles.map((article, index) => (
+            <Card
+              key={article.id}
+              article={article}
+              state={opened}
+              eager={index < (compact ? 10 : 12)}
+            />
+          ))}
     </main>
   ) : (
     <div className="empty">
@@ -289,7 +326,14 @@ export function Library({ folder }: { folder: Folder }) {
             <h1>{title.title}</h1>
             {count}
           </header>
-          {list}
+          <div
+            className="shelf-area"
+            ref={area}
+            data-columns={columns}
+            style={{ "--columns": columns } as CSSProperties}
+          >
+            {list}
+          </div>
         </div>
         <CardMenu />
       </div>
@@ -331,7 +375,14 @@ export function Library({ folder }: { folder: Folder }) {
           </div>
         )}
       </header>
-      {list}
+      <div
+        className="shelf-area"
+        ref={area}
+        data-columns={columns}
+        style={{ "--columns": columns } as CSSProperties}
+      >
+        {list}
+      </div>
       {compact && (
         <PhoneDock
           count={shelf.length}
@@ -730,7 +781,10 @@ function mark(event: MouseEvent<HTMLElement>) {
   for (const element of marked)
     element.style.removeProperty("view-transition-name");
   const card = event.currentTarget.closest(".card");
-  const cover = card?.querySelector<HTMLElement>(".cover");
+  // A site's cover has no picture in the reader to move into.
+  const cover = card?.matches("[data-image]")
+    ? card.querySelector<HTMLElement>(".cover")
+    : null;
   const title = card?.querySelector<HTMLElement>(".card-title");
   cover?.style.setProperty("view-transition-name", "cover");
   title?.style.setProperty("view-transition-name", "title");
@@ -741,18 +795,27 @@ const Card = memo(function Card({
   article,
   state,
   eager,
+  kind = "card",
 }: {
   article: Article;
   state: { from: string };
   /** One of the first cards on screen: its cover loads first. */
   eager: boolean;
+  /**
+   * A card of Cards and List, or of a magazine (docs/MAGAZINE.md): its lead,
+   * a tile (a picture, or its site's cover), or a headline in a band.
+   */
+  kind?: "card" | "lead" | "tile" | "headline";
 }) {
   const path = `/read/${article.id}`;
   // An article without a working image is a text card: its title and the
-  // start of its description, with no stand-in cover.
+  // start of its description, with no stand-in cover. A magazine's tile
+  // shows its site's cover instead, with the title set large.
   const [failed, setFailed] = useState(false);
   const image = failed ? undefined : article.image;
   const [fresh] = useState(() => isFresh(article.id));
+  const magazine = kind !== "card";
+  const siteCover = !image && (kind === "lead" || kind === "tile");
   return (
     <article
       className="card"
@@ -761,8 +824,14 @@ const Card = memo(function Card({
       data-copy={article.copy ? "" : undefined}
       data-image={image ? "" : undefined}
       data-fresh={fresh || undefined}
+      data-kind={magazine ? kind : undefined}
+      style={
+        magazine
+          ? ({ "--site-hue": siteHue(article.host) } as CSSProperties)
+          : undefined
+      }
     >
-      {image && (
+      {image && kind !== "headline" && (
         <Link
           to={path}
           state={state}
@@ -773,27 +842,136 @@ const Card = memo(function Card({
           onClick={mark}
         >
           <Cover src={image} eager={eager} onFail={() => setFailed(true)} />
+          {magazine && <Progress id={article.id} />}
+        </Link>
+      )}
+      {siteCover && (
+        <Link
+          to={path}
+          state={state}
+          viewTransition
+          className="cover site-cover"
+          onClick={mark}
+        >
+          <span className="card-title">{article.title}</span>
+          {article.subtitle && (
+            <span className="site-quote">{article.subtitle}</span>
+          )}
+          <Progress id={article.id} />
         </Link>
       )}
       <div className="card-line">
         <Source article={article} />
         <CardMenuButton article={article} />
       </div>
-      <Link
-        to={path}
-        state={state}
-        viewTransition
-        className="card-title"
-        onClick={mark}
-      >
-        {article.title}
-      </Link>
-      {!image && article.subtitle && (
+      {!siteCover && (
+        <Link
+          to={path}
+          state={state}
+          viewTransition
+          className="card-title"
+          onClick={mark}
+        >
+          {article.title}
+        </Link>
+      )}
+      {(kind === "lead" || (!image && kind === "card")) && article.subtitle && (
         <p className="card-excerpt">{article.subtitle}</p>
       )}
     </article>
   );
 });
+
+type Cell =
+  | { kind: "lead" | "tile"; article: Article; eager: boolean }
+  | { kind: "band"; articles: Article[] };
+
+/**
+ * A magazine's cells, in the list's order (docs/MAGAZINE.md). A link with a
+ * picture is a tile; the first one leads when `lead`. A run of links without
+ * one first fills the row it starts in with site covers, then becomes a band
+ * of headlines in whole rows when it fills two or more; the rest are site
+ * covers. So every row of the grid is full, and a band's lines align.
+ * Pictures in the first two rows, above any band, load first.
+ */
+function magazineCells(articles: Article[], columns: number, lead: boolean) {
+  const cells: Cell[] = [];
+  let at = 0; // Cells already in the current row.
+  let eager = 2 * columns;
+  const tile = (article: Article) => {
+    cells.push({ kind: "tile", article, eager: eager-- > 0 });
+    at = (at + 1) % columns;
+  };
+  let index = 0;
+  if (lead && articles[0]?.image) {
+    cells.push({ kind: "lead", article: articles[0], eager: true });
+    index = 1;
+  }
+  while (index < articles.length) {
+    if (articles[index]!.image) {
+      tile(articles[index++]!);
+      continue;
+    }
+    let end = index;
+    while (end < articles.length && !articles[end]!.image) end++;
+    while (index < end && at !== 0) tile(articles[index++]!);
+    const rows = Math.floor((end - index) / columns);
+    if (rows >= 2) {
+      eager = 0;
+      cells.push({
+        kind: "band",
+        articles: articles.slice(index, (index += rows * columns)),
+      });
+    }
+    while (index < end) tile(articles[index++]!);
+  }
+  return cells;
+}
+
+/**
+ * The magazine's columns, from the list's width (docs/MAGAZINE.md): one,
+ * two from 600 px, so every iPad full screen has two, and three from
+ * 1,240 px, a wide desktop window. Measured before the first paint, so the
+ * grid never reflows into place.
+ */
+function useColumns() {
+  const [columns, setColumns] = useState(1);
+  const ref = useCallback((area: HTMLElement | null) => {
+    if (!area) return;
+    const measure = (width: number) =>
+      setColumns(width >= 1240 ? 3 : width >= 600 ? 2 : 1);
+    measure(area.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) =>
+      measure(entry!.contentRect.width),
+    );
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, columns] as const;
+}
+
+/**
+ * A hue for the site, from its name: the same on every visit and in every
+ * theme. Publishers' icons cannot be read for their colour (no CORS).
+ */
+function siteHue(host: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < host.length; index++)
+    hash = Math.imul(hash ^ host.charCodeAt(index), 16777619);
+  return (hash >>> 0) % 360;
+}
+
+/** How far this browser has read the article, along the picture's foot. */
+function Progress({ id }: { id: string }) {
+  const progress = useProgress(id);
+  if (!progress) return null;
+  return (
+    <span
+      className="progress-line"
+      style={{ "--progress": progress } as CSSProperties}
+    />
+  );
+}
 
 function Source({ article }: { article: Article }) {
   return (
@@ -832,16 +1010,22 @@ function Cover({
       referrerPolicy="no-referrer"
       // A cover already in memory shows at once; one from the network fades in.
       ref={(image) => {
-        if (image?.complete && isCover(image)) image.dataset.loaded = "";
+        if (image?.complete && isCover(image)) loaded(image);
       }}
       onLoad={(event) => {
-        if (isCover(event.currentTarget))
-          event.currentTarget.dataset.loaded = "";
+        if (isCover(event.currentTarget)) loaded(event.currentTarget);
         else onFail();
       }}
       onError={onFail}
     />
   );
+}
+
+/** A picture that arrived; a square or tall one shows whole in a magazine. */
+function loaded(image: HTMLImageElement) {
+  if (image.naturalWidth / image.naturalHeight < 1.6)
+    image.dataset.shape = "upright";
+  image.dataset.loaded = "";
 }
 
 /** The site's icon, or its initial in the same square, so lines align. */
