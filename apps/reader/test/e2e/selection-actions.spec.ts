@@ -77,7 +77,8 @@ async function recordCopies(page: Page): Promise<() => Promise<string[]>> {
 
 // The Reader reads a selection a moment after the finger lifts. A selection
 // changed after that, by a handle or a key, must still be the one a tool
-// acts on when it is tapped straight away.
+// acts on when it is tapped straight away: the selection as the finger
+// lands, even if the tap then changes it.
 test("Copy, Note and Highlight act on the selection as it is when tapped", async ({
   page,
   localBook,
@@ -110,6 +111,15 @@ test("Copy, Note and Highlight act on the selection as it is when tapped", async
   await selectPassage(page, { index: 0, length: 20 });
   await expect(yellow).toBeVisible();
   final = await selectPassage(page, { index: 3, length: 24, release: false });
+  // A tap's default actions can clear the selection before its click, as
+  // WebKit on iOS does for a press that does not cancel pointerdown.
+  await page.evaluate(() =>
+    document.addEventListener(
+      "pointerup",
+      () => getSelection()!.removeAllRanges(),
+      { capture: true, once: true },
+    ),
+  );
   await yellow.tap();
   await expect
     .poll(() => savedHighlightTexts(page, localBook.id))

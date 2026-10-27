@@ -311,8 +311,8 @@ function resolveHighlightCopyText(
  * - An action with no press before it, such as a key on a focused tool,
  *   reads the selection when it runs.
  *
- * Each press is taken once. A key, a cancelled pointer, or a press outside
- * the tools forgets it.
+ * A press lasts until the click it ends in, and an action takes it once. A
+ * key or a cancelled pointer forgets it too.
  */
 export function useReaderAnnotations({
   bookId,
@@ -544,6 +544,8 @@ export function useReaderAnnotations({
 
   // A press on the tools reads the selection before the tap's default
   // actions run. Capture phase, so no handler that stops the event hides it.
+  // The press ends with its click: the bubble phase on the document comes
+  // after React's handlers on the root.
   useEffect(() => {
     const handlePress = (event: PointerEvent) => {
       pressRef.current =
@@ -558,10 +560,12 @@ export function useReaderAnnotations({
     document.addEventListener("pointerdown", handlePress, true);
     document.addEventListener("pointercancel", forgetPress, true);
     document.addEventListener("keydown", forgetPress, true);
+    document.addEventListener("click", forgetPress);
     return () => {
       document.removeEventListener("pointerdown", handlePress, true);
       document.removeEventListener("pointercancel", forgetPress, true);
       document.removeEventListener("keydown", forgetPress, true);
+      document.removeEventListener("click", forgetPress);
     };
   }, [resolveSelectionDraft]);
 
