@@ -61,7 +61,8 @@ record or failed:
   each committed pull page and each reconciled push batch. One pass can
   span several clients (Arctic syncs four namespaces in one attempt).
 - **A lost edit** is a sent change whose winner differs from it. A repeated
-  push (the winner is the sent change) is kept, not lost.
+  push (the winner is the sent change) is kept, not lost, and so is a
+  removal that a newer removal replaced: the record is gone, as asked.
 - **`keptLocal`**: a pulled record that a newer edit on this device kept
   out. `applyRemoteRecords` may now return those keys; `DexieSyncStorage`
   does. Without them, "from your iPhone: 1 highlight" would name a change
@@ -133,8 +134,11 @@ shared server's `GET /api/apps/:namespace/devices` lists sync clients by
 `client_id`, the same `X-Device-ID` that records carry, with the browser, OS
 and device type from the user agent. Reader names those "your iPhone", "your
 iPad" or "your Mac", remembers the names for offline use, and otherwise says
-"another device". iPadOS Safari sends a Mac user agent, so an iPad can read
-as a Mac.
+"another device". iPadOS Safari, and a web app on an iPad's Home Screen, send
+a Mac's user agent, and the server keeps only the user agent. An iPad can
+tell itself apart by its touch points, but cannot tell the server without a
+protocol change. So a device the server lists as macOS in any browser but
+Chrome or Firefox is "your Mac or iPad", with a neutral icon.
 
 ### Limits the words keep
 
@@ -181,11 +185,14 @@ Read back against the code, the first draft had these problems:
 - _`keptLocal` changes a storage result._ Two existing tests compare the
   exact `{ applied, skipped }`. The field is optional and additive; the tests
   now include it.
-- _Debug only, recorded for everyone._ The view is behind Debug, but the
-  journal records on every device, so turning Debug on shows past days. This
-  adds Dexie version 8 to Reader (one new local table, no upgrade function).
-  Dexie 4 opens a newer database from older code, so a stale tab keeps
-  working.
+- _Recorded for everyone._ The journal records on every device, so the view
+  shows past days the first time it opens. This adds Dexie version 8 to
+  Reader (one new local table, no upgrade function). Dexie 4 opens a newer
+  database from older code: after the browser's `VersionError` it opens the
+  installed version, and the extra table does not stop it. So a stale tab, or
+  a rollback to a version 7 build, keeps working; that code ignores
+  `_sync_journal`, and the journal resumes when version 8 code returns. Sync
+  Lab's version 7 scenario checks the upgrade and this reopen.
 
 A review of the built code found three more, now fixed and tested:
 
@@ -197,7 +204,9 @@ A review of the built code found three more, now fixed and tested:
 - _A roll-up hid the restore._ Its counts joined a day's ordinary counts and
   read as "from this device". Restore passes now stay out of the roll-up.
 - _Debug code for everyone._ The Activity sheet and the Devices list were
-  precached for every Reader user. They now download on first use.
+  precached for every Reader user while only Debug showed them. They
+  downloaded on first use until Activity shipped; now Activity is precached
+  again, and the Devices list and the Design ideas stay on demand.
 
 Kept as drafted, after weighing:
 
@@ -212,19 +221,19 @@ Kept as drafted, after weighing:
 
 ## In the apps
 
-- **Reader** (this round, behind Debug): Account → Activity opens one sheet
-  (a popover under the account button on a larger screen) with **Now** (the
-  activity jobs, as the glyph's sheet lists them) and **Recent** (lost
-  edits, waiting changes, then the groups by day). Rows keep their places
-  while the sheet is open. The activity glyph keeps its rule: restores,
-  imports, waiting updates and failed downloads only. Devices adds a Debug
-  list of the devices the server knows, each with the latest changes this
-  device has from it (`lastFrom`). Debug → Design ideas → Sync history
-  compares Recent as sections (the choice), one timeline, and one row per
-  device, on sample history. Reader's nouns are in
+- **Reader** (for every reader, laid out as sections): Account → Activity
+  opens one sheet (a popover under the account button on a larger screen)
+  with **Now** (the activity jobs, as the glyph's sheet lists them) and
+  **Recent** (lost edits, waiting changes, then the groups by day). Rows keep their places while the sheet is open. The service worker
+  precaches it, so it opens offline. The activity glyph keeps its rule:
+  restores, imports, waiting updates and failed downloads only. Behind
+  Debug, Devices adds a list of the devices the server knows, each with the
+  latest changes this device has from it (`lastFrom`), and Design ideas →
+  Sync history compares Recent as sections (the choice), one timeline, and
+  one row per device, on sample history. Reader's nouns are in
   `src/features/sync-history/reader-describe.ts`: books, highlights, notes
   and bookmarks in their books, reading progress, and reading settings.
-  Next, not in this round:
+  Next:
 
 - **Arctic for the web** keeps four `SyncClient`s under one controller. It
   would pass `pass` to each `client.sync({ observer })` and implement

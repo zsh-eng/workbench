@@ -100,9 +100,10 @@ Bundle size alone does not justify route splitting. Preserve offline access
 when changing asset loading or caching.
 
 The service worker precaches what every reader needs, so a fresh install
-opens the Library and any downloaded book offline. Debug pages, labs and
-Design ideas, and fonts beyond the default faces, download on first use into
-a runtime cache (`scripts/pwa/precache.ts`). React and the bundler's helpers
+opens the Library and any downloaded book offline. That includes code that
+loads on first use but every reader can open, such as Account → Activity.
+Debug pages, labs and Design ideas, and fonts beyond the default faces,
+download on first use into a runtime cache (`scripts/pwa/precache.ts`). React and the bundler's helpers
 live in their own chunk, so a release changes only the files whose code
 changed and the chunks that name them.
 
