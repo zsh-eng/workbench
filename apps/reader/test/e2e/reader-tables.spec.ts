@@ -297,7 +297,9 @@ test("a highlight in a cell stays after the book reopens", async ({ page }) => {
   expect(await markedText()).toBe(text.replace(/\s+/g, " "));
 });
 
-test("scroll mode shows a table as a grid", async ({ page }) => {
+test("scroll mode shows a table as a grid, with its header once", async ({
+  page,
+}) => {
   await useTables(page, "grid");
   await openTableChapter(page, "tables-scroll");
   await page.evaluate(() =>
@@ -316,6 +318,34 @@ test("scroll mode shows a table as a grid", async ({ page }) => {
   await expect(table.first()).toBeAttached();
   await table.first().scrollIntoViewIfNeeded();
   await expect(table.first().locator("thead th").first()).toHaveText("Name");
+  // The 48 rows run on through the page breaks: the parts after the first
+  // follow without the header, and every row shows once.
+  const shown = new Set<number>();
+  for (let step = 0; step < 12 && shown.size < 48; step++) {
+    await expect(
+      page.locator("[data-reader-scroll-stage] [data-reader-table-repeated]"),
+    ).toHaveCount(0);
+    const rows = await page
+      .locator(
+        "[data-reader-scroll-stage] [data-reader-slice-type='table'] tbody tr:not([data-reader-table-continued])",
+      )
+      .evaluateAll((elements) =>
+        elements.map((row) =>
+          Number(row.getAttribute("data-reader-table-row")),
+        ),
+      );
+    for (const row of rows) shown.add(row);
+    await page
+      .locator("[data-reader-scroll-stage]")
+      .evaluate((element) => element.scrollBy({ top: element.clientHeight }));
+  }
+  expect(shown.size).toBe(48);
+  expect(
+    await page
+      .locator("[data-reader-scroll-stage] thead th")
+      .filter({ hasText: "Name" })
+      .count(),
+  ).toBe(1);
 });
 
 test("without Debug mode, tables read as grids in a chapter up to the cell limit and as paragraphs above it", async ({

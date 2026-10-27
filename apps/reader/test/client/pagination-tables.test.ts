@@ -346,6 +346,32 @@ describe("tables in scroll mode", () => {
       expect(part.y).toBeGreaterThanOrEqual(column.pageStarts[part.pageIndex]!);
   });
 
+  it("shows the header once, and starts a continuation's page at its header", () => {
+    const header = pages
+      .flatMap((page) => page.slices)
+      .flatMap((slice) => (slice.type === "table" ? slice.rows : []))
+      .filter((row) => row.repeated);
+    expect(header.length).toBeGreaterThan(0);
+    for (const part of parts) {
+      if (part.slice.type !== "table") continue;
+      expect(part.slice.rows.some((row) => row.repeated)).toBe(false);
+    }
+    // On the page, a continuation's rows sit under the header; in the
+    // column the page starts where that header would be.
+    const repeatedHeight = (pageIndex: number) =>
+      pages[pageIndex]!.slices.flatMap((slice) =>
+        slice.type === "table" ? slice.rows : [],
+      )
+        .filter((row) => row.repeated)
+        .reduce((sum, row) => sum + row.height, 0);
+    const continued = parts.filter((part) => repeatedHeight(part.pageIndex));
+    expect(continued.length).toBeGreaterThan(0);
+    for (const part of continued)
+      expect(column.pageStarts[part.pageIndex]).toBeCloseTo(
+        part.y - repeatedHeight(part.pageIndex),
+      );
+  });
+
   it("keeps the reading place inside a later part", () => {
     const part = parts[2]!;
     // Halfway down the part, below its repeated header.
