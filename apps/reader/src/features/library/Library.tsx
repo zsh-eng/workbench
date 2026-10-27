@@ -317,12 +317,15 @@ export function Library() {
       !terms,
   );
   const arriving = usePendingArrivalCount();
-  const libraryEmpty =
+  const noBooks =
     data !== undefined && data.books.length === 0 && arriving === 0;
+  // A new device's restore fills the library, so until its books arrive
+  // the library is not empty and asks for no files.
+  const libraryEmpty = noBooks && !restoring;
   const nothingFound = terms !== "" && found.length === 0;
   const showShelf = reading.length > 0;
   const showRest =
-    !libraryEmpty &&
+    !noBooks &&
     !nothingFound &&
     (!terms || shown.length > 0 || filter !== "all");
 
@@ -498,6 +501,15 @@ export function Library() {
               Choose EPUB files
             </Button>
           </div>
+        )}
+
+        {noBooks && restoring && (
+          <p
+            role="status"
+            className="py-24 text-center text-[14px] text-muted-foreground md:py-32"
+          >
+            Restoring your library…
+          </p>
         )}
 
         {nothingFound && (
