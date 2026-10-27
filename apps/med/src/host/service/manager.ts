@@ -13,6 +13,7 @@ import type { RepositoryRegistry } from "../repository/registry";
 import { selfCommand } from "./self";
 import { HostError } from "../runtime/errors";
 import { DEFAULT_PORT } from "../runtime/connection";
+import { medCommand } from "../runtime/med-command";
 import { discoverSources } from "./discover";
 import { loginItem, setLoginItem } from "./login-item";
 
@@ -318,7 +319,9 @@ export class ServiceManager {
       .list()
       .filter((s) => s.id === input || s.path === resolve(input) || basename(s.path) === input);
     if (matches.length !== 1)
-      throw new Error("Choose an unambiguous source ID or path from med list.");
+      throw new Error(
+        `Choose an unambiguous source ID or path from ${medCommand({ port: this.port, stateDir: this.stateDir }, "list")}.`,
+      );
     return matches[0]!;
   }
   async image(document: string, href: string, syntax: "wiki" | "markdown") {

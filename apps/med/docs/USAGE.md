@@ -104,6 +104,9 @@ load it or read its agents until you open it again.
   (`med review create`), when you keep a found session in Med, and when you
   open it from history. A found session opens as a tab once, when Med first
   sees its agent work. After you close it, it stays in history.
+- A Med with another state folder than `~/.local/state/med` lists only its
+  own threads: found sessions start hidden there. **Show sessions not kept in
+  Med** in the palette shows them.
 - A row shows its agent's state by its type. The title is dim while the agent
   works, and the second line shows what the agent does now, such as "Running
   bun test". The title is bold when a turn ended while you were elsewhere.
@@ -370,7 +373,10 @@ This writes the Med skill for Claude Code (`~/.claude/skills/med`) and Codex
 (`~/.agents/skills/med`): `SKILL.md`, a short checklist that an agent reads
 when it hands off changes, and `guide.md`, the guide that `med docs agents`
 prints. `med skills show` prints the skill, and `med skills uninstall` removes
-it. Install it again after you update Med. `med skills suggest` lists review
+it. After an update, `med status` and `med web` say when an installed skill
+differs from the new version's; `med skills update` refreshes it where it is
+installed and installs it nowhere new. The install script runs it for you.
+`med skills suggest` lists review
 practices that you can copy into your own skills; see
 [review practices](PRACTICES.md). For agents without skills, see
 [AGENTS.md guidance](AGENT_INTEGRATION.md#agentsmd-guidance).
@@ -392,11 +398,16 @@ in a shared checkout); messages arrive as new turns, so don't run
 
 Review commands talk to the running server, so start Med with `med web`. They
 find it through a private connection file in the state folder,
-`~/.local/state/med` by default. If you change the folder (`--state-dir` or
-`MED_STATE_DIR`) or the port (`--port`, default 6330), use the same values for
-the server and for the agent's commands. A command without `--port` uses the
-one server that runs from the state folder if no server runs on 6330. Saved reviews and their comments last
-as long as the state folder.
+`~/.local/state/med` by default. Every command takes the folder from
+`--state-dir` or `MED_STATE_DIR`, and the port from `--port` or `MED_PORT`.
+Without a port, a command uses the server that runs from the state folder.
+Port 6330 is for `~/.local/state/med`: a server of another state folder, such
+as a second Med that an agent runs beside yours, takes a free port and says
+which. Choose a port with `--port` for an address that stays the same after a
+restart. A login service of another state folder needs `--port`. The commands
+that Med prints for an agent to run next carry `--port` and `--state-dir`
+when they are not the defaults. Saved reviews and their comments last as long
+as the state folder.
 
 Open the server's launch URL once in the browser where you review. Med changes
 its token for a browser cookie and removes the token from the address; review
@@ -414,6 +425,10 @@ background shells and agents. It follows the session live.
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
   installed agent.
+- The button at the pane's top right hides the pane (`⌘⇧B`). It does not stop
+  or close the session: the agent keeps working, and its row in the sidebar
+  shows its state. **Agent session** in the review's **⋯** menu, or `⌘⇧B`
+  again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
   to a prompt from **Turns**.
 - A finished turn shows its prompt and final reply; its other work folds into

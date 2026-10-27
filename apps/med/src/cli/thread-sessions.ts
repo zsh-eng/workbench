@@ -10,11 +10,13 @@ import {
   type SessionEntry,
 } from "../shared/found-sessions";
 import {
-  findPort,
+  clientPort,
   getStateDirectory,
   readConnection,
   type RunningConnection,
 } from "../host/runtime/connection";
+import { medCommand, type Instance } from "../host/runtime/med-command";
+import { claudeCaller } from "./agent-sessions";
 import {
   addVersion,
   printGuideCheck,
@@ -131,9 +133,11 @@ async function showInThread(
     cwd: string;
     find(body: object): Promise<SessionEntry[]>;
     openUrl?: (url: string) => void;
+    instance: Instance;
+    home?: string;
   },
 ) {
-  const { environment, print, cwd } = context;
+  const { environment, print, cwd, instance } = context;
   const kinds = [paths || values.base, values.commit, values.working, values.manifest].filter(
     Boolean,
   );
@@ -158,10 +162,22 @@ async function showInThread(
       throw new Error(
         "Med does not know this session. Run med thread show in a Med thread or a Claude Code session, or name the thread with --key <key> or --session codex:<id>.",
       );
+    // A subagent has its parent's session ID: its work is not the parent's thread.
+    if (!values.session?.trim()) {
+      const caller = await claudeCaller(named, /\bthread\s+show\b/, { home: context.home });
+      if (caller === "subagent")
+        throw new Error(
+          `This command runs in a subagent of Claude Code session ${named}, and a subagent has its parent's session ID, so Med cannot tell your thread. Name it with --key <key>.`,
+        );
+      if (caller === "unknown")
+        throw new Error(
+          `Claude Code session ${named} has subagents at work, and Med could not tell which agent runs this command. Name the thread with --key <key>, or with --session claude:${named} if the session itself runs it.`,
+        );
+    }
     const [entry] = await context.find({ session: named, limit: 2 });
     if (!entry?.thread)
       throw new Error(
-        `No Med thread holds session ${named}. Run med thread adopt ${named} first, then med thread show again.`,
+        `No Med thread holds session ${named}. Run ${medCommand(instance, "thread adopt", named)} first, then ${medCommand(instance, "thread show")} again.`,
       );
     id = entry.thread.id;
   }
@@ -232,7 +248,7 @@ async function showInThread(
   const version = added.iterations?.at(-1)?.number ?? 1;
   if (values.json) print(JSON.stringify({ id, title: added.title, version, url }, null, 2));
   else print(`Version ${version} of [${added.title.replace(/[[\]]/g, "")}](${url})`);
-  if (guide) await printGuideCheck(connection, id, guide, key, fetcher, print);
+  if (guide) await printGuideCheck(connection, id, guide, key, fetcher, print, instance);
 }
 
 /** A transcript path is relative to this command's folder. */
@@ -248,6 +264,8 @@ export async function runThreadSessionsCommand(
     environment?: NodeJS.ProcessEnv;
     /** The directory that relative paths start from. */
     cwd?: string;
+    /** Where Claude Code keeps transcripts: the home folder. */
+    home?: string;
   } = {},
 ): Promise<void> {
   const print = options.print ?? console.log;
@@ -315,10 +333,8 @@ export async function runThreadSessionsCommand(
   const stateDir = getStateDirectory(
     values["state-dir"] ?? (environment.MED_STATE_DIR || undefined),
   );
-  const portValue = values.port ?? (environment.MED_PORT || undefined);
-  const port = portValue === undefined ? await findPort(stateDir) : Number(portValue);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("Choose a port from 1 to 65535.");
+  const port = await clientPort(stateDir, values.port, environment);
+  const instance = { port, stateDir };
   const connection = await readConnection(stateDir, port);
   const fetcher = options.fetcher ?? fetch;
   const find = async (body: object) =>
@@ -330,6 +346,8 @@ export async function runThreadSessionsCommand(
       print,
       cwd: options.cwd ?? process.cwd(),
       find,
+      instance,
+      ...(options.home ? { home: options.home } : {}),
       ...(options.openUrl ? { openUrl: options.openUrl } : {}),
     });
 
@@ -352,11 +370,11 @@ export async function runThreadSessionsCommand(
   const matches = await find({ session, limit: 10 });
   if (!matches.length)
     throw new Error(
-      `No Claude Code or Codex session matches "${rest[0]}". Run med thread find <words> to list sessions.`,
+      `No Claude Code or Codex session matches "${rest[0]}". Run ${medCommand(instance, "thread find", "<words>")} to list sessions.`,
     );
   if (matches.length > 1)
     throw new Error(
-      `"${rest[0]}" names more than one session. Run med thread adopt again with one of these:\n${matches
+      `"${rest[0]}" names more than one session. Run ${medCommand(instance, "thread adopt")} again with one of these:\n${matches
         .map((match) => sessionLine(match))
         .join("\n")}`,
     );

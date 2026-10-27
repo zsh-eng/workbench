@@ -21,5 +21,6 @@ Risk: callers now wait up to 7 s before an error.
 - Name the one place to read first, with `path:line`.
 - Say what changed in behaviour, and what did not.
 - Add a diagram only when the change moves data between parts.
-- In Med, put it in the guide's `summary`, or in the brief with
-  `med review create --brief -`.
+- In Med, put it in the guide's `summary`, or write it to a file and pass
+  `--brief <file>` with `--guide -`: only one option can read standard
+  input.

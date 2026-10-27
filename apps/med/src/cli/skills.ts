@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { version } from "../../package.json";
 import skill from "../../skills/med/SKILL.md" with { type: "text" };
 import guide from "../../skills/med/guide.md" with { type: "text" };
 import instructions from "../../skills/thread-instructions.md" with { type: "text" };
@@ -31,6 +32,7 @@ const SUGGESTIONS: Readonly<Record<string, string>> = {
 const describe = (text: string) => /^description: (.+)$/m.exec(text)?.[1] ?? "";
 
 export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--force]
+       med skills update
        med skills uninstall [--claude] [--codex] [--force]
        med skills show
        med skills instructions
@@ -39,9 +41,10 @@ export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--for
 install writes the Med skill, which tells an agent when and how to hand off
 changes in Med, for Claude Code (~/.claude/skills/med) and Codex
 (~/.agents/skills/med): SKILL.md, and guide.md, which med docs agents prints. Without --claude or --codex, it writes the skill for
-each agent that has a configuration directory (~/.claude or ~/.codex). Run it
-again after an update to refresh the skill. --force replaces another skill or
-link with the same name.
+each agent that has a configuration directory (~/.claude or ~/.codex). --force
+replaces another skill or link with the same name.
+update refreshes the Med skill where it is installed, after you update Med,
+and installs it nowhere new. med status and med web say when it is out of date.
 uninstall removes the Med skill from those places. show prints the skill.
 instructions prints the lines to add to CLAUDE.md or AGENTS.md, so that an agent
 that Med starts in a thread hands off its work there. Edit them as you like.
@@ -60,6 +63,46 @@ ${instructions}`;
 /** A skill that this command wrote, from this or an earlier version. */
 const isMedSkill = (text: string) =>
   /^---\nname: med\n/.test(text) && text.includes("med review create");
+
+/** Where each agent reads skills, and the folder that says it is set up. */
+const AGENTS = [
+  { id: "claude", name: "Claude Code", config: ".claude", skills: [".claude", "skills"] },
+  { id: "codex", name: "Codex", config: ".codex", skills: [".agents", "skills"] },
+] as const;
+const shownPath = (path: string, home: string) =>
+  path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+
+/**
+ * The agents that have the Med skill installed: a skill that this command
+ * wrote, in a folder of its own (not a link to a working copy). `stale`: its
+ * files differ from this version's. Comparing the files means that an update
+ * that leaves the skill as it was does not ask for a refresh.
+ */
+async function installedSkills(home: string) {
+  const found: { id: (typeof AGENTS)[number]["id"]; directory: string; stale: boolean }[] = [];
+  for (const agent of AGENTS) {
+    const directory = join(home, ...agent.skills, "med");
+    if (!(await lstat(directory).catch(() => undefined))?.isDirectory()) continue;
+    const files = await Promise.all(
+      Object.keys(SKILL_FILES).map((name) =>
+        readFile(join(directory, name), "utf8").catch(() => undefined),
+      ),
+    );
+    if (!files[0] || !isMedSkill(files[0])) continue;
+    const stale = Object.values(SKILL_FILES).some((text, index) => files[index] !== text);
+    found.push({ id: agent.id, directory, stale });
+  }
+  return found;
+}
+
+/** One line that suggests a refresh, when an installed Med skill is out of date. */
+export async function skillNotice(home = homedir()) {
+  const stale = (await installedSkills(home))
+    .filter((entry) => entry.stale)
+    .map((entry) => shownPath(entry.directory, home));
+  if (!stale.length) return undefined;
+  return `The Med skill in ${stale.join(" and ")} differs from the one that Med ${version} installs. Refresh it: med skills update`;
+}
 
 export async function runSkillsCommand(
   args: string[],
@@ -81,27 +124,31 @@ export async function runSkillsCommand(
   if (action === "suggest") return suggest(positionals.slice(1), values, print);
   if (
     positionals.length !== 1 ||
-    !["install", "uninstall", "show", "instructions"].includes(action)
+    !["install", "update", "uninstall", "show", "instructions"].includes(action)
   )
     throw new Error(skillsHelp);
+  if (action === "update" && (values.claude || values.codex || values.force))
+    throw new Error("Use med skills update without options; it refreshes each installed skill.");
   if (action === "show") return print(skill);
   if (action === "instructions") return print(instructions.trimEnd());
 
   const home = homedir();
-  const agents = [
-    { id: "claude", name: "Claude Code", config: ".claude", skills: [".claude", "skills"] },
-    { id: "codex", name: "Codex", config: ".codex", skills: [".agents", "skills"] },
-  ] as const;
-  const chosen = agents.filter((agent) =>
-    values.claude || values.codex
-      ? values[agent.id]
-      : action === "uninstall" || existsSync(join(home, agent.config)),
+  // update: only where a Med skill is installed, so it installs nothing new.
+  const present = action === "update" ? await installedSkills(home) : [];
+  const chosen = AGENTS.filter((agent) =>
+    action === "update"
+      ? present.some((entry) => entry.id === agent.id)
+      : values.claude || values.codex
+        ? values[agent.id]
+        : action === "uninstall" || existsSync(join(home, agent.config)),
   );
+  if (action === "update" && !chosen.length)
+    return print("The Med skill is not installed. med skills install installs it.");
   if (!chosen.length)
     throw new Error(
       "Found no ~/.claude or ~/.codex directory. Use --claude or --codex to choose an agent.",
     );
-  const shown = (path: string) => (path.startsWith(home) ? `~${path.slice(home.length)}` : path);
+  const shown = (path: string) => shownPath(path, home);
   let removed = 0;
   let installed = 0;
   for (const agent of chosen) {

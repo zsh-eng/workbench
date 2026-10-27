@@ -84,7 +84,7 @@ Use the branch switcher at the top of the sidebar (`⌘⇧G` / `Ctrl+Shift+G`) t
 
 ### Agent review links
 
-The local server uses port **6330** by default. With med already running, an agent can create a review from exact start and end commits:
+The local server uses port **6330** by default. A server of another state folder (`--state-dir` or `MED_STATE_DIR`) takes a free port unless `--port` or `MED_PORT` names one. With med already running, an agent can create a review from exact start and end commits:
 
 ```sh
 node apps/med/dist/cli.js review create --title "Agent changes" \

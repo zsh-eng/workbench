@@ -34,6 +34,10 @@ The server keeps running when you close the browser. `med status` shows it,
 and `med stop` stops it. Med keeps your sources and saved reviews in
 `~/.local/state/med` and serves `http://127.0.0.1:6330`.
 
+A second Med, with its own state folder (`--state-dir` or `MED_STATE_DIR`),
+never takes port 6330: without `--port` or `MED_PORT`, its server takes a free
+port and says which. Pass the same options to each command for it.
+
 ## Connect your agents
 
 ```sh
@@ -56,16 +60,17 @@ practices that you can copy into your own skills; Med installs none of them.
 
 ## Update
 
-Run the install command again. Then restart the server and refresh the agent
-skill:
+Run the install command again. It also refreshes the agent skill where you
+installed it, and installs it nowhere new. Then restart the server:
 
 ```sh
 med stop
 med web
-med skills install
 ```
 
-Your sources and saved reviews stay in the state folder.
+`med status` and `med web` say when an installed skill differs from the one
+that this Med installs; `med skills update` refreshes it. Your sources and
+saved reviews stay in the state folder.
 
 ## Manual install
 

@@ -363,6 +363,8 @@ export function createFoundSessions(options: {
    * (questions.ts). */
   excluded?(agent: FoundAgent, id: string): boolean;
   settingsFile: string;
+  /** Whether found sessions show before the reader chooses (default true). */
+  shown?: boolean;
   /** The change counts of checkouts, which the thread list shares. */
   changes?: ReturnType<typeof createCheckoutChanges>;
   home?: () => string;
@@ -372,7 +374,7 @@ export function createFoundSessions(options: {
   const now = options.now ?? Date.now;
   const counts = options.changes ?? createCheckoutChanges({ now });
   const abort = new AbortController();
-  let settings: FoundSettings = { shown: true, hidden: [] };
+  let settings: FoundSettings = { shown: options.shown ?? true, hidden: [] };
   const files = new Map<string, SessionFile>();
   /** Real paths of session directories that are not a registered path. */
   const realPaths = new Map<string, string>();

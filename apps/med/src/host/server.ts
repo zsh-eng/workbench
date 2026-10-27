@@ -146,6 +146,7 @@ import {
   type SavedReviewCreate,
 } from "../shared/saved-review";
 import { getPersistentToken, publishConnection } from "./runtime/connection";
+import { medCommand } from "./runtime/med-command";
 import { ownedEnvironment, writeMedCommand } from "./thread-agents";
 
 import type { ServiceManager } from "./service/manager";
@@ -180,6 +181,10 @@ export interface StartHostOptions {
   dependencyApi?: string;
   /** The command that runs this Med again; agents that Med starts get it as `med`. */
   cli?: readonly string[];
+  /** Whether the thread list shows sessions that no review names, until the
+   * reader chooses (default true). The CLI turns it off for a state folder
+   * other than Med's own, so that a second Med lists only its own threads. */
+  foundSessions?: boolean;
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -496,6 +501,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     excluded: (agent, id) => questions.excludes(agent, id),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
     changes: checkoutChanges,
+    shown: options.foundSessions ?? true,
   });
   await found.restore();
   // Sessions of any age, for `med thread find` and `med thread adopt`.
@@ -2004,7 +2010,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     ? "The transcript does not name the session's folder. Choose a checkout with --repo <path>."
                     : place?.state === "gone" || !existsSync(info.cwd)
                       ? `The session's folder ${info.cwd} no longer exists. Choose a checkout with --repo <path>.`
-                      : `The session's folder ${info.cwd} is not in a registered repository. Run med add <repository>, or choose a checkout with --repo <path>.`,
+                      : `The session's folder ${info.cwd} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")}, or choose a checkout with --repo <path>.`,
                   409,
                 );
               repo = place.checkout.path;

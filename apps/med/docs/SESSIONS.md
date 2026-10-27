@@ -166,7 +166,10 @@ Med also finds the Claude Code and Codex sessions that no agent handed off
 (`src/host/found-sessions.ts`). Med finds a session when its transcript
 changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and its
 folder is in a registered repository or one of its worktrees. Its thread ID is
-`found-<agent>-<session>`, and the session routes accept it.
+`found-<agent>-<session>`, and the session routes accept it. A server of
+another state folder than `~/.local/state/med` starts with found sessions
+hidden (`startHost({ foundSessions: false })`), so a second Med lists only its
+own threads until the reader shows the others.
 
 A found session opens as a tab once, when Med first sees its agent work
 (`src/host/thread-service.ts`). The others, and the ones that the user

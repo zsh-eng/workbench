@@ -57,6 +57,9 @@ export interface PaneSpec {
   place?: { near?: string; side?: Side; share?: number };
   /** The pane cannot close, such as the review. */
   fixed?: boolean;
+  /** The close button, when closing only hides what the pane shows, such as
+   * an agent's session that keeps working: its name, icon, and shortcut. */
+  hide?: { label: string; icon: IconName; shortcut?: string };
   /** The pane with its header; `controls` go at the header's end. */
   render(controls: ReactNode): ReactNode;
 }
@@ -463,11 +466,13 @@ export function PaneControls({
   zoomed,
   onZoom,
   onClose,
+  hide,
 }: {
   label: string;
   zoomed: boolean;
   onZoom(): void;
   onClose?(): void;
+  hide?: PaneSpec["hide"];
 }) {
   const name = label.toLowerCase();
   return (
@@ -483,7 +488,17 @@ export function PaneControls({
           Restore
         </button>
       )}
-      {onClose && <ToolButton label={`Close ${name}`} icon="close" onClick={onClose} />}
+      {onClose &&
+        (hide ? (
+          <ToolButton
+            label={hide.label}
+            icon={hide.icon}
+            {...(hide.shortcut && { shortcut: hide.shortcut })}
+            onClick={onClose}
+          />
+        ) : (
+          <ToolButton label={`Close ${name}`} icon="close" onClick={onClose} />
+        ))}
     </>
   );
 }
@@ -724,6 +739,7 @@ export function PaneTree({
                 label={pane.label}
                 zoomed={zoomed === pane.id}
                 onZoom={() => state.toggleZoom(pane.id)}
+                {...(pane.hide && { hide: pane.hide })}
                 onClose={
                   pane.fixed
                     ? undefined

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -22,11 +22,12 @@ import { readReviewOutput } from "../shared/review-output";
 import { agentSessions } from "./agent-sessions";
 import {
   DEFAULT_PORT,
-  findPort,
+  clientPort,
   getStateDirectory,
   readConnection,
   type RunningConnection,
 } from "../host/runtime/connection";
+import { medCommand, type Instance } from "../host/runtime/med-command";
 
 import { pullRequestTitle, reviewMetadata } from "./review-metadata";
 import {
@@ -58,15 +59,16 @@ export const reviewHelp = `Usage: med-diff review create --title <title> --repo 
        med-diff review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
        med-diff review wait --key <key>
-       med-diff review repos
+       med-diff review repos [--repo <path>] [--json]
 
 --key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
 --paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
 wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit.
-A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none.
-In a session that Med started, MED_PORT and MED_STATE_DIR choose its host, and in a thread MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review. Med sends the user's messages to such a session itself, so wait exits at once.
+repos prints one line for each registered repository: its name, path, main branch, and number of worktrees. --repo <path> says whether Med knows the checkout that holds <path>; --json prints every branch and worktree.
+A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med records no session and says why.
+Without --port and --state-dir, MED_PORT and MED_STATE_DIR choose the host; Med sets them in a session that it started. In a thread, MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review. Med sends the user's messages to such a session itself, so wait exits at once.
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -148,6 +150,8 @@ export function repoPaths(repo: string, paths: readonly string[], cwd = process.
 
 export interface ReviewCommand {
   kind: "help" | "repos" | "create" | "update" | "wait";
+  /** For repos: the checkout to look up (--repo), or the full listing (--json). */
+  repos?: { repo?: string; json?: boolean };
   /** For wait: the review's key, and the session that waits. `owned`: Med started this session and sends it messages itself. */
   wait?: { key: string; session?: string; owned?: boolean };
   /** For update: the review's key and its new details. With `paths`, a new
@@ -190,6 +194,9 @@ export interface ReviewCommand {
   titleGiven?: boolean;
   /** Med started this session in a thread, and sends it the user's messages. */
   owned?: boolean;
+  /** The Claude Code session that runs the command, when Med recorded it
+   * (`detected`), or why Med did not (`note`). */
+  caller?: { detected?: string; note?: string; left?: "subagent" | "unknown" };
 }
 
 /** Read and check a guide file, or standard input for "-". */
@@ -297,26 +304,36 @@ export async function parseReviewCommand(
       attempt: { type: "string" },
       session: { type: "string", multiple: true },
       "no-session": { type: "boolean" },
+      json: { type: "boolean" },
     },
   });
-  const sessions = () =>
-    agentSessions(values.session, { ...sessionOptions, detect: !values["no-session"] });
+  // The Claude Code session that runs this command, and why Med left it out.
+  const caller: ReviewCommand["caller"] = {};
+  const sessions = async () => {
+    const found = await agentSessions(values.session, {
+      ...sessionOptions,
+      detect: !values["no-session"],
+      command: `review ${positionals[0] ?? ""}`,
+    });
+    if (found.detected) caller.detected = found.detected;
+    if (found.note) caller.note = found.note;
+    if (found.note && found.caller) caller.left = found.caller;
+    return found.sessions;
+  };
   // A session that Med started for a thread knows the thread from its environment.
   const environment = sessionOptions.environment ?? process.env;
   const owned = environment.MED_SESSION === "owned";
   values.key ??= environment.MED_THREAD_KEY || undefined;
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
-  values.port ??= environment.MED_PORT || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
-  const port = values.port === undefined ? await findPort(stateDir) : Number(values.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("Review connection port must be between 1 and 65535.");
-  const common = { port, stateDir };
+  const port = await clientPort(stateDir, values.port, environment);
+  const common = { port, stateDir, caller };
   if (values.help) return { ...common, kind: "help" };
   if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
     throw new Error(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
     throw new Error("Use --paths with create or update.");
+  if (values.json && positionals[0] !== "repos") throw new Error("Use --json with repos.");
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
     throw new Error("Use --generated with create, or with update --paths.");
   if (positionals[0] === "wait") {
@@ -325,6 +342,17 @@ export async function parseReviewCommand(
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const session = (await sessions())[0]?.id;
+    // A wait without a session takes any session's messages: in a subagent,
+    // the ones that the user sends to its parent.
+    const running = environment.CLAUDE_CODE_SESSION_ID;
+    if (caller.left === "subagent")
+      throw new Error(
+        `This command runs in a subagent of Claude Code session ${running}. A subagent has its parent's session ID, so this wait would take the messages that the user sends to the parent. Give the review link to your parent agent.`,
+      );
+    if (caller.left === "unknown")
+      throw new Error(
+        `Claude Code session ${running} has subagents at work, and Med could not tell which agent runs this wait. If the session itself runs it, add --session claude:${running}.`,
+      );
     return { ...common, kind: "wait", wait: { key: key.data, ...(session ? { session } : {}) } };
   }
   if (positionals[0] === "update") {
@@ -376,10 +404,17 @@ export async function parseReviewCommand(
       values.brief !== undefined ||
       values.guide !== undefined ||
       values.key !== undefined ||
-      targetOptions.some((value) => value !== undefined)
+      targetOptions.some((value) => value !== undefined && value !== values.repo)
     )
-      throw new Error("The repos command accepts only --port and --state-dir.");
-    return { ...common, kind: "repos" };
+      throw new Error("The repos command accepts only --repo, --json, --port, and --state-dir.");
+    return {
+      ...common,
+      kind: "repos",
+      repos: {
+        ...(values.repo !== undefined && { repo: await repositoryRoot(values.repo) }),
+        ...(values.json && { json: true }),
+      },
+    };
   }
   if (partItems) {
     if (positionals[0] !== "create") throw new Error(`Use --${shape} with create.`);
@@ -637,6 +672,9 @@ export async function runReviewCommand(
   }
   const connection = await readConnection(command.stateDir, command.port);
   const fetcher = options.fetcher ?? fetch;
+  // Advice names this instance, so that it works as printed.
+  const instance = { port: command.port, stateDir: command.stateDir };
+  if (command.caller?.note) warn(command.caller.note);
   if (command.kind === "wait") {
     await waitForMessage(command, connection, fetcher, print, options.retryDelay);
     return;
@@ -648,7 +686,9 @@ export async function runReviewCommand(
     // A guide for code that changed after the capture describes code that the
     // review does not show: the fix belongs in a new version.
     const stale =
-      guide && !paths ? await staleCapture(connection, found.id, key, fetcher) : undefined;
+      guide && !paths
+        ? await staleCapture(connection, found.id, key, fetcher, instance)
+        : undefined;
     if (details.title || details.pullRequestUrl || details.sessions?.length)
       await request(connection, `/api/reviews/${found.id}/details`, fetcher, {
         ...details,
@@ -672,18 +712,19 @@ export async function runReviewCommand(
       await request(connection, `/api/reviews/${found.id}/guide`, fetcher, { guide, part: key });
     await showReview(connection, found.id, false, fetcher, options.openUrl, true);
     print(`[Review changes here](${connection.origin}/review/${found.id})`);
-    if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print);
+    if (guide) await printGuideCheck(connection, found.id, guide, key, fetcher, print, instance);
     if (stale) warn(stale);
     return;
   }
   const repositories = await request(connection, "/api/repositories", fetcher);
   if (command.kind === "repos") {
-    print(JSON.stringify(repositories, null, 2));
+    print(await reposText(repositories, command.repos ?? {}, instance));
     return;
   }
   await requireRegistered(
     command.parts ? [command.parts.repo] : command.manifest!.targets.map((target) => target.repo),
     repositories,
+    instance,
   );
   const notes: string[] = [];
   let defaultKey: string | undefined;
@@ -748,14 +789,22 @@ export async function runReviewCommand(
       `${manifest.parts.items.length} ${manifest.parts.shape === "stack" ? "layers, bottom first" : "parts"}: ${manifest.parts.items.map((part) => part.title).join(" · ")}`,
     );
   if (manifest.guide)
-    await printGuideCheck(connection, parsed.data.id, manifest.guide, manifest.key, fetcher, print);
+    await printGuideCheck(
+      connection,
+      parsed.data.id,
+      manifest.guide,
+      manifest.key,
+      fetcher,
+      print,
+      instance,
+    );
   const key = manifest.key;
   const update = (option: string) =>
-    `med review update --key ${shellWord(key ?? parsed.data.id)} ${option}`;
+    medCommand(instance, `review update --key ${shellWord(key ?? parsed.data.id)}`, option);
   for (const note of notes) warn(note);
   if (defaultKey)
     warn(
-      `Key: ${defaultKey}, from the branch. Hand off each later round of this task with the same key: med review create --key ${shellWord(defaultKey)} …`,
+      `Key: ${defaultKey}, from the branch. Hand off each later round of this task with the same key: ${medCommand(instance, `review create --key ${shellWord(defaultKey)}`, "…")}`,
     );
   if (!manifest.parts) {
     const repos = manifest.targets.map((target) => target.repo);
@@ -774,12 +823,71 @@ export async function runReviewCommand(
         `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
       );
   }
-  // A Claude Code session outside a Med thread gets the user's comments by waiting.
-  const environment = options.environment ?? process.env;
-  if (key && !command.owned && environment.CLAUDE_CODE_SESSION_ID)
+  // A Claude Code session outside a Med thread gets the user's comments by
+  // waiting. A subagent has no Session pane to send them from.
+  if (key && !command.owned && command.caller?.detected)
     warn(
-      `To get the user's comments, run this as a background command: med review wait --key ${shellWord(key)}. Its output is the user's message.`,
+      `To get the user's comments, run this as a background command: ${medCommand(instance, `review wait --key ${shellWord(key)}`)}. Its output is the user's message.`,
     );
+}
+
+/**
+ * `med review repos`: one line per registered repository (name, path, the
+ * main checkout's branch, and its worktrees); with `repo`, the registered
+ * checkout that holds it; with `json`, every branch and worktree.
+ */
+async function reposText(
+  listing: unknown,
+  options: NonNullable<ReviewCommand["repos"]>,
+  instance: Instance,
+) {
+  const parsed = z
+    .object({
+      repositories: z.array(
+        z.object({
+          name: z.string(),
+          path: z.string(),
+          error: z.string().optional(),
+          worktrees: z.array(
+            z.object({
+              path: z.string(),
+              branch: z.string().optional(),
+              linked: z.boolean().optional(),
+            }),
+          ),
+        }),
+      ),
+    })
+    .safeParse(listing);
+  if (options.json || !parsed.success) return JSON.stringify(listing, null, 2);
+  const { repositories } = parsed.data;
+  if (options.repo) {
+    await requireRegistered([options.repo], listing, instance);
+    const root = await realpath(options.repo).catch(() => options.repo!);
+    for (const entry of repositories)
+      for (const tree of entry.worktrees)
+        if ((await realpath(tree.path).catch(() => tree.path)) === root) {
+          const branch = tree.branch ? `, on ${tree.branch}` : "";
+          return tree.linked
+            ? `${tree.path} is registered: a worktree of ${entry.name} (${entry.path})${branch}.`
+            : `${tree.path} is registered as ${entry.name}${branch}.`;
+        }
+    return `${options.repo} is registered.`;
+  }
+  if (!repositories.length)
+    return `No repositories are registered. Ask the user before you add one: ${medCommand(instance, "add", "<path>")}`;
+  return repositories
+    .map((entry) => {
+      const linked = entry.worktrees.filter((tree) => tree.linked).length;
+      return [
+        entry.name,
+        entry.path,
+        entry.worktrees.find((tree) => tree.path === entry.path && !tree.linked)?.branch ?? "-",
+        `${linked} ${linked === 1 ? "worktree" : "worktrees"}`,
+        ...(entry.error ? [entry.error] : []),
+      ].join("\t");
+    })
+    .join("\n");
 }
 
 /** Up to 8 paths, for a line of advice. */
@@ -838,8 +946,7 @@ async function prepareTargets(
 ) {
   const manifest = command.manifest!;
   const notes: string[] = [];
-  const environment = options.environment ?? process.env;
-  const running = environment.CLAUDE_CODE_SESSION_ID;
+  const running = command.caller?.detected;
   const session = running ? { agent: "claude" as const, id: running } : undefined;
   const empty: string[] = [];
   for (const target of manifest.targets) {
@@ -1002,6 +1109,7 @@ async function staleCapture(
   id: string,
   key: string,
   fetcher: typeof fetch,
+  instance: Instance,
 ) {
   try {
     const saved = savedReviewSchema.parse(await request(connection, `/api/reviews/${id}`, fetcher));
@@ -1039,7 +1147,7 @@ async function staleCapture(
         : target.comparison.kind === "working"
           ? `--repo ${shellWord(target.repo)} --working${target.comparison.paths?.length ? ` --paths ${target.comparison.paths.map((path) => shellWord(join(target.repo, path))).join(" ")}` : ""}`
           : `--repo ${shellWord(target.repo)} --base ${target.base.slice(0, 12)} --head HEAD`;
-    return `Stale capture: the checkout changed after version ${number} was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version ${number + 1} with the same key: med review create --key ${shellWord(key)} ${comparison} --guide <file>`;
+    return `Stale capture: the checkout changed after version ${number} was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version ${number + 1} with the same key: ${medCommand(instance, `review create --key ${shellWord(key)}`, `${comparison} --guide <file>`)}`;
   } catch {
     return undefined;
   }
@@ -1140,13 +1248,14 @@ export async function printGuideCheck(
   key: string | undefined,
   fetcher: typeof fetch,
   print: (text: string) => void,
+  instance: Instance = {},
 ) {
   try {
     const comparisons = await currentFiles(connection, id, fetcher);
     const text = guideCheckText(
       checkGuide(guide, comparisons),
       key
-        ? `med review update --key ${JSON.stringify(key)} --guide <file>`
+        ? medCommand(instance, `review update --key ${JSON.stringify(key)}`, "--guide <file>")
         : "med review create again with the same options and the fixed --guide",
     );
     if (text) print(text);
@@ -1168,11 +1277,14 @@ async function waitForMessage(
   retryDelay = 5_000,
 ) {
   const { key, session } = command.wait!;
-  let connection = first;
+  let connection: RunningConnection | undefined = first;
   let id: string | undefined;
   let failures = 0;
   for (;;) {
     try {
+      // After a lost connection, only a live record of the host counts: its
+      // old port may belong to another process now.
+      connection ??= await readConnection(command.stateDir, command.port);
       id ??= z
         .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
         .parse(await request(connection, "/api/reviews/by-key", fetcher, { key })).id;
@@ -1203,10 +1315,13 @@ async function waitForMessage(
         return;
       }
     } catch (error) {
-      const lost = error instanceof Error && error.message.startsWith("Could not connect");
+      const lost =
+        error instanceof Error &&
+        (error.message.startsWith("Could not connect") ||
+          error.message.startsWith("No valid med connection"));
       if (!lost || ++failures > Math.ceil(300_000 / retryDelay)) throw error;
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      connection = await readConnection(command.stateDir, command.port).catch(() => connection);
+      connection = await readConnection(command.stateDir, command.port).catch(() => undefined);
     }
   }
 }

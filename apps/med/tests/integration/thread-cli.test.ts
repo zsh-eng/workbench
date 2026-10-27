@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { runThreadCommand } from "../../src/cli/thread";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
@@ -242,6 +242,8 @@ async function fixture() {
     elsewhere,
     glossaryPath,
     archivedPath,
+    host,
+    stateDir,
   };
 }
 
@@ -287,8 +289,19 @@ test("find lists sessions of any age by title, first prompt, or folder, newest f
 });
 
 test("adopt makes a Claude Code or Codex session a thread by ID or by path, and fails clearly", async () => {
-  const { run, api, threads, adopted, repo, glossary, elsewhere, glossaryPath, archivedPath } =
-    await fixture();
+  const {
+    run,
+    api,
+    threads,
+    adopted,
+    repo,
+    glossary,
+    elsewhere,
+    glossaryPath,
+    archivedPath,
+    host,
+    stateDir,
+  } = await fixture();
 
   // Claude Code by ID: a session of a month ago. The thread captures
   // nothing: it names its checkout, whose Changes stay live.
@@ -362,7 +375,7 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
 
   // No session, more than one, and a folder that is not a registered repository.
   await expect(run("adopt", "99999999-9999-4999-8999-999999999999")).rejects.toThrow(
-    'No Claude Code or Codex session matches "99999999-9999-4999-8999-999999999999". Run med thread find <words> to list sessions.',
+    `No Claude Code or Codex session matches "99999999-9999-4999-8999-999999999999". Run med thread find --port ${host.port} --state-dir '${stateDir}' <words> to list sessions.`,
   );
   await expect(run("adopt", join(repo, "README.md"))).rejects.toThrow(
     /^No Claude Code or Codex session matches/,
@@ -372,7 +385,7 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
   await expect(twins).rejects.toThrow(`claude:${ids.twinA}`);
   await expect(twins).rejects.toThrow(`claude:${ids.twinB}`);
   await expect(run("adopt", ids.elsewhere)).rejects.toThrow(
-    `The session's folder ${elsewhere} is not in a registered repository. Run med add <repository>, or choose a checkout with --repo <path>.`,
+    `The session's folder ${elsewhere} is not in a registered repository. Run med add --port ${host.port} --state-dir '${stateDir}' <repository>, or choose a checkout with --repo <path>.`,
   );
   // --repo chooses the checkout.
   const trip = adopted(await run("adopt", ids.elsewhere, "--repo", repo));
@@ -384,7 +397,7 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
 });
 
 test("show adds a Review version to the session's thread: files, the branch, a commit, or a manifest", async () => {
-  const { run, show, api, adopted, glossary } = await fixture();
+  const { run, show, api, adopted, glossary, glossaryPath, host, stateDir } = await fixture();
   // The glossary branch has a commit, and the worktree has uncommitted changes.
   await writeFile(join(glossary, "terms.md"), "Range: high water less low water.\n");
   git(glossary, ["add", "terms.md"]);
@@ -396,7 +409,7 @@ test("show adds a Review version to the session's thread: files, the branch, a c
   await expect(
     show(["--paths", "README.md"], { CLAUDE_CODE_SESSION_ID: ids.glossary }),
   ).rejects.toThrow(
-    `No Med thread holds session ${ids.glossary}. Run med thread adopt ${ids.glossary} first`,
+    `No Med thread holds session ${ids.glossary}. Run med thread adopt --port ${host.port} --state-dir '${stateDir}' ${ids.glossary} first`,
   );
   const thread = adopted(await run("adopt", ids.glossary));
   const versions = async () => {
@@ -427,6 +440,33 @@ test("show adds a Review version to the session's thread: files, the branch, a c
     comparison: { kind: "working", paths: ["README.md"] },
     paths: ["README.md"],
   });
+  // A subagent has its parent's session ID, so show does not guess its thread.
+  const subagents = join(dirname(glossaryPath), ids.glossary, "subagents");
+  await mkdir(subagents, { recursive: true });
+  await writeFile(
+    join(subagents, "agent-a1.jsonl"),
+    lines([
+      {
+        type: "assistant",
+        isSidechain: true,
+        timestamp: new Date().toISOString(),
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "Bash",
+              input: { command: "med thread show --working" },
+            },
+          ],
+        },
+      },
+    ]),
+  );
+  await expect(show(["--working"], { CLAUDE_CODE_SESSION_ID: ids.glossary })).rejects.toThrow(
+    `This command runs in a subagent of Claude Code session ${ids.glossary}`,
+  );
+  await rm(subagents, { recursive: true });
   // --base: the branch's commit and its uncommitted changes.
   await show(["--base", "main"], { CLAUDE_CODE_SESSION_ID: ids.glossary });
   expect(await versions()).toEqual({

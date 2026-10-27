@@ -772,9 +772,9 @@ export function SessionPanel({
         {!zen &&
           (controls ?? (
             <ToolButton
-              icon="close"
-              label="Hide session"
-              aria-label="Hide session"
+              icon="panelLeft"
+              label="Hide the session pane. The agent keeps working."
+              shortcut="Mod+Shift+B"
               onClick={onClose}
             />
           ))}

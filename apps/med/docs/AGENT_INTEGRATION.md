@@ -12,16 +12,39 @@ which `med docs agents` prints). Threads that Med starts need a few lines in
 CLAUDE.md or AGENTS.md; see [set up agents](USAGE.md#set-up-agents). This page
 is the full reference (`med docs reference`).
 
+### A Med of your own
+
+An agent that must not change the user's Med, such as one that tests a
+review, runs its own with another state folder:
+
+```sh
+MED_STATE_DIR=/tmp/med-trial med web --no-open
+MED_STATE_DIR=/tmp/med-trial med add ~/code/my-app
+```
+
+Its server never takes port 6330, the port of `~/.local/state/med`: without
+`--port` or `MED_PORT`, it takes a free port and says which. Each command with
+the same `--state-dir` or `MED_STATE_DIR` finds that server, and the commands
+that Med prints carry `--port` and `--state-dir`. It lists only its own
+threads; the palette's **Show sessions not kept in Med** shows the others.
+
 ## Choose the repositories
 
 ```sh
-med review repos
+med review repos                      # one line per repository
+med review repos --repo <checkout>    # is this checkout registered?
+med review repos --json               # every branch and worktree
 ```
 
-This lists the repositories and worktrees that the user registered: the scope
-that reviews can use, not a list to include in full. An agent compares it with
-its task, its working directory and Git root, its worktree paths, and the files
-that it changed, and includes only the repositories that the task changed.
+This lists the repositories that the user registered, one per line: the name,
+the path, the main checkout's branch, and the number of linked worktrees. It
+is the scope that reviews can use, not a list to include in full. `--repo`
+says whether Med knows the checkout that holds a path, as a worktree of which
+repository, or prints the `med add` line to ask the user about. `--json`
+prints every branch and worktree, which is long for a large repository. An
+agent compares the list with its task, its working directory and Git root, its
+worktree paths, and the files that it changed, and includes only the
+repositories that the task changed.
 Canonical paths tell apart clones with the same name or remote. A worktree
 belongs to its repository but has its own working files. Pass the repository's
 root as `--repo`, not a folder inside it.
@@ -128,6 +151,13 @@ the agent's thread, read from the transcript and followed live; see
 
 - Claude Code sets `CLAUDE_CODE_SESSION_ID`, and `review create` records that
   session by itself.
+- A subagent has its parent's `CLAUDE_CODE_SESSION_ID`. Med looks for the
+  command's call in the session's transcripts: when a subagent runs the
+  command, or when Med cannot tell which agent runs it, Med records no
+  session and says why. The review then has no Session pane, and Med prints
+  no `med review wait` line, because nothing would send the subagent a
+  message. `--session claude:<id>` records a session by hand; `med thread
+show` in a subagent needs `--key`.
 - Other sessions need `--session codex:<id>` or `--session claude:<id>`. Repeat
   the option for more sessions; `review update --key <name> --session …` adds
   one later.
@@ -555,6 +585,8 @@ after the review is saved.
 | `update --guide` after the checkout moved on                     | Prints `med review create` for the next version                                                                    |
 | The guide puts lockfiles or generated files first                | The guide check names the segments                                                                                 |
 | A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                                                            |
+| A subagent runs the command, or Med cannot tell                  | Records no session, says why, and prints no `med review wait` line                                                 |
+| `--port` or `--state-dir` is not the default                     | Each printed command carries them, so it reaches the same Med                                                      |
 
 Med suggests review practices and enforces none by default. A repository can
 opt in, so that `med review create` refuses a hand-off that lacks them and says
@@ -581,7 +613,7 @@ commands to their setup.
 ```markdown
 When you hand off code changes, give a Med review link if Med is running.
 
-- Run `med review repos` for the registered repositories. Include only the repositories that this task changed; if one is missing, ask the user before `med add`.
+- Run `med review repos` for the registered repositories, or `med review repos --repo <checkout>` for one. Include only the repositories that this task changed; if one is missing, ask the user before `med add`.
 - Make one review per task: pass `--key` with the branch or task name, and reuse it every round. After you apply review comments, run `med review create` again with that key; `med review update --guide` only replaces the guide.
 - Uncommitted work: `--working`, with `--paths` in a shared checkout. Commits on `main`: `--base <commit before your work> --head HEAD`. A feature branch: `--base main --head HEAD --merge-base`. Several repositories: `--manifest`.
 - Use a `--title` of 2–4 words that names what the task builds. Pass a guide with `--guide -` (see `med docs agents`).
