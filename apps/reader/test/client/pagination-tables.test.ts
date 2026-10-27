@@ -5,6 +5,7 @@ import {
   prepareBlocks,
   textSlicesOf,
   type Block,
+  type ContentAnchor,
   type FontConfig,
   type LayoutTheme,
   type Page,
@@ -20,13 +21,16 @@ import {
 } from "@/features/reader/scroll/scroll-model";
 import {
   pickAnchorForPage,
+  readTableAnchor,
   resolveAnchorToPage,
 } from "@/lib/pagination-v2/engine/anchors";
 import { layoutChapterColumn } from "@/lib/pagination-v2/shared/layout-column";
 import {
   canonicalOffsetToContentAnchor,
+  resolveCanonicalRangeText,
   resolveTextAnchorToCanonicalOffset,
 } from "@/lib/pagination-v2/engine/highlight-selection";
+import type { PreparedTextBlock } from "@/lib/pagination-v2/shared/types";
 import type { Highlight } from "@/types/highlight";
 import { describe, expect, it } from "vitest";
 
@@ -115,9 +119,76 @@ describe("parsing tables", () => {
         text,
       );
     }
-    // The caption keeps with the table.
+    // The caption keeps with the table, and names it.
     const caption = blocks[blocks.indexOf(table) - 1];
     expect(caption?.type === "text" && caption.tag).toBe("figcaption");
+    expect(table.label).toBe("Table 1 Sample latencies");
+  });
+
+  it("starts cells at their text past comments in the table", () => {
+    const { blocks, canonicalText } = parse(
+      "<body><table><tr><td>A</td></tr><!-- row two --><tr><!-- cell --><td>Bravo</td></tr></table></body>",
+      true,
+    );
+    const cell = blocks.find((block) => block.id.endsWith("-c1"))!;
+    const start = canonicalText.blockStarts.get(cell.id)!;
+    expect(canonicalText.fullText.slice(start, start + 5)).toBe("Bravo");
+    const paragraph = parse(
+      "<body><table><tr><td>A</td></tr><!-- row two --><tr><!-- cell --><td>Bravo</td></tr></table></body>",
+      false,
+    ).blocks[0];
+    expect(paragraph?.type === "text" && paragraph.tableCellStarts).toEqual([
+      0, 1,
+    ]);
+  });
+
+  it("reads simple cell alignment, and a figure's caption as the name", () => {
+    const { blocks } = parse(
+      `<body><figure><figcaption>Table 2\n  Widths</figcaption><table>
+        <tr align="right"><td>1</td><td align="left">2</td>
+          <td style="text-align: center; vertical-align: middle">3</td></tr>
+        <tr><td valign="bottom">4</td><td align="justify">5</td></tr>
+      </table></figure></body>`,
+      true,
+    );
+    const table = blocks.find((block) => block.type === "table");
+    if (table?.type !== "table") throw new Error("no table block");
+    expect(table.label).toBe("Table 2 Widths");
+    const alignment = table.rows.map((row) =>
+      row.cells.map(({ align, valign }) => ({ align, valign })),
+    );
+    expect(alignment).toEqual([
+      [
+        { align: "right", valign: undefined },
+        { align: undefined, valign: undefined },
+        { align: "center", valign: "middle" },
+      ],
+      [
+        { align: undefined, valign: "bottom" },
+        { align: undefined, valign: undefined },
+      ],
+    ]);
+
+    const [slice] = tableSlices(
+      layoutPages(prepareBlocks(blocks, FONT_CONFIG), 360, 400, LAYOUT_THEME)
+        .pages,
+    );
+    expect(slice?.label).toBe("Table 2 Widths");
+    expect(
+      slice?.rows.map((row) =>
+        row.cells.map((cell) => [cell.slice.textAlign, cell.valign]),
+      ),
+    ).toEqual([
+      [
+        ["right", undefined],
+        ["left", undefined],
+        ["center", "middle"],
+      ],
+      [
+        ["left", "bottom"],
+        ["left", undefined],
+      ],
+    ]);
   });
 });
 
@@ -346,6 +417,32 @@ describe("tables in scroll mode", () => {
       expect(part.y).toBeGreaterThanOrEqual(column.pageStarts[part.pageIndex]!);
   });
 
+  it("shows the header once, and starts a continuation's page at its header", () => {
+    const header = pages
+      .flatMap((page) => page.slices)
+      .flatMap((slice) => (slice.type === "table" ? slice.rows : []))
+      .filter((row) => row.repeated);
+    expect(header.length).toBeGreaterThan(0);
+    for (const part of parts) {
+      if (part.slice.type !== "table") continue;
+      expect(part.slice.rows.some((row) => row.repeated)).toBe(false);
+    }
+    // On the page, a continuation's rows sit under the header; in the
+    // column the page starts where that header would be.
+    const repeatedHeight = (pageIndex: number) =>
+      pages[pageIndex]!.slices.flatMap((slice) =>
+        slice.type === "table" ? slice.rows : [],
+      )
+        .filter((row) => row.repeated)
+        .reduce((sum, row) => sum + row.height, 0);
+    const continued = parts.filter((part) => repeatedHeight(part.pageIndex));
+    expect(continued.length).toBeGreaterThan(0);
+    for (const part of continued)
+      expect(column.pageStarts[part.pageIndex]).toBeCloseTo(
+        part.y - repeatedHeight(part.pageIndex),
+      );
+  });
+
   it("keeps the reading place inside a later part", () => {
     const part = parts[2]!;
     // Halfway down the part, below its repeated header.
@@ -363,12 +460,11 @@ describe("tables in scroll mode", () => {
     expect(visible.y).toBeGreaterThanOrEqual(y);
     expect(visible.anchor.blockId).toMatch(/-c\d+$/);
 
-    // A relayout finds the same row again by its text.
+    // A relayout finds the same row again by its text, at the row's top,
+    // where the reading line measured it from.
     const position = findLineTextPosition(rows, line.y)!;
     expect(position.blockId).toBe(line.anchor.blockId);
-    const offset = findTextPositionOffset(rows, position)!;
-    expect(offset).toBeGreaterThanOrEqual(line.y);
-    expect(offset).toBeLessThan(line.y + line.height);
+    expect(findTextPositionOffset(rows, position)).toBe(line.y);
   });
 });
 
@@ -395,12 +491,12 @@ describe("highlights and selections in cells", () => {
         chapterIndex: 0,
         entry: { index: 0, spineItemId: "chapter", href: "c.xhtml", title: "" },
         html: CHAPTER,
+        tables: true,
         canonicalText,
         bookStylesheets: [],
         publisherFontFaces: [],
       },
       highlights: [highlight],
-      tables: true,
     });
     const { pages } = layoutPages(
       prepareBlocks(blocks, FONT_CONFIG),
@@ -438,5 +534,130 @@ describe("highlights and selections in cells", () => {
         chapterCanonicalText: canonicalText,
       }),
     ).toBe(offset);
+  });
+});
+
+describe("copying from a table", () => {
+  const copy = (html: string, start: string, end: string) => {
+    const { blocks, canonicalText } = parse(html, true);
+    return resolveCanonicalRangeText({
+      chapterBlocks: blocks,
+      chapterCanonicalText: canonicalText,
+      startOffset: canonicalText.fullText.indexOf(start),
+      endOffset: canonicalText.fullText.indexOf(end) + end.length,
+    });
+  };
+
+  it("copies cells as tab-separated rows", () => {
+    expect(copy(CHAPTER, "Name", "queue depth 1")).toBe(
+      "Name\tLatency\tNotes\nprobe 0\t0 ms\tqueue depth 0\nprobe 1\t3 ms\tqueue depth 1",
+    );
+    // From partway along a row to partway along a later one.
+    expect(copy(CHAPTER, "0 ms", "probe 1")).toBe(
+      "0 ms\tqueue depth 0\nprobe 1",
+    );
+  });
+
+  it("keeps columns in line past spanned and empty cells", () => {
+    const html =
+      "<body><table><tr><th colspan='2'>Pair</th><th>One</th></tr>" +
+      "<tr><td rowspan='2'>Tall</td><td>a</td><td></td></tr>" +
+      "<tr><td>b</td><td>line<br/>two</td></tr></table></body>";
+    expect(copy(html, "Pair", "two")).toBe(
+      "Pair\t\tOne\nTall\ta\t\n\tb\tline two",
+    );
+  });
+
+  it("copies text in one cell, and the text around a table, as paragraphs", () => {
+    expect(copy(CHAPTER, "queue depth 3", "queue depth 3")).toBe(
+      "queue depth 3",
+    );
+    expect(copy(CHAPTER, "Before", "Latency")).toBe(
+      "Before the table.\n\nTable 1 Sample latencies\n\nName\tLatency",
+    );
+  });
+});
+
+describe("a reading place across Grid and Paragraph", () => {
+  // Tall enough to fill pages as one paragraph too.
+  const chapter = `<body><p>Before the table.</p>${tableHtml(150)}<p>After the table.</p></body>`;
+  const read = (tables: boolean) => {
+    const { blocks, canonicalText } = parse(chapter, tables);
+    const prepared = prepareBlocks(blocks, FONT_CONFIG);
+    const { pages } = layoutPages(prepared, 360, 400, LAYOUT_THEME);
+    const pageOf = (offset: number) =>
+      resolveAnchorToPage(
+        [pages],
+        canonicalOffsetToContentAnchor({
+          chapterIndex: 0,
+          offset,
+          chapterBlocks: blocks,
+          preparedChapter: prepared,
+          chapterCanonicalText: canonicalText,
+        })!,
+      )!.localPageIndex;
+    const offsetOf = (anchor: ContentAnchor) =>
+      resolveTextAnchorToCanonicalOffset({
+        anchor,
+        chapterBlocks: blocks,
+        preparedChapter: prepared,
+        chapterCanonicalText: canonicalText,
+      });
+    const translate = (anchor: ContentAnchor) =>
+      readTableAnchor(
+        anchor,
+        blocks,
+        prepared,
+        (paragraph) =>
+          prepareBlocks([paragraph], FONT_CONFIG)[0] as PreparedTextBlock,
+      );
+    return { blocks, canonicalText, pages, pageOf, offsetOf, translate };
+  };
+  const grid = read(true);
+  const flat = read(false);
+  const table = grid.blocks.find((block) => block.type === "table")!.id;
+  /** A page well inside the table, past its first. */
+  const tablePage = (pages: Page[], isTable: (page: Page) => boolean) =>
+    pages.findIndex(isTable) + 3;
+
+  it("numbers a paragraph's cells where the grid starts them", () => {
+    const paragraph = flat.blocks.find((block) => block.id === table);
+    expect(paragraph?.type === "text" && paragraph.tableCellStarts).toEqual(
+      Array.from(
+        { length: 151 * 3 },
+        (_, n) =>
+          grid.canonicalText.blockStarts.get(`${table}-c${n}`)! -
+          grid.canonicalText.blockStarts.get(table)!,
+      ),
+    );
+  });
+
+  it("opens a place in a cell at its text in the paragraph", () => {
+    const page = tablePage(grid.pages, (page) =>
+      page.slices.some((slice) => slice.type === "table"),
+    );
+    const anchor = pickAnchorForPage([grid.pages], 0, page);
+    expect(anchor.blockId).toMatch(new RegExp(`^${table}-c\\d+$`));
+    const cellStart = grid.canonicalText.blockStarts.get(anchor.blockId)!;
+    const opened = resolveAnchorToPage([flat.pages], flat.translate(anchor))!;
+    expect(opened.localPageIndex).toBeGreaterThan(0);
+    expect(opened.localPageIndex).toBe(flat.pageOf(cellStart));
+  });
+
+  it("opens a place in the paragraph at the cell that holds it", () => {
+    const page = tablePage(flat.pages, (page) =>
+      page.slices.some((slice) => slice.blockId === table),
+    );
+    const anchor = pickAnchorForPage([flat.pages], 0, page);
+    expect(anchor.blockId).toBe(table);
+    const offset = flat.offsetOf(anchor)!;
+    const translated = grid.translate(anchor);
+    expect(translated.blockId).toMatch(new RegExp(`^${table}-c\\d+$`));
+    // The cell's cursor is at or just before the place.
+    expect(offset - grid.offsetOf(translated)!).toBeGreaterThanOrEqual(0);
+    expect(offset - grid.offsetOf(translated)!).toBeLessThan(20);
+    const opened = resolveAnchorToPage([grid.pages], translated)!;
+    expect(opened.localPageIndex).toBeGreaterThan(grid.pageOf(0));
+    expect(opened.localPageIndex).toBe(grid.pageOf(offset));
   });
 });

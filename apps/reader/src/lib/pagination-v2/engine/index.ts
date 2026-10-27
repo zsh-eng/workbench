@@ -35,6 +35,7 @@ import type {
 import { DEFAULT_SPREAD_CONFIG } from "../types";
 import {
   pickAnchorForPage,
+  readTableAnchor,
   resolveAnchorToGlobalPage,
   resolveAnchorToPage,
   resolveTargetToAnchor,
@@ -143,6 +144,12 @@ export class PaginationEngine {
   private preferredAnchorSlotIndex: number | null = null;
   /** The chapter whose scroll column is republished after each layout. */
   private scrollChapterIndex: number | null = null;
+  /**
+   * A jump into a chapter that has not arrived yet, such as a Contents tap
+   * while the book still paginates. It runs once that chapter is laid out,
+   * unless another navigation replaces it first.
+   */
+  private pendingJump: { chapterIndex: number; run: () => void } | null = null;
 
   constructor(emit: (event: EnginePaginationEvent) => void) {
     this.emit = emit;
@@ -153,6 +160,11 @@ export class PaginationEngine {
       (count, blocks) => count + (blocks === null ? 0 : 1),
       0,
     );
+  }
+
+  /** The chapter a waiting jump needs, so the worker lays it out next. */
+  get pendingJumpChapter(): number | null {
+    return this.pendingJump?.chapterIndex ?? null;
   }
 
   createWork(cmd: PaginationCommand): PaginationEngineWork {
@@ -213,7 +225,7 @@ export class PaginationEngine {
               resolveAnchorToGlobalPage(
                 this.pagesByChapter,
                 this.chapterPageOffsets,
-                anchor,
+                this.readAnchor(anchor),
               ),
             ]),
           );
@@ -326,6 +338,7 @@ export class PaginationEngine {
   ): void {
     this.paginationConfig = paginationConfig;
     this.spreadConfig = spreadConfig;
+    this.pendingJump = null;
 
     this.totalChapters = Math.max(1, totalChapters);
     this.initialChapterIndex = clamp(
@@ -361,6 +374,7 @@ export class PaginationEngine {
           initialHighlightId,
         ) ?? undefined;
     }
+    if (initialAnchor) initialAnchor = this.readAnchor(initialAnchor);
     if (initialAnchor) {
       const resolved = resolveAnchorToPage(this.pagesByChapter, initialAnchor);
       this.anchor = resolved
@@ -436,6 +450,10 @@ export class PaginationEngine {
 
     this.blocksByChapter[chapterIndex] = blocks;
     const diagnostics = this.prepareAndLayoutChapter(chapterIndex);
+    const jump =
+      this.pendingJump?.chapterIndex === chapterIndex ? this.pendingJump : null;
+    // The jump emits its own page, with its own intent.
+    jump?.run();
     const spreadWindow = this.buildResolvedSpreadWindow(intent);
     if (spreadWindow) {
       this.capturePreferredAnchorSlot(spreadWindow.current);
@@ -459,6 +477,7 @@ export class PaginationEngine {
     }
 
     if (
+      !jump &&
       spreadWindow &&
       this.spreadContainsChapter(spreadWindow.current, chapterIndex)
     ) {
@@ -638,6 +657,7 @@ export class PaginationEngine {
   }
 
   nextSpread(intent: SpreadIntent): void {
+    this.pendingJump = null;
     const currentSpreadIndex = this.resolveCurrentSpreadIndex();
     if (currentSpreadIndex === null) {
       this.emitPageUnavailable(intent);
@@ -653,6 +673,7 @@ export class PaginationEngine {
   }
 
   prevSpread(intent: SpreadIntent): void {
+    this.pendingJump = null;
     const currentSpreadIndex = this.resolveCurrentSpreadIndex();
     if (currentSpreadIndex === null) {
       this.emitPageUnavailable(intent);
@@ -668,6 +689,7 @@ export class PaginationEngine {
   }
 
   goToPage(intent: SpreadIntent, globalPage: number): void {
+    this.pendingJump = null;
     const pageIndex = Math.max(1, Math.floor(globalPage)) - 1;
 
     for (
@@ -695,7 +717,14 @@ export class PaginationEngine {
     this.emitPageUnavailable(intent);
   }
 
-  goToAnchor(intent: SpreadIntent, anchor: ContentAnchor): void {
+  goToAnchor(intent: SpreadIntent, saved: ContentAnchor): void {
+    if (
+      this.waitForChapter(intent, saved.chapterIndex, () =>
+        this.goToAnchor(intent, saved),
+      )
+    )
+      return;
+    const anchor = this.readAnchor(saved);
     const pages = this.pagesByChapter[anchor.chapterIndex];
     if (
       !pages?.some((page) =>
@@ -711,6 +740,12 @@ export class PaginationEngine {
   }
 
   goToTextOffset(intent: SpreadIntent, cmd: GoToTextOffsetCommand): void {
+    if (
+      this.waitForChapter(intent, cmd.chapterIndex, () =>
+        this.goToTextOffset(intent, cmd),
+      )
+    )
+      return;
     const chapterBlocks = this.blocksByChapter[cmd.chapterIndex];
     const preparedChapter = this.preparedByChapter[cmd.chapterIndex];
     const anchor =
@@ -734,6 +769,12 @@ export class PaginationEngine {
 
   goToChapter(intent: SpreadIntent, chapterIndex: number): void {
     const chapter = Math.floor(chapterIndex);
+    if (
+      this.waitForChapter(intent, chapter, () =>
+        this.goToChapter(intent, chapter),
+      )
+    )
+      return;
     if (chapter < 0 || chapter >= this.totalChapters) {
       this.emitChapterUnavailable(intent, chapter);
       return;
@@ -757,6 +798,12 @@ export class PaginationEngine {
     targetKind: "element" | "highlight" = "element",
   ): void {
     const chapter = Math.floor(chapterIndex);
+    if (
+      this.waitForChapter(intent, chapter, () =>
+        this.goToTarget(intent, chapter, targetId, targetKind),
+      )
+    )
+      return;
     if (chapter < 0 || chapter >= this.totalChapters) {
       this.emitChapterUnavailable(intent, chapter);
       return;
@@ -779,6 +826,27 @@ export class PaginationEngine {
         : resolveTargetToAnchor(this.preparedByChapter, chapter, targetId)) ??
       pickAnchorForPage(this.pagesByChapter, chapter, 0);
     this.emitPageContent(intent);
+  }
+
+  /**
+   * A navigation replaces any jump still waiting. One into a chapter that
+   * has not arrived waits for it (`addChapter` runs it) and returns true.
+   */
+  private waitForChapter(
+    intent: SpreadIntent,
+    chapterIndex: number,
+    run: () => void,
+  ): boolean {
+    this.pendingJump = null;
+    if (
+      chapterIndex < 0 ||
+      chapterIndex >= this.totalChapters ||
+      this.blocksByChapter[chapterIndex] !== null
+    )
+      return false;
+    this.pendingJump = { chapterIndex, run };
+    this.emitChapterUnavailable(intent, chapterIndex);
+    return true;
   }
 
   private emitRelayoutProgress(
@@ -838,6 +906,26 @@ export class PaginationEngine {
         (diag): diag is PaginationChapterDiagnostics => diag !== null,
       ),
     });
+  }
+
+  /** A saved anchor in the chapter's blocks now; see `readTableAnchor`. */
+  private readAnchor(anchor: ContentAnchor): ContentAnchor {
+    return readTableAnchor(
+      anchor,
+      this.blocksByChapter[anchor.chapterIndex] ?? null,
+      this.preparedByChapter[anchor.chapterIndex] ?? null,
+      (paragraph) => {
+        const [prepared] = prepareBlocks(
+          [paragraph],
+          this.paginationConfig.fontConfig,
+          {
+            publisherBookStylingEnabled:
+              this.paginationConfig.publisherBookStylingEnabled ?? false,
+          },
+        );
+        return prepared?.type === "text" ? prepared : null;
+      },
+    );
   }
 
   private prepareAndLayoutChapter(

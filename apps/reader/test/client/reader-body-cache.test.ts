@@ -1,3 +1,4 @@
+import { GRID_TABLE_CELL_LIMIT } from "@/features/reader/data/chapter-tables";
 import {
   loadReaderBodyCache,
   READER_BODY_CACHE_SCHEMA_VERSION,
@@ -290,6 +291,162 @@ describe("reader body cache", () => {
     ).toBe(true);
   });
 
+  it("rebuilds a cache from before table cells once, then reads it", async () => {
+    await db.bookFiles.add(
+      createChapterFile(
+        "book-1",
+        "<table><tr><td>A</td><td>B</td></tr></table>",
+      ),
+    );
+    // A row as an earlier release wrote it.
+    await db.bookChapterSourceCache.put({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      cacheVersion: READER_BODY_CACHE_SCHEMA_VERSION - 1,
+      publisherResourcesLoaded: false,
+      publisherBodyScaleLoaded: false,
+      chaptersByPath: {
+        [chapterEntry.href]: {
+          bodyHtml: "<table><tr><td>A</td><td>B</td></tr></table>",
+          canonicalText: {
+            fullText: "AB",
+            blockStarts: new Map([["text-0", 0]]),
+          },
+        } as never,
+      },
+      publisherFontFaces: [],
+      updatedAt: 0,
+    });
+    const load = () =>
+      loadReaderBodyCache({
+        bookId: "book-1",
+        sourceFileId: SOURCE_FILE_ONE,
+        chapterEntries: [chapterEntry],
+        publisherBookStylingEnabled: false,
+        matchPublisherBodyTextSize: false,
+      });
+
+    const rebuilt = await load();
+    expect(rebuilt.loadKind).toBe("rebuilt");
+    expect(rebuilt.baseContentByChapter.get(0)).toMatchObject({ tables: true });
+    expect(
+      (await getBookChapterSourceCache("book-1"))?.chaptersByPath[
+        chapterEntry.href
+      ]?.tableCellCount,
+    ).toBe(2);
+    expect((await load()).loadKind).toBe("cache-hit");
+  });
+
+  it("reads tables as grids in a chapter up to the cell limit, and Debug's choice in every chapter", async () => {
+    const small = { ...chapterEntry, index: 0, href: "OPS/small.xhtml" };
+    const large = {
+      ...chapterEntry,
+      index: 1,
+      spineItemId: "chapter-2",
+      href: "OPS/large.xhtml",
+    };
+    const row = (cells: number) =>
+      `<tr>${Array.from({ length: cells }, (_, cell) => `<td>w${cell}</td>`).join("")}</tr>`;
+    const chapter = (body: string) =>
+      `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>Before</p>${body}</body></html>`;
+    await db.bookFiles.bulkAdd([
+      createBookFile(
+        "book-1",
+        small.href,
+        "application/xhtml+xml",
+        chapter(`<table>${row(2)}${row(2)}</table>`),
+      ),
+      createBookFile(
+        "book-1",
+        large.href,
+        "application/xhtml+xml",
+        chapter(`<table>${row(GRID_TABLE_CELL_LIMIT + 1)}</table>`),
+      ),
+    ]);
+    const load = (tablesMode: "auto" | "grid" | "flat") =>
+      loadReaderBodyCache({
+        bookId: "book-1",
+        sourceFileId: SOURCE_FILE_ONE,
+        chapterEntries: [small, large],
+        publisherBookStylingEnabled: false,
+        matchPublisherBodyTextSize: false,
+        tablesMode,
+      });
+    /** Each chapter: grids or not, and whether cells have canonical starts. */
+    const modes = async (tablesMode: "auto" | "grid" | "flat") => {
+      const { baseContentByChapter } = await load(tablesMode);
+      return [0, 1].map((index) => {
+        const content = baseContentByChapter.get(index)!;
+        const cellStarts = [...content.canonicalText.blockStarts.keys()].some(
+          (id) => /-c\d+$/.test(id),
+        );
+        return [content.tables, cellStarts];
+      });
+    };
+
+    expect(await modes("auto")).toEqual([
+      [true, true],
+      [false, false],
+    ]);
+    expect(await modes("grid")).toEqual([
+      [true, true],
+      [true, true],
+    ]);
+    expect(await modes("flat")).toEqual([
+      [false, false],
+      [false, false],
+    ]);
+    // The text is the same in every mode, so highlights do not move.
+    const texts = await Promise.all(
+      (["auto", "grid", "flat"] as const).map(
+        async (mode) =>
+          (await load(mode)).baseContentByChapter.get(1)!.canonicalText
+            .fullText,
+      ),
+    );
+    expect(new Set(texts).size).toBe(1);
+  });
+
+  it("reads a chapter the cell limit has moved as the limit says", async () => {
+    const body = "<p>Before</p><table><tr><td>A</td><td>B</td></tr></table>";
+    await db.bookFiles.add(createChapterFile("book-1", body));
+    // A row cached while a lower limit read this chapter as a paragraph.
+    await db.bookChapterSourceCache.put({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      cacheVersion: READER_BODY_CACHE_SCHEMA_VERSION,
+      publisherResourcesLoaded: false,
+      publisherBodyScaleLoaded: false,
+      chaptersByPath: {
+        [chapterEntry.href]: {
+          bodyHtml: body,
+          tableCellCount: 2,
+          tables: false,
+          canonicalText: {
+            fullText: "BeforeAB",
+            blockStarts: new Map([
+              ["text-1", 0],
+              ["text-2", 6],
+            ]),
+          },
+        },
+      },
+      publisherFontFaces: [],
+      updatedAt: 0,
+    });
+    const { loadKind, baseContentByChapter } = await loadReaderBodyCache({
+      bookId: "book-1",
+      sourceFileId: SOURCE_FILE_ONE,
+      chapterEntries: [chapterEntry],
+      publisherBookStylingEnabled: false,
+      matchPublisherBodyTextSize: false,
+    });
+    expect(loadKind).toBe("cache-hit");
+    const content = baseContentByChapter.get(0)!;
+    expect(content.tables).toBe(true);
+    expect(content.canonicalText.blockStarts.get("text-2-c1")).toBe(7);
+  });
+
   it("removes the body cache when a book is deleted", async () => {
     const book = createBook({
       id: "book-delete",
@@ -308,6 +465,8 @@ describe("reader body cache", () => {
       {
         [chapterEntry.href]: {
           bodyHtml: "<p>Cached</p>",
+          tableCellCount: 0,
+          tables: false,
           canonicalText: {
             fullText: "Cached",
             blockStarts: new Map([["block-1", 0]]),

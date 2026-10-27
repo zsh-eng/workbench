@@ -3,13 +3,20 @@
 import {
   sliceShowsBlock,
   textSlicesOf,
+  type Block,
   type Page,
   type PageSlice,
   type PreparedBlock,
   type PreparedTextBlock,
+  type TextBlock,
   type TextCursorOffset,
 } from "../shared/types";
 import type { ContentAnchor } from "../types";
+import {
+  blockOffsetToCursor,
+  findPreparedTextBlock,
+  resolveAnchorToBlockOffset,
+} from "./highlight-selection";
 
 function compareOffsets(a: TextCursorOffset, b: TextCursorOffset): number {
   if (a.itemIndex !== b.itemIndex) return a.itemIndex < b.itemIndex ? -1 : 1;
@@ -147,6 +154,85 @@ export function resolveAnchorToPage(
     };
   }
   return { chapterIndex: anchor.chapterIndex, localPageIndex: 0 };
+}
+
+/** A grid cell's or caption's id: the table's id and the cell's number. */
+const TABLE_PART_ID = /^(.+)-(?:c(\d+)|caption)$/;
+
+/** Each chapter's blocks by id; the engine replaces a chapter's array. */
+const blocksById = new WeakMap<readonly Block[], Map<string, Block>>();
+
+function indexBlocks(blocks: readonly Block[]): Map<string, Block> {
+  let byId = blocksById.get(blocks);
+  if (!byId) {
+    byId = new Map(blocks.map((block) => [block.id, block]));
+    blocksById.set(blocks, byId);
+  }
+  return byId;
+}
+
+/**
+ * A reading place saved while its chapter read tables the other way
+ * (docs/0005-tables.md), as a place in the chapter's blocks now. Grid and
+ * Paragraph give a table the same id. A place in grid cell `${id}-c${n}`
+ * goes to that cell's start in the paragraph; a place in the paragraph goes
+ * to the cell that holds it. Other anchors stay as they are.
+ */
+export function readTableAnchor(
+  anchor: ContentAnchor,
+  blocks: Block[] | null,
+  prepared: PreparedBlock[] | null,
+  prepareParagraph: (paragraph: TextBlock) => PreparedTextBlock | null,
+): ContentAnchor {
+  if (!blocks || !prepared) return anchor;
+  const { chapterIndex } = anchor;
+  const byId = indexBlocks(blocks);
+  const block = byId.get(anchor.blockId);
+
+  if (!block) {
+    const part = TABLE_PART_ID.exec(anchor.blockId);
+    const paragraph = part ? byId.get(part[1]!) : undefined;
+    if (!part || paragraph?.type !== "text" || !paragraph.tableCellStarts)
+      return anchor;
+    // A caption starts the table's text.
+    const start = part[2] ? paragraph.tableCellStarts[Number(part[2])] : 0;
+    const preparedParagraph = findPreparedTextBlock(prepared, paragraph.id);
+    const offset =
+      start !== undefined && preparedParagraph
+        ? blockOffsetToCursor(paragraph, preparedParagraph, start)
+        : null;
+    return offset
+      ? { type: "text", chapterIndex, blockId: paragraph.id, offset }
+      : anchor;
+  }
+
+  if (block.type !== "table" || anchor.type !== "text" || !block.paragraph)
+    return anchor;
+  const { paragraph } = block;
+  const tableStart: ContentAnchor = {
+    type: "block",
+    chapterIndex,
+    blockId: block.id,
+  };
+  const preparedParagraph = prepareParagraph(paragraph);
+  const offset = preparedParagraph
+    ? resolveAnchorToBlockOffset(paragraph, preparedParagraph, anchor.offset)
+    : null;
+  if (offset === null) return tableStart;
+  // The last cell with text that starts at or before the place.
+  const starts = paragraph.tableCellStarts ?? [];
+  for (let n = starts.length - 1; n >= 0; n--) {
+    const cell = byId.get(`${block.id}-c${n}`);
+    if (cell?.type !== "text" || starts[n]! > offset) continue;
+    const preparedCell = findPreparedTextBlock(prepared, cell.id);
+    const cursor = preparedCell
+      ? blockOffsetToCursor(cell, preparedCell, offset - starts[n]!)
+      : null;
+    return cursor
+      ? { type: "text", chapterIndex, blockId: cell.id, offset: cursor }
+      : tableStart;
+  }
+  return tableStart;
 }
 
 export function resolveAnchorToGlobalPage(

@@ -25,6 +25,11 @@ import {
   type PublisherFontFaceLoader,
 } from "./publisher-font-faces";
 import type { ChapterEntry } from "../types";
+import {
+  chapterTablesAsGrid,
+  countTableCells,
+  type ReaderTablesMode,
+} from "./chapter-tables";
 
 export type ParsedChapterBlocks = ReturnType<typeof parseChapterHtml>;
 
@@ -32,6 +37,8 @@ export interface ReaderBaseChapterContent {
   chapterIndex: number;
   entry: ChapterEntry;
   html: string;
+  /** Whether this chapter reads its tables as grids; `canonicalText` matches. */
+  tables: boolean;
   canonicalText: ChapterCanonicalText;
   bookStylesheets: BookStylesheet[];
   publisherFontFaces: PublisherFontFace[];
@@ -40,6 +47,13 @@ export interface ReaderBaseChapterContent {
 
 export interface ReaderChapterCachedContent {
   bodyHtml: string;
+  /** The chapter's `td` and `th` cells, which decide how it reads tables. */
+  tableCellCount: number;
+  /**
+   * Whether `canonicalText` was parsed with the tables as grids: Auto's
+   * choice (`chapter-tables.ts`) when it was built.
+   */
+  tables: boolean;
   canonicalText: ChapterCanonicalText;
   bookStylesheets?: BookStylesheet[];
   publisherFontFaces?: PublisherFontFace[];
@@ -154,8 +168,6 @@ export async function buildReaderChapterCachedContent(options: {
   collectPublisherBodyScaleBlocks?: boolean;
   chapterStylesheetLoader?: ChapterStylesheetLoader;
   publisherFontFaceLoader?: PublisherFontFaceLoader;
-  /** Parse tables into cells, whose canonical starts the cache then holds. */
-  tables?: boolean;
 }): Promise<ReaderChapterCachedContent> {
   const {
     source,
@@ -166,7 +178,6 @@ export async function buildReaderChapterCachedContent(options: {
     collectPublisherBodyScaleBlocks = false,
     chapterStylesheetLoader,
     publisherFontFaceLoader,
-    tables = false,
   } = options;
   const { document: chapterDoc } = await processEmbeddedResources({
     content: source,
@@ -176,7 +187,12 @@ export async function buildReaderChapterCachedContent(options: {
     skipImages: true,
     loadLinkedResources: false,
   });
-  const bodyHtml = chapterDoc.querySelector("body")?.innerHTML ?? "";
+  const body = chapterDoc.querySelector("body");
+  const bodyHtml = body?.innerHTML ?? "";
+  // Table cells hold canonical starts only in a chapter that reads its
+  // tables as grids.
+  const tableCellCount = body ? countTableCells(body) : 0;
+  const tables = chapterTablesAsGrid(tableCellCount, "auto");
 
   // Book Page Break Hints are structural, so linked and embedded CSS is loaded
   // even when Publisher Book Styling is off. Font-face loading remains gated by
@@ -202,6 +218,8 @@ export async function buildReaderChapterCachedContent(options: {
   if (!includePublisherResources) {
     return {
       bodyHtml,
+      tableCellCount,
+      tables,
       canonicalText: parsedChapter.canonicalText,
       bookStylesheets,
       publisherFontFaces: [],
@@ -218,6 +236,8 @@ export async function buildReaderChapterCachedContent(options: {
 
   return {
     bodyHtml,
+    tableCellCount,
+    tables,
     canonicalText: parsedChapter.canonicalText,
     bookStylesheets,
     publisherFontFaces,
@@ -227,20 +247,50 @@ export async function buildReaderChapterCachedContent(options: {
   };
 }
 
+/**
+ * A cached chapter as the Reader reads it in `tablesMode`. When that differs
+ * from the way its canonical text was cached (a Debug choice, or a cell
+ * limit changed since), the canonical text is parsed again, with the
+ * publisher styling it was cached with, since table cells hold canonical
+ * starts only in grids.
+ */
 export function loadBaseChapterContent(options: {
   chapterIndex: number;
   chapterContent: ReaderChapterCachedContent;
   chapter: ChapterEntry;
   publisherBodyFontScale?: number;
+  tablesMode: ReaderTablesMode;
+  /** The cached canonical text was parsed with publisher styling. */
+  canonicalTextStyled?: boolean;
 }): ReaderBaseChapterContent {
-  const { chapterIndex, chapterContent, chapter, publisherBodyFontScale } =
-    options;
+  const {
+    chapterIndex,
+    chapterContent,
+    chapter,
+    publisherBodyFontScale,
+    tablesMode,
+    canonicalTextStyled = false,
+  } = options;
+  const tables = chapterTablesAsGrid(chapterContent.tableCellCount, tablesMode);
+  const canonicalText =
+    tables === chapterContent.tables
+      ? chapterContent.canonicalText
+      : parseChapterHtmlWithCanonicalText(chapterContent.bodyHtml, {
+          tables,
+          ...(canonicalTextStyled
+            ? {
+                publisherBookStylingEnabled: true,
+                bookStylesheets: chapterContent.bookStylesheets ?? [],
+              }
+            : {}),
+        }).canonicalText;
 
   return {
     chapterIndex,
     entry: chapter,
     html: chapterContent.bodyHtml,
-    canonicalText: chapterContent.canonicalText,
+    tables,
+    canonicalText,
     bookStylesheets: chapterContent.bookStylesheets ?? [],
     publisherFontFaces: chapterContent.publisherFontFaces ?? [],
     ...(publisherBodyFontScale !== undefined ? { publisherBodyFontScale } : {}),
@@ -252,15 +302,12 @@ export function decorateChapterContent(options: {
   highlights: Highlight[];
   publisherBookStylingEnabled?: boolean;
   matchPublisherBodyTextSize?: boolean;
-  /** Must match the base content's `tables`, so cell ids have starts. */
-  tables?: boolean;
 }): ReaderDecoratedChapterArtifact {
   const {
     baseContent,
     highlights,
     publisherBookStylingEnabled = false,
     matchPublisherBodyTextSize = false,
-    tables = false,
   } = options;
   const source = applyChapterHighlights(
     { html: baseContent.html, highlightedHtml: baseContent.html },
@@ -276,7 +323,7 @@ export function decorateChapterContent(options: {
       matchPublisherBodyTextSize,
       bookStylesheets: baseContent.bookStylesheets,
       publisherFontFaces: baseContent.publisherFontFaces,
-      tables,
+      tables: baseContent.tables,
       ...(baseContent.publisherBodyFontScale !== undefined
         ? { publisherBodyFontScale: baseContent.publisherBodyFontScale }
         : {}),

@@ -174,6 +174,12 @@
   overscroll-behavior-x: contain;
 }
 
+/* Inside its box: the page clips anything outside it. */
+.reader-table-slice-scroll:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .reader-table {
   table-layout: fixed;
   border-collapse: separate;

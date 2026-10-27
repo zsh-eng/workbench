@@ -79,8 +79,9 @@ function emitEvent(event: EnginePaginationEvent): void {
 }
 
 let engine = new PaginationEngine(emitEvent);
-const scheduler = new PaginationJobScheduler((command) =>
-  engine.createWork(command),
+const scheduler = new PaginationJobScheduler(
+  (command) => engine.createWork(command),
+  () => engine.pendingJumpChapter,
 );
 
 // ---------------------------------------------------------------------------

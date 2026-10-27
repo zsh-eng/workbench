@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { GRID_TABLE_CELL_LIMIT } from "../../src/features/reader/data/chapter-tables";
 import { epubVariant } from "./helpers/epub-variants";
 import {
   currentPages,
@@ -16,8 +17,9 @@ import {
 } from "./helpers/reader-books";
 import { syntheticTable } from "./helpers/synthetic-tables";
 
-// Debug → Tables (docs/0005-tables.md): a chapter's tables as grids that
-// break at rows, on a phone.
+// Tables (docs/0005-tables.md): a chapter's tables as grids that break at
+// rows, on a phone. Auto reads them so up to a cell limit; Debug → Tables
+// picks Grid or Paragraph for every chapter.
 test.use({
   viewport: { width: 390, height: 844 },
   hasTouch: true,
@@ -25,6 +27,7 @@ test.use({
 });
 
 const CHAPTER_ONE = "OEBPS/4269428405154643194_11-h-1.htm.xhtml";
+const CHAPTER_TWO = "OEBPS/4269428405154643194_11-h-2.htm.xhtml";
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 const TABLE = `${CURRENT_SPREAD} [data-reader-slice-type="table"]`;
 const TITLE = "Table Specimens";
@@ -55,6 +58,37 @@ function nearMissTables(): string {
   ).join("");
 }
 
+/** 200 rows of three cells, each cell's text naming its row: `r12 name`. */
+function numberedTable(): string {
+  const rows = Array.from(
+    { length: 200 },
+    (_, row) =>
+      `<tr> <td>r${row} name</td> <td>r${row} size</td> <td>r${row} note</td> </tr>`,
+  ).join("\n");
+  return `<table><thead><tr> <th>Name</th> <th>Size</th> <th>Note</th> </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/** The numbered rows the current spread shows, from `numberedTable`. */
+async function shownRows(page: Page): Promise<number[]> {
+  const text = await page.locator(CURRENT_SPREAD).innerText();
+  return [
+    ...new Set([...text.matchAll(/\br(\d+)\b/g)].map((match) => +match[1]!)),
+  ];
+}
+
+/** Chooses Debug → Tables `mode`, which opens the Reader again. */
+async function chooseTables(page: Page, mode: "Grid" | "Paragraph") {
+  await showPhoneChrome(page);
+  const settings = await openReaderTool(page, "Appearance", "Appearance");
+  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await waitForSheetToRest(settings);
+  await Promise.all([
+    page.waitForEvent("load"),
+    settings.getByRole("button", { name: mode, exact: true }).tap(),
+  ]);
+  await waitForReaderReady(page);
+}
+
 /**
  * The sample book with `tables` opening chapter one: by default a 49-row
  * table and a wide one.
@@ -75,7 +109,7 @@ function tableBook(
 }
 
 /** Starts with tables as `mode`; a choice made in the Reader then stays. */
-async function useTables(page: Page, mode: "grid" | "flat") {
+async function useTables(page: Page, mode: "auto" | "grid" | "flat") {
   await page.addInitScript((value) => {
     if (localStorage.getItem("reader-tables-v1") === null)
       localStorage.setItem("reader-tables-v1", value);
@@ -206,6 +240,40 @@ test("a table too wide for the page scrolls on its own", async ({ page }) => {
   expect(await currentPages(page)).toEqual(pages);
 });
 
+test("a keyboard scrolls a wide table to its edge before it turns the page", async ({
+  page,
+}) => {
+  await useTables(page, "grid");
+  await openTableChapter(page, "tables-keyboard");
+  // A table takes its figure's caption as its name.
+  await turnToTable(page);
+  await expect(
+    page.locator(CURRENT_SPREAD).getByRole("table", { name: /^Table 7\b/ }),
+  ).toBeVisible();
+
+  const wide = page.locator(CURRENT_SPREAD).getByRole("region", {
+    name: "Table",
+    exact: true,
+  });
+  for (let turn = 0; turn < 30 && (await wide.count()) === 0; turn++)
+    await nextSpread(page);
+  await expect(wide).toHaveAttribute("data-reader-table-scroll", "");
+  const pages = await currentPages(page);
+  await wide.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => wide.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  expect(await currentPages(page)).toEqual(pages);
+
+  // At its edge, the next press turns the page.
+  await wide.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => currentPages(page)).not.toEqual(pages);
+});
+
 test("a table that misses the page by a little narrows its padding to fit", async ({
   page,
 }) => {
@@ -227,9 +295,7 @@ test("a table that misses the page by a little narrows its padding to fit", asyn
           length: cell.textContent!.trim().length,
           scroll: slice.hasAttribute("data-reader-table-scroll"),
           padding: parseFloat(getComputedStyle(cell).paddingLeft),
-          oneLine: [
-            ...slice.querySelectorAll(".reader-table-cell-text"),
-          ].every(
+          oneLine: [...slice.querySelectorAll(".reader-table-cell-text")].every(
             (text) => text.getAttribute("data-reader-line-count") === "1",
           ),
         };
@@ -296,7 +362,105 @@ test("a highlight in a cell stays after the book reopens", async ({ page }) => {
   expect(await markedText()).toBe(text.replace(/\s+/g, " "));
 });
 
-test("scroll mode shows a table as a grid", async ({ page }) => {
+test("a selection across rows copies as tab-separated rows", async ({
+  page,
+}) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await useTables(page, "grid");
+  await openTableChapter(page, "tables-copy");
+  await turnToTable(page);
+
+  // From the first body row's first cell to the second's last.
+  const rows = page.locator(`${TABLE} tbody tr`);
+  const expected = await rows.evaluateAll((elements) =>
+    elements
+      .filter((row) =>
+        ["1", "2"].includes(row.getAttribute("data-reader-table-row") ?? ""),
+      )
+      .map((row) =>
+        [...row.querySelectorAll(".reader-table-cell-text")]
+          .map((cell) => cell.textContent!.replace(/\s+/g, " ").trim())
+          .join("\t"),
+      )
+      .join("\n"),
+  );
+  await page
+    .locator(TABLE)
+    .first()
+    .evaluate((slice) => {
+      const cells = (row: string) =>
+        slice.querySelectorAll(
+          `tr[data-reader-table-row="${row}"] .reader-table-cell-text`,
+        );
+      const textNodes = (element: Element) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+        return nodes;
+      };
+      const first = textNodes(cells("1")[0]!)[0]!;
+      const last = textNodes([...cells("2")].at(-1)!).at(-1)!;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.setEnd(last, last.length);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+    });
+  await page.evaluate(() =>
+    document.dispatchEvent(new TouchEvent("touchend", { bubbles: true })),
+  );
+  await page.getByRole("button", { name: /^Copy/ }).first().tap();
+
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(expected);
+  expect(expected.split("\n")).toHaveLength(2);
+  expect(expected.split("\n")[0]!.split("\t")).toHaveLength(4);
+});
+
+test.describe("with a mouse", () => {
+  test.use({
+    viewport: { width: 1280, height: 800 },
+    hasTouch: false,
+    isMobile: false,
+  });
+
+  test("a triple-click in a cell highlights the whole cell", async ({
+    page,
+  }) => {
+    const meaning =
+      "Requests that wait in the queue before a worker takes them, counted once a second and kept for the whole run so that a peak can be found later.";
+    await useTables(page, "grid");
+    await openTableChapter(
+      page,
+      "tables-triple-click",
+      `<p>A glossary follows.</p><table><tr><th>Term</th><th>Meaning</th></tr><tr><td>queue depth</td><td>${meaning}</td></tr></table>`,
+    );
+    // Contents stays open beside the pages on a desktop.
+    await page
+      .getByRole("navigation", { name: "Reader tools" })
+      .getByRole("button", { name: "Close reader tools", exact: true })
+      .click();
+    await turnToTable(page);
+    const cell = page
+      .locator(`${TABLE} .reader-table-cell-text`)
+      .filter({ hasText: "Requests that wait" });
+    await cell
+      .locator(":scope > span")
+      .nth(1)
+      .click({ clickCount: 3, position: { x: 20, y: 8 } });
+    await page.getByRole("button", { name: "Highlight with yellow" }).click();
+    const marked = cell.locator("mark[data-highlight-id]");
+    await expect(marked.first()).toBeVisible();
+    expect((await marked.allTextContents()).join("").replace(/\s+/g, "")).toBe(
+      meaning.replace(/\s+/g, ""),
+    );
+  });
+});
+
+test("scroll mode shows a table as a grid, with its header once", async ({
+  page,
+}) => {
   await useTables(page, "grid");
   await openTableChapter(page, "tables-scroll");
   await page.evaluate(() =>
@@ -315,6 +479,103 @@ test("scroll mode shows a table as a grid", async ({ page }) => {
   await expect(table.first()).toBeAttached();
   await table.first().scrollIntoViewIfNeeded();
   await expect(table.first().locator("thead th").first()).toHaveText("Name");
+  // The 48 rows run on through the page breaks: the parts after the first
+  // follow without the header, and every row shows once.
+  const shown = new Set<number>();
+  for (let step = 0; step < 12 && shown.size < 48; step++) {
+    await expect(
+      page.locator("[data-reader-scroll-stage] [data-reader-table-repeated]"),
+    ).toHaveCount(0);
+    const rows = await page
+      .locator(
+        "[data-reader-scroll-stage] [data-reader-slice-type='table'] tbody tr:not([data-reader-table-continued])",
+      )
+      .evaluateAll((elements) =>
+        elements.map((row) =>
+          Number(row.getAttribute("data-reader-table-row")),
+        ),
+      );
+    for (const row of rows) shown.add(row);
+    await page
+      .locator("[data-reader-scroll-stage]")
+      .evaluate((element) => element.scrollBy({ top: element.clientHeight }));
+  }
+  expect(shown.size).toBe(48);
+  expect(
+    await page
+      .locator("[data-reader-scroll-stage] thead th")
+      .filter({ hasText: "Name" })
+      .count(),
+  ).toBe(1);
+});
+
+test("without Debug mode, tables read as grids in a chapter up to the cell limit and as paragraphs above it", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("reader-debug-enabled-v1", "false"),
+  );
+  // Chapter I holds a 49-row table (196 cells); chapter II one over the
+  // limit.
+  const rows = Math.ceil(GRID_TABLE_CELL_LIMIT / 3);
+  const big = `<table><thead><tr>${"<th>Field</th>".repeat(3)}</tr></thead><tbody>${`<tr>${"<td>value</td>".repeat(3)}</tr>`.repeat(rows)}</tbody></table>`;
+  const book = epubVariant({
+    name: "tables-auto",
+    title: TITLE,
+    author: "Test Author",
+    documents: {
+      [CHAPTER_ONE]: (xhtml) =>
+        xhtml.replace("</h2>", `</h2>${syntheticTable(6)}`),
+      [CHAPTER_TWO]: (xhtml) =>
+        xhtml.replace("</h2>", `</h2><p>A long list follows.</p>${big}`),
+    },
+  });
+  await importAndOpenEpub(page, book, TITLE);
+  await openContentsEntry(page, /CHAPTER I\./);
+  await turnToTable(page);
+  await expect(page.locator(`${TABLE} thead th`).first()).toHaveText("Name");
+
+  await openContentsEntry(page, /CHAPTER II\./);
+  const flattened = page
+    .locator(`${CURRENT_SPREAD} [data-reader-block-id]`)
+    .filter({ hasText: /^\s*Field\s*Field/ })
+    .first();
+  for (let turn = 0; turn < 4 && (await flattened.count()) === 0; turn++)
+    await nextSpread(page);
+  await expect(flattened).toBeVisible();
+  await expect(page.locator(TABLE)).toHaveCount(0);
+});
+
+test("the reading place stays when tables change between Grid and Paragraph", async ({
+  page,
+}) => {
+  test.slow();
+  await useTables(page, "grid");
+  await openTableChapter(
+    page,
+    "tables-place",
+    `<p>A numbered table follows.</p>${numberedTable()}`,
+  );
+  await turnToTable(page);
+  for (let turn = 0; turn < 2; turn++) await nextSpread(page);
+  const gridRows = await shownRows(page);
+  expect(Math.min(...gridRows)).toBeGreaterThan(20);
+
+  // The paragraph opens on the page that holds the place, not at its start.
+  await chooseTables(page, "Paragraph");
+  await expect(page.locator(TABLE)).toHaveCount(0);
+  const paragraphRows = await shownRows(page);
+  expect(paragraphRows.filter((row) => gridRows.includes(row))).not.toEqual([]);
+
+  // A place read in the paragraph opens in its cell, not at the grid's top.
+  await nextSpread(page);
+  const laterRows = await shownRows(page);
+  expect(Math.min(...laterRows)).toBeGreaterThan(Math.max(...gridRows));
+  await chooseTables(page, "Grid");
+  await expect(page.locator(TABLE).first()).toBeVisible();
+  expect(
+    (await shownRows(page)).filter((row) => laterRows.includes(row)),
+  ).not.toEqual([]);
 });
 
 test("with tables off, a table reads as one paragraph until Grid is chosen", async ({
@@ -341,15 +602,7 @@ test("with tables off, a table reads as one paragraph until Grid is chosen", asy
   expect(await flattened.textContent()).toMatch(/^\s*Name\s*\S/);
 
   // Appearance → Layout → Tables opens the Reader again with grids.
-  await showPhoneChrome(page);
-  const settings = await openReaderTool(page, "Appearance", "Appearance");
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
-  await waitForSheetToRest(settings);
-  await Promise.all([
-    page.waitForEvent("load"),
-    settings.getByRole("button", { name: "Grid", exact: true }).tap(),
-  ]);
-  await waitForReaderReady(page);
+  await chooseTables(page, "Grid");
   await turnToTable(page);
   await expect(page.locator(`${TABLE} thead th`).first()).toHaveText("Name");
 });

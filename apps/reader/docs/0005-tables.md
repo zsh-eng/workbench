@@ -1,8 +1,11 @@
 # Tables in Reader
 
-Status: prototype behind a Debug switch (Appearance → Layout → Tables →
-Grid, or `?tables=grid`). This document is the proposal, its critique, the
-benchmark evidence and the recommendation.
+Status: shipping. Auto reads a chapter's tables as grids when the chapter
+holds up to `GRID_TABLE_CELL_LIMIT` table cells (see [The cap](#the-cap)),
+and as paragraphs above it. Debug → Appearance → Layout → Tables chooses
+Auto, Grid or Paragraph for every chapter (`?tables=auto|grid|flat` with
+Debug on). This document is the proposal, its critique, the benchmark
+evidence, the recommendation and what shipped.
 
 ## What happens today
 
@@ -75,8 +78,8 @@ page), smaller type, or C as a fallback for that table only.
 
 ## Proposal
 
-Option B, behind Debug → Appearance → Layout → Tables (and `?tables=grid` for
-Design ideas and benchmarks):
+Option B, built first behind Debug → Appearance → Layout → Tables (and
+`?tables=grid` for Design ideas and benchmarks):
 
 - **Parse.** A table becomes a `table` block followed by one text block per
   non-empty cell (`td`/`th` tags), in row-major order, so cells are ordinary
@@ -105,9 +108,10 @@ Design ideas and benchmarks):
 - **Render.** A real `<table>` with `table-layout: fixed`, `<col>` widths
   and row heights from the worker; cells render their lines as paragraphs do.
   Rules use theme variables, so dark mode and paper need nothing new.
-- **Cache.** Table mode is part of the chapter artifact key and of the body
-  cache (cell starts exist only in table mode). Flat mode is unchanged byte
-  for byte, so books without tables, and the default, are unaffected.
+- **Cache.** Table mode is part of the chapter artifact key. The body cache
+  keeps each chapter's canonical text for Auto's choice (cell starts exist
+  only where a chapter reads grids) and its cell count. Paragraph parses
+  exactly as before, so books without tables are unaffected.
 
 ## Critique
 
@@ -124,17 +128,22 @@ Design ideas and benchmarks):
   the page turn. Limiting it to tables that cannot fit keeps the conflict
   rare; the catalogue decides whether it is rare enough.
 - **Scroll mode.** The column reuses page slices, so a long table keeps its
-  page splits and repeated headers in the column. Acceptable for a
-  prototype; a shipped version should drop repeats in scroll mode. The
-  reading place inside a table is its row's first cell, so a relayout or a
-  reopen returns to that row, not to the table's start.
+  page splits in the column; repeated header rows are dropped there, so the
+  header shows once. The reading place inside a table is its row's first
+  cell, so a relayout or a reopen returns to that row, not to the table's
+  start.
 - **Search, selection and marks.** Cells are text blocks, so search hits,
   selection and highlights map through the same character alignment as
   paragraphs; the DOM side reads each cell's text element.
-- **Copy.** Cells are blocks, so copied text separates cells with blank
-  lines, not tabs. Acceptable for a prototype.
-- **Cache rebuild.** Turning the switch rebuilds the body cache once per
-  book (cell offsets). A shipped version would bump the cache version once.
+- **Copy.** Two or more cells copy as tab-separated rows, as a spreadsheet
+  takes them; text in one cell, and text around the table, copies as
+  paragraphs.
+- **Cache rebuild.** Shipping bumps the body cache version once (6 → 7), so
+  each book's body cache rebuilds once, on its first open.
+- **Mode changes.** Grid and Paragraph give a table the same block id, but
+  a cell has an id only in Grid. A reading place saved in one mode maps to
+  the other through the table's text (`readTableAnchor`), so a change of
+  mode, or of the cap, keeps the place.
 - **Rowspan.** Placed correctly; rows joined by a span are kept on one page
   unless the group is taller than a page. No book in hand has one, so this
   path has only synthetic tests.
@@ -234,12 +243,11 @@ books without tables are untouched. The costs that miss the bar grow with
 cell count: the first page of a very table-dense chapter and the worker's
 memory.
 
-1. Turn Grid on by default for chapters up to about 700 table cells, and
-   keep Paragraph above that until decoration and preparation are cheaper.
-   The book's largest chapter holds 530 cells; the 1× specimen chapter
-   holds 717 and cost +20% against the +25% limit, so the cap sits at the
-   largest count measured to pass. Cells are a proxy: the first-page cost
-   also depends on the chapter's length.
+1. Turn Grid on by default for chapters up to a cell cap, and keep
+   Paragraph above that until decoration and preparation are cheaper.
+   The book's largest chapter holds 530 cells. Cells are a proxy: the
+   first-page cost also depends on the chapter's length. Measured further
+   in [The cap](#the-cap), which sets it at 1,500.
 2. Before that, replace the cache-row flag with one cache version bump, and
    drop repeated headers from scroll mode.
 3. Next optimisations, in order of payoff: parse table cells off the main
@@ -253,13 +261,61 @@ but loses in-page highlights and search marks; stacked cards (D) need text
 that is not in canonical text. C remains the fallback for tables too wide
 to scroll comfortably.
 
-## What the prototype does
+## The cap
 
-- Parse (`shared/parse-html.ts`): with `tables`, a `<table>` becomes a
-  `table` block (rows, cells, spans, header rows) and one `td`/`th` text
-  block per non-empty cell. A `<caption>` becomes a `figcaption` block kept
-  with the table. Canonical text is unchanged, so highlights, notes and
-  search offsets are the same in both modes.
+Auto reads grids in a chapter of up to **1,500** table cells
+(`GRID_TABLE_CELL_LIMIT`), measured against the same bar: the first page of
+a table-heavy chapter at most 25% slower, page turns at most 16 ms slower.
+
+Method: two production builds of this branch, with the cell limit set to
+0 (every chapter reads Paragraph) and to a million (every chapter reads
+Grid), each served on its own port, so that neither parses canonical text
+again on open. The sample book's first
+chapter run 20 times over (about 227,000 characters) with 11 to 55
+synthetic tables (`test/e2e/kit/table-book.ts`, `KIT_TABLE_COUNT`). First
+page on reopen (`test/e2e/kit/reader-reopen-trace.ts`), Chromium at
+390 × 844 with the CPU 4× slower, in Paragraph/Grid pairs that alternate
+which goes first; 4 rounds of a warm-up and 5 timed runs, 24 samples a side.
+Other agents loaded the machine (1-minute load average 2–21, once 31), so
+the table gives the median and the 25th percentile, which is less
+disturbed by load.
+
+| Cells (tables) | Paragraph, median / p25 | Grid, median / p25 | First page | Decoration + worker, opening chapter |
+| --- | --- | --- | --- | --- |
+| 717 (11) | 353 / 341 ms | 428 / 418 ms | +21% / +22% | +20 + 26 = +46 ms |
+| 1,114 (17) | 418 / 396 ms | 451 / 407 ms | +8% / +3% | +24 + 18 = +42 ms |
+| 1,511 (24) | 405 / 342 ms | 475 / 408 ms | +17% / +19% | +32 + 33 = +65 ms |
+| 2,515 (38) | 489 / 378 ms | 605 / 476 ms | +24% / +26% | +59 + 41 = +100 ms |
+| 3,634 (55) | 498 / 416 ms | 604 / 537 ms | +21% / +29% | +67 + 42 = +109 ms |
+
+iPad (820 × 1180, 4×, 2 rounds, 12 samples a side, load 13–19): 717 cells
++17% / +11%, 1,511 cells +5% / +8%, 2,515 cells +26% / +35%.
+
+Page turns at 1,511 cells (40 turns from the chapter's start, 2 runs a side
+at load 17–31, `kit frames`): the main-thread task that renders the new page
+had a median of 26 ms in Paragraph and 20–26 ms in Grid, and Grid's longest
+task in any turn was 34 ms. Paragraph runs held 77–983 ms tasks from load
+that Grid runs did not, so no page-turn cost is measurable: within +16 ms.
+
+The first-page time is noisy at this load (1,114 cells measured cheaper than
+717), but its two parts grow steadily with cells: about +65 ms at 1,500
+cells and +100 ms at 2,500, on a first page of 340–420 ms. 1,511 cells
+passes on the phone and the iPad; 2,515 reaches the limit on the phone and
+misses it on the iPad. The cap sits at 1,500, the largest round count
+measured to pass. The book in hand stays well inside it (its largest
+chapter holds 530 cells).
+
+## What ships
+
+- Parse (`shared/parse-html.ts`): in a chapter that reads grids, a
+  `<table>` becomes a `table` block (rows, cells, spans, header rows, simple
+  `align`/`valign` and inline alignment) and one `td`/`th` text block per
+  non-empty cell. A `<caption>` becomes a `figcaption` block kept with the
+  table. Canonical text is the same in both modes, so highlights, notes and
+  search offsets do not move. The table block also keeps the paragraph that
+  Paragraph mode would read (one more copy of the table's text), and that
+  paragraph keeps where each cell starts; both map a reading place between
+  modes.
 - Layout (`shared/layout-table.ts`): column widths in whole pixels from
   min- and max-content, narrower padding for a table that misses the page
   by a little, cells laid out with the prose line breaker, rows broken
@@ -267,41 +323,45 @@ to scroll comfortably.
   rows and cells; `textSlicesOf` gives the cells to every path that reads
   page text (anchors, selection, notes, page-break selection, search).
 - Render (`PageSliceView.tsx`): a fixed-layout `<table>` per part with
-  `<colgroup>` widths and row heights; a too-wide part scrolls sideways
-  (`data-reader-table-scroll`), and taps and swipes there do not turn the
-  page. Scroll mode uses the same slices; its reading place inside a table
-  is a row.
-- Switch (`tables-preference.ts`, `TablesRow.tsx`): Debug only. The mode is
-  part of the body cache row (`tableCellsLoaded`), the chapter artifact key
-  and the artifact signature, so each mode has its own caches and Paragraph
-  parses exactly as before.
+  `<colgroup>` widths and row heights, named by its caption (`<caption>`, or
+  the `figcaption` of its `<figure>`). A too-wide part scrolls sideways
+  (`data-reader-table-scroll`): taps and swipes there do not turn the page,
+  and it is a focusable, named region whose arrow keys scroll it to its edge
+  before they turn the page. Scroll mode uses the same slices and shows a
+  header once.
+- Choice (`data/chapter-tables.ts`, `tables-preference.ts`,
+  `TablesRow.tsx`): Auto by chapter cell count; Debug can choose Grid or
+  Paragraph for every chapter. The body cache stores each chapter's
+  canonical text as Auto parsed it, and which way that was; a choice that
+  differs parses again only the chapters it changes. So a new
+  `GRID_TABLE_CELL_LIMIT` stays correct, and a body cache version bump with
+  it saves the chapters it moves from parsing again on each open.
+- Copy and selection: copying two or more cells gives tab-separated rows
+  (`resolveCanonicalRangeText`); a triple-click in a cell selects the cell.
 
 ## Not covered
 
 - Nested tables (none in the book) lay out as text inside the outer cell.
-- `<caption>` and `figcaption` are a block before the table, not part of
-  the `<table>` element, so assistive technology does not associate them.
-- Copy separates cells with blank lines, not tabs.
-- A cell's own alignment (`text-align`, `align`, `valign`) and publisher
-  table styles are ignored: cells are left-aligned and top-aligned.
 - Images inside cells are dropped, as the flattened paragraph did.
-- Scroll mode keeps the page splits and repeated headers.
+- Publisher table styles: rules, backgrounds, widths and alignment from
+  class rules are ignored. Cell alignment comes only from `align`,
+  `valign` and inline `text-align`/`vertical-align` on the cell, its row or
+  its row group; `justify` reads as left.
+- The caption is a block before the table, not part of the `<table>`
+  element; the table takes its text as its accessible name instead.
+- A reading place in a grid cell maps to the start of that cell's text in
+  Paragraph mode, not to the exact character.
 - The tap-to-open sheet (option C) is not built; a very wide table only
   scrolls in place.
-- The sideways scroller has no `tabindex` or accessible name, so keyboard
-  access to a wide table's hidden columns depends on the browser.
 - Not measured: a real iPad or iPhone (WebKit ran unthrottled on the Mac),
-  books with `colspan`/`rowspan` beyond the synthetic ones, and the cost of
-  switching modes (one body-cache rebuild per book).
+  and books with `colspan`/`rowspan` beyond the synthetic ones.
 
-## Decisions for the user
+## Decisions
 
-1. Default: Grid for everyone (with a cell cap), or opt-in under
-   Appearance → Layout?
-2. Cell cap per chapter: about 700 cells, or measure between 700 and
-   3,600 (the 5× specimen) to find a higher one?
-3. Very wide tables: keep sideways scrolling, or add the tap-to-open sheet
-   (option C) for tables that overflow?
-4. Copy from a table: tab-separated rows, or leave cells as paragraphs?
-5. Shipping costs one body-cache rebuild per book (a cache version bump):
-   acceptable on the next release?
+1. Default: Grid for everyone, with a cell cap per chapter. Decided.
+2. The cap: 1,500 cells, from [The cap](#the-cap). Decided.
+3. Very wide tables: sideways scrolling for now. The tap-to-open sheet
+   (option C) for tables that overflow is still open.
+4. Copy from a table: tab-separated rows. Done.
+5. One body-cache rebuild per book on the next release (version 6 → 7).
+   Accepted.

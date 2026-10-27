@@ -36,12 +36,15 @@ export interface ChapterColumn {
  * what page breaking adds:
  *
  * - a gap that the page top suppressed is present in the column;
- * - a hard page break becomes a section gap.
+ * - a hard page break becomes a section gap;
+ * - a table's header rows show once, not again on each continuation.
  *
  * Text slices stay split where the pages split them. Each column slice
  * therefore belongs to one page, and `pageStarts[p]` maps a scroll offset to
  * the exact top of page `p`. Inside one page, offsets relative to its start
- * are the same as on the page itself.
+ * are the same as on the page itself: a page that starts with a table's
+ * continuation starts where its header would be, so the page's start can
+ * fall inside the page before.
  */
 export function layoutChapterColumn(
   preparedBlocks: PreparedBlock[],
@@ -71,6 +74,8 @@ export function layoutChapterColumn(
 
   const slices: ColumnSlice[] = [];
   const offsetBySlice = new Map<PageSlice, number>();
+  /** Height of the header rows a continuation part leaves out. */
+  const droppedHeaderBySlice = new Map<PageSlice, number>();
   let y = 0;
   let pendingSectionBreak = false;
   let prevMarginBelow = 0;
@@ -152,7 +157,23 @@ export function layoutChapterColumn(
         );
       }
       for (const { pageIndex, slice } of parts) {
-        if (slice.type === "table") place(pageIndex, slice, slice.height);
+        if (slice.type !== "table") continue;
+        const repeated = slice.rows.filter((row) => row.repeated);
+        if (repeated.length === 0) {
+          place(pageIndex, slice, slice.height);
+          continue;
+        }
+        // The column reads on from the part before; its header is above.
+        const dropped = repeated.reduce((sum, row) => sum + row.height, 0);
+        const part = {
+          ...slice,
+          height: slice.height - dropped,
+          rows: slice.rows.filter((row) => !row.repeated),
+        };
+        place(pageIndex, part, part.height);
+        // The page keeps its own key: the page slice maps to this part.
+        offsetBySlice.set(slice, offsetBySlice.get(part)!);
+        droppedHeaderBySlice.set(slice, dropped);
       }
       finishBlock(block, "table", getBlockSpacing("table", theme).below);
       continue;
@@ -191,7 +212,8 @@ export function layoutChapterColumn(
     for (const slice of page.slices) {
       const offset = offsetBySlice.get(slice);
       if (offset !== undefined) {
-        start = offset - leadingSpacerHeight;
+        start =
+          offset - leadingSpacerHeight - (droppedHeaderBySlice.get(slice) ?? 0);
         break;
       }
       if (slice.type === "spacer") leadingSpacerHeight += slice.height;

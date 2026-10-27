@@ -21,6 +21,7 @@ import type {
   PageLine,
   PreparedTableBlock,
   PreparedTextBlock,
+  TableBlock,
   TableCellSpec,
   TableSlice,
   TableSliceCell,
@@ -70,6 +71,7 @@ interface PlannedRow {
 /** A table's widths, lines and row heights at one page width. */
 export interface TablePlan {
   tableId: string;
+  label?: string;
   columnWidths: number[];
   width: number;
   overflows: boolean;
@@ -125,36 +127,56 @@ function cellContentWidths(block: PreparedTextBlock | undefined): {
   return { min, max: Math.max(max, line) };
 }
 
-/** Places cells on the grid, honouring row and column spans. */
-function placeCells(table: PreparedTableBlock): {
-  placed: PlacedCell[][];
+/**
+ * Each row's cells with the column each starts in, honouring row and
+ * column spans; a row span is cut at the table's last row.
+ */
+export function placeTableCells(table: TableBlock): {
+  rows: { spec: TableCellSpec; column: number }[][];
   columnCount: number;
 } {
   const occupied: boolean[][] = [];
-  const placed: PlacedCell[][] = table.rows.map(() => []);
   let columnCount = 0;
-  table.rows.forEach((row, rowIndex) => {
+  const rows = table.rows.map((row, rowIndex) => {
     occupied[rowIndex] ??= [];
     let column = 0;
-    for (const spec of row.cells) {
+    return row.cells.map((cell) => {
       while (occupied[rowIndex]![column]) column += 1;
-      const rowSpan = Math.min(spec.rowSpan, table.rows.length - rowIndex);
-      for (let r = rowIndex; r < rowIndex + rowSpan; r++) {
+      const spec = {
+        ...cell,
+        rowSpan: Math.min(cell.rowSpan, table.rows.length - rowIndex),
+      };
+      for (let r = rowIndex; r < rowIndex + spec.rowSpan; r++) {
         occupied[r] ??= [];
         for (let c = column; c < column + spec.colSpan; c++)
           occupied[r]![c] = true;
       }
-      placed[rowIndex]!.push({
-        spec: { ...spec, rowSpan },
-        row: rowIndex,
+      const placed = { spec, column };
+      column += spec.colSpan;
+      columnCount = Math.max(columnCount, column);
+      return placed;
+    });
+  });
+  return { rows, columnCount };
+}
+
+/** Places cells on the grid for layout. */
+function placeCells(table: PreparedTableBlock): {
+  placed: PlacedCell[][];
+  columnCount: number;
+} {
+  const { rows, columnCount } = placeTableCells(table);
+  const placed = rows.map((cells, row) =>
+    cells.map(
+      ({ spec, column }): PlacedCell => ({
+        spec,
+        row,
         column,
         lines: [],
         tag: spec.header ? "th" : "td",
-      });
-      column += spec.colSpan;
-      columnCount = Math.max(columnCount, column);
-    }
-  });
+      }),
+    ),
+  );
   return { placed, columnCount };
 }
 
@@ -250,10 +272,7 @@ export function planTable(
     widths.reduce((a, b) => a + b, 0) <= Math.floor(pageWidth);
   let paddingX = Math.round(theme.baseFontSizePx * CELL_PADDING_X_EM);
   let { mins, maxes } = columnContentWidths(paddingX);
-  if (
-    !fits(mins) &&
-    fits(columnContentWidths(MIN_CELL_PADDING_X_PX).mins)
-  ) {
+  if (!fits(mins) && fits(columnContentWidths(MIN_CELL_PADDING_X_PX).mins)) {
     for (let narrower = paddingX - 1; !fits(mins); narrower--) {
       const widths = columnContentWidths(narrower);
       if (!fits(widths.mins)) continue;
@@ -321,6 +340,7 @@ export function planTable(
 
   return {
     tableId: table.id,
+    ...(table.label ? { label: table.label } : {}),
     columnWidths,
     width,
     overflows: width > Math.floor(pageWidth),
@@ -392,7 +412,7 @@ function cellSlice(
     blockId: cell.spec.blockId,
     tag: cell.tag,
     lineHeight: plan.lineHeight,
-    textAlign: "left",
+    textAlign: cell.spec.align ?? "left",
     renderMode: "native",
     lines,
   };
@@ -425,6 +445,7 @@ function sliceRow(
     colSpan: cell.spec.colSpan,
     rowSpan: Math.min(cell.spec.rowSpan, options.rowsLeftInPart),
     header: cell.spec.header,
+    ...(cell.spec.valign ? { valign: cell.spec.valign } : {}),
   }));
   return {
     index: row.index,
@@ -473,6 +494,7 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
       cellPaddingX: plan.paddingX,
       cellPaddingY: plan.paddingY,
       rows,
+      ...(plan.label ? { label: plan.label } : {}),
     });
     rows = [];
     partHeight = 0;
