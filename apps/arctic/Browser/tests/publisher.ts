@@ -43,6 +43,16 @@ export async function publisher(options: { delayMs?: number } = {}) {
       }, options.delayMs ?? 0);
       return;
     }
+    if (path === "/stories/only-an-icon") {
+      // A site whose og:image is its icon: too small for a cover.
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(`<!doctype html><html><head>
+        <meta property="og:title" content="Only an icon">
+        <meta property="og:description" content="This page shares its icon.">
+        <meta property="og:image" content="/icon.svg">
+      </head><body></body></html>`);
+      return;
+    }
     response.writeHead(404, { "Content-Type": "text/html" });
     response.end("<title>Not found</title>");
   });

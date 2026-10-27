@@ -54,6 +54,12 @@ a description as one line of at most 500 characters. A challenge page's title
 ("Just a moment…") is not kept. The tests are in `preview.test.ts`
 (`bun test` here).
 
+Two rules differ from the phone's, on purpose. The phone gives no icon when a
+page names none; here `/favicon.ico` stands in (the owner asked for it; the
+web shows the site's initial when the file is missing). And the phone reads
+tags anywhere in the page; here only the head, so the shared API reads at
+most the start of a page.
+
 A preview fills only what a record lacks: `previewPatch` and `withPreview`
 set `imageURL`, `faviconURL` and `subtitle` where the record has none (absent,
 null or blank) and keep every other field, so the phone's own preview is never

@@ -361,7 +361,7 @@ export function decodeEntities(text: string) {
     (whole, decimal, hex, name, semicolon, offset: number, all: string) => {
       if (decimal) return codePoint(Number(decimal));
       if (hex) return codePoint(parseInt(hex, 16));
-      if (semicolon) return names[name] ?? whole;
+      if (semicolon) return Object.hasOwn(names, name) ? names[name]! : whole;
       const after = all.charAt(offset + whole.length);
       return ["amp", "lt", "gt", "quot"].includes(name) &&
         !/[=A-Za-z0-9]/.test(after)

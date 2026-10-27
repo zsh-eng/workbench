@@ -183,16 +183,21 @@ export async function saveWithPreview(
   const wanted = !existing?.saved;
   // From the first render of its card, so nothing moves when it arrives.
   if (wanted && !existing?.image) reserve(id, true);
-  const result = await listMotion(() => saveLink(session, input, known));
-  if (result.kind !== "saved" || !wanted) {
-    reserve(id, false);
-    return result;
+  let result: Saved = { kind: "invalid" };
+  try {
+    result = await listMotion(() => saveLink(session, input, known));
+  } finally {
+    if (result.kind !== "saved" || !wanted) reserve(id, false);
   }
+  if (result.kind !== "saved" || !wanted) return result;
   void (async () => {
     let edit: Fields | undefined;
     try {
       const preview = await fetchPreview(url);
       if (preview?.imageURL) await decoded(preview.imageURL, 4000);
+      // A preview the phone wrote meanwhile arrives first, so its fields
+      // count as set (the edit applies to the record this browser has).
+      if (preview) await session.sync();
       edit = preview && previewEdit(session, id, url, preview);
     } finally {
       // Undo may have removed the link while the page loaded.

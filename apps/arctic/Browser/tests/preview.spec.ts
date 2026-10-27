@@ -44,14 +44,30 @@ const watchCard = (page: Page, id: string) =>
 const states = (page: Page) =>
   page.evaluate(() => (window as unknown as { states: string[] }).states);
 
+/** Each card's top and height, in the list's order. */
+const boxes = (page: Page) =>
+  page.locator(".card").evaluateAll((cards) =>
+    cards.map((card) => {
+      const { top, height } = card.getBoundingClientRect();
+      return { top: Math.round(top), height: Math.round(height) };
+    }),
+  );
+
 test("a link is saved at once, and its page's title, picture, description and icon follow", async ({
   page,
   context,
 }) => {
-  const older = article("https://example.com/floe", { title: "A floe at dawn" });
-  await phone(context.request).push(older.records);
+  await phone(context.request).push(
+    ["A floe at dawn", "Harbour towns, revisited", "Paper maps", "Cold storage"].flatMap(
+      (title, index) =>
+        article(`https://example.com/${index}`, {
+          title,
+          savedAt: Date.UTC(2026, 9, 1) - index * 60_000,
+        }).records,
+    ),
+  );
   await page.goto("/");
-  await expect(page.locator(".card")).toHaveCount(1);
+  await expect(page.locator(".card")).toHaveCount(4);
   const id = identity(site.story);
   await watchCard(page, id);
 
@@ -63,6 +79,9 @@ test("a link is saved at once, and its page's title, picture, description and ic
   await expect(page.locator(".toast")).toContainText("Saved");
   await expect(card.locator(".cover")).toBeVisible();
   expect(site.hits).not.toContain("/cover.svg");
+  // Once the insert's motion has settled.
+  await page.waitForTimeout(600);
+  const before = await boxes(page);
 
   // Then the page's own: the picture fills its place, decoded, in one change.
   await expect(card.locator(".card-title")).toHaveText(
@@ -78,6 +97,9 @@ test("a link is saved at once, and its page's title, picture, description and ic
     `${site.origin}/icon.svg`,
   );
   expect(await states(page)).toEqual(["cover empty", "cover decoded"]);
+  // Nothing moved for it: the picture filled the place the card kept.
+  await page.waitForTimeout(600);
+  expect(await boxes(page)).toEqual(before);
 
   // The phone receives the preview in its own fields; the other records
   // stay the web's new link.
@@ -114,22 +136,34 @@ test("in List, the links below do not move when a new link's picture arrives", a
   await page.goto("/");
   await expect(page.locator(".card")).toHaveCount(3);
   const id = identity(site.story);
+  await watchCard(page, id);
   await save(page, site.story);
   const card = page.locator(`.card[data-id="${id}"]`);
   await expect(card.locator(".card-title")).toHaveText("How sea ice keeps time");
-  const boxes = () =>
-    page
-      .locator(".card")
-      .evaluateAll((cards) =>
-        cards.map((card) => {
-          const { top, height } = card.getBoundingClientRect();
-          return { top: Math.round(top), height: Math.round(height) };
-        }),
-      );
-  // Once the toast and the insert's motion have settled.
   await page.waitForTimeout(600);
-  const before = await boxes();
-  await expect(card).toHaveAttribute("data-image", "");
+  const before = await boxes(page);
+  // The page answers after 1.5 s: wait for its title and picture.
+  await expect(card.locator(".card-title")).toHaveText(
+    "The quiet clock of sea ice",
+  );
+  expect(await states(page)).toEqual(["cover empty", "cover decoded"]);
   await page.waitForTimeout(600);
-  expect(await boxes()).toEqual(before);
+  expect(await boxes(page)).toEqual(before);
+});
+
+test("a page whose og:image is its icon gives up the picture's place in one change", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const url = `${site.origin}/stories/only-an-icon`;
+  const id = identity(url);
+  await watchCard(page, id);
+  await save(page, url);
+  const card = page.locator(`.card[data-id="${id}"]`);
+  await expect(card.locator(".card-title")).toHaveText("Only an icon");
+  await expect(card.locator(".card-excerpt")).toHaveText(
+    "This page shares its icon.",
+  );
+  // The icon, already decoded, never shows as a cover.
+  expect(await states(page)).toEqual(["cover empty", "none empty"]);
 });

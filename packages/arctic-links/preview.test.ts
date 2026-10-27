@@ -47,6 +47,15 @@ test("falls back tag by tag, and to /favicon.ico when the page names no icon", (
   });
 });
 
+test("names that are not character references stay as written", () => {
+  expect(
+    readPreview(
+      "<title>Ice &constructor; &toString; &hasOwnProperty; &copy=1 &amp news</title>",
+      page,
+    ).title,
+  ).toBe("Ice &constructor; &toString; &hasOwnProperty; &copy=1 & news");
+});
+
 test("a page without tags has only its fallback icon; markup in scripts and comments is not read", () => {
   const html = `<html><head>
     <!-- <meta property="og:image" content="/commented.jpg"> -->

@@ -154,10 +154,13 @@ from its address ("how-sea-ice-keeps-time" becomes "How sea ice keeps time"),
 and its preview follows: the shared API's preview route
 (`apps/sync-server`, `POST /api/arctic/preview`) fetches the page and reads
 its title, description, og:image and icon by the phone's rules (`readPreview`
-in `packages/arctic-links`). The app then writes them into the article's
-record as a field edit: `subtitle`, `imageURL` and `faviconURL` only where the
-record has none, and the page's title only in place of the one from the
-address. A slow site never holds the save; without an answer nothing changes.
+in `packages/arctic-links`). The app syncs, so a preview the phone wrote
+meanwhile counts, and then writes them into the article's record as a field
+edit: `subtitle`, `imageURL` and `faviconURL` only where the record has none,
+and the page's title only in place of the one from the address. (A phone
+preview that reaches the account in the second between that sync and the
+upload is still replaced; the phone fetches its own again, because the record
+then has no `taggingText`.) A slow site never holds the save; without an answer nothing changes.
 Arctic on iPhone still fetches its own preview and topics when it next opens.
 A link already in Saved is pointed out; one from History is saved again. Undo
 removes a new link with tombstones.
