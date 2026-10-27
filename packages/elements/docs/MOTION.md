@@ -344,13 +344,14 @@ until a phone shows it.
 
 **Tried and set aside: opening on the compositor.** The sheet went to rest
 at once and a transform on its scroller brought it up on the same spring,
-with the dimming fading in alongside. React Aria's IntersectionObserver
-then never saw the sheet arrive in view (in Chromium and in WebKit), so it
-did not close the sheet when a swipe took it off screen. In a trace at 4×
-it changed little (20 complete frames of 68 against 12 of 61, 46 and 47 a
+with the dimming fading in alongside. In Playwright's WebKit, React Aria's
+IntersectionObserver then never reported the sheet in view (a new observer
+did), so a swipe left it open below the screen; it could only run in
+Chromium, where Reader's sheet tests passed with it. In a trace at 4× it
+changed little (20 complete frames of 68 against 12 of 61, 46 and 47 a
 frame behind, 2 dropped each), since Sheet Lab's readout keeps the main
-thread updating every frame. The patch
-is not in the tree.
+thread updating every frame. Without a phone to show a gain, the patch is
+not in the tree.
 
 **A phone check needs** a 120 Hz Android phone with Chrome, USB debugging
 and `chrome://inspect`: record a Performance trace of an opening and of a
