@@ -42,7 +42,7 @@ describe("HighlightToolbar", () => {
         onClose: vi.fn(),
         currentColor: "green",
         onDelete: vi.fn(),
-        textToCopy: "A selected passage",
+        textToCopy: () => "A selected passage",
       }),
     );
 
@@ -89,7 +89,7 @@ it.each(["denied", "unavailable"])(
         position: { x: 200, y: 200 },
         onColorSelect: vi.fn(),
         onClose: vi.fn(),
-        textToCopy: "A selected passage",
+        textToCopy: () => "A selected passage",
       }),
     );
     fireEvent.click(
