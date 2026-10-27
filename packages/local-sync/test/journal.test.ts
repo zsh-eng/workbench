@@ -263,6 +263,27 @@ describe("sync journal", () => {
     ]);
   });
 
+  it("does not call a removal lost when a newer removal replaced it", async () => {
+    const cloud = server();
+    const laptop = device("laptop", cloud.remote);
+    await laptop.db.tasks.put({ id: "gone", title: "laptop" });
+    await laptop.controller.syncNow();
+
+    // Offline on both, each removes it, and the phone's removal is newer.
+    laptop.clock.now = 10_000;
+    await laptop.db.tasks.delete("gone");
+    cloud.write("phone", "gone", "phone", 20_000, true);
+    await laptop.controller.syncNow();
+
+    const entries = passes(await entriesOf(laptop.journal));
+    expect(entries.at(-1)!.sent).toEqual([
+      { key: key("gone"), at: 10_000, deleted: true },
+    ]);
+    expect(
+      summarizeSyncHistory(entries, { now: 30_000, dayOf: () => 0 }).lost,
+    ).toEqual([]);
+  });
+
   it("keeps a restore as counts per table and device, not keys", async () => {
     const cloud = server();
     for (let index = 0; index < 30; index += 1)
