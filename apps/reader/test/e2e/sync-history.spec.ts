@@ -361,3 +361,130 @@ test.describe("Design ideas → Sync history", () => {
     ]);
   });
 });
+
+test.describe("an iPad in Safari", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("removes a highlight this device changed: the lost edit says it removed it, and it reads as a Mac or iPad", async ({
+    page,
+    remote,
+    localBook,
+  }) => {
+    // iPadOS Safari sends a Mac's user agent, so the server lists Safari
+    // on macOS for it.
+    await page.route("**/api/devices", (route) => {
+      const now = new Date().toISOString();
+      return route.fulfill({
+        json: {
+          devices: [
+            {
+              id: REMOTE_DEVICE_ID,
+              clientId: REMOTE_DEVICE_ID,
+              deviceName: null,
+              browser: "Safari",
+              os: "macOS",
+              deviceType: "desktop",
+              createdAt: now,
+              lastActiveAt: now,
+              isCurrent: false,
+            },
+          ],
+        },
+      });
+    });
+    await setDebug(page, false);
+    const now = Date.now();
+    const doomed = highlight(
+      localBook.id,
+      "doomed",
+      "yellow",
+      now - 60 * minute,
+    );
+    await page.evaluate(
+      async ({ path, row }) => {
+        const { syncV2Db } = await import(path);
+        await syncV2Db.highlights.put(row);
+      },
+      { path: DATABASE_MODULE, row: doomed },
+    );
+    fromPhone(remote, { ...doomed, isDeleted: true }, now + minute);
+    await syncNow(page);
+
+    const activity = await openActivity(page);
+    const lost = activity.locator('[data-history-kind="lost"]');
+    await expect(lost).toHaveCount(1);
+    await expect(lost).toContainText("Lost to a newer edit");
+    await expect(lost).toContainText(
+      /^Lost to a newer edit.+1 highlight in Alice.*Wonderland · your Mac or iPad removed it at \d/,
+    );
+    await expect(
+      activity.locator('[data-history-kind="received"]'),
+    ).toContainText(/^From your Mac or iPad.+1 removed highlight in Alice/);
+    // The removal won here too.
+    expect(
+      await page.evaluate(async (path) => {
+        const { syncV2Db } = await import(path);
+        return (await syncV2Db.highlights.get("doomed"))?.isDeleted;
+      }, DATABASE_MODULE),
+    ).toBe(true);
+  });
+});
+
+test.describe("with reduced motion", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("a group that joins while Activity is open takes its full height at once", async ({
+    page,
+    remote,
+    localBook,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await twoDevices(page, remote, localBook.id);
+    const activity = await openActivity(page);
+    await expectHistory(activity);
+    // Each row that joins: its height in each of its first 30 frames.
+    await page.evaluate(() => {
+      const list = document.querySelector("[data-sync-history] [role=list]")!;
+      const heights: number[] = [];
+      Object.assign(window, { joinedHeights: heights });
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.addedNodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            if (!node.classList.contains("ba-sheet-row")) continue;
+            let frames = 0;
+            const sample = () => {
+              heights.push(node.getBoundingClientRect().height);
+              if (++frames < 30) requestAnimationFrame(sample);
+            };
+            sample();
+          }
+      }).observe(list, { childList: true });
+    });
+    const now = Date.now();
+    fromPhone(
+      remote,
+      highlight(localBook.id, "third-1", "green", now),
+      now,
+      "third-device",
+    );
+    await page.evaluate(async () => {
+      const { syncService } = await import("/src/lib/sync-service.ts");
+      await syncService.syncAll();
+    });
+    await expect(
+      activity
+        .locator("[data-history-row]")
+        .filter({ hasText: "From another device" }),
+    ).toBeVisible();
+    const joined = () =>
+      page.evaluate(
+        () => (window as unknown as { joinedHeights: number[] }).joinedHeights,
+      );
+    await expect.poll(async () => (await joined()).length).toBe(30);
+    const heights = await joined();
+    // No frame shows the row part-way open.
+    expect(heights.filter((height) => height > 0 && height < 72)).toEqual([]);
+    expect(heights.at(-1)).toBe(72);
+  });
+});

@@ -1,6 +1,8 @@
 import {
   Collapse,
   SECTION_HEADING,
+  WARN_ICON,
+  WARN_TEXT,
 } from "@/features/background-activity/ActivitySheet";
 import { cn } from "@/lib/utils";
 import type { DeviceType } from "@/types/session";
@@ -34,8 +36,6 @@ import {
 /** Every row is this tall: a title and up to two lines, so words that change never move a row. */
 const ROW_HEIGHT = 72;
 const DAY_HEIGHT = 26;
-const WARN_TEXT = "text-[oklch(0.55_0.14_55)]";
-const WARN_ICON = "text-[oklch(0.62_0.16_55)]";
 
 /** How the list names devices; the app reads them from the server's device list. */
 export interface DeviceNamer {
