@@ -460,12 +460,11 @@ describe("tables in scroll mode", () => {
     expect(visible.y).toBeGreaterThanOrEqual(y);
     expect(visible.anchor.blockId).toMatch(/-c\d+$/);
 
-    // A relayout finds the same row again by its text.
+    // A relayout finds the same row again by its text, at the row's top,
+    // where the reading line measured it from.
     const position = findLineTextPosition(rows, line.y)!;
     expect(position.blockId).toBe(line.anchor.blockId);
-    const offset = findTextPositionOffset(rows, position)!;
-    expect(offset).toBeGreaterThanOrEqual(line.y);
-    expect(offset).toBeLessThan(line.y + line.height);
+    expect(findTextPositionOffset(rows, position)).toBe(line.y);
   });
 });
 

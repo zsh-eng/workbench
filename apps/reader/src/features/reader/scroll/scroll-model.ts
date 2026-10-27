@@ -401,7 +401,11 @@ export function findLineTextPosition(
   return { blockId, textOffset };
 }
 
-/** The column offset of the line that holds a text position. */
+/**
+ * The column offset of the line that holds a text position. In a table, a
+ * line's offset counts from the top of its row, not of its text, as the
+ * reading line's table rows do (`findLineAtOrAfter`).
+ */
 export function findTextPositionOffset(
   rows: readonly ScrollRow[],
   position: LineTextPosition,
@@ -414,11 +418,12 @@ export function findTextPositionOffset(
     if (slice.type !== "text" && slice.blockId === position.blockId) {
       return row.y;
     }
+    const padding = slice.type === "table" ? slice.cellPaddingY : 0;
     for (const unit of textUnitsOf(row)) {
       if (unit.slice.blockId !== position.blockId) continue;
       const { lines, lineHeight } = unit.slice;
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-        const top = unit.y + lineIndex * lineHeight;
+        const top = unit.y - padding + lineIndex * lineHeight;
         const length = lineTextLength(lines[lineIndex]!);
         if (position.textOffset < textOffset + length) return top;
         textOffset += length;
