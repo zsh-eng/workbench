@@ -82,7 +82,8 @@ record or failed:
   one transaction. Writes never fail a sync: an error is logged and the
   entry dropped.
 - **Storage.** `SyncJournalStore` is `load()`, `put(entry)` and
-  `compact(change)`. `/dexie` has `DexieSyncJournalStore` over an app-owned
+  `compact(decide)`, where `decide` gets every row and returns the rows to
+  put and the ids to remove. `/dexie` has `DexieSyncJournalStore` over an app-owned
   `_sync_journal: "id"` table, beside `_sync_outbox` and never in the synced
   table map. The core has no Dexie, React or browser import.
 
@@ -112,7 +113,7 @@ record or failed:
 
 Group ids are stable (direction, device, and the first change's key and
 time, or the day), so a view can keep its rows in place while new passes
-arrive.
+arrive. `lastFrom` maps each origin device to its newest received group.
 
 ### React
 
@@ -196,12 +197,17 @@ Kept as drafted, after weighing:
 ## In the apps
 
 - **Reader** (this round, behind Debug): Account → Activity opens one sheet
-  with **Now** (the activity jobs, as the glyph's sheet lists them) and
-  **Recent** (lost edits, waiting changes, then the groups). Rows keep their
-  places while the sheet is open. The activity glyph keeps its rule:
-  restores, imports, waiting updates and failed downloads only. Devices adds
-  a Debug list of syncing devices with what each last sent. Debug → Design
-  ideas → Sync history compares layouts.
+  (a popover under the account button on a larger screen) with **Now** (the
+  activity jobs, as the glyph's sheet lists them) and **Recent** (lost
+  edits, waiting changes, then the groups by day). Rows keep their places
+  while the sheet is open. The activity glyph keeps its rule: restores,
+  imports, waiting updates and failed downloads only. Devices adds a Debug
+  list of the devices the server knows, each with the latest changes this
+  device has from it (`lastFrom`). Debug → Design ideas → Sync history
+  compares Recent as sections (the choice), one timeline, and one row per
+  device, on sample history. Reader's nouns are in
+  `src/features/sync-history/reader-describe.ts`: books, highlights, notes
+  and bookmarks in their books, reading progress, and reading settings.
 - **Arctic for the web** keeps four `SyncClient`s under one controller: it
   passes `pass` to each `client.sync({ observer })` and implements
   `SyncJournalStore` over its own IndexedDB. Its keys are `table/id`, which
