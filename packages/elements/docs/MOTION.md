@@ -294,7 +294,70 @@ a busy main thread drops frames.
   cut. A home-screen app is not affected.
 - A thrown sheet settles with the browser's snap, not UIKit's 0.8-ratio
   release spring.
-- 60 Hz on a 120 Hz phone.
+- 60 Hz on a 120 Hz phone, and an opening that lags in Chrome on Android
+  ("Chrome on Android").
+
+## Chrome on Android
+
+Opening a sheet looks less smooth than dragging it in Chrome on a 120 Hz
+Android phone. No Android device was at hand: what follows is Chrome's
+source, Android's documentation and desktop Chrome traces of a phone
+viewport with the CPU slowed, not a measurement on a phone.
+
+**What runs.** An opening is `springSheetScroller`'s spring: each frame,
+`requestAnimationFrame` sets the scroller's offset on the main thread, and
+the dimming, the shape and React Aria's observer follow the offset. A drag
+is the browser's own scrolling, on the compositor; the main thread only
+follows it.
+
+**Traced** (`kit time --trace` with `test/e2e/kit/sheet-lab-frames.ts`,
+`kit frames`; production build, 390 × 844, CPU 4× and 6× slower; Sheet
+Lab's "Long list" opening, then a 120 px drag by the handle):
+
+| Part     | Frames (120 Hz) | Complete | A frame behind | Dropped | Long tasks                       |
+| -------- | --------------- | -------- | -------------- | ------- | -------------------------------- |
+| Open, 4× | 70 in 642 ms    | 11       | 48             | 11      | 11, 14 ms at start; 13 ms at end |
+| Drag, 4× | 63 in 660 ms    | 52       | 11             | 0       | 10 ms                            |
+| Open, 6× | 73 in 660 ms    | 9        | 49             | 15      | four of 9–19 ms                  |
+| Drag, 6× | 65 in 667 ms    | 54       | 11             | 0       | none                             |
+
+The opening loses frames at its start, while the sheet's content mounts,
+and runs a frame behind for most of the rest: Chrome shows each frame with
+the page's update for the frame before, because the main thread does not
+finish a frame in time. The drag keeps up.
+
+**Not Safari's limit.** WebKit's "Prefer Page Rendering Updates near
+60fps" (`PreferPageRenderingUpdatesNear60FPSEnabled`, on by default)
+holds a page's rendering updates, and so `requestAnimationFrame`, near
+60 fps; Core Animation animations that WebKit creates for a page opt into a
+high frame rate (`PlatformCAAnimationRemote.mm`). Chrome has no such
+setting: on Android it asks the system for "no preference" for ordinary
+frames (`root_compositor_frame_sink_impl.cc`), and an adaptive rate that
+follows scroll speed is behind a flag that is off by default
+(`kUseFrameIntervalDeciderAdaptiveFrameRate`, `features.cc`). Android then
+picks the display's rate: higher while a finger is on the screen and lower
+when it idles
+([multiple refresh rate](https://source.android.com/docs/core/graphics/multiple-refresh-rate)).
+So a drag likely runs at 120 Hz because a finger is down, and an opening
+after a tap may run at whatever rate Android drops to. That is a guess
+until a phone shows it.
+
+**Tried and set aside: opening on the compositor.** The sheet went to rest
+at once and a transform on its scroller brought it up on the same spring,
+with the dimming fading in alongside. React Aria's IntersectionObserver
+then never saw the sheet arrive in view (in Chromium and in WebKit), so it
+did not close the sheet when a swipe took it off screen. In a trace at 4×
+it changed little (20 complete frames of 68 against 12 of 61, 46 and 47 a
+frame behind, 2 dropped each), since Sheet Lab's readout keeps the main
+thread updating every frame. The patch
+is not in the tree.
+
+**A phone check needs** a 120 Hz Android phone with Chrome, USB debugging
+and `chrome://inspect`: record a Performance trace of an opening and of a
+drag, and show the display's rate with the developer option "Show refresh
+rate" or `adb shell dumpsys SurfaceFlinger`. If an opening runs at 60 Hz
+and a drag at 120 Hz with the frames complete, the rate is Android's
+choice; if the opening's frames are late or dropped, it is the main thread.
 
 ## Sheet behaviour
 
