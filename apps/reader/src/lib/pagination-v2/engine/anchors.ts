@@ -1,10 +1,13 @@
 // Anchor helpers for the pagination engine: resolve between content anchors,
 // pages, and fragment targets without owning any engine state directly.
-import type {
-  Page,
-  PreparedBlock,
-  PreparedTextBlock,
-  TextCursorOffset,
+import {
+  sliceShowsBlock,
+  textSlicesOf,
+  type Page,
+  type PageSlice,
+  type PreparedBlock,
+  type PreparedTextBlock,
+  type TextCursorOffset,
 } from "../shared/types";
 import type { ContentAnchor } from "../types";
 
@@ -85,7 +88,7 @@ export function resolveAnchorToPage(
       const page = pages[i];
       if (!page) continue;
       for (const slice of page.slices) {
-        if (slice.blockId === blockId) {
+        if (sliceShowsBlock(slice, blockId)) {
           return { chapterIndex: anchor.chapterIndex, localPageIndex: i };
         }
       }
@@ -102,10 +105,12 @@ export function resolveAnchorToPage(
     const page = pages[i];
     if (!page) continue;
     for (const slice of page.slices) {
-      if (slice.blockId !== blockId) continue;
+      if (!sliceShowsBlock(slice, blockId)) continue;
       if (firstBlockPage === null) firstBlockPage = i;
-
-      if (slice.type !== "text") continue;
+    }
+    // Table cells are text slices inside the table's slice.
+    for (const slice of textSlicesOf(page.slices)) {
+      if (slice.blockId !== blockId) continue;
       for (const line of slice.lines) {
         const { startOffset, endOffset } = line;
         if (!startOffset || !endOffset) continue;
@@ -171,10 +176,15 @@ export function pickAnchorForPage(
   // Spacers are not meaningful anchors: a spacer's blockId is often shared
   // with the image that follows it (both come from the same block in the
   // source), so anchoring to a spacer causes resolveAnchorToPage to find
-  // the wrong page when two slices share the same blockId.
-  const anchorableSlices = page.slices.filter(
-    (slice) => slice.type !== "spacer",
-  );
+  // the wrong page when two slices share the same blockId. A table offers
+  // its cells with text on this page; a repeated header belongs to the page
+  // where the table starts.
+  const anchorableSlices = page.slices.flatMap((slice): PageSlice[] => {
+    if (slice.type === "spacer") return [];
+    if (slice.type !== "table") return [slice];
+    const cells = textSlicesOf([slice]).filter((cell) => cell.lines.length > 0);
+    return cells.length > 0 ? cells : [slice];
+  });
   const slices = anchorableSlices.length > 0 ? anchorableSlices : page.slices;
 
   const midSlice = slices[Math.floor(slices.length / 2)];

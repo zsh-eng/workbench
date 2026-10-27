@@ -2,6 +2,7 @@ import type { NoteAnchor, NoteTarget } from "@/types/note";
 import type { Highlight } from "@/types/highlight";
 import {
   prepareBlocks,
+  textSlicesOf,
   type Block,
   type ContentAnchor,
   type PreparedBlock,
@@ -105,8 +106,7 @@ export function createNoteLocationResolver(
         const chapterIndex = slot.page.chapterIndex;
         const data = source(chapterIndex);
         if (!data) return null;
-        for (const slice of slot.page.content) {
-          if (slice.type !== "text") continue;
+        for (const slice of textSlicesOf(slot.page.content)) {
           const offset =
             slice.lines[0]?.startOffset ??
             slice.lines[0]?.fragments[0]?.anchorStart;

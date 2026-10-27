@@ -5,15 +5,10 @@ import {
 import {
   getResolvedBlockSpacing,
   getResolvedCollapsedBlockGap,
+  type PreviousBlockKind,
 } from "./layout-pages";
 import { getBlockSpacing, getCollapsedBlockGap } from "./spacing";
-import type {
-  LayoutTheme,
-  Page,
-  PageSlice,
-  PreparedBlock,
-  PreparedTextBlock,
-} from "./types";
+import type { LayoutTheme, Page, PageSlice, PreparedBlock } from "./types";
 
 /** One placed slice of a chapter column. It belongs to exactly one page. */
 export interface ColumnSlice {
@@ -79,7 +74,7 @@ export function layoutChapterColumn(
   let y = 0;
   let pendingSectionBreak = false;
   let prevMarginBelow = 0;
-  let previousBlockKind: PreparedTextBlock["tag"] | "image" | null = null;
+  let previousBlockKind: PreviousBlockKind | null = null;
 
   const hasContent = () => slices.length > 0;
   const breakSection = () => {
@@ -98,7 +93,7 @@ export function layoutChapterColumn(
   };
   const finishBlock = (
     block: PreparedBlock,
-    kind: PreparedTextBlock["tag"] | "image" | null,
+    kind: PreviousBlockKind | null,
     marginBelow: number,
   ) => {
     if (hasHardPageBreakAfter(block)) {
@@ -140,6 +135,26 @@ export function layoutChapterColumn(
       }
       place(image.pageIndex, image.slice, image.slice.height);
       finishBlock(block, "image", getBlockSpacing("image", theme).below);
+      continue;
+    }
+
+    // A table's parts, one per page; its cells' blocks have no slices of
+    // their own and are skipped below.
+    if (block.type === "table") {
+      const parts = placed.filter((entry) => entry.slice.type === "table");
+      if (parts.length === 0) continue;
+      if (hasContent() && !pendingSectionBreak) {
+        y += getCollapsedBlockGap(
+          previousBlockKind,
+          "table",
+          theme,
+          prevMarginBelow,
+        );
+      }
+      for (const { pageIndex, slice } of parts) {
+        if (slice.type === "table") place(pageIndex, slice, slice.height);
+      }
+      finishBlock(block, "table", getBlockSpacing("table", theme).below);
       continue;
     }
 

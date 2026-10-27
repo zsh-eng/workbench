@@ -28,6 +28,9 @@
  * - Highlight metadata is captured from mark wrappers that provide
  *   `data-highlight-id` (and optional `data-color`). Nested marks are preserved
  *   as an ordered stack in `highlightMarks`.
+ * - A `<table>` becomes one paragraph of its text, or, with `tables`, a
+ *   `table` block followed by one `td`/`th` text block per non-empty cell
+ *   (see `parseTable`).
  *
  * Important dependency notes:
  * - This stage preserves text and mark boundaries; whitespace normalization and
@@ -72,6 +75,8 @@ import type {
   BookStylesheet,
   PublisherStyleOptions,
   PublisherTextStyle,
+  TableCellSpec,
+  TableRowSpec,
   TextBlock,
 } from "./types";
 
@@ -644,6 +649,75 @@ interface ParseChapterContext {
   blockStarts: Map<string, number> | null;
   publisherStyleResolver: PublisherStyleResolver | null;
   bookPageBreakHintResolver: BookPageBreakHintResolver | null;
+  tables: boolean;
+}
+
+/** Children of a cell that start a new line in it. */
+const CELL_PARAGRAPH_TAGS = new Set<string>([
+  "p",
+  "div",
+  "ul",
+  "ol",
+  "li",
+  "dl",
+  "dt",
+  "dd",
+  "blockquote",
+  "pre",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "figure",
+  "figcaption",
+  "section",
+  "table",
+]);
+
+/**
+ * A cell's runs. Inline content flows as in a paragraph; each paragraph-like
+ * child starts a new line with a hard break, which has no canonical text, as
+ * `<br>` has none.
+ */
+function extractCellRuns(cell: Element): InlineExtractionResult {
+  const runs: InlineRun[] = [];
+  let trailingTargets: string[] = [];
+  let breakPending = false;
+
+  for (const node of Array.from(cell.childNodes)) {
+    const isParagraph =
+      node instanceof Element &&
+      CELL_PARAGRAPH_TAGS.has(node.tagName.toLowerCase());
+    const result = extractInlineNode(node, DEFAULT_CONTEXT, trailingTargets);
+    const visible = result.runs.some(
+      (run) => run.hardBreak === true || run.text.trim().length > 0,
+    );
+    if (
+      visible &&
+      (breakPending || (isParagraph && runs.some(isVisibleRun))) &&
+      !lastRunIsHardBreak(runs)
+    ) {
+      appendTextRun(runs, createHardBreakRun(DEFAULT_CONTEXT));
+    }
+    if (visible) breakPending = false;
+    for (const run of result.runs) appendTextRun(runs, run);
+    trailingTargets = result.trailingTargets;
+    if (isParagraph && visible) breakPending = true;
+  }
+
+  if (
+    trailingTargets.length > 0 &&
+    attachTargetsToLastRun(runs, trailingTargets)
+  ) {
+    trailingTargets = [];
+  }
+  return { runs, trailingTargets };
+}
+
+function isVisibleRun(run: InlineRun): boolean {
+  return run.hardBreak === true || run.text.trim().length > 0;
 }
 
 function attachTargetsToBlock(block: Block, targetIds: string[]): void {
@@ -676,6 +750,13 @@ function recordBlockStart(
 export interface ParseChapterHtmlOptions extends PublisherStyleOptions {
   bookStylesheets?: BookStylesheet[];
   publisherFontFaces?: PublisherFontFace[];
+  /** Parse tables into rows and cells instead of one paragraph. */
+  tables?: boolean;
+}
+
+function readSpan(element: Element, name: "colspan" | "rowspan"): number {
+  const value = Number.parseInt(element.getAttribute(name) ?? "", 10);
+  return Number.isFinite(value) && value > 1 ? Math.min(value, 64) : 1;
 }
 
 function hasBlockChildren(element: Element): boolean {
@@ -695,6 +776,17 @@ function attachPublisherFontFaces(
   );
   if (!firstTextBlock) return;
   firstTextBlock.publisherFontFaces = publisherFontFaces;
+}
+
+/** A `figcaption` just before a table stays on the page where it starts. */
+function keepCaptionsWithTables(blocks: Block[]): void {
+  blocks.forEach((block, index) => {
+    const caption = blocks[index - 1];
+    if (block.type !== "table" || caption?.type !== "text") return;
+    if (caption.tag !== "figcaption" || caption.pageBreakHints?.breakAfter)
+      return;
+    caption.pageBreakHints = { ...caption.pageBreakHints, breakAfter: "avoid" };
+  });
 }
 
 function parseChapterHtmlInternal(
@@ -719,6 +811,7 @@ function parseChapterHtmlInternal(
     blockStarts: new Map<string, number>(),
     publisherStyleResolver,
     bookPageBreakHintResolver,
+    tables: options.tables === true,
   };
 
   function walkChildren(nodes: Node[], pendingTargets: string[]): WalkResult {
@@ -861,6 +954,10 @@ function parseChapterHtmlInternal(
       };
     }
 
+    if (tag === "table" && context.tables) {
+      return parseTable(node, targetIds, pageBreakHints, blockStart);
+    }
+
     if (tag === "table") {
       const p = document.createElement("p");
       p.textContent = node.textContent;
@@ -899,7 +996,131 @@ function parseChapterHtmlInternal(
     return { blocks: [], remainingTargets: childrenResult.remainingTargets };
   }
 
+  /**
+   * A table as a `table` block and one text block per non-empty cell, in
+   * row-major order. The table takes one block number, as the paragraph it
+   * replaces did, so the ids of later blocks do not depend on tables. Cells
+   * are numbered after the table's id. A `<caption>` becomes a `figcaption`
+   * block before the table. Canonical offsets advance through the table in
+   * document order, so each cell's start is its place in the chapter's text.
+   */
+  function parseTable(
+    table: Element,
+    targetIds: string[],
+    pageBreakHints: BookPageBreakHints | undefined,
+    blockStart: number,
+  ): WalkResult {
+    const tableId = `text-${context.counter.value++}`;
+    const blocks: Block[] = [];
+    const cellBlocks: Block[] = [];
+    const rows: TableRowSpec[] = [];
+    let offset = blockStart;
+    let cellCount = 0;
+    let currentRow: TableRowSpec | null = null;
+
+    const visit = (node: Node, inHead: boolean) => {
+      if (!(node instanceof Element)) {
+        offset += getNodeTextLength(node);
+        return;
+      }
+      const tag = node.tagName.toLowerCase();
+      // Only a leaf (ignored, caption or cell) needs its own length; rows
+      // and groups advance through their children.
+      const length = () => getNodeTextLength(node);
+      if (IGNORE_TAGS.has(tag)) {
+        offset += length();
+        return;
+      }
+      if (tag === "caption") {
+        const caption = createTextBlock(
+          node,
+          "figcaption",
+          `${tableId}-caption`,
+          readTargetIds(node),
+          context.publisherStyleResolver,
+          context.bookPageBreakHintResolver,
+        );
+        if (caption && hasVisibleInlineText(caption)) {
+          caption.pageBreakHints = {
+            ...caption.pageBreakHints,
+            breakAfter: "avoid",
+          };
+          recordBlockStart(context, caption.id, offset);
+          blocks.push(caption);
+        }
+        offset += length();
+        return;
+      }
+      if (tag === "tr") {
+        currentRow = { header: inHead, cells: [] };
+        rows.push(currentRow);
+        for (const child of Array.from(node.childNodes)) visit(child, inHead);
+        currentRow = null;
+        return;
+      }
+      if ((tag === "td" || tag === "th") && currentRow) {
+        const cellId = `${tableId}-c${cellCount++}`;
+        const cell: TableCellSpec = {
+          blockId: cellId,
+          header: tag === "th",
+          colSpan: readSpan(node, "colspan"),
+          rowSpan: readSpan(node, "rowspan"),
+        };
+        currentRow.cells.push(cell);
+        const result = extractCellRuns(node);
+        const cellTargets = mergeTargetIds(
+          readTargetIds(node),
+          result.trailingTargets,
+        );
+        const runs = result.runs.filter((run) => run.text.length > 0);
+        if (runs.some(isVisibleRun) || cellTargets.length > 0) {
+          // No page break hints: the table breaks between its rows.
+          cellBlocks.push({
+            type: "text",
+            id: cellId,
+            tag,
+            ...(cellTargets.length > 0 ? { targetIds: cellTargets } : {}),
+            runs,
+          });
+          recordBlockStart(context, cellId, offset);
+        }
+        offset += length();
+        return;
+      }
+      const head = inHead || tag === "thead";
+      for (const child of Array.from(node.childNodes)) visit(child, head);
+    };
+
+    for (const child of Array.from(table.childNodes)) visit(child, false);
+    context.currentCanonicalOffset = blockStart + getNodeTextLength(table);
+
+    if (rows.length === 0) {
+      return { blocks, remainingTargets: [...targetIds] };
+    }
+    // A first row of header cells is a header without a `<thead>`.
+    const firstRow = rows[0]!;
+    if (
+      !rows.some((row) => row.header) &&
+      firstRow.cells.length > 0 &&
+      firstRow.cells.every((cell) => cell.header)
+    ) {
+      firstRow.header = true;
+    }
+
+    recordBlockStart(context, tableId, blockStart);
+    blocks.push({
+      type: "table",
+      id: tableId,
+      ...(targetIds.length > 0 ? { targetIds: [...targetIds] } : {}),
+      ...(pageBreakHints ? { pageBreakHints: { ...pageBreakHints } } : {}),
+      rows,
+    });
+    blocks.push(...cellBlocks);
+    return { blocks, remainingTargets: [] };
+  }
+
   const result = walkChildren(Array.from(doc.body.childNodes), []);
+  if (context.tables) keepCaptionsWithTables(result.blocks);
   if (result.remainingTargets.length > 0) {
     const blockId = `text-${context.counter.value++}`;
     recordBlockStart(context, blockId, context.currentCanonicalOffset);

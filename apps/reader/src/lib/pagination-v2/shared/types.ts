@@ -15,7 +15,9 @@ export type BlockTag =
   | "li"
   | "blockquote"
   | "pre"
-  | "figcaption";
+  | "figcaption"
+  | "td"
+  | "th";
 
 export interface LinkRef {
   href: string;
@@ -81,7 +83,42 @@ export interface PageBreakBlock {
   targetIds?: string[];
 }
 
-export type Block = TextBlock | ImageBlock | SpacerBlock | PageBreakBlock;
+/**
+ * One cell of a table: the id of the text block that holds its text, which
+ * follows the table in the chapter's blocks. An empty cell has an id but no
+ * text block.
+ */
+export interface TableCellSpec {
+  blockId: string;
+  header: boolean;
+  colSpan: number;
+  rowSpan: number;
+}
+
+export interface TableRowSpec {
+  /** A `<thead>` row: it repeats at the top of each continuation page. */
+  header: boolean;
+  cells: TableCellSpec[];
+}
+
+/**
+ * A table's grid. Its cells' text blocks follow it in row-major order, so
+ * anchors, highlights, search and copy treat each cell as a text block.
+ */
+export interface TableBlock {
+  type: "table";
+  id: string;
+  targetIds?: string[];
+  pageBreakHints?: BookPageBreakHints;
+  rows: TableRowSpec[];
+}
+
+export type Block =
+  | TextBlock
+  | ImageBlock
+  | SpacerBlock
+  | PageBreakBlock
+  | TableBlock;
 
 // ---------------------------------------------------------------------------
 // Stage 2: FontConfig + PreparedBlock types
@@ -217,11 +254,15 @@ export interface PreparedPageBreakBlock {
   targetIds?: string[];
 }
 
+/** A table passes through preparation; its cells are prepared text blocks. */
+export type PreparedTableBlock = TableBlock;
+
 export type PreparedBlock =
   | PreparedTextBlock
   | PreparedImageBlock
   | PreparedSpacerBlock
-  | PreparedPageBreakBlock;
+  | PreparedPageBreakBlock
+  | PreparedTableBlock;
 
 export interface ChapterCanonicalText {
   fullText: string;
@@ -305,7 +346,74 @@ export interface SpacerSlice {
   height: number;
 }
 
-export type PageSlice = TextSlice | ImageSlice | SpacerSlice;
+/** One cell on a page: its text slice (no lines when empty) and place. */
+export interface TableSliceCell {
+  slice: TextSlice;
+  column: number;
+  colSpan: number;
+  rowSpan: number;
+  header: boolean;
+}
+
+export interface TableSliceRow {
+  /** The row's index in the table. */
+  index: number;
+  /** A header row (`<thead>`, or a first row of header cells). */
+  header: boolean;
+  height: number;
+  /**
+   * A header row shown again at the top of a continuation page. Its text
+   * belongs to the first page, so it carries no anchors.
+   */
+  repeated: boolean;
+  /** The row continues from the page before, split at a line. */
+  continued: boolean;
+  cells: TableSliceCell[];
+}
+
+/** The rows of a table that fit one page, at the widths the worker chose. */
+export interface TableSlice {
+  type: "table";
+  blockId: string;
+  columnWidths: number[];
+  /** Sum of the column widths; wider than the page when `overflows`. */
+  width: number;
+  height: number;
+  /** The table cannot fit the page and scrolls sideways. */
+  overflows: boolean;
+  cellPaddingX: number;
+  cellPaddingY: number;
+  rows: TableSliceRow[];
+}
+
+export type PageSlice = TextSlice | ImageSlice | SpacerSlice | TableSlice;
+
+/**
+ * The text slices a page shows, with each table's cells in reading order.
+ * Repeated header rows are left out: their text belongs to an earlier page.
+ */
+export function textSlicesOf(slices: readonly PageSlice[]): TextSlice[] {
+  const result: TextSlice[] = [];
+  for (const slice of slices) {
+    if (slice.type === "text") result.push(slice);
+    if (slice.type !== "table") continue;
+    for (const row of slice.rows) {
+      if (row.repeated) continue;
+      for (const cell of row.cells) result.push(cell.slice);
+    }
+  }
+  return result;
+}
+
+/** Whether a slice is, or holds, the block `blockId`. */
+export function sliceShowsBlock(slice: PageSlice, blockId: string): boolean {
+  if (slice.blockId === blockId) return true;
+  if (slice.type !== "table") return false;
+  return slice.rows.some(
+    (row) =>
+      !row.repeated && row.cells.some((cell) => cell.slice.blockId === blockId),
+  );
+}
 
 export interface Page {
   index: number;

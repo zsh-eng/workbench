@@ -1,6 +1,8 @@
-import type {
-  ResolvedLeafPage,
-  ResolvedSpread,
+import {
+  textSlicesOf,
+  type ResolvedLeafPage,
+  type ResolvedSpread,
+  type TextCursorOffset,
 } from "@/lib/pagination-v2/types";
 
 /**
@@ -11,9 +13,20 @@ import type {
 export function getPageContentKey(page: ResolvedLeafPage): string {
   const first = page.content[0];
   if (!first) return `${page.chapterIndex}`;
+  const offset = (start: TextCursorOffset) =>
+    `${start.itemIndex}.${start.segmentIndex}.${start.graphemeIndex}`;
+  if (first.type === "table") {
+    // A table part starts at its first own row, maybe partway through it:
+    // its first cell with lines on this page tells parts of a row apart.
+    const row = first.rows.find((candidate) => !candidate.repeated);
+    const base = `${page.chapterIndex}:${first.blockId}:${row?.index ?? 0}`;
+    const cell = textSlicesOf([first]).find((slice) => slice.lines.length > 0);
+    const start = cell?.lines[0]?.startOffset;
+    return cell && start ? `${base}:${cell.blockId}:${offset(start)}` : base;
+  }
   const start = first.type === "text" ? first.lines[0]?.startOffset : null;
   return start
-    ? `${page.chapterIndex}:${first.blockId}:${start.itemIndex}.${start.segmentIndex}.${start.graphemeIndex}`
+    ? `${page.chapterIndex}:${first.blockId}:${offset(start)}`
     : `${page.chapterIndex}:${first.blockId}`;
 }
 

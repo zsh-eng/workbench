@@ -131,6 +131,53 @@ export function alignSlice(
   };
 }
 
+/** A rendered element that draws one block's text: a text slice or a table cell. */
+export interface TextSliceElement {
+  element: HTMLElement;
+  blockId: string;
+  /** It may continue its block from the page before. */
+  startsPage: boolean;
+}
+
+/**
+ * The elements that draw text among rendered slices, in reading order: text
+ * slices, and the cells of table slices. A repeated header's cells are left
+ * out, as their text belongs to an earlier page. A scroll column keeps the
+ * page cuts, so a row that opens a page can continue a block, as the first
+ * slice of a page does; a table cell continues one where its row does.
+ */
+export function collectTextSliceElements(
+  slices: readonly HTMLElement[],
+): TextSliceElement[] {
+  const result: TextSliceElement[] = [];
+  slices.forEach((slice, index) => {
+    const startsPage =
+      index === 0 || scrollRowPage(slice) !== scrollRowPage(slices[index - 1]!);
+    const type = slice.dataset.readerSliceType;
+    if (type === "text") {
+      const blockId = slice.dataset.readerBlockId;
+      if (blockId) result.push({ element: slice, blockId, startsPage });
+      return;
+    }
+    if (type !== "table") return;
+    for (const row of slice.querySelectorAll<HTMLElement>(
+      "tr[data-reader-table-row]:not([data-reader-table-repeated])",
+    )) {
+      const continued = row.hasAttribute("data-reader-table-continued");
+      for (const cell of row.querySelectorAll<HTMLElement>(
+        ".reader-table-cell-text[data-reader-block-id]",
+      )) {
+        result.push({
+          element: cell,
+          blockId: cell.dataset.readerBlockId!,
+          startsPage: continued,
+        });
+      }
+    }
+  });
+  return result;
+}
+
 export interface SearchMarkSource {
   /** The canonical text and block starts of a chapter, once loaded. */
   getChapterText: (chapterIndex: number) => {
@@ -163,31 +210,28 @@ export function collectSearchRanges(
         "[data-reader-page-content] > [data-reader-page-slice], [data-scroll-row-index] > [data-reader-page-slice]",
       ),
     ];
-    slices.forEach((slice, sliceIndex) => {
-      // A scroll column keeps the page cuts, so a row that opens a page can
-      // continue a block, as the first slice of a page does.
-      const startsPage =
-        sliceIndex === 0 ||
-        scrollRowPage(slice) !== scrollRowPage(slices[sliceIndex - 1]!);
-      const blockId = slice.dataset.readerBlockId;
-      if (!blockId || slice.dataset.readerSliceType !== "text") return;
+    for (const {
+      element: slice,
+      blockId,
+      startsPage,
+    } of collectTextSliceElements(slices)) {
       const matches = source.matchesFor(chapterIndex, blockId);
       const block = text.blockRanges.get(blockId);
-      if (!matches.length || !block) return;
+      if (!matches.length || !block) continue;
       const aligned = alignSlice(
         slice,
         text.fullText.slice(block.start, block.end),
         block.start,
         startsPage,
       );
-      if (!aligned) return;
+      if (!aligned) continue;
       for (const match of matches) {
         if (match.end <= aligned.start || match.start >= aligned.end) continue;
         const range = aligned.rangeFor(match.start, match.end);
         if (!range) continue;
         (match.id === activeId ? active : all).push(range);
       }
-    });
+    }
   }
   return { all, active };
 }

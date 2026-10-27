@@ -7,6 +7,7 @@ import type {
   ResolvedSpread,
   TextCursorOffset,
 } from "@/lib/pagination-v2";
+import { textSlicesOf } from "@/lib/pagination-v2";
 import { resolveTextAnchorToCanonicalOffset } from "@/lib/pagination-v2/engine/highlight-selection";
 import { useEffect, useEffectEvent, useState, type RefObject } from "react";
 import type { ReaderSessionChapterAccess } from "../hooks/use-reader-session";
@@ -84,8 +85,8 @@ function pageTextBounds(
   prepared: PreparedBlock[],
   text: ChapterCanonicalText,
 ): PageTextBounds | null {
-  const slices = page.content.flatMap((slice) =>
-    slice.type === "text" && slice.lines.length ? [slice] : [],
+  const slices = textSlicesOf(page.content).filter(
+    (slice) => slice.lines.length > 0,
   );
   const first = slices[0];
   const last = slices.at(-1);

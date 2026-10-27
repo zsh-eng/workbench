@@ -1,8 +1,9 @@
 import type { TOCItem } from "@/lib/db";
-import type {
-  ChapterCanonicalText,
-  ResolvedLeafPage,
-  ResolvedSpread,
+import {
+  textSlicesOf,
+  type ChapterCanonicalText,
+  type ResolvedLeafPage,
+  type ResolvedSpread,
 } from "@/lib/pagination-v2";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useEffect, useRef, useState, type RefObject } from "react";
@@ -27,8 +28,12 @@ function pageTextOffset(
   if (!page) return null;
   const text = getCanonicalText(page.chapterIndex);
   for (const slice of page.content) {
-    const start = text?.blockStarts.get(slice.blockId);
-    if (start !== undefined) return start;
+    // A table's part starts at its first cell on this page.
+    const blocks = slice.type === "table" ? textSlicesOf([slice]) : [slice];
+    for (const block of blocks) {
+      const start = text?.blockStarts.get(block.blockId);
+      if (start !== undefined) return start;
+    }
   }
   return null;
 }

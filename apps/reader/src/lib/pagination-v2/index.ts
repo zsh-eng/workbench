@@ -34,7 +34,7 @@ export {
   getLineHeight,
   headingScale,
 } from "./shared/spacing";
-export { DEFAULT_SPREAD_CONFIG } from "./types";
+export { DEFAULT_SPREAD_CONFIG, sliceShowsBlock, textSlicesOf } from "./types";
 export type {
   Block,
   BookPageBreakHints,
@@ -51,6 +51,7 @@ export type {
   PageFragment,
   PageSlice,
   PaginationConfig,
+  PaginationDiagnostics,
   PaginationStatus,
   PreparedBlock,
   PreparedImageBlock,
@@ -71,6 +72,10 @@ export type {
   ResolvedSpreadWindow,
   SpacerSlice,
   SpreadConfig,
+  TableBlock,
+  TableSlice,
+  TableSliceCell,
+  TableSliceRow,
   SpreadGapReason,
   SpreadIntent,
   SpreadSlot,

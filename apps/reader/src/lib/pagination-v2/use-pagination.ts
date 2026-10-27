@@ -116,6 +116,35 @@ function getWorkerTraceDetails(
     outsideWorkerMs: roundTraceMilliseconds(outsideWorkerMs),
     workerPostedAt: new Date(event.workerTiming.postedAtEpochMs).toISOString(),
     mainHandlerEnteredAt: new Date(mainHandlerEnteredAtEpochMs).toISOString(),
+    ...getWorkerStageDetails(event.chapterDiagnostics),
+  };
+}
+
+/**
+ * The worker's preparation (text measurement) and layout time for the
+ * chapters an event reports, so a trace separates them from waiting.
+ */
+function getWorkerStageDetails(
+  diagnostics:
+    | PaginationChapterDiagnostics
+    | PaginationChapterDiagnostics[]
+    | null,
+): Record<string, number> {
+  const chapters = Array.isArray(diagnostics)
+    ? diagnostics
+    : diagnostics
+      ? [diagnostics]
+      : [];
+  if (chapters.length === 0) return {};
+  let prepareMs = 0;
+  let layoutMs = 0;
+  for (const chapter of chapters) {
+    prepareMs += chapter.stage2PrepareMs ?? 0;
+    layoutMs += chapter.stage3LayoutMs ?? 0;
+  }
+  return {
+    workerPrepareMs: roundTraceMilliseconds(prepareMs),
+    workerLayoutMs: roundTraceMilliseconds(layoutMs),
   };
 }
 

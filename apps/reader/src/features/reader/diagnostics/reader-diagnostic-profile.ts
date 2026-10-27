@@ -29,6 +29,23 @@ export const DEFAULT_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
   paragraphSpacingFactor: DEFAULT_PARAGRAPH_SPACING,
 };
 
+/** An iPad held upright (820 × 1180), for benchmarks at tablet width. */
+export const IPAD_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
+  ...DEFAULT_READER_DIAGNOSTIC_PROFILE,
+  name: "ipad-portrait",
+  container: { width: 820, height: 1180 },
+  isMobile: false,
+};
+
+/** `?profile=ipad` picks the iPad profile; anything else the phone. */
+export function resolveReaderDiagnosticProfile(
+  search: string,
+): ReaderDiagnosticProfile {
+  return new URLSearchParams(search).get("profile") === "ipad"
+    ? IPAD_READER_DIAGNOSTIC_PROFILE
+    : DEFAULT_READER_DIAGNOSTIC_PROFILE;
+}
+
 export function resolveReaderDiagnosticLayout(
   profile: ReaderDiagnosticProfile = DEFAULT_READER_DIAGNOSTIC_PROFILE,
 ) {

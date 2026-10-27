@@ -158,6 +158,70 @@
   color: var(--muted-foreground);
 }
 
+/*
+ * Tables (Debug: Appearance → Layout → Tables). The worker chose every
+ * column width, row height and line break (shared/layout-table.ts); these
+ * rules must not add space. Rules between rows are inset shadows, which
+ * take none.
+ */
+.reader-table-slice {
+  overflow: hidden;
+}
+
+.reader-table-slice-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.reader-table {
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+}
+
+.reader-table th,
+.reader-table td {
+  box-sizing: border-box;
+  vertical-align: top;
+  text-align: left;
+  font-weight: inherit;
+  overflow: hidden;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.reader-table thead tr:first-child > * {
+  box-shadow:
+    inset 0 1px 0 var(--muted-foreground),
+    inset 0 -1px 0 var(--border);
+}
+
+.reader-table thead tr:last-child > * {
+  box-shadow: inset 0 -1px 0 var(--muted-foreground);
+}
+
+.reader-table thead tr:first-child:last-child > * {
+  box-shadow:
+    inset 0 1px 0 var(--muted-foreground),
+    inset 0 -1px 0 var(--muted-foreground);
+}
+
+.reader-table-cell-text {
+  margin: 0;
+  color: var(--foreground);
+}
+
+/* A header shown again on a continuation page: its text is on an earlier page. */
+.reader-table [data-reader-table-repeated] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.reader-table [data-reader-table-repeated] .reader-table-cell-text {
+  color: var(--muted-foreground);
+}
+
 .reader-inline-link {
   color: var(--muted-foreground);
   text-decoration: underline;

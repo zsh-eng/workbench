@@ -4,10 +4,11 @@ import {
   CONTENT_ANCHOR_START_ATTR,
   parseTextCursorOffset,
 } from "../content-anchor-dom";
-import type {
-  PageFragment,
-  PreparedBlock,
-  PreparedTextItem,
+import {
+  textSlicesOf,
+  type PageFragment,
+  type PreparedBlock,
+  type PreparedTextItem,
 } from "../shared/types";
 import type { ContentAnchor, ResolvedSpread } from "../types";
 
@@ -390,8 +391,8 @@ function matchSpreadFragment(
   for (const slot of spread.slots) {
     if (slot.kind !== "page") continue;
 
-    for (const slice of slot.page.content) {
-      if (slice.type !== "text" || slice.blockId !== boundary.blockId) continue;
+    for (const slice of textSlicesOf(slot.page.content)) {
+      if (slice.blockId !== boundary.blockId) continue;
 
       for (const line of slice.lines) {
         for (const fragment of line.fragments) {

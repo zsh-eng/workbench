@@ -1,4 +1,9 @@
-import type { PageFragment, PageSlice } from "@/lib/pagination-v2";
+import type {
+  PageFragment,
+  PageSlice,
+  TableSlice,
+  TextSlice,
+} from "@/lib/pagination-v2";
 import {
   CONTENT_ANCHOR_BLOCK_ID_ATTR,
   CONTENT_ANCHOR_END_ATTR,
@@ -392,96 +397,9 @@ function renderInlineFragment(
   );
 }
 
-export function PageSliceView({
-  slice,
-  sliceIndex,
-  baseFontSize,
-}: PageSliceViewProps) {
-  const key = `${slice.blockId}-${sliceIndex}`;
-
-  if (slice.type === "spacer") {
-    return (
-      <div
-        data-reader-page-slice={sliceIndex}
-        data-reader-slice-type="spacer"
-        data-reader-block-id={slice.blockId}
-        data-reader-expected-height={slice.height}
-        style={{ height: `${slice.height}px` }}
-      />
-    );
-  }
-
-  if (slice.type === "image") {
-    return (
-      <div
-        data-reader-page-slice={sliceIndex}
-        data-reader-slice-type="image"
-        data-reader-block-id={slice.blockId}
-        data-reader-expected-height={slice.height}
-        className="flex w-full items-center justify-center"
-        style={{ height: `${slice.height}px` }}
-      >
-        <LazyImage
-          src={slice.src}
-          alt={slice.alt ?? "Chapter image"}
-          width={slice.width}
-          height={slice.height}
-          style={{
-            objectFit: "contain",
-          }}
-        />
-      </div>
-    );
-  }
-
-  const textAlign =
-    slice.renderMode === "manual-justify"
-      ? "left"
-      : HEADING_TAGS.has(slice.tag) &&
-          (slice.textAlign === "justify" ||
-            slice.textAlign === "justify-knuth-plass")
-        ? "left"
-        : toCssTextAlign(slice.textAlign);
-
-  return (
-    <p
-      data-reader-page-slice={sliceIndex}
-      data-reader-slice-type="text"
-      data-reader-block-id={slice.blockId}
-      data-reader-line-count={slice.lines.length}
-      data-reader-line-height={slice.lineHeight}
-      data-reader-expected-height={slice.lines.length * slice.lineHeight}
-      className={cn("m-0 box-border text-foreground", {
-        "reader-blockquote":
-          slice.tag === "blockquote" && !slice.publisherStyle,
-        "reader-figcaption": slice.tag === "figcaption",
-      })}
-      {...{ [CONTENT_ANCHOR_BLOCK_ID_ATTR]: slice.blockId }}
-      // There is a difference between the line height CSS property and the actual line height
-      // that is rendered out.
-      // For instance, with "Iowan Old Style" font on 17px, the rendered height of the box is
-      // always 0.5px taller than the line height. E.g. 25px line height renders at 25.5px,
-      // 24px line height renders at 24.5px, 28px line height renders at 28.5px, and so on.
-      // Thus we need to set the `height` property to match the number of lines and line height
-      // such that we don't get overflow in these cases.
-      style={{
-        // The block's own inline strut participates in native line layout, so
-        // it needs to use the same base font as the rendered text fragments.
-        ...getSliceBaseTypographyStyle(slice, baseFontSize),
-        lineHeight: `${slice.lineHeight}px`,
-        height: `${slice.lines.length * slice.lineHeight}px`,
-        textAlign,
-        marginLeft:
-          slice.marginLeftPx !== undefined
-            ? `${slice.marginLeftPx}px`
-            : undefined,
-        marginRight:
-          slice.marginRightPx !== undefined
-            ? `${slice.marginRightPx}px`
-            : undefined,
-      }}
-    >
-      {slice.renderMode === "manual-justify"
+/** A text slice's lines: each a `nowrap` span, so the page keeps the worker's breaks. */
+function renderSliceLines(slice: TextSlice, key: string): ReactNode {
+  return (slice.renderMode === "manual-justify"
         ? slice.lines.map((line, lineIndex) => {
             const trailingBoundaryFragment =
               line.fragments[line.fragments.length - 1]?.kind === "space"
@@ -555,7 +473,218 @@ export function PageSliceView({
               </span>
               {lineIndex < slice.lines.length - 1 ? <br /> : null}
             </Fragment>
+          )));
+}
+
+/** A repeated header's text belongs to an earlier page: no anchors. */
+function withoutAnchors(slice: TextSlice): TextSlice {
+  return {
+    ...slice,
+    lines: slice.lines.map((line) => ({
+      ...line,
+      fragments: line.fragments.map(
+        ({ anchorStart: _start, anchorEnd: _end, ...fragment }) => fragment,
+      ),
+    })),
+  };
+}
+
+/**
+ * The rows of a table that fit this page, at the column widths and row
+ * heights the worker chose. Fixed table layout keeps the browser from
+ * choosing again; rules are inset shadows, so they take no space. Each cell
+ * renders its lines as a paragraph does and is its own anchor block, so
+ * selection, highlights and search work as in prose. A table wider than the
+ * page scrolls sideways in its slice.
+ */
+function TableSliceView({
+  slice,
+  sliceIndex,
+  baseFontSize,
+}: {
+  slice: TableSlice;
+  sliceIndex: number;
+  baseFontSize: number;
+}) {
+  const key = `${slice.blockId}-${sliceIndex}`;
+  const firstBody = slice.rows.findIndex((row) => !row.header);
+  const headCount = firstBody < 0 ? slice.rows.length : firstBody;
+  const renderRow = (row: TableSlice["rows"][number], inHead: boolean) => (
+    <tr
+      key={`${key}-row-${row.index}-${row.continued ? "c" : "s"}-${row.repeated ? "r" : "o"}`}
+      data-reader-table-row={row.index}
+      {...(row.repeated ? { "data-reader-table-repeated": "" } : {})}
+      {...(row.continued ? { "data-reader-table-continued": "" } : {})}
+      style={{ height: `${row.height}px` }}
+    >
+      {row.cells.map((cell) => {
+        const Cell = cell.header ? "th" : "td";
+        const text = row.repeated ? withoutAnchors(cell.slice) : cell.slice;
+        return (
+          <Cell
+            key={`${key}-cell-${cell.column}`}
+            colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
+            rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
+            scope={cell.header && inHead ? "col" : undefined}
+            style={{
+              padding: `${slice.cellPaddingY}px ${slice.cellPaddingX}px`,
+            }}
+          >
+            <div
+              data-reader-block-id={cell.slice.blockId}
+              data-reader-line-count={text.lines.length}
+              data-reader-line-height={text.lineHeight}
+              className="reader-table-cell-text"
+              {...(row.repeated
+                ? {}
+                : { [CONTENT_ANCHOR_BLOCK_ID_ATTR]: cell.slice.blockId })}
+              style={{
+                ...getSliceBaseTypographyStyle(text, baseFontSize),
+                lineHeight: `${text.lineHeight}px`,
+                height: `${text.lines.length * text.lineHeight}px`,
+              }}
+            >
+              {renderSliceLines(text, `${key}-${cell.slice.blockId}`)}
+            </div>
+          </Cell>
+        );
+      })}
+    </tr>
+  );
+
+  return (
+    <div
+      data-reader-page-slice={sliceIndex}
+      data-reader-slice-type="table"
+      data-reader-block-id={slice.blockId}
+      data-reader-expected-height={slice.height}
+      {...(slice.overflows ? { "data-reader-table-scroll": "" } : {})}
+      className={cn("reader-table-slice", {
+        "reader-table-slice-scroll": slice.overflows,
+      })}
+      style={{ height: `${slice.height}px` }}
+    >
+      <table className="reader-table" style={{ width: `${slice.width}px` }}>
+        <colgroup>
+          {slice.columnWidths.map((width, column) => (
+            <col key={column} style={{ width: `${width}px` }} />
           ))}
+        </colgroup>
+        {headCount > 0 ? (
+          <thead>
+            {slice.rows.slice(0, headCount).map((row) => renderRow(row, true))}
+          </thead>
+        ) : null}
+        {headCount < slice.rows.length ? (
+          <tbody>
+            {slice.rows.slice(headCount).map((row) => renderRow(row, false))}
+          </tbody>
+        ) : null}
+      </table>
+    </div>
+  );
+}
+
+export function PageSliceView({
+  slice,
+  sliceIndex,
+  baseFontSize,
+}: PageSliceViewProps) {
+  const key = `${slice.blockId}-${sliceIndex}`;
+
+  if (slice.type === "spacer") {
+    return (
+      <div
+        data-reader-page-slice={sliceIndex}
+        data-reader-slice-type="spacer"
+        data-reader-block-id={slice.blockId}
+        data-reader-expected-height={slice.height}
+        style={{ height: `${slice.height}px` }}
+      />
+    );
+  }
+
+  if (slice.type === "image") {
+    return (
+      <div
+        data-reader-page-slice={sliceIndex}
+        data-reader-slice-type="image"
+        data-reader-block-id={slice.blockId}
+        data-reader-expected-height={slice.height}
+        className="flex w-full items-center justify-center"
+        style={{ height: `${slice.height}px` }}
+      >
+        <LazyImage
+          src={slice.src}
+          alt={slice.alt ?? "Chapter image"}
+          width={slice.width}
+          height={slice.height}
+          style={{
+            objectFit: "contain",
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (slice.type === "table") {
+    return (
+      <TableSliceView
+        slice={slice}
+        sliceIndex={sliceIndex}
+        baseFontSize={baseFontSize}
+      />
+    );
+  }
+
+  const textAlign =
+    slice.renderMode === "manual-justify"
+      ? "left"
+      : HEADING_TAGS.has(slice.tag) &&
+          (slice.textAlign === "justify" ||
+            slice.textAlign === "justify-knuth-plass")
+        ? "left"
+        : toCssTextAlign(slice.textAlign);
+
+  return (
+    <p
+      data-reader-page-slice={sliceIndex}
+      data-reader-slice-type="text"
+      data-reader-block-id={slice.blockId}
+      data-reader-line-count={slice.lines.length}
+      data-reader-line-height={slice.lineHeight}
+      data-reader-expected-height={slice.lines.length * slice.lineHeight}
+      className={cn("m-0 box-border text-foreground", {
+        "reader-blockquote":
+          slice.tag === "blockquote" && !slice.publisherStyle,
+        "reader-figcaption": slice.tag === "figcaption",
+      })}
+      {...{ [CONTENT_ANCHOR_BLOCK_ID_ATTR]: slice.blockId }}
+      // There is a difference between the line height CSS property and the actual line height
+      // that is rendered out.
+      // For instance, with "Iowan Old Style" font on 17px, the rendered height of the box is
+      // always 0.5px taller than the line height. E.g. 25px line height renders at 25.5px,
+      // 24px line height renders at 24.5px, 28px line height renders at 28.5px, and so on.
+      // Thus we need to set the `height` property to match the number of lines and line height
+      // such that we don't get overflow in these cases.
+      style={{
+        // The block's own inline strut participates in native line layout, so
+        // it needs to use the same base font as the rendered text fragments.
+        ...getSliceBaseTypographyStyle(slice, baseFontSize),
+        lineHeight: `${slice.lineHeight}px`,
+        height: `${slice.lines.length * slice.lineHeight}px`,
+        textAlign,
+        marginLeft:
+          slice.marginLeftPx !== undefined
+            ? `${slice.marginLeftPx}px`
+            : undefined,
+        marginRight:
+          slice.marginRightPx !== undefined
+            ? `${slice.marginRightPx}px`
+            : undefined,
+      }}
+    >
+      {renderSliceLines(slice, key)}
     </p>
   );
 }

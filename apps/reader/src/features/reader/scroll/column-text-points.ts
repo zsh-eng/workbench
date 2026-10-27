@@ -1,4 +1,8 @@
-import { alignSlice, type SliceText } from "../search/search-marks";
+import {
+  alignSlice,
+  collectTextSliceElements,
+  type SliceText,
+} from "../search/search-marks";
 import type { TextBlockRange } from "./page-break-continuation";
 
 export interface DomPoint {
@@ -27,21 +31,19 @@ export function createColumnTextPoints(
     ),
   ];
   const aligned: SliceText[] = [];
-  slices.forEach((slice, index) => {
-    const blockId = slice.dataset.readerBlockId;
-    const block = blockId ? blockById.get(blockId) : undefined;
-    if (!block || slice.dataset.readerSliceType !== "text") return;
-    const page = (element: HTMLElement) =>
-      element.parentElement?.dataset.pageIndex;
-    const startsPage = index === 0 || page(slice) !== page(slices[index - 1]!);
+  for (const { element, blockId, startsPage } of collectTextSliceElements(
+    slices,
+  )) {
+    const block = blockById.get(blockId);
+    if (!block) continue;
     const result = alignSlice(
-      slice,
+      element,
       text.fullText.slice(block.start, block.end),
       block.start,
       startsPage,
     );
     if (result) aligned.push(result);
-  });
+  }
 
   return {
     /** Where the character at `offset` starts. */

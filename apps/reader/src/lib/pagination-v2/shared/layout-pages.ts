@@ -1,5 +1,12 @@
 import { layoutPreWrapLines, layoutTextLines } from "./layout-text-lines";
 import {
+  collectTableCells,
+  getTableStartHeight,
+  layoutTablePages,
+  planTable,
+  type TablePlan,
+} from "./layout-table";
+import {
   hasHardPageBreakAfter,
   hasHardPageBreakBefore,
   shouldMoveTextBlockForPageBreakHints,
@@ -16,6 +23,7 @@ import type {
   PageLine,
   PaginationResult,
   PreparedBlock,
+  PreparedTableBlock,
   PreparedTextBlock,
   PublisherBlockRole,
   PublisherLength,
@@ -106,8 +114,11 @@ export function getResolvedBlockSpacing(
   };
 }
 
+/** The kind of the block before, for collapsing the gap between blocks. */
+export type PreviousBlockKind = PreparedTextBlock["tag"] | "image" | "table";
+
 export function getResolvedCollapsedBlockGap(
-  previousKind: PreparedTextBlock["tag"] | "image" | null,
+  previousKind: PreviousBlockKind | null,
   currentBlock: PreparedTextBlock,
   theme: LayoutTheme,
   previousMarginBelow: number,
@@ -257,6 +268,9 @@ function getFollowingMinimumHeight(
   theme: LayoutTheme,
   safeWidth: number,
   safeHeight: number,
+  getTablePlan: (table: PreparedTableBlock) => TablePlan,
+  /** Height left on the page under the current block. */
+  remainingAfterBlock: number,
 ): number | null {
   if (!nextBlock || nextBlock.type === "page-break") return null;
   if (hasHardPageBreakBefore(nextBlock)) return null;
@@ -291,7 +305,52 @@ function getFollowingMinimumHeight(
     return gap + fittedImage.height;
   }
 
+  if (nextBlock.type === "table") {
+    const gap = getCollapsedBlockGap(
+      currentBlock.tag,
+      "table",
+      theme,
+      currentSpacingBelow,
+    );
+    // As the table itself will decide where it starts.
+    return Math.min(
+      safeHeight,
+      gap +
+        getTableStartHeight(getTablePlan(nextBlock), {
+          remaining: remainingAfterBlock - gap,
+          pageHeight: safeHeight,
+        }),
+    );
+  }
+
   return theme.baseFontSizePx * 0.9;
+}
+
+/**
+ * Plans each table once per layout, for its own placement and for a caption
+ * that keeps with it.
+ */
+function createTablePlanner(
+  preparedBlocks: PreparedBlock[],
+  theme: LayoutTheme,
+  safeWidth: number,
+): (table: PreparedTableBlock) => TablePlan {
+  const plans = new Map<string, TablePlan>();
+  const indexById = new Map<string, number>();
+  return (table) => {
+    const planned = plans.get(table.id);
+    if (planned) return planned;
+    if (indexById.size === 0)
+      preparedBlocks.forEach((block, index) => indexById.set(block.id, index));
+    const { cells } = collectTableCells(
+      table,
+      preparedBlocks,
+      indexById.get(table.id) ?? preparedBlocks.length,
+    );
+    const plan = planTable(table, cells, theme, safeWidth);
+    plans.set(table.id, plan);
+    return plan;
+  };
 }
 
 export function layoutPages(
@@ -315,8 +374,9 @@ export function layoutPages(
   const pages: Page[] = [];
   let current = createPage(0);
   let prevMarginBelow = 0;
-  let previousBlockKind: PreparedTextBlock["tag"] | "image" | null = null;
+  let previousBlockKind: PreviousBlockKind | null = null;
   let totalLineCount = 0;
+  const getTablePlan = createTablePlanner(preparedBlocks, theme, safeWidth);
 
   const pushPage = () => {
     const { usedHeight: _, ...page } = current;
@@ -355,7 +415,7 @@ export function layoutPages(
 
   const finishBlock = (
     block: PreparedBlock,
-    nextPreviousBlockKind: PreparedTextBlock["tag"] | "image" | null,
+    nextPreviousBlockKind: PreviousBlockKind | null,
     nextMarginBelow: number,
   ): boolean => {
     if (hasHardPageBreakAfter(block) && current.slices.length > 0) {
@@ -384,6 +444,54 @@ export function layoutPages(
     if (block.type === "spacer") {
       addSpacer(block.id, theme.baseFontSizePx * 0.9);
       finishBlock(block, null, 0);
+      continue;
+    }
+
+    if (block.type === "table") {
+      const plan = getTablePlan(block);
+      blockIndex =
+        collectTableCells(block, preparedBlocks, blockIndex).nextIndex - 1;
+      if (plan.rows.length === 0) continue;
+      for (const row of plan.rows)
+        for (const cell of row.cells) totalLineCount += cell.lines.length;
+      const spacing = getBlockSpacing("table", theme);
+      let gap =
+        current.slices.length === 0
+          ? 0
+          : getCollapsedBlockGap(
+              previousBlockKind,
+              "table",
+              theme,
+              prevMarginBelow,
+            );
+      // As with images: when the table's start does not fit, it starts the
+      // next page and the gap above it is dropped there.
+      const startHeight = Math.min(
+        safeHeight,
+        getTableStartHeight(plan, {
+          remaining: safeHeight - current.usedHeight - gap,
+          pageHeight: safeHeight,
+        }),
+      );
+      if (
+        current.slices.length > 0 &&
+        gap + startHeight > safeHeight - current.usedHeight
+      ) {
+        pushPage();
+        gap = 0;
+      }
+      if (gap > 0) addSpacer(block.id, gap);
+      layoutTablePages(plan, {
+        remaining: () => safeHeight - current.usedHeight,
+        isEmpty: () => current.slices.length === 0,
+        pageHeight: safeHeight,
+        place: (slice) => {
+          current.slices.push(slice);
+          current.usedHeight += slice.height;
+        },
+        breakPage: pushPage,
+      });
+      finishBlock(block, "table", spacing.below);
       continue;
     }
 
@@ -477,6 +585,8 @@ export function layoutPages(
             theme,
             safeWidth,
             safeHeight,
+            getTablePlan,
+            availableBeforeBlock - effectiveGap - blockHeight,
           )
         : null;
     if (
