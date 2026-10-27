@@ -137,9 +137,13 @@ adding a namespace does not migrate existing data. The host owns the allowed-app
 registry, authentication and epoch lifecycle.
 
 `createNamespacedHttpClient({ origin, namespace, stateStore, signal })` supplies
-`remote` for `SyncClient` and `request(path, init)` for namespaced file APIs. It
-uses cookie credentials and the host's `/api/apps/:namespace/sync/v3/state`
-endpoint. `SyncClient` obtains and binds the scope before pull and push. Requests
+`remote` for `SyncClient` and `request(path, init, refresh)` for namespaced file
+APIs. It uses cookie credentials and the host's `/api/apps/:namespace/sync/v3/state`
+endpoint. `SyncClient` obtains and binds the scope before pull and push. By
+default `request` asks for the scope first; with `refresh` false it sends the
+scope the state store has bound, and concurrent requests made before one is
+bound share one question. Keep one client for many requests: the browser
+sends identical scope requests one at a time. Requests
 and responses carry `X-Sync-Scope` with origin, user ID, namespace and epoch.
 An HTTP failure throws `SyncHttpError` with its status and response; fetch-style
 app adapters may return that response to preserve their existing status handling.

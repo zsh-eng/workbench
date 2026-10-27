@@ -73,8 +73,24 @@ export function createNamespacedHttpClient(options: {
     scope = next;
     return next;
   }
+  let asking: Promise<SyncScope> | undefined;
+  /**
+   * Without `refresh`, the scope the store has bound, which the server
+   * checked when it was bound; with none bound, one request that concurrent
+   * callers share. The store, not this client, is read each time, so a
+   * store that sync resets and binds again is followed. The server still
+   * refuses a request whose scope no longer holds.
+   */
+  function knownScope() {
+    const known = options.stateStore.read()?.scope;
+    if (known) return known;
+    asking ??= getScope().finally(() => {
+      asking = undefined;
+    });
+    return asking;
+  }
   async function request(path: string, init: RequestInit = {}, refresh = true) {
-    const expected = refresh || !scope ? await getScope() : scope;
+    const expected = refresh ? await getScope() : await knownScope();
     const headers = new Headers(init.headers);
     headers.set("X-Sync-Scope", JSON.stringify(expected));
     const response = await fetchOrNetworkError(send, `${base}${path}`, {
