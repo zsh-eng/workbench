@@ -13,9 +13,9 @@ import { useSyncExternalStore } from "react";
  *
  * Sheets follow the device: a touch screen whose shortest side is at least
  * 600 px is a tablet (Android's sw600dp), in either orientation and whatever
- * the browser's bars take. In a window that is not compact, a tablet's
- * sheets take UIKit's form layout (`sheetPlacement` in sheet-body.tsx). A
- * phone turned on its side stays a phone.
+ * the browser's bars take. In a window that is compact in neither width nor
+ * height, a tablet's sheets take UIKit's form layout (`sheetPlacement` in
+ * sheet-body.tsx). A phone turned on its side stays a phone.
  */
 export const MEDIUM_WIDTH = 600;
 export const EXPANDED_WIDTH = 840;
@@ -72,21 +72,30 @@ export function isTabletScreen(): boolean {
   );
 }
 
-/** Whether sheets take a tablet's form layout now. */
+/**
+ * Whether sheets take a tablet's form layout now: on a tablet, in a window
+ * compact in neither width nor height (UIKit's form sheet needs room).
+ */
 export function tabletSheets(): boolean {
-  return isTabletScreen() && !media().compact.matches;
+  const { compact, short } = media();
+  return isTabletScreen() && !compact.matches && !short.matches;
 }
 
-/**
- * Calls `listener` when the width class or the pointer changes, or the
- * window is resized (a new display size changes `screen`).
- */
+/** Calls `listener` when a size class or the pointer changes. */
 function subscribe(listener: () => void) {
   const lists = Object.values(media());
   for (const list of lists) list.addEventListener("change", listener);
-  window.addEventListener("resize", listener);
   return () => {
     for (const list of lists) list.removeEventListener("change", listener);
+  };
+}
+
+/** As `subscribe`, and on a resize too: a new display size changes `screen`. */
+function subscribeScreen(listener: () => void) {
+  const stop = subscribe(listener);
+  window.addEventListener("resize", listener);
+  return () => {
+    stop();
     window.removeEventListener("resize", listener);
   };
 }
@@ -103,5 +112,5 @@ export function useCompactHeight(): boolean {
 
 /** Whether sheets take a tablet's form layout; see `tabletSheets`. */
 export function useTabletSheets(): boolean {
-  return useSyncExternalStore(subscribe, tabletSheets, () => false);
+  return useSyncExternalStore(subscribeScreen, tabletSheets, () => false);
 }

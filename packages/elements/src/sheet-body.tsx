@@ -27,7 +27,8 @@ export function isTextField(element: Element | null): element is HTMLElement {
 
 /**
  * Whether sheets take an iPad's form layout now: on a tablet's touch screen
- * in a window that is not compact (`tabletSheets` in size-class.ts). It
+ * in a window compact in neither width nor height (`tabletSheets` in
+ * size-class.ts). It
  * changes when the window turns or is resized, and an open sheet changes
  * with it.
  */

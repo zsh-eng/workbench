@@ -30,8 +30,9 @@ it turns, whatever the browser's bars take. A phone on its side stays a
 phone.
 
 **Sheets take the form layout** (UIKit's iPad sheet, `sheetPlacement` in
-`src/sheet-body.tsx`) on a tablet in a window that is not compact. Elsewhere
-they are phone sheets.
+`src/sheet-body.tsx`) on a tablet in a window compact in neither width nor
+height: 600 px or wider and 480 px or taller. Elsewhere they are phone
+sheets. UIKit shows a form sheet full screen in a compact height.
 
 | Export                                                    | Use                                               |
 | --------------------------------------------------------- | ------------------------------------------------- |

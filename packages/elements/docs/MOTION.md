@@ -186,7 +186,7 @@ in focus moves to the centre of the space above the keyboard; a sheet with
 detents goes to large.
 
 **What the web sheets do.** On a tablet (a touch screen whose shortest
-side is 600 px or more) in a window 600 px or wider (`tabletSheets` in
+side is 600 px or more) in a window at least 600 × 480 (`tabletSheets` in
 `src/size-class.ts`, `sheetPlacement` in `src/sheet-body.tsx`;
 [SIZE_CLASSES.md](SIZE_CLASSES.md)):
 
@@ -200,11 +200,11 @@ side is 600 px or more) in a window 600 px or wider (`tabletSheets` in
 - Every sheet leaves by a swipe down, as on a phone.
 - A phone in either orientation, a window narrower than 600 px beside
   another app, and a desktop without touch keep the phone sheet. A laptop
-  with a touch screen takes the form layout. A tablet in landscape keeps it
-  however much height the browser's bars take. The layout follows the
-  window as it turns or is resized, and an open sheet keeps its detent or
-  full view (`holdRestOnResize`): WebKit otherwise snaps it to whichever is
-  nearest its old offset.
+  with a touch screen takes the form layout. A tablet in landscape keeps
+  it while its window, less the browser's bars, is 480 px or taller. The
+  layout follows the window as it turns or is resized, and an open sheet
+  keeps its detent or full view (`holdRestOnResize`): WebKit otherwise
+  snaps it to whichever is nearest its old offset.
 
 `sheet-ipad.spec.ts` (Reader, WebKit with touch) covers 820 × 1180,
 1180 × 820, 1024 × 1366, 1366 × 1024, a phone, a desktop, turning, and

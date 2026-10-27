@@ -115,3 +115,23 @@ for (const [
     });
   });
 }
+
+// UIKit shows a form sheet full screen in a compact height; here a tablet's
+// window under 480 px tall keeps phone sheets.
+test.describe("OPPO Pad Mini at density 2.625, on its side, with taller bars", () => {
+  test.use({
+    viewport: { width: 960, height: 470 },
+    contextOptions: { screen: { width: 960, height: 640 } },
+    deviceScaleFactor: 2.625,
+  });
+
+  test("A window under 480 px tall gets phone sheets", async ({ page }) => {
+    await page.goto("/debug/sheet-lab");
+    const line = page.locator("[data-lab-window]");
+    await expect(line).toHaveAttribute("data-height-class", "compact", {
+      timeout: 30_000,
+    });
+    await expect(line).toHaveAttribute("data-device", "tablet");
+    await expect(line).toHaveAttribute("data-sheets", "phone");
+  });
+});
