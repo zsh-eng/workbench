@@ -147,6 +147,25 @@ describe("Recent while it is open", () => {
     );
   });
 
+  it("puts a late group from yesterday among yesterday's rows", () => {
+    const sample = createSample(NOW);
+    const held = recentRows(historyOf(sample));
+    const yesterday = NOW - 24 * 60 * minute;
+    const entries = [
+      ...sample.entries,
+      passFrom("mac", "persuasion-h7", yesterday),
+    ];
+    const rows = holdRecentRows(held, recentRows(historyOf(sample, entries)));
+    const late = rows.findIndex((row) => row.id.startsWith("received:mac:day:"));
+    const before = rows[late - 1]!;
+    const after = rows[late + 1]!;
+    expect(before.type === "group" && before.group.to).toBeGreaterThan(
+      yesterday,
+    );
+    expect(after.type === "group" && after.group.to).toBeLessThan(yesterday);
+    expect(ids(rows).filter((id) => id !== rows[late]!.id)).toEqual(ids(held));
+  });
+
   it("by device, a device's next group keeps its row", () => {
     const sample = createSample(NOW);
     const held = recentRows(historyOf(sample), "devices");

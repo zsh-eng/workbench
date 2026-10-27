@@ -18,10 +18,11 @@ export type RecentArrangement = "sections" | "timeline" | "devices";
  * while you look: the rows are arranged when the sheet opens. While it
  * stays open a row changes its words in place, a row that sync no longer
  * reports stays as it was (waiting changes read "Sent"), and a new row
- * joins the top of its part. The next opening arranges them again.
+ * joins its part by time, which for a new change is the top. The next
+ * opening arranges them again.
  */
 export type RecentRow = {
-  /** Rows of a lower part come first; a new row joins the top of its part. */
+  /** Rows of a lower part come first. */
   part: number;
   gone: boolean;
 } & (
@@ -91,6 +92,13 @@ export function recentRows(
   ];
 }
 
+const timeOf = (row: RecentRow) =>
+  row.type === "group"
+    ? row.group.to
+    : row.type === "lost"
+      ? row.lost.at
+      : row.waiting.since;
+
 /** The rows while the sheet stays open, from the held rows and the history now. */
 export function holdRecentRows(
   held: readonly RecentRow[],
@@ -110,11 +118,17 @@ export function holdRecentRows(
     return { ...row, gone: true };
   });
   const present = new Set(held.map((row) => row.id));
-  // Newest first, so each part's first arrival goes in last.
+  // Newest first, so each part's first arrival goes in last. A new row
+  // goes above the first row of its part that is no newer, so a group from
+  // yesterday that arrives late lands among yesterday's rows.
   for (const row of [...next].reverse()) {
     if (present.has(row.id)) continue;
     changed = true;
-    let at = rows.findIndex((other) => other.part >= row.part);
+    let at = rows.findIndex(
+      (other) =>
+        other.part > row.part ||
+        (other.part === row.part && timeOf(other) <= timeOf(row)),
+    );
     if (at === -1) at = rows.length;
     rows.splice(at, 0, row);
   }

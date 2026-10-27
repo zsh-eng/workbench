@@ -407,7 +407,7 @@ export function RecentHistory({
               if (day && day !== previous)
                 parts.push(
                   <Collapse
-                    key={`day:${day}`}
+                    key={`day:${row.id}`}
                     height={DAY_HEIGHT}
                     className="ba-sheet-heading"
                   >
