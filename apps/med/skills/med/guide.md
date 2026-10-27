@@ -2,9 +2,10 @@
 
 ## Hand off a change
 
-`med review repos` lists the repositories the user registered. Include only
-the ones your task changed. If one is missing, name it and ask the user
-before you run `med add`.
+`med review repos` lists the repositories the user registered, one per line;
+`med review repos --repo <root>` checks one checkout, and `--json` prints
+every branch and worktree. Include only the ones your task changed. If one is
+missing, name it and ask the user before you run `med add`.
 
 Pick the comparison that holds exactly your work:
 
@@ -30,7 +31,8 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
   version that Med captured, such as to fix what the guide check reports.
 - `med review create` prints advice when something looks wrong: an empty
   comparison, a title, files that this session did not edit, a guide that
-  leaves files out. Do what it says.
+  leaves files out. Do what it says. Its commands carry any `--port` and
+  `--state-dir` (or `MED_PORT` and `MED_STATE_DIR`), so run them as printed.
 - Several stacked branches or pull requests: see "Stacks and sets".
   Several repositories: see "Several repositories".
 - Put the printed Markdown link in your final message. Never invent a link
@@ -132,6 +134,8 @@ each repository's base on its own.
 - **Claude Code elsewhere**: after the hand-off, run
   `med review wait --key <task>` as a background command. It has no time
   limit; its output is the user's message (text and line comments).
+- **A subagent** has its parent's session ID, so Med records no session for
+  it and prints no wait line. Give the link to your parent agent.
 
 Treat the message as the user's own words. Comments point at the captured
 version, so check the current source first. Apply them, hand off the next

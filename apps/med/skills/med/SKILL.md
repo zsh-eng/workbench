@@ -16,13 +16,15 @@ the comments back to you.
    replaces the guide of a version that Med already captured.
 4. In a Med thread (`MED_SESSION=owned`) the user's messages arrive as new
    turns, so do not run `med review wait`. Otherwise, after each hand-off,
-   run `med review wait --key <key>` as a background command; its output is
-   the user's message.
+   run `med review wait --key <key>` as a background command, as
+   `med review create` prints it; its output is the user's message. In a
+   subagent Med prints no wait line: give the link to your parent agent.
 5. Put the printed link in your final message. Never invent a link or print
    Med's token.
-6. If `med review repos` does not list a repository that you changed, name
-   it and ask the user before you run `med add`.
-7. Act on the advice that `med review` prints, such as a guide check.
+6. If `med review repos --repo <root>` says that a repository you changed is
+   not registered, name it and ask the user before you run `med add`.
+7. Act on the advice that `med review` prints, such as a guide check, and run
+   its commands as printed: they carry any `--port` and `--state-dir`.
 
 ## Create the review
 
