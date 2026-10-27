@@ -56,6 +56,14 @@ Reader and 2 MiB for Spaced. Delete removes a file from the catalog but retains
 its bytes. Physical garbage collection is not implemented. Arctic file routes
 return 404: native media sync is outside this milestone.
 
+`POST /api/apps/<namespace>/files/batch` sends up to 32 of a namespace's files
+in one streamed answer, for `spaced` and `arctic-content` only
+([format](../../packages/file-batch/README.md),
+[measurements](../../docs/FILE_BATCH.md)). It authenticates once, reads the
+rows with one D1 query and at most six R2 objects at a time, and stops at
+1 MiB of file bytes; the client asks again for the rest. `GET
+/files/<id>` stays for older clients.
+
 Spaced's existing explicit sign-out action clears that browser's Spaced data.
 Other tabs lose server access after the shared session is revoked. An account
 change during sync fails the scope check instead of adopting the old library.
@@ -119,7 +127,8 @@ Google's external login UI and native device handoff still require a device test
 short-lived device grants, hashed 90-day credentials, and rate limits.
 CLI credentials resolve the authenticated user and are restricted to Reader and
 Spaced state/pull/file reads, state/pull reads of the four Arctic namespaces, `arctic-content` file
-reads (the `arctic` namespace has no file API),
+reads (the `arctic` namespace has no file API), batch file reads in `spaced`
+and `arctic-content` (`POST …/files/batch`, a read),
 plus `/api/me` and `/api/namespaces`. They have two writes (`cliWritePath`):
 
 - **Arctic article text**: `arctic-content` pushes and file uploads, which the

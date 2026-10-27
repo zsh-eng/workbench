@@ -177,6 +177,13 @@ export const cliReadPath = (path: string) =>
     decodeURIComponent(path),
   );
 
+/** A batch of the file reads above, in one POST (packages/file-batch). */
+export const cliBatchReadPath = (method: string, path: string) =>
+  method === "POST" &&
+  /^\/api\/apps\/(spaced|arctic-content)\/files\/batch$/.test(
+    decodeURIComponent(path),
+  );
+
 /**
  * The writes a CLI credential may make. Arctic article text, which the
  * server checks as it checks the web app's copies (HTML, no script, 2 MiB).
