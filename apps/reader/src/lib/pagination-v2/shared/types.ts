@@ -99,6 +99,10 @@ export interface TableCellSpec {
   header: boolean;
   colSpan: number;
   rowSpan: number;
+  /** The cell's own or its row's `align` or inline `text-align`. */
+  align?: "center" | "right";
+  /** The cell's own or its row's `valign` or inline `vertical-align`. */
+  valign?: "middle" | "bottom";
 }
 
 export interface TableRowSpec {
@@ -117,6 +121,8 @@ export interface TableBlock {
   targetIds?: string[];
   pageBreakHints?: BookPageBreakHints;
   rows: TableRowSpec[];
+  /** The table's name for assistive technology: its caption's text. */
+  label?: string;
   /**
    * The table as the paragraph Paragraph mode reads, with the same id. A
    * reading place saved in that paragraph maps to the cell that holds it.
@@ -364,6 +370,7 @@ export interface TableSliceCell {
   colSpan: number;
   rowSpan: number;
   header: boolean;
+  valign?: "middle" | "bottom";
 }
 
 export interface TableSliceRow {
@@ -395,6 +402,8 @@ export interface TableSlice {
   cellPaddingX: number;
   cellPaddingY: number;
   rows: TableSliceRow[];
+  /** The table's caption text, as its accessible name. */
+  label?: string;
 }
 
 export type PageSlice = TextSlice | ImageSlice | SpacerSlice | TableSlice;

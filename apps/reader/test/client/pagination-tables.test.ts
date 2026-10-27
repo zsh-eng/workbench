@@ -119,9 +119,59 @@ describe("parsing tables", () => {
         text,
       );
     }
-    // The caption keeps with the table.
+    // The caption keeps with the table, and names it.
     const caption = blocks[blocks.indexOf(table) - 1];
     expect(caption?.type === "text" && caption.tag).toBe("figcaption");
+    expect(table.label).toBe("Table 1 Sample latencies");
+  });
+
+  it("reads simple cell alignment, and a figure's caption as the name", () => {
+    const { blocks } = parse(
+      `<body><figure><figcaption>Table 2\n  Widths</figcaption><table>
+        <tr align="right"><td>1</td><td align="left">2</td>
+          <td style="text-align: center; vertical-align: middle">3</td></tr>
+        <tr><td valign="bottom">4</td><td align="justify">5</td></tr>
+      </table></figure></body>`,
+      true,
+    );
+    const table = blocks.find((block) => block.type === "table");
+    if (table?.type !== "table") throw new Error("no table block");
+    expect(table.label).toBe("Table 2 Widths");
+    const alignment = table.rows.map((row) =>
+      row.cells.map(({ align, valign }) => ({ align, valign })),
+    );
+    expect(alignment).toEqual([
+      [
+        { align: "right", valign: undefined },
+        { align: undefined, valign: undefined },
+        { align: "center", valign: "middle" },
+      ],
+      [
+        { align: undefined, valign: "bottom" },
+        { align: undefined, valign: undefined },
+      ],
+    ]);
+
+    const [slice] = tableSlices(
+      layoutPages(prepareBlocks(blocks, FONT_CONFIG), 360, 400, LAYOUT_THEME)
+        .pages,
+    );
+    expect(slice?.label).toBe("Table 2 Widths");
+    expect(
+      slice?.rows.map((row) =>
+        row.cells.map((cell) => [cell.slice.textAlign, cell.valign]),
+      ),
+    ).toEqual([
+      [
+        ["right", undefined],
+        ["left", undefined],
+        ["center", "middle"],
+      ],
+      [
+        ["left", "bottom"],
+        ["left", undefined],
+      ],
+    ]);
   });
 });
 

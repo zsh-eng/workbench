@@ -71,6 +71,7 @@ interface PlannedRow {
 /** A table's widths, lines and row heights at one page width. */
 export interface TablePlan {
   tableId: string;
+  label?: string;
   columnWidths: number[];
   width: number;
   overflows: boolean;
@@ -339,6 +340,7 @@ export function planTable(
 
   return {
     tableId: table.id,
+    ...(table.label ? { label: table.label } : {}),
     columnWidths,
     width,
     overflows: width > Math.floor(pageWidth),
@@ -410,7 +412,7 @@ function cellSlice(
     blockId: cell.spec.blockId,
     tag: cell.tag,
     lineHeight: plan.lineHeight,
-    textAlign: "left",
+    textAlign: cell.spec.align ?? "left",
     renderMode: "native",
     lines,
   };
@@ -443,6 +445,7 @@ function sliceRow(
     colSpan: cell.spec.colSpan,
     rowSpan: Math.min(cell.spec.rowSpan, options.rowsLeftInPart),
     header: cell.spec.header,
+    ...(cell.spec.valign ? { valign: cell.spec.valign } : {}),
   }));
   return {
     index: row.index,
@@ -491,6 +494,7 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
       cellPaddingX: plan.paddingX,
       cellPaddingY: plan.paddingY,
       rows,
+      ...(plan.label ? { label: plan.label } : {}),
     });
     rows = [];
     partHeight = 0;

@@ -21,7 +21,7 @@ import {
   EPUB_HIGHLIGHT_START_ATTRIBUTE,
   toCssTextAlign,
 } from "@/types/reader.types";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { Fragment } from "react";
 import { LazyImage } from "./shared/LazyImage";
 
@@ -490,6 +490,20 @@ function withoutAnchors(slice: TextSlice): TextSlice {
 }
 
 /**
+ * The arrow keys scroll a focused wide table to its edge, and only then turn
+ * the page, as they do when the table is not focused.
+ */
+function scrollTableByKey(event: KeyboardEvent<HTMLDivElement>) {
+  const { scrollLeft, scrollWidth, clientWidth } = event.currentTarget;
+  const canScroll =
+    event.key === "ArrowLeft"
+      ? scrollLeft > 0
+      : event.key === "ArrowRight" &&
+        scrollLeft + clientWidth < scrollWidth - 1;
+  if (canScroll) event.stopPropagation();
+}
+
+/**
  * The rows of a table that fit this page, at the column widths and row
  * heights the worker chose. Fixed table layout keeps the browser from
  * choosing again; rules are inset shadows, so they take no space. Each cell
@@ -528,6 +542,10 @@ function TableSliceView({
             scope={cell.header && inHead ? "col" : undefined}
             style={{
               padding: `${slice.cellPaddingY}px ${slice.cellPaddingX}px`,
+              ...(cell.slice.textAlign !== "left"
+                ? { textAlign: toCssTextAlign(cell.slice.textAlign) }
+                : {}),
+              ...(cell.valign ? { verticalAlign: cell.valign } : {}),
             }}
           >
             <div
@@ -558,13 +576,26 @@ function TableSliceView({
       data-reader-slice-type="table"
       data-reader-block-id={slice.blockId}
       data-reader-expected-height={slice.height}
-      {...(slice.overflows ? { "data-reader-table-scroll": "" } : {})}
+      {...(slice.overflows
+        ? {
+            "data-reader-table-scroll": "",
+            // A keyboard can reach and scroll it; see `scrollTableByKey`.
+            tabIndex: 0,
+            role: "region",
+            "aria-label": slice.label ?? "Table",
+            onKeyDown: scrollTableByKey,
+          }
+        : {})}
       className={cn("reader-table-slice", {
         "reader-table-slice-scroll": slice.overflows,
       })}
       style={{ height: `${slice.height}px` }}
     >
-      <table className="reader-table" style={{ width: `${slice.width}px` }}>
+      <table
+        className="reader-table"
+        aria-label={slice.label}
+        style={{ width: `${slice.width}px` }}
+      >
         <colgroup>
           {slice.columnWidths.map((width, column) => (
             <col key={column} style={{ width: `${width}px` }} />

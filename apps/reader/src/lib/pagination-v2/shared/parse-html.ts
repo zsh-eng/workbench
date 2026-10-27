@@ -782,6 +782,47 @@ export interface ParseChapterHtmlOptions extends PublisherStyleOptions {
   tables?: boolean;
 }
 
+/**
+ * A cell's simple alignment: `align` and `valign`, or inline `text-align`
+ * and `vertical-align`, on the cell, else its row or row group. Left, top
+ * and anything else read as the default; publisher class rules do not count.
+ */
+function readCellAlignment(
+  cell: Element,
+): Pick<TableCellSpec, "align" | "valign"> {
+  let align = "";
+  let valign = "";
+  for (
+    let element: Element | null = cell;
+    element && element.tagName.toLowerCase() !== "table";
+    element = element.parentElement
+  ) {
+    const style = element instanceof HTMLElement ? element.style : null;
+    align ||= (style?.textAlign || element.getAttribute("align") || "")
+      .trim()
+      .toLowerCase();
+    valign ||= (style?.verticalAlign || element.getAttribute("valign") || "")
+      .trim()
+      .toLowerCase();
+  }
+  return {
+    ...(align === "center" || align === "right" ? { align } : {}),
+    ...(valign === "middle" || valign === "bottom" ? { valign } : {}),
+  };
+}
+
+/** A table's name: its `<caption>`, or the `<figcaption>` of its figure. */
+function readTableLabel(table: Element): string | undefined {
+  const figure = table.closest("figure");
+  const caption =
+    table.querySelector(":scope > caption") ??
+    (figure && figure.querySelectorAll("table").length === 1
+      ? figure.querySelector(":scope > figcaption")
+      : null);
+  const text = caption?.textContent?.replace(/\s+/g, " ").trim();
+  return text || undefined;
+}
+
 function readSpan(element: Element, name: "colspan" | "rowspan"): number {
   const value = Number.parseInt(element.getAttribute(name) ?? "", 10);
   return Number.isFinite(value) && value > 1 ? Math.min(value, 64) : 1;
@@ -1108,6 +1149,7 @@ function parseChapterHtmlInternal(
           header: tag === "th",
           colSpan: readSpan(node, "colspan"),
           rowSpan: readSpan(node, "rowspan"),
+          ...readCellAlignment(node),
         };
         currentRow.cells.push(cell);
         const result = extractCellRuns(node);
@@ -1152,12 +1194,14 @@ function parseChapterHtmlInternal(
 
     recordBlockStart(context, tableId, blockStart);
     const paragraph = createTableParagraph(table, tableId, []);
+    const label = readTableLabel(table);
     blocks.push({
       type: "table",
       id: tableId,
       ...(targetIds.length > 0 ? { targetIds: [...targetIds] } : {}),
       ...(pageBreakHints ? { pageBreakHints: { ...pageBreakHints } } : {}),
       rows,
+      ...(label ? { label } : {}),
       ...(paragraph ? { paragraph } : {}),
     });
     blocks.push(...cellBlocks);

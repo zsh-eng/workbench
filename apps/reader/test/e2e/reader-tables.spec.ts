@@ -240,6 +240,40 @@ test("a table too wide for the page scrolls on its own", async ({ page }) => {
   expect(await currentPages(page)).toEqual(pages);
 });
 
+test("a keyboard scrolls a wide table to its edge before it turns the page", async ({
+  page,
+}) => {
+  await useTables(page, "grid");
+  await openTableChapter(page, "tables-keyboard");
+  // A table takes its figure's caption as its name.
+  await turnToTable(page);
+  await expect(
+    page.locator(CURRENT_SPREAD).getByRole("table", { name: /^Table 7\b/ }),
+  ).toBeVisible();
+
+  const wide = page.locator(CURRENT_SPREAD).getByRole("region", {
+    name: "Table",
+    exact: true,
+  });
+  for (let turn = 0; turn < 30 && (await wide.count()) === 0; turn++)
+    await nextSpread(page);
+  await expect(wide).toHaveAttribute("data-reader-table-scroll", "");
+  const pages = await currentPages(page);
+  await wide.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => wide.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  expect(await currentPages(page)).toEqual(pages);
+
+  // At its edge, the next press turns the page.
+  await wide.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => currentPages(page)).not.toEqual(pages);
+});
+
 test("a table that misses the page by a little narrows its padding to fit", async ({
   page,
 }) => {
