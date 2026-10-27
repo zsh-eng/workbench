@@ -28,7 +28,11 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       const name = `med-v${version}-macos-arm64`;
       const stage = join(root, "release", name);
       await mkdir(join(stage, "licenses", "upstream"), { recursive: true });
-      await writeFile(join(stage, "med"), `#!/bin/sh\necho "med ${version}"\n`);
+      // It answers --version and keeps a list of the other commands it gets.
+      await writeFile(
+        join(stage, "med"),
+        `#!/bin/sh\nif [ "$1" = --version ]; then echo "med ${version}"; else echo "$*" >> "$HOME/med-calls"; fi\n`,
+      );
       await chmod(join(stage, "med"), 0o755);
       await writeFile(join(stage, "LICENSE"), "MIT\n");
       await writeFile(join(stage, "licenses", "upstream", "BUN-LICENSE.md"), "Bun notices\n");
@@ -91,9 +95,17 @@ it.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     expect((await install()).stdout).toContain(`Med ${current} is already installed`);
     expect(await rc()).toBe('\n# Med\nexport PATH="$HOME/.local/bin:$PATH"\n');
 
-    // A pinned version replaces it; a bad checksum installs nothing.
+    // An install leaves the agent skill alone when the user has none.
+    const calls = () => readFile(join(home, "med-calls"), "utf8").catch(() => "");
+    expect(await calls()).toBe("");
+
+    // A pinned version replaces it, and refreshes the skill that the user
+    // installed; a bad checksum installs nothing.
+    await mkdir(join(home, ".claude", "skills", "med"), { recursive: true });
+    await writeFile(join(home, ".claude", "skills", "med", "SKILL.md"), "---\nname: med\n---\n");
     expect((await install("--version", "0.1.0")).stdout).toContain("If Med is running, restart it");
     expect(await version()).toBe("med 0.1.0");
+    expect(await calls()).toBe("skills update\n");
     await expect(install("--version", "0.0.9")).rejects.toMatchObject({
       stderr: expect.stringContaining("does not match SHA256SUMS"),
     });

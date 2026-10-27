@@ -2,7 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify, parseArgs } from "node:util";
 import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getStateDirectory, DEFAULT_PORT } from "../host/runtime/connection";
+import {
+  defaultStateDirectory,
+  getStateDirectory,
+  givenPort,
+  DEFAULT_PORT,
+} from "../host/runtime/connection";
 import {
   loginItem,
   loginItemPath,
@@ -34,10 +39,16 @@ export async function loginService(args: string[]) {
     throw new Error(
       "Login-service installation currently supports macOS. Use med serve with your OS service manager elsewhere.",
     );
-  const state = getStateDirectory(values["state-dir"]),
-    port = Number(values.port ?? DEFAULT_PORT);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("Choose a port from 1 to 65535.");
+  const state = getStateDirectory(values["state-dir"]);
+  const given = givenPort(values.port);
+  // A login item keeps its port; 6330 is for Med's own state folder.
+  const binds =
+    positionals[0] === "install" || (positionals[0] === "login" && positionals[1] === "on");
+  if (given === undefined && binds && state !== defaultStateDirectory())
+    throw new Error(
+      `Port 6330 is for Med's own state folder. Choose a port for the login service of ${state}: --port <port>.`,
+    );
+  const port = given ?? DEFAULT_PORT;
   if (positionals[0] === "login") {
     const choice = positionals[1] ?? "status";
     if (positionals.length > 2 || !["on", "off", "status"].includes(choice))

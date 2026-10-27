@@ -6,12 +6,14 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import {
+  clientPort,
+  defaultStateDirectory,
   getStateDirectory,
   readConnection,
-  DEFAULT_PORT,
-  findPort,
+  servicePort,
   type RunningConnection,
 } from "../host/runtime/connection";
+import { instanceOptions, medCommand } from "../host/runtime/med-command";
 import { startHost } from "../host/server";
 import { ownCommand } from "../host/thread-agents";
 import { HostError } from "../host/runtime/errors";
@@ -56,6 +58,13 @@ async function connected(stateDir: string, port: number) {
     connection = await readConnection(stateDir, port);
   } catch {
     return undefined;
+  }
+  // A record that its server left behind names a port that another Med may
+  // own now; do not send this state folder's token there.
+  try {
+    process.kill(connection.pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
   }
   let response: Response;
   try {
@@ -124,6 +133,8 @@ export async function serve(stateDir: string, port: number) {
       stateDir,
       service: manager,
       cli: ownCommand(),
+      // Another Med lists only its own threads, until the reader shows the rest.
+      foundSessions: resolve(stateDir) === defaultStateDirectory(),
     });
     manager.port = host.port;
     let closing = false;
@@ -234,16 +245,6 @@ export async function runServiceCommand(command: string, args: string[]) {
     console.log(serviceHelp);
     return;
   }
-  // serve binds the default port; the other commands find the running host.
-  const stateDir = getStateDirectory(values["state-dir"]),
-    port =
-      values.port !== undefined
-        ? Number(values.port)
-        : command === "serve"
-          ? DEFAULT_PORT
-          : await findPort(stateDir);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("Choose a port from 1 to 65535.");
   if (
     (["web", "list", "status", "stop", "serve"].includes(command) && positionals.length) ||
     (["add", "remove"].includes(command) && positionals.length !== 1) ||
@@ -252,17 +253,38 @@ export async function runServiceCommand(command: string, args: string[]) {
     throw new Error(serviceHelp);
   if (values.type && !["repo", "vault"].includes(values.type))
     throw new Error("Use --type repo or --type vault.");
+  // status and stop only read; the others start the server when it is down.
+  const stateDir = getStateDirectory(values["state-dir"]);
+  const reads = command === "status" || command === "stop";
+  const { port, picked } = reads
+    ? { port: await clientPort(stateDir, values.port), picked: false }
+    : await servicePort(stateDir, values.port);
+  const instance = { port, stateDir };
+  // Port 6330 is the user's own Med: another state folder gets a free port.
+  const pickedNote = () =>
+    console.error(
+      `Port 6330 is for Med's own state folder, so the server of ${stateDir} uses port ${port}. Commands with ${instanceOptions(instance)} reach it. For the same address after a restart, choose a port with --port or MED_PORT.`,
+    );
   if (command === "serve") {
     await serve(stateDir, port);
+    if (picked) pickedNote();
     return;
   }
+  // status and web say when the installed agent skill is older than Med.
+  const skillNotice = async () => {
+    const { skillNotice } = await import("./skills");
+    const notice = await skillNotice().catch(() => undefined);
+    if (notice) console.error(notice);
+  };
   if (command === "status" || command === "stop") {
     const connection = await connected(stateDir, port);
     if (!connection) {
       console.log(JSON.stringify({ running: false }));
+      if (command === "status") await skillNotice();
       return;
     }
     console.log(JSON.stringify(await rpc(connection, command), null, 2));
+    if (command === "status") await skillNotice();
     if (command === "stop") {
       for (let i = 0; i < 100; i++) {
         if (!(await connected(stateDir, port))) break;
@@ -272,12 +294,13 @@ export async function runServiceCommand(command: string, args: string[]) {
       const agents = (await listHolders(join(stateDir, "agents"))).length;
       if (agents)
         console.error(
-          `${agents} ${agents === 1 ? "agent keeps" : "agents keep"} working. Stop them with med agents stop --all.`,
+          `${agents} ${agents === 1 ? "agent keeps" : "agents keep"} working. Stop them with ${medCommand({ stateDir }, "agents stop --all")}.`,
         );
     }
     return;
   }
   const connection = await ensureService(stateDir, port);
+  if (picked) pickedNote();
   if (command === "web") {
     const url = `${connection.origin}/sources#token=${connection.token}`;
     if (values.open) {
@@ -293,6 +316,7 @@ export async function runServiceCommand(command: string, args: string[]) {
     }
     // --no-open is an explicit request for a launch URL; never put this token in agent links.
     console.log(values.open ? `${connection.origin}/sources` : url);
+    await skillNotice();
     return;
   }
   if (command === "list") {
@@ -321,7 +345,9 @@ export async function runServiceCommand(command: string, args: string[]) {
       }
       await delay(100);
     }
-    throw new Error("Indexing did not finish before the wait limit. Check med status.");
+    throw new Error(
+      `Indexing did not finish before the wait limit. Check ${medCommand(instance, "status")}.`,
+    );
   }
   console.log(JSON.stringify(result, null, 2));
 }

@@ -10,7 +10,12 @@ import { ownCommand } from "../host/thread-agents";
 import type { Comparison } from "../shared/protocol";
 import { ctagsSetupMessage, discoverCtags } from "../host/search/symbols";
 import { installSearchTools } from "../host/search/install";
-import { DEFAULT_PORT, getStateDirectory } from "../host/runtime/connection";
+import {
+  DEFAULT_PORT,
+  defaultStateDirectory,
+  getStateDirectory,
+  givenPort,
+} from "../host/runtime/connection";
 import { disableCrashReports } from "../host/runtime/crash-reports";
 import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
@@ -99,7 +104,7 @@ async function main() {
     const { serviceHelp } = await import("./service");
     console.log(serviceHelp + "\n\nLegacy foreground modes:");
     console.log(
-      `Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: ${DEFAULT_PORT}. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n` +
+      `Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: ${DEFAULT_PORT} (or MED_PORT); another state folder than ~/.local/state/med gets a free port. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n` +
         reviewHelp +
         "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs\nTeach Claude Code and Codex to hand off reviews: med skills install",
     );
@@ -126,8 +131,13 @@ async function main() {
           "No repositories registered. Use med add <path>, then med web to browse saved sources.",
         );
     }
-    const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
-    if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535))
+    // Another state folder than Med's own takes a free port, not the user's 6330.
+    const stateDir = getStateDirectory(values["state-dir"]);
+    const port =
+      values.port !== undefined
+        ? Number(values.port)
+        : (givenPort(undefined) ?? (stateDir === defaultStateDirectory() ? DEFAULT_PORT : 0));
+    if (!Number.isInteger(port) || port < 0 || port > 65535)
       throw new Error("Port must be between 0 and 65535.");
     if (values.editor && (values.patch || values.files))
       throw new Error("Use --editor without comparison inputs.");
@@ -167,7 +177,8 @@ async function main() {
       ...(!initialComparison ? { repos: positionals.slice(1).map((path) => resolve(path)) } : {}),
       port,
       fileMode: values.editor,
-      stateDir: getStateDirectory(values["state-dir"]),
+      stateDir,
+      foundSessions: stateDir === defaultStateDirectory(),
       ...(initialComparison ? { initialComparison } : {}),
       allowedInputPaths,
       onClose: cleanup,

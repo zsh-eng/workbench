@@ -105,7 +105,9 @@ async function fixture(count = 1) {
     const id = output.match(/\/review\/(r_[a-z0-9]+)/)![1];
     return api(`/api/reviews/${id}`);
   };
-  return { root, repos, host, stateDir, run, api, saved };
+  // Advice carries the options of this test's own instance.
+  const flags = `--port ${host.port} --state-dir ${stateDir}`;
+  return { root, repos, host, stateDir, flags, run, api, saved };
 }
 
 describe("agent review CLI through the production host", () => {
@@ -115,7 +117,13 @@ describe("agent review CLI through the production host", () => {
     const base = git(repo, "rev-parse", "HEAD");
     git(repo, "commit", "-am", "after");
     const head = git(repo, "rev-parse", "HEAD");
-    const listing = await f.run("repos");
+    // One line per repository; --repo checks one checkout; --json has it all.
+    expect(await f.run("repos")).toBe(`repo-0\t${repo}\tmain\t0 worktrees`);
+    expect(await f.run("repos", "--repo", repo)).toBe(`${repo} is registered as repo-0, on main.`);
+    await expect(f.run("repos", "--repo", f.root)).rejects.toThrow(
+      `${f.root} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${f.flags} ${f.root}`,
+    );
+    const listing = await f.run("repos", "--json");
     expect(JSON.parse(listing).repositories.map((entry: { path: string }) => entry.path)).toEqual([
       repo,
     ]);
@@ -302,7 +310,7 @@ describe("agent review CLI through the production host", () => {
       "- In more than one segment: file.txt",
       "- Match no changed file: segments[0].files: gone.ts",
       "- Comments on a file that is not a changed file of their segment: segments[1].comments[0]: notes.md",
-      'Fix the guide, then run: med review update --key "guided" --guide <file>',
+      `Fix the guide, then run: med review update --key "guided" ${f.flags} --guide <file>`,
     ]);
 
     const second = { summary: "Second guide.", segments: [{ title: "All", files: ["**"] }] };
@@ -661,7 +669,7 @@ exit 1
     await expect(
       run("create", "--title", "Outside", "--repo", outside, "--working"),
     ).rejects.toThrow(
-      `${outside} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${outside}`,
+      `${outside} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${f.flags} ${outside}`,
     );
     expect(output).toEqual([]);
   });
@@ -726,7 +734,9 @@ exit 1
   it("reports a stopped host and does not expose its credential", async () => {
     const f = await fixture();
     await f.host.close();
-    await expect(f.run("repos")).rejects.toThrow("Start med-diff");
+    await expect(f.run("repos")).rejects.toThrow(
+      `Start that Med with med web --state-dir ${f.stateDir}`,
+    );
   });
 });
 
@@ -741,7 +751,13 @@ describe("hand-off checks that say what to do next", () => {
     const advice: string[] = [];
     await runReviewCommand(
       [...command, "--no-pr", "--state-dir", f.stateDir, "--port", String(f.host.port)],
-      { print: (text) => out.push(text), warn: (text) => advice.push(text), ...options },
+      {
+        print: (text) => out.push(text),
+        warn: (text) => advice.push(text),
+        // A scratch home: the checks read transcripts from ~/.claude.
+        home: join(f.root, "home"),
+        ...options,
+      },
     );
     return { out: out.join("\n"), advice: advice.join("\n") };
   };
@@ -861,6 +877,61 @@ describe("hand-off checks that say what to do next", () => {
     expect(tips.advice).not.toContain("Merge base");
   });
 
+  it("records no session for a subagent, which has its parent's session ID", async () => {
+    const f = await fixture();
+    const repo = f.repos[0]!;
+    const home = join(f.root, "home");
+    // Claude Code keeps a subagent's work beside its parent's transcript.
+    const project = join(home, ".claude", "projects", "-work-app");
+    const subagents = join(project, "parent", "subagents");
+    await mkdir(subagents, { recursive: true });
+    const at = new Date().toISOString();
+    const start = `{"type":"user","cwd":"/work/app","sessionId":"parent"}\n`;
+    const call = (id: string, name: string, input: object, isSidechain = false) =>
+      `${JSON.stringify({ type: "assistant", isSidechain, timestamp: at, message: { content: [{ type: "tool_use", id, name, input }] } })}\n`;
+    const transcripts = (parent: string, subagent: string) =>
+      Promise.all([
+        writeFile(join(project, "parent.jsonl"), start + parent),
+        writeFile(join(subagents, "agent-a1.jsonl"), start + subagent),
+      ]);
+    const create = (key: string) =>
+      checked(f, ["create", "--title", "Retry policy", "--key", key, "--repo", repo, "--working"], {
+        environment: { CLAUDE_CODE_SESSION_ID: "parent" },
+        home,
+      });
+
+    // The parent waits on its subagent, which runs the hand-off.
+    await transcripts(
+      call("toolu_agent", "Agent", { prompt: "Fix it, then run med review create." }),
+      call("toolu_sub", "Bash", { command: "med review create --key sub --working" }, true),
+    );
+    const sub = await create("sub");
+    expect((await f.saved(sub.out)).sessions).toBeUndefined();
+    expect(sub.advice).toContain(
+      "Session: this command runs in a subagent of Claude Code session parent.",
+    );
+    expect(sub.advice).not.toContain("med review wait");
+
+    // The parent's own hand-off, beside a subagent at work, records the parent.
+    await transcripts(
+      call("toolu_own", "Bash", { command: "med review create --key own --working" }),
+      call("toolu_test", "Bash", { command: "bun run test" }, true),
+    );
+    const own = await create("own");
+    expect((await f.saved(own.out)).sessions).toEqual([
+      { agent: "claude", id: "parent", cwd: "/work/app" },
+    ]);
+    expect(own.advice).toContain(`med review wait --key own ${f.flags}`);
+
+    // When no transcript shows the call, Med records nothing and says so.
+    await transcripts("", call("toolu_test", "Bash", { command: "bun run test" }, true));
+    const unknown = await create("unknown");
+    expect((await f.saved(unknown.out)).sessions).toBeUndefined();
+    expect(unknown.advice).toContain(
+      "Med could not tell which agent runs this command, so Med recorded no session. If the session itself runs it, add --session claude:parent.",
+    );
+  });
+
   it("checks the title, defaults the key to the branch, and says how to wait", async () => {
     const f = await fixture(2);
     const repo = f.repos[0]!;
@@ -871,13 +942,13 @@ describe("hand-off checks that say what to do next", () => {
     const first = await f.saved(short.out);
     expect(first.key).toBe("feat/retry");
     expect(short.advice).toContain(
-      'Title check: the title has 1 word. Use 2–4 words that name what the task builds, without the repository\'s name or words such as "review" and "changes": med review update --key feat/retry --title "<2-4 words>"',
+      `Title check: the title has 1 word. Use 2–4 words that name what the task builds, without the repository's name or words such as "review" and "changes": med review update --key feat/retry ${f.flags} --title "<2-4 words>"`,
     );
     expect(short.advice).toContain(
       "Key: feat/retry, from the branch. Hand off each later round of this task with the same key",
     );
     expect(short.advice).toContain(
-      "To get the user's comments, run this as a background command: med review wait --key feat/retry.",
+      `To get the user's comments, run this as a background command: med review wait --key feat/retry ${f.flags}.`,
     );
     // The next round on the branch is the next version of the same review.
     await writeFile(join(repo, "file.txt"), "round two\n");
@@ -936,7 +1007,7 @@ describe("hand-off checks that say what to do next", () => {
     await writeFile(join(repo, "file.txt"), "fixed after the comments\n");
     const stale = await checked(f, ["update", "--key", "fix", "--guide", guide]);
     expect(stale.advice).toContain(
-      `Stale capture: the checkout changed after version 1 was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version 2 with the same key: med review create --key fix --repo ${repo} --working --guide <file>`,
+      `Stale capture: the checkout changed after version 1 was captured, so this guide now goes with code that the review does not show. To hand off your fixes, make version 2 with the same key: med review create --key fix ${f.flags} --repo ${repo} --working --guide <file>`,
     );
   });
 
@@ -996,7 +1067,7 @@ describe("hand-off checks that say what to do next", () => {
       'Guide check: order the segments by review priority.\n- Put lockfiles and generated files in the last segments, after the code and tests: "Lockfile" before "Code"',
     );
     expect(run.advice).toContain(
-      `Shared checkout: file.txt changed, but this session did not edit it. If it is not part of your task, hand off only your files: med review update --key mine --paths ${join(repo, "bun.lock")} ${join(repo, "mine.ts")}`,
+      `Shared checkout: file.txt changed, but this session did not edit it. If it is not part of your task, hand off only your files: med review update --key mine ${f.flags} --paths ${join(repo, "bun.lock")} ${join(repo, "mine.ts")}`,
     );
   });
 

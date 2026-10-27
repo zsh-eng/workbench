@@ -89,6 +89,43 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   expect(await med("show")).toBe(`${skill}\n`);
 });
 
+it("says when an installed skill is out of date, and refreshes only the installed ones", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "med-stale-")));
+  temporary.push(home);
+  const cli = resolve("src/cli/index.ts");
+  // MED_STATE_DIR keeps status away from the user's server.
+  const env = { ...process.env, HOME: home, MED_STATE_DIR: join(home, "state"), MED_PORT: "" };
+  const med = (...args: string[]) => exec("bun", [cli, ...args], { env });
+  const skill = await readFile(resolve("skills/med/SKILL.md"), "utf8");
+  const version: string = JSON.parse(await readFile("package.json", "utf8")).version;
+  const claude = join(home, ".claude", "skills", "med", "SKILL.md");
+
+  // Both agents are set up; only Claude Code has the skill, from an older Med.
+  await mkdir(join(home, ".codex"));
+  await mkdir(join(home, ".claude", "skills", "med"), { recursive: true });
+  await writeFile(claude, skill.replace("# Hand off changes in Med", "# Hand off changes"));
+  const status = await med("status");
+  expect(status.stdout).toBe('{"running":false}\n');
+  expect(status.stderr).toBe(
+    `The Med skill in ~/.claude/skills/med differs from the one that Med ${version} installs. Refresh it: med skills update\n`,
+  );
+  // update refreshes it, and installs no skill for Codex.
+  expect((await med("skills", "update")).stdout).toBe(
+    "Updated the Med skill for Claude Code: ~/.claude/skills/med (SKILL.md, guide.md)\n",
+  );
+  expect(await readFile(claude, "utf8")).toBe(skill);
+  await expect(readFile(join(home, ".agents", "skills", "med", "SKILL.md"))).rejects.toThrow(
+    "ENOENT",
+  );
+  expect((await med("status")).stderr).toBe("");
+  // Another skill named med is the user's: no notice, and update leaves it.
+  await writeFile(claude, "---\nname: med\ndescription: Someone else's skill\n---\n");
+  expect((await med("status")).stderr).toBe("");
+  expect((await med("skills", "update")).stdout).toBe(
+    "The Med skill is not installed. med skills install installs it.\n",
+  );
+});
+
 it("suggests review practices to copy, and writes one only where asked", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "med-suggest-")));
   temporary.push(home);

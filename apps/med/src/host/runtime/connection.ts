@@ -14,10 +14,56 @@ const connectionSchema = z.object({
 });
 export type RunningConnection = z.infer<typeof connectionSchema>;
 
+/** The state folder of the user's own Med, whose server has port 6330. */
+export const defaultStateDirectory = () => resolve(join(homedir(), ".local", "state", "med"));
+
 export function getStateDirectory(override?: string): string {
-  return resolve(
-    override || process.env.MED_STATE_DIR || join(homedir(), ".local", "state", "med"),
-  );
+  return resolve(override || process.env.MED_STATE_DIR || defaultStateDirectory());
+}
+
+/** A port from --port or MED_PORT, checked. Undefined when neither is set. */
+export function givenPort(flag: string | undefined, environment: NodeJS.ProcessEnv = process.env) {
+  const value = flag ?? (environment.MED_PORT || undefined);
+  if (value === undefined) return undefined;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("Choose a port from 1 to 65535.");
+  return port;
+}
+
+/** A port that no process listens on now, chosen by the system. */
+export async function freePort(): Promise<number> {
+  const { createServer } = await import("node:net");
+  return new Promise((done, fail) => {
+    const server = createServer();
+    server.once("error", fail);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() =>
+        typeof address === "object" && address ? done(address.port) : fail(new Error("No port.")),
+      );
+    });
+  });
+}
+
+/**
+ * The port for a server of this state folder: --port or MED_PORT; else the
+ * server that runs from the folder; else 6330 for Med's own folder. Another
+ * folder gets a free port (`picked`), so that a second Med never takes the
+ * user's port.
+ */
+export async function servicePort(
+  stateDir: string,
+  flag: string | undefined,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<{ port: number; picked?: boolean }> {
+  const given = givenPort(flag, environment);
+  if (given !== undefined) return { port: given };
+  const live = await livePorts(stateDir);
+  if (live.includes(DEFAULT_PORT) || resolve(stateDir) === defaultStateDirectory())
+    return { port: live.length === 1 ? live[0]! : DEFAULT_PORT };
+  if (live.length) return { port: live[0]! };
+  return { port: await freePort(), picked: true };
 }
 
 async function privateDirectory(path: string) {
@@ -98,14 +144,29 @@ async function running(stateDir: string, port: number) {
  * that kept Med's old default.
  */
 export async function findPort(stateDir: string): Promise<number> {
-  if (await running(stateDir, DEFAULT_PORT)) return DEFAULT_PORT;
+  const live = await livePorts(stateDir);
+  return live.length === 1 && !live.includes(DEFAULT_PORT) ? live[0]! : DEFAULT_PORT;
+}
+
+/** The ports of the hosts that run from this state folder. */
+async function livePorts(stateDir: string) {
   const names = await readdir(join(stateDir, "connections")).catch(() => [] as string[]);
   const live: number[] = [];
   for (const name of names) {
     const port = Number(/^(\d+)\.json$/.exec(name)?.[1]);
     if (port && (await running(stateDir, port))) live.push(port);
   }
-  return live.length === 1 ? live[0]! : DEFAULT_PORT;
+  return live;
+}
+
+/** --port or MED_PORT; else the host that runs from this state folder. For
+ * commands that talk to a running host. */
+export async function clientPort(
+  stateDir: string,
+  flag: string | undefined,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  return givenPort(flag, environment) ?? (await findPort(stateDir));
 }
 
 export async function readConnection(
@@ -119,8 +180,11 @@ export async function readConnection(
     );
     if (connection.origin !== `http://127.0.0.1:${port}`) throw new Error("Invalid origin");
   } catch {
+    const own = resolve(stateDir) === defaultStateDirectory();
     throw new Error(
-      `No valid med connection was found on port ${port}. Start med-diff with your repositories, or select the same --port and --state-dir as the running host.`,
+      own
+        ? `No valid med connection was found on port ${port}. Start med-diff with your repositories, or select the same --port and --state-dir as the running host.`
+        : `No valid med connection was found on port ${port} in ${stateDir}. Start that Med with med web --state-dir ${stateDir}, or select the same --port and --state-dir as the running host.`,
     );
   }
   return connection;

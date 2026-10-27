@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { findPort, getStateDirectory } from "../host/runtime/connection";
+import { getStateDirectory, givenPort, servicePort } from "../host/runtime/connection";
 import { pullRequestUrlSchema, type SavedReviewCreate } from "../shared/saved-review";
 import { openBrowser, request, showReview } from "./review";
 import { remoteFor } from "./review-parts";
@@ -27,7 +27,7 @@ export interface PullRequestCommand {
   selector?: string;
   gh: string[];
   repoOption: string[];
-  /** Without --port, the running host's port (findPort). */
+  /** --port or MED_PORT. Without them, the port that servicePort gives. */
   port?: number;
   stateDir: string;
   open: boolean;
@@ -70,9 +70,7 @@ export function parsePullRequestCommand(args: string[]): PullRequestCommand {
     else gh.push(arg);
   }
   if (!selector) throw new Error("Choose a pull request: med pr checkout <number|url|branch>.");
-  const number = port === undefined ? undefined : Number(port);
-  if (number !== undefined && (!Number.isInteger(number) || number < 1 || number > 65535))
-    throw new Error("Choose a port from 1 to 65535.");
+  const number = givenPort(port);
   return {
     kind: "checkout",
     selector,
@@ -189,7 +187,7 @@ export async function runPullRequestCommand(
   const { ensureService } = await import("./service");
   const connection = await ensureService(
     command.stateDir,
-    command.port ?? (await findPort(command.stateDir)),
+    command.port ?? (await servicePort(command.stateDir, undefined)).port,
   );
   const fetcher = options.fetcher ?? fetch;
   const known = z

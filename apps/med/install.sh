@@ -116,6 +116,10 @@ else
   case "$previous" in
     "med "*) say "If Med is running, restart it to use this version: med stop && med web" ;;
   esac
+  # Refresh the agent skill where the user installed it. Install it nowhere new.
+  if [ -f "$HOME/.claude/skills/med/SKILL.md" ] || [ -f "$HOME/.agents/skills/med/SKILL.md" ]; then
+    "$target" skills update 2>/dev/null || say "Refresh the agent skill: med skills install"
+  fi
 fi
 
 case ":$PATH:" in

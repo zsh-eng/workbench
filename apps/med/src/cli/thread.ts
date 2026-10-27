@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { findPort, getStateDirectory, readConnection } from "../host/runtime/connection";
+import { clientPort, getStateDirectory, readConnection } from "../host/runtime/connection";
+import { medCommand } from "../host/runtime/med-command";
 import { reviewKeySchema } from "../shared/saved-review";
 import {
   threadHistorySchema,
@@ -75,11 +76,8 @@ export async function parseThreadCommand(
     },
   });
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
-  values.port ??= environment.MED_PORT || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
-  const port = values.port === undefined ? await findPort(stateDir) : Number(values.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("The port must be between 1 and 65535.");
+  const port = await clientPort(stateDir, values.port, environment);
   const [action, id, ...rest] = positionals;
   if (values.help || !action) return { kind: "help", port, stateDir };
   if (!actions.includes(action as (typeof actions)[number]) || rest.length)
@@ -99,7 +97,9 @@ export async function parseThreadCommand(
   if (id) {
     const parsed = threadIdSchema.safeParse(id);
     if (!parsed.success)
-      throw new Error(`"${id}" is not a thread ID. med thread list prints them.`);
+      throw new Error(
+        `"${id}" is not a thread ID. ${medCommand({ port, stateDir }, "thread list")} prints them.`,
+      );
     command.id = parsed.data;
   } else {
     const key = reviewKeySchema.safeParse(values.key);

@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { findTranscript } from "../host/agent-transcripts";
 import { createSessionEdits } from "../host/session-edits";
+import { medCommand, shellWord, type Instance } from "../host/runtime/med-command";
 import { isOpenFinding, type ReviewOutput } from "../shared/review-output";
 import { reviewKeySchema, type AgentSession } from "../shared/saved-review";
 
@@ -51,7 +52,11 @@ export async function repositoryRoot(path: string) {
 const real = (path: string) => realpath(path).catch(() => resolve(path));
 
 /** Refuses a repository that Med does not know, and names the next step. */
-export async function requireRegistered(repos: readonly string[], listing: unknown) {
+export async function requireRegistered(
+  repos: readonly string[],
+  listing: unknown,
+  instance: Instance = {},
+) {
   const known = new Set<string>();
   const entries = (
     listing as { repositories?: { path?: string; worktrees?: { path?: string }[] }[] }
@@ -66,7 +71,7 @@ export async function requireRegistered(repos: readonly string[], listing: unkno
     const root = await real(await repositoryRoot(repo));
     if (!known.has(root))
       throw new Error(
-        `${root} is not registered in Med. Ask the user before you add it; with their OK, run: med add ${shellWord(root)}`,
+        `${root} is not registered in Med. Ask the user before you add it; with their OK, run: ${medCommand(instance, "add", shellWord(root))}`,
       );
   }
 }
@@ -87,9 +92,7 @@ export async function registeredId(repo: string, listing: unknown) {
   return undefined;
 }
 
-/** A word that the shell reads back as itself. */
-export const shellWord = (word: string) =>
-  /^[\w./@:+#=,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+export { shellWord };
 
 /** What Git says of a range before Med captures it. */
 export async function rangeFacts(repo: string, base: string, head: string) {
