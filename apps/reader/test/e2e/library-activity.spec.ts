@@ -82,6 +82,34 @@ test.describe("on a phone", () => {
   });
 });
 
+test.describe("a new device", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("its Library says it is restoring, not empty, until the restore ends", async ({
+    page,
+  }) => {
+    const synced = page.waitForResponse("**/api/sync/v2/pull*");
+    await page.goto("/");
+    await synced;
+    const empty = page.getByText("Your library is empty");
+    await expect(empty).toBeVisible();
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await startRestore(page, () => released);
+    try {
+      await expect(page.getByText("Restoring your library…")).toBeVisible();
+      await expect(empty).toHaveCount(0);
+      release();
+      await expect(empty).toBeVisible();
+      await expect(page.getByText("Restoring your library…")).toHaveCount(0);
+    } finally {
+      release();
+    }
+  });
+});
+
 test.describe("with room", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
