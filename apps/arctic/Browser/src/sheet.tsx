@@ -1,5 +1,10 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
-import { SheetFitHeight, useSheetBody } from "@workbench/elements/sheet-body";
+import {
+  SheetFitHeight,
+  sheetPlacement,
+  useSheetBody,
+  useSheetForm,
+} from "@workbench/elements/sheet-body";
 import "@workbench/elements/sheet.css";
 import { Heading } from "react-aria-components/Dialog";
 import {
@@ -45,7 +50,9 @@ export type SheetProps = {
  * rests on detents. Opening, closing and a new detent run UIKit's sheet
  * spring. Below full height it floats, inset from the screen's edges, and
  * its height follows its content as "Sheet behaviour" in
- * packages/elements/docs/MOTION.md describes. It is modal: the page turns
+ * packages/elements/docs/MOTION.md describes. On an iPad it takes UIKit's
+ * form layout (`sheetPlacement`): centred without detents, on the bottom
+ * edge at a form sheet's width with them. It is modal: the page turns
  * inert, focus stays inside, and a press outside or Escape closes it.
  */
 export function Sheet({
@@ -60,11 +67,13 @@ export function Sheet({
 }: SheetProps) {
   const hasDetents = !!snapPoints?.length;
   const fits = fit ?? !hasDetents;
+  const form = useSheetForm();
   return (
     <SheetOverlay
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       snapPoints={snapPoints}
+      {...sheetPlacement(form, hasDetents)}
       className="sheet-overlay wb-sheet-overlay"
     >
       {({ isExpanded, isExiting, isEntering }) => (

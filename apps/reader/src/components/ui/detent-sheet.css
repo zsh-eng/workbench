@@ -14,11 +14,13 @@
   --wb-sheet-edge: color-mix(in srgb, var(--border) 70%, transparent);
   --wb-sheet-shadow: 0 -24px 60px
     color-mix(in srgb, var(--foreground) 8%, transparent);
+  --wb-sheet-float-shadow: 0 16px 60px
+    color-mix(in srgb, var(--foreground) 14%, transparent);
   --wb-sheet-max-width: 28rem;
 }
 
 .reader-sheet {
-  max-height: calc(100dvh - max(env(safe-area-inset-top), 0.75rem) - 0.5rem);
+  max-height: var(--wb-sheet-full);
   display: flex;
   flex-direction: column;
   color: var(--foreground);
@@ -27,7 +29,7 @@
 }
 
 .reader-sheet-tall {
-  height: calc(100dvh - max(env(safe-area-inset-top), 0.75rem) - 0.5rem);
+  height: var(--wb-sheet-full);
 }
 
 .reader-sheet-content {

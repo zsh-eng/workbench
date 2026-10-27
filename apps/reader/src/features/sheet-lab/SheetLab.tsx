@@ -576,7 +576,12 @@ function Readout() {
       const shape = overlay.dataset.sheetShape ?? "";
       const style = getComputedStyle(scroller);
       const float = parseFloat(style.getPropertyValue("--wb-sheet-float"));
-      const inset = 8 * (Number.isFinite(float) ? float : 1);
+      const largest = parseFloat(style.getPropertyValue("--wb-sheet-inset"));
+      const inset =
+        (Number.isFinite(largest) ? largest : 8) *
+        (Number.isFinite(float) ? float : 1);
+      // "phone", or an iPad's "form" layout, centred or on the bottom edge.
+      const layout = `${overlay.dataset.sheetLayout ?? "phone"}${overlay.dataset.position === "center" ? " centred" : ""}`;
       const corner = parseFloat(style.getPropertyValue("--wb-sheet-corner"));
       const snaps = sheetSnaps(scroller);
       const detents = snaps
@@ -603,6 +608,7 @@ function Readout() {
         `height ${Math.round(innerHeight - top)}`,
         detent,
         `fit ${fitState}`,
+        layout,
         shape,
         `inset ${inset.toFixed(1)}`,
         `corner ${Number.isFinite(corner) ? corner.toFixed(1) : "–"}`,
@@ -616,6 +622,7 @@ function Readout() {
       element.dataset.detent = detent;
       element.dataset.fitState = fitState;
       element.dataset.shape = shape;
+      element.dataset.layout = layout;
       element.dataset.top = String(top);
     };
     frame = requestAnimationFrame(sample);
