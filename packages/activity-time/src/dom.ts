@@ -1,7 +1,7 @@
 import type { ActivityTracker } from "./tracker";
 
 export interface InteractionHandlers {
-  /** A deliberate input: a press, mouse movement, touch, key or wheel, or a scroll just after one. */
+  /** A deliberate input: a press, mouse or pen movement, touch, key or wheel, or a scroll just after one. */
   input(at: number): void;
   /** The page was hidden, frozen or cached, or the window lost focus. */
   pause(at: number): void;
@@ -22,7 +22,11 @@ export interface InteractionOptions {
   scrollAfterInputMs?: number;
 }
 
-/** Inputs that only a person makes. `mousemove` is not sent for touch moves. */
+/**
+ * Inputs that only a person makes. `mousemove` is not sent for touch moves,
+ * and a pen that hovers over an iPad (Apple Pencil) reports its movement as
+ * `pointermove` (`onPointerMove` takes only a pen's).
+ */
 const INPUTS = [
   "pointerdown",
   "mousemove",
@@ -65,6 +69,10 @@ export function observeInteraction(
     lastInput = now();
     handlers.input(lastInput);
   };
+  // A mouse's moves come as `mousemove` too, and a finger's as `touchmove`.
+  const onPointerMove = (event: Event) => {
+    if ((event as PointerEvent).pointerType === "pen") onInput(event);
+  };
   const onScroll = (event: Event) => {
     if (!trusted(event)) return;
     const at = now();
@@ -97,6 +105,7 @@ export function observeInteraction(
   const onFreeze = () => handlers.pause(now());
 
   for (const type of INPUTS) win.addEventListener(type, onInput, LISTEN);
+  win.addEventListener("pointermove", onPointerMove, LISTEN);
   win.addEventListener("scroll", onScroll, LISTEN);
   doc.addEventListener("visibilitychange", onVisibility);
   doc.addEventListener("freeze", onFreeze);
@@ -108,6 +117,7 @@ export function observeInteraction(
 
   return () => {
     for (const type of INPUTS) win.removeEventListener(type, onInput, LISTEN);
+    win.removeEventListener("pointermove", onPointerMove, LISTEN);
     win.removeEventListener("scroll", onScroll, LISTEN);
     doc.removeEventListener("visibilitychange", onVisibility);
     doc.removeEventListener("freeze", onFreeze);
