@@ -88,7 +88,9 @@
   --accent: #4385be;
   --danger: #d14d41;
 }
-@media (max-width: 720px) {
+/* Compact width, below 600 px: the phone layout (useCompact in surface.tsx,
+   the size classes in @workbench/elements/size-class). */
+@media (width < 600px) {
   :root {
     --gutter: 18px;
   }
@@ -547,7 +549,7 @@ img.favicon {
   color: var(--fg-2);
   font-variant-numeric: tabular-nums;
 }
-@media (min-width: 721px) {
+@media (width >= 600px) {
   .waiting-note {
     position: absolute;
     width: 1px;
@@ -666,7 +668,7 @@ a.article-source:hover {
   text-align: justify;
   hyphens: auto;
 }
-@media (max-width: 720px) {
+@media (width < 600px) {
   .prose {
     font-size: calc(var(--reading-size) - 1px);
   }
@@ -2176,7 +2178,7 @@ a.article-source:hover {
 /* Phone surfaces. A phone keeps the top for content and puts what a thumb
    does at the bottom: search and save in the library, every article action
    in the reader. Both bars are the same quiet strip with a hairline. */
-@media (max-width: 720px) {
+@media (width < 600px) {
   input,
   textarea {
     /* Below 16 px, iOS zooms the page into a focused field. */

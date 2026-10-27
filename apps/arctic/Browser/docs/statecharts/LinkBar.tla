@@ -1,7 +1,7 @@
 ------------------------------ MODULE LinkBar ------------------------------
 (***************************************************************************)
-(* The link bar in the bottom bar of Arctic for the web on a phone (720 px *)
-(* and narrower): + opens a link field, Save or Paste saves a link, and    *)
+(* The link bar in the bottom bar of Arctic for the web on a phone (below  *)
+(* 600 px): + opens a link field, Save or Paste saves a link, and          *)
 (* the x button, a tap on the list, Escape or an empty field that loses    *)
 (* focus cancels. Saved is the library's first folder, and a search or a   *)
 (* topic can filter it.                                                    *)

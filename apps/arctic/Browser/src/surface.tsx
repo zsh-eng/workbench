@@ -1,39 +1,31 @@
 import {
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type RefObject,
-} from "react";
+  useCompactHeight,
+  useWidthClass,
+  widthClass,
+} from "@workbench/elements/size-class";
+import { useEffect, useState, type RefObject } from "react";
 import type { SheetProps } from "./sheet";
 import { showToast } from "./state";
 
 /**
  * Phones get sheets; wider windows get popovers and menus by their controls.
- * One width decides, so a narrow desktop window behaves as a phone does.
+ * The window's width class decides (@workbench/elements/size-class), so a
+ * narrow desktop window behaves as a phone does, and a tablet in portrait
+ * as a wider window.
  */
-const compact = matchMedia("(max-width: 720px)");
-
 export function useCompact() {
-  return useSyncExternalStore(
-    (listener) => {
-      compact.addEventListener("change", listener);
-      return () => compact.removeEventListener("change", listener);
-    },
-    () => compact.matches,
-  );
+  return useWidthClass() === "compact";
 }
 
-/** A window wide enough for the library's sidebar. */
-const wide = matchMedia("(min-width: 1100px)");
-
+/**
+ * A window with room for the library's sidebar: expanded width, and not as
+ * short as a phone on its side, where Android finds a second pane
+ * impractical.
+ */
 export function useWide() {
-  return useSyncExternalStore(
-    (listener) => {
-      wide.addEventListener("change", listener);
-      return () => wide.removeEventListener("change", listener);
-    },
-    () => wide.matches,
-  );
+  const width = useWidthClass();
+  const short = useCompactHeight();
+  return width === "expanded" && !short;
 }
 
 /**
@@ -105,7 +97,7 @@ function loadSheet() {
  * cache), so the first sheet opens at once.
  */
 export function preloadSheet() {
-  if (!compact.matches || sheet) return;
+  if (widthClass() !== "compact" || sheet) return;
   const load = () => void loadSheet().catch(() => {});
   if (typeof requestIdleCallback === "function")
     requestIdleCallback(load, { timeout: 400 });

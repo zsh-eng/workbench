@@ -96,7 +96,9 @@ function layout(page: Page) {
 
 for (const size of [
   { width: 820, height: 1180, picture: 366 },
-  { width: 1024, height: 1366, picture: 468 },
+  // From 840 px the sidebar takes its share
+  // (packages/elements/docs/SIZE_CLASSES.md).
+  { width: 1024, height: 1366, picture: 348 },
   { width: 1180, height: 820, picture: 426 },
   { width: 1366, height: 1024, picture: 519 },
 ])
@@ -124,7 +126,8 @@ for (const size of [
       "tile",
     ]);
 
-    // Pictures at the og:image's 1.91:1, larger than Cards' (273–364 px).
+    // Pictures at the og:image's 1.91:1, at least as large as Cards' at the
+    // same size (273–364 px).
     const tile = cells[1]!;
     expect(tile.cover!.width).toBeCloseTo(size.picture, -1);
     expect(tile.cover!.width / tile.cover!.height).toBeCloseTo(1.91, 1);

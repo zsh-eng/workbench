@@ -25,7 +25,7 @@ async function swipeAway(page: Page, name: string) {
 /**
  * agent-kit `--steps`, after `account.ts`: opens the article's menu and
  * swipes it away, then opens the article and its Text and theme sheet, and
- * swipes that away. A window up to 720 px wide shows them as sheets.
+ * swipes that away. A window narrower than 600 px shows them as sheets.
  */
 export default async function ipadSheets({ page }: KitContext) {
   await page.locator(".card").first().waitFor();
