@@ -125,6 +125,23 @@ describe("parsing tables", () => {
     expect(table.label).toBe("Table 1 Sample latencies");
   });
 
+  it("starts cells at their text past comments in the table", () => {
+    const { blocks, canonicalText } = parse(
+      "<body><table><tr><td>A</td></tr><!-- row two --><tr><!-- cell --><td>Bravo</td></tr></table></body>",
+      true,
+    );
+    const cell = blocks.find((block) => block.id.endsWith("-c1"))!;
+    const start = canonicalText.blockStarts.get(cell.id)!;
+    expect(canonicalText.fullText.slice(start, start + 5)).toBe("Bravo");
+    const paragraph = parse(
+      "<body><table><tr><td>A</td></tr><!-- row two --><tr><!-- cell --><td>Bravo</td></tr></table></body>",
+      false,
+    ).blocks[0];
+    expect(paragraph?.type === "text" && paragraph.tableCellStarts).toEqual([
+      0, 1,
+    ]);
+  });
+
   it("reads simple cell alignment, and a figure's caption as the name", () => {
     const { blocks } = parse(
       `<body><figure><figcaption>Table 2\n  Widths</figcaption><table>

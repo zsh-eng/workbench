@@ -737,8 +737,15 @@ function attachTargetsToLastBlock(
   return true;
 }
 
+/**
+ * A node's share of the chapter's canonical text, `body.textContent`, which
+ * leaves out comments and processing instructions.
+ */
 function getNodeTextLength(node: Node): number {
-  return node.textContent?.length ?? 0;
+  return node.nodeType === Node.COMMENT_NODE ||
+    node.nodeType === Node.PROCESSING_INSTRUCTION_NODE
+    ? 0
+    : (node.textContent?.length ?? 0);
 }
 
 /**
