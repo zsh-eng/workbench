@@ -103,7 +103,17 @@ const viewport: ViewportSize = sized
   : options.desktop
     ? { width: 1280, height: 800 }
     : { width: 390, height: 844 };
-const screenSized = /^(\d+)x(\d+)$/.exec(options.screen ?? "");
+// Sheet Lab's readout prints sizes with ×; take that as well as x.
+const screenSized = /^(\d+)[x×](\d+)$/.exec(options.screen ?? "");
+if (options.screen && !screenSized) {
+  console.error(`kit: --screen ${options.screen} is not <w>x<h>`);
+  process.exit(64);
+}
+const scale = Number(options.scale ?? 2);
+if (!(scale > 0)) {
+  console.error(`kit: --scale ${options.scale} is not a positive number`);
+  process.exit(64);
+}
 const touch = !options.desktop;
 const engine = options.browser === "webkit" ? webkit : chromium;
 if (engine === webkit && (throttle > 1 || options.trace)) {
@@ -132,7 +142,7 @@ async function run() {
     screen: screenSized
       ? { width: Number(screenSized[1]), height: Number(screenSized[2]) }
       : undefined,
-    deviceScaleFactor: Number(options.scale ?? 2),
+    deviceScaleFactor: scale,
     // WebKit on a Mac has no mobile viewport; touch still works.
     isMobile: touch && engine === chromium,
     hasTouch: touch,
