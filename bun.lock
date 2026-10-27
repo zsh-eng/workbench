@@ -417,6 +417,9 @@
         "react": ">=18",
       },
     },
+    "packages/file-batch": {
+      "name": "@workbench/file-batch",
+    },
     "packages/local-sync": {
       "name": "@zsh-eng/local-sync",
       "version": "0.3.0",
@@ -1603,6 +1606,8 @@
     "@workbench/background-activity": ["@workbench/background-activity@workspace:packages/background-activity"],
 
     "@workbench/elements": ["@workbench/elements@workspace:packages/elements"],
+
+    "@workbench/file-batch": ["@workbench/file-batch@workspace:packages/file-batch"],
 
     "@workbench/med": ["@workbench/med@workspace:apps/med"],
 
