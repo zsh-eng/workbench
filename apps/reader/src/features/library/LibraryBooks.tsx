@@ -107,6 +107,9 @@ function StillBookCover({
   living = false,
   className,
 }: BookCoverProps) {
+  // A cover that downloads while its placeholder shows fades in over it;
+  // one that is ready when the book first shows appears at once.
+  const [arrivesLater] = useState(() => !coverUrl);
   if (coverUrl && living) {
     const plain = (
       <BookCover book={book} coverUrl={coverUrl} className={className} />
@@ -123,13 +126,25 @@ function StillBookCover({
     );
   }
   if (coverUrl) {
+    const placeholder = arrivesLater ? book.cover?.blurHash : undefined;
     return (
-      <span className={cn("block overflow-hidden bg-secondary", className)}>
+      <span
+        className={cn("relative block overflow-hidden bg-secondary", className)}
+      >
+        {placeholder && (
+          <BlurHashCanvas
+            blurHash={placeholder}
+            className="absolute inset-0 size-full"
+          />
+        )}
         <img
           src={coverUrl}
           alt=""
           draggable={false}
-          className="image-outline pointer-events-none size-full object-cover select-none"
+          className={cn(
+            "image-outline pointer-events-none relative size-full object-cover select-none",
+            arrivesLater && "cover-arrives",
+          )}
         />
       </span>
     );
