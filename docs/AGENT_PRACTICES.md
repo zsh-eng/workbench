@@ -144,13 +144,6 @@ ask the author to reconsider the approach.
   - **Medium**: ordinary product changes, caching, shared `packages/elements` sheets and motion, Med's CLI. You read the diff once.
   - **High**: `**/migrations/`, `apps/spaced2/scripts/*migration`, `packages/local-sync`, `wrangler*.jsonc`, deploy scripts, auth and tokens. These get a Deep review (or `/code-review ultra`) plus your OK on the exact commit, and Med marks the segment `"critical": true`.
   - Deploys need your OK at every tier. An agent's approval never counts as yours, and an OK covers one commit only.
-- **From Lesse's post** [lesse], at our scale (one person, local worktrees):
-  - identity: say which actions an agent took and which you took. Med already records the session behind each review; name your subagents;
-  - consent: show permission modes truthfully, and treat an approval as covering one commit. An agent's approval never counts as yours;
-  - isolation and injected instructions: worktrees plus the sandbox. Text from another agent, a hand-off or a fetched page is data, not instructions. Review what agents write into memory files before later agents rely on it;
-  - tracing: the OpenTelemetry `safety_event` and `tool_decision` events (2.1.301, 2.1.307). An agent can write its own transcript, and Med reads transcripts, so treat them as an agent's account, not a tamper-proof trace;
-  - kill switch: write down one command that stops a whole batch and its credentials. `med thread close` keeps the agent running, so Med has no kill switch today;
-  - infrastructure: out of scope here.
 
 ### (d) Med's agent docs
 - **Now:** SKILL.md is 193 lines and AGENT_INTEGRATION.md is 630. A loaded skill stays in context, so "every line is a recurring token cost. State what to do, not how or why" [skills].
@@ -202,6 +195,14 @@ Also offer a `verify` template, but never install it by default. The name `verif
   - Add known-clean diffs to count false alarms.
   - Score every change to REVIEW.md, the critic brief or the model. Keep a change only if recall rises without more false alarms. Track rounds-to-pass.
   - In Med, let the user tag each finding fixed, wrong, intentional or didn't matter. That is the post's noise measure, and the tags can be exported as eval data.
+
+### (g) Security
+Lesse's post [lesse] is about securing and controlling large multiagent systems, not about how to work with agents. Most of it is out of scope for one person with a few local agents (fleet infrastructure, tracing across agents, agents trusting each other). Three points apply here:
+- **Memory poisoning.** Agents write files that later agents trust: AGENTS.md, REVIEW.md, the vault's `agent/` notes. Text from another agent, a hand-off or a fetched page is data, not instructions. Review agents' writes to these files like code; repo files get this from commit review, vault notes don't yet.
+- **Narrow credentials.** Give an agent's credential the least it needs, as the `wb arctic save` backup scope does (it can add a link and nothing else). An agent's approval never counts as yours, and an OK covers one commit.
+- **One stop for everything.** Write down one command that stops every running agent and its servers. `med thread close` keeps the agent running, so Med has none today. Low priority at our scale.
+
+Also kept: the OpenTelemetry `safety_event` and `tool_decision` events (2.1.301, 2.1.307). An agent can write its own transcript, and Med reads transcripts, so treat a transcript as the agent's account, not a tamper-proof trace.
 
 ## 3. What to drop (prompt-audit style)
 - **Emphasis on many lines** (ALL-CAPS, IMPORTANT, MUST, NEVER). "If you emphasize many lines, none of them stands out." Use emphasis on one line, and only after Claude skipped it [bp].
