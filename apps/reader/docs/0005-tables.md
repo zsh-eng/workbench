@@ -97,9 +97,11 @@ Design ideas and benchmarks):
   page or more empty; a split leaves at least two lines before the break.
   Rows joined by a `rowspan` stay together unless the group is taller than a
   page. A preceding `figcaption` is kept with the table.
-- **Too wide.** When min-content widths exceed the page, the table keeps
-  min-content widths and scrolls sideways inside its slice; a swipe that
-  starts in such a table scrolls it instead of turning the page.
+- **Too wide.** When min-content widths exceed the page, the table first
+  tries narrower cell padding, down to 2 px, and takes the widest that fits.
+  If none fits, it keeps min-content widths at full padding and scrolls
+  sideways inside its slice; a swipe that starts in such a table scrolls it
+  instead of turning the page.
 - **Render.** A real `<table>` with `table-layout: fixed`, `<col>` widths
   and row heights from the worker; cells render their lines as paragraphs do.
   Rules use theme variables, so dark mode and paper need nothing new.
@@ -133,8 +135,9 @@ Design ideas and benchmarks):
   lines, not tabs. Acceptable for a prototype.
 - **Cache rebuild.** Turning the switch rebuilds the body cache once per
   book (cell offsets). A shipped version would bump the cache version once.
-- **Rowspan.** Placed correctly; rows joined by a span are kept on one page.
-  No book in hand has one, so this path has only synthetic tests.
+- **Rowspan.** Placed correctly; rows joined by a span are kept on one page
+  unless the group is taller than a page. No book in hand has one, so this
+  path has only synthetic tests.
 
 ## Benchmark plan
 
@@ -231,10 +234,12 @@ books without tables are untouched. The costs that miss the bar grow with
 cell count: the first page of a very table-dense chapter and the worker's
 memory.
 
-1. Turn Grid on by default for chapters up to about 1,000 table cells
-   (the book's largest chapter holds 530), and keep Paragraph above
-   that until decoration and preparation are cheaper. The cut-off still
-   needs its own measurement.
+1. Turn Grid on by default for chapters up to about 700 table cells, and
+   keep Paragraph above that until decoration and preparation are cheaper.
+   The book's largest chapter holds 530 cells; the 1× specimen chapter
+   holds 717 and cost +20% against the +25% limit, so the cap sits at the
+   largest count measured to pass. Cells are a proxy: the first-page cost
+   also depends on the chapter's length.
 2. Before that, replace the cache-row flag with one cache version bump, and
    drop repeated headers from scroll mode.
 3. Next optimisations, in order of payoff: parse table cells off the main
@@ -256,8 +261,9 @@ to scroll comfortably.
   with the table. Canonical text is unchanged, so highlights, notes and
   search offsets are the same in both modes.
 - Layout (`shared/layout-table.ts`): column widths in whole pixels from
-  min- and max-content, cells laid out with the prose line breaker, rows
-  broken across pages as above. Each page gets one `TableSlice` with its
+  min- and max-content, narrower padding for a table that misses the page
+  by a little, cells laid out with the prose line breaker, rows broken
+  across pages as above. Each page gets one `TableSlice` with its
   rows and cells; `textSlicesOf` gives the cells to every path that reads
   page text (anchors, selection, notes, page-break selection, search).
 - Render (`PageSliceView.tsx`): a fixed-layout `<table>` per part with
@@ -292,7 +298,8 @@ to scroll comfortably.
 
 1. Default: Grid for everyone (with a cell cap), or opt-in under
    Appearance → Layout?
-2. Cell cap per chapter: about 1,000 cells, or measure a lower one?
+2. Cell cap per chapter: about 700 cells, or measure between 700 and
+   3,600 (the 5× specimen) to find a higher one?
 3. Very wide tables: keep sideways scrolling, or add the tap-to-open sheet
    (option C) for tables that overflow?
 4. Copy from a table: tab-separated rows, or leave cells as paragraphs?
