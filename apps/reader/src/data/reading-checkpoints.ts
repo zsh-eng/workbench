@@ -69,9 +69,10 @@ export async function getReadingCheckpointsForBook(
 export async function getLatestReadingCheckpoints(): Promise<
   Map<string, ReadingCheckpoint>
 > {
-  const checkpoints = await db.readingCheckpoints
-    .filter(isNotDeleted)
-    .toArray();
+  // One read of the table, not a cursor (see `getAllBooks`).
+  const checkpoints = (await db.readingCheckpoints.toArray()).filter(
+    isNotDeleted,
+  );
 
   const latestByBook = new Map<string, ReadingCheckpoint>();
   for (const checkpoint of checkpoints) {

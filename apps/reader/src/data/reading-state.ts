@@ -38,7 +38,8 @@ export async function getAllReadingStatuses(): Promise<
   Map<string, ReadingState["status"]>
 > {
   // Get all reading state entries, grouped by bookId, return latest per book
-  const allEntries = await db.readingState.filter(isNotDeleted).toArray();
+  // One read of the table, not a cursor (see `getAllBooks`).
+  const allEntries = (await db.readingState.toArray()).filter(isNotDeleted);
 
   // Group by bookId and find latest for each
   const latestByBook = new Map<string, StoredReadingState>();
