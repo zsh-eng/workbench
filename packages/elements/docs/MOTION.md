@@ -136,6 +136,90 @@ Residuals are about 0.1 pt. Medium rests at 393.6 pt, large at 47 pt.
 - At large the top edge does not rubber-band upward. A drag has about 25 pt
   of slop before the sheet follows.
 
+## iPad
+
+**What Apple says.** In regular width and height, an iPad app's sheet is a
+page or form sheet, centred over a dimmed page; detents are "designed for
+iPhone".
+
+- [HIG: Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets):
+  prefer the page or form sheet styles on iPad; each centres its content
+  over a dimmed background. People expect to swipe a sheet down to dismiss
+  it. Medium is about half of the fully expanded height.
+- [`formSheet`](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/formsheet):
+  centred in regular width and height, smaller than a page sheet, sized by
+  `preferredContentSize`, with part of the page always in view. In compact
+  width it is a phone's sheet; in compact height, full screen.
+- [`pageSheet`](https://developer.apple.com/documentation/uikit/uimodalpresentationstyle/pagesheet):
+  roughly a page, taller than wide, centred over a dimming layer; the same
+  fallbacks.
+- [`prefersPageSizing`](https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/prefersPageSizing)
+  (iOS 17): a sheet follows the readable width (page) by default, or
+  `preferredContentSize` (form).
+- SwiftUI's [`presentationSizing`](https://developer.apple.com/documentation/swiftui/presentationsizing):
+  [`.automatic`](https://developer.apple.com/documentation/swiftui/presentationsizing/automatic)
+  resolves to [`.form`](https://developer.apple.com/documentation/swiftui/presentationsizing/form),
+  "slightly less wide than `.page`", on iOS and iPadOS.
+- [`medium()`](<https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/detent/medium()>)
+  is about half the screen and inactive in compact height;
+  [`largestUndimmedDetentIdentifier`](https://developer.apple.com/documentation/uikit/uisheetpresentationcontroller/largestundimmeddetentidentifier)
+  is `nil` by default, so every detent dims.
+- [WWDC21 "Customize and resize sheets in UIKit"](https://developer.apple.com/videos/play/wwdc2021/10063/):
+  on iPad a popover that adapts to a sheet in compact width is often wanted
+  instead of a sheet with detents. Reader (from 768 px) and Arctic (above
+  720 px) already do this: their tools are a sidebar, popovers and menus.
+
+**What it does.** Measured on the iPadOS 27 simulator, iPad Air 11-inch
+(820 × 1180 pt) and iPad Pro 13-inch (1032 × 1376 pt), portrait, with the
+probe app:
+
+| Sheet               | 820 pt wide                               | 1032 pt wide             |
+| ------------------- | ----------------------------------------- | ------------------------ |
+| Form sheet          | 580 × 660, centred, every corner round    | the same                 |
+| Page sheet          | full width, top 32 pt down                | 928 wide, floating       |
+| Form sheet, detents | 580 wide on the bottom edge, lifted 20 pt | the same                 |
+| Page sheet, detents | full width, 8 pt from the edges           | page width, lifted 20 pt |
+
+The page under every one is dimmed, about 20%. A form sheet with a field
+in focus moves to the centre of the space above the keyboard; a sheet with
+detents goes to large.
+
+**What the web sheets do.** On a touch screen at least 640 × 600
+(`SHEET_FORM_QUERY`, `sheetPlacement` in `src/sheet-body.tsx`):
+
+- A sheet without detents is a form sheet: centred, 580 px wide at most,
+  every corner round, over the dimmed page. It stays centred above the
+  keyboard (React Aria's `--sheet-scroll-padding-y`).
+- A sheet with detents stays on the bottom edge at 580 px, lifted 20 px,
+  floating at every height; at full height its top is 32 px down. It keeps
+  its detents, so the page above stays in view.
+- Every sheet leaves by a swipe down, as on a phone.
+- A phone in either orientation, a window narrower than 640 px beside
+  another app, and a desktop without touch keep the phone sheet. The layout
+  follows the window as it turns or is resized, and an open sheet keeps its
+  detent or full view (`holdRestOnResize`): WebKit otherwise snaps it to
+  whichever is nearest its old offset.
+
+`sheet-ipad.spec.ts` (Reader, WebKit with touch) covers 820 × 1180,
+1180 × 820, 1024 × 1366, 1366 × 1024, a phone, a desktop, turning, and
+widths of 500 and 678 px; Arctic's `ipad.spec.ts` its own sheets.
+
+**Not confirmed.**
+
+- The 640 px line. A page cannot read UIKit's size classes, and
+  [Layout](https://developer.apple.com/design/human-interface-guidelines/layout)
+  no longer lists them per device or Split View width: it says the system
+  sets them by device, window and multitasking, and to lay out by them, not
+  by device or orientation. The simulator would not turn or split here, so
+  landscape, Split View and Stage Manager widths were not measured. 640
+  keeps every phone (up to 440 pt wide) and a third of an iPad below it,
+  and half of a 13-inch iPad in landscape (678 pt) above it.
+- The dimming on the web stays the app's own; only its strength was read
+  from the simulator.
+- A real iPad: the tests run Playwright's WebKit with touch, which replays
+  no touch drag (a trackpad's scroll stands in for the swipe) and reports
+  no touch points (the tests report five, as iPadOS Safari does).
+
 ## Telegram for iOS
 
 From the source (`TelegramUI` and `Display`, revision `fb0e62ba`):
