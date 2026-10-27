@@ -1,5 +1,7 @@
+import { downloadFiles } from "@workbench/file-batch";
 import {
   SyncClient,
+  SyncHttpError,
   createNamespacedHttpClient,
   createSyncClientStateStore,
   createSyncController,
@@ -251,9 +253,47 @@ export class Session {
     return removed.length;
   }
 
-  /** Downloads a copy into this browser for offline reading, without holding it in memory. */
-  async keepFile(id: string, signal?: AbortSignal) {
-    await this.download(id, signal);
+  /**
+   * Downloads copies into this browser for offline reading, many in each
+   * request (packages/file-batch), and keeps each as it arrives.
+   */
+  keepFiles(
+    ids: string[],
+    options: {
+      signal?: AbortSignal;
+      onKept?(id: string): void;
+      onFailed?(id: string): void;
+    } = {},
+  ) {
+    // Pass every answer on; the downloader reads its status.
+    const answer = (error: unknown) =>
+      error instanceof SyncHttpError && error.response
+        ? error.response
+        : Promise.reject(error);
+    const { request } = this.channels.content;
+    const decoder = new TextDecoder();
+    return downloadFiles({
+      ids,
+      signal: options.signal,
+      fetchBatch: (batch, signal) =>
+        request(
+          "/files/batch",
+          {
+            method: "POST",
+            body: JSON.stringify({ ids: batch }),
+            headers: { "Content-Type": "application/json" },
+            signal,
+          },
+          false,
+        ).catch(answer),
+      fetchOne: (id, signal) =>
+        request(`/files/${id}`, { signal }, false).catch(answer),
+      store: async (id, bytes) => {
+        await this.storeFile(id, decoder.decode(bytes));
+        options.onKept?.(id);
+      },
+      onFailed: options.onFailed,
+    });
   }
 
   /** Uploads cleaned HTML; the server checks its hash, type and size. */
@@ -278,10 +318,10 @@ export class Session {
     return { id, bytes: bytes.byteLength };
   }
 
-  private async download(id: string, signal?: AbortSignal) {
+  private async download(id: string) {
     const response = await this.channels.content.request(
       `/files/${id}`,
-      { signal },
+      {},
       false,
     );
     const html = await response.text();

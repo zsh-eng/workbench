@@ -20,6 +20,7 @@
     "@workbench/activity-time": "workspace:*",
     "@workbench/arctic-links": "workspace:*",
     "@workbench/elements": "workspace:*",
+    "@workbench/file-batch": "workspace:*",
     "@zsh-eng/local-sync": "workspace:*",
     "defuddle": "0.19.4",
     "dompurify": "3.4.15",

@@ -5,7 +5,7 @@ import type { Session } from "./sync/session";
 
 /**
  * Keeps saved articles' text in this browser for offline reading. Opened
- * articles are kept anyway; this downloads the rest, four at a time.
+ * articles are kept anyway; this downloads the rest, many in each request.
  */
 type Offline = {
   running: boolean;
@@ -58,19 +58,31 @@ export async function downloadAll(session: Session, articles: Article[]) {
   void navigator.storage?.persist?.().catch(() => false);
   try {
     const { kept, files } = await countKept(session, articles);
-    const queue = files.filter((file) => !kept.has(file.id));
-    const worker = async () => {
-      for (let file = queue.shift(); file; file = queue.shift()) {
-        if (signal.aborted) return;
-        try {
-          await session.keepFile(file.id, signal);
-          set({ kept: state.kept + 1, bytes: state.bytes + file.bytes });
-        } catch {
-          if (!signal.aborted) set({ failed: state.failed + 1 });
-        }
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
+    const sizes = new Map(
+      files.filter((file) => !kept.has(file.id)).map((f) => [f.id, f.bytes]),
+    );
+    let settled = 0;
+    await session
+      .keepFiles([...sizes.keys()], {
+        signal,
+        onKept: (id) => {
+          settled++;
+          set({
+            kept: state.kept + 1,
+            bytes: state.bytes + (sizes.get(id) ?? 0),
+          });
+        },
+        onFailed: () => {
+          settled++;
+          set({ failed: state.failed + 1 });
+        },
+      })
+      .catch(() => {
+        // Signed out or no space: the rest could not download. Stop is not
+        // a failure.
+        if (!signal.aborted)
+          set({ failed: state.failed + sizes.size - settled });
+      });
   } finally {
     set({ running: false });
   }

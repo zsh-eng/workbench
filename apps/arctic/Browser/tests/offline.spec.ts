@@ -18,10 +18,17 @@ test("downloads saved text for reading offline", async ({ page, context }) => {
     );
 
   await page.goto("/settings");
+  // Both texts come in one request (packages/file-batch).
+  const files: string[] = [];
+  page.on("request", (request) => {
+    if (/\/api\/apps\/arctic-content\/files\//.test(request.url()))
+      files.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
   await page.getByRole("button", { name: "Download 2 texts" }).click();
   await expect(page.locator(".offline-status")).toContainText(
     "2 of 2 texts on this device",
   );
+  expect(files).toEqual(["POST /api/apps/arctic-content/files/batch"]);
   await expect(
     page.getByRole("button", { name: "All text is on this device" }),
   ).toBeDisabled();
