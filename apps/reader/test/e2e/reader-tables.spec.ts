@@ -58,6 +58,37 @@ function nearMissTables(): string {
   ).join("");
 }
 
+/** 200 rows of three cells, each cell's text naming its row: `r12 name`. */
+function numberedTable(): string {
+  const rows = Array.from(
+    { length: 200 },
+    (_, row) =>
+      `<tr> <td>r${row} name</td> <td>r${row} size</td> <td>r${row} note</td> </tr>`,
+  ).join("\n");
+  return `<table><thead><tr> <th>Name</th> <th>Size</th> <th>Note</th> </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/** The numbered rows the current spread shows, from `numberedTable`. */
+async function shownRows(page: Page): Promise<number[]> {
+  const text = await page.locator(CURRENT_SPREAD).innerText();
+  return [
+    ...new Set([...text.matchAll(/\br(\d+)\b/g)].map((match) => +match[1]!)),
+  ];
+}
+
+/** Chooses Debug → Tables `mode`, which opens the Reader again. */
+async function chooseTables(page: Page, mode: "Grid" | "Paragraph") {
+  await showPhoneChrome(page);
+  const settings = await openReaderTool(page, "Appearance", "Appearance");
+  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await waitForSheetToRest(settings);
+  await Promise.all([
+    page.waitForEvent("load"),
+    settings.getByRole("button", { name: mode, exact: true }).tap(),
+  ]);
+  await waitForReaderReady(page);
+}
+
 /**
  * The sample book with `tables` opening chapter one: by default a 49-row
  * table and a wide one.
@@ -441,6 +472,38 @@ test("without Debug mode, tables read as grids in a chapter up to the cell limit
   await expect(page.locator(TABLE)).toHaveCount(0);
 });
 
+test("the reading place stays when tables change between Grid and Paragraph", async ({
+  page,
+}) => {
+  test.slow();
+  await useTables(page, "grid");
+  await openTableChapter(
+    page,
+    "tables-place",
+    `<p>A numbered table follows.</p>${numberedTable()}`,
+  );
+  await turnToTable(page);
+  for (let turn = 0; turn < 2; turn++) await nextSpread(page);
+  const gridRows = await shownRows(page);
+  expect(Math.min(...gridRows)).toBeGreaterThan(20);
+
+  // The paragraph opens on the page that holds the place, not at its start.
+  await chooseTables(page, "Paragraph");
+  await expect(page.locator(TABLE)).toHaveCount(0);
+  const paragraphRows = await shownRows(page);
+  expect(paragraphRows.filter((row) => gridRows.includes(row))).not.toEqual([]);
+
+  // A place read in the paragraph opens in its cell, not at the grid's top.
+  await nextSpread(page);
+  const laterRows = await shownRows(page);
+  expect(Math.min(...laterRows)).toBeGreaterThan(Math.max(...gridRows));
+  await chooseTables(page, "Grid");
+  await expect(page.locator(TABLE).first()).toBeVisible();
+  expect(
+    (await shownRows(page)).filter((row) => laterRows.includes(row)),
+  ).not.toEqual([]);
+});
+
 test("with tables off, a table reads as one paragraph until Grid is chosen", async ({
   page,
 }) => {
@@ -465,15 +528,7 @@ test("with tables off, a table reads as one paragraph until Grid is chosen", asy
   expect(await flattened.textContent()).toMatch(/^\s*Name\s*\S/);
 
   // Appearance → Layout → Tables opens the Reader again with grids.
-  await showPhoneChrome(page);
-  const settings = await openReaderTool(page, "Appearance", "Appearance");
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
-  await waitForSheetToRest(settings);
-  await Promise.all([
-    page.waitForEvent("load"),
-    settings.getByRole("button", { name: "Grid", exact: true }).tap(),
-  ]);
-  await waitForReaderReady(page);
+  await chooseTables(page, "Grid");
   await turnToTable(page);
   await expect(page.locator(`${TABLE} thead th`).first()).toHaveText("Name");
 });

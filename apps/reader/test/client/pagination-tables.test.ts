@@ -5,6 +5,7 @@ import {
   prepareBlocks,
   textSlicesOf,
   type Block,
+  type ContentAnchor,
   type FontConfig,
   type LayoutTheme,
   type Page,
@@ -20,6 +21,7 @@ import {
 } from "@/features/reader/scroll/scroll-model";
 import {
   pickAnchorForPage,
+  readTableAnchor,
   resolveAnchorToPage,
 } from "@/lib/pagination-v2/engine/anchors";
 import { layoutChapterColumn } from "@/lib/pagination-v2/shared/layout-column";
@@ -28,6 +30,7 @@ import {
   resolveCanonicalRangeText,
   resolveTextAnchorToCanonicalOffset,
 } from "@/lib/pagination-v2/engine/highlight-selection";
+import type { PreparedTextBlock } from "@/lib/pagination-v2/shared/types";
 import type { Highlight } from "@/types/highlight";
 import { describe, expect, it } from "vitest";
 
@@ -506,5 +509,89 @@ describe("copying from a table", () => {
     expect(copy(CHAPTER, "Before", "Latency")).toBe(
       "Before the table.\n\nTable 1 Sample latencies\n\nName\tLatency",
     );
+  });
+});
+
+describe("a reading place across Grid and Paragraph", () => {
+  // Tall enough to fill pages as one paragraph too.
+  const chapter = `<body><p>Before the table.</p>${tableHtml(150)}<p>After the table.</p></body>`;
+  const read = (tables: boolean) => {
+    const { blocks, canonicalText } = parse(chapter, tables);
+    const prepared = prepareBlocks(blocks, FONT_CONFIG);
+    const { pages } = layoutPages(prepared, 360, 400, LAYOUT_THEME);
+    const pageOf = (offset: number) =>
+      resolveAnchorToPage(
+        [pages],
+        canonicalOffsetToContentAnchor({
+          chapterIndex: 0,
+          offset,
+          chapterBlocks: blocks,
+          preparedChapter: prepared,
+          chapterCanonicalText: canonicalText,
+        })!,
+      )!.localPageIndex;
+    const offsetOf = (anchor: ContentAnchor) =>
+      resolveTextAnchorToCanonicalOffset({
+        anchor,
+        chapterBlocks: blocks,
+        preparedChapter: prepared,
+        chapterCanonicalText: canonicalText,
+      });
+    const translate = (anchor: ContentAnchor) =>
+      readTableAnchor(
+        anchor,
+        blocks,
+        prepared,
+        (paragraph) =>
+          prepareBlocks([paragraph], FONT_CONFIG)[0] as PreparedTextBlock,
+      );
+    return { blocks, canonicalText, pages, pageOf, offsetOf, translate };
+  };
+  const grid = read(true);
+  const flat = read(false);
+  const table = grid.blocks.find((block) => block.type === "table")!.id;
+  /** A page well inside the table, past its first. */
+  const tablePage = (pages: Page[], isTable: (page: Page) => boolean) =>
+    pages.findIndex(isTable) + 3;
+
+  it("numbers a paragraph's cells where the grid starts them", () => {
+    const paragraph = flat.blocks.find((block) => block.id === table);
+    expect(paragraph?.type === "text" && paragraph.tableCellStarts).toEqual(
+      Array.from(
+        { length: 151 * 3 },
+        (_, n) =>
+          grid.canonicalText.blockStarts.get(`${table}-c${n}`)! -
+          grid.canonicalText.blockStarts.get(table)!,
+      ),
+    );
+  });
+
+  it("opens a place in a cell at its text in the paragraph", () => {
+    const page = tablePage(grid.pages, (page) =>
+      page.slices.some((slice) => slice.type === "table"),
+    );
+    const anchor = pickAnchorForPage([grid.pages], 0, page);
+    expect(anchor.blockId).toMatch(new RegExp(`^${table}-c\\d+$`));
+    const cellStart = grid.canonicalText.blockStarts.get(anchor.blockId)!;
+    const opened = resolveAnchorToPage([flat.pages], flat.translate(anchor))!;
+    expect(opened.localPageIndex).toBeGreaterThan(0);
+    expect(opened.localPageIndex).toBe(flat.pageOf(cellStart));
+  });
+
+  it("opens a place in the paragraph at the cell that holds it", () => {
+    const page = tablePage(flat.pages, (page) =>
+      page.slices.some((slice) => slice.blockId === table),
+    );
+    const anchor = pickAnchorForPage([flat.pages], 0, page);
+    expect(anchor.blockId).toBe(table);
+    const offset = flat.offsetOf(anchor)!;
+    const translated = grid.translate(anchor);
+    expect(translated.blockId).toMatch(new RegExp(`^${table}-c\\d+$`));
+    // The cell's cursor is at or just before the place.
+    expect(offset - grid.offsetOf(translated)!).toBeGreaterThanOrEqual(0);
+    expect(offset - grid.offsetOf(translated)!).toBeLessThan(20);
+    const opened = resolveAnchorToPage([grid.pages], translated)!;
+    expect(opened.localPageIndex).toBeGreaterThan(grid.pageOf(0));
+    expect(opened.localPageIndex).toBe(grid.pageOf(offset));
   });
 });

@@ -44,7 +44,7 @@ function getPersistedRunText(blockTag: TextBlock["tag"], run: TextRun): string {
   return !run.hardBreak || blockTag === "pre" ? run.text : "";
 }
 
-function findPreparedTextBlock(
+export function findPreparedTextBlock(
   preparedChapter: PreparedBlock[],
   blockId: string,
 ): PreparedTextBlock | null {
@@ -191,7 +191,8 @@ function resolvePreparedBoundaryToSourceOffset(options: {
   return mappedBoundary ?? 0;
 }
 
-function resolveAnchorToBlockOffset(
+/** How many canonical characters into its text block a cursor is. */
+export function resolveAnchorToBlockOffset(
   block: TextBlock,
   preparedBlock: PreparedTextBlock,
   cursor: TextCursorOffset,
@@ -508,6 +509,22 @@ function blockOffsetToTextCursor(
     } else high = middle - 1;
   }
   return result;
+}
+
+/** The last cursor at or before `blockOffset` characters into a text block. */
+export function blockOffsetToCursor(
+  block: TextBlock,
+  prepared: PreparedTextBlock,
+  blockOffset: number,
+): TextCursorOffset | null {
+  return (
+    blockOffsetToTextCursor(
+      block,
+      prepared,
+      getTextCursorBoundaries(prepared),
+      blockOffset,
+    ) ?? null
+  );
 }
 
 export function canonicalOffsetToContentAnchor(options: {

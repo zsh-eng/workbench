@@ -35,6 +35,7 @@ import type {
 import { DEFAULT_SPREAD_CONFIG } from "../types";
 import {
   pickAnchorForPage,
+  readTableAnchor,
   resolveAnchorToGlobalPage,
   resolveAnchorToPage,
   resolveTargetToAnchor,
@@ -224,7 +225,7 @@ export class PaginationEngine {
               resolveAnchorToGlobalPage(
                 this.pagesByChapter,
                 this.chapterPageOffsets,
-                anchor,
+                this.readAnchor(anchor),
               ),
             ]),
           );
@@ -373,6 +374,7 @@ export class PaginationEngine {
           initialHighlightId,
         ) ?? undefined;
     }
+    if (initialAnchor) initialAnchor = this.readAnchor(initialAnchor);
     if (initialAnchor) {
       const resolved = resolveAnchorToPage(this.pagesByChapter, initialAnchor);
       this.anchor = resolved
@@ -715,13 +717,14 @@ export class PaginationEngine {
     this.emitPageUnavailable(intent);
   }
 
-  goToAnchor(intent: SpreadIntent, anchor: ContentAnchor): void {
+  goToAnchor(intent: SpreadIntent, saved: ContentAnchor): void {
     if (
-      this.waitForChapter(intent, anchor.chapterIndex, () =>
-        this.goToAnchor(intent, anchor),
+      this.waitForChapter(intent, saved.chapterIndex, () =>
+        this.goToAnchor(intent, saved),
       )
     )
       return;
+    const anchor = this.readAnchor(saved);
     const pages = this.pagesByChapter[anchor.chapterIndex];
     if (
       !pages?.some((page) =>
@@ -903,6 +906,26 @@ export class PaginationEngine {
         (diag): diag is PaginationChapterDiagnostics => diag !== null,
       ),
     });
+  }
+
+  /** A saved anchor in the chapter's blocks now; see `readTableAnchor`. */
+  private readAnchor(anchor: ContentAnchor): ContentAnchor {
+    return readTableAnchor(
+      anchor,
+      this.blocksByChapter[anchor.chapterIndex] ?? null,
+      this.preparedByChapter[anchor.chapterIndex] ?? null,
+      (paragraph) => {
+        const [prepared] = prepareBlocks(
+          [paragraph],
+          this.paginationConfig.fontConfig,
+          {
+            publisherBookStylingEnabled:
+              this.paginationConfig.publisherBookStylingEnabled ?? false,
+          },
+        );
+        return prepared?.type === "text" ? prepared : null;
+      },
+    );
   }
 
   private prepareAndLayoutChapter(

@@ -484,7 +484,11 @@ function extractInlineNode(
   }
   if (tag === "code" || tag === "kbd" || tag === "samp") next.isCode = true;
 
-  const result = extractInlineNodes(Array.from(node.childNodes), next, targetIds);
+  const result = extractInlineNodes(
+    Array.from(node.childNodes),
+    next,
+    targetIds,
+  );
   if (!publisherInlineStyle?.displayBlock) return result;
 
   return {
@@ -589,18 +593,16 @@ function createTextBlock(
   bookPageBreakHintResolver: BookPageBreakHintResolver | null = null,
 ): TextBlock | null {
   const publisherStyle = publisherStyleResolver?.resolveTextStyle(element, tag);
-  const pageBreakHints = bookPageBreakHintResolver?.resolvePageBreakHints(element);
+  const pageBreakHints =
+    bookPageBreakHintResolver?.resolvePageBreakHints(element);
   const inlineStylePolicy = createPublisherInlineStylePolicy(
     publisherStyle,
     publisherStyleResolver,
   );
-  const result = extractInlineNodes(
-    Array.from(element.childNodes),
-    {
-      ...DEFAULT_CONTEXT,
-      ...(inlineStylePolicy ? { inlineStylePolicy } : {}),
-    },
-  );
+  const result = extractInlineNodes(Array.from(element.childNodes), {
+    ...DEFAULT_CONTEXT,
+    ...(inlineStylePolicy ? { inlineStylePolicy } : {}),
+  });
   const hasRenderableText = result.runs.some(
     (run) => run.hardBreak === true || run.text.trim().length > 0,
   );
@@ -737,6 +739,32 @@ function attachTargetsToLastBlock(
 
 function getNodeTextLength(node: Node): number {
   return node.textContent?.length ?? 0;
+}
+
+/**
+ * Where each cell of a table starts in the table's text, in the order
+ * `parseTable` numbers cells: every `td` and `th` in a row, empty ones too.
+ */
+function tableCellStarts(table: Element): number[] {
+  const starts: number[] = [];
+  let offset = 0;
+  const visit = (node: Node, inRow: boolean) => {
+    const tag = node instanceof Element ? node.tagName.toLowerCase() : null;
+    if (
+      tag === null ||
+      IGNORE_TAGS.has(tag) ||
+      tag === "caption" ||
+      ((tag === "td" || tag === "th") && inRow)
+    ) {
+      if (tag === "td" || tag === "th") starts.push(offset);
+      offset += getNodeTextLength(node);
+      return;
+    }
+    for (const child of Array.from(node.childNodes))
+      visit(child, inRow || tag === "tr");
+  };
+  for (const child of Array.from(table.childNodes)) visit(child, false);
+  return starts;
 }
 
 function recordBlockStart(
@@ -959,15 +987,10 @@ function parseChapterHtmlInternal(
     }
 
     if (tag === "table") {
-      const p = document.createElement("p");
-      p.textContent = node.textContent;
-      const block = createTextBlock(
-        p,
-        "p",
+      const block = createTableParagraph(
+        node,
         `text-${context.counter.value++}`,
         targetIds,
-        context.publisherStyleResolver,
-        context.bookPageBreakHintResolver,
       );
       if (block) {
         attachPageBreakHintsToBlock(block, pageBreakHints);
@@ -994,6 +1017,26 @@ function parseChapterHtmlInternal(
     }
 
     return { blocks: [], remainingTargets: childrenResult.remainingTargets };
+  }
+
+  /** A table as one paragraph of its text, which keeps where its cells start. */
+  function createTableParagraph(
+    table: Element,
+    id: string,
+    targetIds: string[],
+  ): TextBlock | null {
+    const p = document.createElement("p");
+    p.textContent = table.textContent;
+    const block = createTextBlock(
+      p,
+      "p",
+      id,
+      targetIds,
+      context.publisherStyleResolver,
+      context.bookPageBreakHintResolver,
+    );
+    if (block) block.tableCellStarts = tableCellStarts(table);
+    return block;
   }
 
   /**
@@ -1108,12 +1151,14 @@ function parseChapterHtmlInternal(
     }
 
     recordBlockStart(context, tableId, blockStart);
+    const paragraph = createTableParagraph(table, tableId, []);
     blocks.push({
       type: "table",
       id: tableId,
       ...(targetIds.length > 0 ? { targetIds: [...targetIds] } : {}),
       ...(pageBreakHints ? { pageBreakHints: { ...pageBreakHints } } : {}),
       rows,
+      ...(paragraph ? { paragraph } : {}),
     });
     blocks.push(...cellBlocks);
     return { blocks, remainingTargets: [] };
