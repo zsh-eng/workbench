@@ -1,6 +1,5 @@
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import {
-  prepareBlocks,
   resolveCanonicalRangeText,
   resolveContentAnchorRangeToHighlight,
   resolveDomEndpointToContentAnchor,
@@ -33,6 +32,7 @@ import {
   TOUCH_TAP_SELECTION_SUPPRESSION_MS,
 } from "./reader-interaction-events";
 import { selectParagraph } from "../paragraph-selection";
+import { preparedChapter } from "../prepared-chapter";
 import { getSpreadContentKey } from "../spread-identity";
 import type { ReaderSessionChapterAccess } from "./use-reader-session";
 
@@ -141,9 +141,7 @@ function buildPreparedByVisibleChapter(
 
     const chapterBlocks = chapterAccess.getBlocks(chapterIndex);
     preparedByChapter[chapterIndex] = chapterBlocks
-      ? prepareBlocks(chapterBlocks, fontConfig, {
-          publisherBookStylingEnabled,
-        })
+      ? preparedChapter(chapterBlocks, fontConfig, publisherBookStylingEnabled)
       : null;
   }
 
