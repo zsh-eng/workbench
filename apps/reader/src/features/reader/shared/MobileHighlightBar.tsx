@@ -20,6 +20,8 @@ export function MobileHighlightBar({
     <div
       role="group"
       aria-label="Highlight colors"
+      // A press here reads the selection for the colour (useReaderAnnotations).
+      data-selection-tools=""
       className="flex items-center gap-3"
     >
       {HIGHLIGHT_COLORS.map((color) => {

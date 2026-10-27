@@ -7,10 +7,10 @@ import type {
   ResolvedSpread,
   TextCursorOffset,
 } from "@/lib/pagination-v2";
-import { prepareBlocks } from "@/lib/pagination-v2";
 import { resolveTextAnchorToCanonicalOffset } from "@/lib/pagination-v2/engine/highlight-selection";
 import { useEffect, useEffectEvent, useState, type RefObject } from "react";
 import type { ReaderSessionChapterAccess } from "../hooks/use-reader-session";
+import { preparedChapter } from "../prepared-chapter";
 import {
   findPageBreakContinuation,
   type PageBreakContinuation,
@@ -57,26 +57,6 @@ export interface ResolvedSelectionRange {
   chapterIndex: number;
   startOffset: number;
   endOffset: number;
-}
-
-const preparedCache = new WeakMap<
-  Block[],
-  { key: string; prepared: PreparedBlock[] }
->();
-
-function preparedChapter(
-  blocks: Block[],
-  fontConfig: FontConfig,
-  publisherBookStylingEnabled: boolean,
-): PreparedBlock[] {
-  const key = `${JSON.stringify(fontConfig)}:${publisherBookStylingEnabled}`;
-  const cached = preparedCache.get(blocks);
-  if (cached?.key === key) return cached.prepared;
-  const prepared = prepareBlocks(blocks, fontConfig, {
-    publisherBookStylingEnabled,
-  });
-  preparedCache.set(blocks, { key, prepared });
-  return prepared;
 }
 
 const blockRangesCache = new WeakMap<ChapterCanonicalText, TextBlockRange[]>();

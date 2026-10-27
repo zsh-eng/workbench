@@ -54,6 +54,11 @@ screenshots, clips and timings, use the agent kit
 ([packages/agent-kit](../../packages/agent-kit/README.md)) with the setup
 modules in `test/e2e/kit/`.
 
+Most specs run in Chromium. The `webkit-iphone` project also runs the specs
+it names in WebKit as an iPhone; such a spec gives each test a browser
+profile, as WebKit keeps no Blob in IndexedDB without one
+(`selection-actions.spec.ts`).
+
 ## Local real data
 
 To see the Reader with your own library, run:

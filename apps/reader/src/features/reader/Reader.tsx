@@ -174,7 +174,7 @@ export function Reader() {
     activeHighlightData,
     isCreatingHighlight,
     creationPosition,
-    creationText,
+    readSelectionCopyText,
     activeHighlightCopyText,
     selectColor,
     closeCreation,
@@ -774,8 +774,8 @@ export function Reader() {
                             dock: selectAcross.islandDock,
                             highlightId: activeHighlightData?.id,
                             copyText: activeHighlightData
-                              ? activeHighlightCopyText
-                              : creationText,
+                              ? () => activeHighlightCopyText
+                              : readSelectionCopyText,
                             tools: (
                               <HighlightToolbarContainer
                                 placement="island"
@@ -783,7 +783,7 @@ export function Reader() {
                                 highlights={sessionState.highlights}
                                 isCreatingHighlight={isCreatingHighlight}
                                 creationPosition={creationPosition}
-                                creationText={creationText}
+                                creationCopyText={readSelectionCopyText}
                                 onCreateColorSelect={(color) => {
                                   const highlight = highlightSelection(color);
                                   if (highlight && noteViewportHeight !== null)
@@ -961,7 +961,7 @@ export function Reader() {
                         isCreatingHighlight && !selectAcross.handingOver
                       }
                       creationPosition={creationPosition}
-                      creationText={creationText}
+                      creationCopyText={readSelectionCopyText}
                       activeHighlightCopyText={activeHighlightCopyText}
                       onCreateColorSelect={highlightSelection}
                       onCreateClose={closeCreation}

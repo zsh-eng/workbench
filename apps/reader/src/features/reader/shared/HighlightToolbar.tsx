@@ -25,7 +25,8 @@ interface HighlightToolbarProps {
   currentColor?: AnnotationColor;
   onDelete?: () => void;
   onAddNote?: () => void;
-  textToCopy?: string;
+  /** The passage as Copy writes it, read at the tap. Copy shows with it. */
+  textToCopy?: () => string;
   /** Called when user submits a note (creates invisible annotation + note) */
   onNoteSubmit?: (content: string) => void;
 }
@@ -46,7 +47,7 @@ export function HighlightToolbar({
   const { copied, copy } = useCopyFeedback("Could not copy highlight.");
   const inputRef = useRef<HTMLInputElement>(null);
   const isBareDesktopPicker = !isMobile && !onNoteSubmit;
-  const hasCopyAction = Boolean(textToCopy?.trim());
+  const hasCopyAction = Boolean(textToCopy);
 
   // Calculate position directly to avoid layout thrashing/jumping
   // Vertical layout: colors on top, input bar below
@@ -84,7 +85,8 @@ export function HighlightToolbar({
   const opensBelowSelection = y > position.y;
 
   const handleCopy = () => {
-    if (textToCopy) copy(textToCopy);
+    const text = textToCopy?.();
+    if (text) copy(text);
   };
 
   // Close toolbar when clicking outside
@@ -156,6 +158,8 @@ export function HighlightToolbar({
 
   return (
     <motion.div
+      // A press here reads the selection for the action (useReaderAnnotations).
+      data-selection-tools=""
       className={cn(
         "highlight-toolbar fixed z-50 flex flex-col gap-2",
         isBareDesktopPicker

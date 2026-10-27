@@ -1,6 +1,5 @@
 import type { AnnotationColor } from "@/lib/highlight-constants";
 import {
-  prepareBlocks,
   resolveCanonicalRangeText,
   resolveContentAnchorRangeToHighlight,
   resolveDomEndpointToContentAnchor,
@@ -17,7 +16,6 @@ import {
 } from "@/types/reader.types";
 import {
   createHighlightInteractionManager,
-  getSelectionPosition,
   type HighlightInteractionManager,
 } from "@zsh-eng/text-highlighter";
 import {
@@ -34,6 +32,7 @@ import {
   TOUCH_TAP_SELECTION_SUPPRESSION_MS,
 } from "./reader-interaction-events";
 import { selectParagraph } from "../paragraph-selection";
+import { preparedChapter } from "../prepared-chapter";
 import { getSpreadContentKey } from "../spread-identity";
 import type { ReaderSessionChapterAccess } from "./use-reader-session";
 
@@ -88,15 +87,20 @@ interface UseReaderAnnotationsOptions {
 }
 
 interface UseReaderAnnotationsResult {
+  /** The selection as a note's passage, read as a tool does (see below). */
   captureSelectionNote: () => Highlight | null;
   state: ReaderAnnotationState;
   activeHighlight: ActiveHighlightState | null;
   activeHighlightData: Highlight | null;
   isCreatingHighlight: boolean;
+  /** Where the selection was when the Reader last read it: for placing the
+   * tools only. */
   creationPosition: { x: number; y: number; bottom?: number };
-  creationText: string;
+  /** The selection as Copy writes it, read as a tool does (see below). */
+  readSelectionCopyText: () => string;
   /** The selected highlight's text as the toolbar copies it. */
   activeHighlightCopyText: string;
+  /** Highlights the selection, read as a tool does (see below). */
   selectColor: (color: AnnotationColor) => Highlight | undefined;
   closeCreation: () => void;
   clearActiveHighlight: () => void;
@@ -112,6 +116,13 @@ interface UseReaderAnnotationsResult {
 
 function clearDomSelection(): void {
   window.getSelection()?.removeAllRanges();
+}
+
+/** The page's selection as it is now, or null when nothing is selected. */
+function selectedRange(): Range | null {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || selection.isCollapsed) return null;
+  return selection.getRangeAt(0);
 }
 
 function buildPreparedByVisibleChapter(
@@ -130,28 +141,11 @@ function buildPreparedByVisibleChapter(
 
     const chapterBlocks = chapterAccess.getBlocks(chapterIndex);
     preparedByChapter[chapterIndex] = chapterBlocks
-      ? prepareBlocks(chapterBlocks, fontConfig, {
-          publisherBookStylingEnabled,
-        })
+      ? preparedChapter(chapterBlocks, fontConfig, publisherBookStylingEnabled)
       : null;
   }
 
   return preparedByChapter;
-}
-
-function isSelectionInsideContainer(
-  selection: Selection,
-  container: HTMLDivElement,
-): boolean {
-  const anchorNode = selection.anchorNode;
-  const focusNode = selection.focusNode;
-
-  return (
-    !!anchorNode &&
-    !!focusNode &&
-    container.contains(anchorNode) &&
-    container.contains(focusNode)
-  );
 }
 
 function getVisibleSpineItemIds(
@@ -196,7 +190,7 @@ function buildHighlightFromDraft(
 }
 
 function resolvePendingHighlightDraft(options: {
-  selection: Selection;
+  range: Range;
   spread: ResolvedSpread;
   stageContentRef: RefObject<HTMLDivElement | null>;
   chapterEntries: ChapterEntry[];
@@ -204,7 +198,7 @@ function resolvePendingHighlightDraft(options: {
   preparedByChapter: (PreparedBlock[] | null)[];
 }): PendingHighlightDraft | null {
   const {
-    selection,
+    range,
     spread,
     stageContentRef,
     chapterEntries,
@@ -214,16 +208,18 @@ function resolvePendingHighlightDraft(options: {
 
   const container = stageContentRef.current;
   if (!container) return null;
-  if (!selection.rangeCount || selection.isCollapsed) return null;
-  if (!selection.toString().trim()) return null;
-  if (!isSelectionInsideContainer(selection, container)) return null;
+  if (
+    !container.contains(range.startContainer) ||
+    !container.contains(range.endContainer)
+  )
+    return null;
+  if (!range.toString().trim()) return null;
 
-  const range = selection.getRangeAt(0);
-  const selectionPosition = getSelectionPosition(selection);
-  if (!selectionPosition) return null;
+  const rect = range.getBoundingClientRect();
   const position = {
-    ...selectionPosition,
-    bottom: range.getBoundingClientRect().bottom,
+    x: rect.left + rect.width / 2,
+    y: rect.top,
+    bottom: rect.bottom,
   };
 
   const startAnchor = resolveDomEndpointToContentAnchor({
@@ -299,6 +295,25 @@ function resolveHighlightCopyText(
   );
 }
 
+/**
+ * Selection, highlight and note state for the Reader's pages.
+ *
+ * The Reader reads a selection for its tools 100 ms after a mouse release,
+ * or 300 ms after a touch ends (`creating`). That draft only places and
+ * shows the tools. A selection can change after it: a key changes it with
+ * no release, a native handle's last change can come after its touchend,
+ * and a tap can come within the delay. So the tools act on the selection
+ * itself:
+ *
+ * - A press on a tool (inside `[data-selection-tools]`) reads the
+ *   selection on `pointerdown`, before the browser's default actions for
+ *   the tap can change it. The action at `click` takes that reading.
+ * - An action with no press before it, such as a key on a focused tool,
+ *   reads the selection when it runs.
+ *
+ * A press lasts until the click it ends in, and an action takes it once. A
+ * key or a cancelled pointer forgets it too.
+ */
 export function useReaderAnnotations({
   bookId,
   spread,
@@ -313,6 +328,8 @@ export function useReaderAnnotations({
   const [state, setState] = useState<ReaderAnnotationState>({ kind: "idle" });
   const highlightManagerRef = useRef<HighlightInteractionManager | null>(null);
   const suppressSelectionUntilRef = useRef(0);
+  /** The selection as a press on the tools read it, until an action takes it. */
+  const pressRef = useRef<{ draft: PendingHighlightDraft | null } | null>(null);
 
   const activeHighlight = state.kind === "active" ? state.highlight : null;
   const pendingDraft = state.kind === "creating" ? state.draft : null;
@@ -352,8 +369,8 @@ export function useReaderAnnotations({
   );
 
   const resolveSelectionDraft = useCallback(
-    (selection: Selection): PendingHighlightDraft | null => {
-      if (!spread) return null;
+    (range: Range | null): PendingHighlightDraft | null => {
+      if (!spread || !range) return null;
 
       const preparedByChapter = buildPreparedByVisibleChapter(
         spread,
@@ -363,7 +380,7 @@ export function useReaderAnnotations({
       );
 
       return resolvePendingHighlightDraft({
-        selection,
+        range,
         spread,
         stageContentRef,
         chapterEntries,
@@ -430,8 +447,7 @@ export function useReaderAnnotations({
         return;
       }
 
-      const selection = window.getSelection();
-      const nextDraft = selection ? resolveSelectionDraft(selection) : null;
+      const nextDraft = resolveSelectionDraft(selectedRange());
 
       setState((previousState) => {
         if (nextDraft) {
@@ -495,8 +511,7 @@ export function useReaderAnnotations({
     // A native copy (Cmd+C, or Copy in the iOS selection menu) would take
     // a line break from every wrapped line. Copy the passage as text instead.
     const handleCopy = (event: ClipboardEvent) => {
-      const selection = window.getSelection();
-      const draft = selection ? resolveSelectionDraft(selection) : null;
+      const draft = resolveSelectionDraft(selectedRange());
       if (!draft || !event.clipboardData) return;
       event.clipboardData.setData("text/plain", draft.copyText);
       event.preventDefault();
@@ -527,6 +542,40 @@ export function useReaderAnnotations({
     };
   }, [resolveSelectionDraft, stageContentRef]);
 
+  // A press on the tools reads the selection before the tap's default
+  // actions run. Capture phase, so no handler that stops the event hides it.
+  // The press ends with its click: the bubble phase on the document comes
+  // after React's handlers on the root.
+  useEffect(() => {
+    const handlePress = (event: PointerEvent) => {
+      pressRef.current =
+        event.target instanceof Element &&
+        event.target.closest("[data-selection-tools]")
+          ? { draft: resolveSelectionDraft(selectedRange()) }
+          : null;
+    };
+    const forgetPress = () => {
+      pressRef.current = null;
+    };
+    document.addEventListener("pointerdown", handlePress, true);
+    document.addEventListener("pointercancel", forgetPress, true);
+    document.addEventListener("keydown", forgetPress, true);
+    document.addEventListener("click", forgetPress);
+    return () => {
+      document.removeEventListener("pointerdown", handlePress, true);
+      document.removeEventListener("pointercancel", forgetPress, true);
+      document.removeEventListener("keydown", forgetPress, true);
+      document.removeEventListener("click", forgetPress);
+    };
+  }, [resolveSelectionDraft]);
+
+  /** The selection for an action: the press's reading, else the page's now. */
+  const takeSelectionDraft = useCallback(() => {
+    const press = pressRef.current;
+    pressRef.current = null;
+    return press ? press.draft : resolveSelectionDraft(selectedRange());
+  }, [resolveSelectionDraft]);
+
   // Clear a selection when the pages it was made on go away.
   const visiblePagesKey = spread ? getSpreadContentKey(spread) : "";
   useEffect(() => {
@@ -549,19 +598,16 @@ export function useReaderAnnotations({
 
   const selectColor = useCallback(
     (color: AnnotationColor) => {
-      if (state.kind !== "creating" || !bookId) {
-        clearDomSelection();
-        setState({ kind: "idle" });
-        return;
-      }
-
-      const highlight = buildHighlightFromDraft(bookId, state.draft, color);
-      onCreateHighlight(highlight);
+      const draft = takeSelectionDraft();
       clearDomSelection();
       setState({ kind: "idle" });
+      if (!draft || !bookId) return;
+
+      const highlight = buildHighlightFromDraft(bookId, draft, color);
+      onCreateHighlight(highlight);
       return highlight;
     },
-    [bookId, onCreateHighlight, state],
+    [bookId, onCreateHighlight, takeSelectionDraft],
   );
 
   const closeCreation = useCallback(() => {
@@ -577,21 +623,24 @@ export function useReaderAnnotations({
     );
   }, []);
 
-  const captureSelectionNote = () => {
-    const selection = window.getSelection();
-    const draft =
-      state.kind === "creating"
-        ? state.draft
-        : selection
-          ? resolveSelectionDraft(selection)
-          : null;
+  const captureSelectionNote = useCallback(() => {
+    const draft = takeSelectionDraft();
     if (!draft || !bookId) return null;
     return buildHighlightFromDraft(bookId, draft, "invisible");
-  };
+  }, [bookId, takeSelectionDraft]);
+
+  const readSelectionCopyText = useCallback(
+    () => takeSelectionDraft()?.copyText ?? "",
+    [takeSelectionDraft],
+  );
 
   const resolveSelectionRange = useCallback(
     (selection: Selection) => {
-      const draft = resolveSelectionDraft(selection);
+      const draft = resolveSelectionDraft(
+        selection.rangeCount && !selection.isCollapsed
+          ? selection.getRangeAt(0)
+          : null,
+      );
       return draft
         ? {
             chapterIndex: draft.highlight.chapterIndex,
@@ -604,8 +653,7 @@ export function useReaderAnnotations({
   );
 
   const refreshSelection = useCallback(() => {
-    const selection = window.getSelection();
-    const draft = selection ? resolveSelectionDraft(selection) : null;
+    const draft = resolveSelectionDraft(selectedRange());
     setState((previousState) =>
       draft
         ? { kind: "creating", draft }
@@ -622,7 +670,7 @@ export function useReaderAnnotations({
     activeHighlightData,
     isCreatingHighlight: state.kind === "creating",
     creationPosition: pendingDraft?.position ?? { x: 0, y: 0 },
-    creationText: pendingDraft?.copyText ?? "",
+    readSelectionCopyText,
     activeHighlightCopyText,
     selectColor,
     closeCreation,

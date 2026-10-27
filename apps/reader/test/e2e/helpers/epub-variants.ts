@@ -11,6 +11,8 @@ export interface EpubVariant {
   author: string;
   /** Another cover image, or `null` for a book without one. */
   cover?: { bytes: Uint8Array; mediaType: string } | null;
+  /** Rewrites content documents, by path in the EPUB. */
+  documents?: Record<string, (xhtml: string) => string>;
 }
 
 /**
@@ -45,6 +47,8 @@ export function epubVariant(variant: EpubVariant) {
     entries[COVER] = variant.cover.bytes;
   }
   entries[OPF] = strToU8(opf);
+  for (const [path, rewrite] of Object.entries(variant.documents ?? {}))
+    entries[path] = strToU8(rewrite(strFromU8(entries[path]!)));
   // The mimetype comes first and uncompressed, as EPUB requires.
   const { mimetype, ...rest } = entries;
   const zip: Zippable = { mimetype: [mimetype!, { level: 0 }] };

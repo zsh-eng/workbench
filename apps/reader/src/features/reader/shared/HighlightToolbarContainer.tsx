@@ -26,7 +26,8 @@ interface HighlightToolbarContainerProps {
   // For creating new highlights (text selection mode)
   isCreatingHighlight: boolean;
   creationPosition: { x: number; y: number; bottom?: number };
-  creationText: string;
+  /** The selection as Copy writes it, read at the tap. */
+  creationCopyText: () => string;
   /** The selected highlight's text as Copy writes it. */
   activeHighlightCopyText?: string;
   onCreateColorSelect: (color: AnnotationColor) => void;
@@ -48,7 +49,7 @@ export function HighlightToolbarContainer({
   highlights,
   isCreatingHighlight,
   creationPosition,
-  creationText,
+  creationCopyText,
   activeHighlightCopyText,
   onCreateColorSelect,
   onCreateClose,
@@ -114,7 +115,7 @@ export function HighlightToolbarContainer({
             onAddNote={onAddSelectionNote}
             onColorSelect={onCreateColorSelect}
             onNoteSubmit={onCreateNoteSubmit}
-            textToCopy={creationText}
+            textToCopy={creationCopyText}
           />
         )}
       </AnimatePresence>
@@ -132,7 +133,7 @@ export function HighlightToolbarContainer({
                 : undefined
             }
             onDelete={handleEditDelete}
-            textToCopy={
+            textToCopy={() =>
               activeHighlightCopyText || activeHighlightData.selectedText
             }
           />

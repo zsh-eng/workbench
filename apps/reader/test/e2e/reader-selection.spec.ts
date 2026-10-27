@@ -3,6 +3,7 @@ import {
   expect,
   nextSpread,
   openLocalBook,
+  selectPassage,
   test,
   waitForReaderReady,
 } from "./helpers/fixtures";
@@ -100,6 +101,50 @@ test("copies a selection as paragraphs, not as page lines", async ({
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .not.toBe("");
   expectReadableCopy(await page.evaluate(() => navigator.clipboard.readText()));
+});
+
+test("Highlight takes a selection that keys grew after the toolbar opened, by click or by key", async ({
+  page,
+  localBook,
+}) => {
+  const saved = () =>
+    page.evaluate(async (bookId) => {
+      const path = "/src/lib/db.ts";
+      const highlights: { color: string; selectedText: string }[] = await (
+        await import(path)
+      ).getBookHighlights(bookId);
+      return highlights
+        .map(({ color, selectedText }) => `${color}: ${selectedText}`)
+        .sort();
+    }, localBook.id);
+  // Keys change a selection without the pointer release the Reader reads.
+  const growSelection = async (keys: number) => {
+    const before = await page.evaluate(() => getSelection()!.toString());
+    for (let key = 0; key < keys; key++)
+      await page.keyboard.press("Shift+ArrowRight");
+    const grown = await page.evaluate(() => getSelection()!.toString());
+    expect(grown.length).toBeGreaterThan(before.length);
+    return grown.replace(/\s+/g, " ").trim();
+  };
+  await openLocalBook(page, localBook.id);
+  for (let turn = 0; turn < 3; turn++) await nextSpread(page);
+  const yellow = page.getByRole("button", { name: "Highlight with yellow" });
+  const green = page.getByRole("button", { name: "Highlight with green" });
+
+  await selectPassage(page, { length: 12 });
+  await expect(yellow).toBeVisible();
+  const clicked = await growSelection(9);
+  await yellow.click();
+  await expect.poll(saved).toEqual([`yellow: ${clicked}`]);
+  await expect(page.locator(".highlight-toolbar")).toHaveCount(0);
+
+  // A key on a colour, with no press, acts on the selection as it is then.
+  await selectPassage(page, { index: 1, length: 12 });
+  await expect(green).toBeVisible();
+  const keyed = await growSelection(6);
+  await green.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(saved).toEqual([`green: ${keyed}`, `yellow: ${clicked}`]);
 });
 
 test("two highlights that split a word meet flush without moving the text", async ({

@@ -337,10 +337,16 @@ export async function closeSheet(page: Page, sheet: Locator): Promise<void> {
  * Selects the first `length` characters of the `index`-th text run on the
  * current spread that is long enough and clear of the header, then
  * releases the pointer, which is when the Reader reads a selection.
+ * `release: false` leaves out the release, as a key or a native selection
+ * handle can change a selection with no release that the Reader reads.
  */
 export async function selectPassage(
   page: Page,
-  { index = 0, length = 20 }: { index?: number; length?: number } = {},
+  {
+    index = 0,
+    length = 20,
+    release = true,
+  }: { index?: number; length?: number; release?: boolean } = {},
 ): Promise<string> {
   const text = await page.evaluate(
     ({ index, length, spread }) => {
@@ -370,9 +376,10 @@ export async function selectPassage(
   await expect
     .poll(() => page.evaluate(() => getSelection()?.toString()))
     .toBe(text);
-  await page.evaluate(() =>
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
-  );
+  if (release)
+    await page.evaluate(() =>
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),
+    );
   return text;
 }
 
