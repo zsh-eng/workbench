@@ -1,5 +1,10 @@
 import { API_BASE, SHARED_API_ORIGIN, SHARED_STORAGE_SUFFIX } from "@/lib/api";
-import { requestSharedFile } from "../files/shared-request";
+import {
+  requestSharedFile,
+  requestSharedFileBatch,
+} from "../files/shared-request";
+import { PromiseRateLimiterQueue } from "./promise-limiter";
+import { downloadFiles, isFileId } from "@workbench/file-batch";
 import { Dexie, type EntityTable, type Table } from "dexie";
 
 export type UncachedImage = { url: string };
@@ -61,6 +66,23 @@ async function fetchImage(url: string): Promise<Blob> {
   if (blob.size === 0) throw new Error("The downloaded image is empty");
   return blob;
 }
+
+/** One shared file, as `fetchImage` asks for it; any status. */
+const fetchSharedFile = (id: string, signal: AbortSignal) =>
+  requestSharedFile(`/files/${id}`, { signal });
+
+/** The shared file that an image URL names, or undefined for another site. */
+function sharedFileId(url: string) {
+  if (!SHARED_API_ORIGIN || !url.startsWith(`${API_BASE}/files/`)) return;
+  const id = url.slice(API_BASE.length + "/files/".length);
+  return isFileId(id) ? id : undefined;
+}
+
+/** How one image of a bulk download ended. */
+export type ImageOutcome = { newlyDownloaded: boolean } | { error: unknown };
+
+/** Images from other sites that download at once. */
+const OTHER_SITES_AT_ONCE = 5;
 
 async function generateThumbnail(original: Blob): Promise<Blob> {
   const canvas = document.createElement("canvas");
@@ -125,11 +147,12 @@ export class ImageCacheStore {
     if (!this.enabled) throw new Error("Image cache was cleared for sign-out");
   }
 
-  private ensureImage(url: string, altText: string) {
+  /** `blob`: the image's bytes, when a bulk download already has them. */
+  private ensureImage(url: string, altText: string, blob?: Blob) {
     this.checkEnabled();
     const existing = this.downloads.get(url);
     if (existing) return existing;
-    const task = this.loadOrRepair(url, altText);
+    const task = this.loadOrRepair(url, altText, blob);
     this.downloads.set(url, task);
     const remove = () => {
       if (this.downloads.get(url) === task) this.downloads.delete(url);
@@ -138,7 +161,7 @@ export class ImageCacheStore {
     return task;
   }
 
-  private async loadOrRepair(url: string, altText: string) {
+  private async loadOrRepair(url: string, altText: string, fetched?: Blob) {
     const [metadata, stored] = await Promise.all([
       this.database.images.get(url),
       this.database.imageBlobs.get(url),
@@ -148,7 +171,9 @@ export class ImageCacheStore {
     if (metadata && isCachedImage(metadata) && hasBlob) {
       return { blob: stored.content, newlyDownloaded: false };
     }
-    const blob = hasBlob ? stored.content : await this.fetchBlob(url);
+    const blob = hasBlob
+      ? stored.content
+      : (fetched ?? (await this.fetchBlob(url)));
     this.checkEnabled();
     const thumbnail =
       metadata && isCachedImage(metadata)
@@ -183,6 +208,81 @@ export class ImageCacheStore {
   async download(url: string, altText: string) {
     const { newlyDownloaded } = await this.ensureImage(url, altText);
     return { newlyDownloaded };
+  }
+
+  /**
+   * Downloads many images and keeps each as it arrives. Images in Spaced's
+   * shared files come many to a request (packages/file-batch); images from
+   * other sites, five at a time. Images already here are not asked for.
+   * Rejects on abort, sign-out or a full disk; otherwise reports each image.
+   */
+  async downloadMany(
+    links: readonly (readonly [url: string, altText: string])[],
+    {
+      signal,
+      onSettled,
+    }: {
+      signal?: AbortSignal;
+      onSettled(url: string, outcome: ImageOutcome): void;
+    },
+  ) {
+    this.checkEnabled();
+    const urls = links.map(([url]) => url);
+    const [metadata, blobs] = await Promise.all([
+      this.database.images.bulkGet(urls),
+      this.database.imageBlobs.where(":id").anyOf(urls).primaryKeys(),
+    ]);
+    const stored = new Set(blobs);
+    const shared = new Map<string, { url: string; altText: string }>();
+    const others: (readonly [string, string])[] = [];
+    links.forEach(([url, altText], index) => {
+      const known = metadata[index];
+      const id = sharedFileId(url);
+      if (known && isCachedImage(known) && stored.has(url))
+        onSettled(url, { newlyDownloaded: false });
+      // A stored picture with damaged metadata repairs without the network.
+      else if (id && !stored.has(url) && !this.downloads.has(url))
+        shared.set(id, { url, altText });
+      else others.push([url, altText]);
+    });
+    const limiter = new PromiseRateLimiterQueue(OTHER_SITES_AT_ONCE);
+    const elsewhere = Promise.all(
+      others.map(([url, altText]) =>
+        limiter.add(async () => {
+          if (signal?.aborted) return;
+          try {
+            onSettled(url, await this.download(url, altText));
+          } catch (error) {
+            if (signal?.aborted) return;
+            onSettled(url, { error });
+          }
+        }),
+      ),
+    );
+    const batches = downloadFiles({
+      ids: shared.keys(),
+      signal,
+      fetchBatch: requestSharedFileBatch,
+      fetchOne: fetchSharedFile,
+      store: async (id, bytes, type) => {
+        const { url, altText } = shared.get(id)!;
+        const blob = new Blob([bytes], { type });
+        try {
+          const { newlyDownloaded } = await this.ensureImage(url, altText, blob);
+          onSettled(url, { newlyDownloaded });
+        } catch (error) {
+          // A picture that does not decode: count it, keep going.
+          onSettled(url, { error });
+          if (error instanceof Error && error.name === "QuotaExceededError")
+            throw error;
+        }
+      },
+      onFailed: (id, error) => onSettled(shared.get(id)!.url, { error }),
+    });
+    // Both end before the job does, so a late image never counts in the
+    // next run.
+    const [result] = await Promise.allSettled([batches, elsewhere]);
+    if (result.status === "rejected") throw result.reason;
   }
 
   async acquire(url: string, altText: string): Promise<string> {
@@ -236,6 +336,10 @@ export const getCachedImage = (url: string, altText: string) =>
   cache.acquire(url, altText);
 export const downloadImageLocally = (url: string, altText: string) =>
   cache.download(url, altText);
+export const downloadImagesLocally: ImageCacheStore["downloadMany"] = (
+  links,
+  options,
+) => cache.downloadMany(links, options);
 export const revokeImage = (url: string) => cache.release(url);
 
 // This is a terminal operation. Reload after sign-out to start a new cache.
