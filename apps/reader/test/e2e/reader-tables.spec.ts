@@ -213,10 +213,10 @@ test("a table that misses the page by a little narrows its padding to fit", asyn
   await openTableChapter(page, "tables-near-miss", nearMissTables());
 
   // Each table by the length of its word: whether it scrolls, its cell
-  // padding, and whether it fits its page.
+  // padding, and whether every word stays on one line.
   const seen = new Map<
     number,
-    { scroll: boolean; padding: number; fits: boolean }
+    { scroll: boolean; padding: number; oneLine: boolean }
   >();
   for (let turn = 0; turn < 12 && seen.size < 17; turn++) {
     await expectTablesToFit(page);
@@ -227,8 +227,11 @@ test("a table that misses the page by a little narrows its padding to fit", asyn
           length: cell.textContent!.trim().length,
           scroll: slice.hasAttribute("data-reader-table-scroll"),
           padding: parseFloat(getComputedStyle(cell).paddingLeft),
-          fits:
-            slice.querySelector("table")!.offsetWidth <= slice.clientWidth,
+          oneLine: [
+            ...slice.querySelectorAll(".reader-table-cell-text"),
+          ].every(
+            (text) => text.getAttribute("data-reader-line-count") === "1",
+          ),
         };
       }),
     );
@@ -248,7 +251,7 @@ test("a table that misses the page by a little narrows its padding to fit", asyn
   );
   for (const table of tables) {
     if (table.scroll) expect(table.padding).toBe(full);
-    else expect(table.fits).toBe(true);
+    else expect(table.oneLine).toBe(true);
   }
 });
 
@@ -334,8 +337,8 @@ test("with tables off, a table reads as one paragraph until Grid is chosen", asy
     .first();
   if ((await flattened.count()) === 0) await nextSpread(page);
   await expect(flattened).toBeVisible();
-  // More than one cell's text: the whole table, not its first cell.
-  expect((await flattened.textContent())!.length).toBeGreaterThan(100);
+  // More than the first cell: the header runs on into the next one.
+  expect(await flattened.textContent()).toMatch(/^\s*Name\s*\S/);
 
   // Appearance → Layout → Tables opens the Reader again with grids.
   await showPhoneChrome(page);

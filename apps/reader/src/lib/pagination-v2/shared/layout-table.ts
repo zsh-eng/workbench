@@ -250,15 +250,16 @@ export function planTable(
     widths.reduce((a, b) => a + b, 0) <= Math.floor(pageWidth);
   let paddingX = Math.round(theme.baseFontSizePx * CELL_PADDING_X_EM);
   let { mins, maxes } = columnContentWidths(paddingX);
-  for (
-    let narrower = paddingX - 1;
-    !fits(mins) && narrower >= MIN_CELL_PADDING_X_PX;
-    narrower--
+  if (
+    !fits(mins) &&
+    fits(columnContentWidths(MIN_CELL_PADDING_X_PX).mins)
   ) {
-    const widths = columnContentWidths(narrower);
-    if (!fits(widths.mins)) continue;
-    paddingX = narrower;
-    ({ mins, maxes } = widths);
+    for (let narrower = paddingX - 1; !fits(mins); narrower--) {
+      const widths = columnContentWidths(narrower);
+      if (!fits(widths.mins)) continue;
+      paddingX = narrower;
+      ({ mins, maxes } = widths);
+    }
   }
 
   const columnWidths = distributeWidths(mins, maxes, pageWidth);

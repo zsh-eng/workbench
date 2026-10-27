@@ -56,11 +56,16 @@ export async function openContentsEntry(
       exact: true,
     });
     // Setup for timings and table specs; Contents has its own specs. The
-    // button is disabled while a chapter loads, and an event click is not
-    // held up by a toast or the chrome's own motion.
-    await expect(button).toBeEnabled();
-    await button.dispatchEvent("click");
-    await expect(sheet.or(panelItem).first()).toBeVisible();
+    // footer ignores the tap until the Reader is display-ready, which the
+    // page does not show, so the tap repeats until Contents opens and fails
+    // with the last error if it never does. An event click is not held up
+    // by a toast or the chrome's own motion.
+    await expect(async () => {
+      await button.dispatchEvent("click");
+      await expect(sheet.or(panelItem).first()).toBeVisible({
+        timeout: 2000,
+      });
+    }).toPass({ timeout: 15_000 });
   }
   const onSheet = await sheet.isVisible();
   if (onSheet) await waitForSheet(page, "Contents");

@@ -296,9 +296,16 @@ describe("laying out tables", () => {
         layoutTable(shape("n".repeat(8 + index))),
       );
       for (const slice of slices) {
-        // A table that still scrolls keeps its padding; one that fits fits.
+        // A table that still scrolls keeps its padding; in one that fits,
+        // each word stays whole on one line.
         if (slice.overflows) expect(slice.cellPaddingX).toBe(7);
-        else expect(slice.width).toBeLessThanOrEqual(360);
+        else
+          for (const cell of textSlicesOf([slice])) {
+            const text = cell.lines
+              .flatMap((line) => line.fragments.map((part) => part.text))
+              .join("");
+            if (text.startsWith("n")) expect(cell.lines).toHaveLength(1);
+          }
       }
       expect(
         slices.some((slice) => !slice.overflows && slice.cellPaddingX < 7),
