@@ -1,9 +1,11 @@
+import { placeTableCells } from "../shared/layout-table";
 import type {
   Block,
   ChapterCanonicalText,
   PreparedBlock,
   PreparedTextBlock,
   PreparedTextItem,
+  TableBlock,
   TextBlock,
   TextCursorOffset,
   TextRun,
@@ -339,7 +341,8 @@ const INVISIBLE_CHARACTERS = /[­​]/g;
  * indentation inside a paragraph, and any or no whitespace between
  * paragraphs. The rendered page has neither. Here spaces collapse as they do
  * on the page, a `<br>` stays a line break, preformatted text stays as it is,
- * and paragraphs are separated by a blank line.
+ * and paragraphs are separated by a blank line. Cells of a table, from two
+ * on, copy as tab-separated rows, as a spreadsheet takes them.
  */
 export function resolveCanonicalRangeText(options: {
   chapterBlocks: Block[];
@@ -350,7 +353,7 @@ export function resolveCanonicalRangeText(options: {
   const { chapterBlocks, chapterCanonicalText, startOffset, endOffset } =
     options;
   const { fullText, blockStarts } = chapterCanonicalText;
-  const paragraphs: string[] = [];
+  const paragraphs: { blockId: string; text: string }[] = [];
 
   for (const block of chapterBlocks) {
     if (!isTextBlock(block)) continue;
@@ -386,10 +389,84 @@ export function resolveCanonicalRangeText(options: {
           .map((line) => line.trim())
           .join("\n")
           .trim();
-    if (paragraph) paragraphs.push(paragraph);
+    if (paragraph) paragraphs.push({ blockId: block.id, text: paragraph });
   }
 
-  return paragraphs.join("\n\n");
+  const cells = tableCellPlaces(chapterBlocks);
+  const pieces: string[] = [];
+  for (let index = 0; index < paragraphs.length; ) {
+    const table = cells.get(paragraphs[index]!.blockId)?.table;
+    let end = index + 1;
+    while (
+      table &&
+      end < paragraphs.length &&
+      cells.get(paragraphs[end]!.blockId)?.table === table
+    )
+      end += 1;
+    pieces.push(
+      table && end - index > 1
+        ? tableRunText(paragraphs.slice(index, end), cells)
+        : paragraphs[index]!.text,
+    );
+    index = table ? end : index + 1;
+  }
+  return pieces.join("\n\n");
+}
+
+interface TableCellPlace {
+  table: TableBlock;
+  row: number;
+  column: number;
+  colSpan: number;
+}
+
+/** Where each table cell's text block sits in its table's grid. */
+function tableCellPlaces(blocks: Block[]): Map<string, TableCellPlace> {
+  const places = new Map<string, TableCellPlace>();
+  for (const block of blocks) {
+    if (block.type !== "table") continue;
+    placeTableCells(block).rows.forEach((cells, row) => {
+      for (const { spec, column } of cells)
+        places.set(spec.blockId, {
+          table: block,
+          row,
+          column,
+          colSpan: spec.colSpan,
+        });
+    });
+  }
+  return places;
+}
+
+/**
+ * Cells of one table as tab-separated rows: from the first cell to the end
+ * of its row, whole rows between, and the last row up to the last cell. A
+ * cell's own line breaks become spaces, and a cell it does not hold (empty,
+ * spanned or outside the range) is an empty field, so columns line up.
+ */
+function tableRunText(
+  run: { blockId: string; text: string }[],
+  cells: Map<string, TableCellPlace>,
+): string {
+  const first = cells.get(run[0]!.blockId)!;
+  const last = cells.get(run.at(-1)!.blockId)!;
+  const columnCount = placeTableCells(first.table).columnCount;
+  const fields = new Map<string, string>();
+  for (const { blockId, text } of run) {
+    const place = cells.get(blockId)!;
+    fields.set(`${place.row}:${place.column}`, text.replace(/[\t\n]+/g, " "));
+  }
+  const rows: string[] = [];
+  for (let row = first.row; row <= last.row; row++) {
+    const from = row === first.row ? first.column : 0;
+    const to =
+      row === last.row ? last.column + last.colSpan - 1 : columnCount - 1;
+    const line: string[] = [];
+    for (let column = from; column <= to; column++)
+      line.push(fields.get(`${row}:${column}`) ?? "");
+    rows.push(line.join("\t"));
+  }
+  return rows.join("\n");
 }
 
 /** Resolve persisted chapter text coordinates without depending on page layout. */

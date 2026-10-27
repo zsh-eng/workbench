@@ -297,6 +297,62 @@ test("a highlight in a cell stays after the book reopens", async ({ page }) => {
   expect(await markedText()).toBe(text.replace(/\s+/g, " "));
 });
 
+test("a selection across rows copies as tab-separated rows", async ({
+  page,
+}) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await useTables(page, "grid");
+  await openTableChapter(page, "tables-copy");
+  await turnToTable(page);
+
+  // From the first body row's first cell to the second's last.
+  const rows = page.locator(`${TABLE} tbody tr`);
+  const expected = await rows.evaluateAll((elements) =>
+    elements
+      .filter((row) =>
+        ["1", "2"].includes(row.getAttribute("data-reader-table-row") ?? ""),
+      )
+      .map((row) =>
+        [...row.querySelectorAll(".reader-table-cell-text")]
+          .map((cell) => cell.textContent!.replace(/\s+/g, " ").trim())
+          .join("\t"),
+      )
+      .join("\n"),
+  );
+  await page
+    .locator(TABLE)
+    .first()
+    .evaluate((slice) => {
+      const cells = (row: string) =>
+        slice.querySelectorAll(
+          `tr[data-reader-table-row="${row}"] .reader-table-cell-text`,
+        );
+      const textNodes = (element: Element) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+        return nodes;
+      };
+      const first = textNodes(cells("1")[0]!)[0]!;
+      const last = textNodes([...cells("2")].at(-1)!).at(-1)!;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.setEnd(last, last.length);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+    });
+  await page.evaluate(() =>
+    document.dispatchEvent(new TouchEvent("touchend", { bubbles: true })),
+  );
+  await page.getByRole("button", { name: /^Copy/ }).first().tap();
+
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(expected);
+  expect(expected.split("\n")).toHaveLength(2);
+  expect(expected.split("\n")[0]!.split("\t")).toHaveLength(4);
+});
+
 test("scroll mode shows a table as a grid, with its header once", async ({
   page,
 }) => {

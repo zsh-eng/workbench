@@ -25,6 +25,7 @@ import {
 import { layoutChapterColumn } from "@/lib/pagination-v2/shared/layout-column";
 import {
   canonicalOffsetToContentAnchor,
+  resolveCanonicalRangeText,
   resolveTextAnchorToCanonicalOffset,
 } from "@/lib/pagination-v2/engine/highlight-selection";
 import type { Highlight } from "@/types/highlight";
@@ -464,5 +465,46 @@ describe("highlights and selections in cells", () => {
         chapterCanonicalText: canonicalText,
       }),
     ).toBe(offset);
+  });
+});
+
+describe("copying from a table", () => {
+  const copy = (html: string, start: string, end: string) => {
+    const { blocks, canonicalText } = parse(html, true);
+    return resolveCanonicalRangeText({
+      chapterBlocks: blocks,
+      chapterCanonicalText: canonicalText,
+      startOffset: canonicalText.fullText.indexOf(start),
+      endOffset: canonicalText.fullText.indexOf(end) + end.length,
+    });
+  };
+
+  it("copies cells as tab-separated rows", () => {
+    expect(copy(CHAPTER, "Name", "queue depth 1")).toBe(
+      "Name\tLatency\tNotes\nprobe 0\t0 ms\tqueue depth 0\nprobe 1\t3 ms\tqueue depth 1",
+    );
+    // From partway along a row to partway along a later one.
+    expect(copy(CHAPTER, "0 ms", "probe 1")).toBe(
+      "0 ms\tqueue depth 0\nprobe 1",
+    );
+  });
+
+  it("keeps columns in line past spanned and empty cells", () => {
+    const html =
+      "<body><table><tr><th colspan='2'>Pair</th><th>One</th></tr>" +
+      "<tr><td rowspan='2'>Tall</td><td>a</td><td></td></tr>" +
+      "<tr><td>b</td><td>line<br/>two</td></tr></table></body>";
+    expect(copy(html, "Pair", "two")).toBe(
+      "Pair\t\tOne\nTall\ta\t\n\tb\tline two",
+    );
+  });
+
+  it("copies text in one cell, and the text around a table, as paragraphs", () => {
+    expect(copy(CHAPTER, "queue depth 3", "queue depth 3")).toBe(
+      "queue depth 3",
+    );
+    expect(copy(CHAPTER, "Before", "Latency")).toBe(
+      "Before the table.\n\nTable 1 Sample latencies\n\nName\tLatency",
+    );
   });
 });
