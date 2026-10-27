@@ -40,6 +40,19 @@ const ROW_HEIGHT = 56;
 const APP_ROW_HEIGHT = 72;
 const HEADING_HEIGHT = 30;
 
+/** A section's title in the sheet: Now, Waiting, This app, Recent. */
+export const SECTION_HEADING =
+  "flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase";
+
+/**
+ * Amber for what needs you: the mark, and its words. The darker words keep
+ * 4.5:1 on a light page; on a dark one they take the mark's lighter amber,
+ * which keeps 4.5:1 there.
+ */
+export const WARN_ICON = "text-[oklch(0.62_0.16_55)]";
+export const WARN_TEXT =
+  "text-[oklch(0.55_0.14_55)] dark:text-[oklch(0.62_0.16_55)]";
+
 const rowHeight = (row: SheetRow) =>
   row.section === "app" ? APP_ROW_HEIGHT : ROW_HEIGHT;
 
@@ -170,7 +183,7 @@ function Trailing({
     if (job.state === "failed" || job.attention)
       return (
         <CircleAlert
-          className="size-[18px] text-[oklch(0.62_0.16_55)]"
+          className={cn("size-[18px]", WARN_ICON)}
           strokeWidth={1.8}
         />
       );
@@ -269,7 +282,7 @@ function Row({
           className={cn(
             "font-numeric text-[12.5px] text-muted-foreground tabular-nums",
             row.section === "app" ? "line-clamp-2" : "block truncate",
-            warn && "text-[oklch(0.55_0.14_55)]",
+            warn && WARN_TEXT,
           )}
         >
           {renderLine?.(job, words) ?? words}
@@ -284,7 +297,7 @@ function Row({
 }
 
 /** A row or a heading that joins or leaves by opening or closing its height. */
-function Collapse({
+export function Collapse({
   height,
   className,
   children,
@@ -312,7 +325,16 @@ function Collapse({
  * Waiting, Couldn't finish, Done, and This app (sync's exceptions and the
  * update). Rows hold still while the sheet is open (sheet-rows.ts).
  */
-export function ActivitySheetBody() {
+export function ActivitySheetBody({
+  empty = (
+    <p className="py-8 text-center text-[13px] text-muted-foreground">
+      Nothing in the background. Everything is on this device and synced.
+    </p>
+  ),
+}: {
+  /** What an empty sheet shows. */
+  empty?: ReactNode;
+}) {
   const { source } = useActivityEnvironment();
   const snapshot = useActivity(source);
   const now = useNow(true, 1_000);
@@ -325,11 +347,7 @@ export function ActivitySheetBody() {
           Offline. What needs the network waits until you are back online.
         </p>
       )}
-      {groups.length === 0 && (
-        <p className="py-8 text-center text-[13px] text-muted-foreground">
-          Nothing in the background. Everything is on this device and synced.
-        </p>
-      )}
+      {groups.length === 0 && empty}
       <AnimatePresence initial={false}>
         {groups.flatMap(({ section, rows }) => [
           <Collapse
@@ -337,9 +355,7 @@ export function ActivitySheetBody() {
             height={HEADING_HEIGHT}
             className="ba-sheet-heading"
           >
-            <h3 className="flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
-              {SECTION_TITLES[section]}
-            </h3>
+            <h3 className={SECTION_HEADING}>{SECTION_TITLES[section]}</h3>
           </Collapse>,
           ...rows.map((row) => (
             <Collapse

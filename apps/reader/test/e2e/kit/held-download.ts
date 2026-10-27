@@ -9,6 +9,12 @@ import activitySheet from "./activity-sheet";
  * download starts and holds, and the activity sheet opens.
  */
 export default async function heldDownload({ page }: { page: Page }) {
+  await holdDownload(page);
+  await activitySheet({ page });
+}
+
+/** The first book's files leave this device, and its download starts and holds. */
+export async function holdDownload(page: Page) {
   const sourceFileId = await page.evaluate(async (path) => {
     const { syncV2Db: db } = await import(path);
     const book = await db.table("books").toCollection().first();
@@ -30,5 +36,4 @@ export default async function heldDownload({ page }: { page: Page }) {
   await page
     .locator('[data-activity-glyph="progress"]')
     .waitFor({ timeout: 5_000 });
-  await activitySheet({ page });
 }

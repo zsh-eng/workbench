@@ -16,6 +16,9 @@ const precache = readerPrecache({
     /\/src\/features\/reader\/(debug|diagnostics)[/.]/,
     /\/src\/features\/settings\/DebugTools\.tsx$/,
     /\/src\/features\/background-activity\/ideas\//,
+    // Sync history's Design ideas and Devices' syncing devices, behind
+    // Debug. Account → Activity is for everyone, so it stays precached.
+    /\/src\/features\/sync-history\/(ideas\/|SyncDevices\.tsx$)/,
     /\/src\/features\/living-covers\/LivingCoversIdea\.tsx$/,
   ],
   // The Latin faces of the interface (DM Sans, Inter for figures, EB

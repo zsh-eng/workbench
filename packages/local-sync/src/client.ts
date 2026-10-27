@@ -18,7 +18,13 @@ import {
   type SyncPushChange,
   type SyncPushResponse,
 } from "./protocol.js";
-import type { SyncRemote, SyncRunResult, SyncStorage } from "./storage.js";
+import type {
+  SyncOptions,
+  SyncPassObserver,
+  SyncRemote,
+  SyncRunResult,
+  SyncStorage,
+} from "./storage.js";
 
 export interface SyncClientOptions<Prepared> {
   storage: SyncStorage<Prepared>;
@@ -45,12 +51,13 @@ export class SyncClient<Prepared> {
     this.stateStore = options.stateStore;
   }
 
-  sync(): Promise<SyncRunResult> {
+  /** One pull then push. A call while a pass runs joins it. */
+  sync(options: SyncOptions = {}): Promise<SyncRunResult> {
     if (this.activeSync !== null) {
       return this.activeSync;
     }
 
-    const run = this.runSync().finally(() => {
+    const run = this.runSync(options.observer).finally(() => {
       if (this.activeSync === run) {
         this.activeSync = null;
       }
@@ -59,9 +66,12 @@ export class SyncClient<Prepared> {
     return run;
   }
 
-  async pull(): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+  async pull(
+    options: SyncOptions = {},
+  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+    const { observer } = options;
     await this.bindScope();
-    if (this.remote.pullStream) return this.pullStreaming();
+    if (this.remote.pullStream) return this.pullStreaming(observer);
     let pulled = 0;
     let skipped = 0;
     let head: number | undefined;
@@ -98,6 +108,11 @@ export class SyncClient<Prepared> {
         pullCursor: validResponse.cursor,
         bootstrapped: currentState.bootstrapped || !validResponse.hasMore,
       });
+      observer?.pulled({
+        records: validResponse.records,
+        keptLocal: result.keptLocal,
+        restoring: !request.excludeOwnDevice,
+      });
 
       if (!validResponse.hasMore) {
         return { pulled, skipped };
@@ -107,9 +122,9 @@ export class SyncClient<Prepared> {
   }
 
   /** One page is prefetched while one page commits; never rewrite a growing prefix. */
-  private async pullStreaming(): Promise<
-    Pick<SyncRunResult, "pulled" | "skipped">
-  > {
+  private async pullStreaming(
+    observer: SyncPassObserver | undefined,
+  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     const controller = new AbortController();
     const abort = () => controller.abort(this.signal?.reason);
     this.signal?.addEventListener("abort", abort, { once: true });
@@ -174,6 +189,11 @@ export class SyncClient<Prepared> {
               ...this.requireState(),
               pullCursor: page.cursor,
             });
+            observer?.pulled({
+              records: page.records,
+              keptLocal: result.keptLocal,
+              restoring: !initial.bootstrapped,
+            });
             last = page;
             request = { ...request, cursor: page.cursor, head };
           }
@@ -199,7 +219,7 @@ export class SyncClient<Prepared> {
     }
   }
 
-  async push(): Promise<number> {
+  async push(options: SyncOptions = {}): Promise<number> {
     await this.bindScope();
     const state = this.requireState();
     const pendingSnapshot = await this.storage.getPendingChanges();
@@ -221,6 +241,7 @@ export class SyncClient<Prepared> {
         changes,
         preparedWinners,
       );
+      options.observer?.pushed({ sent: changes, results: response.results });
     }
 
     return pushed;
@@ -233,9 +254,11 @@ export class SyncClient<Prepared> {
     bindSyncScope(this.stateStore, scope);
   }
 
-  private async runSync(): Promise<SyncRunResult> {
-    const pullResult = await this.pull();
-    const pushed = await this.push();
+  private async runSync(
+    observer: SyncPassObserver | undefined,
+  ): Promise<SyncRunResult> {
+    const pullResult = await this.pull({ observer });
+    const pushed = await this.push({ observer });
     return { ...pullResult, pushed };
   }
 

@@ -13,6 +13,7 @@ const TOPICS = [
   { id: "background", label: "Background activity", added: "2026-10-26" },
   { id: "arriving", label: "Arriving books", added: "2026-10-26" },
   { id: "installing", label: "Installing", added: "2026-10-26" },
+  { id: "sync", label: "Sync history", added: "2026-10-27" },
 ] as const;
 
 /**

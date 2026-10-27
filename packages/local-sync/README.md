@@ -11,7 +11,7 @@ client receives its own storage adapter, transport, and durable state store.
 | `@zsh-eng/local-sync`       | Protocol, clock, state store, sync engine        | None                          |
 | `@zsh-eng/local-sync/dexie` | Local mutation capture and atomic reconciliation | `dexie`                       |
 | `@zsh-eng/local-sync/hono`  | Authenticated routes and compacted D1 storage    | `hono`, `@hono/zod-validator` |
-| `@zsh-eng/local-sync/react` | `useSyncStatus` and `useSyncSummary` hooks       | `react`                       |
+| `@zsh-eng/local-sync/react` | Status and sync history hooks                    | `react`                       |
 
 The package depends on Zod. Adapter peers are optional for consumers that use
 only the core. The package ships ESM JavaScript and TypeScript declarations.
@@ -35,10 +35,23 @@ in again" until the server answers.
 cannot tell offline from signed out, and the TLA+ model and chart that check
 the rules.
 
+## Sync history
+
+`createSyncJournal({ store })` keeps one local entry per sync pass that moved
+a record or failed: keys, origin devices, change times, deletions and lost
+edits, never values, for 30 days. Pass it to `createSyncController({ journal
+})`; `run` then gets `trigger` and `pass`, and hands `pass` to
+`SyncClient.sync({ observer: pass })`. `summarizeSyncHistory` groups the
+entries by device and direction for a view, and `useSyncHistory(journal,
+options)` in `/react` does the same in React. `/dexie` has
+`DexieSyncJournalStore` over an app-owned `_sync_journal: SYNC_JOURNAL_SCHEMA`
+table, which stays out of the synced table map.
+[docs/SYNC_HISTORY.md](docs/SYNC_HISTORY.md) has the design and its limits.
+
 ## Dexie integration
 
 The application owns its Dexie schema and migrations. Add `_sync_outbox: "key"`
-to the schema. Synchronized rows require a string `id` and an `isDeleted` field;
+to the schema, and `_sync_journal: SYNC_JOURNAL_SCHEMA` for sync history. Synchronized rows require a string `id` and an `isDeleted` field;
 the middleware supplies `false` when it is absent. Keep caches and drafts out
 of the synchronized table map.
 
@@ -148,7 +161,9 @@ Deletes retain rows with `isDeleted: true`. Incoming writes use a raw database
 connection. Push reconciliation clears only the exact submitted change, so an
 edit made during the request remains queued. A failed apply does not advance
 the client's cursor. The core exposes `SyncStorage<Prepared>` for other storage
-implementations with the same transaction guarantees.
+implementations with the same transaction guarantees. `applyRemoteRecords`
+may return `keptLocal`, the keys it left alone because a newer local edit was
+pending; sync history reads them.
 
 The retained v2 limits are 500 records per batch/page, 64 KiB per value,
 1 MiB per encoded push body, and five minutes of allowed future clock skew.
