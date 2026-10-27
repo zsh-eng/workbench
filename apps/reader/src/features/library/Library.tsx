@@ -239,8 +239,9 @@ export function Library() {
   // device are prepared now. A new device has none of them, and downloading
   // them all at once held back the covers for many seconds. So they download
   // one at a time, the book read last first, once the restore has ended and
-  // no other download, such as a cover's, is under way. Each is tried once
-  // while the Library is open, so a failed download does not repeat at once.
+  // no other download, such as a cover's, is under way. The next starts when
+  // the last one settles. Each is tried once while the Library is open, so a
+  // failed download does not repeat at once.
   const restoring = useSyncStatus(
     syncService.controller,
     (status) => status.restoring,
@@ -250,16 +251,15 @@ export function Library() {
     () => files.getSnapshot().downloading.length > 0,
   );
   const triedDownloads = useRef(new Set<string>());
+  const downloadingBook = useRef(false);
+  const [downloadsSettled, setDownloadsSettled] = useState(0);
   const prefetchOptions = useMemo(
     () => ({
       includeArtifacts: false,
       publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
       matchPublisherBodyTextSize: settings.matchPublisherBodyTextSize,
     }),
-    [
-      settings.matchPublisherBodyTextSize,
-      settings.publisherBookStylingEnabled,
-    ],
+    [settings.matchPublisherBodyTextSize, settings.publisherBookStylingEnabled],
   );
   const continueReading = data?.categorized.continueReading;
   useEffect(() => {
@@ -276,22 +276,35 @@ export function Library() {
     };
   }, [continueReading, prefetchOptions, queryClient]);
   useEffect(() => {
-    if (restoring || downloading) return;
+    if (restoring || downloading || downloadingBook.current) return;
     const books = continueReading ?? [];
     let cancelled = false;
     void readingBooksOnDevice(books).then((local) => {
-      if (cancelled) return;
+      if (cancelled || downloadingBook.current) return;
       const next = books.find(
         (book, index) => !local[index] && !triedDownloads.current.has(book.id),
       );
       if (!next) return;
       triedDownloads.current.add(next.id);
-      void prefetchReaderBooks(queryClient, [next], prefetchOptions);
+      downloadingBook.current = true;
+      void prefetchReaderBooks(queryClient, [next], prefetchOptions).finally(
+        () => {
+          downloadingBook.current = false;
+          setDownloadsSettled((count) => count + 1);
+        },
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [continueReading, downloading, prefetchOptions, queryClient, restoring]);
+  }, [
+    continueReading,
+    downloading,
+    downloadsSettled,
+    prefetchOptions,
+    queryClient,
+    restoring,
+  ]);
 
   const handlePrefetch = useCallback(
     (book: Book) => {

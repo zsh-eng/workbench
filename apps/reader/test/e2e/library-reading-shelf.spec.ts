@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import {
   currentPages,
   expect,
@@ -16,12 +17,12 @@ test.use({
   hasTouch: false,
 });
 
-test("the Reading shelf puts the book you read last first", async ({
-  page,
-  localBook,
-}) => {
-  // Prepare a second valid EPUB through the importer. Distinct source bytes
-  // preserve the database's unique source-file invariant.
+/**
+ * Imports a second valid EPUB, "Second local book", and returns its ID and
+ * bytes. Distinct source bytes preserve the database's unique source-file
+ * invariant.
+ */
+async function importSecondBook(page: Page) {
   const entries = unzipSync(await readFile(SAMPLE_EPUB_PATH));
   const opf = Object.keys(entries).find((path) => path.endsWith(".opf"))!;
   entries[opf] = strToU8(
@@ -31,6 +32,7 @@ test("the Reading shelf puts the book you read last first", async ({
     ),
   );
   // A populated Library accepts another EPUB through its drop target.
+  const bytes = zipSync(entries);
   const dataTransfer = await page.evaluateHandle(
     (bytes) => {
       const transfer = new DataTransfer();
@@ -41,7 +43,7 @@ test("the Reading shelf puts the book you read last first", async ({
       );
       return transfer;
     },
-    [...zipSync(entries)],
+    [...bytes],
   );
   await page
     .getByRole("heading", { name: /Alice/ })
@@ -58,6 +60,11 @@ test("the Reading shelf puts the book you read last first", async ({
       (book: { title: string }) => book.title === "Second local book",
     ).id as string;
   });
+  return { secondId, bytes };
+}
+
+/** Both books are being read; the first was read last. */
+async function readBoth(page: Page, firstId: string, secondId: string) {
   await page.evaluate(
     async ({ firstId, secondId }) => {
       const dataPath = "/src/lib/db.ts";
@@ -73,8 +80,16 @@ test("the Reading shelf puts the book you read last first", async ({
         });
       }
     },
-    { firstId: localBook.id, secondId },
+    { firstId, secondId },
   );
+}
+
+test("the Reading shelf puts the book you read last first", async ({
+  page,
+  localBook,
+}) => {
+  const { secondId } = await importSecondBook(page);
+  await readBoth(page, localBook.id, secondId);
   await page.reload();
 
   const shelf = page.getByRole("region", { name: "Reading", exact: true });
@@ -133,4 +148,79 @@ test("the Reading shelf shows how far through the book's pages you are", async (
   await page.getByRole("button", { name: "Library", exact: true }).click();
   const shelf = page.getByRole("region", { name: "Reading", exact: true });
   await expect(shelf.getByText(`${Math.round(expected * 100)}%`)).toBeVisible();
+});
+
+test("books being read that are not on this device download one at a time, each once", async ({
+  page,
+  localBook,
+}) => {
+  const { secondId, bytes } = await importSecondBook(page);
+  await readBoth(page, localBook.id, secondId);
+  // A new device: neither EPUB is here.
+  const sources = await page.evaluate(
+    async (ids) => {
+      const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+      const sources: string[] = [];
+      for (const id of ids) {
+        const book = await db.books.get(id);
+        await db.files.delete(book.sourceFileId);
+        await db.bookFiles.where("bookId").equals(id).delete();
+        await db.bookMaterializations.where("bookId").equals(id).delete();
+        sources.push(book.sourceFileId as string);
+      }
+      return sources;
+    },
+    [localBook.id, secondId],
+  );
+  const events: string[] = [];
+  // The book read last fails to download; the other waits for the test.
+  await page.route(`**/api/files/${sources[0]}`, async (route) => {
+    events.push("first asked");
+    await route.fulfill({ status: 500 });
+    events.push("first failed");
+  });
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/api/files/${sources[1]}`, async (route) => {
+    events.push("second asked");
+    await released;
+    await route.fulfill({
+      body: Buffer.from(bytes),
+      contentType: "application/epub+zip",
+    });
+  });
+  await page.reload();
+
+  await expect.poll(() => events).toContain("second asked");
+  expect(events).toEqual(["first asked", "first failed", "second asked"]);
+  release();
+  await expect
+    .poll(() =>
+      page.evaluate(async (id) => {
+        const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
+        return (await db.files.get(id)) !== undefined;
+      }, sources[1]),
+    )
+    .toBe(true);
+  // Reading the other book changes the shelf, which runs the downloads
+  // again; the failed one is not tried again while the Library is open.
+  await page.evaluate(async (bookId) => {
+    const dataPath = "/src/lib/db.ts";
+    const data = await import(dataPath);
+    await data.upsertCurrentDeviceReadingCheckpoint({
+      bookId,
+      currentSpineIndex: 0,
+      scrollProgress: 0,
+      lastRead: Date.now(),
+    });
+  }, secondId);
+  const shelf = page.getByRole("region", { name: "Reading", exact: true });
+  await expect(
+    shelf.getByRole("link", { name: /^Open / }).first(),
+  ).toHaveAttribute("href", `/reader/${secondId}`);
+  // Nothing marks a download that does not start: watch for a moment.
+  await page.waitForTimeout(500);
+  expect(events).toEqual(["first asked", "first failed", "second asked"]);
 });
