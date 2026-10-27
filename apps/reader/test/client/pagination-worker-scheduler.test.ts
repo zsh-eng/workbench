@@ -1,4 +1,9 @@
-import type { PaginationEngineWork } from "@/lib/pagination-v2/engine";
+import {
+  PaginationEngine,
+  type EnginePaginationEvent,
+  type PaginationEngineWork,
+} from "@/lib/pagination-v2/engine";
+import { parseChapterHtml } from "@/lib/pagination-v2";
 import type { PaginationCommand } from "@/lib/pagination-v2/protocol";
 import { PaginationJobScheduler } from "@/lib/pagination-v2/worker/scheduler";
 import {
@@ -319,6 +324,51 @@ describe("PaginationJobScheduler", () => {
     expect(harness.scheduler.hasWork()).toBe(false);
     expect(runAll(harness)).toEqual([]);
   });
+});
+
+it("lays out the chapter a waiting jump needs before other chapters", () => {
+  const events: EnginePaginationEvent[] = [];
+  const engine = new PaginationEngine((event) => events.push(event));
+  const scheduler = new PaginationJobScheduler(
+    (command) => engine.createWork(command),
+    () => engine.pendingJumpChapter,
+  );
+  /** The chapters whose `addChapter` work ran, in order. */
+  const added: number[] = [];
+  const run = () => {
+    for (;;) {
+      scheduler.expandIncomingCommands();
+      const job = scheduler.peek();
+      if (!job) return;
+      if (job.chapterIndex !== null && !added.includes(job.chapterIndex))
+        added.push(job.chapterIndex);
+      if (job.work.next().done) scheduler.remove(job);
+    }
+  };
+  const blocks = (chapter: number) =>
+    parseChapterHtml(`<body><p>Chapter ${chapter} text.</p></body>`);
+
+  scheduler.pushCommand({ ...initCommand(), totalChapters: 4 });
+  run();
+  events.length = 0;
+  for (const chapter of [1, 2, 3])
+    scheduler.pushCommand({
+      type: "addChapter",
+      chapterIndex: chapter,
+      blocks: blocks(chapter),
+    });
+  scheduler.pushCommand(goToChapter(3));
+  run();
+
+  expect(added).toEqual([3, 1, 2]);
+  const jump = events.find(
+    (event) => event.type === "pageContent" && event.intent.kind === "jump",
+  );
+  const page =
+    jump && "spread" in jump
+      ? jump.spread.slots.find((slot) => slot.kind === "page")
+      : undefined;
+  expect(page?.kind === "page" && page.page.chapterIndex).toBe(3);
 });
 
 it("coalesces page lookups within each consumer without dropping another consumer", () => {
