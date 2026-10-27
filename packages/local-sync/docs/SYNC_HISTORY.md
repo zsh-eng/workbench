@@ -76,11 +76,15 @@ record or failed:
 - **Bounds.** Entries older than 30 days are dropped. Beyond 1,000 detailed
   entries or 8,000 detailed keys, the oldest days roll up into one entry per
   day, with counts per direction, device and table. Lost edits keep their
-  detail in the roll-up.
-- **Cost.** A pass writes one row and reads nothing. Every 50 writes, and
-  when a view first subscribes, the journal reads and compacts its rows in
-  one transaction. Writes never fail a sync: an error is logged and the
-  entry dropped.
+  detail in the roll-up, and restore passes stay whole: they hold counts,
+  not keys, and read as one group.
+- **Cost.** A pass writes one row. The journal reads and compacts its rows
+  in one transaction once per page, after the first pass ends, then every 50
+  writes and when a view first subscribes. That first compaction also finds a
+  failure streak a reload left open, so it still folds and still gets
+  `recoveredAt`. Nothing reads at startup. The journal never throws into a
+  sync: an error goes to `onError` (logged by default) and the entry is
+  dropped.
 - **Storage.** `SyncJournalStore` is `load()`, `put(entry)` and
   `compact(decide)`, where `decide` gets every row and returns the rows to
   put and the ids to remove. `/dexie` has `DexieSyncJournalStore` over an app-owned
@@ -159,8 +163,8 @@ Read back against the code, the first draft had these problems:
   days roll up rather than drop. Merging passes at write time would keep more,
   but breaks "one entry per pass", which the tests and the roll-up rely on.
 - _A load on every start._ The draft compacted on load, which read the whole
-  journal at launch. Writes now only append; compaction runs every 50 writes
-  and when a view opens.
+  journal at launch. Compaction now waits for the first pass to end, then
+  runs every 50 writes and when a view opens.
 - _A failure streak never ends._ Quiet passes are not stored, so after "12
   tries, couldn't reach the server" nothing said sync recovered. The next
   success now stamps `recoveredAt` on that entry: one write per recovery.
@@ -182,6 +186,18 @@ Read back against the code, the first draft had these problems:
   adds Dexie version 8 to Reader (one new local table, no upgrade function).
   Dexie 4 opens a newer database from older code, so a stale tab keeps
   working.
+
+A review of the built code found three more, now fixed and tested:
+
+- _Bounds and recovery held only within one page._ The write count and the
+  open failure lived in memory, and Reader without Debug never opens a view,
+  so short sessions never compacted and a streak that ended after a reload
+  never got `recoveredAt`. The first pass of each page now compacts and
+  finds the open streak.
+- _A roll-up hid the restore._ Its counts joined a day's ordinary counts and
+  read as "from this device". Restore passes now stay out of the roll-up.
+- _Debug code for everyone._ The Activity sheet and the Devices list were
+  precached for every Reader user. They now download on first use.
 
 Kept as drafted, after weighing:
 
@@ -208,9 +224,12 @@ Kept as drafted, after weighing:
   device, on sample history. Reader's nouns are in
   `src/features/sync-history/reader-describe.ts`: books, highlights, notes
   and bookmarks in their books, reading progress, and reading settings.
-- **Arctic for the web** keeps four `SyncClient`s under one controller: it
-  passes `pass` to each `client.sync({ observer })` and implements
+  Next, not in this round:
+
+- **Arctic for the web** keeps four `SyncClient`s under one controller. It
+  would pass `pass` to each `client.sync({ observer })` and implement
   `SyncJournalStore` over its own IndexedDB. Its keys are `table/id`, which
   the default `kindOf` reads.
-- **Spaced** adds `_sync_journal` to its Dexie schema and passes the journal
-  to `createSyncController`.
+- **Spaced** would add `_sync_journal` to its Dexie schema, pass the journal
+  to `createSyncController`, and hand `pass` to `sync({ observer })` in its
+  `run`.

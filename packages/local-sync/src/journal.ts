@@ -235,8 +235,14 @@ export function createSyncJournal(options: SyncJournalOptions): SyncJournal {
   let snapshot: SyncJournalSnapshot = { entries: [], loaded: false };
   let chain: Promise<unknown> = Promise.resolve();
   let writes = 0;
-  /** The last failure this page stored, until a pass succeeds. */
+  /**
+   * The failure that sync has not yet recovered from, until a pass
+   * succeeds. A compaction finds it in the store, so a streak that began
+   * before a reload still folds and still gets `recoveredAt`.
+   */
   let lastFailure: SyncJournalPass | null = null;
+  /** Whether this page has compacted the store once, after its first pass. */
+  let primed = false;
 
   function publish(entries: readonly SyncJournalEntry[], loaded = true) {
     snapshot = { entries, loaded };
@@ -260,18 +266,18 @@ export function createSyncJournal(options: SyncJournalOptions): SyncJournal {
         compactEntries(current, now(), limits, kindOf, dayOf),
       );
       writes = 0;
+      lastFailure ??= openFailure(entries);
       if (read || snapshot.loaded) publish(sorted(entries));
     });
   }
 
-  function save(entry: SyncJournalPass) {
-    void enqueue(async () => {
-      await store.put(entry);
-      if (snapshot.loaded) {
-        const others = snapshot.entries.filter((item) => item.id !== entry.id);
-        publish(sorted([...others, entry]));
-      }
-    });
+  /** Writes one entry. It runs in the chain, from a pass's end. */
+  async function write(entry: SyncJournalPass) {
+    await store.put(entry);
+    if (snapshot.loaded) {
+      const others = snapshot.entries.filter((item) => item.id !== entry.id);
+      publish(sorted([...others, entry]));
+    }
     writes += 1;
     if (writes >= limits.compactEvery) {
       writes = 0;
@@ -367,61 +373,90 @@ export function createSyncJournal(options: SyncJournalOptions): SyncJournal {
         if (ended) return;
         ended = true;
         const endedAt = now();
-        const moved = received.size > 0 || sent.size > 0 || counts.length > 0;
-        const failure =
-          result.outcome === "failed"
-            ? {
-                kind: result.failure.kind,
-                ...("status" in result.failure &&
-                result.failure.status !== undefined
-                  ? { status: result.failure.status }
-                  : {}),
-              }
-            : undefined;
-        if (result.outcome === "synced" && lastFailure) {
-          // The streak is over: say when.
-          save({ ...lastFailure, recoveredAt: endedAt });
-          lastFailure = null;
+        // Once a page: bound the store, and find a streak a reload left
+        // open, before this pass is told apart from it.
+        if (!primed) {
+          primed = true;
+          void compactNow(false);
         }
-        if (!moved) {
-          if (!failure) return;
-          if (
-            lastFailure &&
-            keysOf(lastFailure) === 0 &&
-            lastFailure.counts.length === 0 &&
-            lastFailure.failure?.kind === failure.kind &&
-            lastFailure.failure.status === failure.status
-          ) {
-            lastFailure = {
-              ...lastFailure,
-              endedAt,
-              repeats: (lastFailure.repeats ?? 1) + 1,
-            };
-            save(lastFailure);
-            return;
-          }
-        }
-        const entry: SyncJournalPass = {
-          type: "pass",
-          id: entryId(startedAt),
-          startedAt,
-          endedAt,
-          trigger,
-          outcome: result.outcome,
-          ...(failure ? { failure } : {}),
-          ...(restore ? { restore: true as const } : {}),
-          received: [...received.values()],
-          sent: [...sent.values()],
-          counts,
-        };
-        if (failure) lastFailure = entry;
-        save(entry);
+        void enqueue(() => finish(result, endedAt));
       },
+    };
+
+    async function finish(result: SyncPassResult, endedAt: number) {
+      const moved = received.size > 0 || sent.size > 0 || counts.length > 0;
+      const failure =
+        result.outcome === "failed"
+          ? {
+              kind: result.failure.kind,
+              ...("status" in result.failure &&
+              result.failure.status !== undefined
+                ? { status: result.failure.status }
+                : {}),
+            }
+          : undefined;
+      if (result.outcome === "synced" && lastFailure) {
+        // The streak is over: say when.
+        const recovered = lastFailure;
+        lastFailure = null;
+        await write({ ...recovered, recoveredAt: endedAt });
+      }
+      if (!moved) {
+        if (!failure) return;
+        if (
+          lastFailure &&
+          keysOf(lastFailure) === 0 &&
+          lastFailure.counts.length === 0 &&
+          lastFailure.failure?.kind === failure.kind &&
+          lastFailure.failure.status === failure.status
+        ) {
+          lastFailure = {
+            ...lastFailure,
+            endedAt,
+            repeats: (lastFailure.repeats ?? 1) + 1,
+          };
+          await write(lastFailure);
+          return;
+        }
+      }
+      const entry: SyncJournalPass = {
+        type: "pass",
+        id: entryId(startedAt),
+        startedAt,
+        endedAt,
+        trigger,
+        outcome: result.outcome,
+        ...(failure ? { failure } : {}),
+        ...(restore ? { restore: true as const } : {}),
+        received: [...received.values()],
+        sent: [...sent.values()],
+        counts,
+      };
+      if (failure) lastFailure = entry;
+      await write(entry);
+    }
+  }
+
+  /** The recorder's calls never throw into a sync: an error goes to `onError`. */
+  function guarded(recorder: SyncPassRecorder): SyncPassRecorder {
+    const guard =
+      <A extends unknown[]>(call: (...args: A) => void) =>
+      (...args: A) => {
+        try {
+          call(...args);
+        } catch (error) {
+          onError(error);
+        }
+      };
+    return {
+      pulled: guard(recorder.pulled),
+      pushed: guard(recorder.pushed),
+      end: guard(recorder.end),
     };
   }
 
   return {
-    begin,
+    begin: (trigger) => guarded(begin(trigger)),
     subscribe(listener) {
       listeners.add(listener);
       if (listeners.size === 1) void compactNow(true);
@@ -437,6 +472,22 @@ export function createSyncJournal(options: SyncJournalOptions): SyncJournal {
       await chain;
     },
   };
+}
+
+/** The newest pass, if it failed and nothing has said sync recovered. */
+function openFailure(
+  entries: readonly SyncJournalEntry[],
+): SyncJournalPass | null {
+  let newest: SyncJournalPass | null = null;
+  for (const entry of entries)
+    if (
+      entry.type === "pass" &&
+      (!newest || entry.startedAt > newest.startedAt)
+    )
+      newest = entry;
+  return newest?.outcome === "failed" && newest.recoveredAt === undefined
+    ? newest
+    : null;
 }
 
 function sorted(entries: readonly SyncJournalEntry[]): SyncJournalEntry[] {
@@ -474,6 +525,8 @@ function compactEntries(
   const changed = new Map<number, SyncJournalDay>();
   for (const entry of passes) {
     if (count <= limits.maxEntries && keys <= limits.maxKeys) break;
+    // A restore holds counts, not keys, and reads as one group: it stays.
+    if (entry.restore) continue;
     const day = dayOf(entry.startedAt);
     const rolled = rollUp(
       changed.get(day) ?? days.get(day),

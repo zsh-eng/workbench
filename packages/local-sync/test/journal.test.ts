@@ -337,6 +337,142 @@ describe("sync journal", () => {
     ]);
   });
 
+  it("keeps its bounds and closes a failure streak across reloads, with no view open", async () => {
+    const day = 24 * 60 * 60_000;
+    let clock = 0;
+    const old: SyncJournalPass = {
+      type: "pass",
+      id: "old",
+      startedAt: 0,
+      endedAt: 0,
+      trigger: "interval",
+      outcome: "synced",
+      received: [],
+      sent: [{ key: key("old"), at: 0, deleted: false }],
+      counts: [],
+    };
+    const store = createMemorySyncJournalStore([old]);
+    // Each page lifetime has its own journal over the same store, and
+    // nothing subscribes or refreshes.
+    const page = () => createSyncJournal({ store, now: () => clock });
+    const end = async (
+      journal: SyncJournal,
+      result: Parameters<ReturnType<SyncJournal["begin"]>["end"]>[0],
+    ) => {
+      journal.begin("start").end(result);
+      await journal.flush();
+    };
+    const offline = {
+      outcome: "failed",
+      failure: new SyncNetworkError("No answer"),
+    } as const;
+
+    clock = 40 * day;
+    await end(page(), offline);
+    clock = 40 * day + 60_000;
+    await end(page(), offline);
+    clock = 40 * day + 120_000;
+    await end(page(), { outcome: "synced" });
+
+    // The 40-day-old pass went with the first page's first pass, and the
+    // streak folded across a reload and was closed by the next page.
+    expect(store.entries()).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        startedAt: 40 * day,
+        endedAt: 40 * day + 60_000,
+        repeats: 2,
+        recoveredAt: 40 * day + 120_000,
+      }),
+    ]);
+  });
+
+  it("never throws into a sync: a journal error goes to onError", async () => {
+    const errors: unknown[] = [];
+    const journal = createSyncJournal({
+      store: createMemorySyncJournalStore(),
+      kindOf: () => {
+        throw new Error("No kind");
+      },
+      onError: (error) => errors.push(error),
+    });
+    const pass = journal.begin("start");
+    expect(() =>
+      pass.pulled({
+        records: [
+          {
+            key: key("one"),
+            value: "{}",
+            isDeleted: false,
+            schemaVersion: 1,
+            hlc: { wallTimeMs: 1, counter: 0 },
+            deviceId: "laptop",
+            serverSeq: 1,
+          },
+        ],
+        restoring: true,
+      }),
+    ).not.toThrow();
+    pass.end({ outcome: "synced" });
+    await journal.flush();
+    expect(errors).toEqual([new Error("No kind")]);
+  });
+
+  it("keeps a restore whole when older passes roll up", async () => {
+    let clock = 1_000;
+    const store = createMemorySyncJournalStore();
+    const journal = createSyncJournal({
+      store,
+      now: () => clock,
+      limits: { maxEntries: 2, compactEvery: 100 },
+    });
+    const restore = journal.begin("sign-in");
+    restore.pulled({
+      records: [
+        {
+          key: key("restored"),
+          value: "{}",
+          isDeleted: false,
+          schemaVersion: 1,
+          hlc: { wallTimeMs: 500, counter: 0 },
+          deviceId: "laptop",
+          serverSeq: 1,
+        },
+      ],
+      restoring: true,
+    });
+    restore.end({ outcome: "synced" });
+    for (const id of ["one", "two", "three"]) {
+      clock += 60_000;
+      const pass = journal.begin("change");
+      const change: SyncPushChange = {
+        key: key(id),
+        value: "{}",
+        isDeleted: false,
+        schemaVersion: 1,
+        hlc: { wallTimeMs: clock, counter: 0 },
+      };
+      pass.pushed({
+        sent: [change],
+        results: [
+          {
+            accepted: true,
+            winner: { ...change, deviceId: "here", serverSeq: 2 },
+          },
+        ],
+      });
+      pass.end({ outcome: "synced" });
+    }
+    await journal.refresh();
+
+    const entries = store.entries();
+    expect(entries.filter((entry) => entry.type === "day")).toHaveLength(1);
+    const history = summarizeSyncHistory(entries, { now: clock });
+    expect(history.groups.map((group) => group.direction)).toContain(
+      "restored",
+    );
+  });
+
   it("drops entries after 30 days and rolls the oldest passes into day counts beyond the caps, keeping lost edits", async () => {
     const day = 24 * 60 * 60_000;
     let clock = 0;
