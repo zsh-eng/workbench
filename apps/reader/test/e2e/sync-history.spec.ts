@@ -9,10 +9,10 @@ import {
 import { DATABASE_MODULE } from "./helpers/global-setup";
 import { REMOTE_DEVICE_ID, type MockApi } from "./helpers/mock-api";
 
-// Account → Activity shows this device's sync history, behind Debug. Two
-// devices: this one, and an iPhone (the mock's other device) that adds
-// highlights and edits one after this device did, so this device's edit
-// is lost to it.
+// Account → Activity shows this device's sync history to every reader;
+// Devices' list of syncing devices stays behind Debug. Two devices: this
+// one, and an iPhone (the mock's other device) that adds highlights and
+// edits one after this device did, so this device's edit is lost to it.
 
 test.use({ signedIn: true });
 
@@ -39,19 +39,35 @@ function highlight(
   };
 }
 
-/** The iPhone's change, already on the server, made at `at`. */
+/** Another device's change, already on the server, made at `at`. */
 function fromPhone(
   remote: MockApi,
   row: ReturnType<typeof highlight>,
   at: number,
+  deviceId = REMOTE_DEVICE_ID,
 ) {
-  remote.enqueue({
-    key: JSON.stringify(["highlights", row.id]),
-    value: JSON.stringify(row),
-    isDeleted: false,
-    schemaVersion: 1,
-    hlc: { wallTimeMs: at, counter: 0 },
-  });
+  remote.enqueue(
+    {
+      key: JSON.stringify(["highlights", row.id]),
+      value: JSON.stringify(row),
+      isDeleted: row.isDeleted,
+      schemaVersion: 1,
+      hlc: { wallTimeMs: at, counter: 0 },
+    },
+    deviceId,
+  );
+}
+
+/** Debug as production starts it (off), or on. */
+async function setDebug(page: Page, enabled: boolean) {
+  await page.addInitScript(
+    (value) => localStorage.setItem("reader-debug-enabled-v1", value),
+    String(enabled),
+  );
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
+  ).toBeVisible();
 }
 
 async function syncNow(page: Page) {
@@ -68,17 +84,17 @@ async function syncNow(page: Page) {
 }
 
 /**
- * Debug on, then: this device marks a highlight yellow; the iPhone has
- * added two highlights, and marked the same one blue a minute later.
+ * Debug off unless asked, as production starts, then: this device marks a
+ * highlight yellow; the iPhone has added two highlights, and marked the
+ * same one blue a minute later.
  */
-async function twoDevices(page: Page, remote: MockApi, bookId: string) {
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-debug-enabled-v1", "true"),
-  );
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
-  ).toBeVisible();
+async function twoDevices(
+  page: Page,
+  remote: MockApi,
+  bookId: string,
+  { debug = false } = {},
+) {
+  await setDebug(page, debug);
   const now = Date.now();
   await page.evaluate(
     async ({ path, row }) => {
@@ -151,23 +167,40 @@ async function openDevices(page: Page) {
   ).toBeVisible();
 }
 
-test("without Debug, there is no Activity item and Devices lists no syncing devices", async ({
+test("without Debug, Account has Activity, and Devices lists no syncing devices", async ({
   page,
   localBook: _localBook,
 }) => {
   // Development builds start with Debug on; production starts with it off.
-  await page.addInitScript(() =>
-    localStorage.setItem("reader-debug-enabled-v1", "false"),
-  );
-  await page.reload();
+  await setDebug(page, false);
   const menu = await openAccountMenu(page);
   await expect(
     menu.getByRole("menuitem", { name: /^Sync now:/ }),
   ).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: "Activity" })).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitem", { name: "Activity", exact: true }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await openDevices(page);
   await expect(page.locator("[data-sync-devices]")).toHaveCount(0);
+});
+
+test("Activity says so when its code cannot load, and the app stays", async ({
+  page,
+  localBook: _localBook,
+}) => {
+  await setDebug(page, false);
+  await page.route(
+    /\/src\/features\/sync-history\/ActivityHistory\.tsx/,
+    (route) => route.abort("internetdisconnected"),
+  );
+  const menu = await openAccountMenu(page);
+  await menu.getByRole("menuitem", { name: "Activity", exact: true }).click();
+  await expect(page.getByText("Couldn't open Activity.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
+  ).toBeVisible();
 });
 
 test("with Debug, Devices lists each syncing device with what it last sent", async ({
@@ -175,7 +208,7 @@ test("with Debug, Devices lists each syncing device with what it last sent", asy
   remote,
   localBook,
 }) => {
-  await twoDevices(page, remote, localBook.id);
+  await twoDevices(page, remote, localBook.id, { debug: true });
   await openDevices(page);
   const devices = page.locator("[data-sync-devices]");
   await expect(
@@ -199,7 +232,7 @@ test("with Debug, Devices lists each syncing device with what it last sent", asy
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("Activity shows what came from the iPhone and the edit lost to it, and its rows hold while it is open", async ({
+  test("without Debug, Activity shows what came from the iPhone and the edit lost to it, and its rows hold while it is open", async ({
     page,
     remote,
     localBook,
