@@ -584,44 +584,42 @@ function Readout() {
   useEffect(() => {
     let frame = 0;
     let last = "";
-    let lastWindow = "";
-    let part: "open" | "drag" | "rest" | null = null;
-    // A drag ends once the sheet has left its rest and found one again.
-    let moved = false;
-    const end = () => {
-      if (part === "open" || part === "drag")
-        performance.mark(`kit:${part}:end`);
+    // The window line changes only with the window, so it is not read in
+    // the frames that a trace measures.
+    const showWindow = () => {
+      const line = windowRef.current;
+      if (!line) return;
+      const read = windowReadout();
+      line.textContent = `window ${read.window} · screen ${read.screen} · density ${read.density} · ${read.widthClass} width, ${read.heightClass} height · ${read.device} · ${read.sheets} sheets`;
+      Object.assign(line.dataset, read);
     };
+    showWindow();
+    window.addEventListener("resize", showWindow);
+    // An opening runs from a case's tap until the sheet rests. A drag runs
+    // from a finger on a resting sheet, once the sheet moves, until it
+    // rests or closes; a tap that moves nothing is no drag.
+    let part: "open" | "touch" | "drag" | "rest" | null = null;
+    let touchAt = 0;
     const onTap = (event: Event) => {
       if (!(event.target as Element).closest?.("[data-lab-scenario]")) return;
       performance.mark("kit:open:start");
       part = "open";
-      moved = false;
     };
     const onTouch = (event: Event) => {
       if (part !== "rest") return;
       if (!(event.target as Element).closest?.(".reader-sheet")) return;
-      performance.mark("kit:drag:start");
-      part = "drag";
-      moved = false;
+      part = "touch";
+      touchAt = performance.now();
     };
+    const onTouchEnd = () => {
+      if (part === "touch") part = "rest";
+    };
+    const listen = { capture: true, passive: true };
     document.addEventListener("click", onTap, true);
-    document.addEventListener("touchstart", onTouch, {
-      capture: true,
-      passive: true,
-    });
+    document.addEventListener("touchstart", onTouch, listen);
+    document.addEventListener("touchend", onTouchEnd, listen);
     const sample = () => {
       frame = requestAnimationFrame(sample);
-      const line = windowRef.current;
-      if (line) {
-        const read = windowReadout();
-        const text = `window ${read.window} · screen ${read.screen} · density ${read.density} · ${read.widthClass} width, ${read.heightClass} height · ${read.device} · ${read.sheets} sheets`;
-        if (text !== lastWindow) {
-          lastWindow = text;
-          line.textContent = text;
-          Object.assign(line.dataset, read);
-        }
-      }
       const element = ref.current;
       if (!element) return;
       const overlays = document.querySelectorAll<HTMLElement>(
@@ -638,7 +636,7 @@ function Readout() {
       );
       const landscape = innerWidth > innerHeight;
       if (!overlay || !scroller || !sheet) {
-        if (part === "drag") end();
+        if (part === "drag") performance.mark("kit:drag:end");
         if (part !== "open") part = null;
         const text = `No sheet · ${landscape ? "landscape" : "portrait"} · keyboard ${keyboard}`;
         if (text !== last) {
@@ -682,10 +680,12 @@ function Readout() {
           detent = "full";
       }
       const atRest = detent.startsWith("detent") || detent === "full";
-      if (!atRest) moved = true;
-      else if (part !== "open" && part !== "drag") part = "rest";
-      else if (moved) {
-        end();
+      if (part === "touch" && !atRest) {
+        performance.mark("kit:drag:start", { startTime: touchAt });
+        part = "drag";
+      } else if (atRest && part !== "touch") {
+        if (part === "open" || part === "drag")
+          performance.mark(`kit:${part}:end`);
         part = "rest";
       }
       const text = [
@@ -713,8 +713,10 @@ function Readout() {
     frame = requestAnimationFrame(sample);
     return () => {
       cancelAnimationFrame(frame);
+      window.removeEventListener("resize", showWindow);
       document.removeEventListener("click", onTap, true);
-      document.removeEventListener("touchstart", onTouch, true);
+      document.removeEventListener("touchstart", onTouch, listen);
+      document.removeEventListener("touchend", onTouchEnd, listen);
     };
   }, []);
   return (
