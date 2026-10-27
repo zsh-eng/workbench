@@ -24,7 +24,12 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { Fragment, useState, type ReactNode } from "react";
-import { holdRecentRows, recentRows, type RecentRow } from "./history-rows";
+import {
+  holdRecentRows,
+  recentRows,
+  type RecentArrangement,
+  type RecentRow,
+} from "./history-rows";
 
 /** Every row is this tall: a title and up to two lines, so words that change never move a row. */
 const ROW_HEIGHT = 72;
@@ -41,7 +46,7 @@ export interface DeviceNamer {
 const time = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-function span(from: number, to: number): string {
+export function span(from: number, to: number): string {
   return to - from >= 60_000 ? `${time(from)}–${time(to)}` : time(to);
 }
 
@@ -87,6 +92,9 @@ function bare(
   return `${count} ${item.verb === "added" ? "new" : item.verb} ${noun}`;
 }
 
+const upperFirst = (words: string) =>
+  words.charAt(0).toUpperCase() + words.slice(1);
+
 /** "a, b and c" */
 function list(parts: readonly string[]): string {
   return parts.length < 2
@@ -94,13 +102,18 @@ function list(parts: readonly string[]): string {
     : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
 }
 
-/** One item with its books: "3 new highlights in _X_", "5 changed notes in 2 books". */
+/**
+ * One item with its books: "3 new highlights in _X_", "5 changed notes in
+ * 2 books". `capital` starts a line: "Reading progress in _X_".
+ */
 function ItemPhrase({
   item,
   plain = false,
+  capital = false,
 }: {
   item: SyncHistoryItem;
   plain?: boolean;
+  capital?: boolean;
 }) {
   const only = item.containers.length === 1 ? item.containers[0]! : null;
   if (item.kind === "book" && only && item.count === 1)
@@ -109,11 +122,12 @@ function ItemPhrase({
         <Title>{only.label}</Title> {item.verb}
       </>
     );
-  if (item.kind === "book" || item.containers.length === 0)
-    return <>{bare(item, plain ? "plain" : "phrase")}</>;
+  const words = bare(item, plain ? "plain" : "phrase");
+  const said = capital ? upperFirst(words) : words;
+  if (item.kind === "book" || item.containers.length === 0) return <>{said}</>;
   return (
     <>
-      {bare(item, plain ? "plain" : "phrase")} in{" "}
+      {said} in{" "}
       {only ? (
         <Title>{only.label}</Title>
       ) : (
@@ -127,14 +141,17 @@ function ItemPhrase({
  * A group's changes in one line. When they are all in one book, the book
  * is named once: "2 new highlights and 1 new note in _Alice_", or "_Alice_
  * added, with reading progress". Otherwise each item names its own books.
- * `counted` gives counts only, as a restore says them: "52 books".
+ * `counted` gives counts only, as a restore says them: "52 books", and
+ * `capital` starts a line with a capital: "Reading progress in _X_".
  */
-function GroupItems({
+export function GroupItems({
   items,
   counted = false,
+  capital = true,
 }: {
   items: readonly SyncHistoryItem[];
   counted?: boolean;
+  capital?: boolean;
 }) {
   if (counted)
     return <>{items.map((item) => bare(item, "counted")).join(" · ")}</>;
@@ -153,7 +170,7 @@ function GroupItems({
         {items.map((item, index) => (
           <Fragment key={`${item.kind}:${item.verb}`}>
             {index > 0 && " · "}
-            <ItemPhrase item={item} />
+            <ItemPhrase item={item} capital={capital && index === 0} />
           </Fragment>
         ))}
       </>
@@ -171,12 +188,12 @@ function GroupItems({
     );
   return (
     <>
-      {rest} in <Title>{shared.label}</Title>
+      {capital ? upperFirst(rest) : rest} in <Title>{shared.label}</Title>
     </>
   );
 }
 
-function DeviceIcon({ type }: { type: DeviceType | null }) {
+export function DeviceIcon({ type }: { type: DeviceType | null }) {
   const Icon =
     type === "mobile"
       ? Smartphone
@@ -237,7 +254,7 @@ function groupWords(group: SyncHistoryGroup, names: DeviceNamer): RowWords {
         <>
           {group.changes.toLocaleString()}{" "}
           {group.changes === 1 ? "change" : "changes"} from {from} ·{" "}
-          <GroupItems items={group.items} counted />
+          <GroupItems items={group.items} counted capital={false} />
         </>
       ),
     };
@@ -272,13 +289,10 @@ function rowWords(row: RecentRow, names: DeviceNamer): RowWords {
     return {
       icon: <Clock className="size-[18px]" strokeWidth={1.7} />,
       title: row.gone ? "Sent" : "Waiting on this device",
-      when: time(row.waiting.since),
-      detail: (
-        <>
-          <GroupItems items={row.waiting.items} />
-          {!row.gone && ` · since ${time(row.waiting.since)}`}
-        </>
-      ),
+      when: row.gone
+        ? time(row.waiting.since)
+        : `since ${time(row.waiting.since)}`,
+      detail: <GroupItems items={row.waiting.items} />,
     };
   const { lost } = row;
   const winner = names.name(lost.winner.deviceId);
@@ -291,7 +305,7 @@ function rowWords(row: RecentRow, names: DeviceNamer): RowWords {
     warn: true,
     detail: (
       <>
-        <ItemPhrase item={lost.item} plain /> ·{" "}
+        <ItemPhrase item={lost.item} plain capital /> ·{" "}
         {lost.winner.deleted
           ? `${winner} removed it at ${time(lost.winner.at)}`
           : `kept ${winner}'s edit from ${time(lost.winner.at)}`}
@@ -340,24 +354,33 @@ function Row({ row, names }: { row: RecentRow; names: DeviceNamer }) {
   );
 }
 
-const dayOf = (row: RecentRow) =>
-  row.type === "group" ? dayLabel(row.group.to) : null;
+/** The day a row sits under, if its arrangement shows days. */
+function dayOf(row: RecentRow, arrange: RecentArrangement): string | null {
+  if (arrange === "devices") return null;
+  if (row.type === "group") return dayLabel(row.group.to);
+  if (row.type === "lost" && arrange === "timeline")
+    return dayLabel(row.lost.at);
+  return null;
+}
 
 /**
- * Recent: what sync did on this device, from its journal. Lost edits and
- * what still waits come first, then what came from each device and what
- * this device sent, newest first, by day. Rows hold their places while the
- * list is open (history-rows.ts). It mounts with the sheet, so each
- * opening arranges the rows again.
+ * Recent: what sync did on this device, from its journal. By default lost
+ * edits and what still waits come first, then what came from each device
+ * and what this device sent, newest first, by day; Design ideas tries the
+ * other arrangements. Rows hold their places while the list is open
+ * (history-rows.ts). It mounts with the sheet, so each opening arranges
+ * the rows again.
  */
 export function RecentHistory({
   history,
   names,
+  arrange = "sections",
 }: {
   history: SyncHistory;
   names: DeviceNamer;
+  arrange?: RecentArrangement;
 }) {
-  const next = recentRows(history);
+  const next = recentRows(history, arrange);
   const [held, setHeld] = useState(() => ({ history, rows: next }));
   let rows = held.rows;
   if (held.history !== history) {
@@ -377,8 +400,9 @@ export function RecentHistory({
         <div role="list">
           <AnimatePresence initial={false}>
             {rows.flatMap((row, index) => {
-              const day = dayOf(row);
-              const previous = index > 0 ? dayOf(rows[index - 1]!) : null;
+              const day = dayOf(row, arrange);
+              const previous =
+                index > 0 ? dayOf(rows[index - 1]!, arrange) : null;
               const parts = [];
               if (day && day !== previous)
                 parts.push(

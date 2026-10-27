@@ -121,6 +121,10 @@ const SheetMotionIdea = lazyPage(
   () => import("@/features/elements/SheetMotionIdea"),
   "SheetMotionIdea",
 );
+const SyncHistoryIdea = lazyPage(
+  () => import("@/features/sync-history/ideas/SyncHistoryIdea"),
+  "SyncHistoryIdea",
+);
 const ElementsFrame = lazyPage(
   () => import("@/features/elements/ElementsFrame"),
   "ElementsFrame",
@@ -372,6 +376,14 @@ function App() {
                       element={
                         <DebugPage>
                           <InstallIdea />
+                        </DebugPage>
+                      }
+                    />
+                    <Route
+                      path="/debug/ideas/sync-history"
+                      element={
+                        <DebugPage>
+                          <SyncHistoryIdea />
                         </DebugPage>
                       }
                     />

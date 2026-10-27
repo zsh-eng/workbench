@@ -458,6 +458,31 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       },
     ],
   },
+  sync: {
+    current: {
+      id: "sync-sections",
+      title: "Now, then Recent",
+      description:
+        "The choice, behind Debug in the real app as Account → Activity. Now lists the background jobs as the glyph's sheet does; Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day. Three seconds in, the iPhone sends one more highlight: its row says so in place, and nothing moves.",
+      src: "/debug/ideas/sync-history?variant=sections",
+    },
+    ideas: [
+      {
+        id: "sync-timeline",
+        title: "One timeline",
+        description:
+          "Everything by time: a lost edit sits where it happened, among the groups, so the list reads as a log. Easier to follow, easier to miss a lost edit from this morning under the afternoon's syncs.",
+        src: "/debug/ideas/sync-history?variant=timeline",
+      },
+      {
+        id: "sync-devices",
+        title: "By device",
+        description:
+          "One row per device with the last changes this device has from it, and what this device last sent. Answers \"did my iPad's notes arrive?\" at a glance, and loses the older groups. Devices shows the same list behind Debug.",
+        src: "/debug/ideas/sync-history?variant=devices",
+      },
+    ],
+  },
 };
 
 const SECTIONS = [

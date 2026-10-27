@@ -5,57 +5,89 @@ import type {
 } from "@zsh-eng/local-sync";
 
 /**
+ * How Recent lays out the history:
+ * - `sections`: lost edits, then what waits, then the groups by day.
+ * - `timeline`: what waits, then lost edits among the groups, by time.
+ * - `devices`: lost edits and what waits, then one row per device with
+ *   what it last sent, this device's included.
+ */
+export type RecentArrangement = "sections" | "timeline" | "devices";
+
+/**
  * Recent's rows. As in the activity sheet (sheet-rows.ts), nothing moves
  * while you look: the rows are arranged when the sheet opens. While it
  * stays open a row changes its words in place, a row that sync no longer
  * reports stays as it was (waiting changes read "Sent"), and a new row
- * joins the top of its part: lost edits, then what waits, then the groups,
- * newest first. The next opening arranges them again.
+ * joins the top of its part. The next opening arranges them again.
  */
-export type RecentRow =
-  | { id: string; type: "lost"; lost: SyncLostEdit; gone: boolean }
+export type RecentRow = {
+  /** Rows of a lower part come first; a new row joins the top of its part. */
+  part: number;
+  gone: boolean;
+} & (
+  | { id: string; type: "lost"; lost: SyncLostEdit }
   | {
       id: "waiting";
       type: "waiting";
       waiting: NonNullable<SyncHistory["waiting"]>;
-      gone: boolean;
     }
-  | { id: string; type: "group"; group: SyncHistoryGroup; gone: boolean };
+  | { id: string; type: "group"; group: SyncHistoryGroup }
+);
 
-const PART: Record<RecentRow["type"], number> = {
-  lost: 0,
-  waiting: 1,
-  group: 2,
-};
+const lostRow = (lost: SyncLostEdit, part: number): RecentRow => ({
+  id: `lost:${lost.key}:${lost.at}`,
+  type: "lost",
+  lost,
+  part,
+  gone: false,
+});
 
-export function recentRows(history: SyncHistory): RecentRow[] {
+const groupRow = (
+  group: SyncHistoryGroup,
+  part: number,
+  id = group.id,
+): RecentRow => ({ id, type: "group", group, part, gone: false });
+
+export function recentRows(
+  history: SyncHistory,
+  arrange: RecentArrangement = "sections",
+): RecentRow[] {
+  const waiting: RecentRow[] = history.waiting
+    ? [
+        {
+          id: "waiting",
+          type: "waiting",
+          waiting: history.waiting,
+          part: arrange === "timeline" ? 0 : 1,
+          gone: false,
+        },
+      ]
+    : [];
+  if (arrange === "timeline") {
+    const timed = [
+      ...history.lost.map((lost) => ({ at: lost.at, row: lostRow(lost, 1) })),
+      ...history.groups.map((group) => ({
+        at: group.to,
+        row: groupRow(group, 1),
+      })),
+    ].sort((a, b) => b.at - a.at);
+    return [...waiting, ...timed.map(({ row }) => row)];
+  }
+  const lost = history.lost.map((edit) => lostRow(edit, 0));
+  if (arrange === "devices") {
+    // A device's row keeps its place when its next group forms.
+    const sent = history.groups.find((group) => group.direction === "sent");
+    const latest = [...history.lastFrom.values(), ...(sent ? [sent] : [])]
+      .sort((a, b) => b.to - a.to)
+      .map((group) =>
+        groupRow(group, 2, `device:${group.deviceId ?? "this device"}`),
+      );
+    return [...lost, ...waiting, ...latest];
+  }
   return [
-    ...history.lost.map(
-      (lost): RecentRow => ({
-        id: `lost:${lost.key}:${lost.at}`,
-        type: "lost",
-        lost,
-        gone: false,
-      }),
-    ),
-    ...(history.waiting
-      ? [
-          {
-            id: "waiting" as const,
-            type: "waiting" as const,
-            waiting: history.waiting,
-            gone: false,
-          },
-        ]
-      : []),
-    ...history.groups.map(
-      (group): RecentRow => ({
-        id: group.id,
-        type: "group",
-        group,
-        gone: false,
-      }),
-    ),
+    ...lost,
+    ...waiting,
+    ...history.groups.map((group) => groupRow(group, 2)),
   ];
 }
 
@@ -82,7 +114,7 @@ export function holdRecentRows(
   for (const row of [...next].reverse()) {
     if (present.has(row.id)) continue;
     changed = true;
-    let at = rows.findIndex((other) => PART[other.type] >= PART[row.type]);
+    let at = rows.findIndex((other) => other.part >= row.part);
     if (at === -1) at = rows.length;
     rows.splice(at, 0, row);
   }
