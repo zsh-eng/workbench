@@ -84,7 +84,8 @@ const SYNC_V2_CURRENT_SHARED_STORES = {
   ...SYNC_V2_STORES_WITHOUT_BOOKS,
 } as const;
 
-export const SYNC_V2_STORES = {
+/** The schema of version 7, the last before the sync journal. */
+export const SYNC_V2_VERSION_7_STORES = {
   ...SYNC_V2_CURRENT_SHARED_STORES,
   notes: "id, bookId, highlightId, createdAt",
   noteDrafts: "id, bookId",
@@ -92,6 +93,10 @@ export const SYNC_V2_STORES = {
   fileUploadOperations: "id, createdAt",
   bookMaterializations: "bookId, sourceFileId, recipeVersion",
   bookStructures: "bookId",
+} as const;
+
+export const SYNC_V2_STORES = {
+  ...SYNC_V2_VERSION_7_STORES,
   // What each sync pass moved, on this device only: never synced.
   _sync_journal: SYNC_JOURNAL_SCHEMA,
 } as const;

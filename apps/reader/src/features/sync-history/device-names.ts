@@ -10,7 +10,7 @@ import { useMemo } from "react";
 /** A device that syncs this account, by the ID its records carry. */
 export interface SyncDevice {
   clientId: string;
-  /** "iPhone", "Mac", or "" when its user agent says too little. */
+  /** "iPhone", "Mac or iPad", or "" when its user agent says too little. */
   label: string;
   deviceType: DeviceType | null;
   lastActiveAt: string | null;
@@ -27,18 +27,34 @@ export interface SyncDeviceNames {
 
 const CACHE_KEY = "reader-sync-device-names-v1" + SHARED_STORAGE_SUFFIX;
 
-/** A plain name from the user agent's OS and form, as Apple names its devices. */
-export function deviceLabel(device: {
+interface DeviceAgent {
   os?: string | null;
   browser?: string | null;
   deviceType?: string | null;
   deviceName?: string | null;
-}): string {
+}
+
+/**
+ * iPadOS Safari, and Reader on an iPad's Home Screen, send a Mac's user
+ * agent, and the server keeps nothing else about a device: an iPad could
+ * report its touch points, but only to itself. Only a browser that names
+ * itself as no iPad browser does, Chrome or Firefox for macOS, proves a
+ * Mac. Edge sends the same name on both.
+ */
+function macOrIPad(device: DeviceAgent): boolean {
+  const os = (device.os ?? "").toLowerCase();
+  const browser = device.browser ?? "";
+  return os.includes("mac") && browser !== "Chrome" && browser !== "Firefox";
+}
+
+/** A plain name from the user agent's OS and form, as Apple names its devices. */
+function deviceLabel(device: DeviceAgent): string {
   if (device.deviceName) return device.deviceName;
   const os = (device.os ?? "").toLowerCase();
   const tablet = device.deviceType === "tablet";
   if (os.includes("ios")) return tablet ? "iPad" : "iPhone";
   if (os.includes("ipados")) return "iPad";
+  if (macOrIPad(device)) return "Mac or iPad";
   if (os.includes("mac")) return "Mac";
   if (os.includes("android"))
     return tablet ? "Android tablet" : "Android phone";
@@ -135,7 +151,11 @@ export function useSyncDeviceNames(): SyncDeviceNames {
       const named = devices.map((device) => ({
         clientId: device.clientId,
         label: labels.get(device.clientId) ?? "",
-        deviceType: deviceType(device.deviceType),
+        // A Mac or an iPad: neither a computer's nor a tablet's icon.
+        deviceType:
+          !device.deviceName && macOrIPad(device)
+            ? null
+            : deviceType(device.deviceType),
         lastActiveAt: device.lastActiveAt ?? null,
       }));
       writeCache(named);

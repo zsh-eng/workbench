@@ -6,6 +6,7 @@ import {
   openReaderTool,
   SAMPLE_BOOK_TITLE,
   waitForReaderReady,
+  waitForSheet,
   nextSpread,
 } from "./helpers/fixtures";
 
@@ -230,6 +231,34 @@ test.describe("on a phone", () => {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
+  });
+
+  test("Account → Activity opens offline on a fresh install, without Debug", async ({
+    page,
+    context,
+  }) => {
+    await install(page);
+    await page.close();
+    // setOffline does not reach the service worker's own requests, so the
+    // network fails them too.
+    await context.setOffline(true);
+    await context.route("**/*", (route) => route.abort("internetdisconnected"));
+    const fresh = await context.newPage();
+    await fresh.goto("/");
+    const menu = await openAccountMenu(fresh);
+    await expect(
+      menu.getByRole("menuitem", { name: "Debug tools", exact: true }),
+    ).toHaveCount(0);
+    await menu.getByRole("menuitem", { name: "Activity", exact: true }).click();
+    const activity = await waitForSheet(fresh, "Activity");
+    await expect(
+      activity.getByRole("heading", { name: "Recent" }),
+    ).toBeVisible();
+    await expect(activity).toContainText(
+      "Nothing has synced on this device in the last 30 days.",
+    );
+    await context.unroute("**/*");
+    await context.setOffline(false);
   });
 
   test("once the Library has been idle, opening a book loads no code", async ({

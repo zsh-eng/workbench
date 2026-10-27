@@ -132,6 +132,15 @@ export function ExperimentTools({
               >
                 Upgrade v5 → current
               </button>
+              <button
+                className="lab-button"
+                disabled={locked}
+                onClick={() =>
+                  run(async () => setMigration(await runMigrationScenario(7)))
+                }
+              >
+                Upgrade v7 → current
+              </button>
             </div>
             {migration && (
               <div className="lab-migration" role="status">

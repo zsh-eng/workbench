@@ -44,15 +44,51 @@ import {
   Settings,
   SquarePlus,
 } from "lucide-react";
-import { lazy, Suspense, useRef, useState } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-/** Behind Debug, so it stays out of the bundle every visit loads. */
+/**
+ * Account → Activity loads on its first opening, so the code every visit
+ * parses stays small. The service worker precaches it, so it opens offline.
+ */
 const ActivityHistory = lazy(() =>
   import("@/features/sync-history/ActivityHistory").then((module) => ({
     default: module.ActivityHistory,
   })),
 );
+
+/**
+ * Activity's code can fail to load, for example offline before the service
+ * worker has finished its first install, and its view can fail to render.
+ * Without this either error would reach the root and blank the app;
+ * instead the menu stays and a toast offers a reload. React still logs the
+ * error. A failed load stays failed until a reload, as React.lazy keeps it.
+ */
+class ActivityLoadBoundary extends Component<
+  { onError: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 const APPEARANCE_OPTIONS: { value: AppearanceMode; label: string }[] = [
   { value: "light", label: "Light" },
@@ -132,6 +168,19 @@ export function AccountMenu() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleActivityLoadError = () => {
+    setActivityOpen(false);
+    setActivityShown(false);
+    toast({
+      message: "Couldn't open Activity.",
+      description: navigator.onLine
+        ? "Reload to try again."
+        : "Connect to the internet, then reload.",
+      variant: "destructive",
+      action: { label: "Reload", onClick: () => window.location.reload() },
+    });
   };
 
   const handleSignOut = async () => {
@@ -226,18 +275,16 @@ export function AccountMenu() {
             {syncStatus.label}
           </DropdownMenuItem>
         )}
-        {debugEnabled && (
-          <DropdownMenuItem
-            onClick={() => {
-              setActivityShown(true);
-              setActivityOpen(true);
-            }}
-          >
-            <Activity />
-            Activity
-          </DropdownMenuItem>
-        )}
-        {(hasAccount || debugEnabled) && <DropdownMenuSeparator />}
+        <DropdownMenuItem
+          onClick={() => {
+            setActivityShown(true);
+            setActivityOpen(true);
+          }}
+        >
+          <Activity />
+          Activity
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {isAuthenticated && (
           <DropdownMenuItem render={<Link to="/devices" />}>
             <MonitorSmartphone />
@@ -293,13 +340,15 @@ export function AccountMenu() {
       </DropdownMenuContent>
       {/* The menu's root renders nothing of its own; the sheet sits beside it. */}
       {activityShown && (
-        <Suspense fallback={null}>
-          <ActivityHistory
-            open={activityOpen}
-            onOpenChange={setActivityOpen}
-            anchor={trigger}
-          />
-        </Suspense>
+        <ActivityLoadBoundary onError={handleActivityLoadError}>
+          <Suspense fallback={null}>
+            <ActivityHistory
+              open={activityOpen}
+              onOpenChange={setActivityOpen}
+              anchor={trigger}
+            />
+          </Suspense>
+        </ActivityLoadBoundary>
       )}
     </DropdownMenu>
   );

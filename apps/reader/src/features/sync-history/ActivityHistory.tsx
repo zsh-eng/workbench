@@ -46,9 +46,9 @@ function LiveRecent() {
 }
 
 /**
- * Account → Activity, behind Debug: a sheet on a phone, a popover under
- * the account button on a larger screen. The activity glyph keeps its own
- * sheet and its rule for when it shows.
+ * Account → Activity: a sheet on a phone, a popover under the account
+ * button on a larger screen. The activity glyph keeps its own sheet and
+ * its rule for when it shows.
  */
 export function ActivityHistory({
   open,

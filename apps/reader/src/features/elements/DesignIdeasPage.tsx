@@ -463,7 +463,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "sync-sections",
       title: "Now, then Recent",
       description:
-        "The choice, behind Debug in the real app as Account → Activity. Now lists the background jobs as the glyph's sheet does; Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day. Three seconds in, the iPhone sends one more highlight: its row says so in place, and nothing moves.",
+        "The choice, shipped as Account → Activity. Now lists the background jobs as the glyph's sheet does; Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day. Three seconds in, the iPhone sends one more highlight: its row says so in place, and nothing moves.",
       src: "/debug/ideas/sync-history?variant=sections",
     },
     ideas: [

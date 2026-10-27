@@ -35,7 +35,11 @@ export interface SyncJournalReceived {
   keptLocal?: true;
 }
 
-/** A change this device sent. `lost` names the newer version that won. */
+/**
+ * A change this device sent. `lost` names the newer version that won. A
+ * removal that a newer removal replaced is not lost: the record is gone,
+ * as this device asked.
+ */
 export interface SyncJournalSent {
   key: string;
   at: number;
@@ -353,7 +357,8 @@ export function createSyncJournal(options: SyncJournalOptions): SyncJournal {
             key: change.key,
             at: change.hlc.wallTimeMs,
             deleted: change.isDeleted,
-            ...(sameVersion(winner, change)
+            ...(sameVersion(winner, change) ||
+            (winner.isDeleted && change.isDeleted)
               ? {}
               : {
                   lost: {
