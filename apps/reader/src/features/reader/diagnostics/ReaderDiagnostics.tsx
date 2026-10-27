@@ -25,12 +25,16 @@ import {
   buildSpreadConfig,
 } from "../hooks/use-reader-core";
 import { usePagination } from "@/lib/pagination-v2";
-import type { SpreadIntent } from "@/lib/pagination-v2";
+import type {
+  PaginationDiagnostics,
+  PaginationRunTimings,
+  SpreadIntent,
+} from "@/lib/pagination-v2";
 import { DeferredEpubImageProvider } from "../shared/DeferredEpubImageProvider";
 import type { ChapterEntry } from "../types";
 import {
-  DEFAULT_READER_DIAGNOSTIC_PROFILE,
   resolveReaderDiagnosticLayout,
+  resolveReaderDiagnosticProfile,
   type ReaderDiagnosticProfile,
 } from "./reader-diagnostic-profile";
 
@@ -47,7 +51,20 @@ interface DiagnosticReaderSource {
   chapterEntries: ChapterEntry[];
   filesByPath: Map<string, BookFile>;
   artifactsByChapter: Map<number, ReaderDecoratedChapterArtifact>;
+  /** Main-thread time to build each chapter, by chapter index. */
+  chapterBuildTimings: DiagnosticChapterBuildTiming[];
   loadedAt: string;
+}
+
+/**
+ * Main-thread work per chapter: `sourceMs` normalizes the file and parses it
+ * for canonical text (the body cache's rebuild); `decorateMs` parses it into
+ * blocks (each Reader open without a warm artifact).
+ */
+interface DiagnosticChapterBuildTiming {
+  chapterIndex: number;
+  sourceMs: number;
+  decorateMs: number;
 }
 
 type DiagnosticSourceState =
@@ -103,6 +120,12 @@ interface ReaderDiagnosticsHarness {
   scanChapter: (
     options: { chapterIndex: number } & ReaderDiagnosticScanOptions,
   ) => Promise<ReaderDiagnosticScanResult>;
+  /** Timings for benchmarks: main-thread build and worker stages per chapter. */
+  getPaginationDiagnostics: () => {
+    build: DiagnosticChapterBuildTiming[];
+    worker: PaginationDiagnostics | null;
+    timings: PaginationRunTimings;
+  };
 }
 
 declare global {
@@ -149,6 +172,7 @@ async function buildDiagnosticReaderSource(
     files.map((bookFile) => [bookFile.path, bookFile]),
   );
   const artifactsByChapter = new Map<number, ReaderDecoratedChapterArtifact>();
+  const chapterBuildTimings: DiagnosticChapterBuildTiming[] = [];
 
   for (const chapter of chapterEntries) {
     const chapterFile = filesByPath.get(chapter.href);
@@ -158,18 +182,22 @@ async function buildDiagnosticReaderSource(
       );
     }
 
+    const sourceText = await chapterFile.content.text();
+    const sourceStartedAt = performance.now();
     const chapterContent = await buildReaderChapterCachedContent({
-      source: await chapterFile.content.text(),
+      source: sourceText,
       mediaType: chapterFile.mediaType,
       chapter,
       loadResource: async (path) => filesByPath.get(path)?.content ?? null,
     });
+    const sourceMs = performance.now() - sourceStartedAt;
     const baseContent = loadBaseChapterContent({
       chapterIndex: chapter.index,
       chapterContent,
       chapter,
     });
 
+    const decorateStartedAt = performance.now();
     artifactsByChapter.set(
       chapter.index,
       decorateChapterContent({
@@ -177,6 +205,11 @@ async function buildDiagnosticReaderSource(
         highlights: [],
       }),
     );
+    chapterBuildTimings.push({
+      chapterIndex: chapter.index,
+      sourceMs,
+      decorateMs: performance.now() - decorateStartedAt,
+    });
   }
 
   return {
@@ -185,6 +218,7 @@ async function buildDiagnosticReaderSource(
     chapterEntries,
     filesByPath,
     artifactsByChapter,
+    chapterBuildTimings,
     loadedAt: new Date().toISOString(),
   };
 }
@@ -202,7 +236,9 @@ function getTimeoutMessage(label: string, timeoutMs: number) {
 }
 
 export function ReaderDiagnostics() {
-  const profile = DEFAULT_READER_DIAGNOSTIC_PROFILE;
+  const [profile] = useState(() =>
+    resolveReaderDiagnosticProfile(window.location.search),
+  );
   const readerLayout = useMemo(
     () => resolveReaderDiagnosticLayout(profile),
     [profile],
@@ -452,6 +488,18 @@ export function ReaderDiagnostics() {
           pagesScanned,
           totalPages,
           failures,
+        };
+      },
+      getPaginationDiagnostics: () => {
+        const currentSourceState = sourceStateRef.current;
+        const snapshot = paginationRef.current.tracer.getSnapshot();
+        return {
+          build:
+            currentSourceState.status === "ready"
+              ? currentSourceState.source.chapterBuildTimings
+              : [],
+          worker: snapshot.diagnostics,
+          timings: snapshot.timings,
         };
       },
       scanChapter: async (options) => {

@@ -51,6 +51,7 @@ export type {
   PageFragment,
   PageSlice,
   PaginationConfig,
+  PaginationDiagnostics,
   PaginationStatus,
   PreparedBlock,
   PreparedImageBlock,
