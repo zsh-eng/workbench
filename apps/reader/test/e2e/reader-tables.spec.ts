@@ -42,18 +42,34 @@ function wideTable(): string {
     .join("")}</tbody></table>`;
 }
 
-/** The sample book with a 49-row table and a wide one opening chapter one. */
-function tableBook(name: string) {
+/**
+ * One-row tables of four one-word columns, each word a narrow letter longer
+ * than the last: from tables that fit to tables that must scroll, with some
+ * that miss the page by less than their padding.
+ */
+function nearMissTables(): string {
+  return Array.from(
+    { length: 17 },
+    (_, index) =>
+      `<p>Width ${index}.</p><table><tr>${`<td>mmmm${"i".repeat(index)}</td>`.repeat(4)}</tr></table>`,
+  ).join("");
+}
+
+/**
+ * The sample book with `tables` opening chapter one: by default a 49-row
+ * table and a wide one.
+ */
+function tableBook(
+  name: string,
+  tables = `<p>A tall table follows.</p>${syntheticTable(6)}<p>And a wide one.</p>${wideTable()}`,
+) {
   return epubVariant({
     name,
     title: TITLE,
     author: "Test Author",
     documents: {
       [CHAPTER_ONE]: (xhtml) =>
-        xhtml.replace(
-          "</h2>",
-          `</h2><p>A tall table follows.</p>${syntheticTable(6)}<p>And a wide one.</p>${wideTable()}<p>After the tables.</p>`,
-        ),
+        xhtml.replace("</h2>", `</h2>${tables}<p>After the tables.</p>`),
     },
   });
 }
@@ -66,8 +82,8 @@ async function useTables(page: Page, mode: "grid" | "flat") {
   }, mode);
 }
 
-async function openTableChapter(page: Page, name: string) {
-  await importAndOpenEpub(page, tableBook(name), TITLE);
+async function openTableChapter(page: Page, name: string, tables?: string) {
+  await importAndOpenEpub(page, tableBook(name, tables), TITLE);
   await openContentsEntry(page, /CHAPTER I\./);
 }
 
@@ -190,6 +206,52 @@ test("a table too wide for the page scrolls on its own", async ({ page }) => {
   expect(await currentPages(page)).toEqual(pages);
 });
 
+test("a table that misses the page by a little narrows its padding to fit", async ({
+  page,
+}) => {
+  await useTables(page, "grid");
+  await openTableChapter(page, "tables-near-miss", nearMissTables());
+
+  // Each table by the length of its word: whether it scrolls, its cell
+  // padding, and whether it fits its page.
+  const seen = new Map<
+    number,
+    { scroll: boolean; padding: number; fits: boolean }
+  >();
+  for (let turn = 0; turn < 12 && seen.size < 17; turn++) {
+    await expectTablesToFit(page);
+    const tables = await page.locator(TABLE).evaluateAll((slices) =>
+      slices.map((slice) => {
+        const cell = slice.querySelector("td")!;
+        return {
+          length: cell.textContent!.trim().length,
+          scroll: slice.hasAttribute("data-reader-table-scroll"),
+          padding: parseFloat(getComputedStyle(cell).paddingLeft),
+          fits:
+            slice.querySelector("table")!.offsetWidth <= slice.clientWidth,
+        };
+      }),
+    );
+    for (const { length, ...table } of tables) seen.set(length, table);
+    if (seen.size < 17) await nextSpread(page);
+  }
+  const tables = [...seen.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, table]) => table);
+  expect(tables).toHaveLength(17);
+  const full = tables[0]!.padding;
+  expect(tables[0]!.scroll).toBe(false);
+  expect(tables.at(-1)!.scroll).toBe(true);
+  // Some miss by a little and fit with less padding; the rest keep it.
+  expect(tables.some((table) => !table.scroll && table.padding < full)).toBe(
+    true,
+  );
+  for (const table of tables) {
+    if (table.scroll) expect(table.padding).toBe(full);
+    else expect(table.fits).toBe(true);
+  }
+});
+
 test("a highlight in a cell stays after the book reopens", async ({ page }) => {
   await useTables(page, "grid");
   await openTableChapter(page, "tables-highlight");
@@ -265,6 +327,15 @@ test("with tables off, a table reads as one paragraph until Grid is chosen", asy
     await nextSpread(page);
   await expect(caption).toBeVisible();
   await expect(page.locator(TABLE)).toHaveCount(0);
+  // The table's text follows as one block that starts with its header.
+  const flattened = page
+    .locator(`${CURRENT_SPREAD} [data-reader-block-id]`)
+    .filter({ hasText: /^\s*Name\b/ })
+    .first();
+  if ((await flattened.count()) === 0) await nextSpread(page);
+  await expect(flattened).toBeVisible();
+  // More than one cell's text: the whole table, not its first cell.
+  expect((await flattened.textContent())!.length).toBeGreaterThan(100);
 
   // Appearance → Layout → Tables opens the Reader again with grids.
   await showPhoneChrome(page);

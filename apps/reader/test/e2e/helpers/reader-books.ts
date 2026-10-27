@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   currentPages,
   expect,
@@ -36,43 +36,42 @@ export async function importAndOpenEpub(
 
 /**
  * Opens the Contents entry that matches `entry` from the footer and waits
- * for its page: Contents is a sheet on a phone and a side panel on an iPad.
- * The jump saves the reading place, so the book reopens there.
+ * for its page: Contents is a sheet on a phone and the Reader tools panel,
+ * which may already be open, on an iPad. The jump saves the reading place,
+ * so the book reopens there.
  */
 export async function openContentsEntry(
   page: Page,
   entry: RegExp,
 ): Promise<void> {
-  // Setup for timings and table specs, not the interaction under test: a
-  // toast or the chrome's own motion must not hold the taps up, and a busy
-  // machine may drop the first open. Contents navigation has its own specs.
   const sheet = page.getByRole("dialog", { name: "Contents", exact: true });
-  const entryIn = (scope: Page | Locator) =>
-    scope.getByRole("button", { name: entry }).first();
-  const open = async () =>
-    (await sheet.isVisible()) || (await entryIn(page).isVisible());
-  for (let attempt = 0; attempt < 3 && !(await open()); attempt++) {
+  const panelItem = page
+    .getByRole("complementary", { name: "Reader tools", exact: true })
+    .getByRole("button", { name: entry })
+    .first();
+  if (!(await panelItem.isVisible())) {
     await showPhoneChrome(page);
-    await page
-      .getByRole("button", { name: "Open table of contents", exact: true })
-      .dispatchEvent("click");
-    await expect
-      .poll(open, { timeout: 5000 })
-      .toBe(true)
-      .catch(() => {});
+    const button = page.getByRole("button", {
+      name: "Open table of contents",
+      exact: true,
+    });
+    // Setup for timings and table specs; Contents has its own specs. The
+    // button is disabled while a chapter loads, and an event click is not
+    // held up by a toast or the chrome's own motion.
+    await expect(button).toBeEnabled();
+    await button.dispatchEvent("click");
+    await expect(sheet.or(panelItem).first()).toBeVisible();
   }
-  // A phone's Contents is a sheet; an iPad's is the tools panel.
-  const item = (await sheet.isVisible()) ? entryIn(sheet) : entryIn(page);
-  if (await sheet.isVisible()) await waitForSheet(page, "Contents");
+  const onSheet = await sheet.isVisible();
+  if (onSheet) await waitForSheet(page, "Contents");
+  const item = onSheet
+    ? sheet.getByRole("button", { name: entry }).first()
+    : panelItem;
   const pages = await currentPages(page);
   await item.dispatchEvent("click");
   await expect.poll(() => currentPages(page)).not.toEqual(pages);
-  for (let attempt = 0; attempt < 3 && (await sheet.isVisible()); attempt++) {
-    await page.keyboard.press("Escape");
-    await expect(sheet)
-      .toBeHidden({ timeout: 3000 })
-      .catch(() => {});
-  }
+  // Escape reaches the sheet from inside it, and the jump may move focus.
+  if (await sheet.isVisible()) await sheet.press("Escape");
   await expect(sheet).toBeHidden();
   await waitForReaderReady(page);
 }
