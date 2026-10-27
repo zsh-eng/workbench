@@ -15,10 +15,13 @@ export const FIGCAPTION_MARGIN_TOP_LINES = 0.4;
 export const FIGCAPTION_MARGIN_BOTTOM_LINES = 0.85;
 export const LIST_ITEM_GAP_LINES = 0.32;
 export const PRE_MARGIN_Y_LINES = 1.0;
+/** Table text is set a little smaller, as print sets it, so columns fit. */
+export const TABLE_FONT_SCALE = 0.88;
+export const TABLE_MAX_LINE_HEIGHT_FACTOR = 1.4;
 
 type HeadingTag = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 
-type LayoutBlockKind = BlockTag | "image";
+type LayoutBlockKind = BlockTag | "image" | "table";
 
 interface HeadingTypographySpec {
   scale: number;
@@ -103,6 +106,10 @@ export function getBlockFontScale(tag: string): number {
     return FIGCAPTION_FONT_SCALE;
   }
 
+  if (tag === "td" || tag === "th") {
+    return TABLE_FONT_SCALE;
+  }
+
   return headingScale(tag);
 }
 
@@ -117,6 +124,10 @@ function getBlockLineHeightFactor(
 
   if (tag === "figcaption") {
     return Math.min(theme.lineHeightFactor, FIGCAPTION_MAX_LINE_HEIGHT_FACTOR);
+  }
+
+  if (tag === "td" || tag === "th") {
+    return Math.min(theme.lineHeightFactor, TABLE_MAX_LINE_HEIGHT_FACTOR);
   }
 
   return null;
@@ -139,6 +150,11 @@ export function getBlockSpacing(
       above: 0,
       below: rhythmLinesToPixels(theme.paragraphSpacingFactor, theme),
     };
+  }
+
+  if (tag === "table") {
+    const tableSpacing = rhythmLinesToPixels(theme.paragraphSpacingFactor, theme);
+    return { above: tableSpacing, below: tableSpacing };
   }
 
   if (tag === "blockquote") {

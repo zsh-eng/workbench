@@ -147,7 +147,7 @@ function resolveFont(
     : publisherInlineStyle?.fontWeight ??
       (usePublisherStyle && publisherStyle?.fontWeight
         ? publisherStyle.fontWeight
-        : isHeading || isPublisherHeading
+        : isHeading || isPublisherHeading || tag === "th"
           ? 600
           : 400);
   const publisherFontStyle =
@@ -286,6 +286,7 @@ export function prepareBlocks(
         break;
       case "spacer":
       case "page-break":
+      case "table":
         result.push({ ...block });
         break;
     }

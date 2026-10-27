@@ -9,7 +9,11 @@ import type {
 export type { ColumnSlice } from "./shared/layout-column";
 
 // Re-export types that are unchanged from pagination v1
-export { areFontConfigsEqual } from "./shared/types";
+export {
+  areFontConfigsEqual,
+  sliceShowsBlock,
+  textSlicesOf,
+} from "./shared/types";
 export type {
   Block,
   BlockTag,
@@ -44,6 +48,12 @@ export type {
   PublisherTextStyle,
   SpacerBlock,
   SpacerSlice,
+  TableBlock,
+  TableCellSpec,
+  TableRowSpec,
+  TableSlice,
+  TableSliceCell,
+  TableSliceRow,
   TextBlock,
   TextCursorOffset,
   TextRenderMode,

@@ -23,7 +23,7 @@ import type {
   PaginationChapterDiagnostics,
   PreparedBlock,
 } from "../shared/types";
-import { areFontConfigsEqual } from "../shared/types";
+import { areFontConfigsEqual, sliceShowsBlock } from "../shared/types";
 import type {
   ContentAnchor,
   PaginationConfig,
@@ -699,7 +699,7 @@ export class PaginationEngine {
     const pages = this.pagesByChapter[anchor.chapterIndex];
     if (
       !pages?.some((page) =>
-        page.slices.some((slice) => slice.blockId === anchor.blockId),
+        page.slices.some((slice) => sliceShowsBlock(slice, anchor.blockId)),
       )
     ) {
       this.emitPageUnavailable(intent);
