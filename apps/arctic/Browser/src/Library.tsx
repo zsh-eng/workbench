@@ -43,7 +43,13 @@ import { updateSettings, useSettings } from "./settings";
 import { Choice } from "./SettingsPage";
 import { AddLinkButton, isFresh, LinkDock, usePasteToSave } from "./AddLink";
 import type { SyncSummary } from "@zsh-eng/local-sync";
-import { useArticles, useSession, useStatusText, useSyncing } from "./state";
+import {
+  useArticles,
+  useRestoring,
+  useSession,
+  useStatusText,
+  useSyncing,
+} from "./state";
 import { useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
 import { AccountMenu, CardMenu, CardMenuButton } from "./ui";
@@ -116,12 +122,20 @@ export function Library({ folder }: { folder: Folder }) {
     compact ? 12 : 36,
   );
 
-  useLayoutEffect(() => {
-    if (visible.length && !performance.getEntriesByName("arctic:cards").length)
-      performance.mark("arctic:cards");
-  }, [visible.length]);
+  // A new device's first pull arrives in the phone's upload order, so the
+  // list waits for its last page and then shows in order, all at once. A
+  // pull that stopped shows what arrived (docs/FIRST_SYNC.md).
+  const restoring = useRestoring();
+  const waiting = restoring && (syncing || articles.length === 0);
 
-  const first = articles.length === 0 && syncing;
+  useLayoutEffect(() => {
+    if (
+      visible.length &&
+      !waiting &&
+      !performance.getEntriesByName("arctic:cards").length
+    )
+      performance.mark("arctic:cards");
+  }, [visible.length, waiting]);
   // Every card links with this one object, so a new search or folder does not
   // render the cards again. A history entry keeps a copy made when it opens.
   const opened = useRef({ from: "/" }).current;
@@ -147,8 +161,8 @@ export function Library({ folder }: { folder: Folder }) {
 
   const count = (
     <span className="shelf-count">
-      {first
-        ? "Getting your library…"
+      {waiting
+        ? gettingLibrary(articles.length)
         : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
     </span>
   );
@@ -176,7 +190,7 @@ export function Library({ folder }: { folder: Folder }) {
       onChange={(next) => updateSettings({ layout: next })}
     />
   );
-  const showTopics = topics.length > 1 && folder !== "history";
+  const showTopics = topics.length > 1 && folder !== "history" && !waiting;
   const topicButton = (name: string | null, label: string, n: number) => (
     <button
       key={name ?? ""}
@@ -193,30 +207,31 @@ export function Library({ folder }: { folder: Folder }) {
       )}
     </button>
   );
-  const list =
-    visible.length > 0 ? (
-      <main className="grid" data-layout={layout} ref={grid} {...intent}>
-        {visible.slice(0, rendered).map((article, index) => (
-          <Card
-            key={article.id}
-            article={article}
-            state={opened}
-            eager={index < 6}
-          />
-        ))}
-      </main>
-    ) : first ? null : (
-      <div className="empty">
-        <h2>{query || topic ? "Nothing matches." : title.empty}</h2>
-        <p>
-          {query || topic
-            ? "Try another word, or clear the search."
-            : folder === "saved"
-              ? "Save a link with + or ⌘V, or with Arctic on your iPhone."
-              : "Articles appear here as you read and sort them."}
-        </p>
-      </div>
-    );
+  const list = waiting ? (
+    <Waiting layout={layout} count={articles.length} />
+  ) : visible.length > 0 ? (
+    <main className="grid" data-layout={layout} ref={grid} {...intent}>
+      {visible.slice(0, rendered).map((article, index) => (
+        <Card
+          key={article.id}
+          article={article}
+          state={opened}
+          eager={index < (compact ? 10 : 12)}
+        />
+      ))}
+    </main>
+  ) : (
+    <div className="empty">
+      <h2>{query || topic ? "Nothing matches." : title.empty}</h2>
+      <p>
+        {query || topic
+          ? "Try another word, or clear the search."
+          : folder === "saved"
+            ? "Save a link with + or ⌘V, or with Arctic on your iPhone."
+            : "Articles appear here as you read and sort them."}
+      </p>
+    </div>
+  );
 
   // A wide window: the folders, topics and places in a sidebar, so nothing
   // scrolls out of reach and the page has one left edge.
@@ -329,6 +344,46 @@ export function Library({ folder }: { folder: Folder }) {
       )}
       <CardMenu />
     </>
+  );
+}
+
+const gettingLibrary = (count: number) =>
+  count > 0
+    ? `Getting your library… ${count.toLocaleString()} ${count === 1 ? "link" : "links"}`
+    : "Getting your library…";
+
+/**
+ * A new device's library before its links arrive: quiet cards in the
+ * layout's shape, so the page keeps its frame and nothing moves when the
+ * real cards replace them. Nothing animates; the note says what happens.
+ */
+function Waiting({ layout, count }: { layout: string; count: number }) {
+  const syncing = useSyncing();
+  const status = useStatusText();
+  return (
+    <main className="grid waiting" data-layout={layout} aria-busy="true">
+      <p className="waiting-note" role="status">
+        {syncing ? gettingLibrary(count) : status.label}
+      </p>
+      {Array.from({ length: 12 }, (_, index) => (
+        <div key={index} className="card" data-image="" aria-hidden>
+          <span className="cover" />
+          <span className="card-line">
+            <span
+              className="bone"
+              style={{ width: `${30 + ((index * 17) % 30)}%` }}
+            />
+          </span>
+          <span className="card-title">
+            <span className="bone" />
+            <span
+              className="bone"
+              style={{ width: `${55 + ((index * 23) % 35)}%` }}
+            />
+          </span>
+        </div>
+      ))}
+    </main>
   );
 }
 

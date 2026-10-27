@@ -534,6 +534,44 @@ img.favicon {
   }
 }
 
+/* A new device's library before its links arrive (Waiting in Library.tsx):
+   still cards in the layout's shape, and one line that says what happens.
+   Wider windows say it in the count by the title. */
+.waiting .card {
+  pointer-events: none;
+}
+.waiting-note {
+  grid-column: 1 / -1;
+  margin: 0 0 -8px;
+  font-size: 14px;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 721px) {
+  .waiting-note {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.waiting .card-title {
+  display: block;
+}
+.bone {
+  display: block;
+  height: 0.78em;
+  margin: 0.3em 0;
+  border-radius: 4px;
+  background: var(--fill);
+}
+.waiting .card-line .bone {
+  height: 10px;
+  margin: 0;
+}
+
 .empty {
   max-width: calc(var(--page) + 2 * var(--gutter));
   margin: 0 auto;

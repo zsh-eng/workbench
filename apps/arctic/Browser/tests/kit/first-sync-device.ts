@@ -42,9 +42,10 @@ export default async function firstSyncDevice({
 
 /**
  * In the page, from navigation start: the last blank frame, the first
- * frame of the library, the first card on screen, every saved link listed
- * (`allListed`, by the count), the covers on screen loaded after that, each
- * namespace's first pull done, and the end of the first sync. `screen`
+ * frame of the library, the first placeholder, the first card on screen,
+ * every saved link listed (`allListed`, by the count), the covers on screen
+ * loaded after that, each namespace's first pull done, and the end of the
+ * first sync. `screen`
  * keeps each change of the cards on the first screen.
  */
 function recordMilestones(expected: { origin: string; saved: number }) {
@@ -61,7 +62,11 @@ function recordMilestones(expected: { origin: string; saved: number }) {
     if (!root || root.childElementCount === 0) marks.blankUntil = now;
     else marks.shell ??= now;
     const onScreen: HTMLElement[] = [];
-    for (const card of document.querySelectorAll<HTMLElement>(".card")) {
+    if (document.querySelector(".waiting")) marks.placeholder ??= now;
+    // Real cards name their article; placeholder cards do not.
+    for (const card of document.querySelectorAll<HTMLElement>(
+      ".card[data-id]",
+    )) {
       const box = card.getBoundingClientRect();
       if (box.top >= innerHeight) break;
       if (box.bottom > 0 && box.width > 0) onScreen.push(card);
