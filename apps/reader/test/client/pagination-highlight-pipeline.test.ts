@@ -92,6 +92,7 @@ function pageLines(
       chapterIndex: 0,
       entry: { index: 0, spineItemId: "chapter", href: "c.xhtml", title: "" },
       html,
+      tables: false,
       canonicalText,
       bookStylesheets: [],
       publisherFontFaces: [],

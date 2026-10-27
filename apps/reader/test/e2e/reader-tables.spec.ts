@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { GRID_TABLE_CELL_LIMIT } from "../../src/features/reader/data/chapter-tables";
 import { epubVariant } from "./helpers/epub-variants";
 import {
   currentPages,
@@ -16,8 +17,9 @@ import {
 } from "./helpers/reader-books";
 import { syntheticTable } from "./helpers/synthetic-tables";
 
-// Debug → Tables (docs/0005-tables.md): a chapter's tables as grids that
-// break at rows, on a phone.
+// Tables (docs/0005-tables.md): a chapter's tables as grids that break at
+// rows, on a phone. Auto reads them so up to a cell limit; Debug → Tables
+// picks Grid or Paragraph for every chapter.
 test.use({
   viewport: { width: 390, height: 844 },
   hasTouch: true,
@@ -25,6 +27,7 @@ test.use({
 });
 
 const CHAPTER_ONE = "OEBPS/4269428405154643194_11-h-1.htm.xhtml";
+const CHAPTER_TWO = "OEBPS/4269428405154643194_11-h-2.htm.xhtml";
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 const TABLE = `${CURRENT_SPREAD} [data-reader-slice-type="table"]`;
 const TITLE = "Table Specimens";
@@ -75,7 +78,7 @@ function tableBook(
 }
 
 /** Starts with tables as `mode`; a choice made in the Reader then stays. */
-async function useTables(page: Page, mode: "grid" | "flat") {
+async function useTables(page: Page, mode: "auto" | "grid" | "flat") {
   await page.addInitScript((value) => {
     if (localStorage.getItem("reader-tables-v1") === null)
       localStorage.setItem("reader-tables-v1", value);
@@ -227,9 +230,7 @@ test("a table that misses the page by a little narrows its padding to fit", asyn
           length: cell.textContent!.trim().length,
           scroll: slice.hasAttribute("data-reader-table-scroll"),
           padding: parseFloat(getComputedStyle(cell).paddingLeft),
-          oneLine: [
-            ...slice.querySelectorAll(".reader-table-cell-text"),
-          ].every(
+          oneLine: [...slice.querySelectorAll(".reader-table-cell-text")].every(
             (text) => text.getAttribute("data-reader-line-count") === "1",
           ),
         };
@@ -315,6 +316,43 @@ test("scroll mode shows a table as a grid", async ({ page }) => {
   await expect(table.first()).toBeAttached();
   await table.first().scrollIntoViewIfNeeded();
   await expect(table.first().locator("thead th").first()).toHaveText("Name");
+});
+
+test("without Debug mode, tables read as grids in a chapter up to the cell limit and as paragraphs above it", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("reader-debug-enabled-v1", "false"),
+  );
+  // Chapter I holds a 49-row table (196 cells); chapter II one over the
+  // limit.
+  const rows = Math.ceil(GRID_TABLE_CELL_LIMIT / 3);
+  const big = `<table><thead><tr>${"<th>Field</th>".repeat(3)}</tr></thead><tbody>${`<tr>${"<td>value</td>".repeat(3)}</tr>`.repeat(rows)}</tbody></table>`;
+  const book = epubVariant({
+    name: "tables-auto",
+    title: TITLE,
+    author: "Test Author",
+    documents: {
+      [CHAPTER_ONE]: (xhtml) =>
+        xhtml.replace("</h2>", `</h2>${syntheticTable(6)}`),
+      [CHAPTER_TWO]: (xhtml) =>
+        xhtml.replace("</h2>", `</h2><p>A long list follows.</p>${big}`),
+    },
+  });
+  await importAndOpenEpub(page, book, TITLE);
+  await openContentsEntry(page, /CHAPTER I\./);
+  await turnToTable(page);
+  await expect(page.locator(`${TABLE} thead th`).first()).toHaveText("Name");
+
+  await openContentsEntry(page, /CHAPTER II\./);
+  const flattened = page
+    .locator(`${CURRENT_SPREAD} [data-reader-block-id]`)
+    .filter({ hasText: /^\s*Field\s*Field/ })
+    .first();
+  for (let turn = 0; turn < 4 && (await flattened.count()) === 0; turn++)
+    await nextSpread(page);
+  await expect(flattened).toBeVisible();
+  await expect(page.locator(TABLE)).toHaveCount(0);
 });
 
 test("with tables off, a table reads as one paragraph until Grid is chosen", async ({

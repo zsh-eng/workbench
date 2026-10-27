@@ -395,12 +395,12 @@ describe("highlights and selections in cells", () => {
         chapterIndex: 0,
         entry: { index: 0, spineItemId: "chapter", href: "c.xhtml", title: "" },
         html: CHAPTER,
+        tables: true,
         canonicalText,
         bookStylesheets: [],
         publisherFontFaces: [],
       },
       highlights: [highlight],
-      tables: true,
     });
     const { pages } = layoutPages(
       prepareBlocks(blocks, FONT_CONFIG),

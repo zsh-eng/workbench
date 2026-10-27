@@ -17,6 +17,7 @@ import {
 } from "@/lib/pagination-v2";
 import type { Highlight } from "@/types/highlight";
 import type { ChapterEntry } from "../../types";
+import type { ReaderTablesMode } from "../chapter-tables";
 import {
   buildReaderChapterCachedContent,
   decorateChapterContent,
@@ -32,7 +33,11 @@ import {
   dedupePublisherFontFaces,
 } from "../publisher-font-faces";
 
-export const READER_BODY_CACHE_SCHEMA_VERSION = 6;
+/**
+ * 7: each chapter's table cell count, and its table cells' canonical starts
+ * where it reads tables as grids (docs/0005-tables.md).
+ */
+export const READER_BODY_CACHE_SCHEMA_VERSION = 7;
 export const READER_CHAPTER_ARTIFACTS_SCHEMA_VERSION = 1;
 export const READER_CHAPTER_ARTIFACTS_GC_MS = 30 * 60 * 1000;
 
@@ -68,6 +73,7 @@ function readCachedChapterContents(
 function buildBaseContentByChapter(
   chapterEntries: ChapterEntry[],
   chapterContentsByPath: Map<string, ReaderChapterCachedContent>,
+  tablesMode: ReaderTablesMode,
   publisherFontFaces: PublisherFontFace[] = [],
   publisherBodyFontScale?: number,
 ): Map<number, ReaderBaseChapterContent> {
@@ -84,6 +90,7 @@ function buildBaseContentByChapter(
       chapterContent: chapterContentsByPath.get(chapter.href)!,
       chapter,
       publisherBodyFontScale,
+      tablesMode,
     });
     baseContent.publisherFontFaces = publisherFontFaces;
     baseContentByChapter.set(chapterIndex, baseContent);
@@ -98,7 +105,6 @@ async function buildChapterContentsFromFiles(
   allChapterFiles: Map<string, BookFile>,
   includePublisherResources: boolean,
   includePublisherBodyScale: boolean,
-  tables: boolean,
 ): Promise<{
   chaptersByPath: Record<string, BookChapterSourceCacheEntry>;
   chapterContentsByPath: Map<string, ReaderChapterCachedContent>;
@@ -149,10 +155,10 @@ async function buildChapterContentsFromFiles(
       collectPublisherBodyScaleBlocks: includePublisherBodyScale,
       chapterStylesheetLoader,
       publisherFontFaceLoader,
-      tables,
     });
     chaptersByPath[chapter.href] = {
       bodyHtml: chapterContent.bodyHtml,
+      tableCellCount: chapterContent.tableCellCount,
       canonicalText: chapterContent.canonicalText,
       bookStylesheets: chapterContent.bookStylesheets,
     };
@@ -186,11 +192,8 @@ export async function loadReaderBodyCache(options: {
   chapterEntries: ChapterEntry[];
   publisherBookStylingEnabled: boolean;
   matchPublisherBodyTextSize: boolean;
-  /**
-   * Tables as cells (Debug). Canonical text then holds each cell's start,
-   * so a cache built the other way is rebuilt.
-   */
-  tables?: boolean;
+  /** How chapters read tables. The cached row is the same for every mode. */
+  tablesMode?: ReaderTablesMode;
 }): Promise<ReaderBodyCacheData> {
   const {
     bookId,
@@ -198,7 +201,7 @@ export async function loadReaderBodyCache(options: {
     chapterEntries,
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
-    tables = false,
+    tablesMode = "auto",
   } = options;
   const includePublisherBodyScale =
     publisherBookStylingEnabled && matchPublisherBodyTextSize;
@@ -224,8 +227,7 @@ export async function loadReaderBodyCache(options: {
     (!publisherBookStylingEnabled ||
       cachedChapterSourceRow.publisherResourcesLoaded === true) &&
     (!includePublisherBodyScale ||
-      cachedChapterSourceRow.publisherBodyScaleLoaded === true) &&
-    (cachedChapterSourceRow.tableCellsLoaded === true) === tables
+      cachedChapterSourceRow.publisherBodyScaleLoaded === true)
   ) {
     endReaderTraceSpan(cacheReadSpan, { cacheHit: true });
     const chapterContentsByPath = readCachedChapterContents(
@@ -239,6 +241,7 @@ export async function loadReaderBodyCache(options: {
     const baseContentByChapter = buildBaseContentByChapter(
       chapterEntries,
       chapterContentsByPath,
+      tablesMode,
       cachedChapterSourceRow.publisherFontFaces ?? [],
       cachedChapterSourceRow.publisherBodyFontScale,
     );
@@ -274,7 +277,6 @@ export async function loadReaderBodyCache(options: {
     allChapterFiles,
     publisherBookStylingEnabled,
     includePublisherBodyScale,
-    tables,
   );
   endReaderTraceSpan(sourceBuildSpan, {
     chapterCount: chapterEntries.length,
@@ -294,7 +296,6 @@ export async function loadReaderBodyCache(options: {
     builtChapterContents.publisherFontFaces,
     includePublisherBodyScale,
     builtChapterContents.publisherBodyFontScale,
-    tables,
   );
   endReaderTraceSpan(cacheWriteSpan, { chapterCount: chapterEntries.length });
 
@@ -305,6 +306,7 @@ export async function loadReaderBodyCache(options: {
   const baseContentByChapter = buildBaseContentByChapter(
     chapterEntries,
     builtChapterContents.chapterContentsByPath,
+    tablesMode,
     builtChapterContents.publisherFontFaces,
     builtChapterContents.publisherBodyFontScale,
   );
@@ -323,7 +325,6 @@ export function buildReaderChapterArtifact(options: {
   highlights: Highlight[];
   publisherBookStylingEnabled: boolean;
   matchPublisherBodyTextSize: boolean;
-  tables?: boolean;
 }): ReaderDecoratedChapterArtifact {
   return decorateChapterContent(options);
 }

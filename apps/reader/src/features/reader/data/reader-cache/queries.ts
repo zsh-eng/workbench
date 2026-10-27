@@ -8,7 +8,8 @@ import { withReaderTraceSpan } from "@/lib/reader-performance-trace";
 import type { Highlight } from "@/types/highlight";
 import { queryOptions } from "@tanstack/react-query";
 import type { ChapterEntry } from "../../types";
-import { getReaderTablesEnabled } from "../../tables-preference";
+import { getReaderTablesMode } from "../../tables-preference";
+import type { ReaderTablesMode } from "../chapter-tables";
 import type { ReaderBaseChapterContent } from "../chapter-content-pipeline";
 import {
   buildReaderChapterArtifact,
@@ -25,7 +26,7 @@ export const readerBodyCacheKeys = {
     sourceFileId: FileId,
     publisherBookStylingEnabled: boolean,
     matchPublisherBodyTextSize: boolean,
-    tables: boolean,
+    tablesMode: ReaderTablesMode,
   ) =>
     [
       "readerBodyCache",
@@ -34,7 +35,8 @@ export const readerBodyCacheKeys = {
       sourceFileId,
       getPublisherStylingCacheKey(publisherBookStylingEnabled),
       matchPublisherBodyTextSize ? "body-size-match-on" : "body-size-match-off",
-      getTablesCacheKey(tables),
+      // Base content follows the mode; the persisted row does not.
+      `tables-${tablesMode}`,
     ] as const,
 };
 
@@ -75,7 +77,7 @@ export const readerChapterArtifactKeys = {
     ] as const,
 };
 
-/** Debug tables change how chapters parse; see `tables-preference.ts`. */
+/** A chapter's tables as grids or paragraphs; see `chapter-tables.ts`. */
 function getTablesCacheKey(tables: boolean): string {
   return tables ? "tables-grid" : "tables-flat";
 }
@@ -103,12 +105,14 @@ export function getReaderChapterArtifactSignature(options: {
   publisherBookStylingEnabled: boolean;
   matchPublisherBodyTextSize: boolean;
   publisherBodyFontScale: number | undefined;
+  tables: boolean;
 }): string {
   const {
     highlightSignature,
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
     publisherBodyFontScale,
+    tables,
   } = options;
   return `${getPublisherStylingCacheKey(
     publisherBookStylingEnabled,
@@ -116,7 +120,7 @@ export function getReaderChapterArtifactSignature(options: {
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
     publisherBodyFontScale,
-  )}:${getTablesCacheKey(getReaderTablesEnabled())}:${highlightSignature}`;
+  )}:${getTablesCacheKey(tables)}:${highlightSignature}`;
 }
 
 export interface ReaderCheckpointData {
@@ -142,7 +146,7 @@ export function readerBodyCacheQueryOptions(options: {
     matchPublisherBodyTextSize,
   } = options;
 
-  const tables = getReaderTablesEnabled();
+  const tablesMode = getReaderTablesMode();
   return queryOptions({
     networkMode: "always", // Local storage and CPU work must not wait for reconnect.
     queryKey: readerBodyCacheKeys.book(
@@ -150,7 +154,7 @@ export function readerBodyCacheQueryOptions(options: {
       sourceFileId ?? ("" as FileId),
       publisherBookStylingEnabled,
       matchPublisherBodyTextSize,
-      tables,
+      tablesMode,
     ),
     queryFn: () =>
       loadReaderBodyCache({
@@ -159,7 +163,7 @@ export function readerBodyCacheQueryOptions(options: {
         chapterEntries,
         publisherBookStylingEnabled,
         matchPublisherBodyTextSize,
-        tables,
+        tablesMode,
       }),
     enabled: !!bookId && !!sourceFileId && chapterEntries.length > 0,
     staleTime: Infinity,
@@ -221,7 +225,6 @@ export function readerChapterArtifactQueryOptions(options: {
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
   } = options;
-  const tables = getReaderTablesEnabled();
   return queryOptions({
     networkMode: "always", // Local storage and CPU work must not wait for reconnect.
     queryKey: readerChapterArtifactKeys.chapter(
@@ -233,9 +236,9 @@ export function readerChapterArtifactQueryOptions(options: {
       publisherBookStylingEnabled,
       matchPublisherBodyTextSize,
       baseContent.publisherBodyFontScale,
-      tables,
+      baseContent.tables,
     ),
-    queryFn: () => buildReaderChapterArtifact({ ...options, tables }),
+    queryFn: () => buildReaderChapterArtifact(options),
     staleTime: Infinity,
     gcTime: READER_CHAPTER_ARTIFACTS_GC_MS,
   });

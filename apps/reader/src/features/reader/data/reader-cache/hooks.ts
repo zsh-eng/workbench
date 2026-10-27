@@ -204,6 +204,7 @@ export function useReaderChapterArtifactsLoader(options: {
       publisherBookStylingEnabled,
       matchPublisherBodyTextSize,
       publisherBodyFontScale: baseContent.publisherBodyFontScale,
+      tables: baseContent.tables,
     });
     const query = readerChapterArtifactQueryOptions({
       bookId,
@@ -353,6 +354,7 @@ export function useReaderChapterArtifactsLoader(options: {
             publisherBookStylingEnabled,
             matchPublisherBodyTextSize,
             publisherBodyFontScale: baseContent.publisherBodyFontScale,
+            tables: baseContent.tables,
           });
           const previousSignature =
             signaturesByChapterRef.current.get(chapterIndex);

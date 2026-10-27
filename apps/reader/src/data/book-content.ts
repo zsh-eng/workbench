@@ -49,6 +49,8 @@ export interface BookTextCache {
 
 export interface BookChapterSourceCacheEntry {
   bodyHtml: string;
+  /** The chapter's `td` and `th` cells; they decide how it reads tables. */
+  tableCellCount: number;
   canonicalText: {
     fullText: string;
     blockStarts: ReadonlyMap<string, number>;
@@ -78,8 +80,6 @@ export interface BookChapterSourceCache {
   publisherResourcesLoaded?: boolean;
   publisherBodyScaleLoaded?: boolean;
   publisherBodyFontScale?: number;
-  /** Canonical text holds table cells' starts (Debug tables). */
-  tableCellsLoaded?: boolean;
   chaptersByPath: Record<string, BookChapterSourceCacheEntry>;
   publisherFontFaces?: {
     family: string;
@@ -240,7 +240,6 @@ export async function putBookChapterSourceCache(
   publisherFontFaces: BookChapterSourceCache["publisherFontFaces"] = [],
   publisherBodyScaleLoaded = false,
   publisherBodyFontScale?: number,
-  tableCellsLoaded = false,
 ): Promise<string> {
   await db.bookChapterSourceCache.put({
     bookId,
@@ -248,7 +247,6 @@ export async function putBookChapterSourceCache(
     cacheVersion,
     publisherResourcesLoaded,
     publisherBodyScaleLoaded,
-    ...(tableCellsLoaded ? { tableCellsLoaded } : {}),
     ...(publisherBodyFontScale !== undefined ? { publisherBodyFontScale } : {}),
     chaptersByPath,
     publisherFontFaces,
