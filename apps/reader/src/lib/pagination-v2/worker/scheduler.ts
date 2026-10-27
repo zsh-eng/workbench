@@ -14,6 +14,8 @@ export interface ScheduledPaginationJob {
   eventEpoch: number | null;
   priority: PaginationJobPriority;
   startsLayout: boolean;
+  /** The chapter an `addChapter` job lays out. */
+  chapterIndex: number | null;
   work: PaginationEngineWork;
 }
 
@@ -30,11 +32,18 @@ export class PaginationJobScheduler {
   private createEngineWork: (
     command: PaginationCommand,
   ) => PaginationEngineWork;
+  private wantedChapter: () => number | null;
 
+  /**
+   * `wantedChapter` names a chapter that a waiting jump needs: its
+   * `addChapter` runs before other background work.
+   */
   constructor(
     createEngineWork: (command: PaginationCommand) => PaginationEngineWork,
+    wantedChapter: () => number | null = () => null,
   ) {
     this.createEngineWork = createEngineWork;
+    this.wantedChapter = wantedChapter;
   }
 
   pushCommand(command: PaginationCommand): void {
@@ -53,8 +62,15 @@ export class PaginationJobScheduler {
   }
 
   peek(): ScheduledPaginationJob | null {
+    const wanted = this.wantedChapter();
     return (
-      this.userJobs[0] ?? this.layoutJobs[0] ?? this.backgroundJobs[0] ?? null
+      this.userJobs[0] ??
+      this.layoutJobs[0] ??
+      (wanted === null
+        ? undefined
+        : this.backgroundJobs.find((job) => job.chapterIndex === wanted)) ??
+      this.backgroundJobs[0] ??
+      null
     );
   }
 
@@ -98,6 +114,7 @@ export class PaginationJobScheduler {
       eventEpoch: null,
       priority,
       startsLayout: startsLayoutEpoch(command),
+      chapterIndex: command.type === "addChapter" ? command.chapterIndex : null,
       work: this.createEngineWork(command),
     };
 
