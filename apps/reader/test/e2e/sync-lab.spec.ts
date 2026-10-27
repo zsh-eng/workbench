@@ -40,3 +40,21 @@ test("sync lab copies the current library without changing its database", async 
     false,
   );
 });
+
+// The client suite runs the same scenario on fake-indexeddb; this runs it on
+// the browser's own IndexedDB, where a rollback's open of a newer version
+// takes the browser's VersionError path.
+test("sync lab upgrades a version 7 library to the current schema in this browser, and version 7 still opens it", async ({
+  page,
+}) => {
+  await page.goto("/debug/sync");
+  await page.getByRole("tab", { name: "Tools", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Upgrade v7 → current", exact: true })
+    .click();
+  const report = page.locator(".lab-migration");
+  await expect(report).toContainText("All migration checks passed");
+  await expect(report).toContainText(
+    "The version 7 schema still opens the upgraded database: passed",
+  );
+});

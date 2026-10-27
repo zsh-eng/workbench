@@ -87,9 +87,12 @@ fresh processes too; it does not rewind live promises or workers.
 Checkpoints can be exported/imported as JSON with binary data. Imports validate
 structure, IDs, tables, sizes, and file content hashes before replacing the
 experiment. Limits are four clients, 50,000 rows, and 100 MiB of decoded bytes.
-Database upgrade checks use actual historical v3/v5 fixtures and the current
+Database upgrade checks use actual historical v3/v5/v7 fixtures and the current
 Dexie migrations, then verify values and file bytes and remove the test database.
-They do not simulate clients running older application builds.
+The v7 library holds books, highlights, notes, reading progress and a change
+waiting to sync; every row must survive, and the v7 schema must still open the
+upgraded database, as a rollback would. They do not simulate clients running
+older application builds.
 
 ## Ownership and extension points
 
