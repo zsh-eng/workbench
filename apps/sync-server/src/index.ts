@@ -17,6 +17,7 @@ import { cliLinkPushProblem } from "./cli-links";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
+import { previewRoute } from "./preview";
 import {
   isNamespace,
   NAMESPACES,
@@ -106,6 +107,8 @@ app.get("/api/me", requireUser, (c) =>
   }),
 );
 app.get("/api/namespaces", requireUser, c => c.json({ namespaces: NAMESPACES }));
+// A saved link's preview for Arctic for the web (src/preview.ts).
+app.post("/api/arctic/preview", requireUser, previewRoute);
 app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   const namespace = c.req.param("namespace");
   if (!namespace || !isNamespace(namespace)) return c.json({ error: "Unknown app" }, 404);

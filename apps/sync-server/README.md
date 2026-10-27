@@ -129,6 +129,36 @@ Google authorization URL, browser-bound finish, wrong verifier, one-use exchange
 expiry, revocation, session renewal, scoped push/pull, and disabled media routes.
 Google's external login UI and native device handoff still require a device test.
 
+## Link previews for Arctic for the web
+
+`POST /api/arctic/preview` with `{"url": "<link>"}` answers a page's title,
+description (`subtitle`), `imageURL` and `faviconURL`, any of which may be
+missing (`src/preview.ts`, with `readPreview` from `packages/arctic-links`).
+Arctic for the web cannot fetch another site, so it asks here after it saves a
+link, and writes the fields into its own `article/<id>` record. Nothing is
+stored here.
+
+- A signed-in browser session only. A wb credential gets 403; no session, 401.
+  The body is at most 4 KiB, and the link must be a canonical web address.
+- 60 previews a minute for each account, counted in `cli_rate_limits` (rows
+  keyed by a hash of `preview:<user>:<minute>`, which expire after two
+  minutes). The 61st answers 429.
+- Only public pages. The link and every redirect must be http or https
+  without credentials, and every IPv4 and IPv6 address of the host, from
+  Cloudflare's DNS over HTTPS (`cloudflare-dns.com`), must be public: no
+  private, shared, loopback, link-local, multicast or reserved IPv4, and only
+  global unicast IPv6. Each hop is checked again. A Worker cannot pin its
+  connection to the checked address; Cloudflare does not route a Worker's
+  requests to private networks, which covers a name that changes between the
+  check and the fetch.
+- At most 5 redirects, 8 seconds in all, and 1 MiB of a page whose type is
+  HTML (or none), read up to `</head>`. A page that is not HTML, or answers
+  other than 2xx, gets 422; one that takes too long, 504.
+- Local development (`LOCAL_DEVELOPMENT=true`) fetches only `localhost` and
+  `*.localhost` pages and refuses the rest (403), so a local stack and its
+  tests never reach the internet. `test/preview.test.ts` replaces the network
+  with fixtures for the production checks.
+
 ## Backup CLI
 
 [Workbench Backup](../sync-backup/README.md) signs in through `/device` and
@@ -151,16 +181,23 @@ plus `/api/me` and `/api/namespaces`. They have two writes (`cliWritePath`):
   canonical URL whose SHA-256 is the key's id, when the article is not in
   the library. A restore is only the `library/` record of an unsaved article,
   equal to the stored value with `saved`, `archived` and `savedAt` changed.
-  The version counter stays under 1,000,000. A refusal is 403, and nothing
-  is stored.
+  A preview (for `wb arctic save` and `wb arctic backfill-previews`) is only
+  the `article/` record of an article in the library, equal to the stored
+  value with `imageURL`, `faviconURL` or `subtitle` set where it has none
+  (absent, null or blank): an image or icon as a canonical http or https URL
+  of at most 2,048 characters, a description as one line of at most 500
+  characters. Every other field, and every field the phone set, keeps its
+  stored value. The version counter stays under 1,000,000. A refusal is 403,
+  and nothing is stored.
 
 CLI credentials cannot remove records, write Reader, Spaced, highlights or
 reading time, delete files, or inspect browser sessions. In `arctic` they
-change an existing record only to save a link: a restore, or a new link over
-the records of an article that is not in the library (its `article/` or
-`library/` record is missing or removed), as the web and the phone do. Permissions follow the route, not the credential: existing
-credentials gain link saves when this server is deployed, without a migration
-or a new sign-in. The browser approval requires
+change an existing record only to save a link (a restore, or a new link over
+the records of an article that is not in the library: its `article/` or
+`library/` record is missing or removed, as the web and the phone do) or to
+fill an empty preview field. Permissions follow the route, not the
+credential: existing credentials gain link saves and previews when this
+server is deployed, without a migration or a new sign-in. The browser approval requires
 an authenticated session, same-origin POST, and an explicit code confirmation.
 No Google credentials or browser cookies are transferred to the CLI.
 

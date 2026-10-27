@@ -134,7 +134,7 @@ cliAuth.post("/revoke", async (c) => {
   return c.json({ ok: true });
 });
 
-/** This credential authorizes listed read routes, Arctic article text uploads and Arctic link saves only. */
+/** This credential authorizes listed read routes, Arctic article text uploads, and Arctic link saves and previews only. */
 export async function cliIdentity(c: Context<AppEnv>) {
   const header = c.req.header("Authorization");
   if (!header?.startsWith("Bearer wb_")) return null;
@@ -188,9 +188,10 @@ export const cliBatchReadPath = (method: string, path: string) =>
  * The writes a CLI credential may make. Arctic article text, which the
  * server checks as it checks the web app's copies (HTML, no script, 2 MiB).
  * And Arctic links: a push to `arctic` that only creates or restores links,
- * which `cliLinkPushProblem` checks record by record before it reaches the
- * sync route. It never writes Reader, Spaced, highlights or reading time,
- * and never removes an Arctic record or changes one except to save a link.
+ * or fills a link's empty preview fields, which `cliLinkPushProblem` checks
+ * record by record before it reaches the sync route. It never writes Reader,
+ * Spaced, highlights or reading time, and never removes an Arctic record or
+ * changes one except to save a link or fill an empty preview field.
  */
 export const cliWritePath = (method: string, path: string) => {
   const decoded = decodeURIComponent(path);
