@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/context-menu";
 import { dropdownMenuItemVariants } from "@/components/ui/dropdown-variants";
 import { cn } from "@/lib/utils";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 import { Ban, BookmarkIcon, ChevronsRight, Pencil, Trash } from "lucide-react";
 
 type DesktopActionsContextMenuProps = {
@@ -32,7 +32,7 @@ export default function DesktopActionsContextMenu({
   handleEdit,
   children,
 }: DesktopActionsContextMenuProps) {
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
   return (
     <ContextMenu modal={false} onOpenChange={onOpenChange}>
       <ContextMenuTrigger

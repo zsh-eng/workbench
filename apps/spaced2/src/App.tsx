@@ -20,7 +20,7 @@ import ProfileRoute from "@/routes/ProfileRoute";
 import ReviewRoute from "@/routes/Review.tsx";
 import SavedRoute from "@/routes/SavedRoute";
 import SuspendedCardsRoute from "@/routes/SuspendedCardsRoute";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
@@ -33,7 +33,7 @@ const StatsRoute = lazy(() => import("@/routes/StatsRoute"));
 // The Elements page and its frames show sample data, so they do not sync.
 if (!location.pathname.startsWith("/debug/elements")) SyncEngine.start();
 export default function App() {
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
 
   return (
     <BrowserRouter>

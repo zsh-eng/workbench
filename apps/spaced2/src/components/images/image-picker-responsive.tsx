@@ -8,7 +8,7 @@ import {
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { constructImageMarkdownLink } from "@/lib/files/upload";
 import { CachedImage, listUsableCachedImages } from "@/lib/images/db";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Image } from "lucide-react";
 import { toast } from "sonner";
@@ -65,7 +65,7 @@ export default function ImagePickerResponsive({
   open,
   onOpenChange,
 }: ImagePickerResponsiveProps) {
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
 
   const handleImageSelect = async (image: CachedImage) => {
     // Extract the file key from the URL

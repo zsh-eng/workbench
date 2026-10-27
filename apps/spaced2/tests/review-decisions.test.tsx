@@ -14,6 +14,7 @@ import {
 import { db, rawDb } from "@/lib/db/persistence";
 import MemoryDB from "@/lib/db/memory";
 import ReviewRoute from "@/routes/Review";
+import { COMPACT_QUERY } from "@workbench/elements/size-class";
 import { processReviewLogOperations } from "@/lib/review/review";
 function card(id = crypto.randomUUID()): CardWithMetadata {
   return {
@@ -149,7 +150,7 @@ test("Undo preserves existing long suspensions and subsequent sibling changes", 
   expect(restores).toHaveLength(1);
 });
 
-for (const width of [639, 640, 640.5, 641]) {
+for (const width of [599, 599.5, 600, 601]) {
   test(`review content and controls agree at ${width}px`, async () => {
     Object.defineProperty(globalThis, "IntersectionObserver", {
       value: window.IntersectionObserver,
@@ -159,7 +160,7 @@ for (const width of [639, 640, 640.5, 641]) {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = ((query: string) => ({
       ...originalMatchMedia.call(window, query),
-      matches: query === "(max-width: 640px)" ? width <= 640 : false,
+      matches: query === COMPACT_QUERY ? width < 600 : false,
       media: query,
       addEventListener() {},
       removeEventListener() {},
@@ -182,14 +183,14 @@ for (const width of [639, 640, 640.5, 641]) {
       expect(
         view.container.querySelector('[aria-roledescription="carousel"]') !==
           null,
-      ).toBe(width <= 640);
+      ).toBe(width < 600);
       expect(
         view.container.querySelector('button[aria-label="Hard"]') !== null,
-      ).toBe(width <= 640);
+      ).toBe(width < 600);
       // Only one content surface is mounted, so both mobile and desktop cannot show.
       expect(
         view.container.querySelectorAll('[aria-roledescription="carousel"]'),
-      ).toHaveLength(width <= 640 ? 1 : 0);
+      ).toHaveLength(width < 600 ? 1 : 0);
     } finally {
       window.matchMedia = originalMatchMedia;
     }

@@ -8,7 +8,7 @@ import {
   CardContentFormValues,
 } from "@/lib/form-schema";
 import { CardWithMetadata } from "@/lib/types";
-import { useMediaQuery } from "@uidotdev/usehooks";
+import { useCompactWindow } from "@/components/hooks/use-compact-window";
 
 export type EditFlashcardActions = {
   bookmarked: boolean;
@@ -47,7 +47,7 @@ function EditFlashcardSession({
     resolver: zodResolver(cardContentFormSchema),
     defaultValues: { front: card.front, back: card.back },
   });
-  const isMobile = useMediaQuery("(max-width: 640px)");
+  const isMobile = useCompactWindow();
 
   const beforeAction = (action: string) => {
     if (submitLock.current) return false;
