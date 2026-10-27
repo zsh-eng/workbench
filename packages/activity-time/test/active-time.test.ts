@@ -1,15 +1,15 @@
 import { expect, it } from "bun:test";
-import { ActiveTime } from "../src";
+import { ActiveTime, DEFAULT_GAP_MS } from "../src";
 
 it("counts short intervals between inputs and nothing for a long one", () => {
   // The worked example in READING_TIME.md.
-  const time = new ActiveTime(120_000);
+  const time = new ActiveTime(DEFAULT_GAP_MS);
   time.resume(0);
   time.input(40_000);
   time.input(75_000);
-  time.input(240_000);
+  time.input(300_000);
   expect(time.activeMs).toBe(75_000);
-  time.input(250_000);
+  time.input(310_000);
   expect(time.activeMs).toBe(85_000);
 });
 

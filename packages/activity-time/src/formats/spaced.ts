@@ -1,7 +1,10 @@
 import { DEFAULT_GAP_MS } from "../active-time";
 import { ACTIVITY_SESSION_VERSION, type ActivitySession } from "../session";
 
-/** Spaced counts each card's time with two minutes, and keeps at most two minutes per review. */
+/**
+ * Spaced counts each card's time with three minutes (two until 28 October
+ * 2026; the logs keep no gap), and keeps at most two minutes per review.
+ */
 export const SPACED_GAP_MS = DEFAULT_GAP_MS;
 
 /**

@@ -10,22 +10,23 @@ every scroll event, and do not treat an open screen as proof of reading.
 Every app counts with one rule. The web apps share its code,
 [activity-time](packages/activity-time/README.md), which also defines one
 record shape for time spent in Reader, Arctic and Spaced. Only the gap
-differs: Arctic and Spaced use **120 seconds**, the EPUB web reader **10
-minutes**, for the quiet minutes between page turns. Each session records
-its gap.
+differs: Arctic (on iPhone and on the web) and Spaced use **180 seconds**,
+the EPUB web reader **10 minutes**, for the quiet minutes between page turns.
+Arctic and Spaced used 120 seconds until 28 October 2026; their records keep
+no gap, so a session read back says 180 either way.
 
 ## Accounting rule
 
 When an eligible article becomes visible, record a monotonic time boundary.
 At the next user action or pause:
 
-- If the interval is greater than zero and at most 120 seconds, add it.
-- If the interval exceeds 120 seconds, discard the **whole interval**.
+- If the interval is greater than zero and at most 180 seconds, add it.
+- If the interval exceeds 180 seconds, discard the **whole interval**.
 - Start a new boundary at the action. On pause, remove the boundary instead.
 
-For example: open at 0 seconds, scroll at 40, tap at 75, then scroll at 240.
-The estimate is **75 seconds**. The last 165-second gap contributes nothing.
-An action at 250 adds another 10 seconds.
+For example: open at 0 seconds, scroll at 40, tap at 75, then scroll at 300.
+The estimate is **75 seconds**. The last 225-second gap contributes nothing.
+An action at 310 adds another 10 seconds.
 
 A timer saves completed intervals. It **does not add time**. Otherwise a timer
 would keep an abandoned page active forever. This rule can undercount a long,

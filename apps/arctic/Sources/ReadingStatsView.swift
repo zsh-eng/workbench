@@ -42,7 +42,7 @@ struct ReadingStatsView: View {
             }
             DisclosureGroup("Estimated reading time") {
               Text(
-                "Articles in Reader or Website, saved or not. Publisher front pages are not counted. Idle gaps over 2 minutes are excluded. Visits appear on the day they started. Articles count after 1 minute of reading across the last 7 days."
+                "Articles in Reader or Website, saved or not. Publisher front pages are not counted. Idle gaps over 3 minutes are excluded. Visits appear on the day they started. Articles count after 1 minute of reading across the last 7 days."
               )
               .font(.footnote).foregroundStyle(ReaderTheme.muted).padding(.top, 6)
             }.font(.footnote).foregroundStyle(ReaderTheme.muted).padding(.horizontal, 6)

@@ -92,7 +92,7 @@ highlighted on either shows on both:
 Reading time counts as on the phone, with the shared rule of
 [activity-time](../../../packages/activity-time/README.md): time between two of
 the reader's own actions (keys, pointer, touch, wheel, and a scroll just after
-one) counts when the gap is two minutes or less. A hidden tab, or another
+one) counts when the gap is three minutes or less. A hidden tab, or another
 window in focus, pauses. A scroll that restores the position is not an action.
 A visit saves every five seconds and uploads within a minute; a visit under a
 second is not kept. **Reading** (`/reading`) shows the last seven days, today, articles

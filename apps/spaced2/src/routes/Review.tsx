@@ -61,7 +61,7 @@ export default function ReviewRoute() {
   );
 
   // Time on the card under the shared rule (packages/activity-time): a hidden
-  // tab or another window pauses it, and a pause over two minutes counts
+  // tab or another window pauses it, and a pause over three minutes counts
   // nothing.
   const cardTime = useActivitySession(
     nextReviewCard ? { kind: "card", id: nextReviewCard.id } : null,

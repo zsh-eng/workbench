@@ -1,7 +1,11 @@
 import { DEFAULT_GAP_MS } from "../active-time";
 import { ACTIVITY_SESSION_VERSION, type ActivitySession } from "../session";
 
-/** Arctic on iPhone counts with 120 seconds (`ReadingSessions.swift`). */
+/**
+ * Arctic counts with 180 seconds, on iPhone too (`ReadingSessions.swift`).
+ * The records keep no gap, so one counted with 120 seconds before 28
+ * October 2026 reads back with this one.
+ */
 export const ARCTIC_GAP_MS = DEFAULT_GAP_MS;
 
 /** Swift's reference date, 1 January 2001, in Unix milliseconds. */

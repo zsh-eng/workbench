@@ -14,8 +14,8 @@ the last one counts as reading. If it comes too late, that whole stretch
 counts for nothing, on the view that you had put the page down.
 
 Example, in Arctic: you open an article, scroll at 40 seconds, tap at 75
-seconds, then scroll again at 4 minutes. The estimate is 75 seconds. The
-2 minutes 45 seconds before the last scroll were too long, so none of it
+seconds, then scroll again at 5 minutes. The estimate is 75 seconds. The
+3 minutes 45 seconds before the last scroll were too long, so none of it
 counts. Leaving a page open never adds time by itself.
 
 ## What counts as something you did
@@ -49,13 +49,13 @@ opening another book or article, ends the visit.
 
 ## The timings and why
 
-| Timing                                   | Value                                   | Why                                                                                                                        |
-| ---------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Longest quiet stretch, Arctic and Spaced | 2 minutes                               | You scroll an article every so often. A longer silence more likely means the page was left open.                           |
-| Longest quiet stretch, Reader            | 10 minutes                              | A book's page can take minutes to read without touching anything, so Reader waits longer before it decides you stopped.    |
-| Scroll after an input                    | 1 second                                | Long enough for a flick's glide to count, short enough that the app's own scrolling does not.                              |
-| Saving                                   | every 5 seconds, and at once on a pause | Little is lost if the browser closes, without writing on every scroll.                                                     |
-| "Articles read" this week (Arctic)       | 1 minute in total                       | An article counts as read once its visits in the last seven days add up to a minute. Shorter visits still add to the time. |
+| Timing                                   | Value                                   | Why                                                                                                                                      |
+| ---------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Longest quiet stretch, Arctic and Spaced | 3 minutes                               | You scroll an article every so often, less often on a tablet's larger screen. A longer silence more likely means the page was left open. |
+| Longest quiet stretch, Reader            | 10 minutes                              | A book's page can take minutes to read without touching anything, so Reader waits longer before it decides you stopped.                  |
+| Scroll after an input                    | 1 second                                | Long enough for a flick's glide to count, short enough that the app's own scrolling does not.                                            |
+| Saving                                   | every 5 seconds, and at once on a pause | Little is lost if the browser closes, without writing on every scroll.                                                                   |
+| "Articles read" this week (Arctic)       | 1 minute in total                       | An article counts as read once its visits in the last seven days add up to a minute. Shorter visits still add to the time.               |
 
 The result is an estimate. It undercounts a long, still read (a quiet
 stretch past the limit counts as nothing) and never counts time with the
@@ -68,10 +68,12 @@ often while reading.
 
 - Reader's 10 minutes is ample: even a two-page spread in landscape takes a
   few minutes to read.
-- Arctic's and Spaced's 2 minutes is tight on an iPad. A full screen of an
-  article in portrait can take about two minutes to read, and if you read
-  it without touching the screen, that whole stretch is lost. This has not
-  been changed; see the open questions below.
+- Arctic's and Spaced's limit was 2 minutes until 28 October 2026, tight on
+  a tablet: a full screen of an article in portrait can take about two
+  minutes to read, and read without a touch, that whole stretch was lost.
+  It is now 3 minutes, on every screen size and on Arctic for iPhone too
+  (from its next build). A Spaced review still keeps at most 2 minutes per
+  card.
 
 **Touch, keyboard, trackpad and Pencil.** All of them count, as listed
 above. An Apple Pencil's taps and strokes count like a finger's; its hover
@@ -86,13 +88,16 @@ the lost focus this way has not been checked on an iPad.
 
 These would change what gets counted, so they are left for you to decide:
 
-1. **A longer limit for Arctic and Spaced on large screens**, such as 3 or
-   4 minutes when the window is iPad-sized, or a limit that grows with how
-   much text is on screen. Each visit records its limit, so old and new
-   visits stay comparable in the records, but totals would rise.
+1. **A limit that grows with how much text is on screen.** Arctic and
+   Spaced now allow 3 minutes everywhere (decided 28 October 2026). Their
+   records keep no limit, so a visit counted with 2 minutes cannot be told
+   from one counted with 3; totals from that day on run a little higher.
 2. **Keep counting while the reading window sits beside another app**, for
    reading with notes open. Today that time stops until you come back to
    the reading window.
 3. **Count a hovering mouse or trackpad pointer at all.** It counts today,
    as a sign that someone is at the screen, but a pointer can drift without
    any reading.
+4. **Spaced's cap of 2 minutes per review.** With the 3-minute limit, a
+   card looked at for 2.5 minutes without a touch now counts, but its
+   review still keeps 2 minutes at most (`MAX_DURATION_PER_CARD_MS`).

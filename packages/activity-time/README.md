@@ -26,13 +26,15 @@ session starts, or the page comes back), an input, or a pause.
   page comes back or the person makes an input.
 - A timer saves counted time. It never adds time.
 
-The gap is two minutes (`DEFAULT_GAP_MS`), as on Arctic for iPhone. Spaced
-uses two minutes. The Reader keeps ten minutes (`READER_GAP_MS`): paged
-reading has quiet minutes between page turns, and its history was counted
-that way. Each session records its gap in `gapMs`.
+The gap is three minutes (`DEFAULT_GAP_MS`), as on Arctic for iPhone.
+Spaced uses three minutes. Both used two until 28 October 2026. The Reader
+keeps ten minutes (`READER_GAP_MS`): paged reading has quiet minutes between
+page turns, and its history was counted that way. Each session records its
+gap in `gapMs`; Arctic's and Spaced's stores keep none, so their codecs give
+today's.
 
-Example, with a two-minute gap: open at 0 s, inputs at 40, 75 and 240 s.
-The session has 75 s; the 165 s gap counts nothing. An input at 250 s adds
+Example, with a three-minute gap: open at 0 s, inputs at 40, 75 and 300 s.
+The session has 75 s; the 225 s gap counts nothing. An input at 310 s adds
 10 s.
 
 ## Signals
@@ -117,17 +119,18 @@ The format is the shape that code reads and writes. Each app keeps its
 stored record, so synced history and the iPhone app stay as they are. The
 codecs map them without loss of the fields they have:
 
-| App    | Stored record                                                                                                               | Codec                                        | Missing in the store                                                 |
-| ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------- |
-| Reader | `readingSessions` row in the `reader` namespace                                                                             | `fromReaderSession`, `toReaderSession`       | `gapMs` (always ten minutes)                                         |
-| Arctic | `session/<UUID>` in `arctic-reading`: `{articleURL, id, seconds, startedAt, updatedAt}`, Swift reference dates, sorted keys | `decodeArcticSession`, `encodeArcticSession` | `device`, `endedAt`, `position`                                      |
-| Spaced | `duration` of a `reviewLog` operation                                                                                       | `fromSpacedReview` (read only)               | `device`, `position`; the start is the review time less the duration |
+| App    | Stored record                                                                                                               | Codec                                        | Missing in the store                                                          |
+| ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| Reader | `readingSessions` row in the `reader` namespace                                                                             | `fromReaderSession`, `toReaderSession`       | `gapMs` (always ten minutes)                                                  |
+| Arctic | `session/<UUID>` in `arctic-reading`: `{articleURL, id, seconds, startedAt, updatedAt}`, Swift reference dates, sorted keys | `decodeArcticSession`, `encodeArcticSession` | `device`, `endedAt`, `position`, `gapMs`                                      |
+| Spaced | `duration` of a `reviewLog` operation                                                                                       | `fromSpacedReview` (read only)               | `device`, `position`, `gapMs`; the start is the review time less the duration |
 
 - **Arctic for iPhone needs no change.** The web writes the phone's five keys
   with the same encoding, and no record with zero seconds, as before.
   `updatedAt` is `lastActiveAt`. It still only grows, which is all the
   phone's merge needs: the later `updatedAt` wins. The phone counts with the
-  same rule and gap. To share more fields, such as `endedAt` or `device`, add
+  same rule and gap (a phone build from before 28 October 2026 with 120
+  seconds). To share more fields, such as `endedAt` or `device`, add
   them to `ArticleReadingSession` as optional properties first, then let the
   web write them. The phone's decoder ignores keys it does not know, and its
   journal compares decoded values, so extra keys would not break it, but the
@@ -135,7 +138,7 @@ codecs map them without loss of the fields they have:
 - **Reader** rows do not store their gap. Add the field to the row before the
   Reader's gap changes.
 - **Spaced** keeps time per card in each review log, at most two minutes per
-  review. Older reviews timed a card from its display and restarted the timer
+  review (`MAX_DURATION_PER_CARD_MS`, which the gap does not change). Older reviews timed a card from its display and restarted the timer
   after a two-minute pause or a visibility change; reviews from this change
   on use the rule. The logs do not say which. Spaced writes no session
   records.
