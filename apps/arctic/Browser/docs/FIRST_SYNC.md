@@ -4,8 +4,8 @@ What Arctic for the web does between sign-in and a full library, how to
 measure it, and what changed. Measured in October 2026 in the first-sync lab
 (`scripts/first-sync-lab.ts`).
 
-Status: proposal. The numbers below are the base commit (`ad4cc6f5` with
-timing marks only).
+Status: built. "Before" is the base commit (`ad4cc6f5` with timing marks
+only); "After" is the design below, as built.
 
 ## The critical path
 
@@ -79,18 +79,18 @@ older links on top. Only at "All listed" is the top of the list right.
 
 Where the time goes, medium, far:
 
-| Step                                         |      ms | Share of first list |
-| -------------------------------------------- | ------: | ------------------- |
-| App script (HTML and JS over the link)       |     864 |                     |
-| Account (`/api/me`)                          |     370 | blank page          |
-| Scope (`/sync/v3/state`)                     |     546 |                     |
-| Pull stream until its first page             |   1,697 | preflight, then 5–6 D1 queries |
-| `article/` pages before any `library/` page  |    ~390 |                     |
-| The rest of the links' pages                 |   ~600  | ~180 ms a page      |
-| IndexedDB, all six pages of links            |      87 | 2% of the pull      |
-| Render, last commit to cards                 |    4–19 |                     |
-| Push's scope request, with nothing to push   |     510 | after the list      |
-| Texts, highlights, reading: 3 × 3 requests   |   8,940 | sync done at 13.9 s |
+| Step                                        |    ms | Share of first list            |
+| ------------------------------------------- | ----: | ------------------------------ |
+| App script (HTML and JS over the link)      |   864 |                                |
+| Account (`/api/me`)                         |   370 | blank page                     |
+| Scope (`/sync/v3/state`)                    |   546 |                                |
+| Pull stream until its first page            | 1,697 | preflight, then 5–6 D1 queries |
+| `article/` pages before any `library/` page |  ~390 |                                |
+| The rest of the links' pages                |  ~600 | ~180 ms a page                 |
+| IndexedDB, all six pages of links           |    87 | 2% of the pull                 |
+| Render, last commit to cards                |  4–19 |                                |
+| Push's scope request, with nothing to push  |   510 | after the list                 |
+| Texts, highlights, reading: 3 × 3 requests  | 8,940 | sync done at 13.9 s            |
 
 Large, near: IndexedDB commits take 569 ms of the links' 934 ms pull and
 1,948 ms over all four namespaces; rendering stays under 20 ms a commit.
@@ -151,9 +151,60 @@ pull).
   pull, so an epoch change is still noticed.
 - **Push only when pending.** `getPendingChanges` can drop a field edit
   whose record is gone; then `push` sends nothing either. No change.
-- **Sign-in flag.** The placeholder shows only after this browser started a
-  sign-in in the last ten minutes. A signed-out visitor still sees a blank
-  frame, then the welcome page.
+- **Before the account is known** the page stays blank, as before: the
+  placeholder needs the account's database to know its links were never
+  pulled. Showing it from the sign-in redirect would need a flag kept
+  across the redirect; not built.
+
+## What was built
+
+The proposal, with one change found by measuring: **the four clients start
+at once, but the others' commits wait for the links' first pull** (or ten
+seconds). All four write one IndexedDB object store, so fully parallel
+commits queued in front of the links': large, near, every link listed at
+2,757 ms instead of 1,344 ms before. Holding the other commits keeps their
+requests in flight while the links commit alone. And the placeholder
+shows once the account is known, not from the sign-in redirect (see
+Critique).
+
+| Variant (medians, ms)                | Medium near | Large near | Medium far | Large far |
+| ------------------------------------ | ----------: | ---------: | ---------: | --------: |
+| Before: all listed                   |         877 |      1,344 |      4,319 |     6,196 |
+| Fully parallel: all listed           |         925 |      2,757 |      3,933 |     5,924 |
+| Links first, then the rest at once   |         818 |      1,418 |      3,830 |     5,900 |
+| Built (others' commits wait): listed |         802 |      1,440 |      3,837 |     5,762 |
+| Built: sync done                     |         931 |      3,003 |      3,971 |     7,304 |
+
+"Links first" lists as fast but finishes the sync 0.4–2.3 s later. The
+variants are separate runs of two or three each.
+
+## After
+
+Medians in ms from navigation, before → after (5 runs near, 3 far; 3 and
+2 for large). With the placeholder, the first card is when every link is
+listed, in order, and the first screen changes once.
+
+| Size   | Colo |   Blank until |    All listed | Screen covers |      Sync done |
+| ------ | ---- | ------------: | ------------: | ------------: | -------------: |
+| small  | near |     179 → 209 |     624 → 540 |     837 → 764 |    2,480 → 635 |
+| medium | near |     172 → 209 |     877 → 802 |   1,023 → 971 |    2,989 → 931 |
+| large  | near |     176 → 223 | 1,344 → 1,440 | 1,457 → 1,608 |  5,051 → 3,003 |
+| small  | far  | 1,233 → 1,381 | 3,302 → 2,854 | 4,343 → 3,961 | 12,259 → 3,432 |
+| medium | far  | 1,230 → 1,377 | 4,319 → 3,837 | 5,071 → 4,638 | 13,942 → 3,971 |
+| large  | far  | 1,235 → 1,376 | 6,196 → 5,762 | 6,701 → 6,824 | 18,856 → 7,304 |
+
+- **Sync done** is 1.7–3.9 times sooner: 9 requests instead of 14, and
+  the clients overlap.
+- **All listed** is 75–480 ms sooner, except large near (+96 ms): the
+  links' last pull page waits for the other namespaces' commits already in
+  IndexedDB's queue.
+- **Blank until** is 30–47 ms later near and about 145 ms later far:
+  `/api/apps/arctic/me` reads the namespace's epoch for the scope, one more
+  D1 query than `/api/me`. It saves the 550 ms scope request after it.
+- **Screen covers** loads 13–19 og:images instead of 15–36: none go to
+  cards that leave the first screen.
+- In large, the first card now shows 0.4–0.9 s later than before's first
+  (wrong) card, in exchange for showing the right one.
 
 ## Server proposals (not built)
 
