@@ -391,12 +391,13 @@ not in the tree.
 
 **Tried and set aside: mounting the content after the slide.** Traced at
 the OPPO Pad Mini's size (672 × 868 at density 2.5, production build, CPU
-4× slower, the same steps): the tap's task takes 74 ms before the sheet's
-first frame, 66 ms of it React's commit of the sheet and its content. Then,
-while the sheet slides, the main thread is busy 24% of the time and a main
-frame takes 0.7 ms (median; 1.9 ms at p90), yet 49 of 69 frames are a frame
-behind. So the content's mount delays the start; it does not slow the
-slide. Mounting it after the slide would:
+4× slower, the same steps, two runs): the tap's task takes 56–58 ms
+before the sheet's first frame, 50–53 ms of it React's commit of the sheet
+and its content, and 7–8 frames drop while it runs. Two tasks of 9–12 ms
+follow in the first 100 ms, one of them React's. Then, while the sheet
+slides, a main frame takes 1.4 ms (median; 2.6 ms at p90), yet 46–49 of
+66–68 frames are a frame behind. So the content's mount delays the start;
+it does not slow the slide. Mounting it after the slide would:
 
 - move that commit to where the sheet lands, so the sheet would stop there
   for as long;
