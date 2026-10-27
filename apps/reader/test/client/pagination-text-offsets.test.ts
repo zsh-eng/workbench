@@ -137,7 +137,7 @@ describe("canonical text offsets", () => {
     expect(locate(2)?.page).toBe(after.currentPage);
   });
 
-  it("reports a chapter that is not laid out yet", () => {
+  it("waits for a chapter that is not laid out yet, then opens the offset", () => {
     const events: EnginePaginationEvent[] = [];
     const engine = new PaginationEngine((event) => events.push(event));
     run(engine, {
@@ -156,7 +156,14 @@ describe("canonical text offsets", () => {
       offset,
       intent: SEARCH,
     });
-    expect(events.map((event) => event.type)).toEqual(["pageUnavailable"]);
+    expect(events.map((event) => event.type)).toEqual(["chapterUnavailable"]);
+
+    run(engine, { type: "addChapter", chapterIndex: 1, blocks });
+    const jump = events.find((event) => event.type === "pageContent");
+    expect(jump?.intent).toEqual(SEARCH);
+    expect(jump && "spread" in jump && shownText(jump.spread)).toContain(
+      "café",
+    );
   });
 
   it("locates every offset as the single-offset path does", () => {
