@@ -234,22 +234,22 @@ test("A window resized beside another app turns a form sheet into a phone sheet 
   }
 });
 
-// Only the centred one: React Aria closes a sheet that its
-// IntersectionObserver saw on screen and then off it, and with this
-// project's user agent (Chrome's) that observer in Playwright's WebKit at
-// times never saw a docked sheet arrive, so a swipe left it open below the
-// screen. Arctic's ipad.spec.ts, with Safari's user agent as on an iPad,
-// swipes a docked sheet away ("Not confirmed" in packages/elements/docs/
-// MOTION.md).
-test("A swipe down dismisses a centred form sheet", async ({ page }) => {
+test("A swipe down dismisses a form sheet, centred or docked", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1180, height: 820 });
   await openLab(page);
-  const sheet = await openCase(page, "fit", "Fitting sheet");
-  // WebKit under Playwright replays no touch drag; a trackpad's scroll
-  // moves the sheet the same way, as the browser's own scrolling.
-  const box = (await sheet.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + 40);
-  for (let step = 0; step < 14; step++) await page.mouse.wheel(0, -90);
-  await expect(sheet).toBeHidden();
-  await expect(readout(page)).toHaveAttribute("data-detent", "none");
+  for (const [id, title] of [
+    ["fit", "Fitting sheet"],
+    ["fixed", "Fixed detent"],
+  ]) {
+    const sheet = await openCase(page, id, title);
+    // WebKit under Playwright replays no touch drag; a trackpad's scroll
+    // moves the sheet the same way, as the browser's own scrolling.
+    const box = (await sheet.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 40);
+    for (let step = 0; step < 14; step++) await page.mouse.wheel(0, -90);
+    await expect(sheet).toBeHidden();
+    await expect(readout(page)).toHaveAttribute("data-detent", "none");
+  }
 });
