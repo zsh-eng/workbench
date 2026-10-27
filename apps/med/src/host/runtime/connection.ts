@@ -3,6 +3,7 @@ import { chmod, link, mkdir, readdir, readFile, rename, rm, writeFile } from "no
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { shellWord } from "./shell-word";
 
 /** "med" on a phone keypad. Vite's preview server takes 4173, Med's old default. */
 export const DEFAULT_PORT = 6330;
@@ -21,29 +22,44 @@ export function getStateDirectory(override?: string): string {
   return resolve(override || process.env.MED_STATE_DIR || defaultStateDirectory());
 }
 
-/** A port from --port or MED_PORT, checked. Undefined when neither is set. */
-export function givenPort(flag: string | undefined, environment: NodeJS.ProcessEnv = process.env) {
+const own = (stateDir: string) => resolve(stateDir) === defaultStateDirectory();
+
+/**
+ * A port from --port or MED_PORT, checked; undefined when neither is set.
+ * Med gives each agent that it starts MED_PORT with MED_STATE_DIR, and an
+ * agent that names another state folder keeps that MED_PORT. So MED_PORT
+ * 6330 does not count for another folder than Med's own: 6330 is its port.
+ */
+export function givenPort(
+  flag: string | undefined,
+  environment: NodeJS.ProcessEnv = process.env,
+  stateDir?: string,
+) {
   const value = flag ?? (environment.MED_PORT || undefined);
   if (value === undefined) return undefined;
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Choose a port from 1 to 65535.");
+  if (flag === undefined && port === DEFAULT_PORT && stateDir && !own(stateDir)) return undefined;
   return port;
 }
 
-/** A port that no process listens on now, chosen by the system. */
-export async function freePort(): Promise<number> {
+/** `wanted` if no process listens on it now, or else a port that the system
+ * chooses. */
+export async function freePort(wanted = 0): Promise<number> {
   const { createServer } = await import("node:net");
-  return new Promise((done, fail) => {
-    const server = createServer();
-    server.once("error", fail);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() =>
-        typeof address === "object" && address ? done(address.port) : fail(new Error("No port.")),
-      );
+  const bind = (port: number) =>
+    new Promise<number>((done, fail) => {
+      const server = createServer();
+      server.once("error", fail);
+      server.listen(port, "127.0.0.1", () => {
+        const address = server.address();
+        server.close(() =>
+          typeof address === "object" && address ? done(address.port) : fail(new Error("No port.")),
+        );
+      });
     });
-  });
+  return wanted ? bind(wanted).catch(() => bind(0)) : bind(0);
 }
 
 /**
@@ -57,10 +73,17 @@ export async function servicePort(
   flag: string | undefined,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<{ port: number; picked?: boolean }> {
-  const given = givenPort(flag, environment);
-  if (given !== undefined) return { port: given };
+  if (flag !== undefined) return { port: givenPort(flag, environment, stateDir)! };
+  const given = givenPort(undefined, environment, stateDir);
   const live = await livePorts(stateDir);
-  if (live.includes(DEFAULT_PORT) || resolve(stateDir) === defaultStateDirectory())
+  // MED_PORT may belong to the Med that started this agent: a server that
+  // runs from this folder wins, and another folder's server keeps its port.
+  if (given !== undefined && (!live.length || live.includes(given))) {
+    if (live.length || own(stateDir)) return { port: given };
+    const port = await freePort(given);
+    return port === given ? { port } : { port, picked: true };
+  }
+  if (live.includes(DEFAULT_PORT) || own(stateDir))
     return { port: live.length === 1 ? live[0]! : DEFAULT_PORT };
   if (live.length) return { port: live[0]! };
   return { port: await freePort(), picked: true };
@@ -149,7 +172,7 @@ export async function findPort(stateDir: string): Promise<number> {
 }
 
 /** The ports of the hosts that run from this state folder. */
-async function livePorts(stateDir: string) {
+export async function livePorts(stateDir: string) {
   const names = await readdir(join(stateDir, "connections")).catch(() => [] as string[]);
   const live: number[] = [];
   for (const name of names) {
@@ -166,7 +189,12 @@ export async function clientPort(
   flag: string | undefined,
   environment: NodeJS.ProcessEnv = process.env,
 ) {
-  return givenPort(flag, environment) ?? (await findPort(stateDir));
+  const given = givenPort(flag, environment, stateDir);
+  if (given === undefined) return findPort(stateDir);
+  if (flag !== undefined) return given;
+  // MED_PORT may belong to the Med that started this agent, with another folder.
+  const live = await livePorts(stateDir);
+  return live.length === 1 && !live.includes(given) ? live[0]! : given;
 }
 
 export async function readConnection(
@@ -179,12 +207,18 @@ export async function readConnection(
       JSON.parse(await readFile(connectionPath(stateDir, port), "utf8")),
     );
     if (connection.origin !== `http://127.0.0.1:${port}`) throw new Error("Invalid origin");
+    // A record that a stopped server left names a port that another process
+    // may own now: this folder's token does not go there.
+    try {
+      process.kill(connection.pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") throw error;
+    }
   } catch {
-    const own = resolve(stateDir) === defaultStateDirectory();
     throw new Error(
-      own
+      own(stateDir)
         ? `No valid med connection was found on port ${port}. Start med-diff with your repositories, or select the same --port and --state-dir as the running host.`
-        : `No valid med connection was found on port ${port} in ${stateDir}. Start that Med with med web --state-dir ${stateDir}, or select the same --port and --state-dir as the running host.`,
+        : `No valid med connection was found on port ${port} in ${stateDir}. Start that Med with med web --state-dir ${shellWord(stateDir)}, or select the same --port and --state-dir as the running host.`,
     );
   }
   return connection;

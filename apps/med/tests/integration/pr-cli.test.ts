@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
+import { DEFAULT_PORT } from "../../src/host/runtime/connection";
 
 const exec = promisify(execFile);
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -23,13 +23,6 @@ const env = {
 };
 const git = async (cwd: string, ...args: string[]) =>
   (await exec("git", args, { cwd, env })).stdout.trim();
-async function freePort() {
-  const server = createServer();
-  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-  const { port } = server.address() as { port: number };
-  await new Promise((done) => server.close(done));
-  return port;
-}
 
 it("checks out a pull request with gh and opens its merge-base review in the background server", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "med-pr-cli-")));
@@ -95,19 +88,28 @@ exit 1
   await chmod(join(bin, "gh"), 0o755);
 
   const state = join(root, "state");
-  const port = String(await freePort());
+  const home = join(root, "home");
+  await mkdir(home);
   const cli = resolve("src/cli/index.ts");
+  // No --port: the server of another state folder takes a free port, not 6330.
   const run = (...args: string[]) =>
-    exec("bun", [cli, ...args, "--state-dir", state, "--port", port], {
+    exec("bun", [cli, ...args, "--state-dir", state], {
       cwd: local,
-      env: { ...env, PATH: `${bin}:${process.env.PATH}` },
+      env: {
+        ...env,
+        HOME: home,
+        MED_HOME_DIR: home,
+        MED_PORT: "",
+        PATH: `${bin}:${process.env.PATH}`,
+      },
     });
   cleanup.push(() => run("stop"));
   const { stdout } = await run("pr", "checkout", "7", "--no-open");
 
   expect(await git(local, "rev-parse", "--abbrev-ref", "HEAD")).toBe("pr-7");
   const launch = new URL(stdout.trim().split("\n").at(-1)!);
-  expect(launch.origin).toBe(`http://127.0.0.1:${port}`);
+  expect(launch.hostname).toBe("127.0.0.1");
+  expect(Number(launch.port)).not.toBe(DEFAULT_PORT);
   const id = /^\/review\/([A-Za-z0-9_-]+)$/.exec(launch.pathname)![1];
   const headers = {
     authorization: `Bearer ${new URLSearchParams(launch.hash.slice(1)).get("token")}`,

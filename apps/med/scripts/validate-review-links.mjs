@@ -191,8 +191,10 @@ try {
       [...cliArgs, "review", ...args, "--state-dir", stateDir, "--port", String(connection.port)],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     ).trim();
-  const catalogue = JSON.parse(runCli("repos"));
+  const catalogue = JSON.parse(runCli("repos", "--json"));
   assert.equal(catalogue.repositories.length, 2);
+  // Without --json: one line per repository.
+  assert.equal(runCli("repos").split("\n").length, 2);
   const fromLink = async (link) =>
     api(new URL(/\((http[^)]+)\)/.exec(link)[1]).pathname.replace("/review/", "/api/reviews/"));
   git(repositories[0], "remote", "set-url", "origin", "git@github.com:example/repo.git");

@@ -177,7 +177,7 @@ async function showInThread(
     const [entry] = await context.find({ session: named, limit: 2 });
     if (!entry?.thread)
       throw new Error(
-        `No Med thread holds session ${named}. Run ${medCommand(instance, "thread adopt", named)} first, then med thread show again.`,
+        `No Med thread holds session ${named}. Run ${medCommand(instance, "thread adopt", named)} first, then ${medCommand(instance, "thread show")} again.`,
       );
     id = entry.thread.id;
   }

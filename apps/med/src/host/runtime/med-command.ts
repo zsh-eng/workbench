@@ -1,9 +1,8 @@
 import { resolve } from "node:path";
 import { DEFAULT_PORT, defaultStateDirectory } from "./connection";
+import { shellWord } from "./shell-word";
 
-/** A word that the shell reads back as itself. */
-export const shellWord = (word: string) =>
-  /^[\w./@:+#=,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+export { shellWord };
 
 /** The Med instance that a command talks to: its port and state folder. */
 export interface Instance {

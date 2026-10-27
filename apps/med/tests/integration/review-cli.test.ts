@@ -911,6 +911,17 @@ describe("hand-off checks that say what to do next", () => {
       "Session: this command runs in a subagent of Claude Code session parent.",
     );
     expect(sub.advice).not.toContain("med review wait");
+    // Its wait would take the messages that the user sends to the parent.
+    await transcripts(
+      "",
+      call("toolu_wait", "Bash", { command: "med review wait --key sub" }, true),
+    );
+    await expect(
+      parseReviewCommand(["wait", "--key", "sub", ...f.flags.split(" ")], {
+        environment: { CLAUDE_CODE_SESSION_ID: "parent" },
+        home,
+      }),
+    ).rejects.toThrow("so this wait would take the messages that the user sends to the parent");
 
     // The parent's own hand-off, beside a subagent at work, records the parent.
     await transcripts(

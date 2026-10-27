@@ -196,7 +196,7 @@ export interface ReviewCommand {
   owned?: boolean;
   /** The Claude Code session that runs the command, when Med recorded it
    * (`detected`), or why Med did not (`note`). */
-  caller?: { detected?: string; note?: string };
+  caller?: { detected?: string; note?: string; left?: "subagent" | "unknown" };
 }
 
 /** Read and check a guide file, or standard input for "-". */
@@ -317,6 +317,7 @@ export async function parseReviewCommand(
     });
     if (found.detected) caller.detected = found.detected;
     if (found.note) caller.note = found.note;
+    if (found.note && found.caller) caller.left = found.caller;
     return found.sessions;
   };
   // A session that Med started for a thread knows the thread from its environment.
@@ -341,6 +342,17 @@ export async function parseReviewCommand(
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const session = (await sessions())[0]?.id;
+    // A wait without a session takes any session's messages: in a subagent,
+    // the ones that the user sends to its parent.
+    const running = environment.CLAUDE_CODE_SESSION_ID;
+    if (caller.left === "subagent")
+      throw new Error(
+        `This command runs in a subagent of Claude Code session ${running}. A subagent has its parent's session ID, so this wait would take the messages that the user sends to the parent. Give the review link to your parent agent.`,
+      );
+    if (caller.left === "unknown")
+      throw new Error(
+        `Claude Code session ${running} has subagents at work, and Med could not tell which agent runs this wait. If the session itself runs it, add --session claude:${running}.`,
+      );
     return { ...common, kind: "wait", wait: { key: key.data, ...(session ? { session } : {}) } };
   }
   if (positionals[0] === "update") {
@@ -1265,11 +1277,14 @@ async function waitForMessage(
   retryDelay = 5_000,
 ) {
   const { key, session } = command.wait!;
-  let connection = first;
+  let connection: RunningConnection | undefined = first;
   let id: string | undefined;
   let failures = 0;
   for (;;) {
     try {
+      // After a lost connection, only a live record of the host counts: its
+      // old port may belong to another process now.
+      connection ??= await readConnection(command.stateDir, command.port);
       id ??= z
         .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
         .parse(await request(connection, "/api/reviews/by-key", fetcher, { key })).id;
@@ -1300,10 +1315,13 @@ async function waitForMessage(
         return;
       }
     } catch (error) {
-      const lost = error instanceof Error && error.message.startsWith("Could not connect");
+      const lost =
+        error instanceof Error &&
+        (error.message.startsWith("Could not connect") ||
+          error.message.startsWith("No valid med connection"));
       if (!lost || ++failures > Math.ceil(300_000 / retryDelay)) throw error;
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      connection = await readConnection(command.stateDir, command.port).catch(() => connection);
+      connection = await readConnection(command.stateDir, command.port).catch(() => undefined);
     }
   }
 }

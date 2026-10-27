@@ -117,8 +117,12 @@ else
     "med "*) say "If Med is running, restart it to use this version: med stop && med web" ;;
   esac
   # Refresh the agent skill where the user installed it. Install it nowhere new.
-  if [ -f "$HOME/.claude/skills/med/SKILL.md" ] || [ -f "$HOME/.agents/skills/med/SKILL.md" ]; then
-    "$target" skills update 2>/dev/null || say "Refresh the agent skill: med skills install"
+  agents=""
+  [ ! -f "$HOME/.claude/skills/med/SKILL.md" ] || agents="$agents --claude"
+  [ ! -f "$HOME/.agents/skills/med/SKILL.md" ] || agents="$agents --codex"
+  if [ -n "$agents" ]; then
+    # Releases before skills update print their usage; the line says what to run.
+    "$target" skills update 2>/dev/null || say "Refresh the agent skill: med skills install$agents"
   fi
 fi
 

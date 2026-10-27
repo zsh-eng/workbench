@@ -145,7 +145,7 @@ export async function claudeCaller(
 /** Why Med did not record the Claude Code session that runs a command. */
 export function callerNote(caller: "subagent" | "unknown", id: string) {
   return caller === "subagent"
-    ? `Session: this command runs in a subagent of Claude Code session ${id}. A subagent has its parent's session ID, and Med cannot show a subagent's own thread, so Med recorded no session: the review's Session pane would show the parent's chat. Comments reach you from the user (Copy comments) or from your parent agent. To record the parent session anyway, add --session claude:${id}.`
+    ? `Session: this command runs in a subagent of Claude Code session ${id}. A subagent has its parent's session ID, and Med cannot show a subagent's own thread, so Med recorded no session: the review's Session pane would show the parent's chat. Give the review link to your parent agent.`
     : `Session: Claude Code session ${id} has subagents at work, and Med could not tell which agent runs this command, so Med recorded no session. If the session itself runs it, add --session claude:${id}.`;
 }
 
@@ -164,7 +164,13 @@ export async function agentSessions(
     /** The command's words, such as "review create", to find its call. */
     command?: string;
   } = {},
-): Promise<{ sessions: AgentSession[]; detected?: string; note?: string }> {
+): Promise<{
+  sessions: AgentSession[];
+  detected?: string;
+  note?: string;
+  /** A subagent runs the command, or Med cannot tell. */
+  caller?: "subagent" | "unknown";
+}> {
   const environment = options.environment ?? process.env;
   const home = options.home ?? homedir();
   const wanted: { agent: AgentSession["agent"]; id: string }[] = [];
@@ -175,16 +181,19 @@ export async function agentSessions(
     wanted.push({ agent: match[1] as AgentSession["agent"], id: match[2]! });
   }
   const running = environment.CLAUDE_CODE_SESSION_ID;
+  const named = !!running && wanted.some((entry) => entry.id === running);
   let detected: string | undefined;
   let note: string | undefined;
-  if (running && wanted.some((entry) => entry.id === running)) detected = running;
-  else if (options.detect !== false && running) {
+  let caller: Awaited<ReturnType<typeof claudeCaller>> | undefined;
+  // A session named with --session is recorded; it is the caller's only when
+  // the session itself, not one of its subagents, runs the command.
+  if (running && (options.detect !== false || named)) {
     const words = (options.command ?? "review").trim().split(/\s+/).map(escape).join("\\s+");
-    const caller = await claudeCaller(running, new RegExp(`\\b${words}\\b`), { home });
+    caller = await claudeCaller(running, new RegExp(`\\b${words}\\b`), { home });
     if (caller === "session") {
-      wanted.push({ agent: "claude", id: running });
+      if (!named) wanted.push({ agent: "claude", id: running });
       detected = running;
-    } else note = callerNote(caller, running);
+    } else if (!named) note = callerNote(caller, running);
   }
   const sessions: AgentSession[] = [];
   for (const entry of wanted) {
@@ -193,6 +202,11 @@ export async function agentSessions(
     if (!parsed.success) throw new Error(`Invalid session: ${parsed.error.issues[0]!.message}`);
     sessions.push(parsed.data);
   }
-  return { sessions, ...(detected && { detected }), ...(note && { note }) };
+  return {
+    sessions,
+    ...(detected && { detected }),
+    ...(note && { note }),
+    ...(caller && caller !== "session" && { caller }),
+  };
 }
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

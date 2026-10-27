@@ -9,6 +9,7 @@ import {
   clientPort,
   defaultStateDirectory,
   getStateDirectory,
+  livePorts,
   readConnection,
   servicePort,
   type RunningConnection,
@@ -58,13 +59,6 @@ async function connected(stateDir: string, port: number) {
     connection = await readConnection(stateDir, port);
   } catch {
     return undefined;
-  }
-  // A record that its server left behind names a port that another Med may
-  // own now; do not send this state folder's token there.
-  try {
-    process.kill(connection.pid, 0);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
   }
   let response: Response;
   try {
@@ -213,16 +207,28 @@ async function startDetached(stateDir: string, port: number) {
   await output.close();
   return { child, log, failed: () => launchError };
 }
+/** The server of this state folder, on `port` or, when another command
+ * started it first, on the port that it chose. */
+async function anyConnected(stateDir: string, port: number) {
+  const first = await connected(stateDir, port);
+  if (first) return first;
+  for (const live of await livePorts(stateDir)) {
+    const connection = live === port ? undefined : await connected(stateDir, live);
+    if (connection) return connection;
+  }
+  return undefined;
+}
 /** Connects to the background server, starting it first if needed. */
 export async function ensureService(stateDir: string, port: number) {
-  const existing = await connected(stateDir, port);
+  const existing = await anyConnected(stateDir, port);
   if (existing) return existing;
   const { log, failed } = await startDetached(stateDir, port);
   for (let attempt = 0; attempt < 100; attempt++) {
+    const connection = await anyConnected(stateDir, port);
+    if (connection) return connection;
+    // A command that started at the same time may own the server instead.
     const launchError = failed();
     if (launchError) throw launchError;
-    const connection = await connected(stateDir, port);
-    if (connection) return connection;
     await delay(100);
   }
   throw new Error(`Med did not start. See ${log}. The port may already be occupied.`);
@@ -256,9 +262,11 @@ export async function runServiceCommand(command: string, args: string[]) {
   // status and stop only read; the others start the server when it is down.
   const stateDir = getStateDirectory(values["state-dir"]);
   const reads = command === "status" || command === "stop";
-  const { port, picked } = reads
+  const chosen = reads
     ? { port: await clientPort(stateDir, values.port), picked: false }
     : await servicePort(stateDir, values.port);
+  const { picked } = chosen;
+  let { port } = chosen;
   const instance = { port, stateDir };
   // Port 6330 is the user's own Med: another state folder gets a free port.
   const pickedNote = () =>
@@ -300,6 +308,8 @@ export async function runServiceCommand(command: string, args: string[]) {
     return;
   }
   const connection = await ensureService(stateDir, port);
+  // Another command may have started the server first, on its own port.
+  port = instance.port = Number(new URL(connection.origin).port);
   if (picked) pickedNote();
   if (command === "web") {
     const url = `${connection.origin}/sources#token=${connection.token}`;

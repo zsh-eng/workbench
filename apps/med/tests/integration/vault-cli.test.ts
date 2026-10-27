@@ -180,7 +180,7 @@ it("prints embedded guides and launches only the saved repositories through the 
         }
       });
     });
-    const listing = JSON.parse(await run("review", "repos", "--port", port));
+    const listing = JSON.parse(await run("review", "repos", "--json", "--port", port));
     expect(listing.repositories).toMatchObject([{ name: "repo" }]);
   } finally {
     host.kill("SIGTERM");

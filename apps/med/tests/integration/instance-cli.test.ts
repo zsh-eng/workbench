@@ -1,10 +1,10 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
-import { DEFAULT_PORT } from "../../src/host/runtime/connection";
+import { DEFAULT_PORT, freePort, servicePort } from "../../src/host/runtime/connection";
 
 // A second Med, with its own state folder, as an agent runs it beside the
 // user's: the real CLI and server, a scratch home, and no port given.
@@ -103,7 +103,7 @@ it("gives another state folder its own port, and names it in the advice it print
 
   // MED_PORT chooses the port, as --port does.
   const other = join(root, "other");
-  const chosen = port === 65535 ? port - 1 : port + 1;
+  const chosen = await freePort();
   const pinned = await exec("bun", [cli, "web", "--no-open"], {
     env: { ...env, MED_STATE_DIR: other, MED_PORT: String(chosen) },
     timeout: 60_000,
@@ -113,4 +113,70 @@ it("gives another state folder its own port, and names it in the advice it print
   );
   expect(pinned.stdout).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${chosen}/sources#token=`));
   expect(pinned.stderr).not.toContain("Port 6330 is for");
+
+  // An agent that Med starts inherits MED_PORT 6330 with Med's own folder.
+  // With another folder, that port does not count. (Nothing binds here.)
+  const inherited = join(root, "inherited");
+  expect(
+    (await servicePort(inherited, undefined, { MED_PORT: String(DEFAULT_PORT) })).port,
+  ).not.toBe(DEFAULT_PORT);
+
+  // Two commands that start the server at once both reach the one server.
+  const raced = { ...env, MED_STATE_DIR: join(root, "raced") };
+  cleanup.push(() => exec("bun", [cli, "stop"], { env: raced }));
+  const both = await Promise.all(
+    [0, 1].map(() => exec("bun", [cli, "web", "--no-open"], { env: raced, timeout: 60_000 })),
+  );
+  const ports = both.map((run) => Number(/^http:\/\/127\.0\.0\.1:(\d+)\//.exec(run.stdout)?.[1]));
+  expect(ports[0]).toBeGreaterThan(0);
+  expect(ports[1]).toBe(ports[0]);
+  expect(await readdir(join(root, "raced", "connections"))).toEqual([`${ports[0]}.json`]);
 });
+
+/** A scratch home and another state folder, for the CLI. */
+async function scratch() {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "med-instance-")));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  await mkdir(home);
+  return {
+    ...process.env,
+    HOME: home,
+    MED_HOME_DIR: home,
+    MED_STATE_DIR: join(root, "state"),
+    MED_PORT: "",
+  };
+}
+
+it("starts the foreground mode of another folder on a free port", async () => {
+  const child = spawn("bun", [resolve("src/cli/index.ts"), "--editor", "--no-open"], {
+    env: await scratch(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  cleanup.push(async () => child.kill("SIGTERM"));
+  const url = await new Promise<string>((done, fail) => {
+    let text = "";
+    child.stdout.on("data", (chunk) => {
+      text += String(chunk);
+      const match = /Med review: (\S+)/.exec(text);
+      if (match) done(match[1]!);
+    });
+    child.once("exit", () => fail(new Error(`The foreground mode exited: ${text}`)));
+  });
+  expect(Number(new URL(url).port)).not.toBe(DEFAULT_PORT);
+});
+
+// A login item keeps its port, so another folder's needs --port. The refusal
+// comes before Med writes a login item or calls launchctl.
+it.skipIf(process.platform !== "darwin")(
+  "asks for a port for the login service of another folder",
+  async () => {
+    await expect(
+      exec("bun", [resolve("src/cli/index.ts"), "service", "login", "on"], {
+        env: await scratch(),
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("Choose a port for the login service of"),
+    });
+  },
+);
