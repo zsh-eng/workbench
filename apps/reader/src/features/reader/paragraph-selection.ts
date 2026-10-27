@@ -1,4 +1,6 @@
-const TEXT_SLICE_SELECTOR = "p[data-reader-block-id]";
+/** A paragraph's slice, or a table cell's text, which is its own paragraph. */
+const TEXT_SLICE_SELECTOR =
+  "p[data-reader-block-id], .reader-table-cell-text[data-reader-block-id]";
 
 function getSlices(page: Element): HTMLElement[] {
   return [

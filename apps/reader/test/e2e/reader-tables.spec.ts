@@ -384,6 +384,46 @@ test("a selection across rows copies as tab-separated rows", async ({
   expect(expected.split("\n")[0]!.split("\t")).toHaveLength(4);
 });
 
+test.describe("with a mouse", () => {
+  test.use({
+    viewport: { width: 1280, height: 800 },
+    hasTouch: false,
+    isMobile: false,
+  });
+
+  test("a triple-click in a cell highlights the whole cell", async ({
+    page,
+  }) => {
+    const meaning =
+      "Requests that wait in the queue before a worker takes them, counted once a second and kept for the whole run so that a peak can be found later.";
+    await useTables(page, "grid");
+    await openTableChapter(
+      page,
+      "tables-triple-click",
+      `<p>A glossary follows.</p><table><tr><th>Term</th><th>Meaning</th></tr><tr><td>queue depth</td><td>${meaning}</td></tr></table>`,
+    );
+    // Contents stays open beside the pages on a desktop.
+    await page
+      .getByRole("navigation", { name: "Reader tools" })
+      .getByRole("button", { name: "Close reader tools", exact: true })
+      .click();
+    await turnToTable(page);
+    const cell = page
+      .locator(`${TABLE} .reader-table-cell-text`)
+      .filter({ hasText: "Requests that wait" });
+    await cell
+      .locator(":scope > span")
+      .nth(1)
+      .click({ clickCount: 3, position: { x: 20, y: 8 } });
+    await page.getByRole("button", { name: "Highlight with yellow" }).click();
+    const marked = cell.locator("mark[data-highlight-id]");
+    await expect(marked.first()).toBeVisible();
+    expect((await marked.allTextContents()).join("").replace(/\s+/g, "")).toBe(
+      meaning.replace(/\s+/g, ""),
+    );
+  });
+});
+
 test("scroll mode shows a table as a grid, with its header once", async ({
   page,
 }) => {
