@@ -8,3 +8,5 @@ export * from "./stream.js";
 export * from "./http.js";
 export * from "./status.js";
 export * from "./controller.js";
+export * from "./journal.js";
+export * from "./history.js";

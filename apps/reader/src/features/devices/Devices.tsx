@@ -4,9 +4,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useSessions } from "./use-sessions";
 import type { DeviceType, SessionInfo } from "@/types/session";
+import { useDebugEnabled } from "@/lib/debug-preference";
 import { formatDistanceToNow } from "date-fns";
 import { Globe, Monitor, Smartphone, Tablet } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { Navigate } from "react-router-dom";
+
+const SyncDevices = lazy(() =>
+  import("@/features/sync-history/SyncDevices").then((module) => ({
+    default: module.SyncDevices,
+  })),
+);
 
 function SessionDeviceIcon({
   deviceType,
@@ -106,6 +114,7 @@ function SessionSkeleton() {
 export function Devices() {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { data: sessions, isLoading: isSessionsLoading, error } = useSessions();
+  const debugEnabled = useDebugEnabled();
 
   // Redirect to home if not authenticated
   if (!isAuthLoading && !isAuthenticated) {
@@ -198,6 +207,12 @@ export function Devices() {
                   You are not logged in on any other devices.
                 </p>
               </div>
+            )}
+
+            {debugEnabled && (
+              <Suspense>
+                <SyncDevices />
+              </Suspense>
             )}
           </div>
         )}

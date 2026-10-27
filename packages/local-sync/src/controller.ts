@@ -6,6 +6,13 @@
  */
 import { z } from "zod/mini";
 import type { SyncKeyValueStorage } from "./client-state.js";
+import type {
+  SyncJournal,
+  SyncPassRecorder,
+  SyncPassResult,
+  SyncTrigger,
+} from "./journal.js";
+import type { SyncPassObserver } from "./storage.js";
 import {
   classifySyncFailure,
   isSyncBlocked,
@@ -57,6 +64,13 @@ export interface SyncRunContext {
   signal: AbortSignal;
   /** Marks this attempt as the device's first download, shown as "Restoring…". */
   markRestoring(): void;
+  /** Why this attempt started. */
+  trigger: SyncTrigger;
+  /**
+   * Hears what the attempt commits, for the journal: pass it to
+   * `SyncClient.sync({ observer: pass })`. It does nothing without a journal.
+   */
+  pass: SyncPassObserver;
 }
 
 export interface SyncControllerOptions {
@@ -71,6 +85,8 @@ export interface SyncControllerOptions {
   persist?: { storage: SyncKeyValueStorage; key: string };
   /** An identity the app already remembers. A persisted state takes precedence. */
   user?: SyncIdentity;
+  /** Records each attempt: its trigger, what it moved and how it ended. */
+  journal?: Pick<SyncJournal, "begin">;
   now?: () => number;
   random?: () => number;
 }
@@ -130,7 +146,8 @@ type Saved = z.infer<typeof savedSchema>;
 /** A page that loads this long after beginSignIn() is not a return from it. */
 export const SIGN_IN_RETURN_MS = 10 * 60_000;
 
-const CANCELLED: SyncAttempt = { outcome: "cancelled" };
+const CANCELLED: SyncPassResult = { outcome: "cancelled" };
+const NO_PASS: SyncPassRecorder = { pulled() {}, pushed() {}, end() {} };
 
 export function createSyncController(
   options: SyncControllerOptions,
@@ -217,12 +234,18 @@ export function createSyncController(
     let retryAt: number | null = null;
     if (automatic() && !active) {
       const due = status.failures > 0 ? nextAt : Math.min(nextAt, requestedAt);
+      const trigger: SyncTrigger =
+        status.failures > 0
+          ? "retry"
+          : requestedAt <= nextAt
+            ? "change"
+            : "interval";
       if (status.failures > 0) retryAt = nextAt;
       if (Number.isFinite(due))
         timer = setTimeout(
           () => {
             timer = undefined;
-            if (automatic() && !active) void begin();
+            if (automatic() && !active) void begin(trigger);
           },
           Math.max(0, due - now()),
         );
@@ -230,9 +253,10 @@ export function createSyncController(
     publish({ retryAt });
   }
 
-  function begin(): Promise<SyncAttempt> {
+  function begin(trigger: SyncTrigger): Promise<SyncAttempt> {
     clearTimeout(timer);
     timer = undefined;
+    const pass = options.journal?.begin(trigger) ?? NO_PASS;
     const controller = new AbortController();
     const epoch = authEpoch;
     const confirmed = confirmations;
@@ -246,21 +270,23 @@ export function createSyncController(
       connection:
         status.connection === "offline" ? "online" : status.connection,
     });
-    const run = execute(controller, epoch, confirmed).then((result) => {
-      if (active === run) active = null;
-      if (attempt === controller) attempt = null;
-      publish({ running: false, restoring: false });
-      // Credentials changed during the attempt, or its 401 may refuse an
-      // older cookie: try again with the current ones.
-      const again =
-        epoch !== authEpoch ||
-        (result.outcome === "failed" &&
-          result.failure.kind === "unauthorized" &&
-          confirmed !== confirmations);
-      if (again && automatic()) void begin();
-      else schedule();
-      return result;
-    });
+    const run = execute(controller, epoch, confirmed, trigger, pass).then(
+      (result) => {
+        if (active === run) active = null;
+        if (attempt === controller) attempt = null;
+        publish({ running: false, restoring: false });
+        // Credentials changed during the attempt, or its 401 may refuse an
+        // older cookie: try again with the current ones.
+        const again =
+          epoch !== authEpoch ||
+          (result.outcome === "failed" &&
+            result.failure.kind === "unauthorized" &&
+            confirmed !== confirmations);
+        if (again && automatic()) void begin("sign-in");
+        else schedule();
+        return result;
+      },
+    );
     active = run;
     return run;
   }
@@ -269,23 +295,30 @@ export function createSyncController(
     controller: AbortController,
     epoch: number,
     confirmed: number,
-  ): Promise<SyncAttempt> {
+    trigger: SyncTrigger,
+    pass: SyncPassRecorder,
+  ): Promise<SyncPassResult> {
+    let result: SyncPassResult;
     try {
       await options.run({
         signal: controller.signal,
         markRestoring: () => {
           if (attempt === controller) publish({ restoring: true });
         },
+        trigger,
+        pass,
       });
-      return controller.signal.aborted ? CANCELLED : succeed(epoch);
+      result = controller.signal.aborted ? CANCELLED : succeed(epoch);
     } catch (error) {
-      return controller.signal.aborted
+      result = controller.signal.aborted
         ? CANCELLED
         : fail(error, epoch, confirmed);
     }
+    pass.end(result);
+    return result;
   }
 
-  function succeed(epoch: number): SyncAttempt {
+  function succeed(epoch: number): SyncPassResult {
     const auth = status.auth;
     const next: Partial<SyncStatus> = {
       connection: "online",
@@ -311,7 +344,11 @@ export function createSyncController(
     return { outcome: "synced" };
   }
 
-  function fail(error: unknown, epoch: number, confirmed: number): SyncAttempt {
+  function fail(
+    error: unknown,
+    epoch: number,
+    confirmed: number,
+  ): SyncPassResult {
     const failure = classifySyncFailure(error);
     if (!failure) return CANCELLED;
     const connection =
@@ -366,7 +403,7 @@ export function createSyncController(
     if (event === "online") {
       if (status.connection === "offline") publish({ connection: "online" });
       // A changed network is worth one attempt now, even during backoff.
-      if (automatic() && !active) void begin();
+      if (automatic() && !active) void begin("online");
       else {
         requestedAt = now();
         schedule();
@@ -379,7 +416,7 @@ export function createSyncController(
       status.failures === 0 &&
       now() - lastAttemptAt >= WAKE_GAP_MS
     )
-      void begin();
+      void begin("visible");
   }
 
   function attach() {
@@ -432,7 +469,7 @@ export function createSyncController(
     attach();
     if (started || disposed) return;
     started = true;
-    if (automatic() && !active && status.failures === 0) void begin();
+    if (automatic() && !active && status.failures === 0) void begin("start");
     else {
       if (active) requestedAt = now();
       schedule();
@@ -451,7 +488,7 @@ export function createSyncController(
       publish({ connection: "offline" });
       return Promise.resolve({ outcome: "offline" });
     }
-    if (!active) return begin();
+    if (!active) return begin("manual");
     // A cancelled attempt is still settling: run a new one after it.
     if (attempt === null || attempt.signal.aborted)
       return active.then(() => syncNow());
@@ -495,7 +532,7 @@ export function createSyncController(
     }
     publish(next);
     if (next.auth || marked) save();
-    if (credentialsChanged && automatic() && !active) void begin();
+    if (credentialsChanged && automatic() && !active) void begin("sign-in");
     else schedule();
   }
 

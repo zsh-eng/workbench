@@ -32,6 +32,7 @@ import { files } from "@/lib/files";
 import { syncService } from "@/lib/sync-service";
 import { cn } from "@/lib/utils";
 import {
+  Activity,
   Bug,
   CircleUser,
   Cloud,
@@ -43,7 +44,15 @@ import {
   Settings,
   SquarePlus,
 } from "lucide-react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+
+/** Behind Debug, so it stays out of the bundle every visit loads. */
+const ActivityHistory = lazy(() =>
+  import("@/features/sync-history/ActivityHistory").then((module) => ({
+    default: module.ActivityHistory,
+  })),
+);
 
 const APPEARANCE_OPTIONS: { value: AppearanceMode; label: string }[] = [
   { value: "light", label: "Light" },
@@ -81,6 +90,10 @@ export function AccountMenu() {
   const syncStatus = useSyncStatus();
   const { toast } = useToast();
   const install = useInstallAvailability();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  // Mounted from the first opening, so the sheet can close on its own spring.
+  const [activityShown, setActivityShown] = useState(false);
   // An ended session keeps its account on this device until sign-out.
   const hasAccount = isAuthenticated || authStatus === "expired";
   const showSyncAttention = hasAccount && syncStatus.attention;
@@ -151,6 +164,7 @@ export function AccountMenu() {
           </span>
         )}
         <DropdownMenuTrigger
+          ref={trigger}
           aria-label={
             showSyncAttention ? `Account: ${syncStatus.label}` : "Account"
           }
@@ -212,7 +226,18 @@ export function AccountMenu() {
             {syncStatus.label}
           </DropdownMenuItem>
         )}
-        {hasAccount && <DropdownMenuSeparator />}
+        {debugEnabled && (
+          <DropdownMenuItem
+            onClick={() => {
+              setActivityShown(true);
+              setActivityOpen(true);
+            }}
+          >
+            <Activity />
+            Activity
+          </DropdownMenuItem>
+        )}
+        {(hasAccount || debugEnabled) && <DropdownMenuSeparator />}
         {isAuthenticated && (
           <DropdownMenuItem render={<Link to="/devices" />}>
             <MonitorSmartphone />
@@ -266,6 +291,16 @@ export function AccountMenu() {
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
+      {/* The menu's root renders nothing of its own; the sheet sits beside it. */}
+      {activityShown && (
+        <Suspense fallback={null}>
+          <ActivityHistory
+            open={activityOpen}
+            onOpenChange={setActivityOpen}
+            anchor={trigger}
+          />
+        </Suspense>
+      )}
     </DropdownMenu>
   );
 }

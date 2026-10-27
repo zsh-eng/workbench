@@ -119,7 +119,11 @@ describe("independent Dexie consumer", () => {
         storage.prepareRemoteRecords([record("old", 0)]),
         "a",
       ),
-    ).toEqual({ applied: 0, skipped: 1 });
+    ).toEqual({
+      applied: 0,
+      skipped: 1,
+      keptLocal: [encodeSyncKey("tasks", "one")],
+    });
     await storage.applyRemoteRecords(
       storage.prepareRemoteRecords([record("removed", 10, true)]),
       "a",

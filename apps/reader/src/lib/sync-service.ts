@@ -22,6 +22,7 @@ import {
   readSyncClientState,
 } from "@/lib/sync-v2/client-state";
 import { syncV2SyncDb } from "@/lib/sync-v2/db";
+import { syncJournal } from "@/lib/sync-v2/journal";
 import { SyncV2Client } from "@/lib/sync-v2/sync";
 
 const SYNC_INTERVAL_MS = 30_000;
@@ -69,14 +70,15 @@ function readerNetwork(): SyncNetworkSource {
 /** Owns automatic record sync for one application lifetime. */
 class SyncService {
   readonly controller = createSyncController({
-    run: async ({ signal, markRestoring }) => {
+    run: async ({ signal, markRestoring, pass }) => {
       if (!readSyncClientState()?.bootstrapped) markRestoring();
       await new SyncV2Client({
         syncDb: syncV2SyncDb,
         onEvent: getLabRuntime()?.onSyncEvent,
         signal,
-      }).sync();
+      }).sync({ observer: pass });
     },
+    journal: syncJournal,
     network: readerNetwork(),
     intervalMs: SYNC_INTERVAL_MS,
     persist: { storage: getRuntimeStorage(), key: SYNC_STATUS_STORAGE_KEY },
