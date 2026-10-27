@@ -459,7 +459,13 @@ export function layoutPages(
             );
       // As with images: when the table's start does not fit, it starts the
       // next page and the gap above it is dropped there.
-      const startHeight = Math.min(safeHeight, getTableStartHeight(plan));
+      const startHeight = Math.min(
+        safeHeight,
+        getTableStartHeight(plan, {
+          remaining: safeHeight - current.usedHeight - gap,
+          pageHeight: safeHeight,
+        }),
+      );
       if (
         current.slices.length > 0 &&
         gap + startHeight > safeHeight - current.usedHeight

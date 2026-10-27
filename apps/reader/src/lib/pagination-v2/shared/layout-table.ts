@@ -39,6 +39,13 @@ const CELL_PADDING_Y_EM = 0.3;
 const LINE_FIT_SAFETY_PX = 3;
 /** A column's min-content width, at most, as a share of the page. */
 const MAX_COLUMN_MIN_SHARE = 0.6;
+/**
+ * A row stays whole on one page unless keeping it whole would leave at
+ * least this share of the page empty; then it splits between lines.
+ */
+const SPLIT_ROOM_SHARE = 0.25;
+/** Lines a split row shows, at least, before the page break. */
+const MIN_SPLIT_LINES = 2;
 
 interface PlacedCell {
   spec: TableCellSpec;
@@ -311,15 +318,35 @@ function headerHeight(plan: TablePlan): number {
 }
 
 /**
- * The least height a table needs at the foot of a page: its header and its
- * first group of body rows. A caption kept with the table uses it.
+ * The least height of a group's part on a page with `room` left: the whole
+ * group, or the first lines of a single row that may split there.
  */
-export function getTableStartHeight(plan: TablePlan): number {
+function leastGroupHeight(
+  plan: TablePlan,
+  first: number,
+  room: { remaining: number; pageHeight: number } | undefined,
+): number {
+  const whole = groupHeight(plan, first);
+  if (!room || plan.rows[first]!.groupEnd !== first) return whole;
+  if (room.remaining < room.pageHeight * SPLIT_ROOM_SHARE) return whole;
+  return Math.min(whole, plan.paddingY * 2 + MIN_SPLIT_LINES * plan.lineHeight);
+}
+
+/**
+ * The least height a table needs at the foot of a page: its header and its
+ * first group of body rows, or with `room`, that group's first lines where
+ * it may split. A caption kept with the table uses it without `room`.
+ */
+export function getTableStartHeight(
+  plan: TablePlan,
+  room?: { remaining: number; pageHeight: number },
+): number {
   if (plan.rows.length === 0) return 0;
   const header = headerHeight(plan);
-  const firstBody = plan.headerRowCount < plan.rows.length
-    ? groupHeight(plan, plan.headerRowCount)
-    : 0;
+  const firstBody =
+    plan.headerRowCount < plan.rows.length
+      ? leastGroupHeight(plan, plan.headerRowCount, room)
+      : 0;
   return header + firstBody;
 }
 
@@ -391,8 +418,9 @@ export interface TablePageCursor {
 
 /**
  * Lays a planned table across pages: whole groups of rows where they fit,
- * the header again at the top of each continuation page, and a row too tall
- * for a page split between its lines.
+ * the header again at the top of each continuation page, and a row split
+ * between its lines where it is too tall for a page, or where keeping it
+ * whole would leave much of the page empty.
  */
 export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
   const header = headerHeight(plan);
@@ -445,16 +473,17 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
   };
 
   const available = () => page.remaining() - partHeight;
+  const room = () => ({ remaining: available(), pageHeight: page.pageHeight });
 
   let index = 0;
   while (index < plan.rows.length) {
     const isHeader = index < plan.headerRowCount;
     const end = isHeader ? plan.headerRowCount - 1 : plan.rows[index]!.groupEnd;
     const height = isHeader ? header : groupHeight(plan, index);
-    // The header goes with the first body group.
+    // The header goes with the first body group, or its first lines.
     const needed =
       isHeader && end + 1 < plan.rows.length
-        ? height + groupHeight(plan, end + 1)
+        ? height + leastGroupHeight(plan, end + 1, room())
         : height;
 
     if (needed <= available() || (height <= available() && !canBreak())) {
@@ -472,13 +501,16 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
       index = end + 1;
       continue;
     }
-    if (canBreak()) {
+    const least = isHeader ? height : leastGroupHeight(plan, index, room());
+    const splitsHere = least < height && least <= available();
+    if (!splitsHere && canBreak()) {
       startContinuation();
       continue;
     }
 
-    // Taller than an empty page: split the group's rows between lines, one
-    // row at a time. Row spans in the group are clipped to each piece.
+    // Split the group's rows between lines, one row at a time: a single row
+    // where the page has room, or any group taller than an empty page. Row
+    // spans in the group are clipped to each piece.
     for (let r = index; r <= end; r++) {
       const row = plan.rows[r]!;
       const lineCount = Math.max(1, ...row.cells.map((c) => c.lines.length));
@@ -488,7 +520,7 @@ export function layoutTablePages(plan: TablePlan, page: TablePageCursor): void {
           (available() - plan.paddingY * 2) / plan.lineHeight,
         );
         const left = lineCount - from;
-        if (fit < Math.min(left, 2) && canBreak()) {
+        if (fit < Math.min(left, MIN_SPLIT_LINES) && canBreak()) {
           startContinuation();
           continue;
         }

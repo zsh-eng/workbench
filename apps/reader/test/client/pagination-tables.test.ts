@@ -179,6 +179,53 @@ describe("laying out tables", () => {
     expect(header).toEqual([]);
   });
 
+  it("splits a long row where keeping it whole would leave the page empty", () => {
+    const table = `<table><thead><tr><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><td>x</td><td>${"word ".repeat(200)}</td><td>y</td></tr></tbody></table>`;
+    const layout = (before: string) => {
+      const parsed = parse(`<body><p>${before}</p>${table}</body>`, true);
+      const { pages } = layoutPages(
+        prepareBlocks(parsed.blocks, FONT_CONFIG),
+        360,
+        400,
+        LAYOUT_THEME,
+      );
+      return pages.flatMap((page, pageIndex) =>
+        page.slices.flatMap((slice) =>
+          slice.type === "table"
+            ? [
+                {
+                  pageIndex,
+                  rows: slice.rows.map((row) => [
+                    row.index,
+                    row.repeated,
+                    row.continued,
+                  ]),
+                },
+              ]
+            : [],
+        ),
+      );
+    };
+
+    // Most of the page is free: the row starts under the opening line.
+    const roomy = layout("A short opening.");
+    expect(roomy[0]).toEqual({
+      pageIndex: 0,
+      rows: [
+        [0, false, false],
+        [1, false, false],
+      ],
+    });
+    expect(roomy[1]?.rows).toEqual([
+      [0, true, false],
+      [1, false, true],
+    ]);
+
+    // Less than a quarter is free: the table starts the next page.
+    const full = layout("word ".repeat(115));
+    expect(full[0]?.pageIndex).toBe(1);
+  });
+
   it("scrolls a table sideways when its words cannot fit", () => {
     const wide = `<table><tr>${Array.from(
       { length: 8 },
