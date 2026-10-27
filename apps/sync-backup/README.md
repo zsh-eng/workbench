@@ -1,7 +1,8 @@
 # Workbench Backup CLI
 
-A read-only sync client for Reader, Spaced and Arctic, and one domain command
-that saves links to Arctic (`wb arctic save`). Uses Bun's native SQLite, HTTP,
+A read-only sync client for Reader, Spaced and Arctic, and domain commands
+that save links to Arctic (`wb arctic save`) and fill their previews
+(`wb arctic backfill-previews`). Uses Bun's native SQLite, HTTP,
 crypto and xxHash. Its runtime packages are the workspace `@zsh-eng/local-sync`
 (including its protocol validator) and `@workbench/arctic-links` (Arctic's link
 records). `wb arctic` loads Arctic's extractor from `apps/arctic/Browser` only
@@ -37,8 +38,9 @@ Browser sign-out does not revoke this independent CLI credential.
 `wb sync` only downloads. The credential may write two things, and the server
 checks both: Arctic article text (`arctic-content`), which `wb arctic` and
 `apps/arctic/Browser/scripts/upload.ts` upload, and Arctic links: a new link in
-the phone's three records, or a link from History saved again. It cannot
-change or remove any other record.
+the phone's three records, a link from History saved again, or a link's
+preview where it has none (its `imageURL`, `faviconURL` or `subtitle`). It
+cannot change or remove any other record or field.
 
 This is a first-party device-code flow, not a general OAuth authorization
 server. Device grants expire after ten minutes, can be approved/exchanged once,
@@ -76,6 +78,15 @@ handles each link in turn, as Arctic for the web and the phone do:
   not archived, saved now), as a field edit. Nothing else about it changes.
 - A link already saved (or archived) is reported and left alone.
 
+When it reads the page, it also fills the link's preview from that HTML, as
+the phone does (`readPreview` in `@workbench/arctic-links`): the image
+(`og:image`, then `twitter:image`), the description (`og:description`, then
+`description`) and the icon (`apple-touch-icon` or `icon`, then
+`/favicon.ico`), relative to the page's final URL. It writes only the fields
+the link lacks, in a second push of the `article/<id>` record, so a field the
+phone set stays. With `--no-text` it reads no page, so it fills no preview;
+`backfill-previews` can fill it later.
+
 Then it fetches the text with Arctic's extractor (`server/extractor.ts`, the
 same Defuddle extraction as `scripts/copies.ts`) and uploads the copy by the
 Article text page's rules: at least 120 words, at most 2 MiB, no scripts, and
@@ -88,10 +99,11 @@ Reading a page that needs a browser uses Playwright's Chromium:
 `bun run --cwd apps/arctic/Browser browser:install`.
 
 Each link prints one line as it finishes; `--json` prints an array of results
-(`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`, `error`).
+(`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`,
+`preview`, `previewError`, `error`).
 
 ```text
-saved          https://example.com/article · text: 2,140 words
+saved          https://example.com/article · text: 2,140 words · preview: image, icon, description
 restored       https://example.com/polar-night · text: has text (1,312 words)
 already saved  https://example.com/older · text: has text (980 words)
 saved          https://www.nytimes.com/… · no text: paywall preview (210 words)
@@ -105,8 +117,39 @@ page without text does not. A link push is not retried: if its answer is
 lost, run the command again, and the link shows as already saved. The command uses a
 transport that allows only the requests it needs (`src/arctic.ts`). An older
 server that does not allow link saves answers "this server does not let wb
-save links yet". On a loopback `--origin`, `WORKBENCH_TOKEN` replaces the
-Keychain credential, for tests against a local API.
+save links yet", and one that does not allow previews, "no preview: this
+server does not let wb fill previews yet" (the link is still saved). On a
+loopback `--origin`, `WORKBENCH_TOKEN` replaces the Keychain credential, for
+tests against a local API.
+
+### Filling missing previews
+
+```sh
+bun run wb arctic backfill-previews              # dry run: what it would fill
+bun run wb arctic backfill-previews --limit 20   # the 20 newest only
+bun run wb arctic backfill-previews --apply      # fill them
+```
+
+It reads the saved links (Saved, Favourites and Archive) that have no
+`imageURL`, newest first, and reads each page's preview, one page a second,
+from its HTML alone (`Extractor.preview`: no extraction and no browser, the
+same public-address checks as the extractor). A dry run, the default, prints
+what it would fill and writes nothing:
+
+```text
+would fill      https://example.com/article · image: https://example.com/og.jpg · icon: https://example.com/favicon.ico
+nothing to fill https://example.com/plain
+unreadable      https://example.com/gone · The publisher returned HTTP 404.
+```
+
+`--apply` pushes each link's preview as it reads it: only the empty fields,
+which the server checks. It notes each link that it filled, or whose page had
+nothing to give, in `arctic-previews.json` in the data directory (per API
+origin), so a later run resumes after it; an unreadable page is read again. A
+link the phone describes in the meantime keeps the phone's fields: the server
+refuses a write made from the record before the phone's ("refused"), and the
+next run no longer lists the link. Only a refused write makes the command exit
+with 1; a page without a preview does not.
 
 ## Local state and selections
 

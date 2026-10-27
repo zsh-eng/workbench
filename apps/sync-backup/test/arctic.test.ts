@@ -1,13 +1,17 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   articleId,
   encodeSorted,
+  linkChangesProblem,
   newLinkRecords,
   savedLibrary,
   toSwift,
+  withPreview,
+  type LinkPreview,
 } from "@workbench/arctic-links";
 import {
   compareSyncHlc,
@@ -15,12 +19,20 @@ import {
   type SyncPushChange,
   type SyncRecord,
 } from "@zsh-eng/local-sync";
-import { arctic, arcticFetch, type LinkResult } from "../src/arctic";
+import {
+  arctic,
+  arcticFetch,
+  backfillPreviews,
+  type LinkResult,
+  type PreviewResult,
+} from "../src/arctic";
 
 /**
  * A shared API in miniature for `arctic` and `arctic-content`: scoped
  * state, a pull stream, pushes that keep the newer version, and text files.
- * It records every request, so a test sees all that wb sent.
+ * A push to `arctic` passes the server's own check of wb's writes
+ * (`linkChangesProblem`) first. It records every request, so a test sees
+ * all that wb sent.
  */
 function fakeAPI() {
   const stores = new Map<string, Map<string, SyncRecord>>([
@@ -71,6 +83,14 @@ function fakeAPI() {
         const { changes } = (await request.json()) as {
           changes: SyncPushChange[];
         };
+        const problem =
+          namespace === "arctic" &&
+          (await linkChangesProblem(changes, new Map(store)));
+        if (problem)
+          return Response.json(
+            { error: `Not allowed for a CLI credential: ${problem}` },
+            { status: 403 },
+          );
         const device = request.headers.get("X-Device-ID")!;
         return Response.json(
           {
@@ -98,6 +118,8 @@ function fakeAPI() {
   return { server, stores, files, requests, put };
 }
 
+const identity = (url: string) =>
+  createHash("sha256").update(url).digest("hex");
 const words = (count: number) =>
   `<p>${Array.from({ length: count }, (_, index) => `word${index}`).join(" ")}</p>`;
 const value = (record: SyncRecord | undefined) => JSON.parse(record!.value);
@@ -174,6 +196,7 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
       words?: number;
       byline?: string;
       problem?: string;
+      preview?: LinkPreview;
     }
   > = {
     "https://example.com/notes/sea-ice": {
@@ -181,13 +204,28 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
       html: words(300),
       words: 300,
       byline: "Ada Reader",
+      preview: {
+        title: "How sea ice keeps time",
+        subtitle: "Ice keeps time.",
+        imageURL: "https://example.com/ice.jpg",
+        faviconURL: "https://example.com/favicon.ico",
+      },
     },
-    [visited]: { title: "Visited", html: words(50), words: 50 },
+    [visited]: {
+      title: "Visited",
+      html: words(50),
+      words: 50,
+      preview: {
+        subtitle: "Not the phone's",
+        imageURL: "https://example.com/visited.jpg",
+      },
+    },
     [removed]: { title: "", problem: "PDF" },
     "https://www.nytimes.com/2026/10/26/ice.html": {
       title: "Ice, Paywalled",
       words: 210,
       problem: "paywall preview",
+      preview: { imageURL: "https://static01.nyt.com/ice.jpg" },
     },
   };
   const read: string[] = [];
@@ -230,6 +268,17 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
       ["invalid", "skipped", null, null],
       ["already saved", "kept", "has text", 300],
     ]);
+    // The page's preview fills what each link lacks; a link the phone
+    // described keeps its description.
+    expect(results.map((result) => result.preview ?? null)).toEqual([
+      ["image", "icon", "description"],
+      ["image"],
+      null,
+      null,
+      ["image"],
+      null,
+      null,
+    ]);
     // A saved link with text, and a repeat, are not read again.
     expect(read).toEqual([
       "https://example.com/notes/sea-ice",
@@ -249,7 +298,13 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
       const savedAt = value(arcticRecords.get(`library/${id}`)).savedAt;
       expect(savedAt).toBeGreaterThanOrEqual(now);
       for (const record of newLinkRecords(url, id, { title, savedAt })) {
-        expect(arcticRecords.get(record.key)!.value).toBe(record.value);
+        const preview = pages[url]?.preview;
+        expect(arcticRecords.get(record.key)!.value).toBe(
+          (record.key.startsWith("article/") &&
+            preview &&
+            withPreview(record.value, preview)) ||
+            record.value,
+        );
         expect(arcticRecords.get(record.key)!.isDeleted).toBe(false);
       }
     }
@@ -262,7 +317,12 @@ test("wb arctic save writes the web's records, restores History, keeps saved lin
     expect(restored.value).toBe(
       savedLibrary(original, value(restored).savedAt),
     );
-    expect(value(arcticRecords.get(`article/${visitedId}`)).title).toBe("Kept");
+    expect(value(arcticRecords.get(`article/${visitedId}`))).toEqual({
+      imageURL: "https://example.com/visited.jpg",
+      subtitle: "From the phone",
+      title: "Kept",
+      url: visited,
+    });
     expect(
       value(arcticRecords.get(`library/${await articleId(saved)}`)).savedAt,
     ).toBe(now - 100);
@@ -418,6 +478,158 @@ test("the wb command reads links from stdin, saves without text, and prints JSON
     );
     expect(await remote.exited).toBe(1);
     expect(await new Response(remote.stderr).text()).toContain("Not signed in");
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("wb arctic backfill-previews reads saved links without a preview, reports, fills only with --apply, and resumes", async () => {
+  const api = fakeAPI();
+  const origin = api.server.url.origin;
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-previews-"));
+  const now = toSwift(Date.now());
+  // Newest first: two links from the web or wb, a page with nothing to
+  // give, a page that fails; and links the backfill leaves alone: one with
+  // the phone's image, one in History only, one removed.
+  const link = async (
+    url: string,
+    library: Record<string, unknown>,
+    article: Record<string, unknown> = {},
+  ) => {
+    const records = await phoneArticle(url, library);
+    records[0]!.value = encodeSorted({ subtitle: "", title: "T", url, ...article });
+    return records;
+  };
+  const urls = [1, 2, 3, 4, 5, 6, 7].map((n) => `https://example.com/${n}`);
+  const seeded = [
+    ...(await link(urls[0]!, { saved: true, savedAt: now - 1 })),
+    ...(await link(urls[1]!, { saved: true, savedAt: now - 2 }, { subtitle: "The phone's" })),
+    ...(await link(urls[2]!, { saved: true, savedAt: now - 3 })),
+    ...(await link(urls[3]!, { saved: true, savedAt: now - 4 })),
+    ...(await link(urls[4]!, { saved: true, savedAt: now - 5 }, { imageURL: "https://phone.example/5.jpg" })),
+    ...(await link(urls[5]!, { saved: false, lastVisitedAt: now - 6 })),
+    ...(await link(urls[6]!, { saved: true, savedAt: now - 7 })).map((record) => ({ ...record, isDeleted: true })),
+  ];
+  seeded.forEach((record, counter) =>
+    api.put(
+      "arctic",
+      {
+        ...record,
+        isDeleted: (record as { isDeleted?: boolean }).isDeleted ?? false,
+        schemaVersion: 1,
+        hlc: { wallTimeMs: Date.now() - 60_000, counter },
+      },
+      "iphone",
+    ),
+  );
+  const previews: Record<string, LinkPreview> = {
+    [urls[0]!]: {
+      title: "Ignored",
+      subtitle: "One",
+      imageURL: "https://example.com/1.jpg",
+      faviconURL: "https://example.com/favicon.ico",
+    },
+    [urls[1]!]: { subtitle: "Not the phone's", imageURL: "https://example.com/2.jpg" },
+    [urls[2]!]: {},
+  };
+  const asked: string[] = [];
+  // The phone fetches its own preview while wb reads this link's page.
+  let phoneMeanwhile: string | undefined;
+  const read = {
+    preview: async (url: string) => {
+      asked.push(url);
+      if (url === phoneMeanwhile) {
+        const key = `article/${identity(url)}`;
+        api.put(
+          "arctic",
+          {
+            key,
+            value: encodeSorted({
+              ...JSON.parse(seeded.find((record) => record.key === key)!.value),
+              imageURL: "https://phone.example/4.jpg",
+            }),
+            isDeleted: false,
+            schemaVersion: 1,
+            hlc: { wallTimeMs: Date.now(), counter: 0 },
+          },
+          "iphone",
+        );
+      }
+      if (!previews[url]) throw Error("The publisher returned HTTP 503.");
+      return previews[url]!;
+    },
+    close: async () => {},
+  };
+  const run = (apply: boolean, limit?: number) =>
+    backfillPreviews({ origin, token: "fixture", directory, apply, limit, gapMs: 0, read });
+  const statuses = (results: PreviewResult[]) =>
+    results.map((result) => [result.url, result.status]);
+  try {
+    const before = JSON.stringify([...api.stores.get("arctic")!.entries()]);
+
+    // A dry run reads the pages and writes nothing, on the server or here.
+    const dry = await run(false);
+    expect(dry.candidates).toBe(4);
+    expect(statuses(dry.results)).toEqual([
+      [urls[0], "would fill"],
+      [urls[1], "would fill"],
+      [urls[2], "nothing to fill"],
+      [urls[3], "unreadable"],
+    ]);
+    expect(dry.results[0]!.fields).toEqual({
+      image: "https://example.com/1.jpg",
+      description: "One",
+      icon: "https://example.com/favicon.ico",
+    });
+    expect(dry.results[1]!.fields).toEqual({ image: "https://example.com/2.jpg" });
+    expect(dry.results[3]!.error).toBe("The publisher returned HTTP 503.");
+    expect(JSON.stringify([...api.stores.get("arctic")!.entries()])).toBe(before);
+    expect(api.requests.some((line) => line.startsWith("POST"))).toBe(false);
+    expect(existsSync(join(directory, "arctic-previews.json"))).toBe(false);
+
+    // --limit takes the newest; --apply fills them and notes each one.
+    expect(statuses((await run(true, 1)).results)).toEqual([[urls[0], "filled"]]);
+    expect(statuses((await run(true)).results)).toEqual([
+      [urls[1], "filled"],
+      [urls[2], "nothing to fill"],
+      [urls[3], "unreadable"],
+    ]);
+    const stored = (url: string) =>
+      articleId(url).then((id) => value(api.stores.get("arctic")!.get(`article/${id}`)));
+    expect(await stored(urls[0]!)).toEqual({
+      faviconURL: "https://example.com/favicon.ico",
+      imageURL: "https://example.com/1.jpg",
+      subtitle: "One",
+      title: "T",
+      url: urls[0],
+    });
+    expect(await stored(urls[1]!)).toMatchObject({
+      imageURL: "https://example.com/2.jpg",
+      subtitle: "The phone's",
+    });
+    // The rest keep their records: nothing to fill, a failure, the phone's
+    // image, a link in History, and a removed one.
+    for (const url of urls.slice(2)) {
+      const key = `article/${identity(url)}`;
+      expect(api.stores.get("arctic")!.get(key)!.value).toBe(
+        seeded.find((record) => record.key === key)!.value,
+      );
+    }
+
+    // A later run resumes: only the page that failed is read again. The
+    // phone sets its own image meanwhile, so the server refuses wb's write,
+    // made from the record before it, and the phone's image stays.
+    asked.length = 0;
+    previews[urls[3]!] = { imageURL: "https://example.com/4.jpg" };
+    phoneMeanwhile = urls[3];
+    const raced = await run(true);
+    expect(statuses(raced.results)).toEqual([[urls[3], "refused"]]);
+    expect(raced.results[0]!.error).toContain("a preview sets only");
+    expect(asked).toEqual([urls[3]]);
+    expect((await stored(urls[3]!)).imageURL).toBe("https://phone.example/4.jpg");
+    // Now every saved link has a picture.
+    expect((await run(false)).candidates).toBe(0);
   } finally {
     api.server.stop(true);
     rmSync(directory, { recursive: true, force: true });

@@ -5,18 +5,26 @@
  * A new link is the three records that Arctic for the web and the phone
  * write (`newLinkRecords` in @workbench/arctic-links); a link from History is
  * saved again as a field edit of its library record (`savedLibrary`). The
- * shared API accepts exactly these writes from this credential. The text
- * comes from Arctic's own extractor (apps/arctic/Browser/scripts/text.ts),
- * which loads only when a command reads a page.
+ * shared API accepts exactly these writes from this credential, and one
+ * more: a preview, which sets a link's empty `imageURL`, `faviconURL` and
+ * `subtitle` from its page (`withPreview`), as Arctic on iPhone fills them.
+ * The text and the preview come from Arctic's own extractor
+ * (apps/arctic/Browser/scripts/text.ts), which loads only when a command
+ * reads a page.
  */
 import {
   articleId,
   canonicalURL,
   linkTitle,
   newLinkRecords,
+  previewPatch,
   savedLibrary,
   toSwift,
+  withPreview,
+  type LinkPreview,
 } from "@workbench/arctic-links";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   compareSyncHlc,
   createNamespacedHttpClient,
@@ -133,6 +141,8 @@ async function openNamespace(
     [...records.values()].map((record) => record.hlc),
   );
   return {
+    /** Every key, removed ones included. */
+    keys: () => records.keys(),
     /** A record's value, unless it is missing or removed. */
     live(key: string) {
       const record = records.get(key);
@@ -204,8 +214,38 @@ export type LinkResult = {
   words?: number;
   /** Why there is no new text, such as "PDF" or "paywall preview". */
   reason?: string;
+  /** The preview fields this filled: what the link lacked and its page has. */
+  preview?: PreviewName[];
+  /** Why the preview was not filled, when the page had one. */
+  previewError?: string;
   error?: string;
 };
+
+/** The record's preview fields, as wb names them. */
+const PREVIEW_NAMES = {
+  imageURL: "image",
+  subtitle: "description",
+  faviconURL: "icon",
+} as const;
+type PreviewName = (typeof PREVIEW_NAMES)[keyof typeof PREVIEW_NAMES];
+
+/**
+ * An article record with the preview's fields where it has none, and those
+ * fields by wb's names; undefined when it lacks nothing the page has.
+ */
+function fill(article: string, preview: LinkPreview) {
+  const patch = previewPatch(JSON.parse(article), preview);
+  if (!patch) return undefined;
+  return {
+    value: withPreview(article, preview)!,
+    fields: Object.fromEntries(
+      Object.entries(patch).map(([field, value]) => [
+        PREVIEW_NAMES[field as keyof typeof PREVIEW_NAMES],
+        value,
+      ]),
+    ) as Partial<Record<PreviewName, string>>,
+  };
+}
 
 /** What `wb arctic` needs from Arctic's extractor (scripts/text.ts). */
 type Reader = {
@@ -215,7 +255,14 @@ type Reader = {
     words?: number;
     byline?: string;
     problem?: string;
+    preview?: LinkPreview;
   }>;
+  close(): Promise<void>;
+};
+
+/** What `wb arctic backfill-previews` needs: a link's preview alone. */
+type PreviewReader = {
+  preview(url: string): Promise<LinkPreview>;
   close(): Promise<void>;
 };
 
@@ -233,6 +280,9 @@ async function refusal(error: unknown): Promise<string> {
   };
   if (error.status === 403 && body.error === "Not allowed for a CLI credential")
     return "this server does not let wb save links yet";
+  // A server from before previews refuses an article record alone.
+  if (error.status === 403 && body.error?.endsWith("a restore writes its library record"))
+    return "this server does not let wb fill previews yet";
   return body.error ?? error.message;
 }
 
@@ -311,6 +361,20 @@ export async function arctic(options: {
           );
           result.status = "saved";
         }
+        // The page's preview fills what the link lacks; the phone's own
+        // fields stay. A refusal leaves the link saved.
+        const article = library.live(`article/${id}`);
+        const filled =
+          options.command === "save" && read?.preview && article
+            ? fill(article, read.preview)
+            : undefined;
+        if (filled)
+          try {
+            await library.push([{ key: `article/${id}`, value: filled.value }]);
+            result.preview = Object.keys(filled.fields) as PreviewName[];
+          } catch (error) {
+            result.previewError = await refusal(error);
+          }
         if (!options.text) continue;
         if (!read) {
           Object.assign(result, {
@@ -378,9 +442,130 @@ export async function arctic(options: {
   return results;
 }
 
-async function extractor(unwall = false): Promise<Reader> {
+async function extractor(unwall = false) {
   const { ArticleText } = await import("../../arctic/Browser/scripts/text");
   return new ArticleText({ unwall });
+}
+
+/** What `wb arctic backfill-previews` did, or would do, with one link. */
+export type PreviewResult = {
+  url: string;
+  id: string;
+  /**
+   * "unreadable": the page gave no preview (an HTTP error, not HTML, a
+   * timeout); "refused": the server refused the write.
+   */
+  status: "would fill" | "filled" | "nothing to fill" | "unreadable" | "refused";
+  /** The fields filled, or that --apply would fill, and their values. */
+  fields?: Partial<Record<PreviewName, string>>;
+  error?: string;
+};
+
+/** The pause between two pages, so no publisher sees more than one a second. */
+export const PREVIEW_GAP_MS = 1000;
+/** Links whose preview `--apply` filled, or whose page had none to give. */
+const STATE_FILE = "arctic-previews.json";
+
+/**
+ * Fills the previews of saved links that have none: no `imageURL`, as the
+ * phone's `needsPreview` asks. Newest first, one page at a time, a second
+ * apart. Without `apply` it only reads the pages and reports what it would
+ * fill. With `apply` it pushes each link's preview (`withPreview`: empty
+ * fields only) and notes the link in `<directory>/arctic-previews.json`, so
+ * a later run resumes after it; an unreadable page, or a refused write, is
+ * tried again next time.
+ */
+export async function backfillPreviews(options: {
+  origin: string;
+  token: string;
+  directory: string;
+  apply: boolean;
+  limit?: number;
+  gapMs?: number;
+  read?: PreviewReader;
+  onResult?: (result: PreviewResult) => void;
+}) {
+  const send = arcticFetch(options.origin, options.token);
+  const library = await openNamespace(options.origin, send, "arctic").catch(
+    async (error) => {
+      throw Error(await refusal(error));
+    },
+  );
+  const stateFile = join(options.directory, STATE_FILE);
+  // One account's links per API origin.
+  const state = (
+    existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : {}
+  ) as Record<string, Record<string, string>>;
+  const done = (state[options.origin] ??= {});
+  const candidates: { id: string; url: string; savedAt: number }[] = [];
+  for (const key of library.keys()) {
+    if (!key.startsWith("article/")) continue;
+    const id = key.slice("article/".length);
+    const article = library.live(key);
+    const saved = library.live(`library/${id}`);
+    if (!article || !saved || done[id]) continue;
+    const fields = JSON.parse(article) as Record<string, unknown>;
+    const membership = JSON.parse(saved) as Record<string, unknown>;
+    if (membership.saved !== true || fields.imageURL) continue;
+    candidates.push({
+      id,
+      url: String(fields.url),
+      savedAt: Number(membership.savedAt) || 0,
+    });
+  }
+  candidates.sort((a, b) => b.savedAt - a.savedAt);
+  const reader: PreviewReader = options.read ?? (await extractor());
+  const results: PreviewResult[] = [];
+  try {
+    for (const [index, { id, url }] of candidates
+      .slice(0, options.limit ?? candidates.length)
+      .entries()) {
+      if (index > 0) await Bun.sleep(options.gapMs ?? PREVIEW_GAP_MS);
+      const result: PreviewResult = { url, id, status: "unreadable" };
+      try {
+        const filled = fill(
+          library.live(`article/${id}`)!,
+          await reader.preview(url),
+        );
+        result.status = filled ? "would fill" : "nothing to fill";
+        result.fields = filled?.fields;
+        if (filled && options.apply) {
+          result.status = "refused";
+          await library.push([{ key: `article/${id}`, value: filled.value }]);
+          result.status = "filled";
+        }
+        if (options.apply) {
+          done[id] = result.status;
+          writeFileSync(`${stateFile}.tmp`, JSON.stringify(state, null, 2), {
+            mode: 0o600,
+          });
+          renameSync(`${stateFile}.tmp`, stateFile);
+        }
+      } catch (error) {
+        result.error = await refusal(error);
+      } finally {
+        results.push(result);
+        options.onResult?.(result);
+      }
+    }
+  } finally {
+    await reader.close();
+  }
+  return { candidates: candidates.length, results };
+}
+
+/** One line for a backfill result. */
+export function describePreview(result: PreviewResult) {
+  const detail = result.error
+    ? `· ${result.error}`
+    : result.fields
+      ? `· ${Object.entries(result.fields)
+          .map(([name, value]) => `${name}: ${value}`)
+          .join(" · ")}`
+      : "";
+  return [result.status.padEnd(15), result.url, detail]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** One line for a result, as `wb arctic` prints it. */
@@ -395,10 +580,14 @@ export function describe(result: LinkResult) {
         : result.text === "none"
           ? `no text: ${result.reason}${words(result.words)}`
           : "";
+  const preview = result.preview
+    ? `· preview: ${result.preview.join(", ")}`
+    : result.previewError && `· no preview: ${result.previewError}`;
   return [
     result.status.padEnd(14),
     result.url ?? JSON.stringify(result.input),
     result.error ? `· ${result.error}` : text && `· ${text}`,
+    !result.error && preview,
   ]
     .filter(Boolean)
     .join(" ");
