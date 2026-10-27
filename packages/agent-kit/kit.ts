@@ -59,6 +59,8 @@ const { values: options, positionals } = parseArgs({
     dark: { type: "boolean" },
     desktop: { type: "boolean" },
     size: { type: "string" },
+    screen: { type: "string" },
+    scale: { type: "string" },
     browser: { type: "string", default: "chromium" },
     trace: { type: "string" },
     full: { type: "boolean" },
@@ -101,6 +103,7 @@ const viewport: ViewportSize = sized
   : options.desktop
     ? { width: 1280, height: 800 }
     : { width: 390, height: 844 };
+const screenSized = /^(\d+)x(\d+)$/.exec(options.screen ?? "");
 const touch = !options.desktop;
 const engine = options.browser === "webkit" ? webkit : chromium;
 if (engine === webkit && (throttle > 1 || options.trace)) {
@@ -125,7 +128,11 @@ async function run() {
   const contextOptions = {
     baseURL: origin,
     viewport,
-    deviceScaleFactor: 2,
+    // A tablet's browser shows less than its screen: its bars take height.
+    screen: screenSized
+      ? { width: Number(screenSized[1]), height: Number(screenSized[2]) }
+      : undefined,
+    deviceScaleFactor: Number(options.scale ?? 2),
     // WebKit on a Mac has no mobile viewport; touch still works.
     isMobile: touch && engine === chromium,
     hasTouch: touch,
