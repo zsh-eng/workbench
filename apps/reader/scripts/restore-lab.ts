@@ -16,11 +16,12 @@
  * HTTP/1.1, which the agent kit's server check uses.
  *
  * The API proxy delays every request by LAB_RTT_MS (40), each authenticated
- * request by LAB_SERVER_MS more (150: the session, scope and D1 reads that
- * production does per request), and shares LAB_MBPS (50) across all
- * responses. A warm sync request from Singapore to production takes about
- * 250 ms (apps/sync-backup/BENCHMARKS.md). The pull stream's pages come as
- * fast as local D1 reads them. The certificate is self-signed: the browser
+ * request by LAB_SERVER_MS more (150), and shares LAB_MBPS (50) across all
+ * responses. These are estimates, not measurements: production reads the
+ * session, the scope and D1 for each request. For scale, the first pull of
+ * Reader's 1,115 records from production took 0.585 s on the user's
+ * connection (apps/sync-backup/BENCHMARKS.md). The pull stream's pages come
+ * as fast as local D1 reads them. The certificate is self-signed: the browser
  * must ignore certificate errors (`test/e2e/kit/restore-lab-device.ts`).
  */
 import { spawn, spawnSync } from "node:child_process";

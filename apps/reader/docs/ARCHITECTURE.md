@@ -144,6 +144,7 @@ hypotheses.
 
 - [Reader pipeline and diagnostic tools](../src/features/reader/README.md)
 - [Performance metrics and benchmark evidence](../src/features/reader/PERFORMANCE.md)
+- [New-device restore: critical path, lab and results](NEW_DEVICE_RESTORE.md)
 - [Reader terminology and rendering invariants](CONTEXT.md)
 - [Agent workflow and current storage contracts](../AGENTS.md)
 - [Product and platform roadmap](../ROADMAP.md)
