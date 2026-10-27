@@ -3600,8 +3600,13 @@ describe("agent session", () => {
     await expect
       .element(page.getByRole("tab", { name: "Review", exact: true }))
       .toHaveAttribute("aria-selected", "true");
-    await panel.getByRole("button", { name: "Close session" }).click();
+    // Hiding the pane leaves the agent at work; the toolbar shows it again.
+    await panel
+      .getByRole("button", { name: "Hide the session pane. The agent keeps working." })
+      .click();
     await expect.element(panel).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    await expect.element(panel).toBeVisible();
   });
 
   test("a saved review prepares its session out of view, so the pane opens with its thread", async () => {

@@ -822,7 +822,7 @@ const review = async (panes: { sidebar: boolean; session: boolean }, name: strin
     );
     await pause(300);
   }
-  if (!panes.session) visible("button[aria-label='Close session']")?.click();
+  if (!panes.session) visible("button[aria-label^='Hide the session pane']")?.click();
   tab(name);
 };
 const session = "section[aria-label='Claude session']";

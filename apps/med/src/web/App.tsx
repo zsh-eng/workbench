@@ -236,6 +236,12 @@ function preloadPanes() {
   preloadFileEditor();
   CommitView.preload();
 }
+/** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
+const SESSION_HIDE = {
+  label: "Hide the session pane. The agent keeps working.",
+  icon: "panelLeft",
+  shortcut: "Mod+Shift+B",
+} as const;
 const SessionPanel = lazy(() =>
   import("./components/session/SessionPanel").then((module) => ({
     default: module.SessionPanel,
@@ -5842,6 +5848,7 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: leadIcon,
+            hide: SESSION_HIDE,
             preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
               <Suspense
@@ -5904,6 +5911,7 @@ export function App({
             label: "Session",
             ariaLabel: "Agent session",
             icon: found.agent,
+            hide: SESSION_HIDE,
             preload: true,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
