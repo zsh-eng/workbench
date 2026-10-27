@@ -101,6 +101,15 @@ required after the client switch; old local stores are preserved, but old outbox
 are not replayed automatically. Production Google sign-in completion, Safari,
 and installed-PWA restore remain manual checks until recorded there.
 
+### Download timing lab
+
+`wrangler.lab.jsonc` runs this Worker with production's storage delays
+(`scripts/file-batch-lab/worker.ts`), for timing bulk downloads in the real
+apps. `scripts/file-batch-lab/bench.ts` seeds local accounts and times
+Arctic's and Spaced's "download everything" in Chromium with a colo's round
+trip and bandwidth. [Bulk file downloads](../../docs/FILE_BATCH.md) has the
+commands and results. It never runs against a remote API.
+
 ## Arctic native sign-in (local implementation)
 
 `/api/arctic/auth/start`, `/finish`, and `/exchange` reuse the native PKCE
