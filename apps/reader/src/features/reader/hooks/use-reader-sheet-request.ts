@@ -22,7 +22,7 @@ export function useReaderSheetRequest({
     sheet: ReaderSheetId;
   } | null>(null);
   // A request belongs to the book it was made in.
-  const requested = request?.bookId === bookId ? request.sheet : null;
+  const requested = request && request.bookId === bookId ? request.sheet : null;
 
   useEffect(() => {
     if (!ready || requested === null) return;
