@@ -7,39 +7,14 @@ import {
   newLinkRecords,
   savedLibrary,
   toSwift,
+  withPreview,
 } from "@workbench/arctic-links";
 import worker from "../src/index";
-import { digest } from "../src/cli-auth";
-import { signedIn } from "./accounts";
+import { credential, signedIn } from "./accounts";
 
 const origin = "http://localhost:8792";
 const call = (path: string, init?: RequestInit) =>
   worker.fetch(new Request(origin + path, init), env);
-
-/** A Workbench Backup credential for the account, through the device flow. */
-async function credential(cookie: string) {
-  const json = { "Content-Type": "application/json" };
-  const grant = (await (
-    await call("/api/cli/device", { method: "POST", headers: json, body: "{}" })
-  ).json()) as { device_code: string; user_code: string };
-  const approved = await call("/api/cli/approve", {
-    method: "POST",
-    headers: { ...json, Cookie: cookie, Origin: origin },
-    body: JSON.stringify({ user_code: grant.user_code }),
-  });
-  expect(approved.status).toBe(200);
-  await env.DATABASE.prepare(
-    "UPDATE cli_device_grants SET last_poll=0 WHERE device_hash=?",
-  )
-    .bind(await digest(grant.device_code))
-    .run();
-  const token = await call("/api/cli/token", {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify({ device_code: grant.device_code }),
-  });
-  return ((await token.json()) as { access_token: string }).access_token;
-}
 
 type Change = { key: string; value: string; isDeleted?: boolean };
 let wallTimeMs = Date.now();
@@ -133,7 +108,7 @@ async function phoneArticle(url: string, library: Record<string, unknown>) {
 it("lets a backup credential create and restore Arctic links in the phone's records, and nothing else", async () => {
   const cookie = await signedIn(call, origin);
   const phone = { Cookie: cookie };
-  const wb = { Authorization: `Bearer ${await credential(cookie)}` };
+  const wb = { Authorization: `Bearer ${await credential(call, cookie, origin)}` };
   const now = toSwift(Date.now());
 
   const saved = await phoneArticle("https://example.com/saved", {
@@ -346,7 +321,7 @@ it("lets a backup credential create and restore Arctic links in the phone's reco
         }),
       },
     ]),
-  ).toContain("a new link writes");
+  ).toContain("a preview sets only imageURL, faviconURL and subtitle");
   const otherLibrary = record(`library/${other.id}`).value;
   expect(
     await refused([
@@ -425,4 +400,162 @@ it("lets a backup credential create and restore Arctic links in the phone's reco
       ])
     ).status,
   ).toBe(200);
+}, 60_000);
+
+it("lets a backup credential fill only the empty preview fields of a link in the library", async () => {
+  const cookie = await signedIn(call, origin);
+  const phone = { Cookie: cookie };
+  const wb = { Authorization: `Bearer ${await credential(call, cookie, origin)}` };
+  const now = toSwift(Date.now());
+  const preview = {
+    title: "Not written",
+    subtitle: "Ice keeps time.",
+    imageURL: "https://news.example/ice.jpg",
+    faviconURL: "https://news.example/favicon.ico",
+  };
+
+  // A link from the web or wb: no description, image or icon. One from the
+  // phone: its own image, description and tagging text, but no icon. And
+  // one the phone removed.
+  const bare = await phoneArticle("https://example.com/bare", {
+    saved: true,
+    savedAt: now,
+  });
+  bare.records[0]!.value = encodeSorted({
+    subtitle: "",
+    title: "Bare",
+    url: "https://example.com/bare",
+  });
+  const fromPhone = await phoneArticle("https://example.com/phone", {
+    saved: true,
+    savedAt: now,
+  });
+  fromPhone.records[0]!.value = encodeSorted({
+    imageURL: "https://phone.example/own.jpg",
+    subtitle: "The phone's description",
+    taggingText: "Article excerpt: ice",
+    title: "From the phone",
+    url: "https://example.com/phone",
+  });
+  const removed = await phoneArticle("https://example.com/removed", {
+    saved: true,
+    savedAt: now,
+  });
+  expect(
+    (
+      await push(phone, "arctic", [
+        ...bare.records,
+        ...fromPhone.records,
+        ...removed.records,
+      ])
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await push(phone, "arctic", [
+        { ...removed.records[1]!, isDeleted: true },
+      ])
+    ).status,
+  ).toBe(200);
+
+  const before = await records(cookie);
+  const article = (id: string) => before.get(`article/${id}`)!.value;
+  const refused = async (key: string, value: string) => {
+    const answer = await push(wb, "arctic", [{ key, value }]);
+    expect(answer.status).toBe(403);
+    return ((await answer.json()) as { error: string }).error;
+  };
+  const edited = (id: string, fields: Record<string, unknown>) =>
+    encodeSorted({ ...JSON.parse(article(id)), ...fields });
+
+  // Every other change to an article record is refused, and stores nothing.
+  const onlyEmpty = "a preview sets only imageURL, faviconURL and subtitle";
+  expect(
+    await refused(`article/${fromPhone.id}`, edited(fromPhone.id, {
+      imageURL: preview.imageURL,
+    })),
+  ).toContain(onlyEmpty);
+  expect(
+    await refused(`article/${fromPhone.id}`, edited(fromPhone.id, {
+      faviconURL: preview.faviconURL,
+      subtitle: "Another description",
+    })),
+  ).toContain(onlyEmpty);
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, {
+      imageURL: preview.imageURL,
+      title: "Renamed",
+    })),
+  ).toContain(onlyEmpty);
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, {
+      imageURL: preview.imageURL,
+      taggingText: "Article excerpt: ice",
+    })),
+  ).toContain(onlyEmpty);
+  expect(
+    await refused(`article/${fromPhone.id}`, edited(fromPhone.id, {
+      imageURL: null,
+    })),
+  ).toContain(onlyEmpty);
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, {
+      imageURL: "javascript:alert(1)",
+    })),
+  ).toContain("imageURL must be a canonical http or https URL");
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, {
+      faviconURL: "https://NEWS.example/favicon.ico",
+    })),
+  ).toContain("faviconURL must be a canonical");
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, {
+      subtitle: "Two\nlines",
+    })),
+  ).toContain("subtitle must be one line");
+  expect(
+    await refused(`article/${bare.id}`, edited(bare.id, { subtitle: 7 })),
+  ).toContain("subtitle must be one line");
+  expect(
+    await refused(
+      `article/${removed.id}`,
+      withPreview(article(removed.id), preview)!,
+    ),
+  ).toContain("not in the library");
+  expect(
+    await refused(
+      `article/${bare.id}`,
+      encodeSorted({ ...JSON.parse(article(bare.id)), url: "https://example.com/x" }),
+    ),
+  ).toContain(onlyEmpty);
+  expect(JSON.stringify([...(await records(cookie)).entries()])).toBe(
+    JSON.stringify([...before.entries()]),
+  );
+
+  // Filling: every empty field of the bare link, and only the icon of the
+  // phone's, whose image, description and tagging text stay its own.
+  const fills = [
+    { key: `article/${bare.id}`, value: withPreview(article(bare.id), preview)! },
+    {
+      key: `article/${fromPhone.id}`,
+      value: withPreview(article(fromPhone.id), preview)!,
+    },
+  ];
+  expect((await push(wb, "arctic", fills)).status).toBe(200);
+  const after = await records(cookie);
+  expect(JSON.parse(after.get(`article/${bare.id}`)!.value)).toEqual({
+    faviconURL: preview.faviconURL,
+    imageURL: preview.imageURL,
+    subtitle: preview.subtitle,
+    title: "Bare",
+    url: "https://example.com/bare",
+  });
+  expect(JSON.parse(after.get(`article/${fromPhone.id}`)!.value)).toEqual({
+    ...JSON.parse(article(fromPhone.id)),
+    faviconURL: preview.faviconURL,
+  });
+  // Once filled, nothing is empty: the same fill again is refused.
+  expect(
+    await refused(`article/${bare.id}`, fills[0]!.value),
+  ).toContain(onlyEmpty);
 }, 60_000);

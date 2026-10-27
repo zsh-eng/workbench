@@ -20,7 +20,12 @@ import {
   listSnapshots,
   verifySnapshot,
 } from "./snapshot";
-import { arctic, describe } from "./arctic";
+import {
+  arctic,
+  backfillPreviews,
+  describe,
+  describePreview,
+} from "./arctic";
 const help = `Workbench Backup — sync, local SQLite inspection and Arctic links
 
 Usage: wb <command> [options]
@@ -46,6 +51,9 @@ Usage: wb <command> [options]
   arctic save [URL...]          Save links to Arctic, then fetch their text
                                 (URLs from stdin when none are given)
   arctic text [URL...]          Fetch the text of links already in Arctic
+  arctic backfill-previews      Fill the image, description and icon of saved
+                                links that have no preview; a dry run unless
+                                --apply (one page a second, resumable)
 
 Options:
   --namespace NAME  Repeat to select namespaces (sync/table/tree)
@@ -57,12 +65,16 @@ Options:
   --no-browser      Print login URL without opening it
   --no-text         arctic save: save the links without fetching text
   --unwall          arctic: read the phone's paywalled sites through Unwall
+  --dry-run         backfill-previews: report what it would fill (default)
+  --apply           backfill-previews: fill them
+  --limit N         backfill-previews: at most N links this run
   -h, --help        Show help
   --version         Print version
 
 Sync is download-only. Table selections have independent cursors. Counts are
 local, including tombstones. No remote restore or automatic pruning. The only
-writes are arctic save and arctic text: new or restored links, and their text.
+writes are arctic save, arctic text and arctic backfill-previews --apply: new
+or restored links, their text, and previews where a link has none.
 `;
 const options = {
   namespace: { type: "string", multiple: true },
@@ -75,6 +87,9 @@ const options = {
   "no-browser": { type: "boolean" },
   "no-text": { type: "boolean" },
   unwall: { type: "boolean" },
+  "dry-run": { type: "boolean" },
+  apply: { type: "boolean" },
+  limit: { type: "string" },
   help: { type: "boolean", short: "h" },
   version: { type: "boolean" },
 } as const;
@@ -138,7 +153,7 @@ async function main() {
             : command === "snapshot"
               ? ["create", "list", "verify"].includes(sub)
               : command === "arctic"
-                ? ["save", "text"].includes(sub)
+                ? ["save", "text", "backfill-previews"].includes(sub)
                 : ["sync", "status", "tree", "export"].includes(command) &&
                   !sub;
   if (!known) throw Error("Unknown command. Run wb --help.");
@@ -157,8 +172,18 @@ async function main() {
     throw Error("--no-browser is only valid for auth login");
   if (v["no-text"] && !(command === "arctic" && sub === "save"))
     throw Error("--no-text is only valid for arctic save");
-  if (v.unwall && (command !== "arctic" || v["no-text"]))
+  const backfill = command === "arctic" && sub === "backfill-previews";
+  if (v.unwall && (command !== "arctic" || backfill || v["no-text"]))
     throw Error("--unwall is only valid for arctic save and arctic text");
+  if ((v.apply || v["dry-run"] || v.limit !== undefined) && !backfill)
+    throw Error(
+      "--apply, --dry-run and --limit are only valid for arctic backfill-previews",
+    );
+  if (v.apply && v["dry-run"])
+    throw Error("Choose --apply or --dry-run, not both");
+  if (v.limit !== undefined && !/^[1-9]\d*$/.test(v.limit))
+    throw Error("--limit takes a whole number of links, 1 or more");
+  if (backfill && p.length > 2) throw Error("Unexpected positional argument");
   if (
     command !== "arctic" &&
     p.length > (command === "snapshot" && sub === "verify" ? 3 : sub ? 2 : 1)
@@ -193,6 +218,36 @@ async function main() {
       return;
     }
     print(await identity(readFetch(origin, token), origin), json);
+    return;
+  }
+  if (backfill) {
+    const token = getCredential(origin, directory);
+    if (!token) throw Error("Not signed in. Run wb auth login.");
+    console.error(
+      `Reading your Arctic library at ${origin}…${v.apply ? "" : " (dry run: nothing is written; --apply fills)"}`,
+    );
+    const run = await backfillPreviews({
+      origin,
+      token,
+      directory,
+      apply: !!v.apply,
+      limit: v.limit === undefined ? undefined : Number(v.limit),
+      onResult: json ? undefined : (result) => console.log(describePreview(result)),
+    });
+    if (json) print(run, json);
+    else {
+      const count = (status: string) =>
+        run.results.filter((result) => result.status === status).length;
+      console.error(
+        `${run.candidates} saved links without a preview; read ${run.results.length}: ` +
+          `${count(v.apply ? "filled" : "would fill")} ${v.apply ? "filled" : "to fill"}, ` +
+          `${count("nothing to fill")} with nothing to fill, ${count("unreadable")} unreadable` +
+          `${count("refused") ? `, ${count("refused")} refused by the server` : ""}.`,
+      );
+    }
+    // A page without a preview is not a failure; a refused write is.
+    if (run.results.some((result) => result.status === "refused"))
+      process.exitCode = 1;
     return;
   }
   if (command === "arctic") {

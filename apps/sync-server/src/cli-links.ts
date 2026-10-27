@@ -41,10 +41,11 @@ async function boundedText(c: Context<AppEnv>) {
 /**
  * Why a Workbench Backup credential's write to `arctic` is refused, or
  * undefined when it only saves links: new links in the phone's exact
- * records, or a link from History saved again as a field edit
- * (`linkChangesProblem` in @workbench/arctic-links). It runs before the sync
- * route and compares the changes with the stored records of the same
- * articles, so a value the phone cannot read never reaches it.
+ * records, a link from History saved again as a field edit, or a link's
+ * empty preview fields filled (`linkChangesProblem` in
+ * @workbench/arctic-links). It runs before the sync route and compares the
+ * changes with the stored records of the same articles, so a value the
+ * phone cannot read never reaches it.
  */
 export async function cliLinkPushProblem(c: Context<AppEnv>) {
   if (

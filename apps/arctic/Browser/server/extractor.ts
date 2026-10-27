@@ -1,4 +1,5 @@
 import { DefuddleClass, type DefuddleResponse } from "defuddle/node";
+import { readPreview, type LinkPreview } from "@workbench/arctic-links";
 import { parseHTML } from "linkedom";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { createRequire } from "node:module";
@@ -91,13 +92,52 @@ function article(
   };
 }
 
+/** A fetched page's HTML, in the charset its header names (UTF-8 otherwise). */
+function pageText(response: PageResponse) {
+  const charset =
+    response.headers["content-type"]?.match(
+      /charset=["']?([^;\s"']+)/i,
+    )?.[1] ?? "utf-8";
+  try {
+    return new TextDecoder(charset).decode(response.body);
+  } catch {
+    return response.body.toString("utf8");
+  }
+}
+
 export class Extractor {
   private browser?: Promise<Browser>;
   private idle?: ReturnType<typeof setTimeout>;
   private tail: Promise<void> = Promise.resolve();
   private closed = false;
   constructor(private testOrigin?: string) {}
-  async extract(url: string): Promise<ExtractedArticle> {
+  /**
+   * The link's preview (`readPreview`: title, description, image and icon)
+   * from its HTML alone: no extraction and no browser. Rejects a page that
+   * is not HTML or does not answer 2xx.
+   */
+  async preview(url: string): Promise<LinkPreview> {
+    const response = await fetchPage(
+      url,
+      AbortSignal.timeout(8000),
+      this.testOrigin,
+    );
+    if (response.status < 200 || response.status >= 300)
+      throw new DownloadError(`The publisher returned HTTP ${response.status}.`);
+    const type = response.headers["content-type"] ?? "";
+    if (type && !/text\/html|application\/xhtml\+xml/i.test(type))
+      throw new DownloadError("This link is not a web page.");
+    return readPreview(pageText(response), response.url);
+  }
+  /**
+   * The article. `onPage` receives the HTML that a direct fetch returned
+   * (2xx, HTML), before extraction, so a caller can read the link's preview
+   * from it even when the article itself cannot be extracted.
+   */
+  async extract(
+    url: string,
+    onPage?: (page: { html: string; url: string }) => void,
+  ): Promise<ExtractedArticle> {
     let response: PageResponse | undefined;
     try {
       response = await fetchPage(
@@ -113,16 +153,8 @@ export class Extractor {
       if (/application\/pdf/i.test(type)) throw new DownloadError(PDF);
       if (!/text\/html|application\/xhtml\+xml/i.test(type))
         throw new DownloadError("This link does not contain an HTML article.");
-      const charset =
-        response.headers["content-type"]?.match(
-          /charset=["']?([^;\s"']+)/i,
-        )?.[1] ?? "utf-8";
-      let html: string;
-      try {
-        html = new TextDecoder(charset).decode(response.body);
-      } catch {
-        html = response.body.toString("utf8");
-      }
+      const html = pageText(response);
+      onPage?.({ html, url: response.url });
       try {
         const result = fromHTML(html, response.url);
         if (usable(result)) return article(result, response.url, "http");

@@ -7,6 +7,10 @@ const prose =
 const page = (title: string, paragraphs: number, head = "") =>
   `<!doctype html><html><head><title>${title}</title><meta name="author" content="Ada Reader">${head}</head><body><article><h1>${title}</h1>${`<p>${prose}</p>`.repeat(paragraphs)}<script>alert(1)</script></article></body></html>`;
 const html = { "content-type": "text/html; charset=utf-8" };
+// The fixture's own address is a literal, which a preview never keeps, so
+// its tags name a public host.
+const ogTags =
+  '<meta property="og:description" content="Space for ideas &amp; notes."><meta property="og:image" content="https://cdn.example/quiet.jpg"><link rel="icon" href="https://cdn.example/icon.png">';
 let publisher: ReturnType<typeof Bun.serve>;
 let reader: ArticleText;
 
@@ -17,7 +21,11 @@ beforeAll(() => {
     fetch(request) {
       switch (new URL(request.url).pathname) {
         case "/essay":
-          return new Response(page("A quiet reading tool", 12), {
+          return new Response(page("A quiet reading tool", 12, ogTags), {
+            headers: html,
+          });
+        case "/huge":
+          return new Response(page("Huge", 1, ogTags + "x".repeat(5 << 20)), {
             headers: html,
           });
         case "/teaser":
@@ -68,4 +76,24 @@ test("wb arctic reads an article's title and cleaned text, and says why a page h
     title: "",
     problem: "HTTP 404",
   });
+});
+
+test("wb arctic reads a link's preview from the HTML it fetched, with or without text", async () => {
+  const at = (path: string) => new URL(path, publisher.url).href;
+  const preview = {
+    title: "A quiet reading tool",
+    subtitle: "Space for ideas & notes.",
+    imageURL: "https://cdn.example/quiet.jpg",
+    faviconURL: "https://cdn.example/icon.png",
+  };
+  expect((await reader.read(at("/essay"))).preview).toEqual(preview);
+  // A paywalled teaser has no text worth keeping, but still a preview.
+  expect((await reader.read(at("/teaser"))).preview).toEqual({
+    title: "Behind the paywall",
+  });
+  // The preview alone: one request, no extraction.
+  expect(await reader.preview(at("/essay"))).toEqual(preview);
+  await expect(reader.preview(at("/paper.pdf"))).rejects.toThrow("not a web page");
+  await expect(reader.preview(at("/gone"))).rejects.toThrow("HTTP 404");
+  await expect(reader.preview(at("/huge"))).rejects.toThrow("too large");
 });

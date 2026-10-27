@@ -5,5 +5,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./index.ts"
+  },
+  "scripts": {
+    "test": "bun test"
   }
 }

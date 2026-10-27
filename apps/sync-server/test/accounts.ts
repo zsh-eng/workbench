@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { expect } from "vitest";
+import { digest } from "../src/cli-auth";
 
 type Call = (path: string, init: RequestInit) => Promise<Response>;
 
@@ -62,4 +63,29 @@ export async function signUp(call: Call, origin: string) {
   });
   expect(response.status).toBe(200);
   return cookies(response);
+}
+
+/** A Workbench Backup credential for the account, through the device flow. */
+export async function credential(call: Call, cookie: string, origin: string) {
+  const json = { "Content-Type": "application/json" };
+  const grant = (await (
+    await call("/api/cli/device", { method: "POST", headers: json, body: "{}" })
+  ).json()) as { device_code: string; user_code: string };
+  const approved = await call("/api/cli/approve", {
+    method: "POST",
+    headers: { ...json, Cookie: cookie, Origin: origin },
+    body: JSON.stringify({ user_code: grant.user_code }),
+  });
+  expect(approved.status).toBe(200);
+  await env.DATABASE.prepare(
+    "UPDATE cli_device_grants SET last_poll=0 WHERE device_hash=?",
+  )
+    .bind(await digest(grant.device_code))
+    .run();
+  const token = await call("/api/cli/token", {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ device_code: grant.device_code }),
+  });
+  return ((await token.json()) as { access_token: string }).access_token;
 }

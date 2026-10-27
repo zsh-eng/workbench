@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { addText, article, paragraphs, phone, signUp } from "./phone";
+import { addText, article, identity, paragraphs, phone, signUp } from "./phone";
+import { publisher } from "./publisher";
 
 // The Magazine layout (docs/MAGAZINE.md) on an iPad: WebKit with touch.
 test.use({ browserName: "webkit", hasTouch: true });
@@ -175,6 +176,55 @@ for (const size of [
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(size.width);
   });
+
+test("A link saved on an iPad leads at once in its picture's place, which its og:image then fills", async ({
+  page,
+}) => {
+  const site = await publisher({ delayMs: 1500 });
+  try {
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await page.goto("/");
+    await expect(page.locator(".card[data-id]")).toHaveCount(links.length);
+    const id = identity(site.story);
+    // Each state of the new card: its kind, and whether its picture's
+    // place holds a picture, and that picture is decoded.
+    await page.evaluate((id) => {
+      const states: string[] = [];
+      (window as unknown as { states: string[] }).states = states;
+      new MutationObserver(() => {
+        const card = document.querySelector<HTMLElement>(`.card[data-id="${id}"]`);
+        if (!card) return;
+        const image = card.querySelector<HTMLImageElement>(".cover img");
+        const state = `${card.dataset.kind} ${card.querySelector(".cover") ? "cover" : "none"} ${image ? (image.complete && image.naturalWidth ? "decoded" : "loading") : "empty"}`;
+        if (states.at(-1) !== state) states.push(state);
+      }).observe(document.body, { subtree: true, childList: true, attributes: true });
+    }, id);
+    await page.getByRole("button", { name: "Save a link" }).click();
+    await page.getByPlaceholder("Paste a link").fill(site.story);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const lead = page.locator(`.card[data-id="${id}"]`);
+    await expect(lead).toHaveAttribute("data-kind", "lead");
+    await expect(lead.locator(".card-title")).toHaveText("How sea ice keeps time");
+    await page.waitForTimeout(500);
+    const before = await layout(page);
+    await expect(lead.locator(".card-title")).toHaveText("The quiet clock of sea ice");
+    await page.waitForTimeout(500);
+    const after = await layout(page);
+    // One change: the empty place, then the decoded picture in it.
+    expect(
+      await page.evaluate(() => (window as unknown as { states: string[] }).states),
+    ).toEqual(["lead cover empty", "lead cover decoded"]);
+    // The picture's place keeps its size and position; the grid keeps its
+    // cells (the old lead is now a tile).
+    expect(after.cells[0]!.cover).toEqual(before.cells[0]!.cover);
+    expect(after.cells.map((cell) => cell.kind)).toEqual(
+      before.cells.map((cell) => cell.kind),
+    );
+    expect(after.cells[1]).toMatchObject({ kind: "tile", title: "A floe at dawn" });
+  } finally {
+    await site.close();
+  }
+});
 
 test("A tap on a picture or a site cover opens the article", async ({
   page,

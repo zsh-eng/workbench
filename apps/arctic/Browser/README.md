@@ -149,17 +149,37 @@ host with characters other than letters, digits, `-`, `_` and `.`, or a path
 whose escapes are not UTF-8 (Latin-1 `caf%E9`), is not a web address here:
 Swift's URL decoder refuses it, and the phone would stop its pull at it.
 
-The web cannot fetch another site, so the title comes from the address
-("how-sea-ice-keeps-time" becomes "How sea ice keeps time"). The new article
-has no image and no preview, so Arctic on iPhone fetches its title, image and
-topics when it next opens (`ArticleStore.needsPreview`). A link already in
-Saved is pointed out; one from History is saved again. Undo removes a new link
-with tombstones.
+The web cannot fetch another site, so the link is saved at once with a title
+from its address ("how-sea-ice-keeps-time" becomes "How sea ice keeps time"),
+and its preview follows: the shared API's preview route
+(`apps/sync-server`, `POST /api/arctic/preview`) fetches the page and reads
+its title, description, og:image and icon by the phone's rules (`readPreview`
+in `packages/arctic-links`). The app syncs, so a preview the phone wrote
+meanwhile counts, and then writes them into the article's record as a field
+edit: `subtitle`, `imageURL` and `faviconURL` only where the record has none,
+and the page's title only in place of the one from the address. (A phone
+preview that reaches the account in the second between that sync and the
+upload is still replaced; the phone fetches its own again, because the record
+then has no `taggingText`.) A slow site never holds the save; without an answer nothing changes.
+Arctic on iPhone still fetches its own preview and topics when it next opens.
+A link already in Saved is pointed out; one from History is saved again. Undo
+removes a new link with tombstones.
+
+While its preview loads, a new link without a picture keeps a picture's
+place, as the phone's cards do while metadata is pending: an empty cover in
+Cards and List, and a lead or a tile in Magazine. The picture is decoded
+before the record changes, so it fills that place in one change and nothing
+below moves for it (`tests/preview.spec.ts`, and the iPad check in
+`tests/magazine.spec.ts`); a page without a picture gives the place up with
+the list's motion. A new title or description can still change a card's
+height by a line.
 
 **From the terminal**, `bun run wb arctic save <url…>` (Workbench Backup,
 `apps/sync-backup`) writes the same records from the same package, and then
-fetches each link's text (see Article text). Its title is the page's own, or
-its host when the page has none, as the phone's own add writes. The shared API
+fetches each link's text (see Article text) and fills its preview from the
+same HTML. Its title is the page's own, or its host when the page has none,
+as the phone's own add writes. `wb arctic backfill-previews` fills the
+previews of saved links that have none. The shared API
 checks every record that its credential writes (`apps/sync-server`,
 `src/cli-links.ts`). `tests/cli.spec.ts` saves the same links here and with
 `wb`, and compares what the phone receives: the same bytes, but for the title

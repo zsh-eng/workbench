@@ -10,7 +10,11 @@ import { parseHTML } from "linkedom";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { linkTitle } from "@workbench/arctic-links";
+import {
+  linkTitle,
+  readPreview,
+  type LinkPreview,
+} from "@workbench/arctic-links";
 import { Extractor, fromHTML } from "../server/extractor";
 import { PDF } from "../server/fetch";
 import { cleanByline, tidyArticle } from "../src/content";
@@ -83,6 +87,8 @@ export type Reading = {
   byline?: string;
   /** Why there is no text worth keeping, such as "PDF" or "paywall preview". */
   problem?: string;
+  /** The link's preview, from the publisher's HTML, whether or not it has text. */
+  preview?: LinkPreview;
 };
 
 /** Cleans an extracted article and counts its words, as upload.ts does. */
@@ -132,8 +138,11 @@ export class ArticleText {
     let paywalled = listed;
     let best: Omit<Reading, "title"> | undefined;
     let problem: string | undefined;
+    let preview: LinkPreview | undefined;
     try {
-      const page = await this.extractor.extract(url);
+      const page = await this.extractor.extract(url, (fetched) => {
+        preview = readPreview(fetched.html, fetched.url);
+      });
       title = page.title;
       paywalled ||= page.paywalled;
       best = { ...clean(page.html, url), byline: cleanByline(page.author) };
@@ -157,11 +166,16 @@ export class ArticleText {
       }
     }
     title = linkTitle(title);
-    if (!best) return { title, problem: problem ?? "no article text" };
+    if (!best) return { title, preview, problem: problem ?? "no article text" };
     // A paywalled site's short text is its teaser, not the article.
     if (paywalled && best.words! < UNWALL_MIN_WORDS)
-      return { title, words: best.words, problem: "paywall preview" };
-    return { title, ...best };
+      return { title, preview, words: best.words, problem: "paywall preview" };
+    return { title, preview, ...best };
+  }
+
+  /** Only the link's preview, from its HTML: no extraction and no browser. */
+  preview(url: string) {
+    return this.extractor.preview(url);
   }
 
   async close() {
