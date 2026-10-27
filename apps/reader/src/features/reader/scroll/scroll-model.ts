@@ -125,6 +125,67 @@ function blockAnchor(chapterIndex: number, blockId: string): ContentAnchor {
   return { type: "block", chapterIndex, blockId };
 }
 
+type TextPageSlice = Extract<PageSlice, { type: "text" }>;
+type TablePageSlice = Extract<PageSlice, { type: "table" }>;
+
+/**
+ * A table part's own rows (not a repeated header) at column offset `y`,
+ * each with its first cell that has lines here. A row is the unit a reader
+ * sees at the top of the view.
+ */
+function tableRowUnits(
+  slice: TablePageSlice,
+  y: number,
+): { y: number; height: number; cell: TextPageSlice | null }[] {
+  const units: { y: number; height: number; cell: TextPageSlice | null }[] = [];
+  let top = y;
+  for (const row of slice.rows) {
+    if (!row.repeated) {
+      const cell = row.cells.find((candidate) => candidate.slice.lines.length);
+      units.push({ y: top, height: row.height, cell: cell?.slice ?? null });
+    }
+    top += row.height;
+  }
+  return units;
+}
+
+/** The anchor of a table row: its first cell's first line here. */
+function tableRowAnchor(
+  chapterIndex: number,
+  slice: TablePageSlice,
+  cell: TextPageSlice | null,
+): ContentAnchor {
+  const start = cell?.lines[0]?.startOffset;
+  return cell && start
+    ? {
+        type: "text",
+        chapterIndex,
+        blockId: cell.blockId,
+        offset: { ...start },
+      }
+    : blockAnchor(chapterIndex, slice.blockId);
+}
+
+/**
+ * The text a row draws, each piece at its column offset: a text slice, or
+ * a table part's cells in reading order (not a repeated header's).
+ */
+function textUnitsOf(row: ScrollRow): { slice: TextPageSlice; y: number }[] {
+  const { slice } = row;
+  if (slice.type === "text") return [{ slice, y: row.y }];
+  if (slice.type !== "table") return [];
+  const units: { slice: TextPageSlice; y: number }[] = [];
+  let top = row.y;
+  for (const tableRow of slice.rows) {
+    if (!tableRow.repeated) {
+      for (const cell of tableRow.cells)
+        units.push({ slice: cell.slice, y: top + slice.cellPaddingY });
+    }
+    top += tableRow.height;
+  }
+  return units;
+}
+
 /**
  * The first line (or image) whose top is at or below `viewTop`, which is the
  * first line the reader sees whole. Spacers are not lines.
@@ -143,14 +204,26 @@ export function findFirstFullyVisibleLine(
     const row = rows[index]!;
     const { slice } = row;
     if (slice.type === "spacer") continue;
-    // An image or a table part is one unit, as tall as its row.
-    if (slice.type === "image" || slice.type === "table") {
+    if (slice.type === "image") {
       if (row.y < viewTop - tolerance) continue;
       return {
         y: row.y,
         height: row.height,
         pageIndex: row.pageIndex,
         anchor: blockAnchor(chapterIndex, slice.blockId),
+      };
+    }
+    if (slice.type === "table") {
+      // Each of the part's rows is a unit, as an image is.
+      const unit = tableRowUnits(slice, row.y).find(
+        (candidate) => candidate.y >= viewTop - tolerance,
+      );
+      if (!unit) continue;
+      return {
+        y: unit.y,
+        height: unit.height,
+        pageIndex: row.pageIndex,
+        anchor: tableRowAnchor(chapterIndex, slice, unit.cell),
       };
     }
 
@@ -205,13 +278,24 @@ export function findLineAtOrAfter(
     const row = rows[index]!;
     const { slice } = row;
     if (slice.type === "spacer") continue;
-    // An image or a table part is one unit, as tall as its row.
-    if (slice.type === "image" || slice.type === "table") {
+    if (slice.type === "image") {
       return {
         y: row.y,
         height: row.height,
         pageIndex: row.pageIndex,
         anchor: blockAnchor(chapterIndex, slice.blockId),
+      };
+    }
+    if (slice.type === "table") {
+      const unit = tableRowUnits(slice, row.y).find(
+        (candidate) => candidate.y + candidate.height > offset,
+      );
+      if (!unit) continue;
+      return {
+        y: unit.y,
+        height: unit.height,
+        pageIndex: row.pageIndex,
+        anchor: tableRowAnchor(chapterIndex, slice, unit.cell),
       };
     }
     for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
@@ -285,23 +369,34 @@ export function findLineTextPosition(
 ): LineTextPosition | null {
   const target = rows[findFirstRowEndingAfter(rows, y)];
   if (!target || target.slice.type === "spacer") return null;
-  const { blockId } = target.slice;
-  if (target.slice.type === "image" || target.slice.type === "table") {
-    return { blockId, textOffset: 0 };
+  if (target.slice.type === "image") {
+    return { blockId: target.slice.blockId, textOffset: 0 };
   }
+  // In a table part, the text is the first cell of the row that holds `y`.
+  let held: TextPageSlice = target.slice as TextPageSlice;
+  if (target.slice.type === "table") {
+    const units = tableRowUnits(target.slice, target.y);
+    const unit =
+      units.find((candidate) => candidate.y + candidate.height > y) ??
+      units.at(-1);
+    if (!unit?.cell) return { blockId: target.slice.blockId, textOffset: 0 };
+    held = unit.cell;
+  }
+  const { blockId } = held;
 
   let textOffset = 0;
   for (const row of rows) {
-    const { slice } = row;
-    if (slice.type !== "text" || slice.blockId !== blockId) continue;
-    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
-      const top = row.y + lineIndex * slice.lineHeight;
-      if (row === target && top + slice.lineHeight > y) {
-        return { blockId, textOffset };
+    for (const { slice, y: top0 } of textUnitsOf(row)) {
+      if (slice.blockId !== blockId) continue;
+      for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
+        const top = top0 + lineIndex * slice.lineHeight;
+        if (slice === held && top + slice.lineHeight > y) {
+          return { blockId, textOffset };
+        }
+        textOffset += lineTextLength(slice.lines[lineIndex]!);
       }
-      textOffset += lineTextLength(slice.lines[lineIndex]!);
+      if (slice === held) return { blockId, textOffset };
     }
-    if (row === target) break;
   }
   return { blockId, textOffset };
 }
@@ -315,16 +410,20 @@ export function findTextPositionOffset(
   let last: number | null = null;
   for (const row of rows) {
     const { slice } = row;
-    if (slice.blockId !== position.blockId || slice.type === "spacer") {
-      continue;
+    if (slice.type === "spacer") continue;
+    if (slice.type !== "text" && slice.blockId === position.blockId) {
+      return row.y;
     }
-    if (slice.type === "image" || slice.type === "table") return row.y;
-    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
-      const top = row.y + lineIndex * slice.lineHeight;
-      const length = lineTextLength(slice.lines[lineIndex]!);
-      if (position.textOffset < textOffset + length) return top;
-      textOffset += length;
-      last = top;
+    for (const unit of textUnitsOf(row)) {
+      if (unit.slice.blockId !== position.blockId) continue;
+      const { lines, lineHeight } = unit.slice;
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const top = unit.y + lineIndex * lineHeight;
+        const length = lineTextLength(lines[lineIndex]!);
+        if (position.textOffset < textOffset + length) return top;
+        textOffset += length;
+        last = top;
+      }
     }
   }
   return last;
@@ -342,13 +441,26 @@ export function findAnchorOffset(
   for (const row of rows) {
     const { slice } = row;
     if (!sliceShowsBlock(slice, anchor.blockId)) continue;
-    if (anchor.type === "block" || slice.type !== "text") return row.y;
+    if (
+      anchor.type === "block" ||
+      (slice.type !== "text" && slice.type !== "table")
+    ) {
+      return row.y;
+    }
+    if (slice.type === "table" && slice.blockId === anchor.blockId) {
+      return row.y;
+    }
 
-    for (let lineIndex = 0; lineIndex < slice.lines.length; lineIndex++) {
-      const start = slice.lines[lineIndex]?.startOffset;
-      if (!start) continue;
-      if (compareCursor(start, anchor.offset) > 0) return best ?? row.y;
-      best = row.y + lineIndex * slice.lineHeight;
+    // A text slice, or the cell of a table part that holds the anchor.
+    for (const unit of textUnitsOf(row)) {
+      if (unit.slice.blockId !== anchor.blockId) continue;
+      const { lines, lineHeight } = unit.slice;
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const start = lines[lineIndex]?.startOffset;
+        if (!start) continue;
+        if (compareCursor(start, anchor.offset) > 0) return best ?? unit.y;
+        best = unit.y + lineIndex * lineHeight;
+      }
     }
   }
   return best;
@@ -425,8 +537,8 @@ export function buildColumnViewSpread(
   );
   let firstSlice: PageSlice | null = null;
   if (topAnchor) {
-    const index = column.slices.findIndex(
-      (entry) => sliceShowsBlock(entry.slice, topAnchor.blockId),
+    const index = column.slices.findIndex((entry) =>
+      sliceShowsBlock(entry.slice, topAnchor.blockId),
     );
     if (index >= 0) {
       startIndex = index;
