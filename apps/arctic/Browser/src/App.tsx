@@ -9,6 +9,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router-dom";
 import {
+  checkAccount,
   currentAccount,
   rememberedAccount,
   signInLocally,
@@ -39,13 +40,15 @@ type Opened = { account: null } | { account: Account; session: Session };
 let opening: Promise<Opened> | undefined;
 function open(): Promise<Opened> {
   opening ??= (async () => {
-    const account =
-      rememberedAccount() ??
-      (await currentAccount()
-        .catch(() => null)
-        .finally(() => performance.mark("arctic:account")));
+    const remembered = rememberedAccount();
+    const checked = remembered
+      ? undefined
+      : await checkAccount()
+          .catch(() => null)
+          .finally(() => performance.mark("arctic:account"));
+    const account = remembered ?? checked?.account;
     if (!account) return { account: null };
-    const session = await Session.open(account);
+    const session = await Session.open(account, checked?.scope);
     performance.mark("arctic:open", {
       detail: { records: session.arctic.size + session.copies.size },
     });

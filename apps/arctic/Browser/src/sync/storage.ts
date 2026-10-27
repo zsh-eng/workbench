@@ -58,6 +58,8 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
   revision = 0;
   /** Measures each committed page as `arctic:commit` (the first sync). */
   timeCommits = false;
+  /** While set, pulled pages wait for it before they commit (Session). */
+  hold: Promise<unknown> | undefined;
 
   constructor(
     private readonly db: IDBDatabase,
@@ -198,6 +200,7 @@ export class RecordStorage implements SyncStorage<readonly SyncRecord[]> {
 
   async applyRemoteRecords(records: readonly SyncRecord[]) {
     if (records.length === 0) return { applied: 0, skipped: 0 };
+    if (this.hold) await this.hold;
     await this.commitRemote(records.map((record) => ({ record })));
     return { applied: records.length, skipped: 0 };
   }
