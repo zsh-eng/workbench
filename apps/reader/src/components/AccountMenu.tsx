@@ -66,9 +66,10 @@ const ActivityHistory = lazy(() =>
 
 /**
  * Activity's code can fail to load, for example offline before the service
- * worker has finished its first install. Without this the error would
- * reach the root and blank the app; instead the menu stays and a toast
- * offers a reload.
+ * worker has finished its first install, and its view can fail to render.
+ * Without this either error would reach the root and blank the app;
+ * instead the menu stays and a toast offers a reload. React still logs the
+ * error. A failed load stays failed until a reload, as React.lazy keeps it.
  */
 class ActivityLoadBoundary extends Component<
   { onError: () => void; children: ReactNode },

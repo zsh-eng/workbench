@@ -417,9 +417,14 @@ test.describe("an iPad in Safari", () => {
     await expect(lost).toContainText(
       /^Lost to a newer edit.+1 highlight in Alice.*Wonderland · your Mac or iPad removed it at \d/,
     );
-    await expect(
-      activity.locator('[data-history-kind="received"]'),
-    ).toContainText(/^From your Mac or iPad.+1 removed highlight in Alice/);
+    const received = activity.locator('[data-history-kind="received"]');
+    await expect(received).toContainText(
+      /^From your Mac or iPad.+1 removed highlight in Alice/,
+    );
+    // Neither a computer's icon nor a tablet's.
+    await expect(received.locator("svg.lucide-monitor-smartphone")).toHaveCount(
+      1,
+    );
     // The removal won here too.
     expect(
       await page.evaluate(async (path) => {

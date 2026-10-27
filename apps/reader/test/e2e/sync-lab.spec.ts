@@ -41,9 +41,9 @@ test("sync lab copies the current library without changing its database", async 
   );
 });
 
-// The client suite runs the same scenario on fake-indexeddb; this runs it on
-// the browser's own IndexedDB, where a rollback's open of a newer version
-// takes the browser's VersionError path.
+// The client suite runs the same scenario on fake-indexeddb. This runs it
+// from Sync Lab's button on Chromium's own IndexedDB, the engine that
+// readers' libraries live in.
 test("sync lab upgrades a version 7 library to the current schema in this browser, and version 7 still opens it", async ({
   page,
 }) => {
