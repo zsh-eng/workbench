@@ -42,15 +42,15 @@ The server cannot answer either: it keeps only the latest version of each key
 `createSyncJournal({ store })` keeps one entry per sync pass that moved a
 record or failed:
 
-| Field                  | What it holds                                                                            |
-| ---------------------- | ---------------------------------------------------------------------------------------- |
-| `startedAt`, `endedAt` | When the pass ran, by this device's clock                                                |
-| `trigger`              | `start`, `interval`, `change`, `retry`, `online`, `visible`, `manual` or `sign-in`       |
-| `outcome`, `failure`   | `synced`, `failed` (the failure kind and HTTP status) or `cancelled`                     |
-| `received[]`           | Per key: the origin device, the HLC wall time, deleted, and `keptLocal`                  |
-| `sent[]`               | Per key: the HLC wall time, deleted, and for a lost edit the winner's device and time    |
-| `counts[]`             | A restore or a very large pull: changes per direction, device and table                  |
-| `repeats`, `recoveredAt` | A failure that repeated, and when sync next succeeded                                  |
+| Field                    | What it holds                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `startedAt`, `endedAt`   | When the pass ran, by this device's clock                                             |
+| `trigger`                | `start`, `interval`, `change`, `retry`, `online`, `visible`, `manual` or `sign-in`    |
+| `outcome`, `failure`     | `synced`, `failed` (the failure kind and HTTP status) or `cancelled`                  |
+| `received[]`             | Per key: the origin device, the HLC wall time, deleted, and `keptLocal`               |
+| `sent[]`                 | Per key: the HLC wall time, deleted, and for a lost edit the winner's device and time |
+| `counts[]`               | A restore or a very large pull: changes per direction, device and table               |
+| `repeats`, `recoveredAt` | A failure that repeated, and when sync next succeeded                                 |
 
 - **Keys, never values.** No record value and no error message is stored:
   a rejected record's message names its key, but a transport's message can

@@ -5,6 +5,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { SyncController } from "../controller.js";
 import {
+  summarizeSyncHistory,
+  type SyncHistory,
+  type SyncHistoryOptions,
+} from "../history.js";
+import type { SyncJournal, SyncJournalSnapshot } from "../journal.js";
+import {
   describeSyncStatus,
   type SyncStatus,
   type SyncSummary,
@@ -53,4 +59,47 @@ export function useSyncSummary(controller: SyncStatusSource): SyncSummary {
     return () => clearInterval(timer);
   }, [tick, status]);
   return useMemo(() => describeSyncStatus(status, now), [status, now]);
+}
+
+type SyncJournalSource = Pick<SyncJournal, "subscribe" | "getSnapshot">;
+
+/**
+ * The journal's entries. Mounting the first view reads the store again, so
+ * it includes passes other tabs wrote.
+ */
+export function useSyncJournal(
+  journal: SyncJournalSource,
+): SyncJournalSnapshot {
+  return useSyncExternalStore(
+    journal.subscribe,
+    journal.getSnapshot,
+    journal.getSnapshot,
+  );
+}
+
+/**
+ * The journal in groups (`summarizeSyncHistory`): lost edits, what waits
+ * here, then what came from each device and what this device sent. Pass a
+ * stable `describe` and `pending`; a new one regroups.
+ */
+export function useSyncHistory(
+  journal: SyncJournalSource,
+  options: Omit<SyncHistoryOptions, "now"> = {},
+): SyncHistory & { loaded: boolean } {
+  const snapshot = useSyncJournal(journal);
+  const { describe, pending, gapMs, kindOf, dayOf } = options;
+  return useMemo(
+    () => ({
+      ...summarizeSyncHistory(snapshot.entries, {
+        now: Date.now(),
+        ...(describe ? { describe } : {}),
+        ...(pending ? { pending } : {}),
+        ...(gapMs !== undefined ? { gapMs } : {}),
+        ...(kindOf ? { kindOf } : {}),
+        ...(dayOf ? { dayOf } : {}),
+      }),
+      loaded: snapshot.loaded,
+    }),
+    [snapshot, describe, pending, gapMs, kindOf, dayOf],
+  );
 }

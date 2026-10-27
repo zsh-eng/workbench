@@ -6,7 +6,7 @@ import {
   type SyncPushChange,
   type SyncRecord,
 } from "../protocol.js";
-import type { SyncEvent, SyncStorage } from "../storage.js";
+import type { SyncApplyResult, SyncEvent, SyncStorage } from "../storage.js";
 import type { SyncDexieDatabase, SyncTableMap } from "./tables.js";
 
 export interface PreparedRemoteRecord {
@@ -63,14 +63,14 @@ async function applyPreparedRemoteRecords(
   prepared: readonly PreparedRemoteRecord[],
   localDeviceId: string,
   onEvent: (event: SyncEvent) => void,
-): Promise<{ applied: number; skipped: number }> {
+): Promise<SyncApplyResult> {
   if (prepared.length === 0) {
-    return { applied: 0, skipped: 0 };
+    return { applied: 0, skipped: 0, keptLocal: [] };
   }
 
   const tables = getDomainTables(db, prepared);
   let applied = 0;
-  let skipped = 0;
+  const keptLocal: string[] = [];
   const events: SyncEvent[] = [];
 
   await db.transaction("rw", [db._sync_outbox, ...tables], async () => {
@@ -88,7 +88,7 @@ async function applyPreparedRemoteRecords(
           record.source,
         ) > 0
       ) {
-        skipped += 1;
+        keptLocal.push(record.source.key);
         events.push({
           phase: "pull",
           outcome: "kept-local",
@@ -112,7 +112,7 @@ async function applyPreparedRemoteRecords(
   });
 
   events.forEach(onEvent);
-  return { applied, skipped };
+  return { applied, skipped: keptLocal.length, keptLocal };
 }
 
 /**
