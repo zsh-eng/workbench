@@ -122,8 +122,7 @@ process.exit(0);
 
 async function run() {
   const videoDir = join(tmpdir(), "agent-kit", `video-${process.pid}`);
-  const browser = await engine.launch();
-  const context = await browser.newContext({
+  const contextOptions = {
     baseURL: origin,
     viewport,
     deviceScaleFactor: 2,
@@ -134,7 +133,17 @@ async function run() {
     serviceWorkers: "block",
     recordVideo:
       command === "clip" ? { dir: videoDir, size: viewport } : undefined,
-  });
+  } as const;
+  // WebKit keeps no Blob in IndexedDB for a context without a profile, and
+  // Reader keeps its books there. WebKit gets a new profile for each run.
+  const profile =
+    engine === webkit
+      ? join(tmpdir(), "agent-kit", `profile-${process.pid}`)
+      : undefined;
+  const browser = profile ? undefined : await engine.launch();
+  const context = browser
+    ? await browser.newContext(contextOptions)
+    : await engine.launchPersistentContext(profile!, contextOptions);
   const storage = options.storage.map((entry) => {
     const at = entry.indexOf("=");
     return [entry.slice(0, at), entry.slice(at + 1)];
@@ -243,7 +252,8 @@ async function run() {
     console.log(
       `page errors: ${errors.length}; first: ${errors[0]!.slice(0, 200)}`,
     );
-  await browser.close();
+  await (browser ?? context).close();
+  if (profile) rmSync(profile, { recursive: true, force: true });
 }
 
 /**

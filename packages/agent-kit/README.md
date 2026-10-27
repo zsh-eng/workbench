@@ -34,6 +34,9 @@ If the server answers `/__e2e`, the kit refuses a server from another checkout.
 | `--runs`, `--warmup`  | `time`: timed runs (10) after untimed runs (1).                 |
 | `--full`, `--timeout` | `shot`: the full page. The time cap in seconds.                 |
 
+WebKit runs in a new profile each time: without one it keeps no Blob in
+IndexedDB, and Reader keeps its books there.
+
 A module's default export receives `{ page, context, baseURL, vars }`. For
 `time`, it is one run: it can return its own duration in milliseconds, for
 example one measured in the page; otherwise the kit times the call. An
