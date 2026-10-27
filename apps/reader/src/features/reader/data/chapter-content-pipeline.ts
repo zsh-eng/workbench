@@ -154,6 +154,8 @@ export async function buildReaderChapterCachedContent(options: {
   collectPublisherBodyScaleBlocks?: boolean;
   chapterStylesheetLoader?: ChapterStylesheetLoader;
   publisherFontFaceLoader?: PublisherFontFaceLoader;
+  /** Parse tables into cells, whose canonical starts the cache then holds. */
+  tables?: boolean;
 }): Promise<ReaderChapterCachedContent> {
   const {
     source,
@@ -164,6 +166,7 @@ export async function buildReaderChapterCachedContent(options: {
     collectPublisherBodyScaleBlocks = false,
     chapterStylesheetLoader,
     publisherFontFaceLoader,
+    tables = false,
   } = options;
   const { document: chapterDoc } = await processEmbeddedResources({
     content: source,
@@ -191,8 +194,9 @@ export async function buildReaderChapterCachedContent(options: {
       ? {
           publisherBookStylingEnabled: true,
           bookStylesheets,
+          tables,
         }
-      : {},
+      : { tables },
   );
 
   if (!includePublisherResources) {
@@ -248,12 +252,15 @@ export function decorateChapterContent(options: {
   highlights: Highlight[];
   publisherBookStylingEnabled?: boolean;
   matchPublisherBodyTextSize?: boolean;
+  /** Must match the base content's `tables`, so cell ids have starts. */
+  tables?: boolean;
 }): ReaderDecoratedChapterArtifact {
   const {
     baseContent,
     highlights,
     publisherBookStylingEnabled = false,
     matchPublisherBodyTextSize = false,
+    tables = false,
   } = options;
   const source = applyChapterHighlights(
     { html: baseContent.html, highlightedHtml: baseContent.html },
@@ -269,6 +276,7 @@ export function decorateChapterContent(options: {
       matchPublisherBodyTextSize,
       bookStylesheets: baseContent.bookStylesheets,
       publisherFontFaces: baseContent.publisherFontFaces,
+      tables,
       ...(baseContent.publisherBodyFontScale !== undefined
         ? { publisherBodyFontScale: baseContent.publisherBodyFontScale }
         : {}),

@@ -8,6 +8,7 @@ import { withReaderTraceSpan } from "@/lib/reader-performance-trace";
 import type { Highlight } from "@/types/highlight";
 import { queryOptions } from "@tanstack/react-query";
 import type { ChapterEntry } from "../../types";
+import { getReaderTablesEnabled } from "../../tables-preference";
 import type { ReaderBaseChapterContent } from "../chapter-content-pipeline";
 import {
   buildReaderChapterArtifact,
@@ -24,6 +25,7 @@ export const readerBodyCacheKeys = {
     sourceFileId: FileId,
     publisherBookStylingEnabled: boolean,
     matchPublisherBodyTextSize: boolean,
+    tables: boolean,
   ) =>
     [
       "readerBodyCache",
@@ -32,6 +34,7 @@ export const readerBodyCacheKeys = {
       sourceFileId,
       getPublisherStylingCacheKey(publisherBookStylingEnabled),
       matchPublisherBodyTextSize ? "body-size-match-on" : "body-size-match-off",
+      getTablesCacheKey(tables),
     ] as const,
 };
 
@@ -51,6 +54,7 @@ export const readerChapterArtifactKeys = {
     publisherBookStylingEnabled: boolean,
     matchPublisherBodyTextSize: boolean,
     publisherBodyFontScale: number | undefined,
+    tables: boolean,
   ) =>
     [
       "readerChapterArtifact",
@@ -67,8 +71,14 @@ export const readerChapterArtifactKeys = {
         matchPublisherBodyTextSize,
         publisherBodyFontScale,
       ),
+      getTablesCacheKey(tables),
     ] as const,
 };
+
+/** Debug tables change how chapters parse; see `tables-preference.ts`. */
+function getTablesCacheKey(tables: boolean): string {
+  return tables ? "tables-grid" : "tables-flat";
+}
 
 function getPublisherStylingCacheKey(enabled: boolean): string {
   return enabled ? "publisher-styling-on" : "publisher-styling-off";
@@ -106,7 +116,7 @@ export function getReaderChapterArtifactSignature(options: {
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
     publisherBodyFontScale,
-  )}:${highlightSignature}`;
+  )}:${getTablesCacheKey(getReaderTablesEnabled())}:${highlightSignature}`;
 }
 
 export interface ReaderCheckpointData {
@@ -132,6 +142,7 @@ export function readerBodyCacheQueryOptions(options: {
     matchPublisherBodyTextSize,
   } = options;
 
+  const tables = getReaderTablesEnabled();
   return queryOptions({
     networkMode: "always", // Local storage and CPU work must not wait for reconnect.
     queryKey: readerBodyCacheKeys.book(
@@ -139,6 +150,7 @@ export function readerBodyCacheQueryOptions(options: {
       sourceFileId ?? ("" as FileId),
       publisherBookStylingEnabled,
       matchPublisherBodyTextSize,
+      tables,
     ),
     queryFn: () =>
       loadReaderBodyCache({
@@ -147,6 +159,7 @@ export function readerBodyCacheQueryOptions(options: {
         chapterEntries,
         publisherBookStylingEnabled,
         matchPublisherBodyTextSize,
+        tables,
       }),
     enabled: !!bookId && !!sourceFileId && chapterEntries.length > 0,
     staleTime: Infinity,
@@ -208,6 +221,7 @@ export function readerChapterArtifactQueryOptions(options: {
     publisherBookStylingEnabled,
     matchPublisherBodyTextSize,
   } = options;
+  const tables = getReaderTablesEnabled();
   return queryOptions({
     networkMode: "always", // Local storage and CPU work must not wait for reconnect.
     queryKey: readerChapterArtifactKeys.chapter(
@@ -219,8 +233,9 @@ export function readerChapterArtifactQueryOptions(options: {
       publisherBookStylingEnabled,
       matchPublisherBodyTextSize,
       baseContent.publisherBodyFontScale,
+      tables,
     ),
-    queryFn: () => buildReaderChapterArtifact(options),
+    queryFn: () => buildReaderChapterArtifact({ ...options, tables }),
     staleTime: Infinity,
     gcTime: READER_CHAPTER_ARTIFACTS_GC_MS,
   });

@@ -42,6 +42,7 @@ import { useReaderBookSearch } from "./search/use-reader-book-search";
 import type { ReaderLocation } from "./reader-location";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
+import { TablesRow } from "./TablesRow";
 import { useSelectAcross } from "./scroll/use-select-across";
 import { isReadingFontId } from "@/lib/reading-fonts";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
@@ -946,6 +947,7 @@ export function Reader() {
                               }}
                             />
                             {debugEnabled && <PaperRow />}
+                            {debugEnabled && <TablesRow />}
                           </>
                         }
                       />

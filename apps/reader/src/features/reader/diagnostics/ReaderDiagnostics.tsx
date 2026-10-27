@@ -31,6 +31,7 @@ import type {
   SpreadIntent,
 } from "@/lib/pagination-v2";
 import { DeferredEpubImageProvider } from "../shared/DeferredEpubImageProvider";
+import { getReaderTablesEnabled } from "../tables-preference";
 import type { ChapterEntry } from "../types";
 import {
   resolveReaderDiagnosticLayout,
@@ -173,6 +174,7 @@ async function buildDiagnosticReaderSource(
   );
   const artifactsByChapter = new Map<number, ReaderDecoratedChapterArtifact>();
   const chapterBuildTimings: DiagnosticChapterBuildTiming[] = [];
+  const tables = getReaderTablesEnabled();
 
   for (const chapter of chapterEntries) {
     const chapterFile = filesByPath.get(chapter.href);
@@ -189,6 +191,7 @@ async function buildDiagnosticReaderSource(
       mediaType: chapterFile.mediaType,
       chapter,
       loadResource: async (path) => filesByPath.get(path)?.content ?? null,
+      tables,
     });
     const sourceMs = performance.now() - sourceStartedAt;
     const baseContent = loadBaseChapterContent({
@@ -203,6 +206,7 @@ async function buildDiagnosticReaderSource(
       decorateChapterContent({
         baseContent,
         highlights: [],
+        tables,
       }),
     );
     chapterBuildTimings.push({
