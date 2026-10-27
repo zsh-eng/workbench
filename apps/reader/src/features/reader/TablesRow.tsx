@@ -3,6 +3,7 @@ import {
   SegmentedToggleGroupItem,
 } from "@/components/ui/segmented-controls";
 import {
+  getReaderTablesEnabled,
   setReaderTablesPreference,
   useReaderTablesPreference,
 } from "./tables-preference";
@@ -15,10 +16,12 @@ const labelClassName =
 /**
  * Appearance → Layout row (Debug mode only): tables as one paragraph, as
  * before, or as a real grid. The choice changes how chapters parse, so the
- * Reader opens again with it.
+ * Reader opens again with it, without a `?tables=` that would override it.
  */
 export function TablesRow() {
-  const grid = useReaderTablesPreference();
+  useReaderTablesPreference();
+  // What the Reader shows, `?tables=` included.
+  const grid = getReaderTablesEnabled();
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -34,7 +37,11 @@ export function TablesRow() {
           const enabled = next === "grid";
           if (enabled === grid) return;
           setReaderTablesPreference(enabled);
-          window.location.reload();
+          const url = new URL(window.location.href);
+          if (url.searchParams.has("tables")) {
+            url.searchParams.delete("tables");
+            window.location.replace(url.href);
+          } else window.location.reload();
         }}
         className="flex w-full rounded-full bg-secondary/40 p-1"
       >
