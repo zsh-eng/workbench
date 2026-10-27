@@ -114,6 +114,30 @@ for (const size of IPADS)
     expect(full.float).toBe(1);
   });
 
+test("A centred form sheet moves to the middle of the space above the keyboard", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await openLab(page);
+  const sheet = await openCase(page, "fit", "Fitting sheet");
+  // A desktop browser shows no keyboard. React Aria measures one as the
+  // visual viewport's height on the overlay; a 400 px keyboard leaves 780.
+  await sheet.evaluate((element) =>
+    element
+      .closest<HTMLElement>(".wb-sheet-overlay")!
+      .style.setProperty("--visual-viewport-height", "780px"),
+  );
+  // Its middle, 390 px down, within a few pixels.
+  await expect
+    .poll(async () => {
+      const box = await measure(sheet);
+      return Math.round((box.top + box.height / 2 - 390) / 4);
+    })
+    .toBe(0);
+  const box = await measure(sheet);
+  expect(box.top).toBeGreaterThanOrEqual(32);
+});
+
 test("A phone keeps the bottom sheet in either orientation", async ({
   page,
 }) => {
