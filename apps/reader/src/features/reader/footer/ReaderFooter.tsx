@@ -21,6 +21,8 @@ export interface ReaderFooterProps {
   currentChapterEndIndex: number;
   displayChapterIndex: number | null;
   isContentsOpen: boolean;
+  /** Contents was tapped before the Reader took taps; it opens when it does. */
+  isContentsRequested?: boolean;
   chapterEntries: ChapterEntry[];
   chapterStartPages: (number | null)[];
   onScrubPreview: (page: number) => void;
@@ -50,6 +52,7 @@ export function ReaderFooter({
   currentChapterEndIndex,
   displayChapterIndex,
   isContentsOpen,
+  isContentsRequested = false,
   chapterEntries,
   chapterStartPages,
   onScrubPreview,
@@ -156,6 +159,7 @@ export function ReaderFooter({
                 onPrevChapter={handlePrevChapter}
                 onOpenContents={onOpenContents}
                 isContentsOpen={isContentsOpen}
+                isContentsRequested={isContentsRequested}
                 isLoading={isLoading}
                 preserveDetailsWhileLoading={preserveDetailsWhileLoading}
                 animateReadyDetails={animateReadyTransition}

@@ -27,6 +27,8 @@ interface FooterChapterRowProps {
   onPrevChapter: () => void;
   onOpenContents: () => void;
   isContentsOpen: boolean;
+  /** Shows the title pressed: Contents opens once the Reader takes taps. */
+  isContentsRequested?: boolean;
   isLoading?: boolean;
   showPageNumbers?: boolean;
   preserveDetailsWhileLoading?: boolean;
@@ -47,6 +49,7 @@ export function FooterChapterRow({
   onPrevChapter,
   onOpenContents,
   isContentsOpen,
+  isContentsRequested = false,
   isLoading = false,
   showPageNumbers = true,
   preserveDetailsWhileLoading = false,
@@ -101,6 +104,8 @@ export function FooterChapterRow({
     onGoToChapter(nextActionableChapterIndex);
   };
 
+  // A tap that waits for the Reader shows on the title at once.
+  const contentsActive = isContentsOpen || isContentsRequested;
   const currentChapterTitle =
     displayChapterIndex != null
       ? (chapterEntries[displayChapterIndex]?.title ?? "")
@@ -170,7 +175,7 @@ export function FooterChapterRow({
               animate={{
                 opacity: showBlurredLoadingDetails ? 0.76 : 1,
                 y: 0,
-                scale: isContentsOpen ? 1.03 : 1,
+                scale: contentsActive ? 1.03 : 1,
                 filter: showBlurredLoadingDetails ? "blur(6px)" : "blur(0px)",
               }}
               exit={{ opacity: 0, y: -4, scale: 0.98 }}
@@ -185,7 +190,7 @@ export function FooterChapterRow({
                 showBlurredLoadingDetails
                   ? "pointer-events-none"
                   : "hover:bg-secondary/70 hover:text-foreground",
-                isContentsOpen &&
+                contentsActive &&
                   "bg-secondary/70 text-foreground shadow-sm ring-1 ring-border/70",
               )}
             >

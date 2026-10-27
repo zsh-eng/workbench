@@ -1,8 +1,40 @@
 import { epubVariant } from "./helpers/epub-variants";
-import { expect, test } from "./helpers/fixtures";
+import { expect, openLocalBook, test, waitForSheet } from "./helpers/fixtures";
 import { importAndOpenEpub, showPhoneChrome } from "./helpers/reader-books";
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("a Contents tap before the Reader is ready opens Contents once it is", async ({
+    page,
+    localBook,
+  }) => {
+    // The footer's chapter title shows before the first page has painted.
+    // Tap it the moment it appears, before the Reader takes taps.
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        const button = document.querySelector<HTMLButtonElement>(
+          '[data-reader-footer] button[aria-label="Open table of contents"]',
+        );
+        if (!button) return;
+        observer.disconnect();
+        button.click();
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    });
+    await openLocalBook(page, localBook.id);
+    const contents = await waitForSheet(page, "Contents");
+    await expect(
+      contents.getByRole("button", { name: /CHAPTER I\./ }).first(),
+    ).toBeVisible();
+  });
+});
 
 test.describe("on an iPad", () => {
   test.use({

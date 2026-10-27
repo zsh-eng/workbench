@@ -46,6 +46,7 @@ import { TablesRow } from "./TablesRow";
 import { useSelectAcross } from "./scroll/use-select-across";
 import { isReadingFontId } from "@/lib/reading-fonts";
 import { useReaderScrollMode } from "./scroll/use-reader-scroll-mode";
+import { useReaderSheetRequest } from "./hooks/use-reader-sheet-request";
 
 export function Reader() {
   const debugEnabled = useDebugEnabled();
@@ -141,6 +142,13 @@ export function Reader() {
     bookId,
     contentReady: isReaderStageMeasured && sessionState.status === "ready",
     stageContentRef,
+  });
+  // The chrome shows before the Reader takes taps; a tool tapped then opens
+  // once it does.
+  const { requested: requestedSheet, requestSheet } = useReaderSheetRequest({
+    bookId,
+    ready: displayReady,
+    openSheet: chromeActions.openReaderSheet,
   });
 
   // The chapter column: a selection's visit across a page break for every
@@ -635,15 +643,16 @@ export function Reader() {
                 isMobile={isMobile}
                 onBackToLibrary={() => navigate("/")}
                 isMenuOpen={chromeState.activeReaderSheet !== null}
-                onOpenMenu={() => {
-                  if (displayReady) chromeActions.openReaderSheet("tools");
-                }}
+                onOpenMenu={() => requestSheet("tools")}
                 toolsTriggerRef={toolsTriggerRef}
                 variant={headerVariant}
                 chapterTitle={currentChapterEntry?.title}
                 activeSheet={chromeState.activeReaderSheet}
                 onToggleSheet={(sheet) => {
-                  if (!displayReady) return;
+                  if (!displayReady) {
+                    requestSheet(sheet);
+                    return;
+                  }
                   const active = chromeState.activeReaderSheet;
                   // Contents opens the tools sidebar; any of its tools counts as open.
                   const open =
@@ -705,6 +714,7 @@ export function Reader() {
                 }
                 chromeSurfaceProps={chromeSurfaceProps}
                 isContentsOpen={chromeState.activeReaderSheet === "contents"}
+                isContentsRequested={requestedSheet === "contents"}
                 currentPage={sessionState.navigation.currentPage}
                 progressLabel={
                   scrollMode.progressLabel && (
@@ -733,9 +743,7 @@ export function Reader() {
                 onScrubCommit={sessionActions.commitPage}
                 onGoToChapter={sessionActions.goToChapter}
                 onPrevChapter={sessionActions.goToPreviousChapter}
-                onOpenContents={() => {
-                  if (displayReady) chromeActions.openReaderSheet("contents");
-                }}
+                onOpenContents={() => requestSheet("contents")}
                 isLoading={
                   !displayReady || sessionState.pagination.status !== "ready"
                 }
