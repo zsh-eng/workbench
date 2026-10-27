@@ -159,6 +159,18 @@ export function resolveAnchorToPage(
 /** A grid cell's or caption's id: the table's id and the cell's number. */
 const TABLE_PART_ID = /^(.+)-(?:c(\d+)|caption)$/;
 
+/** Each chapter's blocks by id; the engine replaces a chapter's array. */
+const blocksById = new WeakMap<readonly Block[], Map<string, Block>>();
+
+function indexBlocks(blocks: readonly Block[]): Map<string, Block> {
+  let byId = blocksById.get(blocks);
+  if (!byId) {
+    byId = new Map(blocks.map((block) => [block.id, block]));
+    blocksById.set(blocks, byId);
+  }
+  return byId;
+}
+
 /**
  * A reading place saved while its chapter read tables the other way
  * (docs/0005-tables.md), as a place in the chapter's blocks now. Grid and
@@ -174,7 +186,7 @@ export function readTableAnchor(
 ): ContentAnchor {
   if (!blocks || !prepared) return anchor;
   const { chapterIndex } = anchor;
-  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const byId = indexBlocks(blocks);
   const block = byId.get(anchor.blockId);
 
   if (!block) {
