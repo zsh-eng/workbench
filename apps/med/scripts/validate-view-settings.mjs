@@ -240,9 +240,6 @@ try {
   await page.bringToFront();
   await palette(page, "Wrap lines in diffs");
   await other.locator('[data-diff-type][data-overflow="wrap"]').first().waitFor();
-  await palette(page, "Use unified diff layout");
-  await palette(page, "Hide comments");
-  assert.deepEqual(await diffView(page), { layout: "unified", wrap: true });
   await palette(page, "Change theme");
   await page.getByRole("combobox", { name: "Search themes" }).fill("Paper Light");
   await page.keyboard.press("Enter");
@@ -258,8 +255,16 @@ try {
   assert.equal(width, sidebarWidth + 48);
   await page.keyboard.press("ControlOrMeta+b");
   await sidebar(page).waitFor({ state: "hidden" });
-  // Each window keeps its own sidebar until it opens again.
-  await page.waitForTimeout(300);
+  await palette(page, "Use unified diff layout");
+  await palette(page, "Hide comments");
+  assert.deepEqual(await diffView(page), { layout: "unified", wrap: true });
+  // The other window follows the layout and the comments. Storage events
+  // arrive in order, so by then it has also heard of the hidden sidebar, and
+  // keeps its own.
+  await other.locator('[data-diff-type="single"]').first().waitFor();
+  assert.deepEqual(await diffView(other), { layout: "unified", wrap: true });
+  assert.equal(await commentsShown(other), false);
+  await closeMenus(other);
   assert.equal(await sidebar(other).isVisible(), true);
   await other.close();
   // The sidebar's width and the panes are saved after a short pause.
@@ -305,7 +310,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "defaults in a new profile; a second window follows wrap at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; session pane hidden and full chrome after a second restart",
+        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; session pane hidden and full chrome after a second restart",
       restarts: 2,
       pageErrors,
     }),

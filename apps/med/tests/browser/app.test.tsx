@@ -13,6 +13,7 @@ import type {
 import { initializeTheme, themeController } from "../../src/web/themes";
 import { createBrowseApi } from "../../src/web/data/browse";
 import { setChromeMode } from "../../src/web/data/chrome";
+import { viewSettings } from "../../src/web/data/view-settings";
 import type { BrowseSource } from "../../src/shared/browse";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { CodexReviewRun } from "../../src/shared/codex-review";
@@ -72,13 +73,10 @@ window.addEventListener(
   true,
 );
 const storedPreferences = [
-  "med:vim",
-  "med:zen",
-  "med:mode",
-  "med:wrap",
-  "med:comments",
-  "med:line-blame",
-  "med:background",
+  // Every view setting, at its default. The chrome is set below.
+  ...Object.values(viewSettings)
+    .filter((setting) => setting !== viewSettings.chrome)
+    .map((setting) => setting.key),
   "med:history",
   "med:pane-layout",
   "med:pane-width",
