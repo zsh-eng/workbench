@@ -2,7 +2,7 @@ import {
   assertBookSyncValue,
   normalizeBookFileReferences,
 } from "@/lib/book-file-references";
-import { decodeSyncValue } from "@zsh-eng/local-sync";
+import { decodeSyncValue, syncTablePrefix } from "@zsh-eng/local-sync";
 import type { SyncTableMap } from "@zsh-eng/local-sync/dexie";
 
 /**
@@ -32,3 +32,13 @@ export const READER_SYNC_TABLES = {
 export const SYNC_V2_SYNCED_TABLES = Object.keys(
   READER_SYNC_TABLES,
 ) as (keyof typeof READER_SYNC_TABLES)[];
+
+/**
+ * What the Library's first screen reads (`useBooksWithStatuses`). A new
+ * device pulls these first, then everything (local-sync PRIORITY_RESTORE.md).
+ */
+export const READER_RESTORE_PRIORITY = (
+  ["books", "readingState", "readingCheckpoints"] satisfies Array<
+    keyof typeof READER_SYNC_TABLES
+  >
+).map(syncTablePrefix);
