@@ -11,8 +11,15 @@
   pointer-events: none;
 }
 .med-card-tab + * {
+  box-sizing: border-box;
   height: calc(max(var(--med-titlebar-height), 38px) - 5px);
   min-height: 0;
+  /* The page's 6 px gutter is above the tab, and the same room at its foot
+     puts its controls and title in the middle of the strip: on the window
+     controls' centre line. On a strip lower than macOS's 38 px the tab keeps
+     the 38 px shape (the height above), so its controls stay inside the
+     card, a little below that strip's centre. */
+  padding-bottom: 6px;
   margin-inline: var(--med-tab-before, 0px) var(--med-tab-after, 0px);
   padding-inline: calc(var(--med-tab-inset-start, 0px) + 6px)
     calc(var(--med-tab-inset-end, 0px) + 6px);
@@ -24,6 +31,16 @@
   :is(button, a, input, select, textarea, [role="tab"], [role="button"], [tabindex]) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+/* The tab's controls take the size of Chrome's own buttons in the strip,
+   24 px: 28 px ones on its centre line would meet the tab's top edge. */
+.med-card-tab + * button {
+  min-height: 24px;
+  height: 24px;
+}
+.med-card-tab + * [data-med-tool-button] {
+  width: 24px;
+  min-width: 24px;
 }
 /* Zen's tab is empty: the content rises into it, and the tab keeps only its
    shape. The window controls stay clickable beside it. */

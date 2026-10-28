@@ -1,14 +1,24 @@
 /* The installed app's title bar, when the reader hides it (title-bar.ts):
-   the page draws there, and the window controls stay over it. */
+   the page draws there, and the window controls stay over it.
+
+   --med-top-row is the height of the window's top row: the sidebar's first
+   row and the title band. In a browser tab it is Med's own 40 px. In the
+   installed app it is the strip that the platform keeps for its controls,
+   exactly: the system centres the controls in that strip (38 px on macOS:
+   the web app toolbar's 24 px buttons and 7 px above and below), so a row of
+   the same height puts Med's controls and title on their centre line. A
+   taller row moved them down by half the difference. */
 :root {
   --med-titlebar-height: 0px;
   --med-titlebar-left: 0px;
   --med-titlebar-right: 0px;
+  --med-top-row: 40px;
 }
 :root[data-titlebar="overlay"] {
   --med-titlebar-height: env(titlebar-area-height, 0px);
   --med-titlebar-left: env(titlebar-area-x, 0px);
   --med-titlebar-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  --med-top-row: var(--med-titlebar-height);
 }
 :root[data-titlebar="overlay"] body {
   background: var(--med-panel);

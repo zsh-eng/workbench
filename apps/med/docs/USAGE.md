@@ -63,6 +63,14 @@ top row move the window. Show the title bar again from the same place. Chrome
 reads this from Med's manifest at a later launch; reinstall the app to get it
 at once.
 
+Med's top row then takes the height of the strip that the system keeps for
+the window controls (38 pixels on macOS), so its controls and title sit on the
+same centre line as the traffic lights. A card that heads the window, such as
+Sources, has 24 pixel controls in its tab, the size of Chrome's own buttons
+beside it. On a strip lower than 38 pixels, as on Windows and Linux, the tab
+keeps its 38 pixel shape, so its controls sit a little below the window
+controls' centre line. In a browser tab the row is 40 pixels.
+
 ## Sources
 
 The first time `med web` runs with nothing registered, Med shows a setup page:
@@ -421,6 +429,12 @@ A review that records its agent session has a Claude or Codex button in the
 toolbar, and **Show agent session** in the palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
+
+- In a wide pane, the thread keeps to a column of 540 pixels in the middle
+  of the pane, about 80 characters of a reply on a line: the replies, the
+  code blocks and tool output, the cards under the thread, and the message
+  box. The pane keeps the width that you give it; drag its edge to give the
+  review the room beside the column.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
@@ -1236,6 +1250,37 @@ compares, and the session's row names the agent and its state.
 - Every action stays in `⌘K` and keeps its shortcut. **Use full chrome** in
   `⌘K` brings back the toolbar, the status bar, and the review's header; **Use
   quiet chrome** goes back. Med keeps the choice for every window.
+
+### View settings
+
+Med keeps your view settings in the browser's storage for its address, so
+they outlast a reload, a closed window, and a restart of the browser or of
+Med's server. Each port is another address: a second profile on another port,
+or a new browser profile, starts with the defaults. A change shows at once in
+every workspace and window, except where the table says "each window" or
+"each workspace": those read the setting when they open.
+
+| Setting                                        | Default      | Kept in (`localStorage`)           |
+| ---------------------------------------------- | ------------ | ---------------------------------- |
+| Split or unified diff                          | Split        | `med:mode`                         |
+| Wrap long lines                                | Off          | `med:wrap`                         |
+| Show comments                                  | On           | `med:comments`                     |
+| Files and commits rail                         | Auto         | `med:changes-rail`                 |
+| Quiet or full chrome                           | Quiet        | `med:chrome:v1`                    |
+| Theme                                          | Med Night    | `med:theme:v1`                     |
+| Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |
+| Find file's preview                            | On           | `med:picker-preview`               |
+| Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`       |
+| Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width` |
+| Zen mode (each workspace)                      | Off          | `med:zen`                          |
+| Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`         |
+| Changes rail, Guide, and Commit list widths    | Per pane     | `med:column:v1:<kind>`             |
+
+A missing or unknown value reads as the default, so nothing needs setting up.
+Some choices belong to one place, not to the view: the Git blame gutter (one
+file tab), **Collapse all files** (one review), and a Markdown file's source
+view (one file). Med has no text size or whitespace setting; the browser's
+zoom (`⌘+`, `⌘−`) changes the text size, and the browser keeps it.
 
 ## Keyboard shortcuts
 

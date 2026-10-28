@@ -79,3 +79,23 @@ export const rowStyles = stylex.create({
     color: tokens.faint,
   },
 });
+
+/**
+ * The thread's readable column. In a wide pane a reply's lines ran the pane's
+ * width, past 150 characters. The thread, its docks, and the message box
+ * keep to a column in the middle of the pane, as a chat app's conversation
+ * does; code blocks and tool output keep to it too. 540 pixels, less the
+ * thread's 18 pixel sides, hold 79 to 84 characters of 13.5 pixel prose on
+ * average in the sans and serif themes (at most 90), and 59 in Paper Mono.
+ * The pane still takes the width that the reader gives it, and the room
+ * beside the column stays empty: a pane cannot have a maximum width in
+ * Med's layout, whose splits are shares of the window (pane-tree.ts).
+ */
+const COLUMN = 540;
+export const column = stylex.create({
+  /** The thread's content, with its sides inside the column. */
+  thread: { boxSizing: "border-box", width: "100%", maxWidth: COLUMN, marginInline: "auto" },
+  /** A card or bar under the thread: 12 pixels in from the column's sides,
+   * as from the pane's sides in a narrow pane. */
+  bar: { marginInline: `max(12px, calc((100% - ${COLUMN}px) / 2 + 12px))` },
+});

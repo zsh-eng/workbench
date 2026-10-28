@@ -8,6 +8,7 @@ import { Icon } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { useShell, useThread, useWorkspace, useWorkspaceEntry } from "../Workspaces";
 import { SessionPanel } from "./SessionPanel";
+import { column } from "./session-styles";
 
 const agentNames = { claude: "Claude Code", codex: "Codex" } as const;
 
@@ -109,7 +110,7 @@ function FoundSessionBar({
   const command =
     session.agent === "claude" ? `claude --resume ${session.id}` : `codex resume ${session.id}`;
   return (
-    <div role="group" aria-label={`Runs in ${name}`} {...stylex.props(styles.box)}>
+    <div role="group" aria-label={`Runs in ${name}`} {...stylex.props(styles.box, column.bar)}>
       <div {...stylex.props(styles.row)}>
         <span {...stylex.props(styles.place)}>
           <Icon name={session.agent} size={13} />

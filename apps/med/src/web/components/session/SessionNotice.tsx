@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type ReactNode } from "react";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
+import { column } from "./session-styles";
 
 // What a session says when its work stopped, and what the reader can do: the
 // durable sessions design. Each stop has a cause and one clear action; none
@@ -98,7 +99,10 @@ export function SessionNotice({
   actions?: readonly NoticeAction[];
 }) {
   return (
-    <div role={tone === "quiet" ? "status" : "alert"} {...stylex.props(styles.notice, tones[tone])}>
+    <div
+      role={tone === "quiet" ? "status" : "alert"}
+      {...stylex.props(styles.notice, column.bar, tones[tone])}
+    >
       <div {...stylex.props(styles.title)}>
         <span {...stylex.props(styles.icon, iconTones[tone])}>
           <Icon name={icon} size={13} />

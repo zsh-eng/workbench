@@ -3,6 +3,9 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
+import { SourcesView } from "../../src/web/components/SourcesPage";
+// The window's top row, as main.tsx loads it.
+import "../../src/web/components/TitleRow.css";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 import { createBrowseApi } from "../../src/web/data/browse";
@@ -277,6 +280,20 @@ const openThread = async (title: string) => {
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
 };
 const frame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+/** The middle of an element's box, from the window's top. */
+const middle = (element: Element) => {
+  const box = element.getBoundingClientRect();
+  return (box.top + box.bottom) / 2;
+};
+/** The installed app with its title bar hidden: Chrome's strip, `height` px
+ * tall, with the traffic lights at its left and Chrome's buttons at its right. */
+function hideTitleBar(height: number) {
+  const html = document.documentElement;
+  html.dataset.titlebar = "overlay";
+  html.style.setProperty("--med-titlebar-height", `${height}px`);
+  html.style.setProperty("--med-titlebar-left", "86px");
+  html.style.setProperty("--med-titlebar-right", "100px");
+}
 
 test("Review names its version and age, and says a range by the names saved with it, or by short object IDs", async () => {
   render();
@@ -463,6 +480,72 @@ test("Push… waits for the remotes, with the reason in its tooltip", async () =
   await push.click();
   await expect.element(page.getByRole("dialog", { name: "Push to remote" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Push to origin" })).toBeVisible();
+});
+
+test("the installed app's top row is the strip's height, so its controls sit on the window controls' centre line", async () => {
+  hideTitleBar(38);
+  await page.viewport(460, 800);
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const band = page.getByRole("banner", { name: "Workspace" });
+  const toggle = band.getByRole("button", { name: "Show sidebar" });
+  await expect.element(toggle).toBeVisible();
+  // macOS's strip, and Windows' lower one.
+  for (const height of [38, 33]) {
+    hideTitleBar(height);
+    const row = band.element().getBoundingClientRect();
+    expect(row.height).toBe(height);
+    expect(middle(toggle.element()) - row.top).toBeCloseTo(height / 2, 1);
+  }
+});
+
+test("a card's tab puts its controls on the window controls' centre line, clear of the tab's edge", async () => {
+  hideTitleBar(38);
+  await page.viewport(1280, 800);
+  initializeTheme();
+  mount = document.createElement("div");
+  // As #root in the installed app: a view starts below the strip.
+  mount.style.cssText =
+    "position:fixed;inset:0;display:flex;flex-direction:column;box-sizing:border-box;padding-top:var(--med-titlebar-height)";
+  document.body.append(mount);
+  root = createRoot(mount);
+  root.render(
+    <SourcesView
+      sources={[]}
+      loaded={false}
+      tab
+      onBack={() => {}}
+      onOpen={() => {}}
+      onAdd={() => {}}
+      onRequest={async () => {}}
+      onCommands={() => {}}
+    />,
+  );
+  const card = page.getByRole("main", { name: "Sources" });
+  const back = card.getByRole("button", { name: "Back" });
+  await expect.element(back).toBeVisible();
+  const parts = [
+    back,
+    card.getByRole("button", { name: "Add sources…" }),
+    card.getByRole("button", { name: "Commands" }),
+    card.getByRole("heading", { name: "Sources" }),
+  ];
+  // macOS's strip and a taller one: the strip's centre line. A strip lower
+  // than 38 px keeps the 38 px tab, whose controls would otherwise leave
+  // the card: they sit at 19 px, below that strip's centre.
+  for (const [height, line] of [
+    [38, 19],
+    [44, 22],
+    [33, 19],
+  ] as const) {
+    hideTitleBar(height);
+    await frame();
+    for (const part of parts) expect(middle(part.element())).toBeCloseTo(line, 1);
+    // The tab's top edge is the card's, and its 1 px outline is drawn there.
+    const edge = card.element().getBoundingClientRect().top;
+    for (const part of parts.slice(0, 3))
+      expect(part.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(edge + 2);
+  }
 });
 
 test("the title band keeps clear of window controls at its right", async () => {

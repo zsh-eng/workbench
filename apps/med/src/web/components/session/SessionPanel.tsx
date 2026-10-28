@@ -47,6 +47,8 @@ import { TurnMark } from "./SessionNotice";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
+import { useViewSwitch, viewSettings } from "../../data/view-settings";
+import { column } from "./session-styles";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
 /** The review's pins, for Pin to review on the agent's replies. */
@@ -454,21 +456,8 @@ export function SessionPanel({
   const [earlierFailed, setEarlierFailed] = useState(false);
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | undefined>();
   // Finished turns fold their work into one row; the switch shows it in each.
-  const [showWork, setShowWork] = useState(() => {
-    try {
-      return localStorage.getItem("med:work") === "shown";
-    } catch {
-      return false;
-    }
-  });
-  const toggleWork = () => {
-    setShowWork(!showWork);
-    try {
-      localStorage.setItem("med:work", showWork ? "folded" : "shown");
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  };
+  const [showWork, setShowWork] = useViewSwitch(viewSettings.work, "shown", "folded");
+  const toggleWork = () => setShowWork(!showWork);
   const start =
     loaded && loaded.generation === state.generation ? loaded.start : (state.start ?? 0);
   const pageable = session.agent !== "acp" && state.status === "live";
@@ -812,7 +801,7 @@ export function SessionPanel({
       )}
       {inbox && session.agent === "acp" && !ownedState ? (
         // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
-        <p {...stylex.props(styles.note, styles.stopped)}>
+        <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
           {agent} stopped with the Med host. Start a new session to continue.
         </p>
       ) : (

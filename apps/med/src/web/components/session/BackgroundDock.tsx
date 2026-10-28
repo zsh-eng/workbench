@@ -5,7 +5,8 @@ import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
 import { ZenContext } from "../ZenExit";
 import { Elapsed } from "./Elapsed";
-import { motion, rowStyles } from "./session-styles";
+import { useViewSwitch, viewSettings } from "../../data/view-settings";
+import { column, motion, rowStyles } from "./session-styles";
 import { isMedWait } from "./thread-model";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
@@ -130,13 +131,7 @@ export function BackgroundDock({
   /** Scrolls the thread to the call, which a long thread may not have rendered. */
   onShow?(id: string): void;
 }) {
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem("med:background") !== "closed";
-    } catch {
-      return true;
-    }
-  });
+  const [open, setOpen] = useViewSwitch(viewSettings.backgroundTasks, "open", "closed");
   const [hidden, setHidden] = useState(() => readIds(HIDDEN));
   const [seen, setSeen] = useState(() => readIds(SEEN));
   const zen = useContext(ZenContext);
@@ -170,15 +165,12 @@ export function BackgroundDock({
     store(HIDDEN, JSON.stringify(next));
   };
   return (
-    <section aria-label="Background tasks" {...stylex.props(styles.dock)}>
+    <section aria-label="Background tasks" {...stylex.props(styles.dock, column.bar)}>
       <div {...stylex.props(styles.top)}>
         <button
           type="button"
           aria-expanded={open}
-          onClick={() => {
-            setOpen(!open);
-            store("med:background", open ? "closed" : "open");
-          }}
+          onClick={() => setOpen(!open)}
           {...stylex.props(rowStyles.row, styles.head)}
         >
           <span {...stylex.props(rowStyles.icon)}>

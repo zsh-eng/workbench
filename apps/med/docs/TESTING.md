@@ -25,6 +25,7 @@ types. The push tests use temporary local bare remotes.
 | Review links, cross-tab comments, copy, clear, push, and base selection | `scripts/validate-review-links.mjs`                 | Built CLI, browser, controller, HTTP host, Git, saved files, and local remote           |
 | Repository and worktree navigation                                      | `scripts/validate-multi-repo.mjs`                   | Built app, repository discovery, and file/search requests                               |
 | First-run welcome, discovery, CLI adds, and login item                  | `scripts/validate-welcome.mjs`                      | Built CLI, browser, WebGL shader, fixture home folder, Git, and the service registry    |
+| View settings after the browser closes and the server restarts          | `scripts/validate-view-settings.mjs`                | Built CLI and server, a browser profile on disk, the same port, and a fixture session   |
 | Comment races and failed writes                                         | `tests/integration/saved-review-controller.test.ts` | Controller, parser, HTTP host, Git, and disk; delay only the external response boundary |
 | CLI discovery, authentication, and saved capture                        | `tests/integration/review-cli.test.ts`              | CLI command implementation, HTTP peers, and local state files                           |
 | Git authorization, merge bases, hooks, and push rejection               | `tests/host/git-actions.test.ts`                    | HTTP routes, Git commands, hooks, and temporary repositories                            |
@@ -76,6 +77,23 @@ results, and comparison of retained builds.
 CLI, Markdown worker, browser, and file APIs: working and historical repository
 files, standalone tabs, URL encoding, parent paths, missing targets, and root
 boundaries. Vault relative links are covered by `bun run test:service`.
+
+## Title bar screenshots
+
+`scripts/kit/titlebar.ts` is an agent kit `--before` module: the installed
+app with its title bar hidden, as Chrome lays out the window on macOS. A test
+browser cannot install the app, so it gives the page Chrome's geometry (a 38
+pixel strip; `MED_TITLEBAR_HEIGHT` tries another, such as 33 for Windows) and
+draws the traffic lights. `scripts/kit/titlebar-guides.ts` measures the centre
+line of each part of the top row in the screenshot, prints them, and draws
+them. The browser test in `tests/browser/quiet-chrome.test.tsx` checks the
+same geometry on 38, 44 and 33 pixel strips. Against a Med on your own port
+and state folder:
+
+```sh
+bun run kit shot "<Med URL with #token=…>" --desktop --size 1280x800 --scale 2 \
+  --before apps/med/scripts/kit/titlebar.ts --steps apps/med/scripts/kit/titlebar-guides.ts
+```
 
 `bun run test:restart` runs a copy of the build and changes it: a newer page
 offers Reload, a broken server build keeps the server running, and a working

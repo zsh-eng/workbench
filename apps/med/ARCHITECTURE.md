@@ -441,6 +441,13 @@ at most 60% of its pane, and it gets less in a narrow pane, so the diff keeps
 `clippedTooltip` in `components/ToolButton.tsx` marks a row, and the tooltip
 opens only when a `[data-clip]` part, or a file tree's truncated text, is cut.
 
+The view settings, such as wrapping and the diff's layout, are one word each
+in `localStorage` under a `med:` key. `data/view-settings.ts` reads and
+writes them: a missing or unknown word is the default, and a change reaches
+the other workspaces and windows through the store and storage events. The
+keys that earlier versions wrote stay the same, so stored choices carry over.
+[View settings](docs/USAGE.md#view-settings) lists them.
+
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,
 hairlines, selection, buttons, label case, and shadows, as `--med-*` variables.
 Code stays in Paper Mono. Fonts and icons ship with Med. See

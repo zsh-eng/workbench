@@ -1328,7 +1328,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 2,
     flexShrink: 0,
-    height: "max(var(--med-titlebar-height), 40px)",
+    height: "var(--med-top-row)",
     paddingInlineStart: "max(var(--med-titlebar-left), 8px)",
     paddingInlineEnd: 6,
   },
