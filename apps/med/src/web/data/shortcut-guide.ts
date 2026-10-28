@@ -217,6 +217,12 @@ export const guideContexts: GuideContext[] = [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
           { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
           {
+            label: "Toggle the guide, or the files and commits",
+            keys: ["Mod+Alt+B"],
+            note: "The rail beside Review and Changes",
+            command: "changes-rail",
+          },
+          {
             label: "Zen mode",
             keys: ["Alt+Z"],
             note: "Hides every bar; the sidebar keys still show panels",

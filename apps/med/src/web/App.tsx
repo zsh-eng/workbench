@@ -1660,14 +1660,20 @@ export function App({
     !zen &&
     !changedVisible &&
     gitAvailable;
-  // "auto" shows the rail in a pane with room for it; the reader's choice holds
-  // in any width.
-  const railChoice = useViewSetting(viewSettings.changesRail);
-  const railShown = changesRail && (railChoice === "open" || (railChoice === "auto" && roomy));
+  // The Guide's rail takes the same place in Review's Guide. The two are one
+  // nested sidebar: hiding it keeps it hidden between the Guide and the diff.
+  // "auto" shows it in a pane with room for it; the reader's choice holds in
+  // any width, so a pane at the edge of the breakpoint stays as chosen.
+  const guideRail = guideTab && !zen;
+  const railChoice = useViewSetting(viewSettings.reviewRail);
+  const railOpen = railChoice === "open" || (railChoice === "auto" && roomy);
+  const railShown = changesRail && railOpen;
+  const guideRailShown = guideRail && railOpen;
   const toggleRail = useCallback(
-    () => viewSettings.changesRail.set(railShown ? "closed" : "open"),
-    [railShown],
+    () => viewSettings.reviewRail.set(railOpen ? "closed" : "open"),
+    [railOpen],
   );
+  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "files and commits"}`;
   // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
   // the whole stack, or a range of layers, from one checkout.
   const stack = useMemo(
@@ -2896,6 +2902,19 @@ export function App({
           return;
         }
       }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyB" &&
+        (changesRail || guideRail)
+      ) {
+        // ⌘⌥B shows or hides the review's rail, the nested sidebar.
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleRail();
+        return;
+      }
       if (event.altKey) return;
       // On macOS, Command runs Med shortcuts. Leave unshifted Control+B/F/O in
       // the editor to Vim (page up/down, jump back) instead of Med's sidebar,
@@ -3172,6 +3191,9 @@ export function App({
     toggleTopFileViewed,
     shown,
     stepLayer,
+    changesRail,
+    guideRail,
+    toggleRail,
   ]);
 
   const selectBranch = useCallback(
@@ -4451,11 +4473,12 @@ export function App({
           },
         ]
       : []),
-    ...(changesRail
+    ...(changesRail || guideRail
       ? [
           {
             id: "changes-rail",
-            label: railShown ? "Hide files and commits" : "Show files and commits",
+            label: railLabel,
+            shortcut: "⌘⌥B",
             run: toggleRail,
           },
         ]
@@ -5392,6 +5415,18 @@ export function App({
       <span {...stylex.props(styles.headerDivider)} />
     </>
   );
+  // The nested sidebar's toggle, at the end of the review's row with the
+  // pane's other controls; the tabs keep their places. It stays where it
+  // is, so a hidden rail is one click back.
+  const railToggle = (changesRail || guideRail) && (
+    <ToolButton
+      icon="panelLeft"
+      label={railLabel}
+      shortcut="Mod+Alt+B"
+      aria-pressed={railOpen}
+      onClick={toggleRail}
+    />
+  );
   // Beside the thread, the review pane's own actions join the header's menu.
   const moreActions: MenuAction[] = [
     {
@@ -5468,7 +5503,7 @@ export function App({
   const layerMenu = stack &&
     reviewShown &&
     !zen &&
-    !(railShown || (changedVisible && gitAvailable) || (guideTab && roomy)) && (
+    !(railShown || (changedVisible && gitAvailable) || guideRailShown) && (
       <LayerMenu
         stack={stack}
         current={Math.max(0, layerIndex)}
@@ -5715,6 +5750,7 @@ export function App({
       {streamChrome && roomy && totals}
       {comparisonActionsElement}
       {streamChrome && notes.length > 0 && notesToggle}
+      {railToggle}
       {state.savedReview ? (
         savedHeader(true)
       ) : (
@@ -5743,6 +5779,7 @@ export function App({
             </>
           ) : (
             <>
+              {railToggle}
               {sessionVisible && !zen && savedHeader(true)}
               {!(sessionVisible && !zen && state.savedReview) && viewControls}
               {controls}
@@ -6076,7 +6113,7 @@ export function App({
               aria-hidden={!streamShown && !guideTab}
             >
               <div {...stylex.props(styles.guideRow)}>
-                {guideTab && !zen && (
+                {guideRailShown && (
                   <GuideRail
                     sections={guideSections}
                     commits={guideCommits}
@@ -6168,15 +6205,6 @@ export function App({
                       {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
                       hidden={zen}
                     >
-                      {changesRail && (
-                        <ToolButton
-                          label={railShown ? "Hide files and commits" : "Show files and commits"}
-                          icon="panelLeft"
-                          aria-pressed={railShown}
-                          active={railShown}
-                          onClick={toggleRail}
-                        />
-                      )}
                       {layerMenu}
                       {comparisonSelect}
                       {comparisonActionsElement}

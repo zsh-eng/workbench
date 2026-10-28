@@ -701,9 +701,12 @@ tab. Each part shows only when the version has it.
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
-branch's commits, or the Review's range, and **All changes** goes back. The rail shows by itself when the review
-pane has room; the toolbar's first button, or **Show files and commits** in
-`⌘K`, shows or hides it in any width, and Med keeps that choice. With the
+branch's commits, or the Review's range, and **All changes** goes back. The
+Guide's list takes the same place in the Guide. The two are one nested
+sidebar: it shows by itself when the review pane has room, and the button at
+the end of the review's row, `⌘⌥B`, or **Hide the guide** or **Show files
+and commits** in `⌘K` hides or shows it in any width. Med keeps that choice
+for both, so a hidden rail stays hidden between the Guide and the diff. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,
 so each one shows at once, in **Review** and in **Changes**.
@@ -1267,7 +1270,7 @@ every workspace and window, except where the table says "each window" or
 | Split or unified diff                          | Split        | `med:mode`                         |
 | Wrap long lines                                | Off          | `med:wrap`                         |
 | Show comments                                  | On           | `med:comments`                     |
-| Files and commits rail                         | Auto         | `med:changes-rail`                 |
+| Guide or files and commits rail                | Auto         | `med:changes-rail`                 |
 | Quiet or full chrome                           | Quiet        | `med:chrome:v1`                    |
 | Theme                                          | Med Night    | `med:theme:v1`                     |
 | Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |

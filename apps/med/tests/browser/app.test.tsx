@@ -2841,6 +2841,51 @@ describe("review guide", () => {
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
     expect(JSON.parse(localStorage.getItem("med:viewed:v1:saved") ?? "[]")).toHaveLength(1);
   });
+  test("the guide and the files rail are one nested sidebar that the reader hides and shows", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the export.",
+        segments: [
+          { title: "Rename alpha", files: ["src/alpha.ts"] },
+          { title: "Rename beta", files: ["src/beta.ts"] },
+        ],
+      },
+    });
+    const guide = page.getByRole("navigation", { name: "Guide" });
+    await expect.element(guide).toBeVisible();
+    // The toggle sits at the end of the review's row.
+    await page.getByRole("button", { name: "Hide the guide" }).click();
+    await expect.element(guide).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+    await expect
+      .element(page.getByRole("button", { name: "Show the guide" }))
+      .toHaveAttribute("aria-pressed", "false");
+    // The overview takes the room.
+    await expect.element(page.getByRole("region", { name: "Guide overview" })).toBeVisible();
+
+    // Hidden in the Guide, hidden beside the diff: one choice for the place.
+    // (The Changed files pane would list the files instead of the rail.)
+    await page.getByRole("tab", { name: "Changes" }).click();
+    await page.getByRole("button", { name: "Close changed files" }).click();
+    const files = page.getByRole("navigation", { name: "Files and commits" });
+    await expect
+      .element(page.getByRole("button", { name: "Show files and commits" }))
+      .toBeVisible();
+    await expect.element(files).not.toBeInTheDocument();
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+    await expect.element(files).toBeVisible();
+    expect(localStorage.getItem("med:changes-rail")).toBe("open");
+
+    // Open holds in a pane too narrow for "auto", and the shortcut hides it again.
+    await page.viewport(700, 800);
+    await page.getByRole("tab", { name: "Review" }).click();
+    await expect.element(guide).toBeVisible();
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+    await expect.element(guide).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+  });
 });
 
 describe("review guide comments", () => {

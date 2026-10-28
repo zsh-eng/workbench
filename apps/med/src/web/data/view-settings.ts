@@ -83,8 +83,10 @@ export const viewSettings = {
   wrap: viewSetting("med:wrap", "off", ["on", "off"]),
   /** Comments in the diff. Writing or opening a comment shows them again. */
   comments: viewSetting("med:comments", "shown", ["shown", "hidden"]),
-  /** The Changes rail beside the diff; "auto" shows it in a wide review. */
-  changesRail: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
+  /** The rail beside Review and Changes: the Guide, or the files and
+   * commits. "auto" shows it in a wide review; a choice holds in any width.
+   * The key is the one that the files rail had before the Guide's joined it. */
+  reviewRail: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
   /** Vim keys in files. */
   vim: viewSetting("med:vim", "on", ["on", "off"]),
   /** The blame of the cursor's line in files. */
