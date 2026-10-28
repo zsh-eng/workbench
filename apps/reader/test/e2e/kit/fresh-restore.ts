@@ -105,6 +105,28 @@ export default async function freshRestore({
     marks: (window as { __restoreLab?: Record<string, number> }).__restoreLab!,
     timeOrigin: performance.timeOrigin,
   }));
+  // Rows in each IndexedDB store at the end, so a fast run is also a whole one.
+  const counts = await page.evaluate(async () => {
+    const result: Record<string, number> = {};
+    for (const { name } of await indexedDB.databases()) {
+      if (!name) continue;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open(name);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      for (const store of db.objectStoreNames)
+        result[`${name}/${store}`] = await new Promise<number>(
+          (resolve, reject) => {
+            const count = db.transaction(store).objectStore(store).count();
+            count.onsuccess = () => resolve(count.result);
+            count.onerror = () => reject(count.error);
+          },
+        );
+      db.close();
+    }
+    return result;
+  });
   const out =
     process.env.RESTORE_LAB_OUT ??
     join(tmpdir(), "agent-kit", "restore-lab.jsonl");
@@ -113,6 +135,7 @@ export default async function freshRestore({
     JSON.stringify({
       size: process.env.RESTORE_LAB_SIZE ?? "large",
       marks,
+      counts,
       requests: requests
         .map((request) => ({
           ...request,
