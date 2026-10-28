@@ -228,14 +228,16 @@ with the host. Consumers that do not implement `pullStream` keep paginated pull.
 
 `new SyncClient({ ..., priority })` takes the key prefixes of the records an
 app's first screen needs, such as `syncTablePrefix("books")` for keys from
-`encodeSyncKey("books", id)`: printable ASCII, at most 8. Until the state
-has bootstrapped, a pull first asks `SyncRemote.pullPrefixed` for those keys
-from cursor 0, commits them without moving the cursor, then runs the full
-pull. The full pull's request goes out when the priority pull has its last
-page; its commits wait for the priority pull. A full-pull record at or below
-the sequence that the priority pull applied for its key is skipped; a newer
-version or a tombstone is applied. Both pulls share the signal, the device
-check and the scope; either failing ends both.
+`encodeSyncKey("books", id)`: printable ASCII, at most 8. While the state has
+neither bootstrapped nor committed a full-pull page, a pull asks
+`SyncRemote.pullPrefixed` for those keys from cursor 0 and commits them
+without moving the cursor. The full pull's request goes out at the same
+time; its commits wait for the priority pull, so the two never write at
+once. A full request that has waited 10 s is dropped, having committed
+nothing, and sent again when the priority pull ends. A full-pull record at
+or below the sequence that the priority pull applied for its key is skipped;
+a newer version or a tombstone is applied. Both pulls share the signal, the
+device check and the scope; either failing ends both.
 
 The Hono routes take `prefix` (repeatable) on `/pull` and `/pull-stream`.
 Each prefix is a range search of the `(user, [namespace,] key)` unique index;

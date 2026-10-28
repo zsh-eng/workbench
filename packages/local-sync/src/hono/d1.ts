@@ -116,22 +116,29 @@ function syncQueries(namespaced: boolean) {
 
   /**
    * The same page, of keys in the JSON array of [start, end) ranges bound
-   * first. Each range is a search of the key index, so only matching rows
-   * are read; they are then sorted by sequence.
+   * first. Each range is a search of the key index, which holds each row's
+   * sequence, so the page's sequences are chosen from the index alone; only
+   * the page's rows are then read, by sequence. A restore's priority keys
+   * are read once per page in the index, never their values.
    */
   const PULL_SYNC_PREFIX_PAGE_SQL = `
-  SELECT stored.*
-  FROM json_each(?) AS range
-  CROSS JOIN sync_records AS stored
-    INDEXED BY ${namespaced ? "sync_records_scope_key_unique" : "sync_records_user_key_unique"}
-  WHERE stored.user_id = ? ${namespaced ? "AND stored.namespace = ?" : ""}
-    AND stored.key >= json_extract(range.value, '$[0]')
-    AND stored.key < json_extract(range.value, '$[1]')
-    AND stored.server_seq > ?
-    AND stored.server_seq <= ?
-    AND (? = 0 OR stored.device_id <> ?)
-  ORDER BY stored.server_seq
-  LIMIT ?
+  SELECT *
+  FROM sync_records
+  WHERE server_seq IN (
+    SELECT candidate.server_seq
+    FROM json_each(?) AS range
+    CROSS JOIN sync_records AS candidate
+      INDEXED BY ${namespaced ? "sync_records_scope_key_unique" : "sync_records_user_key_unique"}
+    WHERE candidate.user_id = ? ${namespaced ? "AND candidate.namespace = ?" : ""}
+      AND candidate.key >= json_extract(range.value, '$[0]')
+      AND candidate.key < json_extract(range.value, '$[1]')
+      AND candidate.server_seq > ?
+      AND candidate.server_seq <= ?
+      AND (? = 0 OR candidate.device_id <> ?)
+    ORDER BY candidate.server_seq
+    LIMIT ?
+  )
+  ORDER BY server_seq
 `;
 
   // Bound rows returned from D1 by raw UTF-8 bytes as well as count. One row past

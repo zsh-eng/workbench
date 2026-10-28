@@ -36,9 +36,10 @@ export interface SyncClientOptions<Prepared> {
   signal?: AbortSignal;
   /**
    * Key prefixes of the records the app's first screen needs, such as
-   * `syncTablePrefix("books")`. Until its first pull completes, a device
-   * pulls these first, without moving its cursor, then pulls everything;
-   * only when the remote has `pullPrefixed` (docs/PRIORITY_RESTORE.md).
+   * `syncTablePrefix("books")`. A device that has not yet committed a page
+   * of its first pull pulls these first, without moving its cursor, then
+   * everything; only when the remote has `pullPrefixed`
+   * (docs/PRIORITY_RESTORE.md).
    */
   priority?: readonly string[];
 }
@@ -86,10 +87,14 @@ export class SyncClient<Prepared> {
     const { observer } = options;
     await this.bindScope();
     const primed = new Map<string, number>();
+    const state = this.requireState();
+    // A full pull commits only after a priority pull ends, so a cursor past
+    // 0 means an earlier attempt's priority pull ended: the device has it.
     if (
       this.priority.length === 0 ||
       !this.remote.pullPrefixed ||
-      this.requireState().bootstrapped
+      state.bootstrapped ||
+      state.pullCursor > 0
     )
       return this.pullFull(observer, { primed });
     return this.pullWithPriority(observer, primed);
@@ -98,27 +103,42 @@ export class SyncClient<Prepared> {
   /**
    * A device's first pull starts with the priority prefixes. Their records
    * commit without a cursor, and `primed` notes each key's sequence. The
-   * full pull's request goes out once the priority pull has its last page,
-   * so its round trip overlaps that page's commit, and its own commits wait
-   * for the priority pull: the two never write at once. It leaves out what
-   * the priority pull applied (docs/PRIORITY_RESTORE.md).
+   * full pull's request goes out at the same time, so its round trip
+   * overlaps the priority pull, but its commits wait for the priority pull:
+   * the two never write at once. It leaves out what the priority pull
+   * applied (docs/PRIORITY_RESTORE.md). A full request that has waited
+   * longer than `FULL_PULL_PATIENCE_MS` is dropped, having committed
+   * nothing, and sent again once the priority pull ends, so that no request
+   * waits near the transport's time limit.
    */
   private async pullWithPriority(
     observer: SyncPassObserver | undefined,
     primed: Map<string, number>,
   ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     const together = new AbortController();
-    let lastPage = () => {};
-    const hasLastPage = new Promise<void>((resolve) => (lastPage = resolve));
     const first = this.pullStreaming(observer, {
       primed,
       prefixes: this.priority,
-      onLastPage: lastPage,
       abort: together.signal,
     });
-    const rest = Promise.race([hasLastPage, first]).then(() =>
-      this.pullFull(observer, { primed, after: first, abort: together.signal }),
+    const impatient = new AbortController();
+    const timer = setTimeout(
+      () => impatient.abort(new DOMException("Waited", "TimeoutError")),
+      FULL_PULL_PATIENCE_MS,
     );
+    // Registered before the full pull waits on `first`, so no timeout fires
+    // once the priority pull has ended.
+    const ended = () => clearTimeout(timer);
+    first.then(ended, ended);
+    const rest = this.pullFull(observer, {
+      primed,
+      after: first,
+      abort: AbortSignal.any([together.signal, impatient.signal]),
+    }).catch(async (error: unknown) => {
+      if (!impatient.signal.aborted || together.signal.aborted) throw error;
+      await first;
+      return this.pullFull(observer, { primed, abort: together.signal });
+    });
     try {
       const [priority, full] = await Promise.all([first, rest]);
       return {
@@ -280,7 +300,6 @@ export class SyncClient<Prepared> {
               )
             )
               return { pulled, skipped };
-            if (!page.hasMore) pass.onLastPage?.();
             if (after) {
               await after;
               after = undefined;
@@ -398,14 +417,18 @@ export class SyncClient<Prepared> {
   }
 }
 
+/**
+ * How long a full pull's request may wait for the priority pull before its
+ * first commit; the transport ends a request after 30 s.
+ */
+const FULL_PULL_PATIENCE_MS = 10_000;
+
 /** One pull of a sync pass: a priority pull, or the full pull after it. */
 interface PullPass {
   /** Each key a priority pull applied, with its server sequence. */
   primed: Map<string, number>;
   /** A priority pull of these key prefixes. */
   prefixes?: readonly string[];
-  /** A priority pull: called when its last page arrives, before it commits. */
-  onLastPage?: () => void;
   /** A full pull: settles before its first commit; a failure ends it. */
   after?: Promise<unknown>;
   /** Ends this pull when the other pull of its pass fails. */

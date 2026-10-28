@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import Dexie, { type Table } from "dexie";
 import { Hono } from "hono";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SyncClient,
   SyncHttpError,
@@ -175,6 +175,8 @@ function device(
     fetch?: typeof fetch;
     signal?: AbortSignal;
     onCommit?: (tables: string[]) => void | Promise<void>;
+    /** A storage that cannot name the keys a pending edit kept. */
+    unnamedKeptLocal?: boolean;
   } = {},
 ) {
   let state: SyncClientState = createSyncClientState("tablet");
@@ -211,24 +213,27 @@ function device(
         bootstrapped: state.bootstrapped,
       });
       await options.onCommit?.(names);
-      return result;
+      return options.unnamedKeptLocal
+        ? { applied: result.applied, skipped: result.skipped }
+        : result;
     },
   };
-  const { remote } = createNamespacedHttpClient({
-    origin: ORIGIN,
-    namespace: "library",
-    stateStore,
-    fetch: options.fetch ?? ((input, init) => server.fetch(input, init)),
-    signal: options.signal,
-  });
-  const client = new SyncClient({
-    storage,
-    remote,
-    stateStore,
-    signal: options.signal,
-    priority: [syncTablePrefix("books")],
-  });
-  return { client, db, commits, state: () => state };
+  /** A new client on this device's state and database, as each sync attempt makes. */
+  const connect = () =>
+    new SyncClient({
+      storage,
+      remote: createNamespacedHttpClient({
+        origin: ORIGIN,
+        namespace: "library",
+        stateStore,
+        fetch: options.fetch ?? ((input, init) => server.fetch(input, init)),
+        signal: options.signal,
+      }).remote,
+      stateStore,
+      signal: options.signal,
+      priority: [syncTablePrefix("books")],
+    });
+  return { client: connect(), connect, db, commits, state: () => state };
 }
 
 describe("priority restore", () => {
@@ -408,5 +413,161 @@ describe("priority restore", () => {
       bootstrapped: false,
     });
     expect(await tablet.db.notes.count()).toBe(0);
+  });
+
+  it("keeps a pending local edit in both pulls and pushes it", async () => {
+    for (const unnamedKeptLocal of [false, true]) {
+      const server = host();
+      await seed(server);
+      const tablet = device(server, { unnamedKeptLocal });
+      // An edit made on this device before its restore reached the book.
+      const edit = {
+        ...change("books", "a", "Book a, edited here"),
+        hlc: { wallTimeMs: Date.now(), counter: 0 },
+      };
+      await tablet.db.books.put({
+        id: "a",
+        title: "Book a, edited here",
+        isDeleted: false,
+      });
+      await tablet.db._sync_outbox.put(edit);
+      const result = await tablet.client.sync();
+      expect((await tablet.db.books.get("a"))?.title).toBe(
+        "Book a, edited here",
+      );
+      // Not knowing which book was kept, the full pull applies b and c again.
+      expect(result).toEqual({
+        pulled: unnamedKeptLocal ? 604 : 602,
+        skipped: 2,
+        pushed: 1,
+      });
+      // The full pull sees the kept book again; the others only when the
+      // storage could not say which book it kept.
+      const fullBooks = tablet.commits
+        .slice(1)
+        .flatMap((commit) => commit.keys)
+        .filter((key) => key.startsWith(syncTablePrefix("books")));
+      expect(fullBooks).toEqual(
+        (unnamedKeptLocal ? ["a", "b", "c"] : ["a"]).map((id) =>
+          encodeSyncKey("books", id),
+        ),
+      );
+    }
+  });
+
+  it("leaves everything to the full pull when the server ignores the filter", async () => {
+    const server = host();
+    await seed(server);
+    // A lenient server: it drops the parameter and answers a plain pull.
+    const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      url.searchParams.delete("prefix");
+      return server.fetch(url, init);
+    };
+    const tablet = device(server, { fetch });
+    expect(await tablet.client.sync()).toEqual({
+      pulled: 603,
+      skipped: 0,
+      pushed: 0,
+    });
+    expect(tablet.commits.map((commit) => commit.tables)).toEqual([
+      ["notes"],
+      ["notes", "books"],
+    ]);
+    expect(tablet.state()).toMatchObject({
+      pullCursor: 603,
+      bootstrapped: true,
+    });
+  });
+
+  it("does not pull the priority prefixes again once the full pull has committed", async () => {
+    const server = host();
+    await seed(server);
+    let fail = true;
+    const tablet = device(server, {
+      onCommit(names) {
+        if (fail && names.includes("notes") && tablet.commits.length === 3) {
+          fail = false;
+          throw new Error("Connection lost");
+        }
+      },
+    });
+    await expect(tablet.client.sync()).rejects.toThrow("Connection lost");
+    expect(tablet.state()).toMatchObject({
+      pullCursor: 500,
+      bootstrapped: false,
+    });
+    await tablet.connect().sync();
+    expect(server.requests.filter((path) => path.includes("pull"))).toEqual([
+      "/sync/v3/pull-stream?prefix",
+      "/sync/v3/pull-stream",
+      "/sync/v3/pull-stream",
+    ]);
+    expect(tablet.state()).toMatchObject({
+      pullCursor: 603,
+      bootstrapped: true,
+    });
+    expect(await tablet.db.notes.count()).toBe(600);
+  });
+
+  it("sends the full pull again when it has waited too long for the priority pull", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    cleanup.push(() => vi.useRealTimers());
+    const record = (key: string, serverSeq: number): SyncRecord => ({
+      key,
+      value: "v",
+      isDeleted: false,
+      schemaVersion: 1,
+      hlc: { wallTimeMs: 1_000, counter: serverSeq },
+      deviceId: "phone",
+      serverSeq,
+    });
+    const book = record(encodeSyncKey("books", "a"), 2);
+    const note = record(encodeSyncKey("notes", "n"), 1);
+    let release = () => {};
+    const slowCommit = new Promise<void>((resolve) => (release = resolve));
+    const opened: string[] = [];
+    const stored = new Map<string, number>();
+    let state = createSyncClientState("tablet");
+    const client = new SyncClient<readonly SyncRecord[]>({
+      stateStore: { read: () => state, write: (next) => void (state = next) },
+      priority: [syncTablePrefix("books")],
+      storage: {
+        getPendingChanges: async () => [],
+        prepareRemoteRecords: (records) => records,
+        reconcilePushResults: async () => 0,
+        async applyRemoteRecords(records) {
+          if (records.some((r) => r.key === book.key)) await slowCommit;
+          for (const r of records)
+            stored.set(r.key, (stored.get(r.key) ?? 0) + 1);
+          return { applied: records.length, skipped: 0, keptLocal: [] };
+        },
+      },
+      remote: {
+        async *pullPrefixed() {
+          opened.push("priority");
+          yield { records: [book], cursor: 2, head: 2, hasMore: false };
+        },
+        async *pullStream(_device, _request, signal) {
+          opened.push("full");
+          await Promise.resolve();
+          signal.throwIfAborted();
+          yield { records: [note, book], cursor: 2, head: 2, hasMore: false };
+        },
+        pull: () => Promise.reject(new Error("Unexpected page pull")),
+        push: () => Promise.reject(new Error("Unexpected push")),
+      },
+    });
+    const pulling = client.pull();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(opened).toEqual(["priority", "full"]);
+    release();
+    expect(await pulling).toEqual({ pulled: 2, skipped: 0 });
+    expect(opened).toEqual(["priority", "full", "full"]);
+    expect(Object.fromEntries(stored)).toEqual({
+      [book.key]: 1,
+      [note.key]: 1,
+    });
+    expect(state).toMatchObject({ pullCursor: 2, bootstrapped: true });
   });
 });

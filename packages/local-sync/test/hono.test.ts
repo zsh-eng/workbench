@@ -327,12 +327,18 @@ describe("key-prefix pull", () => {
       .prepare(`EXPLAIN QUERY PLAN ${page.sql}`)
       .all(...page.values)
       .map((row) => (row as { detail: string }).detail);
+    // The key index chooses the page; its rows are then read by sequence.
     expect(plan).toContainEqual(
       expect.stringMatching(
-        /^SEARCH stored USING INDEX sync_records_user_key_unique \(user_id=\? AND key>\? AND key<\?\)$/,
+        /^SEARCH candidate USING INDEX sync_records_user_key_unique \(user_id=\? AND key>\? AND key<\?\)$/,
       ),
     );
-    expect(plan.some((step) => step.startsWith("SCAN stored"))).toBe(false);
+    expect(plan).toContainEqual(
+      "SEARCH sync_records USING INTEGER PRIMARY KEY (rowid=?)",
+    );
+    expect(
+      plan.some((step) => /^SCAN (candidate|sync_records)( |$)/.test(step)),
+    ).toBe(false);
   });
 
   it("refuses prefixes it cannot read as key ranges", async () => {
