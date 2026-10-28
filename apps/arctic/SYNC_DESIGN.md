@@ -287,7 +287,7 @@ changes, not deletion. Retain tombstones until a separate retention/recovery
 protocol exists. A pull can split related records across pages: projections must
 tolerate missing parents and must not expose invalid partial combinations.
 
-Preserve the reading-time rules: count qualifying interaction gaps up to 120
+Preserve the reading-time rules: count qualifying interaction gaps up to 180
 seconds; do not add idle gaps beyond that threshold. Weekly article count requires
 at least 60 recorded seconds for that article that week. Repeated sync never adds
 the same session twice. Genuine simultaneous reading on two devices is summed
