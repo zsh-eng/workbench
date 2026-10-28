@@ -445,7 +445,7 @@ The view settings, such as wrapping and the diff's layout, are one word each
 in `localStorage` under a `med:` key. `data/view-settings.ts` reads and
 writes them: a missing or unknown word is the default, and a change reaches
 the other workspaces and windows through the store and storage events. The
-keys are the ones that earlier versions wrote, so stored choices carry over.
+keys that earlier versions wrote stay the same, so stored choices carry over.
 [View settings](docs/USAGE.md#view-settings) lists them.
 
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,

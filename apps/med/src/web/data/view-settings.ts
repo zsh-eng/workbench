@@ -8,8 +8,8 @@ import { useMemo, useSyncExternalStore, type SetStateAction } from "react";
  * Med serves one origin for each port (6330 by default).
  *
  * A key that is missing or holds an unknown word reads as the default, so a
- * first visit needs no setup and an older Med's storage reads as it did: the
- * keys that older versions wrote stay the same. When storage refuses a
+ * first visit needs no setup. The keys that older versions wrote stay the
+ * same, so an older Med's storage reads as it did. When storage refuses a
  * write, the choice holds for this page.
  *
  * `useViewSetting` shares a setting with every workspace and window that

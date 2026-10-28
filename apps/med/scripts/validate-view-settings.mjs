@@ -140,7 +140,10 @@ async function commentsShown(page) {
 const closeMenus = async (page) => {
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
-  await page.getByRole("menu").waitFor({ state: "hidden" });
+  // The menu and its View submenu close together.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('[role="menu"]')].every((menu) => !menu.checkVisibility()),
+  );
 };
 const sidebar = (page) => page.locator('nav[aria-label="Threads"]');
 const sessionPane = (page) => page.locator("[data-session-panel]").filter({ visible: true });
@@ -210,7 +213,8 @@ try {
       ...["--key", "view-settings", "--session", `claude:${sessionId}`, "--no-pr"],
       ...["--port", String(server.port), "--state-dir", stateDir],
     ],
-    { encoding: "utf8" },
+    // The CLI reads the session's transcript from the fixture home too.
+    { encoding: "utf8", env: { ...process.env, MED_HOME_DIR: home } },
   );
   reviewId = /\/review\/(r_[a-z0-9]+)/.exec(link)[1];
 
@@ -226,8 +230,16 @@ try {
   const gutter = resizer(page, /^Resize .*session/i);
   const firstShare = Number(await gutter.getAttribute("aria-valuenow"));
 
-  // The reader changes them.
+  // A second window on the same profile, to see which choices follow.
+  const other = await context.newPage();
+  other.on("pageerror", (error) => pageErrors.push(error.message));
+  await other.goto(`${server.origin}/review/${reviewId}${server.hash}`);
+  await other.locator("[data-diff-type]").first().waitFor();
+
+  // The reader changes them. A shared setting reaches the other window at once.
+  await page.bringToFront();
   await palette(page, "Wrap lines in diffs");
+  await other.locator('[data-diff-type][data-overflow="wrap"]').first().waitFor();
   await palette(page, "Use unified diff layout");
   await palette(page, "Hide comments");
   assert.deepEqual(await diffView(page), { layout: "unified", wrap: true });
@@ -246,6 +258,10 @@ try {
   assert.equal(width, sidebarWidth + 48);
   await page.keyboard.press("ControlOrMeta+b");
   await sidebar(page).waitFor({ state: "hidden" });
+  // Each window keeps its own sidebar until it opens again.
+  await page.waitForTimeout(300);
+  assert.equal(await sidebar(other).isVisible(), true);
+  await other.close();
   // The sidebar's width and the panes are saved after a short pause.
   await page.waitForTimeout(600);
   await restart(page, "1-changed");
@@ -289,7 +305,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "defaults in a new profile; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; session pane hidden and full chrome after a second restart",
+        "defaults in a new profile; a second window follows wrap at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; session pane hidden and full chrome after a second restart",
       restarts: 2,
       pageErrors,
     }),

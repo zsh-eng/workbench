@@ -74,6 +74,11 @@ window.addEventListener(
 const storedPreferences = [
   "med:vim",
   "med:zen",
+  "med:mode",
+  "med:wrap",
+  "med:comments",
+  "med:line-blame",
+  "med:background",
   "med:history",
   "med:pane-layout",
   "med:pane-width",
