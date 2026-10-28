@@ -22,6 +22,7 @@ import {
   type SentMessage,
 } from "../../data/agent-inbox";
 import { useOwnedSession } from "../../data/owned-session";
+import { useThreadUsage } from "../../data/thread-usage";
 import { useOutbox, type Outgoing } from "../../data/outbox";
 import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
@@ -43,6 +44,7 @@ import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
+import { UsageChip, type ShownContext } from "./ThreadUsage";
 import { TurnMark } from "./SessionNotice";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
@@ -665,6 +667,20 @@ export function SessionPanel({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running, presence]);
   const needsYou = !!ownedState?.permission;
+  // Asked again as the transcript grows, at a turn's end, and now and then
+  // while subagents work, whose transcripts the thread does not follow.
+  const usage = useThreadUsage(
+    reviewId,
+    session.id,
+    `${state.modifiedAt ?? 0}:${running}:${running ? Math.floor(now / 15_000) : 0}`,
+    fetcher,
+  );
+  const shownContext: ShownContext | undefined =
+    usage?.context?.sessionId === session.id
+      ? usage.context
+      : ownedState?.context
+        ? { used: ownedState.context.used, window: ownedState.context.total, windowFrom: "agent" }
+        : undefined;
   const panel = useRef<HTMLElement>(null);
   const turnRecap = useMemo(
     () =>
@@ -758,6 +774,7 @@ export function SessionPanel({
           {status}
         </span>
         {quiet ? <span {...stylex.props(styles.grow)} /> : menu}
+        {!zen && <UsageChip usage={usage} context={shownContext} />}
         {!zen &&
           (controls ?? (
             <ToolButton

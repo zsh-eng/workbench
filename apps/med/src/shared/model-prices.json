@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "readAt": "2026-10-29",
+  "currency": "USD",
+  "unit": "per million tokens",
+  "notes": "Claude API list prices. Model IDs follow https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions. dataResidency multiplies every token price of a request with inference_geo \"us\" (Claude 4.6 and later). fast is fast mode's input and output price; cache prices keep the model's own multipliers on top of it. longContext is a request whose prompt (input, cache reads and cache writes) is over its threshold.",
+  "webSearchPerThousand": 10,
+  "dataResidency": 1.1,
+  "models": {
+    "claude-fable-5-1": {
+      "input": 10,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20,
+      "cacheRead": 0.25,
+      "output": 50
+    },
+    "claude-mythos-5-1": {
+      "input": 10,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20,
+      "cacheRead": 0.25,
+      "output": 50
+    },
+    "claude-fable-5": {
+      "input": 10,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20,
+      "cacheRead": 1,
+      "output": 50
+    },
+    "claude-mythos-5": {
+      "input": 10,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20,
+      "cacheRead": 1,
+      "output": 50
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "cacheWrite5m": 5,
+      "cacheWrite1h": 8,
+      "cacheRead": 0.2,
+      "output": 20,
+      "fast": { "input": 8, "output": 40 }
+    },
+    "claude-opus-5": {
+      "input": 5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5,
+      "output": 25,
+      "fast": { "input": 10, "output": 50 }
+    },
+    "claude-opus-4-8": {
+      "input": 5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5,
+      "output": 25,
+      "fast": { "input": 10, "output": 50 }
+    },
+    "claude-opus-4-7": {
+      "input": 5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5,
+      "output": 25
+    },
+    "claude-opus-4-6": {
+      "input": 5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5,
+      "output": 25
+    },
+    "claude-opus-4-5": {
+      "input": 5,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5,
+      "output": 25
+    },
+    "claude-opus-4-1": {
+      "input": 15,
+      "cacheWrite5m": 18.75,
+      "cacheWrite1h": 30,
+      "cacheRead": 1.5,
+      "output": 75
+    },
+    "claude-sonnet-5-5": {
+      "input": 2,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4,
+      "cacheRead": 0.1,
+      "output": 10
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4,
+      "cacheRead": 0.2,
+      "output": 10
+    },
+    "claude-sonnet-4-6": {
+      "input": 3,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6,
+      "cacheRead": 0.3,
+      "output": 15
+    },
+    "claude-sonnet-4-5": {
+      "input": 3,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6,
+      "cacheRead": 0.3,
+      "output": 15
+    },
+    "claude-haiku-5-5": {
+      "input": 0.1,
+      "cacheWrite5m": 0.125,
+      "cacheWrite1h": 0.2,
+      "cacheRead": 0.01,
+      "output": 0.5,
+      "longContext": {
+        "over": 100000,
+        "input": 0.5,
+        "cacheWrite5m": 0.625,
+        "cacheWrite1h": 1,
+        "cacheRead": 0.05,
+        "output": 2.5
+      }
+    },
+    "claude-haiku-4-5": {
+      "input": 1,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2,
+      "cacheRead": 0.1,
+      "output": 5
+    }
+  }
+}

@@ -497,8 +497,10 @@ Gemini CLI in the review's repository, with your own sign-in; it does not
 install them. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
-tool call that needs an answer shows **Allow** and **Deny**.
+and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
+needs an answer shows **Allow** and **Deny**. The pane's header shows how full
+the context is and what the thread has spent, subagents included; click it
+for where autocompact starts and each model's tokens.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't

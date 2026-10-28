@@ -95,7 +95,13 @@ import {
 } from "./agent-transcripts";
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
-import { CONTINUE_TURN, findAgents, OwnedSessions, type RunnableAgent } from "./owned-sessions";
+import {
+  agentEnvironment as startedAgentEnvironment,
+  CONTINUE_TURN,
+  findAgents,
+  OwnedSessions,
+  type RunnableAgent,
+} from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
@@ -106,6 +112,8 @@ import { createPullRequestLinks } from "./pull-request-links";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
+import { createSessionUsage } from "./session-usage";
+import { usageRoutes } from "../shared/model-usage";
 import {
   foundUpdateSchema,
   sessionAdoptSchema,
@@ -472,6 +480,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The files that each agent session edited, for "Only this session's files",
   // and the commands that wrote generated files.
   const sessionEdits = createSessionEdits();
+  const sessionUsage = createSessionUsage();
   // Dependency licences and release dates, once the reader turns them on.
   const dependencyInfo = createDependencyInfo({
     stateDir: options.stateDir ?? temporaryState!,
@@ -956,6 +965,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     route(generatedRoutes.dependencies, async (input, { signal }) => ({
       packages: await dependencyInfo.lookup(input.packages, signal),
     })),
+    // A thread's spend and its session's context (session-usage.ts). An
+    // agent that Med runs reports its window, and starts with Med's variables.
+    route(usageRoutes.thread, async ({ id, session }) => {
+      const sessions = (await found.session(id)) ?? (await savedReviews.get(id)).sessions ?? [];
+      return sessionUsage.thread(sessions, session, (sessionId) => {
+        const runner = ownedSessions.get(sessionId);
+        if (!runner) return undefined;
+        const window = runner.state().context?.total;
+        return { ...(window ? { window } : {}), env: startedAgentEnvironment() };
+      });
+    }),
     ...attempts.routes(),
     ...questions.routes(),
   ]);

@@ -26,6 +26,7 @@ import type {
   Since,
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
+import type { ThreadUsage } from "../../src/shared/model-usage";
 import type { ReviewGuide } from "../../src/shared/review-guide";
 import type { QuestionState } from "../../src/shared/questions";
 import type { BlameLoader } from "../../src/web/data/blame";
@@ -191,6 +192,8 @@ async function mountApp(
     vault?: boolean;
     /** The host's answer to "what changed since your last review". */
     since?: Since;
+    /** The thread's spend and context, as the host reads them from transcripts. */
+    usage?: ThreadUsage;
   } = {},
 ) {
   initializeTheme();
@@ -477,6 +480,8 @@ async function mountApp(
             return () => transcriptListeners.delete(push);
           },
         );
+      if (url.pathname === "/api/thread-usage" && options.usage)
+        return Response.json(options.usage);
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return options.sessionPages
           ? eventStream(() => options.session!)
@@ -3766,6 +3771,88 @@ describe("agent session", () => {
     await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   });
 
+  test("the header shows the thread's context and spend, and a click shows where they come from", async () => {
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      usage: {
+        context: {
+          sessionId: "s1",
+          agent: "claude",
+          model: "claude-opus-5-5",
+          used: 312_932,
+          window: 1_000_000,
+          windowFrom: "model",
+          compaction: {
+            at: 500_000,
+            from: "modelSettings in ~/.claude/settings.json",
+            approximate: false,
+          },
+          compacted: false,
+        },
+        spend: {
+          total: 230.62,
+          subagents: { count: 4, cost: 40.44 },
+          models: [
+            {
+              model: "claude-opus-5-5",
+              requests: 812,
+              input: 41_000,
+              output: 690_000,
+              cacheWrite5m: 0,
+              cacheWrite1h: 3_100_000,
+              cacheRead: 410_000_000,
+              webSearches: 0,
+              cost: 230.62,
+            },
+            {
+              model: "gpt-test",
+              requests: 1,
+              input: 1000,
+              output: 300,
+              cacheWrite5m: 0,
+              cacheWrite1h: 0,
+              cacheRead: 4000,
+              webSearches: 0,
+              cost: null,
+            },
+          ],
+          missing: [],
+        },
+        prices: {
+          version: 1,
+          source: "https://platform.claude.com/docs/en/about-claude/pricing",
+          readAt: "2026-10-29",
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const chip = panel.getByRole("button", { name: "Context and spend" });
+    await expect.element(chip.getByRole("img", { name: "Context 31% full" })).toBeVisible();
+    await expect.element(chip).toMatchTextContent("$230.62");
+
+    await userEvent.click(chip);
+    const context = page.getByRole("region", { name: "Context" });
+    await expect
+      .element(context.getByRole("meter", { name: "Context in use" }))
+      .toHaveAttribute("aria-valuenow", "312932");
+    await expect.element(context.getByText("312,932 of 1M tokens")).toBeVisible();
+    await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await expect
+      .element(context.getByText("modelSettings in ~/.claude/settings.json"))
+      .toBeVisible();
+    const spend = page.getByRole("region", { name: "Spend" });
+    await expect.element(spend.getByText("$40.44 by 4 subagents")).toBeVisible();
+    await expect.element(spend.getByRole("cell", { name: "Opus 5.5" })).toBeVisible();
+    // A model without a price shows its tokens, and the total says it leaves it out.
+    await expect.element(spend.getByRole("cell", { name: "No price" })).toBeVisible();
+    await expect.element(spend.getByText(/no price for gpt-test/)).toBeVisible();
+    await expect
+      .element(spend.getByRole("link", { name: "Anthropic's pricing page" }))
+      .toHaveAttribute("href", "https://platform.claude.com/docs/en/about-claude/pricing");
+  });
+
   test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {
     const { agentMessages } = await mountApp({
       savedReview: true,
@@ -4095,7 +4182,8 @@ describe("agent session", () => {
       commands: [{ name: "review", description: "Review the current changes" }],
       context: { used: 40_000, total: 200_000 },
     });
-    await expect.element(composer.getByRole("img", { name: "Context 20% full" })).toBeVisible();
+    // Before the transcript has a request, the header shows what the runner reports.
+    await expect.element(page.getByRole("img", { name: "Context 20% full" })).toBeVisible();
     // Model, effort, and mode are pickers, not commands.
     await userEvent.click(composer.getByRole("combobox", { name: "Model" }));
     await userEvent.click(page.getByRole("option", { name: "Haiku" }));

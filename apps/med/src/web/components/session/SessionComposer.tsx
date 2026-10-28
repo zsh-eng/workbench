@@ -73,42 +73,6 @@ function matchCommands(commands: OwnedCommand[], query: string) {
   return [...starts, ...contains].slice(0, MAX_COMMANDS);
 }
 
-const tokenCount = (value: number) =>
-  value >= 1_000_000
-    ? `${(value / 1_000_000).toFixed(1)}M`
-    : value >= 1000
-      ? `${Math.round(value / 1000)}k`
-      : String(value);
-
-/** How full the context window is, after the last turn. */
-function ContextMeter({ used, total }: { used: number; total: number }) {
-  const share = Math.min(1, used / total);
-  const percent = Math.round(share * 100);
-  const radius = 5.25;
-  const length = 2 * Math.PI * radius;
-  return (
-    <span
-      role="img"
-      aria-label={`Context ${percent}% full`}
-      title={`${tokenCount(used)} of ${tokenCount(total)} tokens in context`}
-      {...stylex.props(styles.meter, share >= 0.8 && styles.meterFull)}
-    >
-      <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true">
-        <circle cx={7} cy={7} r={radius} {...stylex.props(styles.meterTrack)} />
-        <circle
-          cx={7}
-          cy={7}
-          r={radius}
-          strokeDasharray={`${share * length} ${length}`}
-          transform="rotate(-90 7 7)"
-          {...stylex.props(styles.meterValue)}
-        />
-      </svg>
-      {percent}%
-    </span>
-  );
-}
-
 /** A tool call that waits for the user: a permission to give, the agent's
  * questions, or its plan. */
 export function PermissionCard({
@@ -722,9 +686,6 @@ export function SessionComposer({
                 {continuing ? "Continuing…" : "Continue in Med"}
               </button>
             )}
-            {owned?.state.context && (
-              <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
-            )}
             <input
               ref={imageInput}
               type="file"
@@ -946,18 +907,6 @@ const styles = stylex.create({
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
     fontSize: 11.5,
   },
-  meter: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11,
-    fontVariantNumeric: "tabular-nums",
-  },
-  meterFull: { color: tokens.accent },
-  meterTrack: { fill: "none", stroke: tokens.line, strokeWidth: 1.75 },
-  meterValue: { fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" },
   commands: {
     listStyle: "none",
     margin: 0,
