@@ -1,4 +1,5 @@
 import {
+  readerSessionGapMs,
   readerSessionPosition,
   useReaderReadingSession,
 } from "@/features/reader/hooks/reading-sessions/use-reader-reading-session";
@@ -6,11 +7,11 @@ import { readerLocationFromSpread } from "@/features/reader/reader-location";
 import { updateCurrentDeviceReadingSession } from "@/lib/db";
 import type { ResolvedSpread, SpreadIntent } from "@/lib/pagination-v2";
 import { CHECKPOINT_MS } from "@workbench/activity-time";
+import { widthClass } from "@workbench/elements/size-class";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
-  READING_SESSION_IDLE_TIMEOUT_MS: 10 * 60 * 1000,
   updateCurrentDeviceReadingSession: vi.fn(() => Promise.resolve("session-id")),
 }));
 
@@ -88,6 +89,92 @@ describe("reading session position", () => {
   });
 });
 
+interface Size {
+  width: number;
+  height: number;
+}
+
+/**
+ * Answers the size-class media queries and `screen` as a device would: a
+ * touch screen or not, its screen, and the window on it.
+ */
+function useDevice(device: { touch: boolean; screen: Size; window: Size }) {
+  vi.stubGlobal("screen", device.screen);
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const size = /^\((width|height) (<|>=) (\d+)px\)$/.exec(query);
+    let matches = query === "(any-pointer: coarse)" && device.touch;
+    if (size) {
+      const value = device.window[size[1] as keyof Size];
+      matches = size[2] === "<" ? value < +size[3] : value >= +size[3];
+    }
+    return {
+      matches,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    };
+  });
+}
+
+const PHONE = { width: 390, height: 844 };
+const PHONE_TURNED = { width: 844, height: 390 };
+const IPAD = { width: 820, height: 1180 };
+
+describe("reading session gap", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [
+      "a phone",
+      { touch: true, screen: PHONE, window: PHONE },
+      "compact",
+      180_000,
+    ],
+    [
+      "a phone on its side",
+      {
+        touch: true,
+        screen: PHONE_TURNED,
+        window: { width: 844, height: 340 },
+      },
+      "expanded",
+      180_000,
+    ],
+    [
+      "a tablet",
+      { touch: true, screen: IPAD, window: IPAD },
+      "medium",
+      300_000,
+    ],
+    [
+      "an iPad window beside another app",
+      { touch: true, screen: IPAD, window: { width: 500, height: 1180 } },
+      "compact",
+      300_000,
+    ],
+    [
+      "a desktop",
+      {
+        touch: false,
+        screen: { width: 1440, height: 900 },
+        window: { width: 1280, height: 800 },
+      },
+      "expanded",
+      300_000,
+    ],
+  ] as const)(
+    "on %s follows the device, not the window",
+    (_device, device, windowClass, gapMs) => {
+      useDevice(device);
+      // The window's own class can say otherwise; the gap does not follow it.
+      expect(widthClass()).toBe(windowClass);
+      expect(readerSessionGapMs()).toBe(gapMs);
+    },
+  );
+});
+
 describe("useReaderReadingSession", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -149,7 +236,7 @@ describe("useReaderReadingSession", () => {
     expect(mockedUpdateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("counts browser input and page turns, and discards a gap over ten minutes", async () => {
+  it("counts browser input and page turns, and discards a quiet stretch longer than the gap", async () => {
     const { rerender } = renderHook(
       ({ spread }) => useReaderReadingSession({ bookId: "book-1", spread }),
       { initialProps: { spread: makeSpread({ intent: { kind: "restore" } }) } },

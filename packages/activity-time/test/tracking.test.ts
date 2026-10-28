@@ -134,6 +134,26 @@ it("counts a quiet stretch of three minutes, and nothing of a longer one", () =>
   expect(tracker.session).toMatchObject({ activeMs: 250_000 });
 });
 
+it("chooses the gap as a session begins, and keeps it to the session's end", () => {
+  const tab = page();
+  let gapMs = 300_000;
+  const tracker = track(tab, { gapMs: () => gapMs });
+  tracker.begin({ kind: "book", id: "alice" });
+  // The gap the next session would take changes; this session keeps its own.
+  gapMs = 180_000;
+  wait(240_000);
+  tab.key();
+  expect(tracker.session).toMatchObject({ gapMs: 300_000, activeMs: 240_000 });
+  // The same subject keeps the open session and its gap.
+  tracker.begin({ kind: "book", id: "alice" });
+  expect(tracker.session).toMatchObject({ gapMs: 300_000 });
+  // A new session takes the gap of its start: four quiet minutes count nothing.
+  tracker.begin({ kind: "book", id: "tundra" });
+  wait(240_000);
+  tab.key();
+  expect(tracker.session).toMatchObject({ gapMs: 180_000, activeMs: 0 });
+});
+
 it("saves on the timer without counting time, at most every five seconds", async () => {
   const tab = page();
   const writes: number[] = [];

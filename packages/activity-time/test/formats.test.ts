@@ -5,6 +5,8 @@ import {
   fromReaderSession,
   fromSpacedReview,
   localDay,
+  READER_GAP_MS,
+  READER_LEGACY_GAP_MS,
   summarizeTime,
   toReaderSession,
   type ActivitySession,
@@ -58,27 +60,30 @@ it("writes the phone's bytes for an Arctic session and reads them back", () => {
   ).toBeNull();
 });
 
+/** A Reader row as every Reader version has written it, without a gap. */
+const legacyReaderRow = {
+  id: "reader-session",
+  bookId: "alice",
+  deviceId: "laptop",
+  readerInstanceId: "reader-1",
+  startedAt: day(21, 20),
+  endedAt: null,
+  lastActiveAt: day(21, 21),
+  activeMs: 1_800_000,
+  startSpineIndex: 2,
+  startScrollProgress: 10,
+  endSpineIndex: 4,
+  endScrollProgress: 55,
+};
+
 it("maps a Reader row to a session and back without loss", () => {
-  const row = {
-    id: "reader-session",
-    bookId: "alice",
-    deviceId: "laptop",
-    readerInstanceId: "reader-1",
-    startedAt: day(21, 20),
-    endedAt: null,
-    lastActiveAt: day(21, 21),
-    activeMs: 1_800_000,
-    startSpineIndex: 2,
-    startScrollProgress: 10,
-    endSpineIndex: 4,
-    endScrollProgress: 55,
-  };
+  const row = { ...legacyReaderRow, gapMs: READER_GAP_MS.tablet };
   const visit = fromReaderSession(row);
   expect(visit).toMatchObject({
     app: "reader",
     subject: { kind: "book", id: "alice" },
     device: "laptop",
-    gapMs: 600_000,
+    gapMs: 300_000,
     position: {
       start: { spineIndex: 2, progress: 10 },
       end: { spineIndex: 4, progress: 55 },
@@ -86,6 +91,24 @@ it("maps a Reader row to a session and back without loss", () => {
   });
   const { deviceId: _device, ...rest } = row;
   expect(toReaderSession(visit, "reader-1")).toEqual(rest);
+});
+
+it("reads a Reader row without a gap as ten minutes, and writes rows an older Reader reads", () => {
+  // A row from before the gap went by device was counted with ten minutes.
+  const old = fromReaderSession(legacyReaderRow);
+  expect(old.gapMs).toBe(READER_LEGACY_GAP_MS);
+  expect(READER_LEGACY_GAP_MS).toBe(600_000);
+
+  // A new row keeps every field an older Reader reads, with the same values,
+  // and adds only `gapMs`, which an older Reader does not read.
+  const { deviceId: _device, ...known } = legacyReaderRow;
+  const written = toReaderSession(
+    { ...old, gapMs: READER_GAP_MS.phone },
+    "reader-1",
+  );
+  const { gapMs, ...rest } = written;
+  expect(gapMs).toBe(180_000);
+  expect(rest).toEqual(known);
 });
 
 it("sums time from every app in one summary by start day and subject", () => {
