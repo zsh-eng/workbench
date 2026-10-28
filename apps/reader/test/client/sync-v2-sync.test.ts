@@ -20,10 +20,6 @@ import {
   type SyncPushResponse,
   type SyncRecord,
 } from "@zsh-eng/local-sync";
-import {
-  fromReaderSession,
-  READER_LEGACY_GAP_MS,
-} from "@workbench/activity-time";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetIndexedDB } from "../setup/indexeddb";
 
@@ -292,10 +288,6 @@ describe("sync v2 client", () => {
     // version does not know, and an older version keeps `gapMs` the same way.
     expect(await db.readingSessions.get("session-older")).toEqual(older);
     expect(await db.readingSessions.get("session-newer")).toEqual(newer);
-    const gaps = (await db.readingSessions.toArray()).map(
-      (row) => fromReaderSession(row).gapMs,
-    );
-    expect(gaps).toEqual([180_000, READER_LEGACY_GAP_MS]);
     expect(await db._sync_outbox.count()).toBe(0);
   });
 

@@ -6,7 +6,6 @@ import {
   fromSpacedReview,
   localDay,
   READER_GAP_MS,
-  READER_LEGACY_GAP_MS,
   summarizeTime,
   toReaderSession,
   type ActivitySession,
@@ -96,8 +95,7 @@ it("maps a Reader row to a session and back without loss", () => {
 it("reads a Reader row without a gap as ten minutes, and writes rows an older Reader reads", () => {
   // A row from before the gap went by device was counted with ten minutes.
   const old = fromReaderSession(legacyReaderRow);
-  expect(old.gapMs).toBe(READER_LEGACY_GAP_MS);
-  expect(READER_LEGACY_GAP_MS).toBe(600_000);
+  expect(old.gapMs).toBe(600_000);
 
   // A new row keeps every field an older Reader reads, with the same values,
   // and adds only `gapMs`, which an older Reader does not read.

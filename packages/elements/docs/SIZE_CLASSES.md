@@ -116,7 +116,10 @@ The OPPO Pad Mini has a 2520 × 1680 screen, 8.8 inches at 344 PPI, up to
 144 Hz, on ColorOS 16
 ([Notebookcheck](https://www.notebookcheck.net/Oppo-launches-high-end-compact-OLED-tablet-with-144Hz-matte-display.1431107.0.html)).
 The maker sets its density, and Android's display size setting can change
-it; the readout below shows it. At 2.5 its screen is 1008 × 672, at 2.625
+it; the readout below shows it. Reader's reading-time gap follows the device
+(`deviceClass()`): 3 minutes on a phone, 5 on a tablet or desktop. So the
+OPPO at density 3.0 gets a phone's 3 minutes, and at 2.5 or 2.625 a
+tablet's 5. At 2.5 its screen is 1008 × 672, at 2.625
 960 × 640, at 3.0 840 × 560. Above 2.8 its shortest side (1680 / density)
 is below 600, so the sheets take it for a phone.
 

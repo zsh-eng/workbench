@@ -49,13 +49,13 @@ opening another book or article, ends the visit.
 
 ## The timings and why
 
-| Timing                                   | Value                                           | Why                                                                                                                                                                                   |
-| ---------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Longest quiet stretch, Arctic and Spaced | 3 minutes                                       | You scroll an article every so often, less often on a tablet's larger screen. A longer silence more likely means the page was left open.                                              |
-| Longest quiet stretch, Reader            | 3 minutes on a phone, 5 on a tablet or computer | A book's page can take minutes to read without touching anything, so Reader waits longer before it decides you stopped. A tablet's or computer's page holds more text than a phone's. |
-| Scroll after an input                    | 1 second                                        | Long enough for a flick's glide to count, short enough that the app's own scrolling does not.                                                                                         |
-| Saving                                   | every 5 seconds, and at once on a pause         | Little is lost if the browser closes, without writing on every scroll.                                                                                                                |
-| "Articles read" this week (Arctic)       | 1 minute in total                               | An article counts as read once its visits in the last seven days add up to a minute. Shorter visits still add to the time.                                                            |
+| Timing                                   | Value                                           | Why                                                                                                                                                          |
+| ---------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Longest quiet stretch, Arctic and Spaced | 3 minutes                                       | You scroll an article every so often, less often on a tablet's larger screen. A longer silence more likely means the page was left open.                     |
+| Longest quiet stretch, Reader            | 3 minutes on a phone, 5 on a tablet or computer | A book's page can take minutes to read without touching anything. A tablet's or computer's page holds more text than a phone's, so it gets the longer limit. |
+| Scroll after an input                    | 1 second                                        | Long enough for a flick's glide to count, short enough that the app's own scrolling does not.                                                                |
+| Saving                                   | every 5 seconds, and at once on a pause         | Little is lost if the browser closes, without writing on every scroll.                                                                                       |
+| "Articles read" this week (Arctic)       | 1 minute in total                               | An article counts as read once its visits in the last seven days add up to a minute. Shorter visits still add to the time.                                   |
 
 Reader's limit follows the device, not the window: a phone on its side
 keeps a phone's 3 minutes, and an iPad window beside another app keeps an
