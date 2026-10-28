@@ -7,7 +7,7 @@ import {
   type SyncClientStateStorage,
 } from "./client-state";
 import type { EPUBReaderSyncV2DB } from "./db";
-import { READER_SYNC_TABLES } from "./tables";
+import { READER_RESTORE_PRIORITY, READER_SYNC_TABLES } from "./tables";
 import {
   SyncClient,
   createNamespacedHttpClient,
@@ -43,6 +43,7 @@ export class SyncV2Client extends SyncClient<readonly PreparedRemoteRecord[]> {
   constructor(options: SyncV2ClientOptions) {
     super({
       signal: options.signal,
+      priority: READER_RESTORE_PRIORITY,
       storage: new DexieSyncStorage({
         db: options.syncDb,
         tables: READER_SYNC_TABLES,

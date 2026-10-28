@@ -16,6 +16,17 @@ export interface SyncRemote {
     request: SyncPullBody,
     signal: AbortSignal,
   ): AsyncIterable<SyncPullResponse>;
+  /**
+   * Optional: the pages of `pullStream`, of only the keys that start with
+   * one of `prefixes`. Yields no pages when the server cannot filter, so
+   * the caller does a plain pull. Must honor cancellation.
+   */
+  pullPrefixed?(
+    deviceId: string,
+    request: SyncPullBody,
+    prefixes: readonly string[],
+    signal: AbortSignal,
+  ): AsyncIterable<SyncPullResponse>;
   pull(deviceId: string, request: SyncPullBody): Promise<SyncPullResponse>;
   push(
     deviceId: string,

@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import {
   createNamespacedHttpClient,
   createSyncClientState,
+  syncTablePrefix,
   SyncHttpError,
   type SyncClientState,
 } from "@zsh-eng/local-sync";
@@ -127,6 +128,56 @@ it("uses one real auth session with independent app winners, tombstones, pages a
       })
     ).status,
   ).toBe(404);
+});
+
+it("filters a pull by key prefix inside the same session, app and scope checks", async () => {
+  const cookie = await signUp(call, "http://localhost:5175");
+  const reader = client(cookie, "reader"),
+    spaced = client(cookie, "spaced"),
+    other = client(await user(), "reader");
+  const keyed = (key: string, value: string) => ({ ...change(value), key });
+  await reader.remote.push("phone", [
+    keyed('["highlights","1"]', "highlight"),
+    keyed('["books","1"]', "book"),
+    keyed('["booksArchive","1"]', "archive"),
+  ]);
+  await spaced.remote.push("phone", [keyed('["books","2"]', "spaced book")]);
+  await other.remote.push("phone", [keyed('["books","3"]', "other book")]);
+  const books = syncTablePrefix("books");
+  const read = async (app: ReturnType<typeof client>) => {
+    const records = [];
+    for await (const page of app.remote.pullPrefixed!(
+      "new-device",
+      { cursor: 0, excludeOwnDevice: false },
+      [books],
+      new AbortController().signal,
+    ))
+      records.push(...page.records);
+    return records.map((record) => record.value);
+  };
+  expect(await read(reader)).toEqual(["book"]);
+  expect(await read(spaced)).toEqual(["spaced book"]);
+  expect(await read(other)).toEqual(["other book"]);
+
+  const path = `/api/apps/reader/sync/v3/pull-stream?cursor=0&excludeOwnDevice=false&prefix=${encodeURIComponent(books)}`;
+  const scope = await reader.remote.getScope!();
+  const headers = { Cookie: cookie, "X-Device-ID": "new-device" };
+  expect((await SELF.fetch(origin + path)).status).toBe(401);
+  expect(
+    (
+      await SELF.fetch(origin + path, {
+        headers: { ...headers, "X-Sync-Scope": JSON.stringify({ ...scope, epoch: "stale" }) },
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (await SELF.fetch(origin + path.replace("/reader/", "/unknown/"), { headers }))
+      .status,
+  ).toBe(404);
+  const refused = await SELF.fetch(`${origin + path}&prefix=%C3%BC`, {
+    headers: { ...headers, "X-Sync-Scope": JSON.stringify(scope) },
+  });
+  expect(refused.status).toBe(400);
 });
 
 it("isolates files with identical IDs and preserves another app's file after deletion", async () => {

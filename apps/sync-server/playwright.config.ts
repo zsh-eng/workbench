@@ -13,7 +13,8 @@ export default defineConfig({
   },
   webServer: {
     command: "bun run --cwd ../.. dev:shared",
-    url: "http://localhost:8792/health",
+    // SHARED_API_PORT moves the stack (scripts/dev-shared.ts).
+    url: `http://localhost:${process.env.SHARED_API_PORT ?? "8792"}/health`,
     timeout: 120_000,
     reuseExistingServer: false,
   },

@@ -10,8 +10,11 @@ lab (`scripts/restore-lab.ts`).
    only when it has the account.
 2. **Scope.** `/sync/v3/state` binds this device's local data to the account
    and its sync epoch.
-3. **Restore.** One `/sync/v3/pull-stream` request. Pages hold at most 500
-   records. While one page commits to IndexedDB, the next page downloads.
+3. **Restore.** A `/sync/v3/pull-stream` request with `prefix` parameters
+   for the books, reading states and checkpoints, and at the same time one
+   plain `/sync/v3/pull-stream` request, whose pages commit after the first
+   request's. Pages hold at most 500 records. While one page commits to
+   IndexedDB, the next page downloads.
 4. **Library.** Each committed page that changes books, reading states or
    checkpoints refreshes the Library query. The page shows when the books, the
    first covers on this device and the fonts are ready.
@@ -41,6 +44,11 @@ NODE_TLS_REJECT_UNAUTHORIZED=0 RESTORE_LAB_SIZE=large bun run kit time \
   https://localhost:5523/ --before test/e2e/kit/restore-lab-device.ts \
   --steps test/e2e/kit/fresh-restore.ts --runs 3 --warmup 0 --timeout 1200
 ```
+
+`RESTORE_LAB_API` and `RESTORE_LAB_APP_ORIGIN` move the lab to other
+ports; `RESTORE_LAB_APPS=origin=upstream,...` serves several builds behind
+the one shaped link, so a before and an after can alternate run by run.
+`LAB_RTT_MS`, `LAB_SERVER_MS` and `LAB_MBPS` change the link.
 
 Each run clears the app's storage, keeps the session cookie and opens the
 Library at 390 × 844. `fresh-restore.ts` records the milestones and each API
@@ -124,29 +132,51 @@ twelve go at once, and the EPUBs wait until the covers are done.
 - **"Restoring your library…"** replaces the empty Library while a restore
   runs.
 
+## Books first (built)
+
+A new device pulls the keys of `books`, `readingState` and
+`readingCheckpoints` first, without moving its cursor, then everything
+(`READER_RESTORE_PRIORITY` in `src/lib/sync-v2/tables.ts`; the engine and
+server side are in local-sync's
+[PRIORITY_RESTORE.md](../../../packages/local-sync/docs/PRIORITY_RESTORE.md)).
+The full pull skips the books it already has. Lab medians, 7 runs a side,
+interleaved with the base build (far profile: 320 + 170 ms, 10 Mbit/s,
+5 runs a side):
+
+| Size       | First shelf   | Restore done  | Screen covers |
+| ---------- | ------------- | ------------- | ------------- |
+| small      | 810 → 783     | 805 → 808     | 1,123 → 1,113 |
+| medium     | 937 → 855     | 937 → 949     | 1,297 → 1,234 |
+| large      | 2,999 → 908   | 3,261 → 3,189 | 3,953 → 3,490 |
+| small, far | 1,998 → 1,995 | 1,998 → 2,016 | 3,037 → 3,056 |
+| large, far | 4,231 → 2,121 | 4,517 → 4,543 | 7,149 → 6,426 |
+
+In large, the priority pull's network ends at 0.87 s and the first books
+commit at once into empty stores. Of the 2.1 s gained, about 1.1 s was
+IndexedDB (the base build's books arrived by 1.9 s and committed at 3.0 s,
+behind 8,000 other puts) and about 1.0 s network order (the books came
+last). The large restore's end has two modes with the change: in the lab,
+2.2–2.4 s or 3.2–3.3 s; on the far profile, 4.4–4.5 s or 5.7 s, which is
+1.2 s later than the base build (2 of 5 runs). The cause is not known;
+local-sync's doc has the numbers.
+
 ## What remains
 
-IndexedDB bounds the large restore. The pull stream's network ends at about
-1.9 s and the last page commits at about 3.3 s. In two traces, Chrome's
-IndexedDB backend spent 2.0 s and 2.5 s on 9,000 puts, and the time per put
-grew from 0.03 ms to 0.5 ms as the stores filled. Index updates took less
-than 0.1 s of that. The main thread is mostly idle. The Library shows when
-the books commit, which is last in the server's order.
+IndexedDB still bounds the large restore: the full pull's network ends at
+about 2.3 s and its last page commits at about 3.2 s (1.8 s and 2.3 s in
+the faster mode). Covers on the first screen download by about 1.3 s, but
+each is stored in IndexedDB before it shows, behind the restore's commits,
+so the first screen shows BlurHash placeholders from 0.9 s to 3.5 s.
+Showing a downloaded cover before its IndexedDB write commits would bring
+them to about 1.4 s; not built.
 
 ## Server proposals (not built)
 
-1. **Books first in a restore.** A bootstrap pull of the books, reading
-   states and checkpoints, before the full pull from cursor 0. The full pull
-   sends them again, and the version check keeps them. In the large lab
-   account, the first page commits at about 1.0 s and the books at 3.0 s, so
-   the shelf could show at about 1.2 s, with one more request. Small and
-   medium gain little: their pull is one to three pages. This needs a key-prefix filter on the pull
-   that does not move the device's cursor.
-2. **The scope with the session.** `/sync/v3/state` already authenticates.
+1. **The scope with the session.** `/sync/v3/state` already authenticates.
    If the controller started a restore in parallel with `get-session`, or the
    session answer carried the scope, a new device would save one request:
    about 200 ms in every size in the lab.
-3. **Covers without a preflight or a session read.** Each cover is a
+2. **Covers without a preflight or a session read.** Each cover is a
    cross-origin request with the `X-Sync-Scope` header, so it costs a CORS
    preflight for each new URL, and the server reads the session for each.
    In the lab a cover takes about 250 ms, and 264 covers take about 6 s after
