@@ -152,6 +152,7 @@ import {
   useSlotFits,
 } from "./components/QuietChrome";
 import { setChromeMode, useQuietChrome } from "./data/chrome";
+import { switchSetter, useViewSetting, viewSettings } from "./data/view-settings";
 import { ShortcutGuide } from "./components/ShortcutGuide";
 import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
@@ -374,14 +375,13 @@ function StatusPath({ shown, commit }: { shown: string | undefined; commit: Path
   );
 }
 
-function readPreference<T extends string>(key: string, fallback: T, values: readonly T[]): T {
-  try {
-    const value = localStorage.getItem(`med:${key}`);
-    return values.includes(value as T) ? (value as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
+// The view settings outlast a restart, and every workspace and window shares
+// them (data/view-settings.ts).
+const setMode = (value: "split" | "unified") => viewSettings.diffLayout.set(value);
+const setWrap = switchSetter(viewSettings.wrap, "on", "off");
+const setShowNotes = switchSetter(viewSettings.comments, "shown", "hidden");
+const setVimEnabled = switchSetter(viewSettings.vim, "on", "off");
+const setLineBlame = switchSetter(viewSettings.lineBlame, "on", "off");
 
 /** Where each pane opens beside the review, and its share of the room. */
 const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> = {
@@ -499,7 +499,7 @@ export function App({
     if (retiredPreview) closeRetired("preview");
   }, [retiredPreview, closeRetired]);
   // Zen hides every bar. The sidebars keep their own state in and out of zen.
-  const [zen, setZenState] = useState(() => readPreference("zen", "off", ["on", "off"]) === "on");
+  const [zen, setZenState] = useState(() => viewSettings.zen.get() === "on");
   // Quiet chrome: one row for the review pane, its rare actions in ⋯ and ⌘K.
   const quiet = useQuietChrome();
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
@@ -537,13 +537,7 @@ export function App({
     setZenState(next);
   }, []);
   const rightVisible = filesVisible;
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:zen", zen ? "on" : "off");
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  }, [zen]);
+  useEffect(() => viewSettings.zen.set(zen ? "on" : "off"), [zen]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState<string | undefined>();
   const fileSelection = useRef<(() => string) | null>(null);
@@ -568,26 +562,8 @@ export function App({
     [filePreviewKey],
   );
   const [symbolMode, setSymbolMode] = useState<"file" | "project">("file");
-  const [vimEnabled, setVimEnabled] = useState(
-    () => readPreference("vim", "on", ["on", "off"]) === "on",
-  );
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:vim", vimEnabled ? "on" : "off");
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  }, [vimEnabled]);
-  const [lineBlame, setLineBlame] = useState(
-    () => readPreference("line-blame", "on", ["on", "off"]) === "on",
-  );
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:line-blame", lineBlame ? "on" : "off");
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  }, [lineBlame]);
+  const vimEnabled = useViewSetting(viewSettings.vim) === "on";
+  const lineBlame = useViewSetting(viewSettings.lineBlame) === "on";
   const [helpOpen, setHelpOpen] = useState(false);
   const fileNavigation = useRef<((key: string, control?: boolean) => void) | null>(null);
   const onNavigationReady = useCallback(
@@ -1040,9 +1016,7 @@ export function App({
       (visibleElement('[data-file-pane="main"]') ?? visibleElement("[data-zen-exit]"))?.focus();
     else zenToggle.current?.focus();
   }, [zen]);
-  const [preferredMode, setMode] = useState<"split" | "unified">(() =>
-    readPreference("mode", "split", ["split", "unified"]),
-  );
+  const preferredMode = useViewSetting(viewSettings.diffLayout);
   // Split diffs need room for two columns; a narrow review pane shows them
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
@@ -1065,8 +1039,8 @@ export function App({
     return () => observer.disconnect();
   }, [mainElement]);
   const mode = preferredMode === "split" && !roomy ? "unified" : preferredMode;
-  const [wrap, setWrap] = useState(false);
-  const [showNotes, setShowNotes] = useState(true);
+  const wrap = useViewSetting(viewSettings.wrap) === "on";
+  const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
   const [find, setFind] = useState("");
   const [findIndex, setFindIndex] = useState(0);
@@ -1421,13 +1395,6 @@ export function App({
     void controller.initialize();
     return () => controller.dispose();
   }, [controller, managed]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:mode", preferredMode);
-    } catch {
-      /* Preferences can be unavailable in private storage. */
-    }
-  }, [preferredMode]);
   // A file of the Guide's shown segment opens in place; others open in Changes.
   const streamFilesRef = useRef<ParsedReviewFile[]>(NO_FILES);
   const showInStream = useCallback(
@@ -1695,18 +1662,12 @@ export function App({
     gitAvailable;
   // "auto" shows the rail in a pane with room for it; the reader's choice holds
   // in any width.
-  const [railChoice, setRailChoice] = useState(() =>
-    readPreference("changes-rail", "auto", ["auto", "open", "closed"]),
-  );
-  useEffect(() => {
-    try {
-      localStorage.setItem("med:changes-rail", railChoice);
-    } catch {
-      /* Storage can be unavailable. */
-    }
-  }, [railChoice]);
+  const railChoice = useViewSetting(viewSettings.changesRail);
   const railShown = changesRail && (railChoice === "open" || (railChoice === "auto" && roomy));
-  const toggleRail = useCallback(() => setRailChoice(railShown ? "closed" : "open"), [railShown]);
+  const toggleRail = useCallback(
+    () => viewSettings.changesRail.set(railShown ? "closed" : "open"),
+    [railShown],
+  );
   // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
   // the whole stack, or a range of layers, from one checkout.
   const stack = useMemo(

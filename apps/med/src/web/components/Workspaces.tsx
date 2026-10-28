@@ -104,6 +104,7 @@ import {
   useNotifyChoice,
 } from "../data/signals";
 import { reconnectPause } from "../data/reconnect";
+import { viewSettings } from "../data/view-settings";
 
 /** Workspaces kept mounted besides the tabs, such as branches, most recently
  * shown first. Older ones reload. */
@@ -451,7 +452,6 @@ export function useDisposeOnClose(dispose: () => void) {
 
 /** The window used last shows the reviews that agents open. */
 const WINDOW_KEY = "med:window";
-const SIDEBAR_KEY = "med:sidebar";
 const SIDEBAR_WIDTH_KEY = "med:sidebar-width";
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_MIN = 220;
@@ -1079,7 +1079,10 @@ export function WorkspaceHost({
       ].sort(byName),
     [threadList, snapshot.workspaces],
   );
-  const [sidebarVisible, setSidebarVisible] = useState(() => readStored(SIDEBAR_KEY) !== "hidden");
+  // Each window keeps its sidebar: read once, not followed (view-settings.ts).
+  const [sidebarVisible, setSidebarVisible] = useState(
+    () => viewSettings.sidebar.get() === "shown",
+  );
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     clampSidebar(Number(readStored(SIDEBAR_WIDTH_KEY)) || SIDEBAR_WIDTH),
   );
@@ -1096,7 +1099,7 @@ export function WorkspaceHost({
   const toggleSidebar = useCallback(() => {
     if (isNarrow()) return setOverlay((open) => !open);
     setSidebarVisible((visible) => {
-      writeStored(SIDEBAR_KEY, visible ? "hidden" : "shown");
+      viewSettings.sidebar.set(visible ? "hidden" : "shown");
       return !visible;
     });
   }, [setOverlay, setSidebarVisible]);
