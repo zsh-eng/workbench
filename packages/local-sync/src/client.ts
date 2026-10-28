@@ -86,6 +86,7 @@ export class SyncClient<Prepared> {
   ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     const { observer } = options;
     await this.bindScope();
+    if (!this.remote.pullStream) return this.pullPages(observer);
     const primed = new Map<string, number>();
     const state = this.requireState();
     // A full pull commits only after a priority pull ends, so a cursor past
@@ -96,7 +97,7 @@ export class SyncClient<Prepared> {
       state.bootstrapped ||
       state.pullCursor > 0
     )
-      return this.pullFull(observer, { primed });
+      return this.pullStreaming(observer, { primed });
     return this.pullWithPriority(observer, primed);
   }
 
@@ -130,14 +131,14 @@ export class SyncClient<Prepared> {
     // once the priority pull has ended.
     const ended = () => clearTimeout(timer);
     first.then(ended, ended);
-    const rest = this.pullFull(observer, {
+    const rest = this.pullStreaming(observer, {
       primed,
       after: first,
       abort: AbortSignal.any([together.signal, impatient.signal]),
     }).catch(async (error: unknown) => {
       if (!impatient.signal.aborted || together.signal.aborted) throw error;
       await first;
-      return this.pullFull(observer, { primed, abort: together.signal });
+      return this.pullStreaming(observer, { primed, abort: together.signal });
     });
     try {
       const [priority, full] = await Promise.all([first, rest]);
@@ -152,25 +153,15 @@ export class SyncClient<Prepared> {
     }
   }
 
-  private pullFull(
-    observer: SyncPassObserver | undefined,
-    pass: PullPass,
-  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
-    return this.remote.pullStream
-      ? this.pullStreaming(observer, pass)
-      : this.pullPages(observer, pass);
-  }
-
+  /** A remote without a stream: one request per page, no priority pull. */
   private async pullPages(
     observer: SyncPassObserver | undefined,
-    { primed, after, abort }: PullPass,
   ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     let pulled = 0;
     let skipped = 0;
     let head: number | undefined;
 
     while (true) {
-      abort?.throwIfAborted();
       const state = this.requireState();
       const request: SyncPullBody = {
         cursor: state.pullCursor,
@@ -181,14 +172,12 @@ export class SyncClient<Prepared> {
       const response = await this.remote.pull(state.deviceId, request);
       const validResponse = syncPullResponseSchema.parse(response);
       validatePullResponse(request, validResponse, head);
-      if (after) await after;
-      after = undefined;
-      abort?.throwIfAborted();
-      const records = withoutPrimed(validResponse.records, primed);
-      const preparedRecords = this.storage.prepareRemoteRecords(records);
+      const preparedRecords = this.storage.prepareRemoteRecords(
+        validResponse.records,
+      );
 
       observeSyncHlcBatch(
-        records.map((record) => record.hlc),
+        validResponse.records.map((record) => record.hlc),
         this.stateStore,
       );
       const result = await this.storage.applyRemoteRecords(
@@ -205,7 +194,7 @@ export class SyncClient<Prepared> {
         bootstrapped: currentState.bootstrapped || !validResponse.hasMore,
       });
       observer?.pulled({
-        records,
+        records: validResponse.records,
         keptLocal: result.keptLocal,
         restoring: !request.excludeOwnDevice,
       });

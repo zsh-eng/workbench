@@ -54,8 +54,8 @@ only if the priority pull alone misses the bar.
    `pullStream` does. The namespaced HTTP client sends it to
    `pull-stream` with `prefix` parameters. An older server refuses the
    unknown parameter (400) or the route (404, 405); the client then yields
-   no pages and does not ask again. Remotes without the method never run a
-   priority pull.
+   no pages and does not ask again. Remotes without the method, or without
+   `pullStream`, never run a priority pull.
 4. **Engine.** In `pull()`, after the scope is bound, when the state has not
    bootstrapped and `priority` is set: a priority pull from cursor 0 with its
    own head. It applies each page through `applyRemoteRecords`, observes
@@ -120,7 +120,13 @@ Three builds were measured against A; B3 is what is built.
   write at once and its server reads may come before the priority pull's.
   The transport ends a request after 30 s, body included, so a full request
   that has waited 10 s for the priority pull is dropped, having committed
-  nothing, and sent again once the priority pull ends.
+  nothing, and sent again once the priority pull ends. A shorter wait still
+  comes out of the first full window's 30 s. In Reader's large lab account
+  the priority pull is a third of the full pull's bytes (2.4 MB against
+  7.2 MB), so a link on which it takes 10 s needs about 30 s for the full
+  pull, which missed the limit before this change too.
+  A window that misses fails after its first commits, as before, and the
+  retry resumes from that cursor without a priority pull.
 - **Skip at or below the applied sequence.** Each winning write of a key
   takes a higher sequence, so a full-pull record at or below the sequence
   the priority pull applied for its key is that version or an older one,
@@ -191,6 +197,10 @@ in both modes. Five traced B runs (tracing slows everything) restored at
 2.48–2.81 s without a split. In the traces A spent 1.97 s in IndexedDB's
 put operations and B 0.85–0.93 s for the same 9,000 records. Cause not
 found.
+
+The cost is bytes: in the traces, A's restore pulled 7.2 MB and B's
+9.6 MB (the priority pull's 2.4 MB, then the full pull's 7.2 MB with the
+same records again).
 
 Where the large gain comes from: A's full pull network ended at 1,887 ms,
 with the books last, and the books committed at about 3,000 ms, behind

@@ -45,7 +45,11 @@ const LAB_APPS = (
   process.env.RESTORE_LAB_APPS ?? `${LAB_APP_ORIGIN}=${APP_UPSTREAM}`
 )
   .split(",")
-  .map((route) => route.split("=") as [string, string]);
+  .map(
+    (route) => route.split("=").map((part) => part.trim()) as [string, string],
+  );
+/** The lab serves HTTPS, so an origin without a port is on 443. */
+const portOf = (origin: string) => Number(new URL(origin).port || 443);
 const CACHE = path.resolve(
   import.meta.dirname,
   "../node_modules/.cache/restore-lab",
@@ -195,11 +199,11 @@ function proxy() {
   for (const host of ["127.0.0.1", "::1"]) {
     http2
       .createSecureServer(tls, forwardTo(new URL(API_UPSTREAM), true))
-      .listen(Number(new URL(LAB_API).port), host);
+      .listen(portOf(LAB_API), host);
     for (const [origin, upstream] of LAB_APPS)
       http2
         .createSecureServer(tls, forwardTo(new URL(upstream), false))
-        .listen(Number(new URL(origin).port), host);
+        .listen(portOf(origin), host);
   }
   console.log(
     `Restore lab: API ${LAB_API} -> ${API_UPSTREAM} (${rttMs} ms + ` +

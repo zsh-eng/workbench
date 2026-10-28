@@ -234,7 +234,8 @@ neither bootstrapped nor committed a full-pull page, a pull asks
 without moving the cursor. The full pull's request goes out at the same
 time; its commits wait for the priority pull, so the two never write at
 once. A full request that has waited 10 s is dropped, having committed
-nothing, and sent again when the priority pull ends. A full-pull record at
+nothing, and sent again when the priority pull ends. Remotes without
+`pullStream` never run a priority pull. A full-pull record at
 or below the sequence that the priority pull applied for its key is skipped;
 a newer version or a tombstone is applied. Both pulls share the signal, the
 device check and the scope; either failing ends both.

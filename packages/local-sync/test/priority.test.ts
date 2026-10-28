@@ -346,6 +346,44 @@ describe("priority restore", () => {
     expect(state).toMatchObject({ pullCursor: 8, bootstrapped: true });
   });
 
+  it("pulls page by page without a priority pull from a remote without a stream", async () => {
+    let state = createSyncClientState("tablet");
+    const db = new LibraryDatabase(`priority-${crypto.randomUUID()}`);
+    cleanup.push(async () => {
+      db.close();
+      await Dexie.delete(db.name);
+    });
+    const client = new SyncClient({
+      storage: new DexieSyncStorage({ db, tables }),
+      stateStore: { read: () => state, write: (next) => void (state = next) },
+      priority: [syncTablePrefix("books")],
+      remote: {
+        async *pullPrefixed() {
+          throw new Error("Unexpected priority pull");
+        },
+        pull: async () => ({
+          records: [
+            {
+              key: encodeSyncKey("books", "a"),
+              value: JSON.stringify({ id: "a", title: "A", isDeleted: false }),
+              isDeleted: false,
+              schemaVersion: 1,
+              hlc: { wallTimeMs: 1_000, counter: 0 },
+              deviceId: "phone",
+              serverSeq: 1,
+            },
+          ],
+          cursor: 1,
+          head: 1,
+          hasMore: false,
+        }),
+        push: () => Promise.reject(new Error("Unexpected push")),
+      },
+    });
+    expect(await client.pull()).toEqual({ pulled: 1, skipped: 0 });
+    expect(state).toMatchObject({ pullCursor: 1, bootstrapped: true });
+  });
+
   it("does a plain full pull when the server refuses the prefix filter", async () => {
     const server = host();
     await seed(server);
