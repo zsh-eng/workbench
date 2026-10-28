@@ -1,6 +1,6 @@
 # Install Med
 
-Med v0.7.2 runs on Apple Silicon Macs (M1 or newer) with macOS 13 or newer.
+Med v0.7.3 runs on Apple Silicon Macs (M1 or newer) with macOS 13 or newer.
 This release does not support Intel Macs.
 
 ```sh
@@ -74,15 +74,15 @@ saved reviews stay in the state folder.
 
 ## Manual install
 
-Download `med-v0.7.2-macos-arm64.tar.gz` and `SHA256SUMS` from the
-[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.7.2).
+Download `med-v0.7.3-macos-arm64.tar.gz` and `SHA256SUMS` from the
+[GitHub release](https://github.com/zsh-eng/workbench/releases/tag/med-v0.7.3).
 In the download folder:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
-tar -xzf med-v0.7.2-macos-arm64.tar.gz
+tar -xzf med-v0.7.3-macos-arm64.tar.gz
 mkdir -p ~/.local/bin
-install -m 755 med-v0.7.2-macos-arm64/med ~/.local/bin/med
+install -m 755 med-v0.7.3-macos-arm64/med ~/.local/bin/med
 ~/.local/bin/med --version
 ```
 
@@ -113,7 +113,7 @@ med docs reference
 ## Source and licenses
 
 Med is built from
-[Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.7.2/apps/med).
+[Workbench / Med](https://github.com/zsh-eng/workbench/tree/med-v0.7.3/apps/med).
 `BUILD.json` records the source commit and the Bun version, and
 `docs/RELEASING.md` in the checkout has the build steps. Notices and source
 references for Bun and its dependencies are in
