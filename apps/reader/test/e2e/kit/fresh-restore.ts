@@ -49,7 +49,10 @@ export default async function freshRestore({
     const timing = request.timing();
     const response = await request.response().catch(() => null);
     requests.push({
-      path: url.pathname.replace("/api/apps/reader", ""),
+      // A priority pull is the pull stream with `prefix` parameters.
+      path:
+        url.pathname.replace("/api/apps/reader", "") +
+        (url.searchParams.has("prefix") ? "?prefix" : ""),
       start: timing.startTime,
       end: timing.startTime + Math.max(timing.responseEnd, 0),
       bytes: Number(response?.headers()["content-length"] ?? -1),
