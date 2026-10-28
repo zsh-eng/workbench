@@ -214,7 +214,7 @@ const styles = stylex.create({
     gap: 4,
     flexShrink: 0,
     minWidth: 0,
-    height: "max(var(--med-titlebar-height), 40px)",
+    height: "var(--med-top-row)",
     paddingInlineStart: 8,
     // Clear of the window controls at the right, as on Windows and Linux.
     paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 8px)",

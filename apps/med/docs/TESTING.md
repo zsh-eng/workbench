@@ -77,6 +77,21 @@ CLI, Markdown worker, browser, and file APIs: working and historical repository
 files, standalone tabs, URL encoding, parent paths, missing targets, and root
 boundaries. Vault relative links are covered by `bun run test:service`.
 
+## Title bar screenshots
+
+`scripts/kit/titlebar.ts` is an agent kit `--before` module: the installed
+app with its title bar hidden, as Chrome lays out the window on macOS. A test
+browser cannot install the app, so it gives the page Chrome's geometry (a 38
+pixel strip; `MED_TITLEBAR_HEIGHT` tries another) and draws the traffic
+lights. `scripts/kit/titlebar-guides.ts` measures the centre line of each part
+of the top row in the screenshot, prints them, and draws them. Against a Med
+on your own port and state folder:
+
+```sh
+bun run kit shot "<Med URL with #token=…>" --desktop --size 1280x800 --scale 2 \
+  --before apps/med/scripts/kit/titlebar.ts --steps apps/med/scripts/kit/titlebar-guides.ts
+```
+
 `bun run test:restart` runs a copy of the build and changes it: a newer page
 offers Reload, a broken server build keeps the server running, and a working
 rebuild restarts it with a new process. Build first.

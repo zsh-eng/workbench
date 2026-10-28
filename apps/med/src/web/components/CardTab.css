@@ -11,8 +11,11 @@
   pointer-events: none;
 }
 .med-card-tab + * {
+  box-sizing: border-box;
   height: calc(max(var(--med-titlebar-height), 38px) - 5px);
   min-height: 0;
+  /* Its controls and title sit on the window controls' centre line (CardTab.tsx). */
+  padding-bottom: var(--med-tab-lift, 0px);
   margin-inline: var(--med-tab-before, 0px) var(--med-tab-after, 0px);
   padding-inline: calc(var(--med-tab-inset-start, 0px) + 6px)
     calc(var(--med-tab-inset-end, 0px) + 6px);

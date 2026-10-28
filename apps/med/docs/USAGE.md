@@ -63,6 +63,10 @@ top row move the window. Show the title bar again from the same place. Chrome
 reads this from Med's manifest at a later launch; reinstall the app to get it
 at once.
 
+Med's top row then takes the height of the strip that the system keeps for
+the window controls (38 pixels on macOS), so its controls and title sit on the
+same centre line as the traffic lights. In a browser tab the row is 40 pixels.
+
 ## Sources
 
 The first time `med web` runs with nothing registered, Med shows a setup page:
