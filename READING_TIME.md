@@ -10,10 +10,14 @@ every scroll event, and do not treat an open screen as proof of reading.
 Every app counts with one rule. The web apps share its code,
 [activity-time](packages/activity-time/README.md), which also defines one
 record shape for time spent in Reader, Arctic and Spaced. Only the gap
-differs: Arctic (on iPhone and on the web) and Spaced use **180 seconds**,
-the EPUB web reader **10 minutes**, for the quiet minutes between page turns.
+differs: Arctic (on iPhone and on the web) and Spaced use **180 seconds**.
+The EPUB web reader allows quiet minutes between page turns: **3 minutes on
+a phone and 5 minutes on a tablet or desktop**. The device decides, not the
+window, and a session keeps the gap it began with.
 Arctic and Spaced used 120 seconds until 28 October 2026; their records keep
-no gap, so a session read back says 180 either way.
+no gap, so a session read back says 180 either way. Reader used 10 minutes
+on every device until then. Its sessions now store their gap (`gapMs`), and
+a session without one reads as 10 minutes.
 
 ## Accounting rule
 
@@ -91,7 +95,8 @@ back resets the boundary there too.
 The phone uploads these files as `session/<UUID>` records in `arctic-reading`
 (`AccountRecordJournal` in `Sources/LibrarySync.swift`), and Arctic for the
 web writes the same records. The EPUB web reader persists session summaries
-through its existing domain store and generic sync engine.
+through its existing domain store and generic sync engine. Each row carries
+its gap, so its total can be read with the limit that counted it.
 
 ## Reuse in another app
 
