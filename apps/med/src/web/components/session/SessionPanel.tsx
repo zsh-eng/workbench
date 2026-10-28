@@ -48,6 +48,7 @@ import { ReplyActionsContext, SessionThread, type ReplyActions } from "./Session
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
 import { useViewSwitch, viewSettings } from "../../data/view-settings";
+import { column } from "./session-styles";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
 /** The review's pins, for Pin to review on the agent's replies. */
@@ -800,7 +801,7 @@ export function SessionPanel({
       )}
       {inbox && session.agent === "acp" && !ownedState ? (
         // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
-        <p {...stylex.props(styles.note, styles.stopped)}>
+        <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
           {agent} stopped with the Med host. Start a new session to continue.
         </p>
       ) : (

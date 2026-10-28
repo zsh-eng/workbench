@@ -25,7 +25,7 @@ import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
 import { LinkedText } from "../FileRefs";
 import { ZenContext } from "../ZenExit";
-import { motion, rowStyles } from "./session-styles";
+import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { Elapsed, formatDuration } from "./Elapsed";
 import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
@@ -586,7 +586,7 @@ export function PlanDock({ entries }: { entries: PlanEntry[] }) {
   const done = entries.filter((entry) => entry.status === "completed").length;
   const current = entries.find((entry) => entry.status === "in_progress");
   return (
-    <section aria-label="Tasks" {...stylex.props(styles.plan)}>
+    <section aria-label="Tasks" {...stylex.props(styles.plan, column.bar)}>
       <button
         type="button"
         aria-expanded={open}
@@ -894,7 +894,7 @@ function AgentView({
           ref={content}
           role="log"
           aria-label={agent.call.title}
-          {...stylex.props(styles.content)}
+          {...stylex.props(styles.content, column.thread)}
         >
           {list.map((unit, at) => (
             <div key={unit.key} {...stylex.props(styles.unit)}>
@@ -1624,7 +1624,7 @@ export function SessionThread({
               >
                 <div
                   ref={content}
-                  {...stylex.props(styles.content, !settled && styles.unsettled)}
+                  {...stylex.props(styles.content, column.thread, !settled && styles.unsettled)}
                   role="log"
                   aria-label="Session"
                   aria-live="polite"

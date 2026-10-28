@@ -426,6 +426,12 @@ toolbar, and **Show agent session** in the palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
+- In a wide pane, the thread keeps to a column of 540 pixels in the middle
+  of the pane, about 80 characters of a reply on a line: the replies, the
+  code blocks and tool output, the cards under the thread, and the message
+  box. The pane keeps the width that you give it; drag its edge to give the
+  review the room beside the column.
+
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
   installed agent.

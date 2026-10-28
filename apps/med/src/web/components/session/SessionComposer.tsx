@@ -27,6 +27,7 @@ import { useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
+import { column } from "./session-styles";
 
 export interface ComposerAttachment {
   id: string;
@@ -133,7 +134,7 @@ export function PermissionCard({
     return <PlanCard permission={permission} plan={permission.plan} onAnswer={onAnswer} />;
   const first = permission.options.find((option) => option.kind === "allow_once");
   return (
-    <div role="group" aria-label="Permission request" {...stylex.props(styles.ask)}>
+    <div role="group" aria-label="Permission request" {...stylex.props(styles.ask, column.bar)}>
       <div {...stylex.props(styles.askTitle)}>
         <Icon name="alert" size={13} />
         {permission.title}
@@ -406,7 +407,11 @@ export function SessionComposer({
         />
       )}
       {confirming && asked && (
-        <div role="alertdialog" aria-label={`${asked.name}?`} {...stylex.props(styles.ask)}>
+        <div
+          role="alertdialog"
+          aria-label={`${asked.name}?`}
+          {...stylex.props(styles.ask, column.bar)}
+        >
           <div {...stylex.props(styles.askTitle)}>
             <Icon name="alert" size={13} />
             {asked.name}?
@@ -464,7 +469,7 @@ export function SessionComposer({
           event.preventDefault();
           void send();
         }}
-        {...stylex.props(styles.box)}
+        {...stylex.props(styles.box, column.bar)}
       >
         {images.length > 0 && (
           <div aria-label="Images to send" role="list" {...stylex.props(styles.images)}>

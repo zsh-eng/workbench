@@ -9,6 +9,7 @@ import { tokens, ui } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
 import { Icon } from "../Icon";
 import { SessionMarkdown } from "./SessionMarkdown";
+import { column } from "./session-styles";
 
 /** Takes a key that the composer passes on while its field is empty, as the
  * terminal gives a question the keys. True when the card took it. */
@@ -130,7 +131,7 @@ export function QuestionCard({
           send(picked);
         }
       }}
-      {...stylex.props(styles.card)}
+      {...stylex.props(styles.card, column.bar)}
     >
       <div {...stylex.props(styles.title)}>
         <Icon name="ask" size={13} />
@@ -250,7 +251,7 @@ export function PlanCard({
     if (keeping) field.current?.focus();
   }, [keeping]);
   return (
-    <div role="group" aria-label="Plan" {...stylex.props(styles.card)}>
+    <div role="group" aria-label="Plan" {...stylex.props(styles.card, column.bar)}>
       <div {...stylex.props(styles.title)}>
         <Icon name="tasks" size={13} />
         {permission.title}
