@@ -50,8 +50,8 @@ only if the priority pull alone misses the bar.
    `server_seq`. Pages, cursor, head, byte budget and limits are those of a
    plain pull. Auth, scope and namespace checks are unchanged: the filter is
    one more `WHERE` term on the same identity. No migration.
-3. **Remote.** `SyncRemote.pullPrefixed?(deviceId, request, prefixes,
-   signal)` returns pages. The namespaced HTTP client sends it to
+3. **Remote.** Optional `SyncRemote.pullPrefixed` returns pages, as
+   `pullStream` does. The namespaced HTTP client sends it to
    `pull-stream` with `prefix` parameters. An older server refuses the
    unknown parameter (400) or the route (404, 405); the client then yields
    no pages and does not ask again. Remotes without the method never run a
@@ -74,7 +74,7 @@ only if the priority pull alone misses the bar.
   commit the books with one request). Bar item 3 allows it; the bar
   fails if it shows on `shelf`.
 - **The gain may be IndexedDB, not network order.** Books arrive last over
-  the network *and* commit after 8,000 puts that slow each later put. A
+  the network _and_ commit after 8,000 puts that slow each later put. A
   client-only reorder cannot fix the first: the books are not on the device
   until the last pages. Measure both by comparing `shelf` with the end of
   the pull-stream network in each run.
@@ -102,3 +102,127 @@ only if the priority pull alone misses the bar.
   loads `operations` into memory. The cards due today are not a key prefix.
   Check whether its first load is slow and what a priority pull would need
   from the app.
+
+## What the critique changed
+
+Three builds were measured against A; B3 is what is built.
+
+- **B1: one pull after the other.** `restored` was 200–260 ms later in every
+  size on the lab profile: the full pull waited for the priority request.
+- **B2: the full request at the priority pull's last page.** That hid the
+  commit of the last priority pages (about 100 ms in large), not the
+  priority request's own round trip before a small account's only page:
+  small and medium still finished 250 ms later, and on the far profile all
+  sizes finished 850–940 ms later (a CORS preflight and a request at 320 ms
+  each).
+- **B3: both requests at once.** The full pull's request goes out with the
+  priority pull's; its commits wait for the priority pull, so the two never
+  write at once and its server reads may come before the priority pull's.
+  The transport ends a request after 30 s, body included, so a full request
+  that has waited 10 s for the priority pull is dropped, having committed
+  nothing, and sent again once the priority pull ends.
+- **Skip at or below the applied sequence.** Each winning write of a key
+  takes a higher sequence, so a full-pull record at or below the sequence
+  the priority pull applied for its key is that version or an older one,
+  and is skipped. A newer version or a tombstone is above it and is
+  applied. This holds in whatever order the server reads the two pulls.
+- **One priority pull per restore.** A full-pull page commits only after a
+  priority pull has ended, so a cursor past 0 means the device already has
+  the priority records: a retry does not pull them again.
+- **D1.** Each prefix page picks its sequences from the key index (which
+  holds each row's sequence) and only then reads those rows, so values are
+  read once and the sort holds integers. A priority set of N keys still
+  visits about N index entries per page.
+- **Fallback.** Only the first window's 400, 404 or 405 means "no filter";
+  a later window's error propagates.
+
+## Results
+
+Chromium at 390 × 844 through `bun run kit time`, one run per invocation,
+A and B alternating; medians in ms from navigation (p25–p75). A is the base
+commit's build, B is B3 as built. Every run ended with the same IndexedDB
+row counts on both sides (94, 1,218, 8,900). Load averages are from other
+agents' work on the machine.
+
+**Lab profile** (40 ms + 150 ms per authenticated request, 50 Mbit/s;
+7 runs a side; load A 1.6–6.2, B 1.5–4.9):
+
+| Size   | Metric       | A                   | B                   |
+| ------ | ------------ | ------------------- | ------------------- |
+| large  | shelf        | 2,999 (2,993–3,016) | **908** (892–920)   |
+| large  | allBooks     | 3,324 (3,310–3,338) | 1,243 (1,222–1,270) |
+| large  | screenCovers | 3,953 (3,927–3,958) | 3,490 (2,668–3,572) |
+| large  | restored     | 3,261 (3,259–3,286) | 3,189 (2,353–3,238) |
+| medium | shelf        | 937 (926–939)       | **855** (845–876)   |
+| medium | restored     | 937 (926–939)       | 949 (944–958)       |
+| small  | shelf        | 810 (802–811)       | **783** (778–794)   |
+| small  | restored     | 805 (798–810)       | 808 (794–818)       |
+
+Against the bar: (1) large `shelf` −2,091 ms, −70%; B's p75 920 is far
+below A's p25 2,993. (2) Medium −82 ms, small −27 ms. (3) `restored`:
+small +3 ms, medium +12 ms, large −72 ms; large `screenCovers` −463 ms
+(−12%). **Go.**
+
+**Far profile** (320 ms + 170 ms per authenticated request, 10 Mbit/s;
+5 runs a side; load A 2.5–11.2, B 2.1–8.1):
+
+| Size  | Metric       | A                   | B                       |
+| ----- | ------------ | ------------------- | ----------------------- |
+| large | shelf        | 4,231 (4,225–4,241) | **2,121** (2,098–2,254) |
+| large | screenCovers | 7,149 (7,108–7,167) | 6,426 (6,383–7,955)     |
+| large | restored     | 4,517 (4,509–4,556) | 4,543 (4,484–5,722)     |
+| small | shelf        | 1,998 (1,981–2,004) | 1,995 (1,994–2,000)     |
+| small | restored     | 1,998 (1,981–2,004) | 2,016 (2,013–2,023)     |
+
+The earlier builds, each against its own interleaved A: B1 finished
+`restored` 200–260 ms later in every size on the lab profile; B2 250 ms
+later in small and medium, and 850–940 ms later in every size on the far
+profile. B3 removed both.
+
+**B's restore time has two modes.** Large, lab: 3 of 7 B runs restored at
+2.22–2.37 s and 4 at 3.19–3.27 s (A: 3.24–3.33 s). Large, far: 3 of 5 at
+4.45–4.54 s and 2 at 5.72–5.74 s (A: 4.51–4.56 s): on the slow link 2 of 5
+restores ended about 1.2 s later than A's, with their shelf 2.1 s
+earlier. In the late runs the full pull's response also ends later
+(lab 2.25–2.33 s against 1.75–1.86 s): Chromium hands the stream over in
+2 MB pieces as the page reads it, so its end follows the commits, and the
+commits were slower. The cover requests during the restore were the same
+in both modes. Five traced B runs (tracing slows everything) restored at
+2.48–2.81 s without a split. In the traces A spent 1.97 s in IndexedDB's
+put operations and B 0.85–0.93 s for the same 9,000 records. Cause not
+found.
+
+Where the large gain comes from: A's full pull network ended at 1,887 ms,
+with the books last, and the books committed at about 3,000 ms, behind
+8,000 other puts. B's priority network ended at 871 ms and its first page
+committed by 908 ms into empty stores. So about 1.1 s of the 2.1 s was
+IndexedDB backlog and about 1.0 s network order. A client-only change
+(committing the priority prefixes in their own transaction) could at best
+remove the backlog: the books still arrive last, at about 1.9 s.
+
+Raw samples (`run1` to `run5-far`), their summaries, the summary script and
+one Chrome trace each of A and B (large, lab profile) are kept outside the
+repository with the before/after clip.
+
+## Arctic and Spaced
+
+- **Arctic: not applicable.** In the first-sync lab's libraries, the first
+  screen's `article/` and `library/` records are 86% of the `arctic`
+  namespace's bytes (67% of its records); `tags/` is the rest. Texts,
+  highlights and sessions are already separate namespaces whose commits
+  wait for the links (`apps/arctic/Browser/docs/FIRST_SYNC.md`). A priority
+  pull would send 86% of the namespace twice to save at most the `tags/`
+  pages; by FIRST_SYNC's numbers that is under 1 s in large far and less
+  elsewhere, before the extra request. It cannot reach the bar. Not
+  measured; not wired.
+- **Spaced: slow, not built.** The user's account has about 99,800 records;
+  a traced local restore of the 97,266-record snapshot took 15.2–16.2 s
+  (`apps/spaced2/docs/SYNC_RESTORE_TRACE.md`), and Spaced shows "Restoring
+  your cards and review history…" until all of it commits. Its review
+  screen reads only `operations` (about 30,200 records); review logs feed
+  Stats. A priority of `syncTablePrefix("operations")` could open review
+  after about a third of the restore, but only if Spaced ends its restoring
+  screen and reloads memory when the priority pull ends. That needs a
+  "priority pull done" signal from the engine and app changes, and a
+  Spaced lab with a synthetic large account to prove it. Recommended as
+  the next step; not part of this change.
