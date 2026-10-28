@@ -119,24 +119,6 @@ export function CardTab({ lift = false }: { lift?: boolean }) {
       card.style.setProperty("--med-tab-inset-start", `${start ? flare + 1 : 0}px`);
       card.style.setProperty("--med-tab-inset-end", `${end < box.width ? flare + 1 : 0}px`);
       card.style.setProperty("--med-card-body", `${shoulder + 1}px`);
-      // The tab's row reaches below the window controls, so its middle is
-      // lower than theirs. Room at its foot raises its controls and title to
-      // the controls' centre line (CardTab.css), as far as the card's top
-      // edge lets its tallest control rise: a strip lower than macOS's
-      // keeps the controls whole, a little below its centre.
-      const header = frame.nextElementSibling;
-      let raise = 0;
-      if (row && header instanceof HTMLElement) {
-        const rule = header.offsetHeight - header.clientHeight - header.clientTop;
-        const middle = (row.top + header.clientTop + row.bottom - rule) / 2;
-        const tallest = Math.max(
-          0,
-          ...[...header.children].map((child) => child.getBoundingClientRect().height),
-        );
-        const centre = Math.max(area.top + area.height / 2, box.top + tallest / 2);
-        raise = Math.max(0, Math.round(2 * (middle - centre)));
-      }
-      card.style.setProperty("--med-tab-lift", `${raise}px`);
       fill.setAttribute("d", edge(shape, 1));
       outline.setAttribute("d", edge(shape, 0.5));
       if (lift) {
@@ -162,7 +144,6 @@ export function CardTab({ lift = false }: { lift?: boolean }) {
         "tab-inset-start",
         "tab-inset-end",
         "card-body",
-        "tab-lift",
         "lift-start",
         "lift-end",
       ])

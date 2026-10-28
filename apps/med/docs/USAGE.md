@@ -65,7 +65,11 @@ at once.
 
 Med's top row then takes the height of the strip that the system keeps for
 the window controls (38 pixels on macOS), so its controls and title sit on the
-same centre line as the traffic lights. In a browser tab the row is 40 pixels.
+same centre line as the traffic lights. A card that heads the window, such as
+Sources, has 24 pixel controls in its tab, the size of Chrome's own buttons
+beside it. On a strip lower than 38 pixels, as on Windows and Linux, the tab
+keeps its 38 pixel shape, so its controls sit a little below the window
+controls' centre line. In a browser tab the row is 40 pixels.
 
 ## Sources
 
