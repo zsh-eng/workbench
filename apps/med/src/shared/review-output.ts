@@ -24,6 +24,8 @@ export interface ProofCheck {
   /** What the check said, such as "42 passed". */
   result?: string;
   status: "passed" | "failed" | "unknown";
+  /** The check is a row of `ReviewProof.tables[table]`, which shows it. */
+  table?: number;
 }
 
 export interface ReviewProof {
@@ -34,6 +36,9 @@ export interface ReviewProof {
   misses: string[];
   /** Other lines of the proof section. */
   notes: string[];
+  /** The section's Markdown tables, as written. Their rows with a command
+   * are checks too, so they count, but the table shows them. */
+  tables?: string[];
 }
 
 export interface ReviewOutput {
@@ -243,11 +248,109 @@ function checkOf(text: string): ProofCheck | undefined {
   };
 }
 
-/** Lines into list items with their nested lines, and the other lines. */
+/** A check from a table row: the first command in backticks before the
+ * result, which is the column named so, or else the last one. A row whose
+ * only code is in its result, such as a note on a generated file, is not a
+ * check. */
+function rowCheck(header: readonly string[], cells: readonly string[]): ProofCheck | undefined {
+  const named = header.findIndex((name) => /\b(?:results?|status|outcome|output)\b/i.test(name));
+  const resultAt = named >= 0 ? named : cells.length - 1;
+  const at = cells.findIndex((cell) => /`[^`]+`/.test(cell));
+  if (at < 0 || (at >= resultAt && cells.length > 1)) return undefined;
+  const command = /`([^`]+)`/.exec(cells[at]!)![1]!.trim();
+  const media = MEDIA.test(command);
+  MEDIA.lastIndex = 0;
+  if (media) return undefined;
+  const result = clean(at === resultAt ? "" : (cells[resultAt] ?? ""));
+  const status = failedText(result) ? "failed" : PASSED.test(result) ? "passed" : "unknown";
+  return {
+    command: command.slice(0, 300),
+    ...(result && { result: result.slice(0, 300) }),
+    status,
+  };
+}
+
+const SEVERITY_CELL = /^[\s*_[(]*(important|nits?|pre-?existing|p[0-3])[\s*_\])]*$/i;
+const PLACE_CELL = /^[\s`*]*(?:[\w@.+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z]\w*(?::\d+|#L\d+)/;
+
+/** A finding's text from a table row: its severity as a tag, its place,
+ * then the other cells. A row number goes. */
+function rowItem(cells: readonly string[]): Item {
+  const tag = cells.find((cell) => SEVERITY_CELL.test(cell));
+  const places = cells.filter((cell) => cell !== tag && PLACE_CELL.test(cell));
+  const rest = cells.filter(
+    (cell) =>
+      cell &&
+      cell !== tag &&
+      !places.includes(cell) &&
+      // A row number, or a status that says nothing: open, to do, a dash.
+      !/^(?:#?\d+\.?|open|to ?do|pending|[-—–])$/i.test(cell),
+  );
+  return {
+    text: [
+      [tag && `[${SEVERITY_CELL.exec(tag)![1]}]`, ...places].filter(Boolean).join(" "),
+      ...rest,
+    ]
+      .filter(Boolean)
+      .join(" — "),
+    children: [],
+  };
+}
+
+/** A table's delimiter row, such as `| --- | :-: |`. */
+const DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+/** A line that starts another block, which ends a table. */
+const BLOCK_START = /^\s*(?:[-*+]\s|\d+[.)]\s|#|>|```|~~~)/;
+
+/** A table row's cells. As in GitHub's Markdown, a pipe splits cells also in
+ * code, and a pipe escaped with a backslash stays in its cell. */
+function cellsOf(row: string) {
+  let text = row.trim();
+  if (text.startsWith("|")) text = text.slice(1);
+  if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+  return text.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+interface Table {
+  /** The table's Markdown, to show as it is. */
+  markdown: string;
+  header: string[];
+  rows: string[][];
+}
+
+/** Lines into list items with their nested lines, tables, and the other lines. */
 function walk(lines: readonly string[]) {
-  const blocks: ({ kind: "item"; item: Item } | { kind: "line"; text: string })[] = [];
+  const blocks: (
+    | { kind: "item"; item: Item }
+    | { kind: "line"; text: string }
+    | { kind: "table"; table: Table }
+  )[] = [];
   let current: { item: Item; indent: number } | undefined;
-  for (const raw of lines) {
+  for (let index = 0; index < lines.length; index++) {
+    const raw = lines[index]!;
+    // A table: a row of cells, a delimiter row with as many, then its rows
+    // up to a blank line or another block. Its rows are not lines of text.
+    const delimiter = lines[index + 1];
+    if (
+      raw.includes("|") &&
+      delimiter !== undefined &&
+      DELIMITER.test(delimiter) &&
+      cellsOf(delimiter).length === cellsOf(raw).length
+    ) {
+      let end = index + 2;
+      while (end < lines.length && lines[end]!.trim() && !BLOCK_START.test(lines[end]!)) end++;
+      blocks.push({
+        kind: "table",
+        table: {
+          markdown: lines.slice(index, end).join("\n"),
+          header: cellsOf(raw),
+          rows: lines.slice(index + 2, end).map(cellsOf),
+        },
+      });
+      current = undefined;
+      index = end - 1;
+      continue;
+    }
     const list = /^(\s*)(?:[-*+]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$/.exec(raw);
     if (list) {
       const indent = list[1]!.length;
@@ -330,6 +433,22 @@ function readOne(text: string): ReviewOutput {
         explainer.push(prose);
     }
     for (const block of walk(outFence)) {
+      if (block.kind === "table") {
+        const { table } = block;
+        if (section === "proof") {
+          const tables = (proof.tables ??= []);
+          tables.push(table.markdown);
+          for (const row of table.rows) {
+            const check = rowCheck(table.header, row);
+            if (check) proof.checks.push({ ...check, table: tables.length - 1 });
+          }
+        } else if (section === "findings" || table.header.some((name) => /^severity$/i.test(name)))
+          for (const row of table.rows) {
+            const finding = findingOf(rowItem(row), section === "findings" ? severity : undefined);
+            if (finding) output.findings.push(finding);
+          }
+        continue;
+      }
       const item: Item =
         block.kind === "item" ? block.item : { text: block.text.trim(), children: [] };
       const counts = /(\d+)\s+important\b[^\n]*?(\d+)\s+nits?\b[^\n]*?(\d+)\s+pre-?existing/i.exec(
@@ -416,6 +535,12 @@ export function readReviewOutput(texts: readonly (string | undefined)[]): Review
       proof.media.push(...one.proof.media.filter((path) => !proof.media.includes(path)));
       proof.misses.push(...one.proof.misses);
       proof.notes.push(...one.proof.notes);
+      if (one.proof.tables) {
+        // A check's table is its place in the merged list.
+        const offset = (proof.tables ??= []).length;
+        proof.tables.push(...one.proof.tables);
+        for (const check of one.proof.checks) if (check.table !== undefined) check.table += offset;
+      }
     }
     for (const finding of one.findings) {
       const key = `${finding.severity}\0${finding.file ?? ""}\0${finding.line ?? ""}\0${finding.title}`;

@@ -2154,6 +2154,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     lineHeight: 1.6,
     whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
   },
   groupHead: { cursor: "pointer" },
   work: {

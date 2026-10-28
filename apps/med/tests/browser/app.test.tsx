@@ -2691,6 +2691,44 @@ describe("review guide", () => {
     await userEvent.keyboard("{Escape}");
   });
 
+  test("shows a proof table as a table that scrolls in its own box, and counts its checks", async () => {
+    // As an agent wrote it: one row's command and result are long, and one
+    // row's only code is in its result, so it is a note, not a check.
+    const command =
+      "./gradlew :telemetry:histogram-core-internal:test --tests 'ClassicBucketsTest'";
+    await mountApp({
+      savedReview: true,
+      iterationBriefs: [
+        "The first round.",
+        [
+          "## Proof",
+          "",
+          "| Check | Scope | Result |",
+          "| --- | --- | --- |",
+          `| \`${command}\` | for \`ClassicBuckets*\` and \`BucketBoundaryTest\` | 18 tests pass (2+9+7). CI on the branch is green across the three JVM targets after the rerun. |`,
+          "| `bun run lint` | all of `src/` | 1 error in src/beta.ts |",
+          "| Fixture | Generated | `histogram()` is `registry.timer(bucketNameWithEveryLabelOfTheSeries())` |",
+        ].join("\n"),
+      ],
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof).toMatchTextContent(/^Proof1 of 2 failed/);
+    const table = proof.getByRole("table");
+    await expect.element(table.getByRole("cell", { name: command })).toBeVisible();
+    // The rows show once, in the table, not again as check rows.
+    expect(proof.getByText(command).elements()).toHaveLength(1);
+    // No column shrinks to a letter a line: the command's cell is as wide as
+    // its longest word, and the table scrolls inside its box.
+    const cell = table.getByRole("cell", { name: command }).element();
+    expect(cell.getBoundingClientRect().width).toBeGreaterThan(120);
+    await page.viewport(900, 800);
+    const box = table.element() as HTMLElement;
+    await expect.poll(() => box.scrollWidth > box.clientWidth).toBe(true);
+    const column = overview.element().firstElementChild as HTMLElement;
+    expect(column.scrollWidth).toBeLessThanOrEqual(column.clientWidth);
+  });
+
   test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
     const guide: ReviewGuide = { segments: [{ title: "Rename", files: ["src/**"] }] };
     const overview = page.getByRole("region", { name: "Guide overview" });
