@@ -7,7 +7,8 @@
    exactly: the system centres the controls in that strip (38 px on macOS:
    the web app toolbar's 24 px buttons and 7 px above and below), so a row of
    the same height puts Med's controls and title on their centre line. A
-   taller row moved them down by half the difference. */
+   taller row moved them down by half the difference. The row is never
+   lower than its 28 px controls. */
 :root {
   --med-titlebar-height: 0px;
   --med-titlebar-left: 0px;
@@ -18,7 +19,7 @@
   --med-titlebar-height: env(titlebar-area-height, 0px);
   --med-titlebar-left: env(titlebar-area-x, 0px);
   --med-titlebar-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
-  --med-top-row: var(--med-titlebar-height);
+  --med-top-row: max(var(--med-titlebar-height), 28px);
 }
 :root[data-titlebar="overlay"] body {
   background: var(--med-panel);
