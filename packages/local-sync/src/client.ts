@@ -10,6 +10,7 @@ import {
   MAX_SYNC_PUSH_CHANGES,
   MAX_SYNC_PUSH_BODY_BYTES,
   syncPushChangeSchema,
+  syncKeyPrefixesSchema,
   syncScopeSchema,
   syncPullResponseSchema,
   syncPushResponseSchema,
@@ -17,8 +18,10 @@ import {
   type SyncPullResponse,
   type SyncPushChange,
   type SyncPushResponse,
+  type SyncRecord,
 } from "./protocol.js";
 import type {
+  SyncApplyResult,
   SyncOptions,
   SyncPassObserver,
   SyncRemote,
@@ -31,6 +34,13 @@ export interface SyncClientOptions<Prepared> {
   remote: SyncRemote;
   stateStore: SyncClientStateStore;
   signal?: AbortSignal;
+  /**
+   * Key prefixes of the records the app's first screen needs, such as
+   * `syncTablePrefix("books")`. Until its first pull completes, a device
+   * pulls these first, without moving its cursor, then pulls everything;
+   * only when the remote has `pullPrefixed` (docs/PRIORITY_RESTORE.md).
+   */
+  priority?: readonly string[];
 }
 
 /**
@@ -42,6 +52,7 @@ export class SyncClient<Prepared> {
   private readonly remote: SyncRemote;
   private readonly stateStore: SyncClientStateStore;
   private readonly signal?: AbortSignal;
+  private readonly priority: readonly string[];
   private activeSync: Promise<SyncRunResult> | null = null;
 
   constructor(options: SyncClientOptions<Prepared>) {
@@ -49,6 +60,9 @@ export class SyncClient<Prepared> {
     this.storage = options.storage;
     this.remote = options.remote;
     this.stateStore = options.stateStore;
+    this.priority = options.priority?.length
+      ? syncKeyPrefixesSchema.parse([...options.priority])
+      : [];
   }
 
   /** One pull then push. A call while a pass runs joins it. */
@@ -71,12 +85,72 @@ export class SyncClient<Prepared> {
   ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     const { observer } = options;
     await this.bindScope();
-    if (this.remote.pullStream) return this.pullStreaming(observer);
+    const primed = new Map<string, number>();
+    if (
+      this.priority.length === 0 ||
+      !this.remote.pullPrefixed ||
+      this.requireState().bootstrapped
+    )
+      return this.pullFull(observer, { primed });
+    return this.pullWithPriority(observer, primed);
+  }
+
+  /**
+   * A device's first pull starts with the priority prefixes. Their records
+   * commit without a cursor, and `primed` notes each key's sequence. The
+   * full pull's request goes out once the priority pull has its last page,
+   * so its round trip overlaps that page's commit, and its own commits wait
+   * for the priority pull: the two never write at once. It leaves out what
+   * the priority pull applied (docs/PRIORITY_RESTORE.md).
+   */
+  private async pullWithPriority(
+    observer: SyncPassObserver | undefined,
+    primed: Map<string, number>,
+  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+    const together = new AbortController();
+    let lastPage = () => {};
+    const hasLastPage = new Promise<void>((resolve) => (lastPage = resolve));
+    const first = this.pullStreaming(observer, {
+      primed,
+      prefixes: this.priority,
+      onLastPage: lastPage,
+      abort: together.signal,
+    });
+    const rest = Promise.race([hasLastPage, first]).then(() =>
+      this.pullFull(observer, { primed, after: first, abort: together.signal }),
+    );
+    try {
+      const [priority, full] = await Promise.all([first, rest]);
+      return {
+        pulled: priority.pulled + full.pulled,
+        skipped: priority.skipped + full.skipped,
+      };
+    } catch (error) {
+      together.abort(error);
+      await Promise.allSettled([first, rest]);
+      throw error;
+    }
+  }
+
+  private pullFull(
+    observer: SyncPassObserver | undefined,
+    pass: PullPass,
+  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+    return this.remote.pullStream
+      ? this.pullStreaming(observer, pass)
+      : this.pullPages(observer, pass);
+  }
+
+  private async pullPages(
+    observer: SyncPassObserver | undefined,
+    { primed, after, abort }: PullPass,
+  ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
     let pulled = 0;
     let skipped = 0;
     let head: number | undefined;
 
     while (true) {
+      abort?.throwIfAborted();
       const state = this.requireState();
       const request: SyncPullBody = {
         cursor: state.pullCursor,
@@ -87,12 +161,14 @@ export class SyncClient<Prepared> {
       const response = await this.remote.pull(state.deviceId, request);
       const validResponse = syncPullResponseSchema.parse(response);
       validatePullResponse(request, validResponse, head);
-      const preparedRecords = this.storage.prepareRemoteRecords(
-        validResponse.records,
-      );
+      if (after) await after;
+      after = undefined;
+      abort?.throwIfAborted();
+      const records = withoutPrimed(validResponse.records, primed);
+      const preparedRecords = this.storage.prepareRemoteRecords(records);
 
       observeSyncHlcBatch(
-        validResponse.records.map((record) => record.hlc),
+        records.map((record) => record.hlc),
         this.stateStore,
       );
       const result = await this.storage.applyRemoteRecords(
@@ -109,7 +185,7 @@ export class SyncClient<Prepared> {
         bootstrapped: currentState.bootstrapped || !validResponse.hasMore,
       });
       observer?.pulled({
-        records: validResponse.records,
+        records,
         keptLocal: result.keptLocal,
         restoring: !request.excludeOwnDevice,
       });
@@ -121,19 +197,38 @@ export class SyncClient<Prepared> {
     }
   }
 
-  /** One page is prefetched while one page commits; never rewrite a growing prefix. */
+  /**
+   * One page is prefetched while one page commits; never rewrite a growing
+   * prefix. A full pull checkpoints its cursor after each commit and skips
+   * what `primed` holds. A priority pull (`prefixes`) keeps its cursor in
+   * memory, never marks the bootstrap complete, and adds what it applied
+   * to `primed`.
+   */
   private async pullStreaming(
     observer: SyncPassObserver | undefined,
+    pass: PullPass,
   ): Promise<Pick<SyncRunResult, "pulled" | "skipped">> {
+    const { primed, prefixes } = pass;
+    let after = pass.after;
     const controller = new AbortController();
-    const abort = () => controller.abort(this.signal?.reason);
-    this.signal?.addEventListener("abort", abort, { once: true });
-    if (this.signal?.aborted) abort();
+    const signals = [this.signal, pass.abort].filter(
+      (signal) => signal !== undefined,
+    );
+    const abortWith = (signal: AbortSignal) => () =>
+      controller.abort(signal.reason);
+    const listeners = signals.map(
+      (signal) => [signal, abortWith(signal)] as const,
+    );
+    for (const [signal, listener] of listeners) {
+      signal.addEventListener("abort", listener, { once: true });
+      if (signal.aborted) listener();
+    }
     let pulled = 0,
       skipped = 0,
       head: number | undefined;
     const initial = this.requireState();
     const deviceId = initial.deviceId;
+    let priorityCursor = 0;
     const check = () => {
       controller.signal.throwIfAborted();
       if (this.requireState().deviceId !== deviceId)
@@ -143,15 +238,20 @@ export class SyncClient<Prepared> {
       while (true) {
         check();
         let request: SyncPullBody = {
-          cursor: this.requireState().pullCursor,
+          cursor: prefixes ? priorityCursor : this.requireState().pullCursor,
           ...(head === undefined ? {} : { head }),
           limit: DEFAULT_SYNC_PULL_LIMIT,
           excludeOwnDevice: initial.bootstrapped,
         };
-        const iterator = this.remote.pullStream!(
-          deviceId,
-          request,
-          controller.signal,
+        const iterator = (
+          prefixes
+            ? this.remote.pullPrefixed!(
+                deviceId,
+                request,
+                prefixes,
+                controller.signal,
+              )
+            : this.remote.pullStream!(deviceId, request, controller.signal)
         )[Symbol.asyncIterator]();
         // Attach rejection handlers immediately so prefetched failures never escape unhandled.
         const next = () =>
@@ -171,10 +271,28 @@ export class SyncClient<Prepared> {
               throw new Error("Sync stream continued after its final page");
             const page = syncPullResponseSchema.parse(item.value.value);
             validatePullResponse(request, page, head);
+            // A server that ignored the filter: leave the rest to the full pull.
+            if (
+              prefixes &&
+              page.records.some(
+                (record) =>
+                  !prefixes.some((prefix) => record.key.startsWith(prefix)),
+              )
+            )
+              return { pulled, skipped };
+            if (!page.hasMore) pass.onLastPage?.();
+            if (after) {
+              await after;
+              after = undefined;
+              check();
+            }
             head = page.head;
-            const prepared = this.storage.prepareRemoteRecords(page.records);
+            const records = prefixes
+              ? page.records
+              : withoutPrimed(page.records, primed);
+            const prepared = this.storage.prepareRemoteRecords(records);
             observeSyncHlcBatch(
-              page.records.map((record) => record.hlc),
+              records.map((record) => record.hlc),
               this.stateStore,
             );
             pending = next();
@@ -185,24 +303,32 @@ export class SyncClient<Prepared> {
             check();
             pulled += result.applied;
             skipped += result.skipped;
-            this.stateStore.write({
-              ...this.requireState(),
-              pullCursor: page.cursor,
-            });
+            if (prefixes) {
+              priorityCursor = page.cursor;
+              notePrimed(primed, records, result);
+            } else {
+              this.stateStore.write({
+                ...this.requireState(),
+                pullCursor: page.cursor,
+              });
+            }
             observer?.pulled({
-              records: page.records,
+              records,
               keptLocal: result.keptLocal,
               restoring: !initial.bootstrapped,
             });
             last = page;
             request = { ...request, cursor: page.cursor, head };
           }
+          // No pages for a priority pull: the server cannot filter.
+          if (!last && prefixes) return { pulled, skipped };
           if (!last) throw new Error("Sync stream returned no pages");
           if (!last.hasMore) {
-            this.stateStore.write({
-              ...this.requireState(),
-              bootstrapped: true,
-            });
+            if (!prefixes)
+              this.stateStore.write({
+                ...this.requireState(),
+                bootstrapped: true,
+              });
             return { pulled, skipped };
           }
           // A clean partial window resumes at the committed cursor with the same head.
@@ -214,7 +340,8 @@ export class SyncClient<Prepared> {
         }
       }
     } finally {
-      this.signal?.removeEventListener("abort", abort);
+      for (const [signal, listener] of listeners)
+        signal.removeEventListener("abort", listener);
       controller.abort();
     }
   }
@@ -269,6 +396,52 @@ export class SyncClient<Prepared> {
     }
     return state;
   }
+}
+
+/** One pull of a sync pass: a priority pull, or the full pull after it. */
+interface PullPass {
+  /** Each key a priority pull applied, with its server sequence. */
+  primed: Map<string, number>;
+  /** A priority pull of these key prefixes. */
+  prefixes?: readonly string[];
+  /** A priority pull: called when its last page arrives, before it commits. */
+  onLastPage?: () => void;
+  /** A full pull: settles before its first commit; a failure ends it. */
+  after?: Promise<unknown>;
+  /** Ends this pull when the other pull of its pass fails. */
+  abort?: AbortSignal;
+}
+
+/**
+ * The records a priority pull has not already applied. Each winning write
+ * of a key takes a new, higher server sequence, so a record at or below the
+ * sequence the priority pull applied is that version or an older one; a
+ * newer version or a tombstone is above it. Each key comes once in a pull.
+ */
+function withoutPrimed(
+  records: readonly SyncRecord[],
+  primed: Map<string, number>,
+): readonly SyncRecord[] {
+  if (primed.size === 0) return records;
+  return records.filter((record) => {
+    const applied = primed.get(record.key);
+    if (applied === undefined) return true;
+    primed.delete(record.key);
+    return record.serverSeq > applied;
+  });
+}
+
+/** Note what a priority page applied; a kept local edit stays unnoted. */
+function notePrimed(
+  primed: Map<string, number>,
+  records: readonly SyncRecord[],
+  result: SyncApplyResult,
+): void {
+  // A storage that cannot name its kept keys: note none of this page.
+  if (result.keptLocal === undefined && result.skipped > 0) return;
+  const kept = new Set(result.keptLocal);
+  for (const record of records)
+    if (!kept.has(record.key)) primed.set(record.key, record.serverSeq);
 }
 
 /** Count the actual JSON envelope, escaped values, commas, and UTF-8 bytes. */

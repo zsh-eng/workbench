@@ -112,6 +112,8 @@ export function createNamespacedHttpClient(options: {
   async function request(path: string, init: RequestInit = {}, refresh = true) {
     return (await scopedRequest(path, init, refresh)).response;
   }
+  /** A server without the prefix filter refused it; do not ask again. */
+  let prefixRefused = false;
   const remote: SyncRemote = {
     getScope,
     async pull(deviceId, query) {
@@ -139,6 +141,39 @@ export function createNamespacedHttpClient(options: {
       );
       for await (const page of readSyncPullStream(response, streamSignal)) {
         bindSyncScope(options.stateStore, expected);
+        yield page;
+      }
+    },
+    async *pullPrefixed(deviceId, query, prefixes, streamSignal) {
+      if (prefixRefused) return;
+      const params = new URLSearchParams(
+        Object.entries(query).map(([key, value]) => [key, String(value)]),
+      );
+      for (const prefix of prefixes) params.append("prefix", prefix);
+      let opened: Awaited<ReturnType<typeof scopedRequest>>;
+      try {
+        opened = await scopedRequest(
+          `/sync/v3/pull-stream?${params}`,
+          { headers: { "X-Device-ID": deviceId }, signal: streamSignal },
+          false,
+        );
+      } catch (error) {
+        // An older server refuses the unknown parameter, or has no route.
+        if (
+          error instanceof SyncHttpError &&
+          [400, 404, 405].includes(error.status)
+        ) {
+          prefixRefused = true;
+          await error.response?.body?.cancel().catch(() => {});
+          return;
+        }
+        throw error;
+      }
+      for await (const page of readSyncPullStream(
+        opened.response,
+        streamSignal,
+      )) {
+        bindSyncScope(options.stateStore, opened.expected);
         yield page;
       }
     },

@@ -4,7 +4,7 @@ import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
 import {
   type SyncPushBody,
-  type SyncPullBody,
+  type SyncPrefixPullBody,
   MAX_SYNC_FUTURE_CLOCK_SKEW_MS,
   MAX_SYNC_PUSH_BODY_BYTES,
   syncDeviceIdSchema,
@@ -93,7 +93,7 @@ export function createSyncHonoRoutes<E extends Env>(
         syncV2PullQuerySchema,
       ),
       async (
-        c: Context<E, "/pull-stream", { out: { query: SyncPullBody } }>,
+        c: Context<E, "/pull-stream", { out: { query: SyncPrefixPullBody } }>,
       ) => {
         const identity = options.getIdentity(c);
         const device = syncDeviceIdSchema.safeParse(identity.deviceId);
@@ -170,7 +170,9 @@ export function createSyncHonoRoutes<E extends Env>(
         "query",
         syncV2PullQuerySchema,
       ),
-      async (c: Context<E, "/pull", { out: { query: SyncPullBody } }>) => {
+      async (
+        c: Context<E, "/pull", { out: { query: SyncPrefixPullBody } }>,
+      ) => {
         c.header("Cache-Control", "no-store");
         const identity = options.getIdentity(c);
         const deviceIdResult = syncDeviceIdSchema.safeParse(identity.deviceId);

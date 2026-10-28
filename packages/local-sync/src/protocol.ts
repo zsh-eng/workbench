@@ -16,6 +16,8 @@ export const MAX_SYNC_KEY_BYTES = 1_024;
 export const MAX_SYNC_VALUE_BYTES = 64 * 1_024;
 export const MAX_SYNC_PUSH_BODY_BYTES = 1_024 * 1_024;
 export const MAX_SYNC_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+export const MAX_SYNC_PULL_PREFIXES = 8;
+export const MAX_SYNC_KEY_PREFIX_LENGTH = 256;
 
 const textEncoder = new TextEncoder();
 const safeNonNegativeInteger = z
@@ -102,39 +104,76 @@ export const syncPushResponseSchema = z.strictObject({
     .check(z.maxLength(MAX_SYNC_PUSH_CHANGES)),
 });
 
-export const syncPullBodySchema = z
-  .strictObject({
-    cursor: safeNonNegativeInteger,
-    head: z.optional(safeNonNegativeInteger),
-    limit: z.optional(
-      safePositiveInteger.check(z.maximum(MAX_SYNC_PULL_LIMIT)),
-    ),
-    excludeOwnDevice: z.boolean(),
-  })
+/**
+ * A key prefix for a priority pull: printable ASCII, so that one character
+ * more than its last is the end of its key range (see `syncPrefixRanges`).
+ */
+export const syncKeyPrefixSchema = z
+  .string()
   .check(
-    z.refine((body) => body.head === undefined || body.cursor <= body.head, {
+    z.minLength(1),
+    z.maxLength(MAX_SYNC_KEY_PREFIX_LENGTH),
+    z.regex(/^[\x20-\x7e]+$/),
+  );
+export const syncKeyPrefixesSchema = z
+  .array(syncKeyPrefixSchema)
+  .check(z.minLength(1), z.maxLength(MAX_SYNC_PULL_PREFIXES));
+
+const syncPullShape = {
+  cursor: safeNonNegativeInteger,
+  head: z.optional(safeNonNegativeInteger),
+  limit: z.optional(safePositiveInteger.check(z.maximum(MAX_SYNC_PULL_LIMIT))),
+  excludeOwnDevice: z.boolean(),
+};
+const cursorWithinHead = <Body extends { cursor: number; head?: number }>() =>
+  z.refine<Body>(
+    (body) => body.head === undefined || body.cursor <= body.head,
+    {
       message: "cursor must not exceed head",
       path: ["cursor"],
-    }),
+    },
   );
+
+export const syncPullBodySchema = z
+  .strictObject(syncPullShape)
+  .check(cursorWithinHead());
+
+/** A pull as a server reads it: optionally only keys with one of `prefixes`. */
+export const syncPrefixPullBodySchema = z
+  .strictObject({
+    ...syncPullShape,
+    prefixes: z.optional(syncKeyPrefixesSchema),
+  })
+  .check(cursorWithinHead());
 
 const syncQueryIntegerSchema = z.pipe(
   z.pipe(z.string().check(z.regex(/^(0|[1-9]\d*)$/)), z.transform(Number)),
   safeNonNegativeInteger,
 );
 
-/** Parse the read-only pull contract from HTTP query parameters. */
+/**
+ * Parse the read-only pull contract from HTTP query parameters. `prefix`
+ * may repeat; a server older than it refuses the request (400).
+ */
 export const syncPullQuerySchema = z.pipe(
-  z.strictObject({
-    cursor: syncQueryIntegerSchema,
-    head: z.optional(syncQueryIntegerSchema),
-    limit: z.optional(syncQueryIntegerSchema),
-    excludeOwnDevice: z.pipe(
-      z.enum(["true", "false"]),
-      z.transform((value) => value === "true"),
+  z.pipe(
+    z.strictObject({
+      cursor: syncQueryIntegerSchema,
+      head: z.optional(syncQueryIntegerSchema),
+      limit: z.optional(syncQueryIntegerSchema),
+      excludeOwnDevice: z.pipe(
+        z.enum(["true", "false"]),
+        z.transform((value) => value === "true"),
+      ),
+      prefix: z.optional(z.union([z.string(), z.array(z.string())])),
+    }),
+    z.transform(({ prefix, ...body }) =>
+      prefix === undefined
+        ? body
+        : { ...body, prefixes: typeof prefix === "string" ? [prefix] : prefix },
     ),
-  }),
-  syncPullBodySchema,
+  ),
+  syncPrefixPullBodySchema,
 );
 
 export const syncPullResponseSchema = z
@@ -226,6 +265,7 @@ export type SyncPushBody = z.infer<typeof syncPushBodySchema>;
 export type SyncRecord = z.infer<typeof syncRecordSchema>;
 export type SyncPushResponse = z.infer<typeof syncPushResponseSchema>;
 export type SyncPullBody = z.infer<typeof syncPullBodySchema>;
+export type SyncPrefixPullBody = z.infer<typeof syncPrefixPullBodySchema>;
 export type SyncPullResponse = z.infer<typeof syncPullResponseSchema>;
 export type SyncClientState = z.infer<typeof syncClientStateSchema>;
 
@@ -242,6 +282,33 @@ export function encodeSyncKey(tableName: string, recordId: string): string {
     );
   }
   return key;
+}
+
+/** The prefix of every key that `encodeSyncKey(tableName, id)` makes. */
+export function syncTablePrefix(tableName: string): string {
+  return syncKeyPrefixSchema.parse(
+    JSON.stringify([tableName, ""]).slice(0, -'""]'.length),
+  );
+}
+
+/**
+ * Each prefix as the key range `[prefix, end)`, where `end` is the prefix
+ * with its last character one higher. Keys compare as UTF-8 bytes, and a
+ * prefix is ASCII, so a key is in the range exactly when it starts with the
+ * prefix. A prefix that another prefix covers is left out, so no key is in
+ * two ranges.
+ */
+export function syncPrefixRanges(
+  prefixes: readonly string[],
+): [start: string, end: string][] {
+  const kept: string[] = [];
+  for (const prefix of [...new Set(prefixes)].sort())
+    if (!kept.some((other) => prefix.startsWith(other))) kept.push(prefix);
+  return kept.map((prefix) => [
+    prefix,
+    prefix.slice(0, -1) +
+      String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1),
+  ]);
 }
 
 export function decodeSyncKey(key: string): readonly [string, string] {

@@ -1,5 +1,6 @@
 import {
-  type SyncPullBody,
+  syncPrefixRanges,
+  type SyncPrefixPullBody,
   type SyncPullResponse,
   type SyncPushChange,
   type SyncPushResponse,
@@ -113,11 +114,31 @@ function syncQueries(namespaced: boolean) {
   LIMIT ?
 `;
 
+  /**
+   * The same page, of keys in the JSON array of [start, end) ranges bound
+   * first. Each range is a search of the key index, so only matching rows
+   * are read; they are then sorted by sequence.
+   */
+  const PULL_SYNC_PREFIX_PAGE_SQL = `
+  SELECT stored.*
+  FROM json_each(?) AS range
+  CROSS JOIN sync_records AS stored
+    INDEXED BY ${namespaced ? "sync_records_scope_key_unique" : "sync_records_user_key_unique"}
+  WHERE stored.user_id = ? ${namespaced ? "AND stored.namespace = ?" : ""}
+    AND stored.key >= json_extract(range.value, '$[0]')
+    AND stored.key < json_extract(range.value, '$[1]')
+    AND stored.server_seq > ?
+    AND stored.server_seq <= ?
+    AND (? = 0 OR stored.device_id <> ?)
+  ORDER BY stored.server_seq
+  LIMIT ?
+`;
+
   // Bound rows returned from D1 by raw UTF-8 bytes as well as count. One row past
   // the byte budget is retained as lookahead; no full large page reaches the Worker.
-  const PULL_SYNC_STREAM_PAGE_SQL = `
+  const streamPage = (page: string) => `
   WITH candidates AS (
-    ${PULL_SYNC_V2_PAGE_SQL}
+    ${page}
   ), measured AS (
     SELECT *, length(CAST(value AS BLOB)) + length(CAST(key AS BLOB)) + 512 AS record_bytes
     FROM candidates
@@ -133,7 +154,9 @@ function syncQueries(namespaced: boolean) {
     READ_SYNC_V2_BATCH_WINNERS_SQL,
     READ_SYNC_V2_HEAD_SQL,
     PULL_SYNC_V2_PAGE_SQL,
-    PULL_SYNC_STREAM_PAGE_SQL,
+    PULL_SYNC_STREAM_PAGE_SQL: streamPage(PULL_SYNC_V2_PAGE_SQL),
+    PULL_SYNC_PREFIX_PAGE_SQL,
+    PULL_SYNC_PREFIX_STREAM_PAGE_SQL: streamPage(PULL_SYNC_PREFIX_PAGE_SQL),
   };
 }
 
@@ -233,16 +256,23 @@ export async function pullSyncV2(
   database: SyncD1Database,
   userId: string,
   deviceId: string,
-  body: SyncPullBody,
+  body: SyncPrefixPullBody,
   head: number,
   boundedBytes = false,
   namespace?: string,
 ): Promise<SyncPullResponse> {
-  const { PULL_SYNC_V2_PAGE_SQL, PULL_SYNC_STREAM_PAGE_SQL } = syncQueries(
-    namespace !== undefined,
-  );
+  const queries = syncQueries(namespace !== undefined);
+  const prefixed = body.prefixes !== undefined;
+  const sql = prefixed
+    ? boundedBytes
+      ? queries.PULL_SYNC_PREFIX_STREAM_PAGE_SQL
+      : queries.PULL_SYNC_PREFIX_PAGE_SQL
+    : boundedBytes
+      ? queries.PULL_SYNC_STREAM_PAGE_SQL
+      : queries.PULL_SYNC_V2_PAGE_SQL;
   const limit = body.limit ?? DEFAULT_SYNC_PULL_LIMIT;
   const values: unknown[] = [
+    ...(prefixed ? [JSON.stringify(syncPrefixRanges(body.prefixes!))] : []),
     userId,
     ...(namespace === undefined ? [] : [namespace]),
     body.cursor,
@@ -253,7 +283,7 @@ export async function pullSyncV2(
   ];
   if (boundedBytes) values.push(SYNC_STREAM_PAGE_BYTES);
   const result = await database
-    .prepare(boundedBytes ? PULL_SYNC_STREAM_PAGE_SQL : PULL_SYNC_V2_PAGE_SQL)
+    .prepare(sql)
     .bind(...values)
     .all<StoredSyncV2Record & { cumulative_bytes?: number }>();
   const selected = result.results.filter(

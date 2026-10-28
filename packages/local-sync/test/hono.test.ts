@@ -1,44 +1,18 @@
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createSyncHonoRoutes,
   SYNC_D1_SCHEMA_SQL,
-  type SyncD1Database,
-  type SyncD1Statement,
 } from "@zsh-eng/local-sync/hono";
+import { sqliteD1 } from "./sqlite-d1";
 import {
+  syncTablePrefix,
   type SyncPushChange,
   type SyncPushResponse,
   type SyncPullResponse,
 } from "@zsh-eng/local-sync";
 
-// Execute the package's actual SQL against SQLite. Reader also tests this adapter
-// in Cloudflare's D1 runtime with its production migrations and authentication.
-class Statement implements SyncD1Statement {
-  private readonly database: DatabaseSync;
-  private readonly sql: string;
-  private values: SQLInputValue[] = [];
-  constructor(database: DatabaseSync, sql: string) {
-    this.database = database;
-    this.sql = sql;
-  }
-  bind(...values: unknown[]) {
-    this.values = values as SQLInputValue[];
-    return this;
-  }
-  async first<T>(): Promise<T | null> {
-    return (
-      (this.database.prepare(this.sql).get(...this.values) as T | undefined) ??
-      null
-    );
-  }
-  async all<T>(): Promise<{ results: T[] }> {
-    return {
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
-    };
-  }
-}
 const databases: DatabaseSync[] = [];
 afterEach(() => {
   for (const db of databases.splice(0)) db.close();
@@ -49,23 +23,8 @@ function app() {
   const sqlite = new DatabaseSync(":memory:");
   databases.push(sqlite);
   sqlite.exec(SYNC_D1_SCHEMA_SQL);
-  const database: SyncD1Database = {
-    prepare: (sql) => new Statement(sqlite, sql),
-    async batch<T>(statements: SyncD1Statement[]) {
-      sqlite.exec("BEGIN");
-      try {
-        const results = [];
-        for (const statement of statements)
-          results.push(await statement.all<T>());
-        sqlite.exec("COMMIT");
-        return results;
-      } catch (error) {
-        sqlite.exec("ROLLBACK");
-        throw error;
-      }
-    },
-  };
-  return new Hono<AppEnv>().route(
+  const { database, statements } = sqliteD1(sqlite);
+  const routes = new Hono<AppEnv>().route(
     "/bridge",
     createSyncHonoRoutes<AppEnv>({
       requireAuth: async (c, next) => {
@@ -84,6 +43,7 @@ function app() {
       now: () => 1_000,
     }),
   );
+  return Object.assign(routes, { sqlite, statements });
 }
 function change(
   key: string,
@@ -302,5 +262,96 @@ describe("streaming Hono/D1 pull", () => {
     );
     expect(raw.headers.get("Content-Encoding")).toBeNull();
     await raw.body?.cancel();
+  });
+});
+
+describe("key-prefix pull", () => {
+  it("returns only keys with a prefix, in sequence order, through the key index", async () => {
+    const api = app();
+    const keys = [
+      ["notes", "1"],
+      ["books", "b"],
+      ["booksArchive", "x"],
+      ["readingState", "s"],
+      ["notes", "2"],
+      ["books", "a"],
+    ].map(([table, id]) => JSON.stringify([table, id]));
+    await api.request("/bridge/push", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ changes: keys.map((key, n) => change(key, n)) }),
+    });
+    await api.request("/bridge/push", {
+      method: "POST",
+      headers: headers("b"),
+      body: JSON.stringify({ changes: [change(keys[1]!, 9)] }),
+    });
+    const prefixes = ["books", "readingState"].map(syncTablePrefix);
+    // A prefix inside another is read once.
+    const query = [...prefixes, prefixes[0]!.slice(0, -1)]
+      .map((prefix) => `prefix=${encodeURIComponent(prefix)}`)
+      .join("&");
+    const read = async (path: string, account = "a") => {
+      const response = await api.request(
+        `/bridge/${path}?cursor=0&excludeOwnDevice=false&limit=2&${query}`,
+        { headers: headers(account, "new") },
+      );
+      expect(response.status).toBe(200);
+      return path === "pull"
+        ? [(await response.json()) as SyncPullResponse]
+        : ((await response.text())
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+            .slice(0, -1) as SyncPullResponse[]);
+    };
+    const pages = await read("pull-stream");
+    // Not `["booksArchive",…]`: a prefix ends at its comma.
+    expect(pages.flatMap((page) => page.records.map((r) => r.key))).toEqual([
+      keys[1],
+      keys[3],
+      keys[5],
+    ]);
+    expect(pages.at(-1)).toMatchObject({ cursor: 6, head: 6, hasMore: false });
+    const [first] = await read("pull");
+    expect(first!.records.map((r) => r.key)).toEqual([keys[1], keys[3]]);
+    expect(first).toMatchObject({ cursor: 4, hasMore: true });
+    expect(
+      (await read("pull-stream", "b")).flatMap((page) => page.records),
+    ).toHaveLength(1);
+
+    const page = api.statements.findLast(({ sql }) =>
+      sql.includes("json_each(?) AS range"),
+    )!;
+    const plan = api.sqlite
+      .prepare(`EXPLAIN QUERY PLAN ${page.sql}`)
+      .all(...page.values)
+      .map((row) => (row as { detail: string }).detail);
+    expect(plan).toContainEqual(
+      expect.stringMatching(
+        /^SEARCH stored USING INDEX sync_records_user_key_unique \(user_id=\? AND key>\? AND key<\?\)$/,
+      ),
+    );
+    expect(plan.some((step) => step.startsWith("SCAN stored"))).toBe(false);
+  });
+
+  it("refuses prefixes it cannot read as key ranges", async () => {
+    const api = app();
+    const status = async (query: string) =>
+      (
+        await api.request(
+          `/bridge/pull-stream?cursor=0&excludeOwnDevice=false&${query}`,
+          { headers: headers() },
+        )
+      ).status;
+    expect(await status("prefix=")).toBe(400);
+    expect(await status(`prefix=${encodeURIComponent("bücher/")}`)).toBe(400);
+    expect(await status(`prefix=${"a".repeat(257)}`)).toBe(400);
+    expect(
+      await status(
+        Array.from({ length: 9 }, (_, n) => `prefix=t${n}`).join("&"),
+      ),
+    ).toBe(400);
+    expect(await status("prefix=t1&prefix=t2")).toBe(200);
   });
 });

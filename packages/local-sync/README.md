@@ -224,6 +224,27 @@ apply time. Pass the host's sync lifetime signal as `SyncClientOptions.signal`
 when opting into streams. Account ownership and the in-memory domain model stay
 with the host. Consumers that do not implement `pullStream` keep paginated pull.
 
+## Priority restore
+
+`new SyncClient({ ..., priority })` takes the key prefixes of the records an
+app's first screen needs, such as `syncTablePrefix("books")` for keys from
+`encodeSyncKey("books", id)`: printable ASCII, at most 8. Until the state
+has bootstrapped, a pull first asks `SyncRemote.pullPrefixed` for those keys
+from cursor 0, commits them without moving the cursor, then runs the full
+pull. The full pull's request goes out when the priority pull has its last
+page; its commits wait for the priority pull. A full-pull record at or below
+the sequence that the priority pull applied for its key is skipped; a newer
+version or a tombstone is applied. Both pulls share the signal, the device
+check and the scope; either failing ends both.
+
+The Hono routes take `prefix` (repeatable) on `/pull` and `/pull-stream`.
+Each prefix is a range search of the `(user, [namespace,] key)` unique index;
+pages, heads, cursors and limits are those of a plain pull, and no migration
+is needed. A server without it answers 400 to the unknown parameter;
+`createNamespacedHttpClient`'s `pullPrefixed` then yields no pages, does not
+ask again, and the client does a plain pull. The design and its measurements
+are in [docs/PRIORITY_RESTORE.md](docs/PRIORITY_RESTORE.md).
+
 ## Client performance
 
 - Parse domain values once. Select schemas by record type; avoid trying every
