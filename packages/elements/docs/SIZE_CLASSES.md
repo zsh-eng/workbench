@@ -27,7 +27,8 @@ Bars, sidebars, popovers and menus follow the width class:
 **A tablet** is a touch screen (`any-pointer: coarse`) whose shortest side
 is 600 px or more (`screen.width`, `screen.height`). It stays a tablet when
 it turns, whatever the browser's bars take. A phone on its side stays a
-phone.
+phone. A smaller touch screen is a phone, and a screen without touch a
+desktop (`deviceClass()`); a touch laptop is a tablet.
 
 **Sheets take the form layout** (UIKit's iPad sheet, `sheetPlacement` in
 `src/sheet-body.tsx`) on a tablet in a window compact in neither width nor
@@ -40,6 +41,7 @@ sheets. UIKit shows a form sheet full screen in a compact height.
 | `useCompactHeight()`, `isCompactHeight()`                 | keep a second pane off a short window             |
 | `useTabletSheets()`, `tabletSheets()`                     | the sheets' layout (`useSheetForm` in sheet-body) |
 | `isTabletScreen()`                                        | a default for a tablet (Arctic's Magazine)        |
+| `deviceClass()`                                           | phone, tablet or desktop (Reader's reading time)  |
 | `COMPACT_QUERY`, `EXPANDED_QUERY`, `COMPACT_HEIGHT_QUERY` | `matchMedia`, tests                               |
 | `MEDIUM_WIDTH`, `EXPANDED_WIDTH`, `MEDIUM_HEIGHT`         | the numbers                                       |
 

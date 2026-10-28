@@ -61,15 +61,28 @@ export function isCompactHeight(): boolean {
   return media().short.matches;
 }
 
+export type DeviceClass = "phone" | "tablet" | "desktop";
+
+/**
+ * The device, not the window: a touch screen whose shortest side is at
+ * least 600 px is a tablet, a smaller one a phone, and a screen without
+ * touch a desktop. `screen` keeps the whole display in either orientation,
+ * so a phone on its side stays a phone, and an iPad window beside another
+ * app stays an iPad's. A touch laptop is a tablet.
+ */
+export function deviceClass(): DeviceClass {
+  if (!media().touch.matches) return "desktop";
+  return Math.min(screen.width, screen.height) >= TABLET_SHORTEST_SIDE
+    ? "tablet"
+    : "phone";
+}
+
 /**
  * A touch screen whose shortest side is at least 600 px. `screen` keeps the
  * whole display in either orientation; the window can be narrower.
  */
 export function isTabletScreen(): boolean {
-  return (
-    media().touch.matches &&
-    Math.min(screen.width, screen.height) >= TABLET_SHORTEST_SIDE
-  );
+  return deviceClass() === "tablet";
 }
 
 /**
