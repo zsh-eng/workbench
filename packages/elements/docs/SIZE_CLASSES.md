@@ -27,7 +27,8 @@ Bars, sidebars, popovers and menus follow the width class:
 **A tablet** is a touch screen (`any-pointer: coarse`) whose shortest side
 is 600 px or more (`screen.width`, `screen.height`). It stays a tablet when
 it turns, whatever the browser's bars take. A phone on its side stays a
-phone.
+phone. A smaller touch screen is a phone, and a screen without touch a
+desktop (`deviceClass()`); a touch laptop is a tablet.
 
 **Sheets take the form layout** (UIKit's iPad sheet, `sheetPlacement` in
 `src/sheet-body.tsx`) on a tablet in a window compact in neither width nor
@@ -40,6 +41,7 @@ sheets. UIKit shows a form sheet full screen in a compact height.
 | `useCompactHeight()`, `isCompactHeight()`                 | keep a second pane off a short window             |
 | `useTabletSheets()`, `tabletSheets()`                     | the sheets' layout (`useSheetForm` in sheet-body) |
 | `isTabletScreen()`                                        | a default for a tablet (Arctic's Magazine)        |
+| `deviceClass()`                                           | phone, tablet or desktop (Reader's reading time)  |
 | `COMPACT_QUERY`, `EXPANDED_QUERY`, `COMPACT_HEIGHT_QUERY` | `matchMedia`, tests                               |
 | `MEDIUM_WIDTH`, `EXPANDED_WIDTH`, `MEDIUM_HEIGHT`         | the numbers                                       |
 
@@ -114,7 +116,10 @@ The OPPO Pad Mini has a 2520 × 1680 screen, 8.8 inches at 344 PPI, up to
 144 Hz, on ColorOS 16
 ([Notebookcheck](https://www.notebookcheck.net/Oppo-launches-high-end-compact-OLED-tablet-with-144Hz-matte-display.1431107.0.html)).
 The maker sets its density, and Android's display size setting can change
-it; the readout below shows it. At 2.5 its screen is 1008 × 672, at 2.625
+it; the readout below shows it. Reader's reading-time gap follows the device
+(`deviceClass()`): 3 minutes on a phone, 5 on a tablet or desktop. So the
+OPPO at density 3.0 gets a phone's 3 minutes, and at 2.5 or 2.625 a
+tablet's 5. At 2.5 its screen is 1008 × 672, at 2.625
 960 × 640, at 3.0 840 × 560. Above 2.8 its shortest side (1680 / density)
 is below 600, so the sheets take it for a phone.
 

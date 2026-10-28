@@ -1,10 +1,7 @@
 /** Reading-duration records and cleanup of sessions left open by a device. */
 import { getOrCreateDeviceId } from "@/lib/device";
-import { READER_GAP_MS, type ReaderSessionRow } from "@workbench/activity-time";
+import type { ReaderSessionRow } from "@workbench/activity-time";
 import { db, isNotDeleted } from "./database";
-
-/** A longer pause between inputs counts nothing (`packages/activity-time`). */
-export const READING_SESSION_IDLE_TIMEOUT_MS = READER_GAP_MS;
 
 /** The stored row; `fromReaderSession` reads it as a shared activity session. */
 export interface ReadingSession extends ReaderSessionRow {
@@ -27,6 +24,12 @@ export interface ReadingSession extends ReaderSessionRow {
   startScrollProgress: number; // Chapter-local percentage in the range 0-100
   endSpineIndex: number;
   endScrollProgress: number; // Chapter-local percentage in the range 0-100
+  /**
+   * The longest quiet stretch that counted, chosen by the device when the
+   * session began. Rows from before 28 October 2026, and rows from older app
+   * versions, have none: they counted with ten minutes.
+   */
+  gapMs?: number;
 }
 
 /** Recorded time for one book, including sessions from other synced devices. */

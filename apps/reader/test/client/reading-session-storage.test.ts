@@ -23,7 +23,7 @@ it("saves the shared session as the Reader's row, retrying a failed write", asyn
   const onError = vi.fn();
   const tracker = new ActivityTracker<ReaderPosition>({
     app: "reader",
-    gapMs: READER_GAP_MS,
+    gapMs: READER_GAP_MS.tablet,
     now: () => now,
     createId: () => "retry-session",
     persist: (session) => persist(toReaderSession(session, "reader-1")),
@@ -51,6 +51,8 @@ it("saves the shared session as the Reader's row, retrying a failed write", asyn
     activeMs: 60_000,
     startSpineIndex: 1,
     endSpineIndex: 2,
+    // The current schema keeps a field it does not index: no new version.
+    gapMs: 300_000,
   });
   // The row reads back as the same shared session, with this device's id.
   const { isDeleted: _deleted, ...stored } = row!;
@@ -58,5 +60,8 @@ it("saves the shared session as the Reader's row, retrying a failed write", asyn
     ...ended!,
     device: stored.deviceId,
   });
-  expect(await db._sync_outbox.count()).toBe(1);
+  // Other devices receive the whole row, its gap included.
+  const outbox = await db._sync_outbox.toArray();
+  expect(outbox).toHaveLength(1);
+  expect(JSON.parse(outbox[0]!.value)).toEqual(row);
 });

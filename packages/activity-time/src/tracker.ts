@@ -21,7 +21,11 @@ export type PersistActivitySession<P> = (
 
 export interface ActivityTrackerOptions<P> {
   app: string;
-  gapMs?: number;
+  /**
+   * The gap, or a function that chooses it as each session begins. A
+   * session keeps its gap to its end. Defaults to `DEFAULT_GAP_MS`.
+   */
+  gapMs?: number | (() => number);
   device?: string | null;
   checkpointMs?: number;
   /** Saves a snapshot. Writes run one at a time, in order. */
@@ -50,9 +54,9 @@ interface Entry<P> {
  */
 export class ActivityTracker<P = null> {
   readonly app: string;
-  readonly gapMs: number;
   readonly checkpointMs: number;
   readonly now: () => number;
+  private readonly chooseGap: () => number;
   private readonly device: string | null;
   private readonly persist: PersistActivitySession<P>;
   private readonly onError: (error: unknown) => void;
@@ -65,7 +69,8 @@ export class ActivityTracker<P = null> {
 
   constructor(options: ActivityTrackerOptions<P>) {
     this.app = options.app;
-    this.gapMs = options.gapMs ?? DEFAULT_GAP_MS;
+    const gapMs = options.gapMs ?? DEFAULT_GAP_MS;
+    this.chooseGap = typeof gapMs === "function" ? gapMs : () => gapMs;
     this.checkpointMs = options.checkpointMs ?? CHECKPOINT_MS;
     // Read `Date` on each call, so that a test clock installed later applies.
     this.now = options.now ?? (() => Date.now());
@@ -84,6 +89,7 @@ export class ActivityTracker<P = null> {
    * Starts a session for `subject`, ending another subject's. For the open
    * subject it only moves the position. The interval opens now unless the
    * page is away (hidden or unfocused); the next input or return opens it.
+   * The session's gap is chosen here and does not change.
    */
   begin(subject: Subject, options: { position?: P; at?: number } = {}): void {
     const { position } = options;
@@ -95,8 +101,8 @@ export class ActivityTracker<P = null> {
       return;
     }
     const at = options.at ?? this.now();
+    const time = new ActiveTime(this.chooseGap());
     this.end(at);
-    const time = new ActiveTime(this.gapMs);
     if (this.present) time.resume(at);
     const session: ActivitySession<P> = {
       v: ACTIVITY_SESSION_VERSION,
@@ -108,7 +114,7 @@ export class ActivityTracker<P = null> {
       lastActiveAt: at,
       endedAt: null,
       activeMs: 0,
-      gapMs: this.gapMs,
+      gapMs: time.gapMs,
       position:
         position === undefined ? null : { start: position, end: position },
     };

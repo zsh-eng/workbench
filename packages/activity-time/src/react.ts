@@ -13,8 +13,9 @@ export interface UseActivityTrackerOptions<
 /**
  * One tracker for the component's life, fed by the page's signals. The open
  * session ends when the component unmounts. `app`, `gapMs`, `device`,
- * `checkpointMs`, `now` and `createId` are read once; `persist` and
- * `onError` may change between renders.
+ * `checkpointMs`, `now` and `createId` are read once (a `gapMs` function is
+ * called as each session begins); `persist` and `onError` may change
+ * between renders.
  */
 export function useActivityTracker<P = null>(
   options: UseActivityTrackerOptions<P>,

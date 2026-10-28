@@ -27,11 +27,13 @@ session starts, or the page comes back), an input, or a pause.
 - A timer saves counted time. It never adds time.
 
 The gap is three minutes (`DEFAULT_GAP_MS`), as on Arctic for iPhone.
-Spaced uses three minutes. Both used two until 28 October 2026. The Reader
-keeps ten minutes (`READER_GAP_MS`): paged reading has quiet minutes between
-page turns, and its history was counted that way. Each session records its
-gap in `gapMs`; Arctic's and Spaced's stores keep none, so their codecs give
-today's.
+Spaced uses three minutes. Both used two until 28 October 2026. The Reader's
+gap goes by device (`READER_GAP_MS`): three minutes on a phone, five on a
+tablet or desktop, for the quiet minutes between page turns. It was ten
+minutes on every device until 28 October 2026. Each session records its gap
+in `gapMs`. The Reader's rows store it; a row without one reads as ten
+minutes (`READER_LEGACY_GAP_MS`). Arctic's and Spaced's stores keep none, so
+their codecs give today's.
 
 Example, with a three-minute gap: open at 0 s, inputs at 40, 75 and 300 s.
 The session has 75 s; the 225 s gap counts nothing. An input at 310 s adds
@@ -73,6 +75,11 @@ and ends the previous subject's; for the open subject it only moves the
 position. `input`, `pause` and `resume` report boundaries; `end` closes the
 session. `connectTracker` and the hooks call them for the page.
 
+- `gapMs` is a number, or a function that the tracker calls as each session
+  begins. The session keeps that gap to its end, whatever changes later, for
+  example the window's size. The Reader passes one that reads the device
+  (`deviceClass` in `@workbench/elements/size-class`): a phone on its side
+  stays a phone, and an iPad window beside another app an iPad.
 - A changed session saves at most every five seconds (`CHECKPOINT_MS`) and at
   once on a pause or end. Saves run one at a time, in order. A newer value is
   never overwritten by an older one.
@@ -121,7 +128,7 @@ codecs map them without loss of the fields they have:
 
 | App    | Stored record                                                                                                               | Codec                                        | Missing in the store                                                          |
 | ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
-| Reader | `readingSessions` row in the `reader` namespace                                                                             | `fromReaderSession`, `toReaderSession`       | `gapMs` (always ten minutes)                                                  |
+| Reader | `readingSessions` row in the `reader` namespace                                                                             | `fromReaderSession`, `toReaderSession`       | `gapMs` in rows from before 28 October 2026 (ten minutes)                     |
 | Arctic | `session/<UUID>` in `arctic-reading`: `{articleURL, id, seconds, startedAt, updatedAt}`, Swift reference dates, sorted keys | `decodeArcticSession`, `encodeArcticSession` | `device`, `endedAt`, `position`, `gapMs`                                      |
 | Spaced | `duration` of a `reviewLog` operation                                                                                       | `fromSpacedReview` (read only)               | `device`, `position`, `gapMs`; the start is the review time less the duration |
 
@@ -135,8 +142,14 @@ codecs map them without loss of the fields they have:
   web write them. The phone's decoder ignores keys it does not know, and its
   journal compares decoded values, so extra keys would not break it, but the
   phone would not keep them in its own files.
-- **Reader** rows do not store their gap. Add the field to the row before the
-  Reader's gap changes.
+- **Reader** rows store their gap in an optional `gapMs`. A row without it,
+  from before 28 October 2026 or from an app version older than that, was
+  counted with ten minutes and reads so. Sync stores each row's value whole
+  (JSON in `sync_records`, put whole into IndexedDB), so an older version
+  keeps `gapMs` on the rows it receives and reads only the fields it knows;
+  it writes only its own sessions. The field is not indexed, so the Dexie
+  schema keeps its version, and the table keeps `schemaVersion` 1: a version
+  that an older client does not know would stop its pull.
 - **Spaced** keeps time per card in each review log, at most two minutes per
   review (`MAX_DURATION_PER_CARD_MS`, which the gap does not change). Older reviews timed a card from its display and restarted the timer
   after a two-minute pause or a visibility change; reviews from this change
@@ -160,11 +173,19 @@ which no store keeps.
 ## Tests
 
 `bun run --cwd packages/activity-time test` runs the rule, the browser
-signals (with happy-dom windows and an injected clock), saves, multi-tab use
-and the codecs.
+signals (with happy-dom windows and an injected clock), saves, multi-tab use,
+a gap chosen per session and the codecs, including Reader rows with and
+without a gap. Reader's own tests choose the gap for each device
+(`reader-reading-session.test.ts`), sync rows with and without it
+(`sync-v2-sync.test.ts`), and count a four-minute quiet stretch on a tablet
+window and not on a phone on its side in Chromium
+(`reader-reading-time.spec.ts`).
 
 On a copy of the Workbench Backup mirror (24 October 2026), all 493 Reader
 rows mapped to sessions and back unchanged, and the Sessions page gave the
 same overview for eight ranges as before. All 9 Arctic records re-encoded to
 the same bytes, with the same Reading page stats. All 67,371 Spaced review
-logs mapped, with the same total.
+logs mapped, with the same total. Since the Reader's rows store their gap
+(28 October 2026), a row without one maps back with `gapMs` added and its
+other fields unchanged (`formats.test.ts`); the mirror has not been checked
+again.

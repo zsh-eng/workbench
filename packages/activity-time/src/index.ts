@@ -25,7 +25,9 @@ export {
 export {
   fromReaderSession,
   READER_GAP_MS,
+  READER_LEGACY_GAP_MS,
   toReaderSession,
+  type ReaderDevice,
   type ReaderPosition,
   type ReaderSessionRow,
 } from "./formats/reader";

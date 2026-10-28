@@ -39,7 +39,8 @@ demo contract.
 - `@workbench/elements/size-class`: the one rule for phone, tablet and
   desktop layouts. `useWidthClass` (Android's compact, medium and expanded
   widths), `useCompactHeight`, `isTabletScreen` (a touch screen whose
-  shortest side is 600 px or more) and `useTabletSheets`. See
+  shortest side is 600 px or more), `deviceClass` (phone, tablet or desktop,
+  by the device and not the window) and `useTabletSheets`. See
   [docs/SIZE_CLASSES.md](docs/SIZE_CLASSES.md).
 
 Arctic for the web and Reader use the sheet parts. See

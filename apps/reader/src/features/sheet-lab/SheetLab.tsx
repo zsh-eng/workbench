@@ -4,8 +4,8 @@ import { MEDIUM_DETENT } from "@/features/reader/ReaderDetentSheets";
 import { MOTION } from "@/lib/motion";
 import { sheetSnaps } from "@workbench/elements/sheet-motion";
 import {
+  deviceClass,
   isCompactHeight,
-  isTabletScreen,
   tabletSheets,
   widthClass,
 } from "@workbench/elements/size-class";
@@ -548,7 +548,6 @@ function ShapeScenario() {
  * device to place it in packages/elements/docs/SIZE_CLASSES.md.
  */
 function windowReadout() {
-  const tablet = isTabletScreen();
   return {
     window: `${innerWidth}×${innerHeight}`,
     screen: `${screen.width}×${screen.height}`,
@@ -559,11 +558,9 @@ function windowReadout() {
       : innerHeight >= 900
         ? "expanded"
         : "medium",
-    device: tablet
-      ? "tablet"
-      : matchMedia("(any-pointer: coarse)").matches
-        ? "phone"
-        : "no touch",
+    device: { phone: "phone", tablet: "tablet", desktop: "no touch" }[
+      deviceClass()
+    ],
     sheets: tabletSheets() ? "form" : "phone",
   };
 }

@@ -255,6 +255,42 @@ describe("sync v2 client", () => {
     expect(await db._sync_outbox.count()).toBe(0);
   });
 
+  it("pulls reading sessions whole, with a gap from a newer Reader and without one from an older", async () => {
+    const older = {
+      id: "session-older",
+      bookId: "book-a",
+      deviceId: "device-b",
+      readerInstanceId: "reader-b",
+      startedAt: 1_000,
+      endedAt: 61_000,
+      lastActiveAt: 61_000,
+      activeMs: 60_000,
+      startSpineIndex: 1,
+      startScrollProgress: 0,
+      endSpineIndex: 1,
+      endScrollProgress: 40,
+      isDeleted: false,
+    };
+    const newer = { ...older, id: "session-newer", gapMs: 180_000 };
+    remote.pullResponses.push({
+      records: [
+        serverRecord(older, 1, 100, "readingSessions"),
+        serverRecord(newer, 2, 101, "readingSessions"),
+      ],
+      cursor: 2,
+      head: 2,
+      hasMore: false,
+    });
+
+    await client.pull();
+
+    // The store keeps each value as sent, so a row keeps a field that this
+    // version does not know, and an older version keeps `gapMs` the same way.
+    expect(await db.readingSessions.get("session-older")).toEqual(older);
+    expect(await db.readingSessions.get("session-newer")).toEqual(newer);
+    expect(await db._sync_outbox.count()).toBe(0);
+  });
+
   it("keeps a local row when its outbox HLC is newer", async () => {
     await db.readingState.add(readingState("local-wins"));
     const localChange = await db._sync_outbox.get(

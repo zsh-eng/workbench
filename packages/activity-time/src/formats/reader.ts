@@ -1,11 +1,26 @@
 import { ACTIVITY_SESSION_VERSION, type ActivitySession } from "../session";
 
+/** The device that counts a Reader session, as `deviceClass` tells it. */
+export type ReaderDevice = "phone" | "tablet" | "desktop";
+
 /**
- * The Reader's gap. Paged reading has quiet minutes between page turns, so
- * the Reader keeps the ten minutes it has always counted with. Its rows do
- * not store the gap: add a field to them before this changes.
+ * The Reader's gap by device, chosen when a session begins. Paged reading
+ * has quiet minutes between page turns; a phone's page holds less text than
+ * a tablet's or a desktop's, so it gets the shorter gap. The device decides,
+ * not the window: a phone on its side keeps a phone's gap.
  */
-export const READER_GAP_MS = 10 * 60_000;
+export const READER_GAP_MS: Readonly<Record<ReaderDevice, number>> = {
+  phone: 3 * 60_000,
+  tablet: 5 * 60_000,
+  desktop: 5 * 60_000,
+};
+
+/**
+ * The gap of a row without `gapMs`. Every Reader counted with ten minutes
+ * until the gap went by device (28 October 2026), and those rows keep no
+ * gap, as do rows that a Reader from before then still writes.
+ */
+export const READER_LEGACY_GAP_MS = 10 * 60_000;
 
 /** A place in a book: a spine item and a percentage (0–100) through it. */
 export interface ReaderPosition {
@@ -28,6 +43,8 @@ export interface ReaderSessionRow {
   startScrollProgress: number;
   endSpineIndex: number;
   endScrollProgress: number;
+  /** The gap that counted `activeMs`. Absent: `READER_LEGACY_GAP_MS`. */
+  gapMs?: number;
 }
 
 export function fromReaderSession(
@@ -43,7 +60,7 @@ export function fromReaderSession(
     lastActiveAt: row.lastActiveAt,
     endedAt: row.endedAt,
     activeMs: row.activeMs,
-    gapMs: READER_GAP_MS,
+    gapMs: row.gapMs ?? READER_LEGACY_GAP_MS,
     position: {
       start: {
         spineIndex: row.startSpineIndex,
@@ -75,5 +92,6 @@ export function toReaderSession(
     startScrollProgress: position.start.progress,
     endSpineIndex: position.end.spineIndex,
     endScrollProgress: position.end.progress,
+    gapMs: session.gapMs,
   };
 }
