@@ -1595,9 +1595,11 @@ export function SessionThread({
     () => lastTurn(snapshot.items, snapshot.startedAt),
     [snapshot.items, snapshot.startedAt],
   );
+  // A note that the agent read during its turn stays in view after the
+  // turn's folded work; only a prompt starts a turn whose work has not folded.
   const folded =
     all.findLastIndex((unit) => "work" in unit) >
-    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user");
+    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user" && !unit.item.queued);
   // A message that waits for the agent ends the thread; the turn before it
   // already says how long it worked.
   const waitingMessage = last?.kind === "user" && (last.queued || !!last.sent);

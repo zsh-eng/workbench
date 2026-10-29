@@ -788,6 +788,31 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   await expect.element(page.getByText("Then the docs.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
   expect(rows.elements()).toHaveLength(2);
+
+  // When it ends, its work folds before the note, and one row says how long it took.
+  store.applyAll([
+    {
+      at: 34_000,
+      update: {
+        sessionUpdate: "tool_call_update" as const,
+        toolCallId: "run-2",
+        status: "completed" as const,
+      },
+    },
+    {
+      at: 36_000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "final-2",
+        content: { type: "text" as const, text: "Tests pass, and the docs say so." },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: false }} />);
+  await expect.element(page.getByText("Tests pass, and the docs say so.")).toBeVisible();
+  await expect.element(page.getByText("Then the docs.")).toBeVisible();
+  expect(page.getByRole("button", { name: /Run the tests 2/ }).query()).toBeNull();
+  expect(page.getByText(/^Worked for 6s/).elements()).toHaveLength(1);
 });
 
 test("a message from Med joins the thread where the agent took it, so the turn before keeps its reply", async () => {
