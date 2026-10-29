@@ -252,6 +252,40 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
 });
 
+test("in the side panel, the Background dock sits outside the thread and still scrolls it to a task's call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  const side = document.createElement("div");
+  document.body.append(side);
+  try {
+    root!.render(<SessionThread snapshot={store.getSnapshot()} backgroundIn={side} />);
+    await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+    const dock = page.getByRole("region", { name: "Background tasks" });
+    await expect.element(dock).toBeVisible();
+    expect(side.contains(dock.element())).toBe(true);
+    await userEvent.click(dock.getByRole("button", { name: "Start the dev server" }));
+    await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+    await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+  } finally {
+    side.remove();
+  }
+});
+
 test("the Background dock lists only what runs: a task ends in its place, Done leaves, and Failed stays until seen", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
