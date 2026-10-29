@@ -586,6 +586,8 @@ after the review is saved.
 | The guide puts lockfiles or generated files first                | The guide check names the segments                                                                                 |
 | A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                                                            |
 | A subagent runs the command, or Med cannot tell                  | Records no session, says why, and prints no `med review wait` line                                                 |
+| `review wait` outside Claude Code, as in Codex, or in a subagent | Fails at once: nothing would send it a message                                                                     |
+| `review wait` in a Claude Code session that the review lacks     | Adds the session to the review, as `update --session` does, and says so                                            |
 | `--port` or `--state-dir` is not the default                     | Each printed command carries them, so it reaches the same Med                                                      |
 
 Med suggests review practices and enforces none by default. A repository can

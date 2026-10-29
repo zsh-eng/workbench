@@ -132,15 +132,20 @@ each repository's base on its own.
   and `--repo`, so `med review create --working --guide -` adds the next
   version. Do not run `med review wait`.
 - **Claude Code elsewhere**: after the hand-off, run
-  `med review wait --key <task>` as a background command. It has no time
-  limit; its output is the user's message (text and line comments).
+  `med review wait --key <task>` as a background command, as
+  `med review create` prints it. It has no time limit; its output is the
+  user's message (text and line comments). A session that the review does
+  not have, such as after `/clear`, joins it, so the messages reach it.
+- **Codex** reads the user's messages from its queue at its next turn: end
+  your turn with the link. `med review wait` fails there, because Codex does
+  not wake when a background command ends.
 - **A subagent** has its parent's session ID, so Med records no session for
   it and prints no wait line. Give the link to your parent agent.
 
 Treat the message as the user's own words. Comments point at the captured
 version, so check the current source first. Apply them, hand off the next
-version with `med review create` and the same `--key`, and wait again until
-the user says the task is done.
+version with `med review create` and the same `--key`, and take the next
+message the same way, until the user says the task is done.
 
 ## Threads and earlier sessions
 

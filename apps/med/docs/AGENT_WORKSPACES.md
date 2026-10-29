@@ -229,7 +229,8 @@ Med resumes it and owns it from then on
   review.
 - **Codex:** `codex queue --thread <id> --message <text>` stores a real user
   turn that the next Codex process takes first. Codex does not wake an agent
-  when a background command ends, so `med review wait` does not fit it.
+  when a background command ends, so `med review wait` does not fit it: the
+  command fails at once outside Claude Code.
 - **Owned sessions:** **Send to agent** is the next prompt.
 
 Comments work as a pending GitHub review: drafts until sent, one message with

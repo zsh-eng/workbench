@@ -633,7 +633,10 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
   each message that it prints; a message that no wait confirms within 10
   seconds, as when the waiting process stopped, goes to the next wait. When
   the Claude Code process ends with messages still waiting, Med resumes the
-  session and sends them.
+  session and sends them. A wait in a Claude Code session that the review
+  does not have, such as after `/clear`, adds that session to the review, so
+  the pane can send to it. Outside Claude Code, as in Codex or a subagent,
+  the command fails at once: nothing would send it a message.
 - **A Claude Code session that no process runs**, such as an adopted one
   after its terminal closed, resumes in Med with the message as its next
   turn, and Med runs it from then on. A session open in a terminal or another
