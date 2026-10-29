@@ -53,7 +53,7 @@ function runner(tools: boolean | undefined) {
   };
 }
 
-const session = (agent: AgentSession["agent"]): AgentSession => ({ agent, id: "s1" });
+const session = (agent: AgentSession["agent"]): AgentSession => ({ agent, id: "s1", cwd: "/work" });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 async function setup(agent: AgentSession["agent"], tools: boolean | undefined) {
