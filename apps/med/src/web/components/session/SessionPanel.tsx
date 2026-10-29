@@ -695,6 +695,19 @@ export function SessionPanel({
                 ...message,
                 edit: () => takeBack([message.id], true),
                 remove: () => takeBack([message.id], false),
+                ...(message.afterTurn && inbox?.sendNow
+                  ? {
+                      sendNow: () => {
+                        setTakeNote(undefined);
+                        inbox.sendNow!(message.id).catch((error: unknown) =>
+                          setTakeNote({
+                            text: error instanceof Error ? error.message : String(error),
+                            error: true,
+                          }),
+                        );
+                      },
+                    }
+                  : {}),
               }
             : presence && presence !== "resumable" && message.delivery === "pending"
               ? { ...message, waitsFor: presence }

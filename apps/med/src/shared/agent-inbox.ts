@@ -37,6 +37,9 @@ export const agentMessageInputSchema = z.object({
     .default([]),
   /** Images, for a session that Med runs. */
   images: z.array(promptImageSchema).max(10).default([]),
+  /** While the agent that Med runs works: wait for its turn's end, not its
+   * next step (queued-messages.ts). */
+  afterTurn: z.boolean().default(false),
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 
@@ -78,6 +81,9 @@ export const agentMessageSchema = z.object({
    * which it reads the message in the same turn, or at the turn's end. Until
    * then the user can take it back (`/agent/take`). */
   queued: z.boolean().optional(),
+  /** A queued message that waits for the turn's end, not the next step;
+   * Send now (`/agent/send-now`) sends it at the next step. */
+  afterTurn: z.boolean().optional(),
   deliveredAt: z.string().optional(),
   error: z.string().optional(),
 });

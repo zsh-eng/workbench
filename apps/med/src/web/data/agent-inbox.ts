@@ -56,6 +56,9 @@ export interface AgentInbox {
   send(input: AgentMessageInput): Promise<AgentMessage>;
   /** Takes back a queued message that the agent has not had, and returns it. */
   takeBack?(id: string): Promise<AgentMessage>;
+  /** Sends a message that waits for the turn's end, and its session's
+   * others, at the agent's next step. */
+  sendNow?(id: string): Promise<void>;
 }
 
 /** A review's agent inbox while `reviewId` is set. */
@@ -111,7 +114,29 @@ export function useAgentInbox(
     },
     [reviewId, fetcher],
   );
-  return { state: state && state.id === reviewId ? state.value : null, send, takeBack };
+  const sendNow = useCallback(
+    async (id: string) => {
+      if (!reviewId) throw new Error("This review has no agent session.");
+      const api = createApi(fetcher, readBrowserToken());
+      const result = await api.json(
+        `/api/reviews/${encodeURIComponent(reviewId)}/agent/send-now`,
+        z.object({ state: agentInboxStateSchema }),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id }),
+        },
+      );
+      setState({ id: reviewId, value: result.state });
+    },
+    [reviewId, fetcher],
+  );
+  return {
+    state: state && state.id === reviewId ? state.value : null,
+    send,
+    takeBack,
+    sendNow,
+  };
 }
 
 const textOf = (item: SessionItem) =>
@@ -133,6 +158,8 @@ export type SentMessage = Omit<AgentMessage, "delivery"> & {
   /** A queued message: back into the message box, or gone. */
   edit?(): void;
   remove?(): void;
+  /** A message queued for the turn's end: at the agent's next step instead. */
+  sendNow?(): void;
 };
 
 /** Where another process has this session open, if one does. */

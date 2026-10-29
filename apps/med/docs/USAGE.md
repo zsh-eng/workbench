@@ -500,11 +500,16 @@ install them. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
 and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
-needs an answer shows **Allow** and **Deny**. While the agent works, **Queue**
-(`⌘↩`) keeps a message for its next step: Claude Code reads it after the
+needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**
+(`⌘↩`) sends a message at its next step: Claude Code reads it after the
 tools that run, in the same turn, and otherwise it goes when the turn ends.
-Until then, **Edit** or `↑` brings its text back into the box (attachments
-stay out, and the box says so), and **Remove** drops it. The pane's header shows how full
+`⇧⌘↩` queues it for the turn's end instead, as the next prompt; the queued
+message has **Send now**, which sends it, and the messages queued before it,
+at the next step. **While the agent works, ⌘↩ queues for the turn's end** in
+`⌘K` swaps the two keys. Other agents take messages only between turns, so
+for them the button is **Queue**. Until a message goes, **Edit** or `↑`
+brings its text back into the box (attachments stay out, and the box says
+so), and **Remove** drops it. The pane's header shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
 its thread shows a side panel instead: the context, the spend, the background

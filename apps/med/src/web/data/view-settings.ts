@@ -99,6 +99,9 @@ export const viewSettings = {
   work: viewSetting("med:work", "folded", ["folded", "shown"]),
   /** The session's side panel, which shows in a wide pane unless closed. */
   sessionPanel: viewSetting("med:session-panel", "auto", ["auto", "closed"]),
+  /** What ⌘↩ does with a message while the agent works: send it now, at the
+   * agent's next step, or queue it for the turn's end. ⇧⌘↩ does the other. */
+  followUp: viewSetting("med:follow-up", "now", ["now", "queue"]),
   /** The background tasks dock under a session. */
   backgroundTasks: viewSetting("med:background", "open", ["open", "closed"]),
   /** Each window's sidebar, read when the window opens. */

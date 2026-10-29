@@ -1738,6 +1738,7 @@ export function App({
   const railChoice = useViewSetting(viewSettings.reviewRail);
   // The session's side panel shows where its pane has room (SessionPanel.tsx).
   const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
+  const followUpChoice = useViewSetting(viewSettings.followUp);
   const [sessionSideRoom, setSessionSideRoom] = useState(false);
   const railRoom = guideRail ? guideRoomy : roomy;
   const railOpen = railChoice === "open" || (railChoice === "auto" && railRoom);
@@ -4600,6 +4601,18 @@ export function App({
             shortcut: "⌘⌥⇧B",
             run: () =>
               viewSettings.sessionPanel.set(sessionPanelChoice === "closed" ? "auto" : "closed"),
+          },
+        ]
+      : []),
+    ...(sessionVisible
+      ? [
+          {
+            id: "follow-up",
+            label:
+              followUpChoice === "queue"
+                ? "While the agent works, ⌘↩ sends now"
+                : "While the agent works, ⌘↩ queues for the turn's end",
+            run: () => viewSettings.followUp.set(followUpChoice === "queue" ? "now" : "queue"),
           },
         ]
       : []),

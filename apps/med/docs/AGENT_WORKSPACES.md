@@ -138,15 +138,27 @@ next step, as Claude Code's terminal queues one
 (https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
 The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
-- While Claude Code runs the main conversation's tools (an `assistant`
-  message with `tool_use`, until its `tool_result`), Med writes the message
-  to Claude Code's input at once. Claude Code reads it when the tools end, in
-  the same turn, and its transcript records it as a `queued_command`
-  attachment, which the thread shows where Claude read it.
+- **Send now** (`⌘↩`, the default): while Claude Code runs the main
+  conversation's tools (an `assistant` message with `tool_use`, until its
+  `tool_result`), Med writes the message to Claude Code's input at once.
+  Claude Code reads it when the tools end, in the same turn, and its
+  transcript records it as a `queued_command` attachment, which the thread
+  shows where Claude read it.
+- **Queue** (`⇧⌘↩`, or `⌘↩` after the `⌘K` choice, `med:follow-up`): the
+  message waits for the turn's end. The input's `afterTurn: true` asks for
+  it; the host keeps the IDs of such messages in
+  `agent-messages/after-turn.json`, so a restart keeps them, and the inbox
+  state marks them `afterTurn`. **Send now** on one
+  (`POST /api/reviews/:id/agent/send-now` with `{ id }`) sends it at the next
+  step.
+- Messages go in order, as one prompt, so a session's messages wait for the
+  turn's end while any of them is queued; Send now, on a queued message or
+  with a new one, sends them all at the next step.
 - Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
   and goes as the next prompt, with the other queued messages in order. An
-  ACP agent takes messages only between turns. A turn that a restart cut
-  (Interrupted) waits for the reader, and so do its messages.
+  ACP agent takes messages only between turns, so its button is **Queue**. A
+  turn that a restart cut (Interrupted) waits for the reader, and so do its
+  messages.
 - Until the agent has it, **Edit** in the thread puts the message's text
   back into the message box, before what the box holds, and **Remove** drops
   it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box

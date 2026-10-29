@@ -511,6 +511,7 @@ async function mountApp(
           text: string;
           noteIds: string[];
           images?: unknown[];
+          afterTurn?: boolean;
         };
         if (options.answerAgentMessages) {
           const error = await new Promise<string | undefined>((answer) =>
@@ -540,6 +541,7 @@ async function mountApp(
           // A session that a terminal or another app runs takes the message later.
           delivery: inbox.elsewhere?.s1 || queued ? "pending" : "delivered",
           ...(queued ? { queued: true } : {}),
+          ...(queued && input.afterTurn ? { afterTurn: true } : {}),
         };
         inbox = {
           ...inbox,
@@ -548,6 +550,14 @@ async function mountApp(
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
         return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/agent/send-now" && inbox) {
+        // The session's messages go at the agent's next step.
+        inbox = {
+          ...inbox,
+          messages: inbox.messages.map(({ afterTurn: _afterTurn, ...entry }) => entry),
+        };
+        return Response.json({ state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
         const { id } = JSON.parse(String(init?.body)) as { id: string };
@@ -4614,7 +4624,7 @@ describe("agent session", () => {
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
   });
 
-  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
+  test("while the agent works, a message goes at its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
     await page.viewport(1280, 800);
     const { setOwned, agentMessages, goneOnTake } = await mountApp({
       savedReview: true,
@@ -4631,13 +4641,15 @@ describe("agent session", () => {
     const composer = panel.getByRole("form", { name: "Message Claude" });
     const field = composer.getByRole("combobox", { name: "Message Claude" });
     setOwned({ status: "working", settings: [], commands: [] });
-    // Working, with an empty box: Stop. With a message: Queue, and Stop beside it.
+    // Working, with an empty box: Stop. With a message: Send now, and Stop beside it.
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
-    await expect.element(composer.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await expect
+      .element(composer.getByRole("button", { name: "Send now" }))
+      .not.toBeInTheDocument();
     await userEvent.click(field);
     await userEvent.keyboard("Round to minutes.");
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
-    await userEvent.click(composer.getByRole("button", { name: "Queue" }));
+    await userEvent.click(composer.getByRole("button", { name: "Send now" }));
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
     const queued = panel.getByText("Queued for Claude's next step");
     await expect.element(queued).toBeVisible();
@@ -4692,6 +4704,49 @@ describe("agent session", () => {
     await expect
       .element(panel.getByText("Its attachment did not come back; add it again."))
       .toBeVisible();
+  });
+
+  test("while the agent works, ⇧⌘↩ queues a message for the turn's end, Send now sends it at the next step, and ⌘↩ can queue instead", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    localStorage.removeItem("med:follow-up");
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /Claude Code/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Claude" });
+    const field = composer.getByRole("combobox", { name: "Message Claude" });
+    setOwned({ status: "working", settings: [], commands: [] });
+    await userEvent.click(field);
+    await userEvent.keyboard("Rename it.{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Rename it.", afterTurn: true }]);
+    const queued = panel.getByText("Queued for the end of Claude's turn");
+    await expect.element(queued).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Send now", exact: true }));
+    await expect.element(panel.getByText("Queued for Claude's next step")).toBeVisible();
+    await expect.element(queued).not.toBeInTheDocument();
+
+    // The palette's choice makes ⌘↩ queue, and the button says so.
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.click(
+      page.getByRole("option", { name: "While the agent works, ⌘↩ queues for the turn's end" }),
+    );
+    expect(localStorage.getItem("med:follow-up")).toBe("queue");
+    await userEvent.click(field);
+    await userEvent.keyboard("Then the docs.");
+    await expect.element(composer.getByRole("button", { name: "Queue" })).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Then the docs.", afterTurn: true });
+    localStorage.removeItem("med:follow-up");
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {

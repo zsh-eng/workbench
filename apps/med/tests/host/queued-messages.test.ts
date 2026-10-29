@@ -116,3 +116,48 @@ test("a turn that a restart cut keeps its queued messages until the reader acts,
   expect(agent.listeners.size).toBe(0);
   queue.stop();
 });
+
+test("Queue holds a session's messages for the turn's end, across a restart; Send now sends them at the next step", async () => {
+  const { inbox, queue: first, agent, pending } = await setup("claude", false);
+  first.stop();
+  const stateFile = join(directories.at(-1)!, "after-turn.json");
+  const start = () => createQueuedMessages({ inbox, runner: () => agent.fake, stateFile });
+  const queue = start();
+  const add = async (text: string) => {
+    const message = await inbox.send(
+      "r1",
+      session("claude"),
+      { text, noteIds: [], attachmentCount: 0 },
+      text,
+      { queued: true },
+    );
+    queue.queue(message.id);
+    queue.watch("r1", "s1");
+    await settle();
+    return message;
+  };
+  const rename = await add("Rename it.");
+  // Claude Code runs tools, which would take a message sent now: this waits.
+  agent.set({ tools: true });
+  await settle();
+  expect(agent.prompts).toEqual([]);
+  // A new host reads which messages wait for the turn's end.
+  expect(start().queued(rename.id)).toBe(true);
+
+  await queue.sendNow("r1", "s1");
+  await settle();
+  expect(agent.prompts).toEqual(["Rename it."]);
+  expect(queue.queued(rename.id)).toBe(false);
+
+  // Queued again, it goes when the turn ends.
+  agent.set({ tools: false });
+  await add("Then the docs.");
+  agent.set({ tools: true });
+  await settle();
+  expect(agent.prompts).toEqual(["Rename it."]);
+  agent.set({ status: "idle", tools: false });
+  await settle();
+  expect(agent.prompts).toEqual(["Rename it.", "Then the docs."]);
+  expect(await pending()).toEqual([]);
+  queue.stop();
+});

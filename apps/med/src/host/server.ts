@@ -452,6 +452,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const queuedMessages = createQueuedMessages({
     inbox,
     runner: (sessionId) => ownedSessions.get(sessionId),
+    stateFile: join(options.stateDir ?? temporaryState!, "agent-messages", "after-turn.json"),
   });
   for (const { reviewId, sessionId } of await inbox.queued())
     queuedMessages.watch(reviewId, sessionId);
@@ -1594,7 +1595,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
-              messages,
+              messages: messages.map((message) =>
+                message.delivery === "pending" && queuedMessages.queued(message.id)
+                  ? { ...message, afterTurn: true }
+                  : message,
+              ),
               waiting: inbox.waiting(reviewId),
               ...(await claudeSessions(reviewId, sessions)),
               drafts: [
@@ -1747,8 +1752,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     : { held },
               );
               if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
-              if (queue && message.delivery === "pending")
-                queuedMessages.watch(reviewId, session.id);
+              if (queue && message.delivery === "pending") {
+                if (input.afterTurn) {
+                  queuedMessages.queue(message.id);
+                  queuedMessages.watch(reviewId, session.id);
+                  return { ...message, afterTurn: true };
+                }
+                // Send now: the messages queued before it go with it.
+                await queuedMessages.sendNow(reviewId, session.id);
+              }
               return message;
             });
             send({ message, state: await inboxState() });
@@ -1791,7 +1803,25 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
             const message = await inbox.takeBack(reviewId, input.id);
+            queuedMessages.forget(input.id);
             send({ message, state: await inboxState() });
+            return;
+          }
+          // Sends a queued message, and the others of its session, at the
+          // agent's next step, not at its turn's end.
+          if (action === "send-now" && request.method === "POST") {
+            const input = z
+              .object({ id: z.string().min(1).max(128) })
+              .parse(await readBody(request));
+            const message = (await inbox.messages(reviewId)).find((entry) => entry.id === input.id);
+            if (!message || message.delivery !== "pending" || !message.queued)
+              throw new HostError(
+                "message-gone",
+                "The agent has this message already, or it came back.",
+                409,
+              );
+            await queuedMessages.sendNow(reviewId, message.sessionId);
+            send({ state: await inboxState() });
             return;
           }
           if (action === "ack" && request.method === "POST") {

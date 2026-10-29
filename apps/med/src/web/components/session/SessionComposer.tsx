@@ -28,6 +28,7 @@ import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
 import { column } from "./session-styles";
+import { useViewSetting, viewSettings } from "../../data/view-settings";
 
 export interface ComposerAttachment {
   id: string;
@@ -187,6 +188,8 @@ export function SessionComposer({
     noteIds: string[];
     attachments: { label: string; text: string }[];
     images: PromptImage[];
+    /** While the agent works: wait for its turn's end, not its next step. */
+    afterTurn: boolean;
   }): void;
 }) {
   const [kept] = useState(() => (draftKey ? readDraft(draftKey) : undefined));
@@ -232,6 +235,12 @@ export function SessionComposer({
   };
   const status = owned?.state.status;
   const working = status === "working";
+  // Claude Code reads a message at its next step, in the same turn; other
+  // agents take one only when the turn ends, so for them it is a queue.
+  const steers = agent === "claude";
+  const followUp = useViewSetting(viewSettings.followUp);
+  /** Whether ⌘↩ (or ⇧⌘↩, `other`) queues the message for the turn's end. */
+  const queues = (other = false) => working && steers && (followUp === "queue") !== other;
   const stopped = status === "exited";
   const halt = owned?.state.halt;
   const slash = owned && !menuClosed ? /^\/(\S*)$/.exec(text) : null;
@@ -289,7 +298,7 @@ export function SessionComposer({
     setText((current) => (current.trim() ? `${restore.text}\n\n${current}` : restore.text));
   }
   // While the agent works, a message waits for its next step (queued-messages.ts).
-  const send = async () => {
+  const send = async (afterTurn = queues()) => {
     if (empty || stopped) return;
     setError(null);
     onSend({
@@ -298,6 +307,7 @@ export function SessionComposer({
       noteIds: chosen.map((draft) => draft.id),
       attachments: attachments.map(({ label, text }) => ({ label, text })),
       images: images.map(({ mimeType, data }) => ({ mimeType, data })),
+      afterTurn,
     });
     setText("");
     mentions.clear();
@@ -360,7 +370,8 @@ export function SessionComposer({
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      void send();
+      // ⇧ does what ⌘↩ does not: send now, or queue.
+      void send(queues(event.shiftKey));
     } else if (event.key === "Escape" && working) {
       // As in Claude Code, Escape stops the turn.
       event.preventDefault();
@@ -749,18 +760,25 @@ export function SessionComposer({
                 <Icon name="stop" size={14} />
               </button>
             )}
-            {/* While the agent works, the message waits for its next step. */}
+            {/* While the agent works, the message goes at its next step, or
+                waits for its turn's end (queued-messages.ts). */}
             {!(working && empty) && (
               <button
                 type="submit"
-                aria-label={working ? "Queue" : "Send"}
+                aria-label={working ? (queues() || !steers ? "Queue" : "Send now") : "Send"}
                 title={
-                  working ? `Queue for ${name}'s next step (⌘↩); ↑ takes it back` : "Send (⌘↩)"
+                  !working
+                    ? "Send (⌘↩)"
+                    : !steers
+                      ? `Queue for the end of ${name}'s turn (⌘↩); ↑ takes it back`
+                      : queues()
+                        ? `Queue for the end of ${name}'s turn (⌘↩); ⇧⌘↩ sends it now; ↑ takes it back`
+                        : `Send now: ${name} reads it at its next step (⌘↩); ⇧⌘↩ queues it for the turn's end; ↑ takes it back`
                 }
                 disabled={empty || stopped}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >
-                <Icon name="arrowUp" size={14} />
+                <Icon name={queues() ? "clock" : "arrowUp"} size={14} />
               </button>
             )}
           </div>
