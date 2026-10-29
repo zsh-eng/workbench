@@ -174,7 +174,9 @@ keeps every thread that it shows loaded, with its lock, so a Codex thread
 lists only while a turn is in progress: its rollout's last turn started
 (`task_started`) without a `task_complete` or `turn_aborted`, or, in a turn
 too long for the rollout's last 256 KB to show its start, the rollout
-changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`).
+changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`
+reads the last 256 KB, then the last 4 MiB). An idle `codex` in a terminal
+does not list either; Claude Code sessions list while their process runs.
 Codex's guardian reviews and subagents do not list. One with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
@@ -206,8 +208,8 @@ next step, as Claude Code's terminal queues one
 (https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
 The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
-- While Claude Code runs the main conversation's tools (an `assistant`
-  message with `tool_use`, until its `tool_result`), Med writes the message
+- While Claude Code runs the main conversation's tools (from an `assistant`
+  message's `tool_use` blocks until each has its `tool_result`), Med writes the message
   to Claude Code's input at once. Claude Code reads it when the tools end, in
   the same turn, and its transcript records it as a `queued_command`
   attachment, which the thread shows where Claude read it.
@@ -240,7 +242,8 @@ Med offers no agy agent, lists no agy sessions in Running now, and refuses
 Continue in Med for an agy conversation. The code and its tests stay
 (`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
 Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
-on. An agy session that Med started while it was on still restores.
+on. An agy session that Med started while it was on shows as stopped, with
+its log, until agy is on again.
 
 ### What a thread's agent knows
 

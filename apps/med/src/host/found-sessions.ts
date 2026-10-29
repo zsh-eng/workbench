@@ -115,7 +115,10 @@ export async function readEdge(path: string, edge: "head" | "tail", bytes: numbe
   }
 }
 
-/** A rollout's long turn writes at least this often. */
+/** How far back Med looks for the start of a long Codex turn. */
+const TURN_TAIL_BYTES = 4 * 1024 * 1024;
+/** A turn whose start is further back than that counts while its rollout
+ * changed this recently. */
 const TURN_WRITES_MS = 2 * 60_000;
 
 /**
@@ -126,14 +129,18 @@ const TURN_WRITES_MS = 2 * 60_000;
  * long turn while the rollout still changes.
  */
 export async function codexTurnOpen(path: string, now = Date.now()) {
-  const read = await readEdge(path, "tail", TAIL_BYTES).catch(() => undefined);
-  if (!read) return false;
-  for (let index = read.lines.length - 1; index >= 0; index--) {
-    const line = read.lines[index]!;
-    if (!line.includes('"event_msg"')) continue;
-    const type = record(parse(line)?.payload)?.type;
-    if (type === "task_started") return true;
-    if (type === "task_complete" || type === "turn_aborted") return false;
+  // A long turn's start is further back: a larger tail finds most.
+  for (const bytes of [TAIL_BYTES, TURN_TAIL_BYTES]) {
+    const read = await readEdge(path, "tail", bytes).catch(() => undefined);
+    if (!read) return false;
+    for (let index = read.lines.length - 1; index >= 0; index--) {
+      const line = read.lines[index]!;
+      if (!line.includes('"event_msg"')) continue;
+      const type = record(parse(line)?.payload)?.type;
+      if (type === "task_started") return true;
+      if (type === "task_complete" || type === "turn_aborted") return false;
+    }
+    if (read.size <= bytes) break;
   }
   const info = await stat(path).catch(() => undefined);
   return !!info && now - info.mtimeMs < TURN_WRITES_MS;

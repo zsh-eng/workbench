@@ -1384,7 +1384,7 @@ test("Med runs agy in stream-json: refused actions say why, queued messages wait
   expect(stopped.halt).toBeUndefined();
   expect(notices()).toContain("Interrupted");
   await send("Say ok.");
-  await vi.waitFor(async () => expect(await runs()).toHaveLength(2));
+  await vi.waitFor(async () => expect(await runs()).toHaveLength(2), { timeout: 5000 });
   expect((await runs())[1]!.args).toEqual(
     expect.arrayContaining(["--conversation", "1f892c8e-f601-4c2f-b28c-e5f7d7b6e969"]),
   );

@@ -586,12 +586,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...thread(id),
       });
     }
-    for (const { id } of running.codex) {
-      const info = infos.get(`codex:${id}`);
-      // A guardian review or a subagent shows in its parent; a thread
-      // without a rollout has nothing to keep yet; and one that Codex
-      // Desktop only has loaded does not work.
-      if (!info || info.automatic || !(await codexTurnOpen(info.path))) continue;
+    // A guardian review or a subagent shows in its parent; a thread without
+    // a rollout has nothing to keep yet; and one that Codex Desktop only has
+    // loaded does not work.
+    const working = await Promise.all(
+      running.codex.map(async ({ id }) => {
+        const info = infos.get(`codex:${id}`);
+        return info && !info.automatic && (await codexTurnOpen(info.path)) ? info : undefined;
+      }),
+    );
+    for (const info of working) {
+      if (!info) continue;
+      const { id } = info;
       sessions.push({
         agent: "codex",
         id,
