@@ -82,6 +82,22 @@ async function fixture({ key }: { key?: string } = {}) {
         command: process.execPath,
         args: [agentScript("fake-acp.mjs")],
       },
+      {
+        id: "codex",
+        name: "Codex",
+        kind: "codex",
+        available: true,
+        command: process.execPath,
+        args: [agentScript("fake-codex-app-server.mjs")],
+      },
+      {
+        id: "agy",
+        name: "Antigravity",
+        kind: "agy",
+        available: true,
+        command: process.execPath,
+        args: [agentScript("fake-agy.mjs")],
+      },
       { id: "missing", name: "Missing", kind: "acp", available: false, command: "x", args: [] },
     ],
   };
@@ -150,12 +166,17 @@ async function fixture({ key }: { key?: string } = {}) {
       controller.signal,
       4 * 1024 * 1024,
     ).catch(() => {});
-    return () =>
-      events.flatMap((event) =>
-        event.update.sessionUpdate === "agent_message_chunk" && event.update.content.type === "text"
-          ? [event.update.content.text]
-          : [],
-      );
+    // The replies; `events` has every update.
+    return Object.assign(
+      () =>
+        events.flatMap((event) =>
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text"
+            ? [event.update.content.text]
+            : [],
+        ),
+      { events },
+    );
   };
   const start = async (preset: string, choices?: { model?: string; effort?: string }) => {
     const started = await api<{ review: SavedReview; state: OwnedState }>(
@@ -217,10 +238,37 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   vi.stubEnv("CLAUDE_CODE_SIMPLE", "1");
   const { api, review, stateDir, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
+  // Each says what Med can do with it, so the page shows only what works.
   expect(agents.data.agents).toEqual([
-    { id: "claude", name: "Claude Code", kind: "claude", available: true },
-    { id: "fake", name: "Fake ACP", kind: "acp", available: true },
-    { id: "missing", name: "Missing", kind: "acp", available: false },
+    {
+      id: "claude",
+      name: "Claude Code",
+      kind: "claude",
+      available: true,
+      capabilities: expect.objectContaining({ steer: true, approvals: "ask" }),
+    },
+    {
+      id: "fake",
+      name: "Fake ACP",
+      kind: "acp",
+      available: true,
+      capabilities: expect.objectContaining({ steer: false, usage: false }),
+    },
+    {
+      id: "codex",
+      name: "Codex",
+      kind: "codex",
+      available: true,
+      capabilities: expect.objectContaining({ steer: true, subagents: true }),
+    },
+    {
+      id: "agy",
+      name: "Antigravity",
+      kind: "agy",
+      available: true,
+      capabilities: expect.objectContaining({ steer: false, approvals: "rules" }),
+    },
+    expect.objectContaining({ id: "missing", available: false }),
   ]);
   expect((await api(`/api/reviews/${review.id}/owned`, { preset: "missing" })).status).toBe(404);
 
@@ -644,7 +692,7 @@ test("a turn goes on through a host restart; one that a reboot cuts waits as Int
   expect(back.halt).toBeUndefined();
 });
 
-test("a message sent while Claude Code works waits for its next step: it comes back until then, outlasts a host restart, and joins the turn when a tool runs", async () => {
+test("a message sent while Claude Code works waits for the turn's end: it comes back until then, outlasts a host restart, and Send now joins the turn when a tool runs", async () => {
   vi.stubEnv("MED_FAKE_TOOL_MS", "1500");
   const { api, review, thread, start, restart } = await fixture();
   const session = await start("claude");
@@ -689,13 +737,16 @@ test("a message sent while Claude Code works waits for its next step: it comes b
     (await api(`/api/reviews/${review.id}/agent/take`, { id: second.data.message.id })).status,
   ).toBe(409);
 
-  // A turn that runs a tool: Claude Code reads the message when the tool
-  // ends, in the same turn.
+  // Send now during a turn that runs a tool: Claude Code reads the message
+  // when the tool ends, in the same turn.
   await session.until((state) => state.status === "idle");
   await send("Work on the check.");
   await session.until((state) => state.status === "working");
   const during = await send("Also check the hour.");
   expect(during.data.message).toMatchObject({ delivery: "pending", queued: true });
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/steer`, { id: during.data.message.id })).status,
+  ).toBe(200);
   await vi.waitFor(
     () => expect(replies().at(-1)).toBe("Checked, and read your note: Also check the hour."),
     { timeout: 5000 },
@@ -1162,4 +1213,176 @@ test("Claude Code that Med runs streams its reply after it thinks; a turn that a
     { timeout: 5000 },
   );
   expect(lead()!.turn!.endedAt).toBeGreaterThan(lead()!.turn!.startedAt!);
+});
+
+test("Med runs Codex through its app-server: a card asks, Send now steers, a subagent nests, and Stop ends the turn", async () => {
+  // The fake replays a recorded Codex 0.160 session (codex-app-server.jsonl).
+  const { api, review, thread, start } = await fixture();
+  // model/list gives the choices before a thread starts; no turn runs.
+  expect((await api<AgentOptions>("/api/agents/codex/choices")).data).toMatchObject({
+    model: {
+      value: expect.any(String),
+      options: [{ value: "gpt-6-luna" }, { value: "gpt-5.6-terra" }, { value: "gpt-5.6-luna" }],
+    },
+  });
+  const session = await start("codex", { model: "gpt-6-luna" });
+  // Codex names the thread. The review keeps it as a Codex session, whose
+  // rollout the thread reads, as for a session that Med finds.
+  expect(session.id).toBe("01a189a8-50ca-72c2-b4ab-e477ea3036c6");
+  expect(session.review.sessions).toMatchObject([{ agent: "codex", id: session.id }]);
+  const ready = await session.until((state) => state.status === "idle");
+  expect(ready.capabilities).toMatchObject({ steer: true, interrupt: true, approvals: "ask" });
+  expect(ready.settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "gpt-6-luna"],
+    ["effort", "default"],
+    ["mode", "default"],
+  ]);
+  const replies = await thread(session.id);
+  const send = (text: string) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+    });
+
+  // Codex asks before the command; the card answers it.
+  await send("Run ls -1, then name the files.");
+  const asked = await session.until((state) => !!state.permission);
+  expect(asked.permission).toMatchObject({
+    title: "Codex wants to run a command",
+    detail: expect.stringContaining("ls -1"),
+    options: [{ id: "accept" }, { id: "acceptForSession" }, { id: "decline" }],
+  });
+  await session.act({ action: "permission", id: asked.permission!.id, option: "accept" });
+  // A message during the turn waits; Send now steers it into the turn.
+  const queued = await send("Also end your reply with the word steered.");
+  expect(queued.data.message).toMatchObject({ delivery: "pending", queued: true });
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/steer`, { id: queued.data.message.id })).status,
+  ).toBe(200);
+  await vi.waitFor(() =>
+    expect(replies()).toEqual([
+      "`ls -1` lists one file: `README.md`.",
+      "`ls -1` lists one file: `README.md`. steered",
+    ]),
+  );
+  const done = await session.until((state) => state.status === "idle");
+  expect(done.context).toEqual({ used: 19028, total: 258400 });
+
+  // The subagent's thread nests in its spawn call.
+  await send("Ask a subagent for the word pong.");
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("pong"), { timeout: 5000 });
+  const spawn = replies.events.find(
+    (event) =>
+      event.update.sessionUpdate === "tool_call" && event.update._meta?.med?.tool === "spawn_agent",
+  );
+  expect(spawn?.update).toMatchObject({ title: "Pong" });
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) =>
+          event.update._meta?.med?.parentToolCallId ===
+            (spawn!.update as { toolCallId: string }).toolCallId &&
+          event.update.sessionUpdate === "agent_message_chunk",
+      ),
+    ).toBe(true),
+  );
+  await session.until((state) => state.status === "idle");
+
+  // Stop interrupts the turn that runs.
+  await send("Run sleep 20, then say done.");
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe("I\u2019ll run `sleep 20` in the shell and let it finish."),
+  );
+  await session.act({ action: "interrupt" });
+  await session.until((state) => state.status === "idle");
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) => event.update.sessionUpdate === "notice" && event.update.title === "Interrupted",
+      ),
+    ).toBe(true),
+  );
+});
+
+test("Med runs agy in stream-json: refused actions say why, queued messages wait for the turn, a subagent nests, and Stop ends the process until the next message resumes it", async () => {
+  // The fake replays a recorded agy 1.4.10 session (agy-stream.jsonl).
+  const { api, home, review, thread, start } = await fixture();
+  const session = await start("agy");
+  expect(session.review.sessions).toMatchObject([
+    { agent: "acp", name: "Antigravity", id: session.id },
+  ]);
+  const ready = await session.until((state) => state.status === "idle");
+  expect(ready.capabilities).toMatchObject({ steer: false, approvals: "rules" });
+  expect(ready.settings.find((setting) => setting.id === "mode")?.value).toBe("accept-edits");
+  const replies = await thread(session.id);
+  const notices = () =>
+    replies.events.flatMap((event) =>
+      event.update.sessionUpdate === "notice" ? [event.update.title] : [],
+    );
+  const send = (text: string) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+    });
+  const runs = async () =>
+    (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { args: string[] });
+
+  // agy cannot ask: what it refused shows as a notice that says what to do.
+  await send("Run ls -1, then name the files.");
+  await vi.waitFor(() =>
+    expect(notices()).toEqual(["Antigravity refused RunCommand: it cannot ask in Med"]),
+  );
+  expect((await runs())[0]!.args).toEqual(
+    expect.arrayContaining(["--input-format", "stream-json", "--mode", "accept-edits", "-p="]),
+  );
+  await session.until((state) => state.status === "idle");
+
+  // A message during the turn waits for it; agy takes no message mid-turn.
+  await send("Start a subagent that says pong.");
+  await session.until((state) => state.status === "working");
+  const queued = await send("After that, also say the word queued.");
+  expect(queued.data.message).toMatchObject({ queued: true, delivery: "pending" });
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/steer`, { id: queued.data.message.id })).status,
+  ).toBe(409);
+  await vi.waitFor(() => expect(replies()).toContain("queued"), { timeout: 5000 });
+  // The subagent's transcript nests in its call.
+  const call = replies.events.find(
+    (event) =>
+      event.update.sessionUpdate === "tool_call" &&
+      event.update._meta?.med?.tool === "invoke_subagent",
+  );
+  expect(call?.update).toMatchObject({ title: "Echo Responder" });
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) =>
+          event.update._meta?.med?.parentToolCallId ===
+            (call!.update as { toolCallId: string }).toolCallId &&
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text" &&
+          event.update.content.text === "pong",
+      ),
+    ).toBe(true),
+  );
+
+  // Stop ends agy's process; the next message resumes the conversation.
+  await session.until((state) => state.status === "idle");
+  await send("Run sleep 30, then say done.");
+  await session.until((state) => state.status === "working");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await session.act({ action: "interrupt" });
+  const stopped = await session.until((state) => state.status === "idle");
+  expect(stopped.halt).toBeUndefined();
+  expect(notices()).toContain("Interrupted");
+  await send("Say ok.");
+  await vi.waitFor(async () => expect(await runs()).toHaveLength(2));
+  expect((await runs())[1]!.args).toEqual(
+    expect.arrayContaining(["--conversation", "1f892c8e-f601-4c2f-b28c-e5f7d7b6e969"]),
+  );
 });

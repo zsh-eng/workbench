@@ -2,11 +2,12 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { access, appendFile, mkdir, readFile } from "node:fs/promises";
-import { delimiter, isAbsolute, join, relative } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
 import {
+  AGENT_CAPABILITIES,
   AGENT_DEFAULTS,
   ownedQuestionSchema,
   ownedSettingSchema,
@@ -22,6 +23,9 @@ import {
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
+import { heldLocks, lockFolders } from "./agent-locks";
+import { probeAgy, startAgy } from "./agy-runner";
+import { probeCodex, startCodex, type CodexModel } from "./codex-runner";
 import {
   attachHeld,
   forgetLog,
@@ -60,10 +64,10 @@ export interface OwnedRunner {
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
   prompt(text: string, images?: PromptImage[]): Promise<void>;
-  /** The main conversation's tools run now. Claude Code reads a prompt that
-   * comes meanwhile when they end, in the same turn, as its terminal does
-   * with a message that the user queued (queued-messages.ts). */
-  runsTools?(): boolean;
+  /** Sends a message into the turn that runs now, where the agent can take
+   * one: Claude Code reads it after the tools that run, and Codex at its
+   * next step (`turn/steer`). Between turns it is the next prompt. */
+  steer?(text: string, images?: PromptImage[]): Promise<void>;
   answer(id: string, option: string, reply?: PermissionReply): void;
   interrupt(): void;
   set(id: string, value: string): Promise<void>;
@@ -189,7 +193,7 @@ export function agentEnvironment(extra: Record<string, string> = {}) {
 }
 
 /** Listeners and a state that changes in place, with the time of its last change. */
-function createState(initial: OwnedState) {
+export function createState(initial: OwnedState) {
   let state = { ...initial, updatedAt: Date.now() };
   const listeners = new Set<() => void>();
   return {
@@ -205,10 +209,18 @@ function createState(initial: OwnedState) {
   };
 }
 
-const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
+export const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
 
 /** The parts of a runner's state that a checkpoint keeps (holder.ts). */
-const kept = ({ status, settings, commands, turns, context, error, images }: OwnedState) => ({
+export const kept = ({
+  status,
+  settings,
+  commands,
+  turns,
+  context,
+  error,
+  images,
+}: OwnedState) => ({
   status,
   settings,
   commands,
@@ -225,7 +237,7 @@ const runsElsewhere = async (sessionId: string) =>
   (await (defaultProcesses ??= createSessionProcesses()).elsewhere([sessionId])).has(sessionId);
 
 /** A short line for a tool call's input: its command, path, or URL. */
-function inputSummary(input: Record<string, unknown> | undefined) {
+export function inputSummary(input: Record<string, unknown> | undefined) {
   if (!input) return undefined;
   for (const key of ["command", "file_path", "path", "url", "pattern", "description"])
     if (typeof input[key] === "string") return (input[key] as string).slice(0, 500);
@@ -424,6 +436,7 @@ export function startClaude(
     commands: [],
     turns: 0,
     images: true,
+    capabilities: AGENT_CAPABILITIES.claude,
   });
   // The holder of the agent's process, while one runs. Each holder has a
   // token; the events of one that Med left are not this runner's.
@@ -436,8 +449,6 @@ export function startClaude(
   // Claude Code has the session's transcript: a new process resumes it. A
   // fork has its own transcript after its first prompt.
   let exists = !!options.resume && !options.fork;
-  /** The main conversation's tools run (runsTools). */
-  let tools = false;
   let stopping = false;
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
@@ -578,7 +589,6 @@ export function startClaude(
     streamTimer = undefined;
     streaming = undefined;
     ask = undefined;
-    tools = false;
   };
 
   /** What the review shows for a tool call that waits: a question with its
@@ -636,24 +646,6 @@ export function startClaude(
 
   const onMessage = (message: Record<string, any>) => {
     switch (message.type) {
-      // A main-conversation response that calls tools starts them; their
-      // results end them. A subagent's calls run inside the main one's.
-      case "assistant":
-      case "user": {
-        if (message.parent_tool_use_id) return;
-        const blocks: unknown[] = Array.isArray(message.message?.content)
-          ? message.message.content
-          : [];
-        const has = (type: string) =>
-          blocks.some((block) => (block as { type?: unknown } | null)?.type === type);
-        const running =
-          message.type === "assistant" ? has("tool_use") : tools && !has("tool_result");
-        if (running !== tools) {
-          tools = running;
-          store.set({});
-        }
-        return;
-      }
       case "control_response": {
         const response = message.response ?? {};
         const done = pending.get(response.request_id);
@@ -954,7 +946,6 @@ export function startClaude(
     dormant: () => !held,
     pid: () => held?.pid(),
     subscribe: store.subscribe,
-    runsTools: () => tools,
     async prompt(text, images = []) {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
@@ -980,6 +971,11 @@ export function startClaude(
         error: undefined,
         halt: undefined,
       });
+    },
+    // Claude Code reads a message that comes during its turn after the tools
+    // that run, in the same turn, as its terminal does with a queued one.
+    async steer(text, images = []) {
+      return this.prompt(text, images);
     },
     answer(id, option, reply = {}) {
       if (!ask || ask.id !== id) return;
@@ -1256,6 +1252,7 @@ export function startAcp(
     settings: [],
     commands: [],
     turns: 0,
+    capabilities: AGENT_CAPABILITIES.acp,
   });
   let acpSession: string | undefined;
   // Settings that came as older `models` and `modes`, not as config options.
@@ -1786,13 +1783,27 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
       args: ["acp"],
       folders: [join(home, ".opencode", "bin")],
     },
+    // Codex's own CLI runs its app-server; Codex Desktop ships one inside
+    // the ChatGPT app. MED_CODEX_PATH names another.
     {
       id: "codex",
       name: "Codex",
-      kind: "acp" as const,
-      binary: "codex-acp",
+      kind: "codex" as const,
+      binary: "codex",
       args: [],
-      folders: [],
+      folders: [
+        ...(process.env.MED_CODEX_PATH ? [dirname(process.env.MED_CODEX_PATH)] : []),
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin",
+        "/opt/homebrew/bin",
+      ],
+    },
+    {
+      id: "agy",
+      name: "Antigravity",
+      kind: "agy" as const,
+      binary: "agy",
+      args: [],
+      folders: [join(home, ".local", "bin")],
     },
     {
       id: "gemini",
@@ -1809,7 +1820,12 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
         ...process.env,
         ...shellEnvironment(),
       });
-      return { ...agent, command: command ?? binary, available: !!command };
+      return {
+        ...agent,
+        command: command ?? binary,
+        available: !!command,
+        capabilities: AGENT_CAPABILITIES[agent.kind],
+      };
     }),
   );
   if (stateDir) {
@@ -1818,7 +1834,12 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
         JSON.parse(await readFile(join(stateDir, "agents.json"), "utf8")),
       );
       for (const agent of custom)
-        found.push({ ...agent, kind: "acp", available: await executable(agent.command) });
+        found.push({
+          ...agent,
+          kind: "acp",
+          available: await executable(agent.command),
+          capabilities: AGENT_CAPABILITIES.acp,
+        });
     } catch {
       /* No custom agents. */
     }
@@ -1830,7 +1851,12 @@ export async function findAgents(stateDir?: string, home = userHome()): Promise<
  * continues after the host restarts. */
 const recordSchema = z.object({
   preset: z.string(),
-  kind: z.enum(["claude", "acp"]),
+  kind: z.enum(["claude", "acp", "codex", "agy"]),
+  /** The key of a Codex thread's holder, when it is not the thread's ID. */
+  holder: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,128}$/)
+    .optional(),
   name: z.string(),
   cwd: z.string(),
   /** The thread's key, for the agent's environment. */
@@ -1838,7 +1864,7 @@ const recordSchema = z.object({
   choices: z.object({ model: z.string(), effort: z.string(), mode: z.string() }).partial(),
   /** The user stopped it. */
   stopped: z.boolean().optional(),
-  /** An ACP agent's own ID for the session, such as Codex's thread ID. */
+  /** An agent's own ID for the session: an ACP agent's, or agy's conversation. */
   agentSessionId: z.string().max(200).optional(),
   /** A fork (Continue in Med) before its first prompt: the session it starts from. */
   forkOf: z.string().max(128).optional(),
@@ -1875,6 +1901,9 @@ export class OwnedSessions {
   private updated = new Map<string, number>();
   /** Claude Code's models, asked once per host. */
   private claudeModels = new Map<string, Promise<ClaudeModel[]>>();
+  /** Codex's and agy's models, asked once per host. */
+  private codexModels = new Map<string, Promise<CodexModel[]>>();
+  private agyModels = new Map<string, Promise<{ id: string; name: string }[]>>();
   /** What each ACP agent offered in its last new session. */
   private offered: Promise<Record<string, OwnedSetting[]>> | undefined;
   private records: Record<string, SessionRecord> = {};
@@ -1923,12 +1952,20 @@ export class OwnedSessions {
   async runsElsewhere(sessionId: string) {
     return (await this.processes.elsewhere([sessionId])).has(sessionId);
   }
+  /** Whether a process that Med does not run has a Codex thread or an agy
+   * conversation open (agent-locks.ts). */
+  async lockedElsewhere(agent: "codex" | "agy", id: string) {
+    const folder = lockFolders(this.options.home?.())[agent];
+    const own = new Set(this.pids());
+    return (await heldLocks(folder)).get(id)?.some((pid) => !own.has(pid)) ?? false;
+  }
   async agents(): Promise<AgentPreset[]> {
-    return (await this.options.agents()).map(({ id, name, kind, available }) => ({
+    return (await this.options.agents()).map(({ id, name, kind, available, capabilities }) => ({
       id,
       name,
       kind,
       available,
+      capabilities: capabilities ?? AGENT_CAPABILITIES[kind],
     }));
   }
   private async agent(presetId: string) {
@@ -1940,6 +1977,16 @@ export class OwnedSessions {
   private models(agent: RunnableAgent) {
     let models = this.claudeModels.get(agent.id);
     if (!models) this.claudeModels.set(agent.id, (models = probeClaude(agent)));
+    return models;
+  }
+  private codexOffers(agent: RunnableAgent) {
+    let models = this.codexModels.get(agent.id);
+    if (!models) this.codexModels.set(agent.id, (models = probeCodex(agent)));
+    return models;
+  }
+  private agyOffers(agent: RunnableAgent) {
+    let models = this.agyModels.get(agent.id);
+    if (!models) this.agyModels.set(agent.id, (models = probeAgy(agent)));
     return models;
   }
   private offers() {
@@ -1994,6 +2041,55 @@ export class OwnedSessions {
           : {}),
       };
     }
+    if (agent.kind === "codex") {
+      const models = await this.codexOffers(agent);
+      if (!models.length) return {};
+      const model =
+        models.find((entry) => entry.id === wanted.model) ??
+        models.find((entry) => entry.isDefault);
+      const levels = [...new Set(models.flatMap((entry) => entry.efforts))];
+      return {
+        model: {
+          id: "model",
+          name: "Model",
+          category: "model",
+          value: model?.id ?? models[0]!.id,
+          options: models.map((entry) => ({
+            value: entry.id,
+            name: entry.name,
+            ...(entry.description ? { description: entry.description } : {}),
+          })),
+        },
+        ...(levels.length
+          ? {
+              effort: {
+                id: "effort",
+                name: "Effort",
+                category: "effort" as const,
+                value: wanted.effort && levels.includes(wanted.effort) ? wanted.effort : "default",
+                options: effortOptions(levels),
+              },
+              efforts: Object.fromEntries(models.map((entry) => [entry.id, entry.efforts])),
+            }
+          : {}),
+      };
+    }
+    if (agent.kind === "agy") {
+      const models = await this.agyOffers(agent);
+      if (!models.length) return {};
+      return {
+        model: {
+          id: "model",
+          name: "Model",
+          category: "model",
+          value: models.some((entry) => entry.id === wanted.model) ? wanted.model! : "default",
+          options: [
+            { value: "default", name: "agy's default" },
+            ...models.map((entry) => ({ value: entry.id, name: entry.name })),
+          ],
+        },
+      };
+    }
     const settings = (await this.offers())[presetId] ?? [];
     const pick = (category: "model" | "effort") => {
       const setting = settings.find((entry) => entry.category === category);
@@ -2023,6 +2119,53 @@ export class OwnedSessions {
     // A thread keeps the mode that it last chose for Claude Code.
     const kept = agent.kind === "claude" && key ? this.threadMode(key) : undefined;
     const wanted = { ...AGENT_DEFAULTS[presetId], ...(kept && { mode: kept }), ...choices };
+    if (agent.kind === "codex") {
+      const holder = randomUUID();
+      const runner = startCodex(agent, cwd, {
+        holders: this.options.holderDirectory,
+        holder,
+        env: () => this.environment(key, cwd),
+        choices: wanted,
+        models: this.codexOffers(agent),
+        elsewhere: (id) => this.lockedElsewhere("codex", id),
+        onHolder: (holder) => this.noteHolder(runner.session.id, holder),
+      });
+      // Codex names the thread: the runner has its ID once it started.
+      await runner.attached;
+      this.track(runner, {
+        preset: presetId,
+        kind: "codex",
+        name: agent.name,
+        cwd,
+        ...(key ? { key } : {}),
+        holder,
+        choices: {},
+        updatedAt: Date.now(),
+      });
+      return runner;
+    }
+    if (agent.kind === "agy") {
+      const runner = startAgy(agent, cwd, {
+        holders: this.options.holderDirectory,
+        ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+        env: () => this.environment(key, cwd),
+        choices: wanted,
+        models: this.agyOffers(agent),
+        onConversation: (id) => this.noteAgentSession(runner.session.id, id),
+        elsewhere: (id) => this.lockedElsewhere("agy", id),
+        ...(this.options.home ? { home: this.options.home } : {}),
+      });
+      this.track(runner, {
+        preset: presetId,
+        kind: "agy",
+        name: agent.name,
+        cwd,
+        ...(key ? { key } : {}),
+        choices: {},
+        updatedAt: Date.now(),
+      });
+      return runner;
+    }
     const runner =
       agent.kind === "claude"
         ? startClaude(agent, cwd, {
@@ -2085,9 +2228,10 @@ export class OwnedSessions {
    * it starts, so it resumes after a restart too.
    */
   async resume(session: AgentSession, { key }: { key?: string } = {}): Promise<OwnedRunner> {
-    const agent = await this.claude(session.cwd);
     const current = this.runners.get(session.id);
     if (current) return current;
+    if (session.agent === "codex") return this.resumeCodex(session, key);
+    const agent = await this.claude(session.cwd);
     const runner = startClaude(agent, session.cwd, {
       holders: this.options.holderDirectory,
       sessionId: session.id,
@@ -2106,6 +2250,56 @@ export class OwnedSessions {
       updatedAt: Date.now(),
     });
     return runner;
+  }
+  /** A Codex thread that Med did not start, such as an adopted one: its
+   * next prompt starts Codex's app-server and resumes the thread. */
+  private async resumeCodex(session: AgentSession, key: string | undefined) {
+    const agent = (await this.options.agents()).find(
+      (entry) => entry.kind === "codex" && entry.available,
+    );
+    if (!agent) throw new HostError("agent-unavailable", "Codex is not installed here.", 409);
+    if (!existsSync(session.cwd))
+      throw new HostError(
+        "session-folder-gone",
+        `The session's folder ${session.cwd} no longer exists, so Codex cannot resume it.`,
+        409,
+      );
+    const runner = this.codexRunner(agent, session.cwd, session.id, key, {});
+    this.track(runner, {
+      preset: agent.id,
+      kind: "codex",
+      name: agent.name,
+      cwd: session.cwd,
+      ...(key ? { key } : {}),
+      choices: {},
+      updatedAt: Date.now(),
+    });
+    return runner;
+  }
+  private codexRunner(
+    agent: RunnableAgent,
+    cwd: string,
+    thread: string,
+    key: string | undefined,
+    extra: Partial<Parameters<typeof startCodex>[2]>,
+  ) {
+    return startCodex(agent, cwd, {
+      holders: this.options.holderDirectory,
+      thread,
+      env: () => this.environment(key, cwd),
+      models: this.codexOffers(agent),
+      elsewhere: (id) => this.lockedElsewhere("codex", id),
+      onHolder: (holder) => this.noteHolder(thread, holder),
+      ...extra,
+    });
+  }
+  /** The key of a Codex thread's holder changed to the thread's own. */
+  private noteHolder(sessionId: string, holder: string) {
+    const record = this.records[sessionId];
+    if (!record || record.holder === holder) return;
+    const { holder: _old, ...rest } = record;
+    this.records[sessionId] = holder === sessionId ? rest : { ...rest, holder };
+    this.save();
   }
   /**
    * Continue in Med: a new Claude Code session that starts from `session`'s
@@ -2158,8 +2352,8 @@ export class OwnedSessions {
       if (this.runners.has(id)) continue;
       const agent = agents.find((entry) => entry.id === record.preset);
       const session: AgentSession = {
-        agent: record.kind,
-        ...(record.kind === "acp" ? { name: record.name } : {}),
+        agent: record.kind === "agy" ? "acp" : record.kind,
+        ...(record.kind === "acp" || record.kind === "agy" ? { name: record.name } : {}),
         id,
         cwd: record.cwd,
       };
@@ -2181,7 +2375,40 @@ export class OwnedSessions {
           models: this.models(agent),
           elsewhere: (session) => this.runsElsewhere(session),
         });
-      else if (record.kind === "acp" && (await readHolder(holders, id)))
+      else if (record.kind === "codex" && agent?.kind === "codex" && agent.available) {
+        const attach = !!(await readHolder(holders, record.holder ?? id));
+        runner = this.codexRunner(agent, record.cwd, id, record.key, {
+          ...(record.holder ? { holder: record.holder } : {}),
+          choices: record.choices,
+          attach,
+          ...(record.turn && !attach
+            ? { halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" } }
+            : {}),
+        });
+      } else if (record.kind === "agy" && agent?.kind === "agy" && agent.available) {
+        const attach = !!(await readHolder(holders, id));
+        runner = startAgy(agent, record.cwd, {
+          holders,
+          sessionId: id,
+          ...(this.options.logDirectory ? { logDirectory: this.options.logDirectory } : {}),
+          ...(record.agentSessionId ? { conversation: record.agentSessionId } : {}),
+          env: () => this.environment(record.key, record.cwd),
+          choices: record.choices,
+          models: this.agyOffers(agent),
+          onConversation: (conversation) => this.noteAgentSession(id, conversation),
+          elsewhere: (conversation) => this.lockedElsewhere("agy", conversation),
+          ...(attach
+            ? {
+                attach: {
+                  earlier: this.options.logDirectory
+                    ? await SessionLog.read(join(this.options.logDirectory, `${id}.jsonl`))
+                    : [],
+                },
+              }
+            : {}),
+          ...(this.options.home ? { home: this.options.home } : {}),
+        });
+      } else if (record.kind === "acp" && (await readHolder(holders, id)))
         runner = startAcp(
           { id: record.preset, name: record.name, command: "", args: [] },
           record.cwd,

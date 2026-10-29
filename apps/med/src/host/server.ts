@@ -1561,7 +1561,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|steer))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1700,7 +1700,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   waits.includes("*") ||
                   (await ownedSessions.runsElsewhere(session.id));
                 resume = !held && !live;
-              }
+              } else if (
+                session.agent === "codex" &&
+                !live &&
+                !runner &&
+                (await ownedSessions.agents()).some(
+                  (agent) => agent.kind === "codex" && agent.available,
+                ) &&
+                !(await ownedSessions.lockedElsewhere("codex", session.id))
+              )
+                // A Codex thread that no process has open: Med resumes it
+                // through Codex's app-server and runs it from then on. One
+                // that Codex Desktop or a terminal has open takes the message
+                // through `codex queue`.
+                resume = true;
               // The agent that Med runs works: the message waits for its next
               // step (queued-messages.ts), and the user can take it back.
               const queue = !held && !resume && live?.state().status === "working";
@@ -1788,6 +1801,25 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               .parse(await readBody(request));
             const message = await inbox.takeBack(reviewId, input.id);
             send({ message, state: await inboxState() });
+            return;
+          }
+          // Send now: a queued message goes into the turn that runs.
+          if (action === "steer" && request.method === "POST") {
+            const input = z
+              .object({ id: z.string().min(1).max(128) })
+              .parse(await readBody(request));
+            const message = (await inbox.messages(reviewId)).find(
+              (entry) => entry.id === input.id && entry.queued && entry.delivery === "pending",
+            );
+            if (!message)
+              throw new HostError("message-gone", "The agent has this message already.", 409);
+            if (!(await queuedMessages.steer(reviewId, message.sessionId, input.id)))
+              throw new HostError(
+                "steer-unsupported",
+                "This agent takes the message when its turn ends.",
+                409,
+              );
+            send({ state: await inboxState() });
             return;
           }
           if (action === "ack" && request.method === "POST") {
