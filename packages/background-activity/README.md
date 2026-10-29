@@ -129,13 +129,25 @@ showed. Marks: `progress` (a ring; `fraction: null` sweeps), `waiting`,
 `attention`, `done`. `status` is heard once per stage. The island takes no
 taps, so they reach the mark. Colours and where it grows from are custom
 properties (`island.css`): an app sets `--ba-island-surface`, `-text` and
-`-edge` from its own tokens per theme; without them the island is near
-black in light mode and a raised grey with a hairline in dark mode, with
-its text at AA in both. The defaults follow a `.light` or `.dark` class on
-the root, else the OS; an app with other themes (Reader's `night` and
-Flexoki, Arctic's `data-mode`) sets its own. With reduced motion it cross-fades at its final
-width. Spaced uses it; Reader and Arctic have mock-ups in Spaced's Elements
-page.
+`-edge` from its own tokens per theme, and `--ba-island-detail` where a dim
+theme needs the count brighter than 62% of the text to keep it at 4.5:1.
+Without them the island is near black in light mode and a raised grey with
+a hairline in dark mode, with its text at AA in both. The defaults follow a
+`.light` or `.dark` class on the root, else the OS; an app with other
+themes sets its own. With reduced motion it cross-fades at its final
+width. Its growth and fold move `width`, which the main thread lays out
+each frame: in the large restore labs, the lists that fill meanwhile end
+20–50 ms later (Reader's and Arctic's restore docs); its sweep turns on
+the compositor.
+
+`restoreIsland(sync, stage, ended, done)` gives every app's restore one
+grammar: the app's stage (its words, ring and count), "Waiting for a
+connection" offline, "Sign in to finish restoring" when signed out, "Sync
+stopped" or "Update to finish restoring" when sync is blocked, and `done`
+once at the end. Spaced grows it out of its icon, Reader out of its activity
+glyph, Arctic out of the count by the title or a phone's account button;
+each sets its colours in every theme it ships (Reader's light, dark, night
+and Flexoki; Arctic's themes in both modes).
 
 ## App updates
 

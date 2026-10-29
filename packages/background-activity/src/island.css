@@ -176,12 +176,16 @@
   stroke-dashoffset: calc(1 - var(--ba-fraction, 0));
   transition: stroke-dashoffset 220ms linear;
 }
-/* Size unknown: one short arc turns slowly. The one loop allowed is a wait. */
+/* Size unknown: one short arc turns slowly. The one loop allowed is a wait.
+   The ring's box turns, not the SVG circle: a transform on an HTML box runs
+   on the compositor, one on an SVG shape repaints on the main thread each
+   frame, while the restore commits its pages there. */
+.ba-island-ring[data-unknown] {
+  animation: ba-island-sweep 1.4s linear infinite;
+}
 .ba-island-ring[data-unknown] .ba-island-ring-fill {
   stroke-dasharray: 0.22 0.78;
   stroke-dashoffset: 0;
-  transform-origin: 50% 50%;
-  animation: ba-island-sweep 1.4s linear infinite;
 }
 @keyframes ba-island-sweep {
   to {
@@ -226,7 +230,7 @@
   .ba-island[data-open] {
     transition: opacity 150ms linear;
   }
-  .ba-island-ring[data-unknown] .ba-island-ring-fill {
+  .ba-island-ring[data-unknown] {
     animation: none;
   }
   .ba-island-ring-fill {

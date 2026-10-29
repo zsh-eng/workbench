@@ -375,7 +375,10 @@ and after: `media/spaced-first-load/island-dark/`.
 **Built.** `@workbench/background-activity/island` (`ActivityIsland`,
 `islandStep`: nothing for 0.5 s, at least 0.6 s once shown, Restored for
 1.5 s, a 0.32 s fold; morph spring for its width). Spaced's words are in
-`src/lib/sync/restore-island.ts`; `SyncBoundary` shows `RestoreFrame`s.
+`src/lib/sync/restore-island.ts`, and the shared `restoreIsland` says the
+offline, sign-in and stopped states, as in Reader and Arctic, which use
+the island too (their mock-ups left the Elements page); `SyncBoundary`
+shows `RestoreFrame`s.
 The island's status line says the stage to assistive technology once, not
 each percent.
 
