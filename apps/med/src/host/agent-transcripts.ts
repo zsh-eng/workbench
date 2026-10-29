@@ -289,14 +289,32 @@ export async function followTranscript(
     offset: number;
     line(raw: string): SessionEvent[];
     idle?: () => boolean;
+    /** A Codex subagent's rollout, which Med finds by its thread ID. */
+    find?: () => Promise<string | undefined>;
   };
   const sources: Source[] = [];
   const pending: Source[] = [];
   const subagents = join(dirname(path), session.id, "subagents");
-  const addSource = (file: string, parentToolCallId?: string) => {
+  /** Codex subagents' thread IDs, each read once. */
+  const children = new Set<string>();
+  const addSource = (file: string, parentToolCallId?: string): Source => {
     if (session.agent === "codex") {
-      const reader = createCodexRolloutReader();
-      return { path: file, offset: 0, line: reader.line, idle: reader.idle };
+      const reader = createCodexRolloutReader({
+        ...(parentToolCallId ? { parentToolCallId } : {}),
+        onSubagent: (threadId, toolCallId) => {
+          if (children.has(threadId)) return;
+          children.add(threadId);
+          const child = addSource("", toolCallId);
+          child.find = () => findTranscript({ agent: "codex", id: threadId });
+          pending.push(child);
+        },
+      });
+      return {
+        path: file,
+        offset: 0,
+        line: reader.line,
+        ...(parentToolCallId ? {} : { idle: reader.idle }),
+      };
     }
     const reader = createClaudeTranscriptReader({
       ...(parentToolCallId ? { parentToolCallId } : {}),
@@ -320,6 +338,13 @@ export async function followTranscript(
   sources.push(main);
 
   const read = async (source: Source, limit?: number) => {
+    if (source.find) {
+      // A child's rollout can come a moment after its spawn: look again later.
+      const found = await source.find().catch(() => undefined);
+      if (!found) return { events: [] as SessionEvent[], truncated: false, first: 0 };
+      source.path = found;
+      delete source.find;
+    }
     const result = await readLines(source.path, source.offset, limit).catch(() => undefined);
     if (!result) return { events: [] as SessionEvent[], truncated: false, first: 0 };
     source.offset = result.next;
@@ -569,8 +594,18 @@ export async function readTranscriptPage(
   const { lines, first: start } = await readSpan(path, Math.max(0, end - PAGE_BYTES), end);
   const events: SessionEvent[] = [];
   if (session.agent === "codex") {
-    const reader = createCodexRolloutReader();
+    const children: [string, string][] = [];
+    const reader = createCodexRolloutReader({
+      onSubagent: (threadId, toolCallId) => children.push([threadId, toolCallId]),
+    });
     for (const line of lines) events.push(...reader.line(line));
+    for (const [threadId, toolCallId] of children) {
+      const child = await findTranscript({ agent: "codex", id: threadId });
+      const read = child && (await readLines(child, 0, TAIL_BYTES).catch(() => undefined));
+      if (!read) continue;
+      const childReader = createCodexRolloutReader({ parentToolCallId: toolCallId });
+      for (const line of read.lines) events.push(...childReader.line(line));
+    }
   } else {
     const subagents: [string, string][] = [];
     const reader = createClaudeTranscriptReader({

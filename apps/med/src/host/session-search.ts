@@ -46,6 +46,8 @@ export interface SessionInfo {
   /** The first prompt, cut to 2000 characters. */
   text?: string;
   title: string;
+  /** A Codex guardian review or subagent: its parent shows it. */
+  automatic?: true;
 }
 
 type Listed = { agent: FoundAgent; path: string; id?: string; archived?: true };
@@ -128,6 +130,7 @@ async function readInfo(file: Listed, mtimeMs: number): Promise<SessionInfo | un
     ...(first.prompt ? { prompt: first.prompt } : {}),
     ...(first.text ? { text: first.text } : {}),
     title: name ?? summary ?? first.prompt ?? "Agent session",
+    ...(first.source && first.source.kind !== "session" ? { automatic: true as const } : {}),
   };
 }
 
@@ -211,6 +214,8 @@ export function createSessionSearch(options: {
       const all = await sessions(await listTranscripts(home()));
       return all
         .filter((session) => {
+          // Codex's guardian reviews and subagents show in their parents.
+          if (session.automatic) return false;
           const haystack = [session.title, session.summary, session.text, session.cwd, session.id]
             .filter(Boolean)
             .join("\n")

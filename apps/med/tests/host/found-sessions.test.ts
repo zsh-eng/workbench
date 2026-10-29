@@ -591,3 +591,194 @@ test("a Codex session that Med runs through ACP shows once, as its thread, also 
   const restarted = follow(again);
   await once(restarted);
 });
+
+/** A Codex rollout with these records after its session_meta. */
+async function rollout(
+  home: string,
+  id: string,
+  meta: Record<string, unknown>,
+  records: { type: string; payload: Record<string, unknown> }[],
+) {
+  const day = new Date();
+  const folder = join(
+    home,
+    ".codex",
+    "sessions",
+    String(day.getFullYear()),
+    String(day.getMonth() + 1).padStart(2, "0"),
+    String(day.getDate()).padStart(2, "0"),
+  );
+  await mkdir(folder, { recursive: true });
+  const path = join(folder, `rollout-2026-10-30T05-35-41-${id}.jsonl`);
+  await writeFile(
+    path,
+    lines([
+      { timestamp: time(60_000), type: "session_meta", payload: { id, ...meta } },
+      ...records.map((entry, index) => ({ timestamp: time(50_000 - index * 1000), ...entry })),
+    ]),
+  );
+  return path;
+}
+
+test("Codex's guardian reviews and subagents do not list; a subagent's thread shows in its spawn call", async () => {
+  const { api, list, host, glossary, home } = await fixture();
+  const parent = "01a18997-1371-72d0-abfa-a297dc689142";
+  const child = "01a18997-3251-7832-a24f-d69283817af6";
+  const user = (text: string) => ({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+  });
+  const reply = (text: string) => ({
+    type: "response_item",
+    payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+  });
+  // Recorded from Codex 0.160's app-server (multi-agent v2), cut down.
+  await rollout(home, parent, { cwd: glossary, source: "vscode" }, [
+    user("Ask a subagent for the word pong."),
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "spawn_agent",
+        namespace: "collaboration",
+        arguments: JSON.stringify({ task_name: "pong", message: "gAAAAABq-encrypted" }),
+        call_id: "call_spawn",
+      },
+    },
+    {
+      type: "event_msg",
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "SubAgentActivity",
+          id: "call_spawn",
+          kind: "started",
+          agent_thread_id: child,
+          agent_path: "/root/pong",
+        },
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_spawn",
+        output: JSON.stringify({ task_name: "/root/pong" }),
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "wait_agent",
+        namespace: "collaboration",
+        arguments: JSON.stringify({ timeout_ms: 60000 }),
+        call_id: "call_wait",
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_wait",
+        output: JSON.stringify({ message: "Wait completed.", timed_out: false }),
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
+        type: "agent_message",
+        author: "/root/pong",
+        recipient: "/root",
+        content: [
+          {
+            type: "input_text",
+            text: "Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/pong\nPayload:\npong",
+          },
+        ],
+      },
+    },
+    reply("The subagent said pong."),
+    { type: "event_msg", payload: { type: "task_complete" } },
+  ]);
+  // A forked child starts with a copy of its parent's history.
+  await rollout(
+    home,
+    child,
+    {
+      cwd: glossary,
+      forked_from_id: parent,
+      source: {
+        subagent: {
+          thread_spawn: { parent_thread_id: parent, depth: 1, agent_path: "/root/pong" },
+        },
+      },
+    },
+    [
+      { type: "session_meta", payload: { id: parent, cwd: glossary, source: "vscode" } },
+      user("Ask a subagent for the word pong."),
+      { type: "event_msg", payload: { type: "thread_settings_applied" } },
+      { type: "event_msg", payload: { type: "task_started" } },
+      reply("pong"),
+      { type: "event_msg", payload: { type: "task_complete" } },
+    ],
+  );
+  await rollout(
+    home,
+    "01a18997-9999-7000-8000-000000000001",
+    { cwd: glossary, source: { subagent: { other: "guardian" } } },
+    [user("Review this command for safety."), reply("Safe.")],
+  );
+
+  const latest = await list();
+  await vi.waitFor(
+    () => expect(foundIn(latest.value)).toContain("Ask a subagent for the word pong"),
+    { timeout: 10_000 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  expect(foundIn(latest.value)).toEqual(["Ask a subagent for the word pong"]);
+  const searched = await api<{ sessions: { id: string }[] }>("/api/sessions/find", { text: "" });
+  expect(searched.data.sessions.map((session) => session.id)).toEqual([parent]);
+
+  const response = await fetch(
+    `http://127.0.0.1:${host.port}/api/reviews/found-codex-${parent}/sessions/${parent}/events`,
+    { headers: { authorization: `Bearer ${host.token}` } },
+  );
+  const events: SessionEvent[] = [];
+  const controller = new AbortController();
+  streams.push(controller);
+  void readServerEvents(
+    response.body!,
+    (event) => events.push(...(JSON.parse(event.data) as { events: SessionEvent[] }).events),
+    controller.signal,
+  ).catch(() => {});
+  await vi.waitFor(() =>
+    expect(events.some((event) => event.update._meta?.med?.parentToolCallId === "call_spawn")).toBe(
+      true,
+    ),
+  );
+  const spawn = events.find(
+    (event) =>
+      event.update.sessionUpdate === "tool_call" && event.update.toolCallId === "call_spawn",
+  );
+  expect(spawn?.update).toMatchObject({ title: "Pong", _meta: { med: { tool: "spawn_agent" } } });
+  // The child's own reply is in the spawn call's thread; its copied history is not.
+  const nested = events
+    .filter((event) => event.update._meta?.med?.parentToolCallId === "call_spawn")
+    .map((event) =>
+      "content" in event.update && event.update.content && !Array.isArray(event.update.content)
+        ? event.update.content
+        : undefined,
+    );
+  expect(nested).toEqual([{ type: "text", text: "pong" }]);
+  // The report completes the call with its text.
+  expect(
+    events.some(
+      (event) =>
+        event.update.sessionUpdate === "tool_call_update" &&
+        event.update.toolCallId === "call_spawn" &&
+        event.update.status === "completed" &&
+        JSON.stringify(event.update.content).includes("pong"),
+    ),
+  ).toBe(true);
+});
