@@ -115,11 +115,7 @@ export function RestoreIsland({
     seen.current,
   );
   return (
-    <ActivityIsland
-      content={content}
-      status={words}
-      className={cn("dark:[--ba-island-edge:rgb(255_255_255/0.16)]", className)}
-    >
+    <ActivityIsland content={content} status={words} className={className}>
       {children}
     </ActivityIsland>
   );
