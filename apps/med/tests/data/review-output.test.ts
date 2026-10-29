@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readReviewOutput } from "../../src/shared/review-output";
+import { readReviewOutput, withoutProof } from "../../src/shared/review-output";
 
 // The reader takes review output in the shapes that real tools write. These
 // are parser edge cases, kept as a focused test (docs/TESTING.md): the browser
@@ -235,6 +235,46 @@ describe("review output", () => {
       notes: [],
       tables: ["| Check | Result |\n| --- | --- |\n| Build | passed |"],
     });
+  });
+
+  it("takes out of a text the proof and misses that the Proof part shows whole, and keeps the rest", () => {
+    const whole = [
+      "Renames the export.",
+      "",
+      "## Proof",
+      "",
+      "| Check | Result |",
+      "| --- | --- |",
+      "| `bun run test` | 3 passed |",
+      "",
+      "- `bun run lint`: no warnings",
+      "",
+      "**Not covered:**",
+      "- The import.",
+      "",
+      "## Read first",
+      "",
+      "The rename in alpha.ts.",
+    ].join("\n");
+    expect(withoutProof(whole)).toBe(
+      ["Renames the export.", "", "## Read first", "", "The rename in alpha.ts."].join("\n"),
+    );
+    // What the Proof part would show only in part stays where it was written:
+    // a fence's output, a nested item, a wrapped paragraph, a link, a table of
+    // misses.
+    for (const body of [
+      ["```sh", "$ bun run test", "42 passed", "```"],
+      ["- `bun run test`: 42 passed", "  - covers the CSV header"],
+      ["The cache is cold on the first run, so", "the timing is from the second."],
+      ["- See [the design note](docs/cache.md)."],
+    ])
+      expect(withoutProof(["Why.", "", "## Testing", "", ...body].join("\n"))).toContain(body[0]);
+    expect(
+      withoutProof("## Not covered\n\n| Area | Why |\n| --- | --- |\n| Import | no fixture |"),
+    ).toContain("| Import | no fixture |");
+    expect(withoutProof("No proof here.\n\n## Why\n\nBecause.")).toBe(
+      "No proof here.\n\n## Why\n\nBecause.",
+    );
   });
 
   it("finds nothing in prose without its parts", () => {

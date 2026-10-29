@@ -534,6 +534,64 @@ function readOne(text: string): ReviewOutput {
   return output;
 }
 
+/** Markup that the Proof part's rows do not show: links, emphasis, images, HTML. */
+const RICH = /\[[^\]]*\]\(|\*\*|__|(?:^|\s)[*_]\S|!\[|<[a-z/]/i;
+
+/**
+ * Whether the Proof part shows these lines of a proof or misses section in
+ * full: a proof's tables as written, and lines and items whose only markup is
+ * code, which become its checks, notes and misses. A fence's output, nested
+ * items, a paragraph of two lines or more, links, emphasis, media and tagged
+ * findings would lose something there.
+ */
+function shownWhole(section: Section, body: readonly string[]): boolean {
+  let previous = false;
+  for (const line of body) {
+    if (/^\s*(?:```|~~~)/.test(line)) return false;
+    // A line of a paragraph after another: the Proof part splits them.
+    const prose =
+      !!line.trim() && !line.includes("|") && !BLOCK_START.test(line) && !/^\s/.test(line);
+    if (prose && previous) return false;
+    previous = prose;
+  }
+  const plain = (text: string) =>
+    !RICH.test(text) && !TAG.test(text) && !(text.match(MEDIA) ?? []).length;
+  return walk(body).every((block) =>
+    block.kind === "table"
+      ? section === "proof"
+      : block.kind === "item"
+        ? !block.item.children.length && plain(block.item.text)
+        : plain(block.text),
+  );
+}
+
+/**
+ * The text without the sections that the Guide's Proof part shows in full:
+ * its proof and what the checks miss, found as readReviewOutput finds them.
+ * A guide summary that holds its proof then shows it once, in the Proof part.
+ * A section that the Proof part would show only in part stays.
+ */
+export function withoutProof(text: string): string {
+  const sections: { section: Section; lines: string[] }[] = [{ section: "other", lines: [] }];
+  let fence = false;
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const label = fence || /^\s*(?:```|~~~)/.test(line) ? undefined : headingOf(line);
+    if (/^\s*(?:```|~~~)/.test(line)) fence = !fence;
+    if (label !== undefined) sections.push({ section: sectionOf(label).section, lines: [] });
+    sections.at(-1)!.lines.push(line);
+  }
+  return sections
+    .filter(
+      ({ section, lines }, index) =>
+        index === 0 ||
+        (section !== "proof" && section !== "misses") ||
+        !shownWhole(section, lines.slice(1)),
+    )
+    .flatMap(({ lines }) => lines)
+    .join("\n")
+    .trim();
+}
+
 /** Reads review output from several texts, such as a brief, its pins, and a guide summary. */
 export function readReviewOutput(texts: readonly (string | undefined)[]): ReviewOutput {
   const all: ReviewOutput = { findings: [], generated: [] };

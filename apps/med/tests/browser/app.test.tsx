@@ -2729,7 +2729,7 @@ describe("review guide", () => {
     await userEvent.keyboard("{Escape}");
   });
 
-  test("shows a proof table as a table that scrolls in its own box, and counts its checks", async () => {
+  test("shows a proof table whose columns share the width, breaking long commands at their separators, and counts its checks", async () => {
     // As an agent wrote it: one row's command and result are long, and one
     // row's only code is in its result, so it is a note, not a check.
     const command =
@@ -2745,7 +2745,7 @@ describe("review guide", () => {
           "| --- | --- | --- |",
           `| \`${command}\` | for \`ClassicBuckets*\` and \`BucketBoundaryTest\` | 18 tests pass (2+9+7). CI on the branch is green across the three JVM targets after the rerun. |`,
           "| `bun run lint` | all of `src/` | 1 error in src/beta.ts |",
-          "| Fixture | Generated | `histogram()` is `registry.timer(bucketNameWithEveryLabelOfTheSeries())` |",
+          "| Fixture | Generated | `histogram()` is `registry.timer(bucketName())`; the name has `platformVersion` and the bucket set |",
         ].join("\n"),
       ],
     });
@@ -2756,15 +2756,70 @@ describe("review guide", () => {
     await expect.element(table.getByRole("cell", { name: command })).toBeVisible();
     // The rows show once, in the table, not again as check rows.
     expect(proof.getByText(command).elements()).toHaveLength(1);
-    // No column shrinks to a letter a line: the command's cell is as wide as
-    // its longest word, and the table scrolls inside its box.
-    const cell = table.getByRole("cell", { name: command }).element();
-    expect(cell.getBoundingClientRect().width).toBeGreaterThan(120);
-    await page.viewport(900, 800);
     const box = table.element() as HTMLElement;
+    const code = table.getByRole("cell", { name: command }).element().querySelector("code")!;
+    // The command can break at its separators, and nowhere in a word; its
+    // text stays as written, for a copy.
+    await expect
+      .poll(() => code.innerHTML)
+      .toBe(
+        "./gradlew :telemetry<wbr>:histogram-<wbr>core-<wbr>internal<wbr>:test --tests 'ClassicBucketsTest'",
+      );
+    expect(code.textContent).toBe(command);
+    // In the narrow column beside the Guide's rail, every column shows: the
+    // table fits without scrolling, the command takes a few lines, none of
+    // them a letter or two, and the result's prose wraps.
+    await page.viewport(1100, 800);
+    await expect.element(page.getByRole("navigation", { name: "Guide" })).toBeVisible();
+    await expect.poll(() => box.scrollWidth - box.clientWidth).toBeLessThanOrEqual(0);
+    const lines = [...code.getClientRects()];
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.length).toBeLessThanOrEqual(5);
+    for (const line of lines) expect(line.width).toBeGreaterThan(48);
+    // At phone width a table that cannot fit with whole words scrolls in its
+    // own box, and the page does not.
+    await page.viewport(390, 800);
     await expect.poll(() => box.scrollWidth > box.clientWidth).toBe(true);
-    const column = overview.element().firstElementChild as HTMLElement;
-    expect(column.scrollWidth).toBeLessThanOrEqual(column.clientWidth);
+    for (const part of [proof.element(), overview.element()])
+      await expect.poll(() => part.scrollWidth - part.clientWidth).toBeLessThanOrEqual(0);
+  });
+
+  test("a guide summary's proof shows once, in the Proof part, and the rest of the summary stays", async () => {
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: [
+          "Renames the export, so the CSV keeps its old column names.",
+          "",
+          "## Proof",
+          "",
+          "| Check | Result |",
+          "| --- | --- |",
+          "| `bun run test` | 3 passed |",
+          "",
+          "### Not covered",
+          "",
+          "- The import.",
+          "",
+          "## Read first",
+          "",
+          "The rename in alpha.ts; beta.ts follows it.",
+        ].join("\n"),
+        segments: [{ title: "Rename alpha", files: ["src/alpha.ts"] }],
+      },
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof.getByRole("table")).toBeVisible();
+    await expect.element(proof.getByText("The import.")).toBeVisible();
+    await expect
+      .element(overview.getByText("The rename in alpha.ts; beta.ts follows it."))
+      .toBeVisible();
+    await expect.element(overview.getByText(/^Renames the export/)).toBeVisible();
+    // One table, one list of misses, and no Proof heading in the summary.
+    expect(overview.getByRole("table").elements()).toHaveLength(1);
+    expect(overview.getByText("The import.").elements()).toHaveLength(1);
+    expect(overview.getByRole("heading", { name: "Proof", level: 2 }).elements()).toHaveLength(0);
   });
 
   test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {

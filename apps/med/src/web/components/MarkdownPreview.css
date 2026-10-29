@@ -238,6 +238,12 @@
      word only when it cannot fit. */
   overflow-wrap: break-word;
 }
+/* Code in a cell breaks at its separators (render.worker.ts); each line of
+   it keeps its own box. */
+.med-md-prose :is(th, td) code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 .med-md-prose th {
   color: var(--med-muted);
   font-size: 11px;

@@ -686,7 +686,13 @@ only a brief: then it opens on the brief, and the Overview is the **Review**
 tab. Each part shows only when the version has it.
 
 - **Proof.** First, under the title: each check with its result, the media,
-  and **Not covered**, what the checks miss. Without written proof, the checks
+  and **Not covered**, what the checks miss. A proof written as a table shows
+  as that table: its columns share the width, long commands and paths break at
+  their `/`, `:`, `-` and `.`, and only a table too wide for whole words
+  scrolls sideways in its own box. When the guide summary holds the proof and
+  this part shows it whole (its tables, and lines whose only markup is code),
+  it shows here only; a proof with a fence's output, nested items, links or a
+  long paragraph stays in the summary too. Without written proof, the checks
   that the session ran in the turn that made the latest version show, marked
   "from the session's last turn".
 - **Since version N.** From version 2: the files that changed since the last

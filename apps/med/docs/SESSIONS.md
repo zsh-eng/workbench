@@ -377,7 +377,8 @@ those messages as another session's, not as the user's.
   back.
 - `thread-heights.ts` estimates a unit from its text. Pretext measures the
   text with canvas and counts its lines; the file models the CSS around the
-  lines (collapsing margins, list gaps, code blocks, tables). A hidden sample
+  lines (collapsing margins, list gaps, code blocks, tables, whose long words
+  break where the renderer lets them, `markdown/breaks.ts`). A hidden sample
   of each part in the thread gives the fonts and sizes of the current theme,
   so a theme change moves the estimates. Inline code and bold use Pretext's
   rich-inline layout. Estimates for 930 units of a synthetic thread take about
