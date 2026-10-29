@@ -72,13 +72,13 @@ the words the app uses:
 
 Sync is not a job that you start, so it shows only its exceptions:
 
-| Sync state                         | What you see                                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Synced, syncing                    | Nothing.                                                                                                                             |
-| Restoring on a new device          | The island grows out of the app's mark and says the stage: Spaced's icon, Reader's activity glyph, Arctic's count or account button. |
-| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs.                                        |
-| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                                                           |
-| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").                                                   |
+| Sync state                         | What you see                                                                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Synced, syncing                    | Nothing.                                                                                                                               |
+| Restoring on a new device          | The island at the top centre says the stage, and folds into the app's mark when near: Spaced's icon, Reader's glyph, Arctic's account. |
+| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs.                                          |
+| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                                                             |
+| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").                                                     |
 
 The update has its own small moment:
 
@@ -176,10 +176,11 @@ pill above the tab bar that a review hides. "Updated" is a toast.
 - **The update as its own moment** is right: a reload is a product event.
   "What's new" is not needed for a one-person app; "Updated" is the closure.
 - **An island for the restore** is the exception: the one sync state you
-  wait for. It grows out of the app's own mark, says the stage and its
-  share when known ("Restoring history 42%"), confirms "Restored" and folds
-  back (`./island`; Spaced's apps/spaced2/docs/FIRST_REVIEW.md, "The
-  restore island"). Reader and Arctic use it too (`restoreIsland`).
+  wait for. It floats at the top centre, says the stage and its share when
+  known ("Restoring history 42%"), confirms "Restored" and folds into the
+  app's own mark when it is near (`./island`; Spaced's
+  apps/spaced2/docs/FIRST_REVIEW.md, "The restore island"). Reader and
+  Arctic use it too (`restoreIsland`).
 - **A Dynamic Island for every sync** is the boring version. A spinner on
   each 30 s sync is noise, and noise trains people to ignore the one state
   that matters (your changes are only here).
@@ -209,9 +210,9 @@ scenarios, on the real engine with simulated jobs:
 
 An island for downloads was a fourth direction, dropped (see the critique); the restore's island is another matter. The Library
 wires the choice. The glyph and its sheet show for everyone. Sync does not
-raise the glyph: a restore has the island that grows out of the glyph's
-place, and what sync needs from you (a sign-in, two failures in a row) has
-the account menu; the sheet lists it under This app. Books that download for offline, and their covers, stay behind
+raise the glyph: a restore has the island, which folds into a near glyph,
+and what sync needs from you (a sign-in, two failures in a row) has the
+account menu; the sheet lists it under This app. Books that download for offline, and their covers, stay behind
 Debug → Offline downloads. A phone's header is full with the places, so
 there the glyph sits in the filter row beside Sort and layout, where
 Download all starts, and the update chip floats at the bottom of the

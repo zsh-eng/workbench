@@ -76,8 +76,8 @@ export function RestoreFrame({ page }: { page: "review" | "stats" | "list" }) {
 export type RestoreSync = Parameters<typeof restoreIsland>[0];
 
 /**
- * The restore, as an island that grows out of `children` (the Spaced icon
- * and its due count) and folds back into it when the restore is done.
+ * The restore, as the island at the top centre, which folds into
+ * `children` (the Spaced icon and its due count) when the restore is done.
  */
 export function RestoreIsland({
   children,

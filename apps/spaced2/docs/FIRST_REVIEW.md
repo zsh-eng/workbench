@@ -379,6 +379,15 @@ and after: `media/spaced-first-load/island-dark/`.
 offline, sign-in and stopped states, as in Reader and Arctic, which use
 the island too (their mock-ups left the Elements page); `SyncBoundary`
 shows `RestoreFrame`s.
+The island floats at the top centre of the window in every app, below the
+safe area and below an app's bars where they hold the top centre; the
+package places it (`placeIsland`), the apps give only words, marks and
+colours. Spaced's icon is at the top centre on a phone, so there it opens
+over the icon and folds back into it; with room, the icon is in the
+corner, far from it, and the island folds where it is. Reader's and
+Arctic's first build grew it out of their glyph's place, mid-page over the
+shelf's filters and over Arctic's Archive tab
+(`media/island-finish/`); the stills after are in `media/island-center/`.
 The island's status line says the stage to assistive technology once, not
 each percent.
 

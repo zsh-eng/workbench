@@ -30,19 +30,16 @@ export function useRestoreUnfinished(): boolean {
 
 /**
  * A new device's restore, as the shared island (packages/background-activity
- * /docs/MODEL.md): it grows out of the activity glyph, says "Restoring
- * library" with the books on this device so far (the restore's size is not
- * known), waits for a connection or a sign-in, says "Restored" once a pull
- * has reached the end, and folds back into the glyph. `align` is the side
- * of the glyph it grows from.
+ * /docs/MODEL.md) at the top centre: it says "Restoring library" with the
+ * books on this device so far (the restore's size is not known), waits for
+ * a connection or a sign-in, says "Restored" once a pull has reached the
+ * end, and folds away, into the activity glyph when it is near.
  */
 export function LibraryRestoreIsland({
   count,
-  align,
   children,
 }: {
   count: number;
-  align: "start" | "end";
   children: ReactNode;
 }) {
   const { controller } = syncService;
@@ -78,15 +75,7 @@ export function LibraryRestoreIsland({
     ended,
   );
   return (
-    <ActivityIsland
-      content={content}
-      status={status}
-      className={
-        align === "end"
-          ? "[--ba-island-left:100%] [--ba-island-shift:-100%]"
-          : "[--ba-island-left:0] [--ba-island-shift:0]"
-      }
-    >
+    <ActivityIsland content={content} status={status}>
       {children}
     </ActivityIsland>
   );

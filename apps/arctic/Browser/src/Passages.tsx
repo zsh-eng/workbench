@@ -544,7 +544,7 @@ export function NotesPanel({
         <Popover.Trigger render={trigger} />
       </Tip>
       <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="end">
+        <Popover.Positioner className="popup-layer" sideOffset={8} align="end">
           <Popover.Popup className="menu notes-panel">
             <h2>Notes</h2>
             <NotesContent article={article} onReveal={reveal} />

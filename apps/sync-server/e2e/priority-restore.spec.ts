@@ -115,7 +115,7 @@ test("a new device shows the books from the priority pull, and a delete in the f
   });
   const island = page.locator(".ba-island-slot");
   await expect(island.getByRole("status")).toHaveText("Restoring your library…");
-  await expect(island.locator(".ba-island")).toHaveText(
+  await expect(page.locator(".ba-island")).toHaveText(
     /^Restoring library\s*3 books$/,
   );
 

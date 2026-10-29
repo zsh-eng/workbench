@@ -361,7 +361,7 @@ export function Library() {
   const nothingFound = terms !== "" && found.length === 0;
   const showShelf = reading.length > 0;
   // A restore shows the Library's frame from the start: the filter row,
-  // where the island grows out of the glyph on a phone, and quiet covers.
+  // with the glyph that the island folds into on a phone, and quiet covers.
   const showRest =
     (!noBooks || unfinished) &&
     !nothingFound &&

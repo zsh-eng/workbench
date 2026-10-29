@@ -16,7 +16,7 @@ type GlyphKind = "attention" | "progress" | "update" | "waiting" | "done";
 
 /**
  * Jobs the glyph speaks for, of those the summary shows. Sync never does:
- * a restore has the island that grows out of the glyph
+ * a restore has the island, which folds into the glyph
  * (LibraryRestoreIsland), and what sync needs from you (a sign-in, or two
  * failures in a row) has the account menu. An update
  * that waits for you has its chip, so neither shows twice; changes kept

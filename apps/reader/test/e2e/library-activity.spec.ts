@@ -2,9 +2,11 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, startRestore, test } from "./helpers/fixtures";
 
 // The activity glyph and its sheet show without a Debug switch. A restore
-// is the island that grows out of the glyph's place (LibraryRestoreIsland).
-// Covers that fill as books download stay behind Debug -> Offline downloads.
+// is the island at the top centre, which folds into the glyph when it is
+// near (LibraryRestoreIsland). Covers that fill as books download stay
+// behind Debug -> Offline downloads.
 
+/** The island's place beside the glyph: its status, and its phase. */
 const island = (page: Page) => page.locator(".ba-island-slot");
 
 /** Each button's and link's place in `area`, except the glyph's. */
@@ -20,8 +22,8 @@ function places(area: Locator) {
 }
 
 /**
- * A restore grows the island out of the glyph's place, says what it
- * restores and that it is done, and folds back. Nothing beside it moves.
+ * A restore opens the island, which says what it restores and that it is
+ * done, and folds away. Nothing in `area` moves.
  */
 async function restoreComesAndGoes(page: Page, area: Locator) {
   // Debug mode adds Design ideas, the button that used to move.
@@ -40,7 +42,7 @@ async function restoreComesAndGoes(page: Page, area: Locator) {
   });
   await startRestore(page, () => released);
   try {
-    await expect(island(page).locator(".ba-island")).toHaveText(
+    await expect(page.locator(".ba-island")).toHaveText(
       /^Restoring library\s*1 book$/,
     );
     await expect(island(page).getByRole("status")).toHaveText(
@@ -61,7 +63,7 @@ test.use({ signedIn: true });
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("a restore grows the island from the glyph's place, and the filter row's buttons keep their places", async ({
+  test("a restore opens the island, and the filter row's buttons keep their places", async ({
     page,
     localBook: _localBook,
   }) => {
@@ -91,9 +93,7 @@ test.describe("a new device", () => {
       await expect(island(page).getByRole("status")).toHaveText(
         "Restoring your library…",
       );
-      await expect(island(page).locator(".ba-island")).toHaveText(
-        "Restoring library",
-      );
+      await expect(page.locator(".ba-island")).toHaveText("Restoring library");
       await expect(empty).toHaveCount(0);
       release();
       // Nothing came: the Library is empty again, without the frame.
@@ -123,7 +123,7 @@ test.describe("a new device", () => {
         "Restoring your library…",
       );
       await context.setOffline(true);
-      await expect(island(page).locator(".ba-island")).toHaveText(
+      await expect(page.locator(".ba-island")).toHaveText(
         "Waiting for a connection",
       );
       await expect(island(page).getByRole("status")).toHaveText(
@@ -157,7 +157,7 @@ test.describe("a new device", () => {
       }),
     );
     await page.reload();
-    await expect(island(page).locator(".ba-island")).toHaveText(
+    await expect(page.locator(".ba-island")).toHaveText(
       "Waiting for a connection",
     );
     await expect(island(page).getByRole("status")).toHaveText(
@@ -202,10 +202,96 @@ test.describe("signed out", () => {
 test.describe("with room", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("a restore grows the island from the glyph's place, and the header's buttons keep their places", async ({
+  test("a restore opens the island, and the header's buttons keep their places", async ({
     page,
     localBook: _localBook,
   }) => {
     await restoreComesAndGoes(page, page.locator("header"));
+  });
+});
+
+/**
+ * The controls of the header and the filter row that the island covers,
+ * its distance from the window's centre line, and whether it is at the top
+ * (8 px) or below the filter row.
+ */
+function underIsland(page: Page) {
+  return page.evaluate(() => {
+    // Across the phone layout's edge, the island's place moves to the
+    // header and it opens again.
+    const open = document.querySelector(".ba-island[data-settled]");
+    if (!open) return null;
+    const island = open.getBoundingClientRect();
+    const rows = [
+      document.querySelector("header"),
+      document.querySelector('[role="group"][aria-label="Show"]')
+        ?.parentElement,
+    ];
+    const covered = rows
+      .flatMap((row) => [...(row?.querySelectorAll("a, button, input") ?? [])])
+      .filter((control) => {
+        const box = control.getBoundingClientRect();
+        return (
+          box.width > 0 &&
+          box.left < island.right &&
+          box.right > island.left &&
+          box.top < island.bottom &&
+          box.bottom > island.top
+        );
+      })
+      .map(
+        (control) => control.getAttribute("aria-label") ?? control.textContent,
+      );
+    const centre = island.left + island.width / 2;
+    const row = document
+      .querySelector('[role="group"][aria-label="Show"]')!
+      .getBoundingClientRect();
+    return {
+      covered,
+      offCentre: Math.round(
+        Math.abs(centre - document.documentElement.clientWidth / 2),
+      ),
+      top:
+        island.top === 8
+          ? "top"
+          : island.top >= row.bottom
+            ? "below"
+            : island.top,
+    };
+  });
+}
+
+test.describe("at every width", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("the island floats at the top centre, and below the places and filters where they hold it", async ({
+    page,
+    localBook: _localBook,
+  }) => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await startRestore(page, () => released);
+    try {
+      for (const [width, height, top] of [
+        [320, 640, "below"],
+        [390, 844, "below"],
+        [600, 900, "below"],
+        [768, 1024, "top"],
+        [1024, 768, "top"],
+        [1440, 900, "top"],
+        [1920, 1080, "top"],
+      ] as const) {
+        await page.setViewportSize({ width, height });
+        // With room, the header's top margin holds it; a phone's header
+        // and filter row take the top centre, so it goes below them.
+        await expect
+          .poll(() => underIsland(page), { message: `${width} px` })
+          .toEqual({ covered: [], offCentre: 0, top });
+      }
+    } finally {
+      release();
+    }
   });
 });

@@ -9,20 +9,18 @@ const links = (count: number) =>
 
 /**
  * A new device's first pull, as the shared island (packages/background-
- * activity/docs/MODEL.md): it grows out of the mark it wraps, the count by
- * the title or a phone's account button, and says "Getting your library"
- * with the links on this device so far (the library's size is not known
- * until the last page). It waits for a connection or a sign-in, says
- * "Library ready" once the links are in, and folds back into the mark.
- * `align` is the side of the mark it grows from (docs/FIRST_SYNC.md).
+ * activity/docs/MODEL.md) at the top centre. It says "Getting your
+ * library" with the links on this device so far (the library's size is
+ * not known until the last page), waits for a connection or a sign-in,
+ * says "Library ready" once the links are in, and folds away by the mark
+ * it wraps: the count by the title, or a phone's account button
+ * (docs/FIRST_SYNC.md).
  */
 export function RestoreIsland({
   count,
-  align,
   children,
 }: {
   count: number;
-  align: "start" | "end";
   children: ReactNode;
 }) {
   const { controller } = useSession();
@@ -56,11 +54,7 @@ export function RestoreIsland({
     "Library ready",
   );
   return (
-    <ActivityIsland
-      content={content}
-      status={status}
-      className={`restore-island restore-island-${align}`}
-    >
+    <ActivityIsland content={content} status={status}>
       {children}
     </ActivityIsland>
   );
