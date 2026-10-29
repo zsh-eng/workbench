@@ -1,4 +1,5 @@
 import { operationSchema, type Operation } from "./schema";
+import { syncTablePrefix } from "@zsh-eng/local-sync";
 import type { SyncTableMap } from "@zsh-eng/local-sync/dexie";
 
 // Materialized operation families: one current row per family and entity, not a replay log.
@@ -39,3 +40,10 @@ export const syncTables: SyncTableMap = {
     decode: (value) => decode(value, true),
   },
 };
+
+/**
+ * What every page but Stats reads: the cards, their schedules, contents and
+ * decks. A new device pulls these first, then the review history
+ * (docs/FIRST_REVIEW.md).
+ */
+export const SPACED_RESTORE_PRIORITY = [syncTablePrefix("operations")];
