@@ -4124,11 +4124,13 @@ describe("agent session", () => {
     const pane = page.getByRole("region", { name: "Agent session" });
     const side = pane.getByRole("complementary", { name: "Session details" });
     await expect.element(side).toBeVisible();
-    // The thread's column keeps its 540 pixels beside the panel: the message
-    // box is the column less its 12 pixel sides.
+    // Beside the panel, the thread's column takes the room that is left: the
+    // message box is that room less its 12 pixel sides.
     const box = () =>
       pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
-    await expect.poll(box).toBeCloseTo(516, 0);
+    const room = () =>
+      pane.element().getBoundingClientRect().width - side.element().getBoundingClientRect().width;
+    await expect.poll(box).toBeCloseTo(room() - 24, 0);
     const context = side.getByRole("region", { name: "Context" });
     await expect.element(context).toMatchTextContent(/^Context31%/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
@@ -4152,7 +4154,9 @@ describe("agent session", () => {
     await expect.element(side).not.toBeInTheDocument();
     expect(localStorage.getItem("med:session-panel")).toBe("closed");
     await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
-    await expect.poll(box).toBeCloseTo(516, 0);
+    // Without it, the column is Claude Desktop's 768 pixels of text and the
+    // thread's 18 pixel sides.
+    await expect.poll(box).toBeCloseTo(768 + 36 - 24, 0);
     await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
     await expect.element(side).toBeVisible();
     expect(localStorage.getItem("med:session-panel")).toBe("auto");

@@ -54,8 +54,10 @@ export interface CodePalette {
 export interface Aesthetic {
   /**
    * Interface text, Markdown and brief prose, and Markdown headings with their
-   * tracking. `measure` is the prose column width in em. Characters per line
-   * depend on the prose font: 38em holds about 86 in Geist, 66 in Paper Mono at 40em.
+   * tracking. `measure` is the prose column width in em: 55em of 14 pixel
+   * prose is about 770 pixels, the 768 pixel column of Claude Desktop's
+   * transcript (see session-styles.ts). It holds about 124 characters in
+   * Geist and 91 in Paper Mono.
    */
   fonts: {
     ui: string;
@@ -544,7 +546,7 @@ export const aesthetics = {
       prose: geist,
       headings: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif',
       headingTracking: "-0.035em",
-      measure: "38em",
+      measure: "55em",
     },
     round: 1,
     buttons: "rounded",
@@ -562,7 +564,7 @@ export const aesthetics = {
       prose: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headings: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headingTracking: "-0.015em",
-      measure: "38em",
+      measure: "55em",
     },
     round: 1.3,
     buttons: "rounded",
@@ -579,7 +581,7 @@ export const aesthetics = {
       prose: systemSans,
       headings: systemSans,
       headingTracking: "-0.025em",
-      measure: "38em",
+      measure: "55em",
     },
     round: 1.4,
     buttons: "pill",
@@ -596,7 +598,7 @@ export const aesthetics = {
       prose: systemSans,
       headings: systemSans,
       headingTracking: "-0.02em",
-      measure: "38em",
+      measure: "55em",
     },
     round: 0.7,
     buttons: "rounded",
@@ -615,7 +617,7 @@ export const aesthetics = {
       headings:
         '"Inter Display", "Inter Variable", "Inter", "SF Pro Display", -apple-system, sans-serif',
       headingTracking: "-0.022em",
-      measure: "38em",
+      measure: "55em",
     },
     round: 1,
     buttons: "rounded",
@@ -634,7 +636,7 @@ export const aesthetics = {
       headings: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headingTracking: "0",
       // A Paper Mono character is about 0.61em wide, so 40em holds about 66.
-      measure: "40em",
+      measure: "55em",
       // Notes at 14px, and headings closer to the text.
       proseScale: 14 / 15,
       headingScale: 0.85,
