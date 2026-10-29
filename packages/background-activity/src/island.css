@@ -3,6 +3,7 @@
  * at :root, per theme, or on the slot:
  *
  *   --ba-island-surface, --ba-island-text, --ba-island-edge  colours
+ *   --ba-island-detail     the count or share, 62% of the text by default
  *   --ba-island-height                                       36px
  *   --ba-island-left, --ba-island-shift   where it grows from: the centre of
  *                                          the mark (50%, -50%), or its start
@@ -130,8 +131,12 @@
 .ba-island-label {
   animation: ba-island-in 150ms ease-out;
 }
+/* A dim theme can raise the detail to keep it at 4.5:1. */
 .ba-island-detail {
-  color: color-mix(in oklab, currentColor 62%, transparent);
+  color: var(
+    --ba-island-detail,
+    color-mix(in oklab, currentColor 62%, transparent)
+  );
 }
 @keyframes ba-island-in {
   from {

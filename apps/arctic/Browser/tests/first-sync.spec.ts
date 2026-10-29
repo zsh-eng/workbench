@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { addText, article, paragraphs, phone, signUp, sorted } from "./phone";
 
 // A new device: the phone's first upload sent every article/ record, then
@@ -84,4 +84,57 @@ test("a new device shows its library once, in order, then its texts and highligh
   // The account check brought the links' scope, and nothing was pushed.
   expect(requests).not.toContain("GET /api/apps/arctic/sync/v3/state");
   expect(requests.filter((line) => line.endsWith("/sync/v3/push"))).toEqual([]);
+});
+
+/** Holds the links' pull until `release`, so the restore island shows. */
+async function holdLinks(page: Page) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/apps/arctic/sync/v3/pull-stream**", async (route) => {
+    await held;
+    await route.continue();
+  });
+  return release;
+}
+
+test("on a phone, the restore island grows from the account button and says what it waits for", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const release = await holdLinks(page);
+  await page.goto("/");
+  const island = page.locator(".strip .ba-island-slot");
+  await expect(island.getByRole("status")).toHaveText("Getting your library…");
+  await expect(island.locator(".ba-island")).toHaveText("Getting your library");
+  await expect(page.locator(".grid.waiting")).toHaveAttribute(
+    "aria-busy",
+    "true",
+  );
+  await context.setOffline(true);
+  await expect(island.locator(".ba-island")).toHaveText(
+    "Waiting for a connection",
+  );
+  await expect(island.getByRole("status")).toHaveText(
+    "Getting your library… Waiting for a connection.",
+  );
+  await context.setOffline(false);
+  release();
+  await expect(page.locator(".card[data-id]").first()).toBeVisible();
+  await expect(island.getByRole("status")).toHaveText("Library ready");
+  await expect(island).toHaveAttribute("data-island", "rest");
+  await expect(page.getByRole("button", { name: "Account" })).toBeVisible();
+});
+
+test("with room, the restore island grows from the count and folds back into it", async ({
+  page,
+}) => {
+  const release = await holdLinks(page);
+  await page.goto("/");
+  const island = page.locator(".desk-head .ba-island-slot");
+  await expect(island.getByRole("status")).toHaveText("Getting your library…");
+  release();
+  await expect(island.getByRole("status")).toHaveText("Library ready");
+  await expect(island).toHaveAttribute("data-island", "rest");
+  await expect(island.locator(".shelf-count")).toHaveText("300 articles");
 });

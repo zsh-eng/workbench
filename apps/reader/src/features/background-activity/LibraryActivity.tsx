@@ -13,24 +13,41 @@ import { CloudDownload } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityGlyph } from "./ActivityGlyph";
 import { CoverActivity } from "./CoverActivity";
+import { LibraryRestoreIsland } from "./LibraryRestoreIsland";
 import { UpdateChip } from "./UpdateChip";
 
 /**
- * The Library's background parts: the update chip, and the activity glyph.
+ * The Library's background parts: the update chip, and the activity glyph
+ * with the restore island around it.
  * With room, both sit in the header. A phone's header is full with the
  * places, so the glyph joins Sort and layout in the filter row, where
  * Download all starts, and the chip floats at the bottom of the page. The
  * page puts each first in its row of buttons, so the buttons keep their
  * places when it comes or goes.
  */
-export function LibraryActivity({ place }: { place: "header" | "row" }) {
+export function LibraryActivity({
+  place,
+  books,
+}: {
+  place: "header" | "row";
+  /** The books on this device, for the restore island's count. */
+  books: number;
+}) {
   const phone = usePhoneLayout();
-  if (place === "row") return phone ? <ActivityGlyph /> : null;
+  // A new device's restore grows out of the glyph's place as the island.
+  if (place === "row")
+    return phone ? (
+      <LibraryRestoreIsland count={books} align="end">
+        <ActivityGlyph />
+      </LibraryRestoreIsland>
+    ) : null;
   if (phone) return <UpdateChip floating />;
   return (
     <>
       <UpdateChip className="mr-1" />
-      <ActivityGlyph />
+      <LibraryRestoreIsland count={books} align="end">
+        <ActivityGlyph />
+      </LibraryRestoreIsland>
     </>
   );
 }

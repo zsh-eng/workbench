@@ -2,12 +2,11 @@ import NavBar from "@/components/nav/nav-bar";
 import {
   RestoreFrame,
   RestoreIsland,
-  type RestoreConnection,
+  type RestoreSync,
   type SyncStatusSource,
 } from "@/components/sync-status";
 import type { Status } from "@/lib/sync/engine";
 import { cn } from "@/lib/utils";
-import { ActivityIsland } from "@workbench/background-activity/island";
 import { Telescope } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ReviewScreen } from "./ReviewSpecimen";
@@ -32,8 +31,8 @@ const RESTORED: Sample = { restoring: false, fraction: null };
 /**
  * The first restore on a phone, in the island that the app ships ("cards",
  * "history", "done", "offline"), and the two directions it was chosen over
- * ("subject-*", "ring-*"), with the island as Reader and Arctic would show
- * it ("reader", "arctic"). See docs/FIRST_REVIEW.md, "The restore island".
+ * ("subject-*", "ring-*"). Reader and Arctic show the same island in their
+ * own Libraries. See docs/FIRST_REVIEW.md, "The restore island".
  */
 export function RestoreSpecimen({ state }: FrameSpecimenProps) {
   const [sample, setSample] = useState<Sample>(
@@ -46,11 +45,12 @@ export function RestoreSpecimen({ state }: FrameSpecimenProps) {
     return () => clearTimeout(timer);
   }, [state]);
   const source = useMemo(() => sampleSource(sample), [sample]);
-  const connection: RestoreConnection =
-    state === "offline" ? "offline" : "online";
+  const sync: RestoreSync = {
+    connection: state === "offline" ? "offline" : "online",
+    auth: { status: "signed-in" },
+    failure: null,
+  };
 
-  if (state === "reader") return <ReaderMock />;
-  if (state === "arctic") return <ArcticMock />;
   const direction = state.startsWith("subject")
     ? "subject"
     : state.startsWith("ring")
@@ -61,11 +61,7 @@ export function RestoreSpecimen({ state }: FrameSpecimenProps) {
     <div className="relative min-h-svh bg-muted dark:bg-background">
       <div className="absolute top-4 left-1/2 z-30 flex h-12 w-16 -translate-x-1/2 items-center justify-center">
         {direction === "island" ? (
-          <RestoreIsland
-            source={source}
-            connection={connection}
-            className="size-full"
-          >
+          <RestoreIsland source={source} sync={sync} className="size-full">
             <Telescope className="size-10 text-foreground" strokeWidth={1.8} />
             <Count>{cardsPhase ? null : 593}</Count>
           </RestoreIsland>
@@ -154,99 +150,6 @@ function ArrivingCard() {
       </span>
       <p className="text-sm">Your cards are arriving</p>
       <p className="text-xs text-muted-foreground tabular-nums">1,204 cards</p>
-    </div>
-  );
-}
-
-/*
- * The mock-ups drop Spaced's island colours (initial falls back to the
- * shared defaults), so they show what an app without its own gets.
- */
-
-/**
- * Reader's Library on a phone, as the island would show its restore: it
- * grows out of the activity glyph in the filter row, and the covers
- * arrive in place. A mock-up in Spaced's styles, not Reader's code.
- */
-function ReaderMock() {
-  const covers = [
-    "#8a5a44",
-    "#2f4858",
-    "#c9a227",
-    "#5b7553",
-    "#7d3c58",
-    "#3d5a80",
-  ];
-  return (
-    <div className="min-h-svh bg-[#f6f3ee] px-4 pt-14 text-[#2b2620] dark:bg-[#161412] dark:text-[#ece6dc]">
-      <p className="font-serif text-[28px] leading-tight">Library</p>
-      <div className="mt-4 flex items-center gap-2">
-        <ActivityIsland
-          content={{
-            mark: "progress",
-            fraction: null,
-            label: "Restoring library",
-            detail: "12 books",
-          }}
-          className="h-9 w-9 [--ba-island-left:0] [--ba-island-shift:0] [--ba-island-surface:initial] [--ba-island-text:initial] [--ba-island-edge:initial]"
-        >
-          <span className="grid size-9 place-items-center rounded-full border border-current/15">
-            <MiniRing fraction={null} />
-          </span>
-        </ActivityIsland>
-        <span className="ml-auto text-sm opacity-60">Recent · Grid</span>
-      </div>
-      <div className="mt-5 grid grid-cols-3 gap-3">
-        {Array.from({ length: 9 }, (_, index) => (
-          <div
-            key={index}
-            className="aspect-[2/3] rounded-sm"
-            style={{
-              background:
-                index < covers.length
-                  ? covers[index]
-                  : "color-mix(in oklab, currentColor 8%, transparent)",
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Arctic's Saved list on a phone, as the island would show its first
- * sync: it grows out of the header's place for the count, over the quiet
- * cards. A mock-up in Spaced's styles, not Arctic's code.
- */
-function ArcticMock() {
-  return (
-    <div className="min-h-svh bg-white px-4 pt-6 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      <div className="flex h-12 items-center justify-center">
-        <ActivityIsland
-          content={{
-            mark: "progress",
-            fraction: null,
-            label: "Getting your library",
-            detail: "340 links",
-          }}
-          className="h-10 w-24 [--ba-island-surface:initial] [--ba-island-text:initial] [--ba-island-edge:initial]"
-        >
-          <span className="text-[17px] font-semibold">Saved</span>
-        </ActivityIsland>
-      </div>
-      <div className="mt-4 grid gap-4">
-        {Array.from({ length: 5 }, (_, index) => (
-          <div key={index} className="flex gap-3">
-            <span className="size-16 flex-none rounded-lg bg-current/6" />
-            <span className="grid flex-1 content-center gap-2">
-              <span className="h-3 w-1/3 rounded bg-current/8" />
-              <span className="h-3.5 rounded bg-current/10" />
-              <span className="h-3.5 w-4/5 rounded bg-current/10" />
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

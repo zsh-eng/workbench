@@ -64,7 +64,7 @@ export const FRAME_SPECIMENS = [
   {
     id: "restore",
     title: "First restore",
-    note: "A new device's restore as an island that grows out of the Spaced icon: the cards, then the review history with its share, Restored, and a wait for a connection. The pages keep their frames meanwhile. Then the two directions it was chosen over (the card itself, a ring in the count), and the island as Reader and Arctic would show it (mock-ups). Nothing syncs.",
+    note: "A new device's restore as an island that grows out of the Spaced icon: the cards, then the review history with its share, Restored, and a wait for a connection. The pages keep their frames meanwhile. Then the two directions it was chosen over (the card itself, a ring in the count). Nothing syncs.",
     states: [
       { id: "cards", label: "Cards", demo: "Reset" },
       { id: "history", label: "History", demo: "Reset" },
@@ -74,8 +74,6 @@ export const FRAME_SPECIMENS = [
       { id: "subject-history", label: "Card: history", demo: "Reset" },
       { id: "ring-cards", label: "Ring: cards", demo: "Reset" },
       { id: "ring-history", label: "Ring: history", demo: "Reset" },
-      { id: "reader", label: "Reader", demo: "Reset" },
-      { id: "arctic", label: "Arctic", demo: "Reset" },
     ],
     Component: RestoreSpecimen,
   },
