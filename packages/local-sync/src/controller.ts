@@ -321,7 +321,9 @@ export function createSyncController(
   function succeed(epoch: number): SyncPassResult {
     const auth = status.auth;
     const next: Partial<SyncStatus> = {
-      connection: "online",
+      // A pass whose last request returned before the device went offline
+      // ends after the offline event: it does not make the device online.
+      connection: network.isOnline() ? "online" : "offline",
       failure: null,
       failures: 0,
       retryAt: null,

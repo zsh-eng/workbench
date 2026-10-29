@@ -47,7 +47,8 @@ offline" survives a restart.
   `signed-out`. A request that gets no answer never changes the account.
 - **Trust `navigator.onLine === false`; treat `true` as a hint.** A request that
   fails without an answer while the device says online makes the connection
-  `unreachable`.
+  `unreachable`. An attempt whose last answer came before the device went
+  offline, and that ends after, leaves it `offline`.
 - **A late answer about an old cookie is ignored.** A 401 to an attempt that
   began before the credentials changed, or before the server last confirmed a
   session, runs the attempt again instead of ending the session.
