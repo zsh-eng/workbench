@@ -4,7 +4,8 @@ import { LAB_API, labAccount, type LabSize } from "../../scripts/restore-lab";
 /**
  * agent-kit `--before` for the restore lab (`scripts/restore-lab.ts`):
  * accepts the lab's self-signed certificate, signs in to the account of
- * RESTORE_LAB_SIZE from the app's page, and records when each milestone of
+ * RESTORE_LAB_SIZE (or RESTORE_LAB_ACCOUNT, another account of that size)
+ * from the app's page, and records when each milestone of
  * a restore first holds (`fresh-restore.ts`). The app is the kit's URL, so
  * a before and an after build can alternate behind the one link.
  */
@@ -31,7 +32,10 @@ export default async function restoreLabDevice({
           body: JSON.stringify(account),
         })
       ).status,
-    { api: LAB_API, account: labAccount(size) },
+    {
+      api: LAB_API,
+      account: labAccount(size, process.env.RESTORE_LAB_ACCOUNT),
+    },
   );
   if (status !== 200) throw new Error(`Sign-in failed: ${status}`);
   await context.addInitScript(recordMilestones, { origin: baseURL });

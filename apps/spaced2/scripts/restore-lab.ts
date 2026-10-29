@@ -7,6 +7,7 @@
  * account per size on a local sync-server:
  *
  *   bun scripts/restore-lab.ts seed large     # small | medium | large
+ *   bun scripts/restore-lab.ts seed large large-grades  # another account
  *
  * The accounts are synthetic. Their shape is inferred from the schema and
  * from the totals in docs/OPFS_STORAGE_BENCHMARK.md (about 30,000 card and
@@ -28,11 +29,14 @@ const API_UPSTREAM = process.env.LAB_API_UPSTREAM ?? "http://127.0.0.1:5631";
 const APP_ORIGIN =
   process.env.RESTORE_LAB_APP_ORIGIN ?? "https://localhost:5633";
 
-/** A local test account per size; the password is for the local server only. */
-export const labAccount = (size: LabSize) => ({
-  email: `${size}@spaced-restore-lab.test`,
+/**
+ * A local test account per size, or another account of that size by
+ * `name`; the password is for the local server only.
+ */
+export const labAccount = (size: LabSize, name: string = size) => ({
+  email: `${name}@spaced-restore-lab.test`,
   password: "spaced-restore-lab-password",
-  name: `Spaced restore lab (${size})`,
+  name: `Spaced restore lab (${name})`,
 });
 
 /**
@@ -325,8 +329,8 @@ export function labChanges(size: LabSize, now = Date.now()) {
 }
 
 /** Seeds one account, unless it already has records, straight to the server. */
-async function seed(size: LabSize) {
-  const account = labAccount(size);
+async function seed(size: LabSize, name?: string) {
+  const account = labAccount(size, name);
   const headers = { Origin: APP_ORIGIN, "Content-Type": "application/json" };
   let auth = await fetch(`${API_UPSTREAM}/api/auth/sign-in/email`, {
     method: "POST",
@@ -422,11 +426,11 @@ async function seed(size: LabSize) {
 }
 
 if (import.meta.main) {
-  const [command, size] = process.argv.slice(2);
+  const [command, size, name] = process.argv.slice(2);
   if (command === "seed" && size && size in LAB_SIZES)
-    await seed(size as LabSize);
+    await seed(size as LabSize, name);
   else {
-    console.error("usage: restore-lab.ts seed small|medium|large");
+    console.error("usage: restore-lab.ts seed small|medium|large [name]");
     process.exit(64);
   }
 }
