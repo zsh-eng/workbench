@@ -520,7 +520,8 @@ from the thread, so a task still scrolls the thread to its call),
 what runs it). 900 pixels is the thread's 540 pixel column, 30 pixels at each
 of its sides, and the panel's 300, so the column never narrows for the panel;
 in a narrower pane, the panel and its button are gone and the header's chip
-shows the context and spend. The header's button or `⌘⌥⇧B` closes it, and
+shows the context and spend. The header's button, `⌘⌥⇧B`, or **Hide the
+session's side panel** in `⌘K` closes it, and
 Med keeps that choice (`med:session-panel`).
 
 ## Limits and next steps
