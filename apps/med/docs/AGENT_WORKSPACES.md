@@ -229,14 +229,16 @@ Med resumes it and owns it from then on
   review.
 - **Codex:** `codex queue --thread <id> --message <text>` stores a real user
   turn that the next Codex process takes first. Codex does not wake an agent
-  when a background command ends, so `med review wait` does not fit it.
+  when a background command ends, so `med review wait` does not fit it: the
+  command fails at once outside Claude Code.
 - **Owned sessions:** **Send to agent** is the next prompt.
 
 Comments work as a pending GitHub review: drafts until sent, one message with
 each comment's `path:line`, the quoted lines, and your remark. A sent comment
 shows **Maybe addressed** when the agent changes its lines. GitHub comments
 appear with a badge; **Add to reply** and **Add all open** copy them into the
-draft. Med never posts to GitHub.
+draft. Med writes to GitHub only into your pending review, which you submit
+yourself ([pull requests](USAGE.md#pull-requests)).
 
 ## Notes
 

@@ -134,6 +134,11 @@ import {
   useCodexReviews,
   usePullRequestComments,
 } from "./components/PullRequestComments";
+import {
+  PendingReviewContext,
+  type PendingReviewInput,
+  type PendingReviewTarget,
+} from "./data/pending-review";
 import { placeThreads } from "./data/pull-request";
 import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
 import { PathLabel } from "./components/PathLabel";
@@ -1351,7 +1356,33 @@ export function App({
     state.savedReview?.pullRequestUrl
       ? `${state.savedReview.id} ${state.savedReview.pullRequestUrl}`
       : null,
+    useCallback(
+      (input: PendingReviewInput) => controller.changePullRequestReview(input),
+      [controller],
+    ),
   );
+  // The reader's pending review on GitHub: replies to its threads, and the
+  // comments on a saved version, which Med keeps with that version.
+  const pendingReview = useMemo<PendingReviewTarget | null>(() => {
+    if (!state.savedReview?.pullRequestUrl) return null;
+    const target = state.savedView
+      ? state.savedReview.targets.find((entry) => entry.id === state.savedTargetId)
+      : undefined;
+    // GitHub's lines are the head's: only a version of the head, not captured
+    // working changes, can add comments.
+    const onHead = target && !target.captured && target.head === pullRequest.data?.head;
+    return {
+      ...(onHead ? { targetId: target.id } : {}),
+      comments: pullRequest.data,
+      write: pullRequest.write,
+    };
+  }, [
+    state.savedReview,
+    state.savedView,
+    state.savedTargetId,
+    pullRequest.data,
+    pullRequest.write,
+  ]);
   // GitHub thread lines refer to the pull request's head commit. Threads show
   // in the diff only when it shows that commit and the line (data/pull-request.ts).
   const pullRequestThreads = useMemo(
@@ -7164,7 +7195,11 @@ export function App({
       </div>
     </AgentReplyContext.Provider>
   );
-  return <ZenContext.Provider value={zen}>{app}</ZenContext.Provider>;
+  return (
+    <ZenContext.Provider value={zen}>
+      <PendingReviewContext.Provider value={pendingReview}>{app}</PendingReviewContext.Provider>
+    </ZenContext.Provider>
+  );
 }
 
 const rise = stylex.keyframes({

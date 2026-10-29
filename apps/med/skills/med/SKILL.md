@@ -14,11 +14,12 @@ the comments back to you.
 3. After you apply the user's comments, hand off again with
    `med review create` and the same key. `med review update --guide` only
    replaces the guide of a version that Med already captured.
-4. In a Med thread (`MED_SESSION=owned`) the user's messages arrive as new
-   turns, so do not run `med review wait`. Otherwise, after each hand-off,
-   run `med review wait --key <key>` as a background command, as
-   `med review create` prints it; its output is the user's message. In a
-   subagent Med prints no wait line: give the link to your parent agent.
+4. Run `med review wait` only when `med review create` printed its line
+   (Claude Code outside Med): run it as printed, as a background command;
+   its output is the user's message. Everywhere else, end your turn with the
+   link: in a Med thread (`MED_SESSION=owned`) the user's messages arrive as
+   new turns, Codex reads them from its queue at its next turn, and a
+   subagent gives the link to its parent agent.
 5. Put the printed link in your final message. Never invent a link or print
    Med's token.
 6. If `med review repos --repo <root>` says that a repository you changed is
@@ -67,8 +68,8 @@ After you open a pull request: `med review update --key <key> --pr <url>`.
 
 In a Med thread, `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default
 `--key` and `--repo`. Comments point at the captured version, so check the
-current source first. Apply them, hand off the next version with
-`med review create` and the same key, and wait again until the user says the
+current source first. Apply them and hand off the next version with
+`med review create` and the same key, as step 4 says, until the user says the
 task is done.
 
 ## Threads and sessions

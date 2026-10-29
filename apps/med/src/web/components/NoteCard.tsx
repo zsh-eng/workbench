@@ -1,7 +1,8 @@
 import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
+import { onGitHub, PendingReviewContext } from "../data/pending-review";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -74,7 +75,7 @@ export function CommentText({
   );
 }
 
-function CommentEditor({
+export function CommentEditor({
   label,
   formLabel,
   initialText = "",
@@ -260,6 +261,30 @@ function ThreadMessage({
   const editSession = useRef(0);
   const removeInFlight = useRef(false);
   const [error, setError] = useState("");
+  // A comment on a saved version can go into the reader's pending review on
+  // GitHub, when the review has a pull request.
+  const github = useContext(PendingReviewContext);
+  const [sending, setSending] = useState<"posting" | "posted" | null>(null);
+  const posted = onGitHub(github?.comments, note) ? "posted" : sending;
+  const postToGitHub =
+    github?.targetId &&
+    !reply &&
+    !note.parentId &&
+    note.side === "new" &&
+    (note.resolution ?? "active") === "active"
+      ? async () => {
+          if (posted) return;
+          setSending("posting");
+          setError("");
+          try {
+            await github.write({ action: "note", targetId: github.targetId!, noteId: note.id });
+            setSending("posted");
+          } catch (cause) {
+            setSending(null);
+            setError(cause instanceof Error ? cause.message : "GitHub did not take the comment.");
+          }
+        }
+      : undefined;
   const remove = async () => {
     if (removeInFlight.current) return;
     removeInFlight.current = true;
@@ -314,6 +339,27 @@ function ThreadMessage({
             <Timestamp note={note} />
             <span {...stylex.props(ui.grow)} />
             <span {...stylex.props(styles.tools)}>
+              {postToGitHub && (
+                <button
+                  type="button"
+                  title={
+                    posted === "posted"
+                      ? "In your pending review on GitHub"
+                      : "Add to your pending review on GitHub"
+                  }
+                  aria-label={
+                    posted === "posted"
+                      ? "In your pending review on GitHub"
+                      : "Add to your pending review on GitHub"
+                  }
+                  aria-busy={posted === "posting"}
+                  aria-disabled={!!posted}
+                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                  onClick={() => void postToGitHub()}
+                >
+                  <Icon name={posted === "posted" ? "check" : "github"} size={14} />
+                </button>
+              )}
               {onReply && (
                 <button
                   type="button"

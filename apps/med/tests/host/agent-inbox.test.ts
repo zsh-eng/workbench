@@ -99,14 +99,16 @@ async function fixture() {
       },
     })
   ).data as { notes: { id: string }[] };
-  const wait = (session: string) => {
+  /** `med review wait` in Claude Code session `session`, or outside Claude Code. */
+  const wait = (session: string | undefined, warn?: (text: string) => void) => {
     const printed: string[] = [];
     const done = runReviewCommand(
       ["wait", "--key", "durations", "--state-dir", stateDir, "--port", String(host.port)],
       {
         print: (text) => printed.push(text),
-        environment: { CLAUDE_CODE_SESSION_ID: session },
+        environment: session ? { CLAUDE_CODE_SESSION_ID: session } : {},
         home,
+        ...(warn && { warn }),
       },
     ).then(() => printed.join("\n"));
     return done;
@@ -172,6 +174,37 @@ test("a message that a wait takes but never prints goes to the next wait", async
   // The next wait gets it and confirms it.
   expect(await wait(claude)).toContain("Use minutes.");
   expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
+});
+
+test("a wait in a Claude Code session that the review does not have adds that session, so the user's message reaches it", async () => {
+  const { api, saved, wait } = await fixture();
+  const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
+  // Such as the session after /clear, or the parent of the subagent that
+  // made the review.
+  const other = "6a1d3b9f-2222-4333-8444-a55566677788";
+  const warned: string[] = [];
+  const output = wait(other, (text) => warned.push(text));
+  await vi.waitFor(async () => expect((await inbox()).waiting).toEqual([other]));
+  const review = (await api(`/api/reviews/${saved.id}`)).data as SavedReview;
+  expect(review.sessions?.map((session) => session.id)).toEqual([claude, codex, other]);
+  expect(warned.join("\n")).toContain(`Med added Claude Code session ${other} to the review`);
+  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, {
+    sessionId: other,
+    text: "Rename it.",
+    noteIds: [],
+  });
+  expect(sent.status).toBe(200);
+  expect(await output).toContain("Rename it.");
+});
+
+test("a wait outside Claude Code, such as in Codex, ends at once: no message could reach it", async () => {
+  const { api, saved, wait } = await fixture();
+  await expect(wait(undefined)).rejects.toThrow(
+    /No Claude Code session runs this command.*Codex gets the user's messages from its queue/s,
+  );
+  expect(((await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState).waiting).toEqual(
+    [],
+  );
 });
 
 test("a message to a Codex session goes to its queue once", async () => {

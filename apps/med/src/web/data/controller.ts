@@ -17,6 +17,7 @@ import {
   sinceSchema,
 } from "../../shared/saved-review";
 import { changesBase, comparisonKey } from "../../shared/protocol";
+import type { PendingReviewInput } from "./pending-review";
 import {
   validateReviewNoteRemoval,
   validateReviewNoteText,
@@ -184,6 +185,8 @@ export interface ReviewController {
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
   loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
+  /** Changes the reader's pending review on GitHub, then reads the comments again. */
+  changePullRequestReview(input: PendingReviewInput): Promise<PullRequestComments>;
   /** Reads the saved review's details again, such as a pull request that
    * the host linked. */
   refreshSavedReview(): Promise<void>;
@@ -2538,6 +2541,19 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return api.json(
         `/api/reviews/${encodeURIComponent(saved.id)}/pull-request${refresh ? "?refresh=1" : ""}`,
         pullRequestCommentsSchema,
+      );
+    },
+    async changePullRequestReview(input) {
+      const saved = snapshot.savedReview;
+      if (!saved?.pullRequestUrl) throw new Error("This review has no pull request.");
+      return api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pull-request`,
+        pullRequestCommentsSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
       );
     },
     refreshSavedReview: () => refreshSavedMetadata(),

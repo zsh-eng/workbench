@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import type { AgentPreset, OwnedAction } from "../../../shared/owned-session";
 import { agentName, type AgentSession, type PinMutation } from "../../../shared/saved-review";
 import type { AgentMessageInput } from "../../../shared/agent-inbox";
@@ -760,7 +761,8 @@ export function SessionPanel({
       if (node.clientWidth) setRoomy(node.clientWidth >= SIDE_PANEL_MIN_PANE);
     };
     measure();
-    const observer = new ResizeObserver(measure);
+    // In the frame that resizes the pane, as the pane tree does.
+    const observer = new ResizeObserver(() => flushSync(measure));
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
