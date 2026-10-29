@@ -1183,8 +1183,12 @@ Vim editor in the same place, at the first line that was in view. **Read** or
 opens as source, and Med keeps each file's view until you reload. The rendered
 view shows unsaved edits; it does not save them.
 
-At 760 pixels wide or more, the rendered view has **On this page**; select a
-heading to go to it.
+A document with three or more headings below its title lists them on the left
+when its pane is 760 pixels wide or more; select one to go to it. The heading
+you are reading is in the text's color and the ones above it are fainter. The
+text stays centered in the pane while there is room beside the list. Previews,
+vault notes, and review notes share one type scale, which a theme can scale
+for its fonts.
 
 - GFM tables, task lists, strikethrough, autolinks, and footnotes; LaTeX with
   KaTeX; Mermaid diagrams; colored code; and images. A single newline stays in

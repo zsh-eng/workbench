@@ -184,8 +184,8 @@ See [file workspace usage](docs/USAGE.md#standalone-files-and-dropped-previews).
 
 Markdown files open rendered. Select **Edit source** or press `⌘⇧V` to edit the
 source in Vim in the same place, and again to read it; each view opens where
-the other one was. GFM, math, Mermaid, code colors, images, and a wide-screen
-table of contents are included. Try the
+the other one was. GFM, math, Mermaid, code colors, images, and a table of
+contents on the left of a wide pane are included. Try the
 [reading queue design note](docs/examples/reading-queue.md).
 
 ![A Markdown design note rendered to read, with its contents, in Graphite Light](docs/validation/markdown-preview-light.png)

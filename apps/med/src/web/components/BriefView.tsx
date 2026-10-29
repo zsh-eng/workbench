@@ -2059,13 +2059,13 @@ const styles = stylex.create({
   column: {
     boxSizing: "border-box",
     width: "100%",
-    maxWidth: "calc(var(--med-measure, 55em) + 2 * clamp(24px, 4cqw, 48px))",
+    maxWidth: "calc(var(--med-measure, 51em) + 2 * clamp(24px, 4cqw, 48px))",
     marginInline: "auto",
     paddingInlineStart: "clamp(24px, 4cqw, 48px)",
     paddingInlineEnd: "clamp(24px, 4cqw, 48px)",
     paddingBottom: 64,
     // The prose's font size, so this em-based column matches its width.
-    fontSize: "calc(15px * var(--med-prose-scale, 1))",
+    fontSize: "var(--med-md-size, 15px)",
   },
   uncited: {
     paddingTop: 18,
