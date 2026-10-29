@@ -48,13 +48,18 @@ export type Restoring = "cards" | "history" | false;
 /** The snapshot that SyncBoundary and the debug Sync page read. */
 type Status = { syncing: boolean; error: string | null; restoring: Restoring };
 let snapshot: Status = { syncing: false, error: null, restoring: false };
-/** Stays set until the first full download finishes, across failed attempts. */
+/**
+ * Stays set until the first full download finishes, across failed
+ * attempts. A page starts from what the device saved (`startingPhase`).
+ */
 let restoring: Restoring = false;
 /**
- * In `metadataKv`, the device whose cards a priority pull restored, so
- * that a reload during the rest of the restore opens Review at once.
+ * The device whose cards a priority pull restored, so that a reload or
+ * another tab during the rest of the restore opens Review at once. Beside
+ * the sync state in localStorage: both are read before the first render,
+ * and other tabs hear both change.
  */
-const CARDS_RESTORED = "cardsRestored";
+const CARDS_RESTORED_KEY = "spaced-cards-restored" + SHARED_STORAGE_SUFFIX;
 const listeners = new Set<() => void>();
 let stopped = false,
   started = false,
@@ -110,10 +115,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           await db.metadataKv.put({ key: "clientId", value: state.deviceId });
         localState = createLocalSyncState(stateStore);
         if (!state.bootstrapped && restoring !== "history")
-          restoring =
-            (await db.metadataKv.get(CARDS_RESTORED))?.value === state.deviceId
-              ? "history"
-              : "cards";
+          restoring = savedPhase();
         return state;
       });
       if (!state.bootstrapped) {
@@ -217,12 +219,52 @@ function showInMemory(
 function cardsRestored(deviceId: string) {
   if (restoring !== "cards") return;
   restoring = "history";
+  try {
+    localStorage.setItem(CARDS_RESTORED_KEY, deviceId);
+  } catch {
+    // Blocked storage: a reload waits for the cards again.
+  }
   MemoryDB.notify();
   broadcastRecordsChanged();
   refresh();
-  void withSyncLock(() =>
-    db.metadataKv.put({ key: CARDS_RESTORED, value: deviceId }),
-  ).catch(() => {});
+}
+
+/** The first download's phase, as this device saved it. */
+function savedPhase(): Restoring {
+  const state = stateStore.read();
+  if (!state || state.bootstrapped) return false;
+  let restored: string | null = null;
+  try {
+    restored = localStorage.getItem(CARDS_RESTORED_KEY);
+  } catch {
+    // Blocked storage: the cards are not known to be here.
+  }
+  return restored === state.deviceId ? "history" : "cards";
+}
+
+/**
+ * A page's phase before it syncs: a reload, an offline start, or a tab
+ * that waits while another one restores. Only an account that this
+ * device remembers is restoring; without one, the library is local.
+ */
+function startingPhase(): Restoring {
+  const { auth } = spacedSync.getSnapshot();
+  if (auth.status !== "signed-in" && auth.status !== "expired") return false;
+  return savedPhase();
+}
+
+/**
+ * Another tab saved sync state or the marker: take its phase, with
+ * memory reloaded first, so pages open on the cards that tab stored.
+ */
+function followOtherTab() {
+  if (startingPhase() === restoring) return;
+  void withSyncLock(async () => {
+    const next = startingPhase();
+    if (stopped || next === restoring) return;
+    await reloadMemory();
+    restoring = next;
+  }).then(refresh, () => {});
 }
 
 /**
@@ -236,6 +278,8 @@ export const spacedSync = createSyncController({
   intervalMs: 30_000,
   persist: { storage: localStorage, key: SYNC_STATUS_KEY },
 });
+restoring = startingPhase();
+snapshot = { ...snapshot, restoring };
 
 function errorOf(status: SyncStatus): string | null {
   const failure = status.failure;
@@ -290,6 +334,10 @@ function sync(): Promise<void> {
 function start() {
   if (started || stopped) return;
   started = true;
+  window.addEventListener("storage", (event) => {
+    if (event.key === STATE_KEY || event.key === CARDS_RESTORED_KEY)
+      followOtherTab();
+  });
   listenForRecordChanges((cleared) => {
     if (cleared) {
       stopped = true;
@@ -325,6 +373,7 @@ async function wipeDatabase() {
       for (const legacy of ["SpacedDatabase", "SpacedRecordsV2", "ImageCache"])
         await Dexie.delete(legacy);
     localStorage.removeItem(STATE_KEY);
+    localStorage.removeItem(CARDS_RESTORED_KEY);
     broadcastRecordsCleared();
     MemoryDB._db.cards = {};
     MemoryDB._db.decks = {};

@@ -277,3 +277,87 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
   });
   await context.close();
 });
+
+/** Requests that wait until it opens. */
+function gate() {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  return { opened, open };
+}
+
+test("a reload, an offline start and a second tab show the restore, not part of the library", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    serviceWorkers: "block",
+    viewport: { width: 390, height: 844 },
+  });
+  await seed(context);
+  const pulls = gate();
+  let priorityHeld = true;
+  await context.route(`${spaced}/sync/v3/pull-stream?**`, async (route) => {
+    if (priorityHeld || !route.request().url().includes("prefix="))
+      await pulls.opened;
+    await route.continue().catch(() => {});
+  });
+  /** This page's account check waits until the gate opens. */
+  const holdAccount = async (page: Page) => {
+    const account = gate();
+    await page.unroute(`${spaced}/me`);
+    await page.route(`${spaced}/me`, async (route) => {
+      await account.opened;
+      await route.continue().catch(() => {});
+    });
+    return account;
+  };
+  const cardsWait = (page: Page) => page.getByText("Restoring your cards…");
+  const historyWait = (page: Page) =>
+    page.getByText("Restoring your review history…");
+  const historyNote = (page: Page) =>
+    page.getByText("Restoring review history…");
+
+  const page = await context.newPage();
+  await page.goto(app);
+  await expect(cardsWait(page)).toBeVisible();
+  // A reload before the account check answers: the cards are still coming.
+  let account = await holdAccount(page);
+  await page.reload();
+  await expect.soft(cardsWait(page)).toBeVisible();
+  priorityHeld = false;
+  account.open();
+  await expect(good(page)).toBeVisible();
+  await expect(historyNote(page)).toBeVisible();
+
+  // A second tab, which waits while the first one restores.
+  const second = await context.newPage();
+  await second.goto(`${app}/stats`);
+  await expect.soft(historyWait(second)).toBeVisible();
+  await second.goto(app);
+  await expect(good(second)).toBeVisible();
+  await expect.soft(historyNote(second)).toBeVisible();
+
+  // An offline start: no sync runs, so only what the device saved speaks.
+  const offline = await context.newPage();
+  await offline.addInitScript(() =>
+    Object.defineProperty(navigator, "onLine", { get: () => false }),
+  );
+  await offline.goto(`${app}/stats`);
+  await expect.soft(historyWait(offline)).toBeVisible();
+  await offline.goto(app);
+  await expect(good(offline)).toBeVisible();
+  await expect.soft(historyNote(offline)).toBeVisible();
+
+  // A reload of the first tab during the history, before its account check.
+  account = await holdAccount(page);
+  await page.goto(`${app}/stats`);
+  await expect.soft(historyWait(page)).toBeVisible();
+
+  account.open();
+  pulls.open();
+  // Every tab hears the end of the restore, the offline one too.
+  for (const tab of [page, second, offline])
+    await expect(tab.getByText(/Restoring/)).toHaveCount(0, {
+      timeout: 30_000,
+    });
+  await context.close();
+});

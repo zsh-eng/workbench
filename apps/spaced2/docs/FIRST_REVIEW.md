@@ -171,8 +171,8 @@ Written before any prototype was measured.
    "Restoring your cards…" and the due count beside the icon is hidden.
    While the history restores, every page opens; Review says "Restoring
    review history…" and Stats says "Restoring your review history…" rather
-   than show part of it. A `cardsRestored` marker (the device ID, in
-   `metadataKv`) lets a reload during the history phase open Review at
+   than show part of it. A marker (the device ID, in localStorage beside
+   the sync state) lets a reload during the history phase open Review at
    once.
 5. **Reviews during the restore** are local writes as at any other time:
    rows and outbox in one transaction. The full pull's copy of a reviewed
@@ -221,15 +221,15 @@ A and B alternating, 7 runs a side; medians in ms from navigation
 (p25–p75). A is the base build (`5a152d8d`), B this branch. Raw lines,
 the summary and the clips are kept outside the repository.
 
-| Size   | Metric        | A                      | B                      |
-| ------ | ------------- | ---------------------- | ---------------------- |
+| Size   | Metric        | A                      | B                          |
+| ------ | ------------- | ---------------------- | -------------------------- |
 | large  | `firstReview` | 59,131 (59,032–59,730) | **16,857** (16,837–16,904) |
-| large  | `restored`    | 58,898 (58,795–59,512) | 53,544 (53,462–54,434) |
-| large  | `settled`     | 59,131 (59,032–59,730) | 53,725 (53,627–54,610) |
-| medium | `firstReview` | 3,154 (3,130–3,238)    | **1,314** (1,295–1,320) |
-| medium | `restored`    | 3,116 (3,086–3,198)    | 2,553 (2,545–2,562)    |
-| small  | `firstReview` | 1,060 (1,041–1,072)    | **766** (758–784)      |
-| small  | `restored`    | 1,045 (1,026–1,064)    | 1,042 (1,035–1,074)    |
+| large  | `restored`    | 58,898 (58,795–59,512) | 53,544 (53,462–54,434)     |
+| large  | `settled`     | 59,131 (59,032–59,730) | 53,725 (53,627–54,610)     |
+| medium | `firstReview` | 3,154 (3,130–3,238)    | **1,314** (1,295–1,320)    |
+| medium | `restored`    | 3,116 (3,086–3,198)    | 2,553 (2,545–2,562)        |
+| small  | `firstReview` | 1,060 (1,041–1,072)    | **766** (758–784)          |
+| small  | `restored`    | 1,045 (1,026–1,064)    | 1,042 (1,035–1,074)        |
 
 Load averages: large A 2.2–8.0, B 2.2–4.5; medium and small 2.1–3.0.
 
@@ -273,6 +273,29 @@ and the decks, not `updateDeckCard`: 23,543 records) opened Review at
 fewer records, half the time. In A's trace the first 10,000 puts were fast
 and the slow runs came after, which would explain it. The deck pages would
 then have to wait for the full pull too.
+
+## Reloads, offline starts and other tabs
+
+The first build set the phase only in the tab that syncs, after `/me`
+answered. A page that loaded mid-restore showed part of the library and
+its due count (cards phase) or part of the history on Stats (history
+phase) until then: after a reload, for the whole of an offline start
+(sync never runs), and in every other tab.
+
+- **Proposal.** Every page starts from what the device saved: an account
+  it remembers, a sync state that is not bootstrapped, and the marker. The
+  sync state and the marker are both in localStorage, so the phase is
+  known before the first render, and other tabs hear both change through
+  `storage` events.
+- **Critique.** A device used without an account also has a sync state
+  that is not bootstrapped, so the remembered account is required, or a
+  local library would wait for a restore that never comes. A tab that
+  follows another into the history phase must reload memory first, or it
+  would open Review on the cards it loaded at the start. The marker
+  moved from IndexedDB to localStorage so the first render can read it;
+  a reset gives the device a new ID, so an old marker never matches.
+- **Built** as proposed. The e2e "a reload, an offline start and a second
+  tab…" fails in six places on the first build and passes on this one.
 
 ## What remains
 
