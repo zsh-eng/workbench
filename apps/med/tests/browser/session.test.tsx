@@ -4,6 +4,8 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
+import { estimateUnit, readMetrics } from "../../src/web/components/session/thread-heights";
+import { finalReplies, units as unitsOf } from "../../src/web/components/session/thread-model";
 import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
@@ -220,6 +222,52 @@ test("a reply taller than the overscan does not move the range on each scroll", 
   expect(document.querySelector('[data-unit="tall"]')).not.toBeNull();
   // 4,000 px up, past the end of the tall reply: the range moves about every 400 px.
   expect(moves).toBeLessThan(12);
+});
+
+test("a reply's table of long paths and commands has the height that the thread estimates for it", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const table = [
+    "The checks:",
+    "",
+    "| Check | Where | Result |",
+    "| --- | --- | --- |",
+    "| `./gradlew :telemetry:histogram-core-internal:test` | `src/web/components/session/thread-heights.ts:359` | 18 tests pass across the three JVM targets |",
+    "| `bun run test test/metrics.test.ts` | `registry.timer(bucketName())` | 1 passed |",
+  ].join("\n");
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Run the checks." },
+      },
+    },
+    {
+      at: 500,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "r-table",
+        content: { type: "text" as const, text: table },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => document.querySelector("[data-unit] table wbr")).not.toBeNull();
+  const element = document.querySelector("[data-unit] table")!.closest<HTMLElement>("[data-unit]")!;
+  const probe = document.querySelector('[data-probe="unit"]')!.parentElement!;
+  const list = unitsOf(store.getSnapshot().items);
+  const unit = list.find((entry) => entry.key === element.dataset.unit)!;
+  const final = "item" in unit && finalReplies(list, false).has(unit.item.id);
+  // The cells break their long words where the renderer lets them.
+  await expect
+    .poll(() =>
+      Math.abs(
+        estimateUnit(unit, readMetrics(probe), { final }) - element.getBoundingClientRect().height,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
 });
 
 test("a task in the Background dock scrolls a long thread to its call", async () => {

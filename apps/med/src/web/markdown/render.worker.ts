@@ -1,4 +1,5 @@
 import { wikiLinks } from "./wiki";
+import { breakPieces } from "./breaks";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
@@ -21,48 +22,14 @@ const replyParser = unified()
 const stringify = unified().use(rehypeStringify);
 const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
-/** The pieces of a word longer than this may go on separate lines. */
-const LONG_WORD = 12;
-/** A piece shorter than this stays with its neighbour. */
-const SHORT_PIECE = 3;
-/**
- * Text with a line break opportunity (<wbr>) at the separators of each long
- * word: after / - _ ( , = & ? ; and before . and :, as in
- * `./gradlew :core:test`, `src/web/App.tsx` or `registry.timer(name)`. A
- * column's narrowest width is then its longest piece, not its longest word,
- * and no piece is a letter or two. Copied text is unchanged.
- */
+/** Text with a line break opportunity (<wbr>) at the separators of its long
+ * words (breaks.ts), so that a table column's narrowest width is its longest
+ * piece, not its longest word. Copied text is unchanged. */
 function breakable(value: string): Element["children"] {
-  if (!new RegExp(`\\S{${LONG_WORD + 1}}`).test(value)) return [{ type: "text", value }];
-  const out: Element["children"] = [];
-  let text = "";
-  for (const part of value.split(/(\s+)/)) {
-    if (part.length <= LONG_WORD || /^\s/.test(part)) {
-      text += part;
-      continue;
-    }
-    let last = 0;
-    for (let at = 1; at < part.length; at++) {
-      const before = part[at - 1]!;
-      const after = part[at]!;
-      const cut =
-        ("/-_(,=&?;".includes(before) && before !== after) ||
-        (".:".includes(after) &&
-          !"./:".includes(before) &&
-          part[at + 1] !== "/" &&
-          // A file's extension stays with its name.
-          !(after === "." && /^\.\w{1,4}\W*$/.test(part.slice(at))));
-      if (!cut || at - last < SHORT_PIECE || part.length - at < SHORT_PIECE) continue;
-      text += part.slice(last, at);
-      out.push({ type: "text", value: text });
-      out.push({ type: "element", tagName: "wbr", properties: {}, children: [] });
-      text = "";
-      last = at;
-    }
-    text += part.slice(last);
-  }
-  if (text) out.push({ type: "text", value: text });
-  return out;
+  return breakPieces(value).flatMap((piece, index) => [
+    ...(index ? [{ type: "element" as const, tagName: "wbr", properties: {}, children: [] }] : []),
+    ...(piece ? [{ type: "text" as const, value: piece }] : []),
+  ]);
 }
 const textOf = (node: RootContent): string =>
   node.type === "text" ? node.value : "children" in node ? node.children.map(textOf).join("") : "";

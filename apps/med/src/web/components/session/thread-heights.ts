@@ -7,6 +7,7 @@ import {
   type RichInlineItem,
 } from "@chenglou/pretext/rich-inline";
 import { refEstimate, textEstimate } from "../../data/file-refs";
+import { breakPieces } from "../../markdown/breaks";
 import type { SessionItem } from "../../data/session-store";
 import { thumbsHeight } from "./ImageThumbs";
 import { promptBlocks } from "./prompt-blocks";
@@ -354,6 +355,9 @@ function inlineLines(
   return { count: Math.max(1, count), tall };
 }
 
+/** A zero-width space: where Pretext may break a cell's long word, as the
+ * renderer's <wbr> lets the browser. */
+const BREAK = "\u200b";
 let measureCanvas: CanvasRenderingContext2D | null = null;
 /** The widest line of a table cell, and its longest word. */
 function cellWidths(text: string, style: TextStyle) {
@@ -362,8 +366,9 @@ function cellWidths(text: string, style: TextStyle) {
   const plain = runs(text)
     .map((part) => part.text)
     .join("");
+  // A cell's long words break at their separators, as the renderer lets them.
   let word = 0;
-  for (const piece of plain.split(/\s+/))
+  for (const piece of breakPieces(plain).flatMap((part) => part.split(/\s+/)))
     word = Math.max(word, measureCanvas.measureText(piece).width);
   return { max: measureCanvas.measureText(plain).width, min: word };
 }
@@ -509,7 +514,9 @@ function tableHeight(owner: object, rows: string[][], m: ThreadMetrics) {
     const lines = Math.max(
       1,
       ...row.map(
-        (text, column) => inlineLines(owner, text, m, style, widths[column]! - t.inline).count,
+        (text, column) =>
+          inlineLines(owner, breakPieces(text).join(BREAK), m, style, widths[column]! - t.inline)
+            .count,
       ),
     );
     height += lines * style.lineHeight + (index === 0 ? t.headChrome : t.cellChrome);
