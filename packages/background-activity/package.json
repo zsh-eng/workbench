@@ -2,11 +2,16 @@
   "name": "@workbench/background-activity",
   "private": true,
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css",
+    "./src/island.tsx"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./react": "./src/react.ts",
-    "./service-worker": "./src/service-worker.ts"
+    "./service-worker": "./src/service-worker.ts",
+    "./island": "./src/island.tsx",
+    "./island.css": "./src/island.css"
   },
   "scripts": {
     "test": "bun test ./test"

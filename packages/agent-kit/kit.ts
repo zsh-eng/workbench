@@ -57,6 +57,7 @@ const { values: options, positionals } = parseArgs({
     wait: { type: "string" },
     port: { type: "string" },
     dark: { type: "boolean" },
+    "reduced-motion": { type: "boolean" },
     desktop: { type: "boolean" },
     size: { type: "string" },
     screen: { type: "string" },
@@ -147,6 +148,7 @@ async function run() {
     isMobile: touch && engine === chromium,
     hasTouch: touch,
     colorScheme: options.dark ? "dark" : "light",
+    reducedMotion: options["reduced-motion"] ? "reduce" : "no-preference",
     serviceWorkers: "block",
     recordVideo:
       command === "clip" ? { dir: videoDir, size: viewport } : undefined,

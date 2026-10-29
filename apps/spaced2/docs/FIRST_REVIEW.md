@@ -167,12 +167,13 @@ Written before any prototype was measured.
    type owns), without telling the UI while the cards restore. At the
    signal Review opens on memory as it is, with no read back from
    IndexedDB.
-4. **UI.** Two phases. While the cards restore, every page but Profile says
+4. **UI.** Two phases. (As first built; the words are now the island's,
+   below.) While the cards restore, every page but Profile says
    "Restoring your cards…" and the due count beside the icon is hidden.
    While the history restores, every page opens; Review says "Restoring
    review history…" and Stats says "Restoring your review history…" rather
-   than show part of it. A `cardsRestored` marker (the device ID, in
-   `metadataKv`) lets a reload during the history phase open Review at
+   than show part of it. A marker (the device ID, in localStorage beside
+   the sync state) lets a reload during the history phase open Review at
    once.
 5. **Reviews during the restore** are local writes as at any other time:
    rows and outbox in one transaction. The full pull's copy of a reviewed
@@ -221,15 +222,15 @@ A and B alternating, 7 runs a side; medians in ms from navigation
 (p25–p75). A is the base build (`5a152d8d`), B this branch. Raw lines,
 the summary and the clips are kept outside the repository.
 
-| Size   | Metric        | A                      | B                      |
-| ------ | ------------- | ---------------------- | ---------------------- |
+| Size   | Metric        | A                      | B                          |
+| ------ | ------------- | ---------------------- | -------------------------- |
 | large  | `firstReview` | 59,131 (59,032–59,730) | **16,857** (16,837–16,904) |
-| large  | `restored`    | 58,898 (58,795–59,512) | 53,544 (53,462–54,434) |
-| large  | `settled`     | 59,131 (59,032–59,730) | 53,725 (53,627–54,610) |
-| medium | `firstReview` | 3,154 (3,130–3,238)    | **1,314** (1,295–1,320) |
-| medium | `restored`    | 3,116 (3,086–3,198)    | 2,553 (2,545–2,562)    |
-| small  | `firstReview` | 1,060 (1,041–1,072)    | **766** (758–784)      |
-| small  | `restored`    | 1,045 (1,026–1,064)    | 1,042 (1,035–1,074)    |
+| large  | `restored`    | 58,898 (58,795–59,512) | 53,544 (53,462–54,434)     |
+| large  | `settled`     | 59,131 (59,032–59,730) | 53,725 (53,627–54,610)     |
+| medium | `firstReview` | 3,154 (3,130–3,238)    | **1,314** (1,295–1,320)    |
+| medium | `restored`    | 3,116 (3,086–3,198)    | 2,553 (2,545–2,562)        |
+| small  | `firstReview` | 1,060 (1,041–1,072)    | **766** (758–784)          |
+| small  | `restored`    | 1,045 (1,026–1,064)    | 1,042 (1,035–1,074)        |
 
 Load averages: large A 2.2–8.0, B 2.2–4.5; medium and small 2.1–3.0.
 
@@ -273,6 +274,116 @@ and the decks, not `updateDeckCard`: 23,543 records) opened Review at
 fewer records, half the time. In A's trace the first 10,000 puts were fast
 and the slow runs came after, which would explain it. The deck pages would
 then have to wait for the full pull too.
+
+## Reloads, offline starts and other tabs
+
+The first build set the phase only in the tab that syncs, after `/me`
+answered. A page that loaded mid-restore showed part of the library and
+its due count (cards phase) or part of the history on Stats (history
+phase) until then: after a reload, for the whole of an offline start
+(sync never runs), and in every other tab.
+
+- **Proposal.** Every page starts from what the device saved: a sync
+  state that is not bootstrapped, an account, and the marker. The sync
+  state and the marker are both in localStorage, so the phase is known
+  before the first render, and other tabs hear both change through
+  `storage` events.
+- **Critique.** A device used without an account also has a sync state
+  that is not bootstrapped, so an account is required, or a local library
+  would wait for a restore that never comes. The account is one the state
+  has begun to sync with (its scope, which every tab reads) or one this
+  tab remembers; a tab's own auth alone misses a tab opened before the
+  first sign-in and the redirect back from one. A tab that follows another
+  into the history phase reloads memory first, so it opens Review on the
+  cards that tab stored. The marker moved to localStorage so the first
+  render can read it (the IndexedDB write stays, see below); a reset gives
+  the device a new ID, so an old marker never matches. A browser that
+  clears IndexedDB but keeps localStorage gets a new sync state once
+  persistence is ready, so the phase is taken again then. A sync that
+  stops for another account's session opens the preserved library, as
+  before.
+- **Built** as proposed. The e2e "a reload, an offline start and a second
+  tab…" fails in six places on the first build and passes on this one. It
+  also follows a second tab from the cards into the history, and starts
+  offline after IndexedDB is cleared (that step fails without the second
+  look after persistence).
+
+## The restore island
+
+The first build said "Restoring your cards…" and "Restoring review
+history…" in plain text. The restore is the one sync state that earns a
+visible place (packages/background-activity/docs/MODEL.md, rule 2: you
+are waiting for it), so it gets a designed one. Stills, light and dark at
+390 px: `media/spaced-first-load/indicator/` in the workbench, and Elements
+→ Feedback → First restore.
+
+**Directions.**
+
+- **A. An island** (`direction-a-island.png`). One dark pill grows out of
+  the Spaced icon and its due count, the place of the number that is not
+  known yet. It says the stage: "Restoring cards" with a sweep, "Restoring
+  history 42%" with a ring that fills, "Waiting for a connection" or "Sign
+  in to finish restoring" when it cannot go on, then "Restored" with a
+  drawn check for 1.5 s, and folds back into the icon as the count
+  appears. Pages keep their frames, quiet and still.
+- **B. The subject** (`direction-b-subject.png`). Each app's own thing
+  carries the restore: Spaced's review card says "Your cards are
+  arriving · 1,204 cards", then a corner chip "History 42%"; Reader's
+  covers arrive in the shelf; Arctic's headlines fill in.
+- **C. A ring in the count** (`direction-c-ring.png`). Only a small ring in
+  the due count's place; tap it for the words, as Reader's activity glyph
+  does.
+
+**Critique.**
+
+- _Honest progress._ The cards' share is not known: the priority pull's
+  cursor skips the other records' sequences (in the lab it reaches 28% and
+  then jumps), and a count of cards dips when deletions arrive after the
+  cards (6,976 then 6,434 in the lab). So the cards stage has no number in
+  A, and B's count would mislead. The history's share is the full pull's
+  `cursor / head` (local-sync now reports both), which every direction can
+  show. C hides the words behind a tap, while MODEL.md says a wait you sit
+  through should be seen.
+- _Calm._ All three are still but for the wait's sweep and a ring that
+  fills. A moves once to open and once to close; B changes words inside the
+  card you read; C never moves.
+- _Layout shift._ None in A or C (the island floats in the icon's place).
+  B's card frame matches the real card, but its chip joins the badge row.
+- _Reduced motion._ A cross-fades at its final width, with no growth, no
+  drawn check and no turning sweep (`reduced-motion-done-sheet.png`); B and
+  C have little to remove.
+- _A reload mid-restore._ All three read the saved phase. A's history
+  share is unknown until the resumed pull's first page, so it sweeps
+  briefly; a second tab has no share (it does not pull), so it sweeps.
+- _Cost._ A is one shared component with a pure timing step and Spaced's
+  words; Reader and Arctic each add their words and a place to grow from.
+  B is bespoke in every app and on every page. C is cheapest; Reader has it.
+- _One grammar._ A is the same element and timing in every app, with each
+  app's words and mark (`island-reader-arctic.png`, mock-ups); B shares only
+  the ring.
+
+**Chosen: A**, with B's quiet frames under it: honest stages, one element
+for the whole wait, the Dynamic Island's shape from MOTION.md's references,
+and the cheapest to share. The island is dark in both themes; on a black
+page (Arctic's dark mode) it needs a lighter surface, through
+`--ba-island-surface`.
+
+**Built.** `@workbench/background-activity/island` (`ActivityIsland`,
+`islandStep`: nothing for 0.5 s, at least 0.6 s once shown, Restored for
+1.5 s, a 0.32 s fold; morph spring for its width). Spaced's words are in
+`src/lib/sync/restore-island.ts`; `SyncBoundary` shows `RestoreFrame`s.
+The island's status line says the stage to assistive technology once, not
+each percent.
+
+**Measured** (large, lab profile, three runs each): first review 16,757 to
+16,851 ms and restore end 53,065 to 53,575 ms, as in Results. On the way,
+the restore end rose to 61.3 to 62.3 s: moving the cards marker to
+localStorage had dropped the one IndexedDB write the first build made
+between the two pulls (`metadataKv.cardsRestored`). Putting that write
+back restores 53 to 54 s; holding the sync lock without writing does not
+(61.8 to 62.1 s). So one small write to another store changes how fast
+the next 70,000 puts go. Why is not known; it is the best lead on the slow
+puts below.
 
 ## What remains
 

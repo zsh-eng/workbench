@@ -26,3 +26,14 @@ export {
   type SyncStatusLike,
   type SyncStatusSourceLike,
 } from "./sync";
+export {
+  ISLAND_CONFIRM_MS,
+  ISLAND_FOLD_MS,
+  ISLAND_SHOW_AFTER_MS,
+  ISLAND_STAY_MS,
+  islandStep,
+  RESTING_ISLAND,
+  type IslandClock,
+  type IslandContent,
+  type IslandPhase,
+} from "./island-timing";

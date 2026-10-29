@@ -72,13 +72,13 @@ the words the app uses:
 
 Sync is not a job that you start, so it shows only its exceptions:
 
-| Sync state                         | What you see                                                                                  |
-| ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| Synced, syncing                    | Nothing.                                                                                      |
-| Restoring on a new device          | The Library arrives book by book: "Restoring your library · 12 books".                        |
-| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs. |
-| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                    |
-| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").            |
+| Sync state                         | What you see                                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Synced, syncing                    | Nothing.                                                                                        |
+| Restoring on a new device          | Spaced: the island grows out of its icon and says the stage. Reader: "Restoring your library…". |
+| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs.   |
+| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                      |
+| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").              |
 
 The update has its own small moment:
 
@@ -175,6 +175,11 @@ pill above the tab bar that a review hides. "Updated" is a toast.
   shows only while work you asked for runs, or while something needs you.
 - **The update as its own moment** is right: a reload is a product event.
   "What's new" is not needed for a one-person app; "Updated" is the closure.
+- **An island for the restore** is the exception: the one sync state you
+  wait for. It grows out of the app's own mark, says the stage and its
+  share when known ("Restoring history 42%"), confirms "Restored" and folds
+  back (`./island`; Spaced's apps/spaced2/docs/FIRST_REVIEW.md, "The
+  restore island"). Reader and Arctic have mock-ups, not the island.
 - **A Dynamic Island for every sync** is the boring version. A spinner on
   each 30 s sync is noise, and noise trains people to ignore the one state
   that matters (your changes are only here).
@@ -202,7 +207,7 @@ scenarios, on the real engine with simulated jobs:
 3. **Covers and a sheet.** 1 with 2, the choice: progress on the subject,
    and the glyph and sheet for what has no subject on screen.
 
-The island was a fourth direction, dropped (see the critique). The Library
+An island for downloads was a fourth direction, dropped (see the critique); the restore's island is another matter. The Library
 wires the choice. The glyph and its sheet show for everyone. Of sync, the
 glyph speaks only for a restore; what sync needs from you (a sign-in, two
 failures in a row) has the account menu, and the sheet lists it under This

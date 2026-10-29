@@ -58,6 +58,17 @@ export interface SyncPassObserver {
     keptLocal?: readonly string[];
     /** The device's first download: it has not finished a pull before. */
     restoring: boolean;
+    /**
+     * Where the page sits; `SyncClient` always sets these. `priority`: it
+     * came from the priority pull, which stores the `priority` prefixes
+     * first. `cursor` of `head`: how far that pull has come, the sequence
+     * its committed pages reach of the fixed head it pages up to. A full
+     * restore's share is `cursor / head`; a priority pull's cursor skips the
+     * sequences of the records it leaves out.
+     */
+    priority?: boolean;
+    cursor?: number;
+    head?: number;
   }): void;
   pushed(batch: {
     sent: readonly SyncPushChange[];

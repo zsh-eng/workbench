@@ -103,6 +103,35 @@ const job = useJob(activity, `book:${book.id}`); // a cover that fills
 const summary = useActivitySummary(activity); // a glyph and its sheet
 ```
 
+## The island
+
+```tsx
+import { ActivityIsland } from "@workbench/background-activity/island";
+
+<ActivityIsland
+  content={{
+    mark: "progress",
+    fraction: 0.42,
+    label: "Restoring history",
+    detail: "42%",
+  }}
+  status="Restoring your review history…"
+>
+  <AppIcon />
+</ActivityIsland>;
+```
+
+Work you wait for, such as a new device's restore, as one dark pill that
+grows out of `children` (the app's own mark), changes its words and ring in
+place, confirms `done` and folds back. `islandStep` is its timing as a pure
+step: nothing for 0.5 s, at least 0.6 s once shown, `done` for 1.5 s if it
+showed. Marks: `progress` (a ring; `fraction: null` sweeps), `waiting`,
+`attention`, `done`. `status` is heard once per stage. The island takes no
+taps, so they reach the mark. Colours and where it grows from are custom
+properties (`island.css`); with reduced motion it cross-fades at its final
+width. Spaced uses it; Reader and Arctic have mock-ups in Spaced's Elements
+page.
+
 ## App updates
 
 ```ts

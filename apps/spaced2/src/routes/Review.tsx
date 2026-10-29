@@ -5,7 +5,6 @@ import { useReviewActionTarget } from "@/components/hooks/use-review-action-targ
 import EditFlashcardResponsive from "@/components/card-actions/edit-flashcard-responsive";
 import CardCountBadges from "@/components/card-count-badges";
 import CurrentCardBadge from "@/components/current-card-badge";
-import { HistoryRestoreNote } from "@/components/sync-status";
 import FlashcardContent from "@/components/flashcard-content";
 import {
   useCards,
@@ -186,7 +185,6 @@ export default function ReviewRoute() {
             <div className="flex gap-2 items-center ml-2">
               <CardCountBadges />
               {nextReviewCard && <CurrentCardBadge card={nextReviewCard} />}
-              <HistoryRestoreNote />
             </div>
           </div>
 

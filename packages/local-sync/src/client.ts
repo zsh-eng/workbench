@@ -197,6 +197,9 @@ export class SyncClient<Prepared> {
         records: validResponse.records,
         keptLocal: result.keptLocal,
         restoring: !request.excludeOwnDevice,
+        priority: false,
+        cursor: validResponse.cursor,
+        head: validResponse.head,
       });
 
       if (!validResponse.hasMore) {
@@ -324,6 +327,9 @@ export class SyncClient<Prepared> {
               records,
               keptLocal: result.keptLocal,
               restoring: !initial.bootstrapped,
+              priority: prefixes !== undefined,
+              cursor: page.cursor,
+              head: page.head,
             });
             last = page;
             request = { ...request, cursor: page.cursor, head };
