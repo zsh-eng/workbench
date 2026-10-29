@@ -147,6 +147,8 @@ const closeMenus = async (page) => {
 };
 const sidebar = (page) => page.locator('nav[aria-label="Threads"]');
 const sessionPane = (page) => page.locator("[data-session-panel]").filter({ visible: true });
+const filesRail = (page) => page.getByRole("navigation", { name: "Files and commits" });
+const sideDetails = (page) => page.getByRole("complementary", { name: "Session details" });
 const theme = (page) => page.evaluate(() => document.documentElement.dataset.theme);
 const resizer = (page, name) =>
   page.getByRole("separator", { name }).filter({ visible: true }).first();
@@ -289,7 +291,14 @@ try {
     Number(await resizer(page, "Resize sidebar").getAttribute("aria-valuenow")),
     sidebarWidth + 48,
   );
-  // More choices for the next restart: the session pane and the full chrome.
+  // More choices for the next restart: the rail beside the diff, the session's
+  // side panel, the session pane and the full chrome.
+  await filesRail(page).waitFor();
+  await page.keyboard.press("ControlOrMeta+Alt+b");
+  await filesRail(page).waitFor({ state: "detached" });
+  await sideDetails(page).waitFor();
+  await page.getByRole("button", { name: "Hide the side panel" }).click();
+  await sideDetails(page).waitFor({ state: "detached" });
   await page.keyboard.press("ControlOrMeta+Shift+b");
   await sessionPane(page).waitFor({ state: "hidden" });
   await palette(page, "Use full chrome");
@@ -301,6 +310,11 @@ try {
   page = await open(server);
   await page.getByRole("button", { name: "View options" }).waitFor();
   assert.equal(await sessionPane(page).count(), 0);
+  // The rail stays hidden, and the session pane, shown, has no side panel.
+  assert.equal(await filesRail(page).count(), 0);
+  await page.keyboard.press("ControlOrMeta+Shift+b");
+  await page.getByRole("button", { name: "Show the side panel" }).waitFor();
+  assert.equal(await sideDetails(page).count(), 0);
   await sidebar(page).waitFor();
   assert.deepEqual(await diffView(page), { layout: "unified", wrap: true });
   if (shots) await page.screenshot({ path: join(shots, "3-reopened.png") });
@@ -310,7 +324,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; session pane hidden and full chrome after a second restart",
+        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; the files rail hidden, the session's side panel closed, the session pane hidden and full chrome after a second restart",
       restarts: 2,
       pageErrors,
     }),
