@@ -3090,96 +3090,8 @@ describe("review guide comments", () => {
   });
 });
 
-describe("review brief", () => {
-  const excerptText = () =>
-    [...document.querySelectorAll("[data-brief-excerpt] diffs-container")]
-      .map((host) => host.shadowRoot?.textContent ?? "")
-      .join("\n");
-
-  test("opens on the brief, shows the cited lines, and follows a link into the Review", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
-    });
-    await expect
-      .element(page.getByRole("tab", { name: "Notes" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-    await expect.element(page.getByText("Cites 1 of 2 changed files")).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Open src/alpha.ts L1 in Changes" }))
-      .toBeVisible();
-    await expect.poll(excerptText).toContain("export const after = 2;");
-    await expect.element(page.getByRole("heading", { name: "Not in the notes 1" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "src/beta.ts +1 −1" })).toBeVisible();
-
-    await page.getByRole("link", { name: "alpha.ts:1" }).click();
-    await expect
-      .element(page.getByRole("tab", { name: "Review" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect
-      .element(page.getByRole("button", { name: "Clear line selection" }))
-      .toBeInTheDocument();
-  });
-
-  test("comments on a selected passage of the notes, marks it, and edits the comment", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes. Callers keep the old name for now.\n",
-    });
-    const paragraph = page.getByText(/^The constant changes\./);
-    await expect.element(paragraph).toBeVisible();
-    const select = (words: string) => {
-      const text = paragraph.element().firstChild as Text;
-      const range = new Range();
-      range.setStart(text, text.data.indexOf(words));
-      range.setEnd(text, text.data.indexOf(words) + words.length);
-      document.getSelection()!.removeAllRanges();
-      document.getSelection()!.addRange(range);
-    };
-    const marked = () =>
-      [...(CSS.highlights.get("med-brief-comment") ?? [])].map((range) => String(range));
-
-    select("Callers keep the old name");
-    await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
-    await userEvent.fill(
-      page.getByRole("textbox", { name: "Comment text" }),
-      "Rename the callers too.",
-    );
-    await userEvent.click(page.getByRole("button", { name: "Save note" }));
-    // The comment shows below its paragraph, and the passage stays marked.
-    const card = page.getByRole("article", {
-      name: "Comment on “Callers keep the old name”",
-    });
-    await expect.element(card.getByText("Rename the callers too.")).toBeVisible();
-    await expect.poll(marked).toEqual(["Callers keep the old name"]);
-    await expect
-      .poll(() => page.getByRole("button", { name: "Copy comments" }).element().textContent)
-      .toMatch(/1$/);
-
-    await userEvent.click(card.getByRole("button", { name: "Edit" }));
-    await userEvent.fill(
-      page.getByRole("textbox", { name: "Edit note text" }),
-      "Rename them here.",
-    );
-    await userEvent.click(card.getByRole("button", { name: "Save" }));
-    await expect.element(card.getByText("Rename them here.")).toBeVisible();
-
-    // C starts a comment on the selection, as on lines in Changes.
-    select("The constant changes");
-    await expect
-      .element(page.getByRole("button", { name: "Comment on the selection" }))
-      .toBeVisible();
-    await userEvent.keyboard("c");
-    await expect.element(page.getByRole("textbox", { name: "Comment text" })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-
-    await userEvent.click(card.getByRole("button", { name: "Delete review note" }));
-    await expect.element(card).not.toBeInTheDocument();
-    await expect.poll(marked).toEqual([]);
-  });
-
-  test("the agent's pull request draft is a note with its image; a comment goes to the agent, and Create opens the pull request", async () => {
+describe("saved reviews", () => {
+  test("the agent's pull request draft has its tab, with its image; a comment goes to the agent, and Create opens the pull request", async () => {
     const { prCreates } = await mountApp({
       savedReview: true,
       prDraft: {
@@ -3191,8 +3103,8 @@ describe("review brief", () => {
         updatedAt: "2026-10-30T02:00:00Z",
       },
     });
-    // The Review stays the first tab; the draft is in the Notes.
-    await userEvent.click(page.getByRole("tab", { name: "Notes" }));
+    // The Review stays the first tab; the draft has its own, after it.
+    await userEvent.click(page.getByRole("tab", { name: "Pull request" }));
     await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
     await expect.element(page.getByRole("heading", { name: "Retry failed fetches" })).toBeVisible();
     // Med shows its copy of the local image.
@@ -3226,30 +3138,6 @@ describe("review brief", () => {
     await expect
       .element(page.getByRole("link", { name: "Open on GitHub" }))
       .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
-  });
-
-  test("an agent's versions switch the brief and its comparison together", async () => {
-    await page.viewport(1280, 800);
-    const { controller } = await mountApp({
-      savedReview: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    // The latest version opens: its brief and its comparison.
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    expect(controller.getSnapshot().savedTargetId).toBe("target-1");
-    await expect
-      .element(page.getByRole("button", { name: "Version 2" }))
-      .toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Version 1" }).click();
-    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-0");
-    // The keys choose the comparison, so the header has no second picker.
-    await expect
-      .element(page.getByRole("combobox", { name: "Review version" }))
-      .not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Version 2" }).click();
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
   });
 
   test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {
@@ -3422,195 +3310,6 @@ describe("review brief", () => {
     await bar.getByRole("button", { name: "Refresh review" }).click();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
     await expect.element(bar).not.toBeInTheDocument();
-  });
-
-  test("Start new notes makes an empty iteration of the current comparison, and Delete removes it", async () => {
-    await page.viewport(1280, 800);
-    const { controller } = await mountApp({
-      savedReview: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    // In the open menu, a letter chooses its item.
-    await page.getByRole("button", { name: "Notes options" }).click();
-    await expect
-      .element(page.getByRole("menuitem", { name: "Start new notes" }))
-      .toHaveAttribute("aria-keyshortcuts", "n");
-    await userEvent.keyboard("n");
-    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-    // The new notes are empty: the brief before them stays with its iteration.
-    await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Version 3" }))
-      .toHaveAttribute("aria-pressed", "true");
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
-    await expect
-      .element(page.getByRole("heading", { name: "Second round" }))
-      .not.toBeInTheDocument();
-
-    // Deleting them asks first; their iteration goes, and the agent's latest notes show.
-    await page.getByRole("button", { name: "Notes options" }).click();
-    await expect.element(page.getByRole("menuitem", { name: "Delete these notes…" })).toBeVisible();
-    await userEvent.keyboard("d");
-    const confirm = page.getByRole("alertdialog", { name: "Delete notes" });
-    // The Notes tab stays in front while the earlier comparison loads.
-    const tabs = new Set<string>();
-    const observer = new MutationObserver(() =>
-      tabs.add(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ""),
-    );
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-    });
-    await confirm.getByRole("button", { name: "Delete", exact: true }).click();
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
-    await expect.poll(() => controller.getSnapshot().status).toBe("ready");
-    observer.disconnect();
-    expect([...tabs]).toEqual(["Notes"]);
-    await expect.element(page.getByRole("button", { name: "Version 3" })).not.toBeInTheDocument();
-    await expect.element(confirm).not.toBeInTheDocument();
-  });
-
-  test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
-    await page.viewport(1280, 800);
-    await mountApp({
-      savedReview: true,
-      iterationBriefs: Array.from({ length: 12 }, (_, index) => `# Round ${index + 1}\n`),
-    });
-    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    const keys = page.getByRole("group", { name: "Versions" });
-    expect(
-      keys
-        .getByRole("button")
-        .elements()
-        .map((key) => key.textContent),
-    ).toEqual(["…", "7", "8", "9", "10", "11", "12"]);
-    const header = keys.element().parentElement!;
-    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
-    // An earlier round opens from the menu, and the menu key shows it.
-    await page.getByRole("button", { name: "Earlier versions" }).click();
-    await page.getByRole("menuitemcheckbox", { name: /^Version 3 · / }).click();
-    await expect.element(page.getByRole("heading", { name: "Round 3" })).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Version 3, earlier versions" }))
-      .toHaveTextContent("3");
-    await page.getByRole("button", { name: "Version 12" }).click();
-    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Earlier versions" })).toBeVisible();
-    // A narrow pane keeps fewer keys; the label stays on one line.
-    await page.viewport(600, 800);
-    await expect.poll(() => keys.getByRole("button").elements().length).toBeLessThan(7);
-    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
-    const label = header.firstElementChild!.getBoundingClientRect();
-    expect(label.height).toBeLessThan(24);
-  });
-
-  test("an iteration on the same branch replaces the brief without reloading the review", async () => {
-    await page.viewport(1280, 800);
-    await mountApp({
-      savedReview: true,
-      oneBranch: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    // Record each state that the window shows, from the click to the new brief.
-    const shown = new Set<string>();
-    const record = () => {
-      const app = document.querySelector<HTMLElement>("[data-review-status]");
-      const tab = document.querySelector('[role="tab"][aria-selected="true"]');
-      const heading = document.querySelector(".med-brief-prose h1")?.textContent;
-      shown.add(`${app?.dataset.reviewStatus} ${tab?.textContent} ${heading}`);
-    };
-    const observer = new MutationObserver(record);
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-    });
-    await page.getByRole("button", { name: "Version 1" }).click();
-    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
-    observer.disconnect();
-    expect([...shown].filter((state) => !/^ready Notes (First|Second) round$/.test(state))).toEqual(
-      [],
-    );
-  });
-
-  test("draws a Mermaid diagram in the brief", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Flow\n\n```mermaid\nflowchart LR\n  Edit --> Journal\n```\n",
-    });
-    await expect.element(page.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
-    const diagram = document.querySelector(".med-md-diagram svg")!;
-    expect(diagram.textContent).toContain("Journal");
-    // Nodes are raised cards in the theme's colors, not Pele's own grey.
-    const raised = document.createElement("span");
-    raised.style.color = "var(--med-raised)";
-    diagram.parentElement!.append(raised);
-    expect(getComputedStyle(diagram.querySelector(".pele-node rect")!).fill).toBe(
-      getComputedStyle(raised).color,
-    );
-    raised.remove();
-  });
-
-  test("loads a brief image from the repository", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Screens\n\n![The review](docs/review.png)\n",
-    });
-    await expect.element(page.getByRole("img", { name: "The review" })).toBeInTheDocument();
-    const source = new URL(document.querySelector<HTMLImageElement>("img[alt='The review']")!.src);
-    expect(source.pathname).toBe("/api/markdown/image");
-    expect(source.searchParams.get("href")).toBe("docs/review.png");
-    expect(JSON.parse(source.searchParams.get("source")!)).toMatchObject({
-      kind: "worktree",
-    });
-  });
-
-  test("adds a note on excerpt lines that also shows in the Review", async () => {
-    const { controller } = await mountApp({
-      savedReview: true,
-      brief: "The constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
-    });
-    const excerpt = () => document.querySelector("[data-brief-excerpt] diffs-container");
-    await expect
-      .poll(() => excerpt()?.shadowRoot?.querySelectorAll("[data-column-number]").length)
-      .toBeGreaterThanOrEqual(2);
-    const host = excerpt()!;
-    const added = page
-      .getByText("1", { exact: true })
-      .all()
-      .find((locator) => {
-        const element = locator.element();
-        return (
-          element.getRootNode() === host.shadowRoot &&
-          element.closest("[data-column-number]") &&
-          element.closest('[data-line-type="change-addition"]')
-        );
-      })!;
-    await added.click();
-    await userEvent.keyboard("c");
-    await page.getByRole("textbox", { name: "Review note text" }).fill("Keep this name");
-    await page.getByRole("button", { name: "Save note", exact: true }).click();
-    await expect
-      .poll(() => controller.getSnapshot().notes?.notes[0])
-      .toMatchObject({
-        path: "src/alpha.ts",
-        side: "new",
-        line: 1,
-        text: "Keep this name",
-      });
-    await expect.element(page.getByTitle("1 note on these lines")).toBeVisible();
-    await expect
-      .element(page.getByRole("textbox", { name: "Review note text" }))
-      .not.toBeInTheDocument();
-
-    await page.getByRole("tab", { name: "Review", exact: true }).click();
-    await expect
-      .poll(() => page.getByText("Keep this name", { exact: true }).elements().length)
-      .toBe(2);
   });
 
   test("shows GitHub pull request comments apart from local notes; replies and Med comments go into the reader's pending review, which they submit", async () => {
@@ -3834,32 +3533,6 @@ describe("review brief", () => {
       `Lines refer to ${secondCommit.slice(0, 7)}, the commit that Codex reviewed. This comparison shows ${firstCommit.slice(0, 7)}, so they are listed here.`,
     );
     expect(text).toContain("An older finding");
-  });
-
-  test("attaches a pasted brief to a saved review and undoes it", async () => {
-    await mountApp({ savedReview: true });
-    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
-    const data = new DataTransfer();
-    data.setData("text/plain", "Only [beta.ts:2](src/beta.ts:2) matters.");
-    document.body.dispatchEvent(
-      new ClipboardEvent("paste", {
-        clipboardData: data,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    await expect
-      .element(page.getByRole("tab", { name: "Notes" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("status")).toMatchTextContent("Brief attached.");
-    await expect.poll(excerptText).toContain("export const shared = true;");
-
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("tab", { name: "Review", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
   });
 });
 
@@ -4884,71 +4557,6 @@ describe("agent session", () => {
     // The transcript ends at the prompt: under a second, the turn shows no time.
     await expect.element(thread.getByText("Worked", { exact: true })).toBeVisible();
     expect(thread.element().textContent).not.toContain("Working");
-  });
-
-  test("a reply pinned from the session becomes a note after the brief", async () => {
-    await page.viewport(1280, 800);
-    const events = [
-      {
-        at: 0,
-        update: {
-          sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: "Why rename the export?" },
-        },
-      },
-      {
-        at: 1000,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          messageId: "r1",
-          content: {
-            type: "text",
-            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1). The guide asks for it in `/test/repo/docs/GUIDE.md:3`.",
-          },
-        },
-      },
-    ];
-    await mountApp({
-      savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
-      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
-    });
-    const notes = page.getByRole("region", { name: "Notes" });
-    await expect.element(notes.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-    // One note has no note heads.
-    await expect.element(notes.getByRole("region", { name: /^Note 1/ })).not.toBeInTheDocument();
-
-    await page.getByRole("button", { name: "Toggle agent session" }).click();
-    const panel = page.getByRole("region", { name: "Agent session" });
-    await panel.getByRole("button", { name: "Pin to review" }).click();
-    await expect.element(page.getByText("Pinned to the review's Notes.")).toBeVisible();
-    const pinned = notes.getByRole("region", { name: "Note 2 of 2" });
-    await expect.element(pinned.getByText("Reply from Claude")).toBeVisible();
-    await expect.element(pinned.getByText(/The old name clashed in/)).toBeVisible();
-    // The pinned reply cites its own lines, as the brief does.
-    await expect.element(pinned.getByRole("button", { name: /Open src\/alpha\.ts/ })).toBeVisible();
-    // A file that the change does not touch links to the checkout's copy, and its
-    // lines show from the checkout, with the path in the checkout.
-    const guide = pinned.getByRole("link", { name: "docs/GUIDE.md:3" });
-    await expect.element(guide).toHaveAttribute("title", "docs/GUIDE.md:3 · Open file");
-    const excerpt = pinned.getByRole("figure").filter({ hasText: "Not in the change" });
-    await expect
-      .element(excerpt.getByRole("button", { name: "Open docs/GUIDE.md L3" }))
-      .toBeVisible();
-    await expect
-      .poll(() => excerpt.element().querySelector("diffs-container")?.shadowRoot?.textContent ?? "")
-      .toContain("Read the review in order.");
-    await guide.click();
-    await expect.element(page.getByRole("tab", { name: "GUIDE.md", exact: true })).toBeVisible();
-    await page.getByRole("tab", { name: "Notes" }).click();
-    await expect.element(panel.getByRole("button", { name: "Pinned" })).toBeVisible();
-
-    await pinned.getByRole("button", { name: "Note 2 options" }).click();
-    await page.getByRole("menuitem", { name: "Unpin from review" }).click();
-    await expect
-      .element(notes.getByRole("region", { name: "Note 2 of 2" }))
-      .not.toBeInTheDocument();
-    await expect.element(panel.getByRole("button", { name: "Pin to review" })).toBeVisible();
   });
 });
 

@@ -222,7 +222,7 @@ load it or read its agents until you open it again.
   repository's usual base to go back to it. Moving a thread changes only
   what Med shows; the agent's session keeps its own folder.
 - **Review** is what the agent hands off (`med thread show`, or
-  `med review create --key …`): its Guide, its brief in **Notes**, or its diff.
+  `med review create --key …`): its Guide or its diff.
   Each hand-off is a new version. The row above the diff names the version
   and its age, such as "Version 2 · 5 min ago"; with more than one version,
   it is a menu of the versions, newest first. Git's comparisons are only in
@@ -345,9 +345,8 @@ saved links then work in new tabs of that browser. See
 A saved review keeps its diff when the agent makes more changes. An agent that
 names its task with a key adds a version for each round of work. The Review
 opens on the latest one and is marked new again; comments on earlier versions
-stay. The version menu above the diff names each version and its age, and
-the version keys at the top of **Notes** (`1`, `2`, …) show each version;
-older versions move to a menu when the keys do not fit. A version with more
+stay. The version menu above the diff names each version and its age. A
+version with more
 than one comparison, such as one for each repository, lists each one in the
 menu by its repository, and so does a commit that you commented on while
 browsing.
@@ -435,7 +434,8 @@ background shells and agents. It follows the session live.
   blocks and tool output, the cards under the thread, and the message box.
   A narrower pane, or the side panel, narrows the column. The pane keeps the
   width that you give it; drag its edge to give the review the room beside
-  the column. Markdown files, the Notes, and the Guide read at the same width.
+  the column. Markdown files, pull request drafts, and the Guide read at the
+  same width.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
@@ -573,8 +573,7 @@ stops.
 
 A thread's pane has the tabs **Review**, **Changes**, and **Commit**. It opens
 on **Review**, at the latest version, once the agent has shown one, and on
-**Changes** before that. The menu above the diff chooses a version; the keys
-at the top of **Notes** do too. Hover the title in the review bar for the time
+**Changes** before that. The menu above the diff chooses a version. Hover the title in the review bar for the time
 Med saved the review and its repository. A version with more than one
 comparison, such as one for each repository, lists each one in the menu.
 History and files stay available, and the **Review** tab brings back the saved
@@ -692,9 +691,8 @@ The Overview also shows what a version's notes and guide summary say about
 it, in whatever format the agent or your own review skills wrote it
 ([review practices](PRACTICES.md#b-read-review-output-from-any-source)). A
 Review opens on the Overview when its version has a guide, two or more
-commits, proof, or findings. A later version opens there too, unless it has
-only a brief: then it opens on the brief, and the Overview is the **Review**
-tab. Each part shows only when the version has it.
+commits, proof, or findings. A later version opens there too. Each part shows
+only when the version has it.
 
 - **Proof.** First, under the title: each check with its result, the media,
   and **Not covered**, what the checks miss. A proof written as a table shows
@@ -742,62 +740,44 @@ for the first width. Med keeps the width of each kind of list. Hover a cut file
 name or title to see all of it; full chrome's status bar also shows the path of
 the file under the pointer.
 
-## Notes and briefs
-
-A review's **Notes** hold the agent's brief and the replies that you pin from
-its session. A brief explains the change in Markdown, and its links open the
-lines that it cites. The **Notes** tab comes after **Review** and before
-**Changes**; a Review with a brief opens on it unless the
-[Overview](#proof-findings-and-later-versions) has a guide, commits, proof, or
-findings to show.
-
-- **Attach a brief.** Copy the agent's last message and press `⌘V` outside a
-  text field. On live changes, Med first asks for a title and saves the review,
-  so the links keep pointing at the code that they describe. Agents can pass
-  [`--brief`](AGENT_INTEGRATION.md#attach-a-brief) instead.
-- **Pin a reply.** In the Session pane, the reply that ends each turn has **Pin
-  to review**. Med copies it into the latest version's notes, because a
-  transcript can lose old replies.
-- **Read.** With more than one note, each has a head such as `02 / 03`, and a
-  rail at the right marks notes, headings, and excerpts. Below each paragraph
-  that cites lines, a short diff excerpt shows them. `]` and `[` step through
-  the excerpts. **Not in the notes** lists the changed files that the notes do
-  not cite; read those yourself.
-- **Comment.** Click a link or an excerpt's heading to open its lines in
-  **Review**. On an excerpt line, click **+**, or select line numbers and
-  press `c`. To comment on the prose, select words and click **Comment** or
-  press `c`; the comment keeps the quote, and a comment whose passage is gone
-  shows at the end of its note.
-- **Manage.** Paste again to replace the brief; **Undo** restores it. A note's
-  **⋯** menu copies all notes, removes the brief or a pin, and has **Start new
-  notes**, which captures the current comparisons as a new, empty version.
-  **Delete these notes…** deletes the shown brief, its pins, and their
-  comments, after it asks. Notes that you started also take their version,
-  unless its comparisons have comments. In an open menu, a letter chooses the
-  item that it underlines: in the **⋯** menu, `n` starts new notes and `d`
-  deletes them.
-
-### Pull request drafts
+## Pull request drafts
 
 When an agent drafts a pull request with
-[`med pr draft`](AGENT_INTEGRATION.md#draft-a-pull-request), the draft is the
-first note, under **Pull request draft · revision N**: its title, its
-description from the repository's template, and its images. Comment on its
-words as on a brief; the comments go to the agent with your other comments,
-and its next draft replaces the shown one. **Create pull request…** asks
+[`med pr draft`](AGENT_INTEGRATION.md#draft-a-pull-request), the review gets a
+**Pull request** tab after **Review**, under **Pull request draft · revision
+N**: its title, its description from the repository's template, and its
+images. To comment on its words, select them and click **Comment** or press
+`c`; the comments go to the agent with your other comments, and its next
+draft replaces the shown one. **Create pull request…** asks
 first, then runs `gh pr create` from the checkout's branch, as a draft unless
 you clear **As a draft**. Med does not push: push the branch, with all of its
 commits, first. GitHub
 takes images only as links, so a local image stays out and the text names it;
-Med says which ones to drag into the description on GitHub. Then the note's
+Med says which ones to drag into the description on GitHub. Then the draft's
 **Open on GitHub** opens the pull request, and the review links to it.
 
-A link can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
+A link in the draft can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
 path, an editor link, or a GitHub blob URL. A unique suffix such as
 `App.tsx:42` works. A link or a path in inline code to a file that the change
 does not touch opens that file of the checkout as a tab, at its lines. Its
 excerpt shows the cited lines from the checkout, marked **Not in the change**.
 An absolute path inside the checkout shows as the path in the checkout.
+
+## Removed: Notes
+
+Med had a **Notes** tab: the agent's brief (a Markdown explanation of the
+change, from `--brief` or pasted with `⌘V`) and the replies that you pinned
+from its session with **Pin to review**, with excerpts of the lines that they
+cited and comments on their words. Agent replies already read in the session's
+thread, so the tab, **Pin to review**, and the brief's paste went. Med still
+keeps what was saved: briefs and pins stay in each review and its versions,
+`--brief` and `POST /api/reviews/:id/pins` still store them, and the review's
+checks still read a brief's Proof section. Nothing saved is lost.
+
+If they return, they would fold into **Review** as a **From the agent**
+section at the top of the Overview: the brief, then the pinned replies, with
+comments on their words. `BriefView` still renders a brief and pins, so that
+section can reuse it.
 
 ## Pull requests
 
@@ -1408,7 +1388,6 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Zen mode                         | `⌥Z`           |
 | Comment on selected lines        | `c`            |
 | Ask about selected lines         | `a`            |
-| Paste a brief                    | `⌘V`           |
 | Next / previous guide segment    | `j` / `k`      |
 | Mark the top file viewed         | `v`            |
 | Mark the segment viewed, go on   | `⇧V`           |

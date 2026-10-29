@@ -179,13 +179,12 @@ import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
-import { clipboardBrief, joinNotes, matchReviewFile, parseBriefHref } from "./data/brief";
+import { matchReviewFile, parseBriefHref } from "./data/brief";
 import { questionExcerpt, useQuestion } from "./data/questions";
 import { questionComment } from "../shared/questions";
 import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
-import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
 import { ChangesRail, RangeCommits } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
@@ -218,7 +217,7 @@ import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
-import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
+import type { SessionStarter } from "./components/session/SessionPanel";
 import type { ThreadLink } from "./components/session/SessionSidePanel";
 import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
@@ -424,7 +423,6 @@ export function App({
   browseApi: providedBrowseApi,
   loadBlame: providedBlameLoader,
   loadCommit: providedCommitLoader,
-  onOpenReview: providedOpenReview,
   commitApi: providedCommitApi,
   sessionFetch,
 }: {
@@ -436,8 +434,6 @@ export function App({
   browseApi?: BrowseApi;
   loadBlame?: BlameLoader;
   loadCommit?: CommitLoader;
-  /** Show a newly saved review. */
-  onOpenReview?(id: string): void;
 }) {
   const state = useReviewController(controller);
   // Inside a workspace host, the host owns the controller and the address.
@@ -446,12 +442,6 @@ export function App({
   const shown = useWorkspaceShown();
   // While the thread's agent works, its changes are expected: the drift bar waits.
   const agentWorking = useThreadState(state.savedReview?.id) === "working";
-  const onOpenReview =
-    providedOpenReview ??
-    ((id: string) =>
-      workspace
-        ? workspace.open({ kind: "review", reviewId: id })
-        : location.assign(`/review/${encodeURIComponent(id)}`));
   // Several workspaces can be mounted; their landmarks need distinct ids.
   const idPrefix = workspace ? `${workspace.id}-` : "";
   const gitAvailable = state.session?.repository.git !== false;
@@ -1571,31 +1561,15 @@ export function App({
       prDraft && draftReviewId ? prDraftImageUrl(draftReviewId, prDraft, href) : undefined,
     [prDraft, draftReviewId],
   );
-  const hasNotes =
-    !!prDraft ||
-    !!savedBrief ||
-    !!savedPins?.length ||
-    (briefSource?.fresh === true && briefSource.number === shownIteration);
+  // The Notes tab is gone (docs/USAGE.md#removed-notes): its tab shows only
+  // an agent's pull request draft, as Pull request. Med keeps the briefs and
+  // pins, which feed the review's checks.
+  const hasNotes = !!prDraft;
   // Comments on passages of the shown brief and pins.
   const allBriefComments = state.savedReview?.briefComments;
   const briefComments = useMemo(
-    () =>
-      (allBriefComments ?? []).filter((comment) =>
-        comment.section === "pr"
-          ? !!prDraft
-          : comment.section === "brief"
-            ? comment.iteration === briefSource?.number
-            : !!savedPins?.some((pin) => pin.id === comment.section),
-      ),
-    [allBriefComments, briefSource?.number, savedPins, prDraft],
-  );
-  const notesText = useMemo(
-    () =>
-      joinNotes([
-        ...(savedBrief ? [savedBrief.text] : []),
-        ...(savedPins ?? []).map((pin) => pin.text),
-      ]).text,
-    [savedBrief, savedPins],
+    () => (allBriefComments ?? []).filter((comment) => comment.section === "pr" && !!prDraft),
+    [allBriefComments, prDraft],
   );
   // The Guide: the agent's segments over the saved comparison, and the range's
   // commits, to review one part at a time. An iteration without a guide keeps
@@ -2050,25 +2024,6 @@ export function App({
     });
     return () => cancelAnimationFrame(frame);
   }, [pendingGuideFile, guideDiff, streamFiles]);
-  const [noteReveal, setNoteReveal] = useState<{
-    key: string;
-    nonce: number;
-  }>();
-  const showIteration = (number: number) => {
-    setBriefIteration(number);
-    const first = iterations.find((entry) => entry.number === number)?.targetIds[0];
-    if (!first || first === state.savedTargetId) return;
-    pendingIteration.current = first;
-    pendingSavedChanges.current = null;
-    void controller.selectSavedTarget(first);
-  };
-  // A pinned reply shows in the Notes of its iteration.
-  const showPin = (pinId: string) => {
-    const owner = iterations.find((entry) => entry.pins?.some((pin) => pin.id === pinId));
-    if (owner && owner.number !== shownIteration) showIteration(owner.number);
-    fileWorkspace.select("brief");
-    setNoteReveal({ key: pinId, nonce: Date.now() });
-  };
   // Keep the brief mounted once shown, so its scroll position survives tab changes.
   const [briefMounted, setBriefMounted] = useState(false);
   if (fileState.active === "brief" && !briefMounted) setBriefMounted(true);
@@ -2145,21 +2100,14 @@ export function App({
       fileWorkspace.getSnapshot().active === "commit" ? fileWorkspace.previous() : "commit",
     );
   }, [fileWorkspace]);
-  const [pendingBrief, setPendingBrief] = useState<string | null>(null);
-  // Undo puts back the brief text that a change replaced; null removes the brief.
-  const [toast, setToast] = useState<{
-    id: number;
-    text: string;
-    restore?: string | null;
-  } | null>(null);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const showToast = useCallback(
-    (text: string, restore?: string | null) =>
-      setToast((current) => ({ id: (current?.id ?? 0) + 1, text, restore })),
+    (text: string) => setToast((current) => ({ id: (current?.id ?? 0) + 1, text })),
     [],
   );
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(null), toast.restore === undefined ? 4000 : 8000);
+    const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
   const pathActions = useMemo<PathActions>(
@@ -2188,65 +2136,13 @@ export function App({
     // The controller opens a thread with a hand-off on its Review's diff.
     // A later version with only a brief opens on the brief, which tells what
     // the round changed; its Overview is the Review tab.
-    if (reviewAvailable)
-      fileWorkspace.select(
-        hasGuide && (overviewParts || !savedBrief) ? "guide" : savedBrief ? "brief" : "changes",
-      );
+    if (reviewAvailable) fileWorkspace.select(hasGuide ? "guide" : "changes");
     else if (fileState.active === "guide" || fileState.active === "brief")
       fileWorkspace.select("changes");
-  }, [
-    reviewAvailable,
-    hasGuide,
-    overviewParts,
-    savedBrief,
-    state.savedReview,
-    state.status,
-    fileState.active,
-    fileWorkspace,
-  ]);
+  }, [reviewAvailable, hasGuide, state.savedReview, state.status, fileState.active, fileWorkspace]);
   useEffect(() => {
     if (fileState.active === "commit" && !commitApi) fileWorkspace.select("changes");
   }, [commitApi, fileState.active, fileWorkspace]);
-  const canSaveReview =
-    gitAvailable &&
-    !!state.session &&
-    !state.savedReview &&
-    state.status === "ready" &&
-    state.comparison.kind !== "files" &&
-    state.comparison.kind !== "patch";
-  const setBrief = useCallback(
-    async (text: string | null, message: string, undo?: string | null) => {
-      try {
-        await controller.setSavedBrief(text);
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "The brief could not be saved.");
-        return false;
-      }
-      // A pasted brief shows in Notes.
-      fileWorkspace.select(text ? "brief" : "changes");
-      showToast(message, undo);
-      return true;
-    },
-    [controller, fileWorkspace, showToast],
-  );
-  const attachBrief = useCallback(
-    (text: string) => {
-      const saved = controller.getSnapshot().savedReview;
-      if (!saved) {
-        if (canSaveReview) setPendingBrief(text);
-        return;
-      }
-      const previous = saved.brief?.text ?? null;
-      void setBrief(text, previous ? "Brief replaced." : "Brief attached.", previous);
-    },
-    [controller, canSaveReview, setBrief],
-  );
-  const pasteBrief = useCallback(() => {
-    navigator.clipboard.readText().then(
-      (text) => (text.trim() ? attachBrief(text) : showToast("The clipboard has no text.")),
-      () => showToast("Allow clipboard access, or press ⌘V."),
-    );
-  }, [attachBrief, showToast]);
   const copyNotes = useCallback(
     (text: string) => {
       if (text)
@@ -2256,19 +2152,6 @@ export function App({
         );
     },
     [showToast],
-  );
-  const removeBrief = useCallback(() => {
-    const text = controller.getSnapshot().savedReview?.brief?.text;
-    if (text) void setBrief(null, "Brief removed.", text);
-  }, [controller, setBrief]);
-  const unpin = useCallback(
-    (id: string) =>
-      controller.pinToReview({ remove: id }).then(
-        () => showToast("Unpinned from Notes."),
-        (error: unknown) =>
-          showToast(error instanceof Error ? error.message : "The pin could not be removed."),
-      ),
-    [controller, showToast],
   );
   // New notes: a new iteration of the current comparisons, which later pins go to.
   // A refresh does the same for a review whose checkout changed after its capture.
@@ -2306,76 +2189,6 @@ export function App({
     [controller, showToast],
   );
   const [dismissedDrift, setDismissedDrift] = useState<string | null>(null);
-  // Delete the notes on screen: the shown iteration's, and a brief that it
-  // shows from an earlier iteration.
-  const deleteNotes = useCallback(
-    () =>
-      controller
-        .deleteNotes(
-          shownIteration === undefined
-            ? {}
-            : {
-                iteration: shownIteration,
-                ...(briefSource && briefSource.number !== shownIteration
-                  ? { briefFrom: briefSource.number }
-                  : {}),
-              },
-        )
-        .then(
-          () => {
-            setBriefIteration(null);
-            showToast("Notes deleted.");
-          },
-          (error: unknown) =>
-            showToast(error instanceof Error ? error.message : "The notes could not be deleted."),
-        ),
-    [controller, shownIteration, briefSource, showToast],
-  );
-  // Pin to review on the agent's replies. A pin goes to the latest iteration.
-  const showPinRef = useRef(showPin);
-  useEffect(() => {
-    showPinRef.current = showPin;
-  });
-  const savedForPins = state.savedReview;
-  const sessionPins = useMemo<SessionPins | undefined>(() => {
-    if (!savedForPins) return undefined;
-    const pinned = new Map<string, string>();
-    for (const pin of [
-      ...(savedForPins.pins ?? []),
-      ...(savedForPins.iterations ?? []).flatMap((entry) => entry.pins ?? []),
-    ])
-      if (pin.source?.itemId) pinned.set(`${pin.source.sessionId}/${pin.source.itemId}`, pin.id);
-    return {
-      pinned,
-      pin: (source, text) =>
-        controller.pinToReview({ add: { text, source } }).then(
-          () => showToast("Pinned to the review's Notes."),
-          (error: unknown) =>
-            showToast(error instanceof Error ? error.message : "The reply could not be pinned."),
-        ),
-      show: (pinId) => showPinRef.current(pinId),
-    };
-  }, [savedForPins, controller, showToast]);
-  useEffect(() => {
-    const paste = (event: ClipboardEvent) => {
-      if (event.defaultPrevented) return;
-      const editing = event
-        .composedPath()
-        .some(
-          (node) =>
-            node instanceof HTMLElement &&
-            (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName)),
-        );
-      if (editing || visibleElement('[role="dialog"]')) return;
-      if (!controller.getSnapshot().savedReview && !canSaveReview) return;
-      const text = clipboardBrief(event.clipboardData);
-      if (!text) return;
-      event.preventDefault();
-      attachBrief(text);
-    };
-    window.addEventListener("paste", paste);
-    return () => window.removeEventListener("paste", paste);
-  }, [controller, canSaveReview, attachBrief]);
   const openBriefLocation = useCallback(
     (location: BriefLocation) => {
       const snapshot = controller.getSnapshot();
@@ -4264,17 +4077,11 @@ export function App({
       ? [
           {
             id: "brief",
-            label: "Open the notes",
+            label: "Open the pull request draft",
             run: () => fileWorkspace.select("brief"),
-          },
-          {
-            id: "copy-brief",
-            label: "Copy the notes",
-            run: () => copyNotes(notesText),
           },
         ]
       : []),
-    ...(savedBrief ? [{ id: "remove-brief", label: "Remove the brief", run: removeBrief }] : []),
     ...(commitApi
       ? [
           {
@@ -4285,17 +4092,6 @@ export function App({
           },
         ]
       : []),
-    {
-      id: "paste-brief",
-      label: state.savedReview
-        ? savedBrief
-          ? "Replace the brief from the clipboard"
-          : "Attach a brief from the clipboard"
-        : "Save these changes with a brief from the clipboard",
-      shortcut: "⌘ V",
-      disabled: !state.savedReview && !canSaveReview,
-      run: pasteBrief,
-    },
     {
       id: "blame",
       label: blameEnabled ? "Hide Git blame" : "Show Git blame in the gutter",
@@ -5900,7 +5696,6 @@ export function App({
         compact={compact}
         quiet={quiet}
         more={compact ? (quiet ? quietSections : [moreActions]) : undefined}
-        notesPickIteration={hasNotes}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
@@ -6128,7 +5923,6 @@ export function App({
                     fileRefs={fileRefs}
                     onClose={() => closePane("session")}
                     onSideRoom={setSessionSideRoom}
-                    pins={sessionPins}
                     controls={controls}
                     starter={sessionStarter}
                     lead={sessionVisible}
@@ -6344,7 +6138,7 @@ export function App({
               activeFile
                 ? `File ${activeFile.path}`
                 : fileState.active === "brief"
-                  ? "Notes"
+                  ? "Pull request"
                   : fileState.active === "guide"
                     ? "Guide"
                     : fileState.active === "commit"
@@ -6772,30 +6566,6 @@ export function App({
                 <Suspense fallback={null}>
                   <BriefView
                     key={state.savedReview.id}
-                    brief={savedBrief}
-                    briefFrom={
-                      briefSource && briefSource.number !== shownIteration
-                        ? briefSource.number
-                        : undefined
-                    }
-                    pins={savedPins}
-                    reveal={noteReveal}
-                    prerender={iterations.flatMap((entry) => {
-                      if (!entry.brief && !entry.pins?.length) return [];
-                      const brief = iterations.findLast(
-                        (earlier) => earlier.number <= entry.number && earlier.brief,
-                      )?.brief;
-                      const text = joinNotes([
-                        ...(brief ? [brief.text] : []),
-                        ...(entry.pins ?? []).map((pin) => pin.text),
-                      ]).text;
-                      return text !== notesText ? [text] : [];
-                    })}
-                    iterations={iterations
-                      .filter((entry) => entry.brief || entry.pins?.length || entry.fresh)
-                      .map(({ number, createdAt }) => ({ number, createdAt }))}
-                    iteration={savedPins?.length ? shownIteration : briefSource?.number}
-                    onIteration={showIteration}
                     files={state.files}
                     root={state.review?.repo}
                     active={fileState.active === "brief"}
@@ -6804,16 +6574,10 @@ export function App({
                     onOpenPath={(path, line) => fileWorkspace.open(path, line)}
                     fileRefs={fileRefs}
                     readFile={readCheckoutFile}
-                    onPaste={pasteBrief}
                     onCopy={copyNotes}
-                    onRemove={removeBrief}
-                    onStartNotes={() => startNotes()}
-                    onDeleteNotes={deleteNotes}
-                    onUnpin={(id) => void unpin(id)}
                     notes={notes}
                     onMutateNote={(mutation) => controller.mutateNote(mutation)}
                     comments={briefComments}
-                    briefIteration={briefSource?.number}
                     onCommentBrief={(mutation) => controller.commentBrief(mutation)}
                     prDraft={prDraft}
                     prDraftImage={prDraftImage}
@@ -6908,18 +6672,6 @@ export function App({
           {toast && (
             <div key={toast.id} role="status" {...stylex.props(styles.toast)}>
               {toast.text}
-              {toast.restore !== undefined && (
-                <button
-                  {...stylex.props(styles.toastAction)}
-                  onClick={() => {
-                    const restore = toast.restore!;
-                    setToast(null);
-                    void setBrief(restore, restore ? "Brief restored." : "Brief removed.");
-                  }}
-                >
-                  Undo
-                </button>
-              )}
             </div>
           )}
         </main>
@@ -7012,21 +6764,6 @@ export function App({
             }
           />
         )}
-        <SaveReviewDialog
-          brief={pendingBrief}
-          files={state.files}
-          root={state.review?.repo}
-          comparisonLabel={state.review?.label ?? "These changes"}
-          onClose={() => setPendingBrief(null)}
-          onSave={async (title) => {
-            const id = await controller.saveReview({
-              title,
-              brief: pendingBrief ?? undefined,
-            });
-            setPendingBrief(null);
-            onOpenReview(id);
-          }}
-        />
         <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
         {definitions && (
           <SymbolPicker

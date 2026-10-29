@@ -92,9 +92,9 @@ export interface BriefViewProps {
   fileRefs?: FileRefs;
   /** Reads a file of the checkout, for the cited lines of such a file. */
   readFile?(path: string): Promise<string>;
-  onPaste(): void;
+  onPaste?(): void;
   onCopy(text: string): void;
-  onRemove(): void;
+  onRemove?(): void;
   /** Starts new, empty notes, which later pins go to. */
   onStartNotes?(): void;
   /** Deletes the shown notes and the comments on them, after the reader confirms. */
@@ -661,77 +661,85 @@ export default function BriefView({
     scrollToNode(node, 16);
   }, [reveal, annotated]);
 
+  const notesShown = !!brief || !!pins?.length;
   const citedCount = annotated?.cited.length ?? 0;
   const total = groups.length;
   return (
     <section
-      aria-label="Notes"
+      aria-label={notesShown ? "Notes" : "Pull request draft"}
       // A workspace shows once its notes have rendered (see WorkspaceViews).
       data-pending={(!shown && !error) || undefined}
       {...stylex.props(styles.root)}
     >
       <div className="med-md-scroll med-brief-scroll" ref={pane}>
         <article ref={article} className="med-md-prose med-brief-prose">
-          <header {...stylex.props(styles.meta)}>
-            <span {...stylex.props(styles.label)}>
-              <Icon name="brief" size={14} />
-              Notes
-            </span>
-            {iterations && iterations.length > 1 && (
-              <IterationKeys
-                iterations={iterations}
-                iteration={iteration}
-                onIteration={onIteration}
-              />
-            )}
-            {annotated && files.length > 0 && !!shown?.sections.length && (
-              <span {...stylex.props(styles.coverage)} title="Changed files that the notes link to">
-                <span {...stylex.props(styles.meter)} aria-hidden="true">
-                  <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
-                </span>
-                <span {...stylex.props(styles.coverageText)}>
-                  Cites {citedCount} of {files.length} changed{" "}
-                  {files.length === 1 ? "file" : "files"}
-                </span>
+          {/* Med shows no brief or pins since the Notes tab went
+              (docs/USAGE.md#removed-notes); this header returns with them. */}
+          {notesShown && (
+            <header {...stylex.props(styles.meta)}>
+              <span {...stylex.props(styles.label)}>
+                <Icon name="brief" size={14} />
+                Notes
               </span>
-            )}
-            <span {...stylex.props(styles.grow)} />
-            <ActionMenu
-              label="Notes options"
-              sections={[
-                [
-                  {
-                    label: brief ? "Paste a new brief" : "Paste a brief",
-                    shortcut: "⌘ V",
-                    letter: "p",
-                    onClick: onPaste,
-                  },
-                  { label: "Copy all notes", letter: "c", onClick: () => onCopy(text) },
-                ],
-                ...(onStartNotes
-                  ? [[{ label: "Start new notes", letter: "n", onClick: onStartNotes }]]
-                  : []),
-                ...[
+              {iterations && iterations.length > 1 && (
+                <IterationKeys
+                  iterations={iterations}
+                  iteration={iteration}
+                  onIteration={onIteration}
+                />
+              )}
+              {annotated && files.length > 0 && !!shown?.sections.length && (
+                <span
+                  {...stylex.props(styles.coverage)}
+                  title="Changed files that the notes link to"
+                >
+                  <span {...stylex.props(styles.meter)} aria-hidden="true">
+                    <span {...stylex.props(styles.meterFill(citedCount / files.length))} />
+                  </span>
+                  <span {...stylex.props(styles.coverageText)}>
+                    Cites {citedCount} of {files.length} changed{" "}
+                    {files.length === 1 ? "file" : "files"}
+                  </span>
+                </span>
+              )}
+              <span {...stylex.props(styles.grow)} />
+              <ActionMenu
+                label="Notes options"
+                sections={[
                   [
-                    ...(brief
-                      ? [{ label: "Remove the brief", letter: "r", onClick: onRemove }]
-                      : []),
-                    ...(onDeleteNotes
-                      ? [
-                          {
-                            label: "Delete these notes…",
-                            letter: "d",
-                            onClick: () => setDeleting("ask"),
-                          },
-                        ]
-                      : []),
+                    {
+                      label: brief ? "Paste a new brief" : "Paste a brief",
+                      shortcut: "⌘ V",
+                      letter: "p",
+                      onClick: () => onPaste?.(),
+                    },
+                    { label: "Copy all notes", letter: "c", onClick: () => onCopy(text) },
                   ],
-                ].filter((section) => section.length),
-              ]}
-            >
-              <Icon name="more" size={15} />
-            </ActionMenu>
-          </header>
+                  ...(onStartNotes
+                    ? [[{ label: "Start new notes", letter: "n", onClick: onStartNotes }]]
+                    : []),
+                  ...[
+                    [
+                      ...(brief
+                        ? [{ label: "Remove the brief", letter: "r", onClick: () => onRemove?.() }]
+                        : []),
+                      ...(onDeleteNotes
+                        ? [
+                            {
+                              label: "Delete these notes…",
+                              letter: "d",
+                              onClick: () => setDeleting("ask"),
+                            },
+                          ]
+                        : []),
+                    ],
+                  ].filter((section) => section.length),
+                ]}
+              >
+                <Icon name="more" size={15} />
+              </ActionMenu>
+            </header>
+          )}
           {error && (
             <div role="alert" className="med-md-notice">
               {error}
@@ -782,7 +790,7 @@ export default function BriefView({
                   section={section}
                   briefFrom={section.pin ? undefined : briefFrom}
                   onCopy={() => onCopy(section.text)}
-                  onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : onRemove}
+                  onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : () => onRemove?.()}
                   onCreatePullRequest={section.draft ? onCreatePullRequest : undefined}
                 />
               )}
