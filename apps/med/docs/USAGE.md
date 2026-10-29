@@ -441,7 +441,8 @@ background shells and agents. It follows the session live.
   installed agent.
 - The button at the pane's top right hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
-  shows its state. **Agent session** in the review's **⋯** menu, or `⌘⇧B`
+  shows its state. **Show agent session**, with the agent's mark at the start
+  of the review's row, **Agent session** in the review's **⋯** menu, or `⌘⇧B`
   again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
   to a prompt from **Turns**.
@@ -497,8 +498,17 @@ Gemini CLI in the review's repository, with your own sign-in; it does not
 install them. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
-tool call that needs an answer shows **Allow** and **Deny**.
+and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
+needs an answer shows **Allow** and **Deny**. While the agent works, **Queue**
+(`⌘↩`) keeps a message for its next step: Claude Code reads it after the
+tools that run, in the same turn, and otherwise it goes when the turn ends.
+Until then, **Edit** or `↑` brings its text back into the box (attachments
+stay out, and the box says so), and **Remove** drops it. The pane's header shows how full
+the context is and what the thread has spent, subagents included; click it
+for where autocompact starts and each model's tokens. A pane with room beside
+its thread shows a side panel instead: the context, the spend, the background
+tasks, links to the thread's Review, Changes, and pull request, and where the
+agent works. Its button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
@@ -677,7 +687,13 @@ only a brief: then it opens on the brief, and the Overview is the **Review**
 tab. Each part shows only when the version has it.
 
 - **Proof.** First, under the title: each check with its result, the media,
-  and **Not covered**, what the checks miss. Without written proof, the checks
+  and **Not covered**, what the checks miss. A proof written as a table shows
+  as that table: its columns share the width, long commands and paths break at
+  their `/`, `:`, `-` and `.`, and only a table too wide for whole words
+  scrolls sideways in its own box. When the guide summary holds the proof and
+  this part shows it whole (its tables, and lines whose only markup is code),
+  it shows here only; a proof with a fence's output, nested items, links or a
+  long paragraph stays in the summary too. Without written proof, the checks
   that the session ran in the turn that made the latest version show, marked
   "from the session's last turn".
 - **Since version N.** From version 2: the files that changed since the last
@@ -699,9 +715,13 @@ tab. Each part shows only when the version has it.
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
-branch's commits, or the Review's range, and **All changes** goes back. The rail shows by itself when the review
-pane has room; the toolbar's first button, or **Show files and commits** in
-`⌘K`, shows or hides it in any width, and Med keeps that choice. With the
+branch's commits, or the Review's range, and **All changes** goes back. The
+Guide's list takes the same place in the Guide. The two are one nested
+sidebar: it shows by itself when the review pane has room, and the button at
+the end of the review's row, `⌘⌥B`, or **Hide the guide** or **Show files
+and commits** in `⌘K` hides or shows it in any width. A narrow row keeps its
+room for the comparison, so the button shows there only while the rail does. Med keeps that choice
+for both, so a hidden rail stays hidden between the Guide and the diff. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,
 so each one shows at once, in **Review** and in **Changes**.
@@ -1198,8 +1218,35 @@ markers until you refresh.
 ### Panes
 
 A workspace is a set of tiled panes: the review, and **Changes** (the changed
-files), **Session** (`⌘⇧B`), and **Files** (the folder button) beside it. Each
+files, `⌘⌃B`), **Session** (`⌘⇧B`), and **Files** (the folder button) beside it. Each
 thread keeps its own layout.
+
+Every pane and panel but the review hides. A pane that a review or thread
+opens by itself, **Changes** or a thread's **Session**, leaves a button where
+it was while it is hidden, at the start of the review's row. **Files**, which
+you open yourself, opens again where you opened it: **⋯** or the folder
+button. A pane's hide button is in its header, where its × would be. The panel
+icon, shaded on the side where the panel is, hides and shows the changed
+files, the rail, and the session's side panel, and hides the session; a hidden
+session's button has its agent's mark. Med keeps each choice: a pane's in the
+thread's layout, the others in the view settings.
+
+| Pane or panel                      | Hide                                                 | Show again                                                                                                                                   |
+| ---------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar (the threads)              | **Hide sidebar** in it, `⌘B`                         | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`                                                                          |
+| Changes (the changed files)        | **Hide changed files** in its header, `⌘⌃B`          | **Show changed files** at the start of the review's row, `⌘⌃B`, **Changed files** in quiet chrome's **⋯**, or **Show changed files** in `⌘K` |
+| Session                            | The button in its header, `⌘⇧B`                      | **Show agent session** at the start of the review's row (full chrome: at its end), `⌘⇧B`, **Agent session** in quiet chrome's **⋯**, or `⌘K` |
+| Files                              | The × in its header                                  | **Files** in quiet chrome's **⋯**, the folder button in full chrome, or **Show files sidebar** in `⌘K`                                       |
+| A vault's files sidebar            | The folder button, or **Hide files sidebar** in `⌘K` | The same button, or **Show files sidebar** in `⌘K`                                                                                           |
+| Files and commits rail, Guide list | The button at the end of the review's row, `⌘⌥B`     | The same button, `⌘⌥B`, or **Show files and commits** or **Show the guide** in `⌘K`                                                          |
+| The session's side panel           | The button in the session's row, `⌘⌥⇧B`              | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`                                                                        |
+
+The review's row shows the buttons at its ends where it has room; a narrower
+row keeps its room for the tabs and the comparison, and the shortcuts, **⋯**,
+and `⌘K` still work. `⌘⌃B` is for macOS: on Linux it would be the rail's
+Ctrl+Alt+B. Two have no button to bring them back: the **Question** pane
+discards its question and answer unless you keep them as a comment, and the
+**Background** list's × hides the tasks until one starts or fails.
 
 - A pane's header acts as a window's title bar. Drag it onto a side of another
   pane to place the pane there, or onto the middle to swap the two; Escape
@@ -1265,12 +1312,13 @@ every workspace and window, except where the table says "each window" or
 | Split or unified diff                          | Split        | `med:mode`                         |
 | Wrap long lines                                | Off          | `med:wrap`                         |
 | Show comments                                  | On           | `med:comments`                     |
-| Files and commits rail                         | Auto         | `med:changes-rail`                 |
+| Guide or files and commits rail                | Auto         | `med:changes-rail`                 |
 | Quiet or full chrome                           | Quiet        | `med:chrome:v1`                    |
 | Theme                                          | Med Night    | `med:theme:v1`                     |
 | Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |
 | Find file's preview                            | On           | `med:picker-preview`               |
 | Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`       |
+| Session side panel                             | Shown        | `med:session-panel`                |
 | Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width` |
 | Zen mode (each workspace)                      | Off          | `med:zen`                          |
 | Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`         |
@@ -1286,46 +1334,48 @@ zoom (`⌘+`, `⌘−`) changes the text size, and the browser keeps it.
 
 Press `?` for the shortcuts of where you are: Review, File, Editor, or Pickers.
 Type to search every context by action or key, such as `close`, `zz`, or `⌘K`;
-Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃.
+Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃; `⌘⌃B` is macOS only, since Ctrl+Alt+B is the rail's.
 
-| Action                           | Shortcut      |
-| -------------------------------- | ------------- |
-| Command palette                  | `⌘K`          |
-| Find a file                      | `⌘⇧K`         |
-| Search file contents             | `⌘⇧F`         |
-| Find in the diff                 | `⌘F`          |
-| Symbols in this file             | `⌘O`          |
-| Symbols in the project           | `⌘⇧O`         |
-| Open a branch or worktree        | `⌘⇧G`         |
-| Open tab 1–9                     | `⌘1`–`⌘9`     |
-| Next tab that needs you          | `⌘0`          |
-| Close tab / reopen closed tab    | `⌘⌥W` / `⌘⌥T` |
-| Move the focused tab             | `⌥↑` / `⌥↓`   |
-| Layer above / below in a stack   | `⌥↑` / `⌥↓`   |
-| Switch, or search history        | `⌃Tab`        |
-| Toggle the sidebar / session     | `⌘B` / `⌘⇧B`  |
-| Next permission mode (message)   | `⇧Tab`        |
-| New thread                       | `⌥N`          |
-| Previous / next attempt          | `←` / `→`     |
-| Focus the next pane              | `⌘⌥←`         |
-| Move the focused pane            | `⌘⌥⇧←`        |
-| Zoom the focused pane            | `⌘E`          |
-| Balance the panes                | `⌘⌃=`         |
-| Zen mode                         | `⌥Z`          |
-| Comment on selected lines        | `c`           |
-| Ask about selected lines         | `a`           |
-| Paste a brief                    | `⌘V`          |
-| Next / previous guide segment    | `j` / `k`     |
-| Mark the top file viewed         | `v`           |
-| Mark the segment viewed, go on   | `⇧V`          |
-| Next / previous excerpt or reply | `]` / `[`     |
-| Resume search                    | `⌥R`          |
-| Show tab 1–8 / the last tab      | `⌥1`–`⌥9`     |
-| Previous / next tab              | `⌘⇧[` / `⌘⇧]` |
-| Toggle gutter blame              | `⌥B`          |
-| Close the file or Search         | `⌥W`          |
-| Close all files in the workspace | `⌥⇧W`         |
-| Close other files                | `⌥⇧O`         |
+| Action                           | Shortcut       |
+| -------------------------------- | -------------- |
+| Command palette                  | `⌘K`           |
+| Find a file                      | `⌘⇧K`          |
+| Search file contents             | `⌘⇧F`          |
+| Find in the diff                 | `⌘F`           |
+| Symbols in this file             | `⌘O`           |
+| Symbols in the project           | `⌘⇧O`          |
+| Open a branch or worktree        | `⌘⇧G`          |
+| Open tab 1–9                     | `⌘1`–`⌘9`      |
+| Next tab that needs you          | `⌘0`           |
+| Close tab / reopen closed tab    | `⌘⌥W` / `⌘⌥T`  |
+| Move the focused tab             | `⌥↑` / `⌥↓`    |
+| Layer above / below in a stack   | `⌥↑` / `⌥↓`    |
+| Switch, or search history        | `⌃Tab`         |
+| Toggle the sidebar / session     | `⌘B` / `⌘⇧B`   |
+| Toggle the changed files (macOS) | `⌘⌃B`          |
+| Toggle the rail / side panel     | `⌘⌥B` / `⌘⌥⇧B` |
+| Next permission mode (message)   | `⇧Tab`         |
+| New thread                       | `⌥N`           |
+| Previous / next attempt          | `←` / `→`      |
+| Focus the next pane              | `⌘⌥←`          |
+| Move the focused pane            | `⌘⌥⇧←`         |
+| Zoom the focused pane            | `⌘E`           |
+| Balance the panes                | `⌘⌃=`          |
+| Zen mode                         | `⌥Z`           |
+| Comment on selected lines        | `c`            |
+| Ask about selected lines         | `a`            |
+| Paste a brief                    | `⌘V`           |
+| Next / previous guide segment    | `j` / `k`      |
+| Mark the top file viewed         | `v`            |
+| Mark the segment viewed, go on   | `⇧V`           |
+| Next / previous excerpt or reply | `]` / `[`      |
+| Resume search                    | `⌥R`           |
+| Show tab 1–8 / the last tab      | `⌥1`–`⌥9`      |
+| Previous / next tab              | `⌘⇧[` / `⌘⇧]`  |
+| Toggle gutter blame              | `⌥B`           |
+| Close the file or Search         | `⌥W`           |
+| Close all files in the workspace | `⌥⇧W`          |
+| Close other files                | `⌥⇧O`          |
 
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
 Review, Notes, Changes, Commit, and Search tabs with the file tabs. A browser can take some

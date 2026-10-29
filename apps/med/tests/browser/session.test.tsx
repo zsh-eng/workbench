@@ -4,6 +4,8 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
+import { estimateUnit, readMetrics } from "../../src/web/components/session/thread-heights";
+import { finalReplies, units as unitsOf } from "../../src/web/components/session/thread-model";
 import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
@@ -222,6 +224,52 @@ test("a reply taller than the overscan does not move the range on each scroll", 
   expect(moves).toBeLessThan(12);
 });
 
+test("a reply's table of long paths and commands has the height that the thread estimates for it", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  const table = [
+    "The checks:",
+    "",
+    "| Check | Where | Result |",
+    "| --- | --- | --- |",
+    "| `./gradlew :telemetry:histogram-core-internal:test` | `src/web/components/session/thread-heights.ts:359` | 18 tests pass across the three JVM targets |",
+    "| `bun run test test/metrics.test.ts` | `registry.timer(bucketName())` | 1 passed |",
+  ].join("\n");
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "user_message_chunk" as const,
+        content: { type: "text" as const, text: "Run the checks." },
+      },
+    },
+    {
+      at: 500,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "r-table",
+        content: { type: "text" as const, text: table },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => document.querySelector("[data-unit] table wbr")).not.toBeNull();
+  const element = document.querySelector("[data-unit] table")!.closest<HTMLElement>("[data-unit]")!;
+  const probe = document.querySelector('[data-probe="unit"]')!.parentElement!;
+  const list = unitsOf(store.getSnapshot().items);
+  const unit = list.find((entry) => entry.key === element.dataset.unit)!;
+  const final = "item" in unit && finalReplies(list, false).has(unit.item.id);
+  // The cells break their long words where the renderer lets them.
+  await expect
+    .poll(() =>
+      Math.abs(
+        estimateUnit(unit, readMetrics(probe), { final }) - element.getBoundingClientRect().height,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+});
+
 test("a task in the Background dock scrolls a long thread to its call", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -250,6 +298,40 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   );
   await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+});
+
+test("in the side panel, the Background dock sits outside the thread and still scrolls it to a task's call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  const side = document.createElement("div");
+  document.body.append(side);
+  try {
+    root!.render(<SessionThread snapshot={store.getSnapshot()} backgroundIn={side} />);
+    await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+    const dock = page.getByRole("region", { name: "Background tasks" });
+    await expect.element(dock).toBeVisible();
+    expect(side.contains(dock.element())).toBe(true);
+    await userEvent.click(dock.getByRole("button", { name: "Start the dev server" }));
+    await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+    await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+  } finally {
+    side.remove();
+  }
 });
 
 test("the Background dock lists only what runs: a task ends in its place, Done leaves, and Failed stays until seen", async () => {
@@ -788,6 +870,31 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   await expect.element(page.getByText("Then the docs.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
   expect(rows.elements()).toHaveLength(2);
+
+  // When it ends, its work folds before the note, and one row says how long it took.
+  store.applyAll([
+    {
+      at: 34_000,
+      update: {
+        sessionUpdate: "tool_call_update" as const,
+        toolCallId: "run-2",
+        status: "completed" as const,
+      },
+    },
+    {
+      at: 36_000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "final-2",
+        content: { type: "text" as const, text: "Tests pass, and the docs say so." },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: false }} />);
+  await expect.element(page.getByText("Tests pass, and the docs say so.")).toBeVisible();
+  await expect.element(page.getByText("Then the docs.")).toBeVisible();
+  expect(page.getByRole("button", { name: /Run the tests 2/ }).query()).toBeNull();
+  expect(page.getByText(/^Worked for 6s/).elements()).toHaveLength(1);
 });
 
 test("a message from Med joins the thread where the agent took it, so the turn before keeps its reply", async () => {

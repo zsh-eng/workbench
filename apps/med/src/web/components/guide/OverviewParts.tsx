@@ -4,6 +4,7 @@ import type { ReviewFinding, ReviewOutput, ReviewProof } from "../../../shared/r
 import type { Since } from "../../../shared/saved-review";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
+import { GuideMarkdown } from "./GuideMarkdown";
 
 // The parts of a version's review output on the Overview (docs/PRACTICES.md#c-views):
 // its proof, what changed since the reader's last review, and its findings.
@@ -14,6 +15,7 @@ export type OverviewProof = ReviewProof & { fromTurn?: boolean };
 
 export function ProofPart({ proof }: { proof: OverviewProof }) {
   const failed = proof.checks.filter((check) => check.status === "failed").length;
+  const listed = proof.checks.filter((check) => check.table === undefined);
   return (
     <section aria-label="Proof" {...stylex.props(styles.part)}>
       <h2 {...stylex.props(styles.label)}>
@@ -29,9 +31,9 @@ export function ProofPart({ proof }: { proof: OverviewProof }) {
           <span {...stylex.props(styles.count)}>· from the session's last turn</span>
         )}
       </h2>
-      {proof.checks.length > 0 && (
+      {listed.length > 0 && (
         <ul {...stylex.props(styles.list)}>
-          {proof.checks.map((check, index) => (
+          {listed.map((check, index) => (
             <li key={index} {...stylex.props(styles.row)}>
               <span
                 aria-label={check.status}
@@ -47,12 +49,20 @@ export function ProofPart({ proof }: { proof: OverviewProof }) {
                   <Icon name={check.status === "passed" ? "check" : "close"} size={12} />
                 )}
               </span>
-              <code {...stylex.props(styles.command)}>{check.command}</code>
-              {check.result && <span {...stylex.props(styles.result)}>{check.result}</span>}
+              <span {...stylex.props(styles.check)}>
+                <code {...stylex.props(styles.command)}>{check.command}</code>
+                {check.result && <span {...stylex.props(styles.result)}>{check.result}</span>}
+              </span>
             </li>
           ))}
         </ul>
       )}
+      {/* A table shows as the agent wrote it; its rows are counted above. */}
+      {proof.tables?.map((table, index) => (
+        <div key={index} {...stylex.props(styles.table)}>
+          <GuideMarkdown text={table} size="table" />
+        </div>
+      ))}
       {proof.media.length > 0 && (
         <ul aria-label="Media" {...stylex.props(styles.list)}>
           {proof.media.map((path) => (
@@ -370,6 +380,7 @@ const styles = stylex.create({
     color: tokens.muted,
     fontSize: 12.5,
     lineHeight: 1.6,
+    overflowWrap: "anywhere",
   },
   row: {
     display: "flex",
@@ -410,13 +421,38 @@ const styles = stylex.create({
   passed: { color: tokens.green },
   failed: { color: tokens.red },
   dot: { width: 5, height: 5, borderRadius: "50%", backgroundColor: tokens.faint },
+  // A check's command, then its result. A long result wraps under the
+  // command rather than squeezing it: the result once kept its width and
+  // the command shrank to one letter a line.
+  check: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    columnGap: 10,
+    rowGap: 2,
+    flex: "1",
+    minWidth: 0,
+  },
   command: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "auto",
     minWidth: 0,
     overflowWrap: "anywhere",
     fontFamily: tokens.code,
     fontSize: 12,
   },
-  result: { flexShrink: 0, marginLeft: "auto", color: tokens.faint, fontSize: 12 },
+  result: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "16ch",
+    minWidth: 0,
+    color: tokens.faint,
+    fontSize: 12,
+    textAlign: "right",
+    overflowWrap: "break-word",
+  },
+  table: { marginTop: 8 },
   change: {
     flexShrink: 0,
     width: 56,

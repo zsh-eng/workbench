@@ -238,6 +238,12 @@
      word only when it cannot fit. */
   overflow-wrap: break-word;
 }
+/* Code in a cell breaks at its separators (render.worker.ts); each line of
+   it keeps its own box. */
+.med-md-prose :is(th, td) code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 .med-md-prose th {
   color: var(--med-muted);
   font-size: 11px;
@@ -246,6 +252,48 @@
 }
 .med-md-prose tr:nth-child(even) {
   background: color-mix(in srgb, var(--med-panel) 45%, transparent);
+}
+/* A table wider than its column scrolls in its own box. Its edges fade
+   where more of it is out of view, so a cut column reads as one that
+   scrolls; a table that fits has no fade. */
+@property --med-table-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --med-table-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes med-table-edges {
+  0% {
+    --med-table-start: 0px;
+    --med-table-end: 28px;
+  }
+  8% {
+    --med-table-start: 28px;
+  }
+  92% {
+    --med-table-end: 28px;
+  }
+  100% {
+    --med-table-start: 28px;
+    --med-table-end: 0px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .med-md-prose table {
+    animation: med-table-edges linear both;
+    animation-timeline: scroll(self inline);
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--med-table-start),
+      #000 calc(100% - var(--med-table-end)),
+      transparent
+    );
+  }
 }
 .med-md-prose .katex-display {
   overflow-x: auto;

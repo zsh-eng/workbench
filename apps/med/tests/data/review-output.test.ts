@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readReviewOutput } from "../../src/shared/review-output";
+import { readReviewOutput, withoutProof } from "../../src/shared/review-output";
 
 // The reader takes review output in the shapes that real tools write. These
 // are parser edge cases, kept as a focused test (docs/TESTING.md): the browser
@@ -177,6 +177,104 @@ describe("review output", () => {
         "- `bun run build` (passed",
       ]),
     ).toEqual(["633 passed (106 files)", "0 warnings", "(3 passed) and (1 skipped)", "passed"]);
+  });
+
+  it("reads a table's rows as findings, not as lines of pipes", () => {
+    const output = readReviewOutput([
+      [
+        "## Findings",
+        "",
+        "| # | Severity | Where | Finding | Status |",
+        "| - | --- | --- | --- | --- |",
+        "| 1 | **Important** | `src/a.ts:12` | The retry ignores the abort signal. | Fixed: it passes the signal |",
+        "| 2 | Nit | src/b.ts:3 | Rename `x`. | open |",
+        "| 3 | P1 | src/c.ts:9-11 | The empty list throws \\| crashes. | |",
+      ].join("\n"),
+    ]);
+    expect(output.findings).toEqual([
+      {
+        severity: "important",
+        title: "The retry ignores the abort signal.",
+        file: "src/a.ts",
+        line: 12,
+        state: "fixed",
+        reason: "it passes the signal",
+      },
+      { severity: "nit", title: "Rename `x`.", file: "src/b.ts", line: 3, state: "open" },
+      {
+        severity: "important",
+        title: "The empty list throws | crashes.",
+        file: "src/c.ts",
+        line: 9,
+        endLine: 11,
+        state: "open",
+      },
+    ]);
+  });
+
+  it("keeps a proof that is only a table, and reads a table of misses row by row", () => {
+    const output = readReviewOutput([
+      [
+        "## Proof",
+        "",
+        "| Check | Result |",
+        "| --- | --- |",
+        "| Build | passed |",
+        "",
+        "## Not covered",
+        "",
+        "| Area | Why |",
+        "| --- | --- |",
+        "| The dashboard query | no fixture |",
+      ].join("\n"),
+    ]);
+    expect(output.proof).toEqual({
+      checks: [],
+      media: [],
+      misses: ["The dashboard query — no fixture"],
+      notes: [],
+      tables: ["| Check | Result |\n| --- | --- |\n| Build | passed |"],
+    });
+  });
+
+  it("takes out of a text the proof and misses that the Proof part shows whole, and keeps the rest", () => {
+    const whole = [
+      "Renames the export.",
+      "",
+      "## Proof",
+      "",
+      "| Check | Result |",
+      "| --- | --- |",
+      "| `bun run test` | 3 passed |",
+      "",
+      "- `bun run lint`: no warnings",
+      "",
+      "**Not covered:**",
+      "- The import.",
+      "",
+      "## Read first",
+      "",
+      "The rename in alpha.ts.",
+    ].join("\n");
+    expect(withoutProof(whole)).toBe(
+      ["Renames the export.", "", "## Read first", "", "The rename in alpha.ts."].join("\n"),
+    );
+    // What the Proof part would show only in part stays where it was written:
+    // a fence's output, a nested item, a wrapped paragraph, a link, a table of
+    // misses.
+    for (const body of [
+      ["```sh", "$ bun run test", "42 passed", "```"],
+      ["- `bun run test`: 42 passed", "  - covers the CSV header"],
+      ["The cache is cold on the first run, so", "the timing is from the second."],
+      ["- See [the design note](docs/cache.md)."],
+    ])
+      expect(withoutProof(["Why.", "", "## Testing", "", ...body].join("\n"))).toContain(body[0]);
+    expect(
+      withoutProof("## Not covered\n\n| Area | Why |\n| --- | --- |\n| Import | no fixture |"),
+    ).toContain("| Import | no fixture |");
+    expect(withoutProof("No proof here.\n\n## Why\n\nBecause.")).toBe(
+      "No proof here.\n\n## Why\n\nBecause.",
+    );
   });
 
   it("finds nothing in prose without its parts", () => {

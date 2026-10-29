@@ -62,7 +62,7 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   the account field. `can_use_tool` becomes **Allow**, **Allow for this
   session**, or **Deny**. `interrupt`, `set_model`, and `set_permission_mode`
   change a running session; a new effort restarts it with `--resume` between
-  turns. `get_context_usage` feeds the context meter. The thread reads the
+  turns. `get_context_usage` gives the window for the header's context chip. The thread reads the
   transcript and shows streamed text until the transcript has it.
 - Every agent starts without the variables of a Claude Code session or app
   that started the Med host, such as `CLAUDE_CODE_SESSION_ID` and
@@ -130,6 +130,35 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   session when a message comes and no process runs it (`resume`), with a
   record as above. **Continue in Med** starts an owned fork of one that a
   terminal runs (`--resume <id> --fork-session --session-id <new ID>`).
+
+### Queued messages
+
+A message that comes while an agent that Med runs works waits for the agent's
+next step, as Claude Code's terminal queues one
+(https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
+The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
+
+- While Claude Code runs the main conversation's tools (an `assistant`
+  message with `tool_use`, until its `tool_result`), Med writes the message
+  to Claude Code's input at once. Claude Code reads it when the tools end, in
+  the same turn, and its transcript records it as a `queued_command`
+  attachment, which the thread shows where Claude read it.
+- Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
+  and goes as the next prompt, with the other queued messages in order. An
+  ACP agent takes messages only between turns. A turn that a restart cut
+  (Interrupted) waits for the reader, and so do its messages.
+- Until the agent has it, **Edit** in the thread puts the message's text
+  back into the message box, before what the box holds, and **Remove** drops
+  it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box
+  takes back every queued message. Its comments become drafts again. Its
+  attached selections and images do not come back, and the box says so. Each
+  message comes back on its own, so one that went meanwhile leaves the rest in
+  the box. Images in a queued message go as paths to saved copies, as for an
+  agent that takes no images.
+- The browser's outbox keeps a message until the host has it, so a reload or
+  a crashed tab loses none; the inbox file keeps it after that. When the host
+  restarts, it watches each session with queued messages again; the agent's
+  holder kept the turn running, so they go at its next step as before.
 
 ### What a thread's agent knows
 
@@ -244,7 +273,7 @@ names its options only in a session, so Med shows those of its last session
 (`agent-offers.json` in the state directory). A new session starts with Med's
 defaults where the agent offers them: Claude Code on `opus` at `medium` effort,
 Codex on `gpt-6-astra`. Built-in
-commands become controls (**New session**, the pickers, the context meter);
+commands become controls (**New session**, the pickers, the context chip);
 the `/` menu lists only skills and custom commands. Attached sessions show
 model and effort as text, with a divider when they change.
 
@@ -284,7 +313,7 @@ because the agent may still hand off.
 
 ## Remaining work
 
-- **Compact** in the context meter's menu, and pinning a lead session.
+- **Compact** in the context chip's popover, and pinning a lead session.
 - Resume an ACP session after the host restarts with `session/load`, for
   agents that offer it; Med would keep the agent's own session ID.
 - Offset checkpoints, and a jump that loads only the pages around a turn.

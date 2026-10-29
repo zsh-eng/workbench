@@ -73,42 +73,6 @@ function matchCommands(commands: OwnedCommand[], query: string) {
   return [...starts, ...contains].slice(0, MAX_COMMANDS);
 }
 
-const tokenCount = (value: number) =>
-  value >= 1_000_000
-    ? `${(value / 1_000_000).toFixed(1)}M`
-    : value >= 1000
-      ? `${Math.round(value / 1000)}k`
-      : String(value);
-
-/** How full the context window is, after the last turn. */
-function ContextMeter({ used, total }: { used: number; total: number }) {
-  const share = Math.min(1, used / total);
-  const percent = Math.round(share * 100);
-  const radius = 5.25;
-  const length = 2 * Math.PI * radius;
-  return (
-    <span
-      role="img"
-      aria-label={`Context ${percent}% full`}
-      title={`${tokenCount(used)} of ${tokenCount(total)} tokens in context`}
-      {...stylex.props(styles.meter, share >= 0.8 && styles.meterFull)}
-    >
-      <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true">
-        <circle cx={7} cy={7} r={radius} {...stylex.props(styles.meterTrack)} />
-        <circle
-          cx={7}
-          cy={7}
-          r={radius}
-          strokeDasharray={`${share * length} ${length}`}
-          transform="rotate(-90 7 7)"
-          {...stylex.props(styles.meterValue)}
-        />
-      </svg>
-      {percent}%
-    </span>
-  );
-}
-
 /** A tool call that waits for the user: a permission to give, the agent's
  * questions, or its plan. */
 export function PermissionCard({
@@ -186,7 +150,14 @@ export function SessionComposer({
   mentions: mentionSources,
   onMentionsWanted,
   draftKey,
+  restore,
+  onTakeBack,
 }: {
+  /** Text that comes back into the box, such as a queued message to edit;
+   * each nonce comes once, before what the box holds. */
+  restore?: { text: string; nonce: number };
+  /** ↑ in the empty box takes back the queued messages, as in Claude Code. */
+  onTakeBack?(): void;
   /** Keeps the unsent text in the browser under this key, across a reload. */
   draftKey?: string;
   /** Where a Claude session runs, when Med does not run it: in a terminal or
@@ -312,8 +283,14 @@ export function SessionComposer({
     setHighlight(0);
   };
 
+  const [restored, setRestored] = useState(restore?.nonce);
+  if (restore && restore.nonce !== restored) {
+    setRestored(restore.nonce);
+    setText((current) => (current.trim() ? `${restore.text}\n\n${current}` : restore.text));
+  }
+  // While the agent works, a message waits for its next step (queued-messages.ts).
   const send = async () => {
-    if (empty || working || stopped) return;
+    if (empty || stopped) return;
     setError(null);
     onSend({
       // Each mention reaches the agent as its absolute path.
@@ -333,6 +310,19 @@ export function SessionComposer({
     if (mentions.onKeyDown(event)) return;
     // While the field is empty, a question's number keys pick its choices.
     if (!text && cardKeys.current?.(event)) return;
+    if (
+      event.key === "ArrowUp" &&
+      !text &&
+      onTakeBack &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      onTakeBack();
+      return;
+    }
     // ⇧Tab steps through the modes, as in Claude Code's terminal.
     if (
       event.key === "Tab" &&
@@ -722,9 +712,6 @@ export function SessionComposer({
                 {continuing ? "Continuing…" : "Continue in Med"}
               </button>
             )}
-            {owned?.state.context && (
-              <ContextMeter used={owned.state.context.used} total={owned.state.context.total} />
-            )}
             <input
               ref={imageInput}
               type="file"
@@ -746,21 +733,30 @@ export function SessionComposer({
             >
               <Icon name="image" size={15} />
             </button>
-            {working ? (
+            {working && (
               <button
                 type="button"
                 aria-label="Stop"
                 title="Stop (Esc)"
                 onClick={() => void act({ action: "interrupt" })}
-                {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
+                {...stylex.props(
+                  ui.button,
+                  ui.iconButton,
+                  ui.pressable,
+                  empty ? styles.send : styles.stopBeside,
+                )}
               >
                 <Icon name="stop" size={14} />
               </button>
-            ) : (
+            )}
+            {/* While the agent works, the message waits for its next step. */}
+            {!(working && empty) && (
               <button
                 type="submit"
-                aria-label="Send"
-                title="Send (⌘↩)"
+                aria-label={working ? "Queue" : "Send"}
+                title={
+                  working ? `Queue for ${name}'s next step (⌘↩); ↑ takes it back` : "Send (⌘↩)"
+                }
                 disabled={empty || stopped}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >
@@ -946,18 +942,6 @@ const styles = stylex.create({
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
     fontSize: 11.5,
   },
-  meter: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11,
-    fontVariantNumeric: "tabular-nums",
-  },
-  meterFull: { color: tokens.accent },
-  meterTrack: { fill: "none", stroke: tokens.line, strokeWidth: 1.75 },
-  meterValue: { fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" },
   commands: {
     listStyle: "none",
     margin: 0,
@@ -1051,5 +1035,14 @@ const styles = stylex.create({
       default: tokens.primary,
       ":hover:not(:disabled)": `color-mix(in srgb, ${tokens.primary} 86%, ${tokens.canvas})`,
     },
+  },
+  // Stop beside Queue, while the agent works and the box has a message.
+  stopBeside: {
+    width: 26,
+    minWidth: 26,
+    minHeight: 26,
+    borderRadius: 999,
+    color: tokens.text,
+    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.pick },
   },
 });

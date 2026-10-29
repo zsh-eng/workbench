@@ -65,12 +65,19 @@ export const agentMessageSchema = z.object({
    * comment's `updatedAt` when Med read it. A later change is a draft. */
   noteVersions: z.record(z.string(), z.string()).optional(),
   attachmentCount: z.number().int().nonnegative(),
+  /** The images that went with it. */
+  imageCount: z.number().int().positive().optional(),
   createdAt: z.string(),
   /**
    * pending: Med keeps it until the agent runs `med review wait`.
    * delivered: the agent took it. queued: Codex has it in its queue.
    */
   delivery: z.enum(["pending", "delivered", "queued", "failed"]),
+  /** A pending message that came while the agent that Med runs worked. Med
+   * gives it at the agent's next step: when Claude Code runs tools, after
+   * which it reads the message in the same turn, or at the turn's end. Until
+   * then the user can take it back (`/agent/take`). */
+  queued: z.boolean().optional(),
   deliveredAt: z.string().optional(),
   error: z.string().optional(),
 });

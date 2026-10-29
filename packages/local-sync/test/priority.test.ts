@@ -425,7 +425,7 @@ describe("priority restore", () => {
       stateStore: { read: () => state, write: (next) => void (state = next) },
       priority: [syncTablePrefix("books")],
       remote: {
-        async *pullPrefixed() {
+        pullPrefixed(): never {
           throw new Error("Unexpected priority pull");
         },
         pull: async () => ({

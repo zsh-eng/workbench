@@ -26,6 +26,7 @@ import type {
   Since,
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
+import type { ThreadUsage } from "../../src/shared/model-usage";
 import type { ReviewGuide } from "../../src/shared/review-guide";
 import type { QuestionState } from "../../src/shared/questions";
 import type { BlameLoader } from "../../src/web/data/blame";
@@ -191,6 +192,8 @@ async function mountApp(
     vault?: boolean;
     /** The host's answer to "what changed since your last review". */
     since?: Since;
+    /** The thread's spend and context, as the host reads them from transcripts. */
+    usage?: ThreadUsage;
   } = {},
 ) {
   initializeTheme();
@@ -247,6 +250,8 @@ async function mountApp(
   });
   const pullRequestReads: string[] = [];
   let inbox = options.inbox;
+  /** Queued messages that the agent gets just before the user takes them back. */
+  const goneOnTake = new Set<string>();
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -477,6 +482,8 @@ async function mountApp(
             return () => transcriptListeners.delete(push);
           },
         );
+      if (url.pathname === "/api/thread-usage" && options.usage)
+        return Response.json(options.usage);
       if (url.pathname === "/api/reviews/saved/sessions/s1/events" && options.session)
         return options.sessionPages
           ? eventStream(() => options.session!)
@@ -496,8 +503,10 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
         const input = JSON.parse(String(init?.body)) as {
           id?: string;
+          sessionId?: string;
           text: string;
           noteIds: string[];
+          images?: unknown[];
         };
         if (options.answerAgentMessages) {
           const error = await new Promise<string | undefined>((answer) =>
@@ -512,17 +521,21 @@ async function mountApp(
           .drafts.filter((draft) => input.noteIds.includes(draft.id))
           .map(({ id: _id, replies: _replies, ...comment }) => comment);
         for (const id of input.noteIds) sentNotes.add(id);
+        // A session that Med runs and that works takes the message at its next step.
+        const queued = input.sessionId === "o1" && owned?.status === "working";
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
-          sessionId: "s1",
+          sessionId: input.sessionId === "o1" ? "o1" : "s1",
           agent: "claude",
           text: input.text,
           noteIds: input.noteIds,
           comments,
           attachmentCount: 0,
+          ...(input.images?.length ? { imageCount: input.images.length } : {}),
           createdAt: new Date().toISOString(),
           // A session that a terminal or another app runs takes the message later.
-          delivery: inbox.elsewhere?.s1 ? "pending" : "delivered",
+          delivery: inbox.elsewhere?.s1 || queued ? "pending" : "delivered",
+          ...(queued ? { queued: true } : {}),
         };
         inbox = {
           ...inbox,
@@ -530,6 +543,30 @@ async function mountApp(
           waiting: [],
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
+        return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
+        const { id } = JSON.parse(String(init?.body)) as { id: string };
+        const message = inbox.messages.find((entry) => entry.id === id && entry.queued);
+        // The agent's next step took it just before.
+        if (message && goneOnTake.has(message.text)) {
+          inbox = {
+            ...inbox,
+            messages: inbox.messages.map((entry) =>
+              entry === message ? { ...entry, queued: undefined, delivery: "delivered" } : entry,
+            ),
+          };
+          return Response.json(
+            { error: { code: "message-sent", message: "Sent" } },
+            { status: 409 },
+          );
+        }
+        if (!message)
+          return Response.json(
+            { error: { code: "message-sent", message: "Sent" } },
+            { status: 409 },
+          );
+        inbox = { ...inbox, messages: inbox.messages.filter((entry) => entry !== message) };
         return Response.json({ message, state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/since")
@@ -901,6 +938,7 @@ async function mountApp(
     agentAnswers,
     setOwned,
     setOwnedTranscript,
+    goneOnTake,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -2691,6 +2729,99 @@ describe("review guide", () => {
     await userEvent.keyboard("{Escape}");
   });
 
+  test("shows a proof table whose columns share the width, breaking long commands at their separators, and counts its checks", async () => {
+    // As an agent wrote it: one row's command and result are long, and one
+    // row's only code is in its result, so it is a note, not a check.
+    const command =
+      "./gradlew :telemetry:histogram-core-internal:test --tests 'ClassicBucketsTest'";
+    await mountApp({
+      savedReview: true,
+      iterationBriefs: [
+        "The first round.",
+        [
+          "## Proof",
+          "",
+          "| Check | Scope | Result |",
+          "| --- | --- | --- |",
+          `| \`${command}\` | for \`ClassicBuckets*\` and \`BucketBoundaryTest\` | 18 tests pass (2+9+7). CI on the branch is green across the three JVM targets after the rerun. |`,
+          "| `bun run lint` | all of `src/` | 1 error in src/beta.ts |",
+          "| Fixture | Generated | `histogram()` is `registry.timer(bucketName())`; the name has `platformVersion` and the bucket set |",
+        ].join("\n"),
+      ],
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof).toMatchTextContent(/^Proof1 of 2 failed/);
+    const table = proof.getByRole("table");
+    await expect.element(table.getByRole("cell", { name: command })).toBeVisible();
+    // The rows show once, in the table, not again as check rows.
+    expect(proof.getByText(command).elements()).toHaveLength(1);
+    const box = table.element() as HTMLElement;
+    const code = table.getByRole("cell", { name: command }).element().querySelector("code")!;
+    // The command can break at its separators, and nowhere in a word; its
+    // text stays as written, for a copy.
+    await expect
+      .poll(() => code.innerHTML)
+      .toBe(
+        "./gradlew :telemetry<wbr>:histogram-<wbr>core-<wbr>internal<wbr>:test --tests 'ClassicBucketsTest'",
+      );
+    expect(code.textContent).toBe(command);
+    // In the narrow column beside the Guide's rail, every column shows: the
+    // table fits without scrolling, the command takes a few lines, none of
+    // them a letter or two, and the result's prose wraps.
+    await page.viewport(1100, 800);
+    await expect.element(page.getByRole("navigation", { name: "Guide" })).toBeVisible();
+    await expect.poll(() => box.scrollWidth - box.clientWidth).toBeLessThanOrEqual(0);
+    const lines = [...code.getClientRects()];
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.length).toBeLessThanOrEqual(5);
+    for (const line of lines) expect(line.width).toBeGreaterThan(48);
+    // At phone width a table that cannot fit with whole words scrolls in its
+    // own box, and the page does not.
+    await page.viewport(390, 800);
+    await expect.poll(() => box.scrollWidth > box.clientWidth).toBe(true);
+    for (const part of [proof.element(), overview.element()])
+      await expect.poll(() => part.scrollWidth - part.clientWidth).toBeLessThanOrEqual(0);
+  });
+
+  test("a guide summary's proof shows once, in the Proof part, and the rest of the summary stays", async () => {
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: [
+          "Renames the export, so the CSV keeps its old column names.",
+          "",
+          "## Proof",
+          "",
+          "| Check | Result |",
+          "| --- | --- |",
+          "| `bun run test` | 3 passed |",
+          "",
+          "### Not covered",
+          "",
+          "- The import.",
+          "",
+          "## Read first",
+          "",
+          "The rename in alpha.ts; beta.ts follows it.",
+        ].join("\n"),
+        segments: [{ title: "Rename alpha", files: ["src/alpha.ts"] }],
+      },
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof.getByRole("table")).toBeVisible();
+    await expect.element(proof.getByText("The import.")).toBeVisible();
+    await expect
+      .element(overview.getByText("The rename in alpha.ts; beta.ts follows it."))
+      .toBeVisible();
+    await expect.element(overview.getByText(/^Renames the export/)).toBeVisible();
+    // One table, one list of misses, and no Proof heading in the summary.
+    expect(overview.getByRole("table").elements()).toHaveLength(1);
+    expect(overview.getByText("The import.").elements()).toHaveLength(1);
+    expect(overview.getByRole("heading", { name: "Proof", level: 2 }).elements()).toHaveLength(0);
+  });
+
   test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
     const guide: ReviewGuide = { segments: [{ title: "Rename", files: ["src/**"] }] };
     const overview = page.getByRole("region", { name: "Guide overview" });
@@ -2797,6 +2928,56 @@ describe("review guide", () => {
     await userEvent.keyboard("k");
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
     expect(JSON.parse(localStorage.getItem("med:viewed:v1:saved") ?? "[]")).toHaveLength(1);
+  });
+  test("the guide and the files rail are one nested sidebar that the reader hides and shows", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the export.",
+        segments: [
+          { title: "Rename alpha", files: ["src/alpha.ts"] },
+          { title: "Rename beta", files: ["src/beta.ts"] },
+        ],
+      },
+    });
+    const guide = page.getByRole("navigation", { name: "Guide" });
+    await expect.element(guide).toBeVisible();
+    // The toggle sits at the end of the review's row.
+    await page.getByRole("button", { name: "Hide the guide" }).click();
+    await expect.element(guide).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+    await expect
+      .element(page.getByRole("button", { name: "Show the guide" }))
+      .toHaveAttribute("aria-pressed", "false");
+    // The overview takes the room.
+    await expect.element(page.getByRole("region", { name: "Guide overview" })).toBeVisible();
+
+    // Hidden in the Guide, hidden beside the diff: one choice for the place.
+    // (The Changed files pane would list the files instead of the rail.)
+    await page.getByRole("tab", { name: "Changes" }).click();
+    await page.getByRole("button", { name: "Hide changed files" }).click();
+    const files = page.getByRole("navigation", { name: "Files and commits" });
+    await expect
+      .element(page.getByRole("button", { name: "Show files and commits" }))
+      .toBeVisible();
+    await expect.element(files).not.toBeInTheDocument();
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+    await expect.element(files).toBeVisible();
+    expect(localStorage.getItem("med:changes-rail")).toBe("open");
+
+    // Open holds in a pane too narrow for "auto", and the shortcut hides it again.
+    await page.viewport(700, 800);
+    await page.getByRole("tab", { name: "Review" }).click();
+    await expect.element(guide).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Hide the guide" })).toBeVisible();
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+    await expect.element(guide).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+    // There the row keeps its room: the button goes with the rail.
+    await expect
+      .element(page.getByRole("button", { name: "Show the guide" }))
+      .not.toBeInTheDocument();
   });
 });
 
@@ -2968,7 +3149,7 @@ describe("review brief", () => {
     // The Changed files pane holds the tree; without it, the rail does.
     const rail = page.getByRole("navigation", { name: "Files and commits" });
     await expect.element(rail).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Close changed files" }).click();
+    await page.getByRole("button", { name: "Hide changed files" }).click();
     await expect.element(rail).toBeVisible();
     await expect.element(rail.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
     const list = rail.getByRole("list", { name: "Commits" });
@@ -3728,6 +3909,187 @@ describe("agent session", () => {
     await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   });
 
+  test("the header shows the thread's context and spend, and a click shows where they come from", async () => {
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      usage: {
+        context: {
+          sessionId: "s1",
+          agent: "claude",
+          model: "claude-opus-5-5",
+          used: 312_932,
+          window: 1_000_000,
+          windowFrom: "model",
+          compaction: {
+            at: 500_000,
+            from: "modelSettings in ~/.claude/settings.json",
+            approximate: false,
+          },
+          compacted: false,
+        },
+        spend: {
+          total: 230.62,
+          subagents: { count: 4, cost: 40.44 },
+          models: [
+            {
+              model: "claude-opus-5-5",
+              requests: 812,
+              input: 41_000,
+              output: 690_000,
+              cacheWrite5m: 0,
+              cacheWrite1h: 3_100_000,
+              cacheRead: 410_000_000,
+              webSearches: 0,
+              cost: 230.62,
+            },
+            {
+              model: "gpt-test",
+              requests: 1,
+              input: 1000,
+              output: 300,
+              cacheWrite5m: 0,
+              cacheWrite1h: 0,
+              cacheRead: 4000,
+              webSearches: 0,
+              cost: null,
+            },
+          ],
+          missing: [],
+        },
+        prices: {
+          version: 1,
+          source: "https://platform.claude.com/docs/en/about-claude/pricing",
+          readAt: "2026-10-29",
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const panel = page.getByRole("region", { name: "Agent session" });
+    // The chip's name says its figures.
+    const chip = panel.getByRole("button", { name: "Context 31% full, $230.62 spent" });
+    await expect.element(chip).toMatchTextContent("$230.62");
+
+    await userEvent.click(chip);
+    const context = page.getByRole("region", { name: "Context" });
+    await expect
+      .element(context.getByRole("meter", { name: "Context in use" }))
+      .toHaveAttribute("aria-valuenow", "312932");
+    await expect.element(context.getByText("312,932 of 1M tokens")).toBeVisible();
+    await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await expect
+      .element(context.getByText("modelSettings in ~/.claude/settings.json"))
+      .toBeVisible();
+    const spend = page.getByRole("region", { name: "Spend" });
+    await expect.element(spend.getByText("$40.44 by 4 subagents")).toBeVisible();
+    await expect.element(spend.getByRole("cell", { name: "Opus 5.5" })).toBeVisible();
+    // A model without a price shows its tokens, and the total says it leaves it out.
+    await expect.element(spend.getByRole("cell", { name: "No price" })).toBeVisible();
+    await expect.element(spend.getByText(/no price for gpt-test/)).toBeVisible();
+    await expect
+      .element(spend.getByRole("link", { name: "Anthropic's pricing page" }))
+      .toHaveAttribute("href", "https://platform.claude.com/docs/en/about-claude/pricing");
+  });
+
+  test("a wide session pane shows the side panel, which the reader closes and opens again", async () => {
+    await page.viewport(2400, 900);
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      usage: {
+        context: {
+          sessionId: "s1",
+          agent: "claude",
+          model: "claude-opus-5-5",
+          used: 312_932,
+          window: 1_000_000,
+          windowFrom: "model",
+          compaction: {
+            at: 500_000,
+            from: "modelSettings in ~/.claude/settings.json",
+            approximate: false,
+          },
+          compacted: false,
+        },
+        spend: {
+          total: 230.62,
+          subagents: { count: 4, cost: 40.44 },
+          models: [
+            {
+              model: "claude-opus-5-5",
+              requests: 812,
+              input: 41_000,
+              output: 690_000,
+              cacheWrite5m: 0,
+              cacheWrite1h: 3_100_000,
+              cacheRead: 410_000_000,
+              webSearches: 0,
+              cost: 230.62,
+            },
+            {
+              model: "gpt-test",
+              requests: 1,
+              input: 1000,
+              output: 300,
+              cacheWrite5m: 0,
+              cacheWrite1h: 0,
+              cacheRead: 4000,
+              webSearches: 0,
+              cost: null,
+            },
+          ],
+          missing: [],
+        },
+        prices: {
+          version: 1,
+          source: "https://platform.claude.com/docs/en/about-claude/pricing",
+          readAt: "2026-10-29",
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const pane = page.getByRole("region", { name: "Agent session" });
+    const side = pane.getByRole("complementary", { name: "Session details" });
+    await expect.element(side).toBeVisible();
+    // The thread's column keeps its 540 pixels beside the panel: the message
+    // box is the column less its 12 pixel sides.
+    const box = () =>
+      pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
+    await expect.poll(box).toBeCloseTo(516, 0);
+    const context = side.getByRole("region", { name: "Context" });
+    await expect.element(context).toMatchTextContent(/^Context31%/);
+    await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await expect
+      .element(side.getByRole("region", { name: "Spend" }))
+      .toMatchTextContent(/^Spend\$230\.62/);
+    await expect
+      .element(
+        side.getByRole("region", { name: "Reviews" }).getByRole("button", { name: /Changes/ }),
+      )
+      .toBeVisible();
+    await expect
+      .element(side.getByRole("region", { name: "Environment" }))
+      .toMatchTextContent(/Claude/);
+    // The header leaves context and spend to the panel.
+    await expect
+      .element(pane.getByRole("button", { name: /^Context \d+% full/ }))
+      .not.toBeInTheDocument();
+
+    await pane.getByRole("button", { name: "Hide the side panel" }).click();
+    await expect.element(side).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:session-panel")).toBe("closed");
+    await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
+    await expect.poll(box).toBeCloseTo(516, 0);
+    await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
+    await expect.element(side).toBeVisible();
+    expect(localStorage.getItem("med:session-panel")).toBe("auto");
+
+    // A pane without room for the column and the panel has neither the panel nor its button.
+    await page.viewport(1100, 900);
+    await expect.element(side).not.toBeInTheDocument();
+    await expect.element(pane.getByRole("button", { name: /side panel/ })).not.toBeInTheDocument();
+  });
+
   test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {
     const { agentMessages } = await mountApp({
       savedReview: true,
@@ -4057,7 +4419,8 @@ describe("agent session", () => {
       commands: [{ name: "review", description: "Review the current changes" }],
       context: { used: 40_000, total: 200_000 },
     });
-    await expect.element(composer.getByRole("img", { name: "Context 20% full" })).toBeVisible();
+    // Before the transcript has a request, the header shows what the runner reports.
+    await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
     // Model, effort, and mode are pickers, not commands.
     await userEvent.click(composer.getByRole("combobox", { name: "Model" }));
     await userEvent.click(page.getByRole("option", { name: "Haiku" }));
@@ -4141,6 +4504,86 @@ describe("agent session", () => {
     await userEvent.click(composer.getByRole("button", { name: "Stop" }));
     await expect.element(composer.getByRole("button", { name: "Send" })).toBeVisible();
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
+  });
+
+  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages, goneOnTake } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /Claude Code/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Claude" });
+    const field = composer.getByRole("combobox", { name: "Message Claude" });
+    setOwned({ status: "working", settings: [], commands: [] });
+    // Working, with an empty box: Stop. With a message: Queue, and Stop beside it.
+    await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await expect.element(composer.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await userEvent.click(field);
+    await userEvent.keyboard("Round to minutes.");
+    await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await userEvent.click(composer.getByRole("button", { name: "Queue" }));
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
+    const queued = panel.getByText("Queued for Claude's next step");
+    await expect.element(queued).toBeVisible();
+    await expect.element(field).toHaveValue("");
+
+    // Edit takes it back into the box, before what the box holds.
+    await userEvent.click(field);
+    await userEvent.keyboard("And hours.");
+    await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
+    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
+    await expect.element(queued).not.toBeInTheDocument();
+
+    // Remove drops one; ↑ in the empty box takes back the rest, in order.
+    await userEvent.click(field);
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await userEvent.keyboard("Keep seconds.{Meta>}{Enter}{/Meta}");
+    await userEvent.keyboard("Test the hour.{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages.length).toBe(4);
+    await expect.element(panel.getByText("Keep seconds.")).toBeVisible();
+    const removes = panel.getByRole("button", { name: "Remove", exact: true });
+    await expect.poll(() => removes.elements().length).toBe(3);
+    await userEvent.click(removes.nth(1));
+    await expect.element(panel.getByText("Keep seconds.")).not.toBeInTheDocument();
+    // One that the agent takes meanwhile goes; the rest come back.
+    goneOnTake.add("Test the hour.");
+    await userEvent.click(field);
+    await userEvent.keyboard("{ArrowUp}");
+    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
+    await expect.element(queued).not.toBeInTheDocument();
+    await expect.element(panel.getByText("1 of them went to Claude already.")).toBeVisible();
+
+    // A queued image does not come back with its text, and the box says so.
+    setOwned({ status: "working", images: true, settings: [], commands: [] });
+    await userEvent.fill(field, "");
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const clipboard = new DataTransfer();
+    clipboard.items.add(
+      new File([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], "shot.png", {
+        type: "image/png",
+      }),
+    );
+    field
+      .element()
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+    await expect.element(composer.getByRole("list", { name: "Images to send" })).toBeVisible();
+    await userEvent.click(field);
+    await userEvent.keyboard("See the chart.{Meta>}{Enter}{/Meta}");
+    await expect.element(queued).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
+    await expect.element(field).toHaveValue("See the chart.");
+    await expect
+      .element(panel.getByText("Its attachment did not come back; add it again."))
+      .toBeVisible();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {

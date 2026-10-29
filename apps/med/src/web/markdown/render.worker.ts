@@ -1,4 +1,5 @@
 import { wikiLinks } from "./wiki";
+import { breakPieces } from "./breaks";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
@@ -21,6 +22,15 @@ const replyParser = unified()
 const stringify = unified().use(rehypeStringify);
 const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
+/** Text with a line break opportunity (<wbr>) at the separators of its long
+ * words (breaks.ts), so that a table column's narrowest width is its longest
+ * piece, not its longest word. Copied text is unchanged. */
+function breakable(value: string): Element["children"] {
+  return breakPieces(value).flatMap((piece, index) => [
+    ...(index ? [{ type: "element" as const, tagName: "wbr", properties: {}, children: [] }] : []),
+    ...(piece ? [{ type: "text" as const, value: piece }] : []),
+  ]);
+}
 const textOf = (node: RootContent): string =>
   node.type === "text" ? node.value : "children" in node ? node.children.map(textOf).join("") : "";
 const firstSourceLine = (node: RootContent): number | undefined => {
@@ -80,7 +90,7 @@ async function drain() {
       if (!known) throw new Error("The Markdown theme is not loaded. Reload the page.");
       const theme: AdapterTheme = known;
       highlighter.loadThemeSync(theme);
-      async function visit(node: RootContent, sourceLine: number): Promise<void> {
+      async function visit(node: RootContent, sourceLine: number, cell = false): Promise<void> {
         if (node.type !== "element") return;
         if (node.position) {
           node.properties.dataSourceLine = node.position.start.line;
@@ -227,7 +237,14 @@ async function drain() {
             }
           }
         }
-        for (const child of node.children) await visit(child, sourceLine);
+        // In a table, a long path or command can break at its separators, so
+        // that its column shares the width instead of pushing the last ones out.
+        const inCell = cell || node.tagName === "td" || node.tagName === "th";
+        if (inCell)
+          node.children = node.children.flatMap((child) =>
+            child.type === "text" ? breakable(child.value) : [child],
+          );
+        for (const child of node.children) await visit(child, sourceLine, inCell);
       }
       for (const node of tree.children) await visit(node, firstSourceLine(node) ?? 1);
       if (hasMath) {

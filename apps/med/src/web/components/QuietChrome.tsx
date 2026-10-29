@@ -36,6 +36,8 @@ export interface QuietMenuActions {
     };
   };
   workingFile?: { label: string; open(): void };
+  /** The Changed files pane, and its shortcut where it has one. */
+  changed?: Toggle & { shortcut?: string };
   session?: Toggle;
   files?: Toggle;
   openBranch?: () => void;
@@ -116,6 +118,7 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
                 ...item(
                   diff.rail && {
                     label: "Files and commits",
+                    shortcut: "Mod+Alt+B",
                     checked: diff.rail.on,
                     onClick: diff.rail.toggle,
                   },
@@ -137,6 +140,15 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
           label: actions.workingFile.label,
           letter: "o",
           onClick: actions.workingFile.open,
+        },
+      ),
+      ...item(
+        actions.changed && {
+          label: "Changed files",
+          ...(actions.changed.shortcut ? { shortcut: actions.changed.shortcut } : {}),
+          checked: actions.changed.on,
+          choice: true,
+          onClick: actions.changed.toggle,
         },
       ),
       ...item(

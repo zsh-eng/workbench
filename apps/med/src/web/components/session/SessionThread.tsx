@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
 import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
@@ -413,9 +413,11 @@ function Delivery({ message }: { message: SentMessage }) {
       ? ["Sending…"]
       : message.delivery === "pending"
         ? [
-            message.waitsFor
-              ? SESSION_PLACES[message.waitsFor].waiting
-              : `Waiting for ${agent} to take it`,
+            message.queued
+              ? `Queued for ${agent}'s next step`
+              : message.waitsFor
+                ? SESSION_PLACES[message.waitsFor].waiting
+                : `Waiting for ${agent} to take it`,
           ]
         : message.delivery === "queued"
           ? [`Queued for ${agent}`]
@@ -444,6 +446,16 @@ function Delivery({ message }: { message: SentMessage }) {
       {failed && message.discard && (
         <button type="button" onClick={message.discard} {...stylex.props(styles.deliveryAction)}>
           Discard
+        </button>
+      )}
+      {message.edit && (
+        <button type="button" onClick={message.edit} {...stylex.props(styles.deliveryAction)}>
+          Edit
+        </button>
+      )}
+      {message.remove && (
+        <button type="button" onClick={message.remove} {...stylex.props(styles.deliveryAction)}>
+          Remove
         </button>
       )}
     </span>
@@ -930,7 +942,11 @@ export function SessionThread({
   recap,
   endMark,
   onOpenLink,
+  backgroundIn,
 }: {
+  /** The side panel's place for the Background dock; without it, the dock
+   * shows under the thread. */
+  backgroundIn?: HTMLElement | null;
   snapshot: SessionSnapshot;
   /** The recap of a turn that ended unseen, at the end of the thread. It
    * takes the place of the plan for that turn. */
@@ -1579,9 +1595,11 @@ export function SessionThread({
     () => lastTurn(snapshot.items, snapshot.startedAt),
     [snapshot.items, snapshot.startedAt],
   );
+  // A note that the agent read during its turn stays in view after the
+  // turn's folded work; only a prompt starts a turn whose work has not folded.
   const folded =
     all.findLastIndex((unit) => "work" in unit) >
-    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user");
+    all.findLastIndex((unit) => "item" in unit && unit.item.kind === "user" && !unit.item.queued);
   // A message that waits for the agent ends the thread; the turn before it
   // already says how long it worked.
   const waitingMessage = last?.kind === "user" && (last.queued || !!last.sent);
@@ -1738,14 +1756,20 @@ export function SessionThread({
               )}
             </div>
             <div inert={!!agent} {...stylex.props(styles.docks)}>
-              <BackgroundDock
-                items={snapshot.items}
-                now={now}
-                // An agent task opens its thread; a shell's call shows in the thread.
-                onShow={(id) =>
-                  agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
-                }
-              />
+              {(() => {
+                const dock = (
+                  <BackgroundDock
+                    items={snapshot.items}
+                    now={now}
+                    card={!!backgroundIn}
+                    // An agent task opens its thread; a shell's call shows in the thread.
+                    onShow={(id) =>
+                      agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
+                    }
+                  />
+                );
+                return backgroundIn ? createPortal(dock, backgroundIn) : dock;
+              })()}
               {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
             </div>
             {agent && (
@@ -2154,6 +2178,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     lineHeight: 1.6,
     whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
   },
   groupHead: { cursor: "pointer" },
   work: {

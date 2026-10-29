@@ -197,7 +197,7 @@ import {
 } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
-import { isOpenFinding, readReviewOutput } from "../shared/review-output";
+import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
 import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
@@ -213,6 +213,7 @@ import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
+import type { ThreadLink } from "./components/session/SessionSidePanel";
 import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
@@ -237,6 +238,15 @@ function preloadPanes() {
   preloadFileEditor();
   CommitView.preload();
 }
+/** ⌘⌃B shows or hides the Changed files pane, beside ⌘B for the sidebar,
+ * ⌘⇧B for the session, and ⌘⌥B for the review's rail. Linux reads ⌘⌃ as
+ * Ctrl+Alt, which is the rail's, so there the button and ⌘K show it. */
+const CHANGED_SHORTCUT = platform === "mac" ? "Mod+Ctrl+B" : undefined;
+const CHANGED_HIDE = {
+  label: "Hide changed files",
+  icon: "panelLeft" as const,
+  ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
+};
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
@@ -395,6 +405,9 @@ const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> 
 
 /** The narrowest review pane that shows a split diff, in pixels. */
 const SPLIT_MIN_WIDTH = 760;
+/** The narrowest review pane that shows the Guide's rail on "auto"; the
+ * Overview lists the segments in a narrower one. */
+const GUIDE_RAIL_MIN_WIDTH = 721;
 /** Below this width, the line selection bar leaves out its label and keys. */
 const SELECTION_BAR_FULL_WIDTH = 420;
 /** The Question pane's width to aim for, in pixels; a narrow row gives it more. */
@@ -1021,6 +1034,7 @@ export function App({
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
+  const [guideRoomy, setGuideRoomy] = useState(true);
   // The Commit tab's file, for the status bar.
   const [commitPath] = useState(createPathValue);
   const [compactSelection, setCompactSelection] = useState(false);
@@ -1031,6 +1045,7 @@ export function App({
       const width = mainElement.clientWidth;
       if (!width) return;
       setRoomy(width >= SPLIT_MIN_WIDTH);
+      setGuideRoomy(width >= GUIDE_RAIL_MIN_WIDTH);
       setCompactSelection(width < SELECTION_BAR_FULL_WIDTH);
     };
     measure();
@@ -1039,6 +1054,30 @@ export function App({
     return () => observer.disconnect();
   }, [mainElement]);
   const mode = preferredMode === "split" && !roomy ? "unified" : preferredMode;
+  // A pane hidden from its header takes its button, and the focus, with it:
+  // the button that shows it again, where it was, takes the focus. The review
+  // widens as the pane goes, so the button can come a frame later, with room.
+  const panesShown = useRef({ changed: changedVisible, session: sessionVisible });
+  const focusShow = useRef<"changed" | "session">(undefined);
+  useLayoutEffect(() => {
+    const before = panesShown.current;
+    panesShown.current = { changed: changedVisible, session: sessionVisible };
+    const active = document.activeElement;
+    const lost =
+      !(active instanceof HTMLElement) || active === document.body || !active.checkVisibility();
+    if (before.changed && !changedVisible) focusShow.current = lost ? "changed" : undefined;
+    else if (before.session && !sessionVisible) focusShow.current = lost ? "session" : undefined;
+    const id = focusShow.current;
+    if (!id) return;
+    if (!lost || (id === "changed" ? changedVisible : sessionVisible)) {
+      focusShow.current = undefined;
+      return;
+    }
+    const button = visibleElement(`[data-pane-show="${id}"]`);
+    if (!button) return;
+    focusShow.current = undefined;
+    button.focus();
+  }, [changedVisible, sessionVisible, roomy]);
   const wrap = useViewSetting(viewSettings.wrap) === "on";
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
@@ -1660,14 +1699,24 @@ export function App({
     !zen &&
     !changedVisible &&
     gitAvailable;
-  // "auto" shows the rail in a pane with room for it; the reader's choice holds
-  // in any width.
-  const railChoice = useViewSetting(viewSettings.changesRail);
-  const railShown = changesRail && (railChoice === "open" || (railChoice === "auto" && roomy));
+  // The Guide's rail takes the same place in Review's Guide. The two are one
+  // nested sidebar: hiding it keeps it hidden between the Guide and the diff.
+  // "auto" shows it in a pane with room for it; the reader's choice holds in
+  // any width, so a pane at the edge of the breakpoint stays as chosen.
+  const guideRail = guideTab && !zen;
+  const railChoice = useViewSetting(viewSettings.reviewRail);
+  // The session's side panel shows where its pane has room (SessionPanel.tsx).
+  const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
+  const [sessionSideRoom, setSessionSideRoom] = useState(false);
+  const railRoom = guideRail ? guideRoomy : roomy;
+  const railOpen = railChoice === "open" || (railChoice === "auto" && railRoom);
+  const railShown = changesRail && railOpen;
+  const guideRailShown = guideRail && railOpen;
   const toggleRail = useCallback(
-    () => viewSettings.changesRail.set(railShown ? "closed" : "open"),
-    [railShown],
+    () => viewSettings.reviewRail.set(railOpen ? "closed" : "open"),
+    [railOpen],
   );
+  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "files and commits"}`;
   // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
   // the whole stack, or a range of layers, from one checkout.
   const stack = useMemo(
@@ -2896,6 +2945,48 @@ export function App({
           return;
         }
       }
+      // ⌘⌃B shows or hides the Changed files pane, in the shell or alone.
+      // Without Git it does nothing, rather than ⌘B's sidebar.
+      if (
+        CHANGED_SHORTCUT &&
+        event.metaKey &&
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyB"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat && gitAvailable) toggleChanged();
+        return;
+      }
+      // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.altKey &&
+        event.shiftKey &&
+        event.code === "KeyB"
+      ) {
+        const toggle = visibleElement("[data-session-panel] [data-side-panel-toggle]");
+        if (!toggle) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggle.click();
+        return;
+      }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyB" &&
+        (changesRail || guideRail)
+      ) {
+        // ⌘⌥B shows or hides the review's rail, the nested sidebar.
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleRail();
+        return;
+      }
       if (event.altKey) return;
       // On macOS, Command runs Med shortcuts. Leave unshifted Control+B/F/O in
       // the editor to Vim (page up/down, jump back) instead of Med's sidebar,
@@ -3172,6 +3263,10 @@ export function App({
     toggleTopFileViewed,
     shown,
     stepLayer,
+    changesRail,
+    guideRail,
+    toggleRail,
+    toggleChanged,
   ]);
 
   const selectBranch = useCallback(
@@ -4370,11 +4465,12 @@ export function App({
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
-    ...(shell
+    ...(shell && gitAvailable
       ? [
           {
             id: "changed-files",
             label: changedVisible ? "Hide changed files" : "Show changed files",
+            ...(CHANGED_SHORTCUT ? { shortcut: "⌘⌃B" } : {}),
             run: toggleChanged,
           },
         ]
@@ -4451,12 +4547,28 @@ export function App({
           },
         ]
       : []),
-    ...(changesRail
+    ...(changesRail || guideRail
       ? [
           {
             id: "changes-rail",
-            label: railShown ? "Hide files and commits" : "Show files and commits",
+            label: railLabel,
+            shortcut: "⌘⌥B",
             run: toggleRail,
+          },
+        ]
+      : []),
+    // As the side panel's own button: where the session's pane has room.
+    ...(sessionVisible && sessionSideRoom && !zen
+      ? [
+          {
+            id: "session-side-panel",
+            label:
+              sessionPanelChoice === "closed"
+                ? "Show the session's side panel"
+                : "Hide the session's side panel",
+            shortcut: "⌘⌥⇧B",
+            run: () =>
+              viewSettings.sessionPanel.set(sessionPanelChoice === "closed" ? "auto" : "closed"),
           },
         ]
       : []),
@@ -5114,6 +5226,15 @@ export function App({
         }
       : undefined;
   const overviewProof = reviewOutput.proof ?? turnProof;
+  // A summary's proof shows once, in the Proof part above it, which counts
+  // its checks and marks a failed one. A guide from an earlier version keeps
+  // its proof: this version's Proof part does not show it.
+  const guideSummary = resolvedGuide?.summary;
+  const overviewSummary = !guideSummary
+    ? reviewOutput.explainer
+    : ownGuideSummary === guideSummary && reviewOutput.proof
+      ? withoutProof(guideSummary) || reviewOutput.explainer
+      : guideSummary;
   // Practices that would help this version, offered one at a time; each can
   // be dismissed for good (docs/PRACTICES.md#d-suggestion-pack).
   const overviewOffers: Offer[] = [];
@@ -5125,7 +5246,7 @@ export function App({
       text: "A change that needs a fourth round often needs another approach. The round-limit practice asks the agent to stop after 3 rounds and rethink.",
       action: { kind: "copy", label: "Copy skill", text: roundLimitSkill },
     });
-  if (!resolvedGuide?.summary && !reviewOutput.explainer && agentReply)
+  if (!overviewSummary && agentReply)
     overviewOffers.push({
       id: "explain-first",
       slot: "explainer",
@@ -5386,11 +5507,59 @@ export function App({
     </span>
   );
   // Quiet chrome leaves the branch to the title band, which names the checkout.
-  const leading = !state.savedReview && !(quiet && shell) && (
+  const identityShown = !state.savedReview && !(quiet && shell);
+  // A hidden pane at the review's left leaves its button where the pane was,
+  // at the start of the review's row: a session with its agent's mark, as
+  // full chrome's button, and the changed files with the panel icon that
+  // hides them in their header. Alone, the identity's sidebar button shows
+  // the changed files; full chrome has its session button. Like the rail's
+  // at the row's other end, they show where the row has room; a narrow row
+  // keeps its tabs in place, and ⋯, the shortcuts and ⌘K still work.
+  const sessionShow = quiet && roomy && !sessionVisible && (agentSessions.length > 0 || found) && (
+    <ToolButton
+      icon={found?.agent ?? leadIcon}
+      label="Show agent session"
+      shortcut="Mod+Shift+B"
+      aria-pressed={false}
+      data-pane-show="session"
+      onClick={toggleSession}
+    />
+  );
+  const changedShow = gitAvailable && !changedVisible && roomy && !(identityShown && !shell) && (
+    <ToolButton
+      icon="panelLeft"
+      label="Show changed files"
+      {...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {})}
+      aria-pressed={false}
+      data-pane-show="changed"
+      onClick={toggleChanged}
+    />
+  );
+  const leading = (identityShown || sessionShow || changedShow) && (
     <>
-      {identity}
-      <span {...stylex.props(styles.headerDivider)} />
+      {sessionShow}
+      {changedShow}
+      {identityShown && (
+        <>
+          {identity}
+          <span {...stylex.props(styles.headerDivider)} />
+        </>
+      )}
     </>
+  );
+  // The nested sidebar's toggle, at the end of the review's row with the
+  // pane's other controls; the tabs keep their places. It stays where it
+  // is, so a hidden rail is one click back.
+  // The button shows where the rail has room, or while it shows; a narrow
+  // row keeps its room for the comparison, and ⌘⌥B or ⌘K still opens it.
+  const railToggle = (changesRail || guideRail) && (railOpen || railRoom) && (
+    <ToolButton
+      icon="panelLeft"
+      label={railLabel}
+      shortcut="Mod+Alt+B"
+      aria-pressed={railOpen}
+      onClick={toggleRail}
+    />
   );
   // Beside the thread, the review pane's own actions join the header's menu.
   const moreActions: MenuAction[] = [
@@ -5468,7 +5637,7 @@ export function App({
   const layerMenu = stack &&
     reviewShown &&
     !zen &&
-    !(railShown || (changedVisible && gitAvailable) || (guideTab && roomy)) && (
+    !(railShown || (changedVisible && gitAvailable) || guideRailShown) && (
       <LayerMenu
         stack={stack}
         current={Math.max(0, layerIndex)}
@@ -5648,6 +5817,13 @@ export function App({
             open: () => openWorkingFile(selectedFile.path),
           }
         : undefined,
+    changed: gitAvailable
+      ? {
+          on: changedVisible,
+          toggle: toggleChanged,
+          ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
+        }
+      : undefined,
     session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
     files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
     openBranch:
@@ -5715,6 +5891,7 @@ export function App({
       {streamChrome && roomy && totals}
       {comparisonActionsElement}
       {streamChrome && notes.length > 0 && notesToggle}
+      {railToggle}
       {state.savedReview ? (
         savedHeader(true)
       ) : (
@@ -5743,6 +5920,7 @@ export function App({
             </>
           ) : (
             <>
+              {railToggle}
               {sessionVisible && !zen && savedHeader(true)}
               {!(sessionVisible && !zen && state.savedReview) && viewControls}
               {controls}
@@ -5801,6 +5979,50 @@ export function App({
         .filter(Boolean)
         .join(" · ")
     : undefined;
+  // The session side panel's Reviews card.
+  const reviewVersion = shownIteration ?? 1;
+  const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
+  const sessionLinks: ThreadLink[] = [
+    ...(reviewAvailable
+      ? [
+          {
+            id: "review",
+            icon: "guide" as const,
+            label: "Review",
+            detail: approvals?.some((entry) => entry.version === reviewVersion)
+              ? `Version ${reviewVersion} · approved`
+              : hasGuide && shownGuideFiles.length
+                ? `Version ${reviewVersion} · ${guideViewedIds.size}/${shownGuideFiles.length} viewed`
+                : `Version ${reviewVersion}`,
+            onOpen: () => {
+              revealPane("review");
+              selectTab("review");
+            },
+          },
+        ]
+      : []),
+    {
+      id: "changes",
+      icon: "diff",
+      label: "Changes",
+      detail: "Live in the checkout",
+      onOpen: () => {
+        revealPane("review");
+        selectTab("changes");
+      },
+    },
+    ...(state.savedReview?.pullRequestUrl
+      ? [
+          {
+            id: "pull-request",
+            icon: "pullRequest" as const,
+            label: state.savedReview.pullRequestTitle ?? "Pull request",
+            ...(pullNumber ? { detail: `#${pullNumber}` } : {}),
+            href: state.savedReview.pullRequestUrl,
+          },
+        ]
+      : []),
+  ];
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -5849,6 +6071,7 @@ export function App({
                     onOpenPath={openFromPane}
                     fileRefs={fileRefs}
                     onClose={() => closePane("session")}
+                    onSideRoom={setSessionSideRoom}
                     pins={sessionPins}
                     controls={controls}
                     starter={sessionStarter}
@@ -5858,6 +6081,15 @@ export function App({
                     openAgent={openAgent}
                     recap={recapProps}
                     onContinue={continueInMed}
+                    links={sessionLinks}
+                    place={
+                      threadTarget
+                        ? {
+                            folder: threadTarget.repo,
+                            ...(threadTarget.branch ? { branch: threadTarget.branch } : {}),
+                          }
+                        : undefined
+                    }
                   />
                 )}
               </Suspense>
@@ -5885,6 +6117,7 @@ export function App({
                   onOpenPath={openFromPane}
                   fileRefs={fileRefs}
                   onClose={() => closePane("session")}
+                  onSideRoom={setSessionSideRoom}
                   openAgent={openAgent}
                 />
               </Suspense>
@@ -6076,7 +6309,7 @@ export function App({
               aria-hidden={!streamShown && !guideTab}
             >
               <div {...stylex.props(styles.guideRow)}>
-                {guideTab && !zen && (
+                {guideRailShown && (
                   <GuideRail
                     sections={guideSections}
                     commits={guideCommits}
@@ -6125,7 +6358,7 @@ export function App({
                       "Review"
                     }
                     meta={guideMeta}
-                    summary={resolvedGuide?.summary ?? reviewOutput.explainer}
+                    summary={overviewSummary}
                     from={
                       guideSource &&
                       shownIteration !== undefined &&
@@ -6168,15 +6401,6 @@ export function App({
                       {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
                       hidden={zen}
                     >
-                      {changesRail && (
-                        <ToolButton
-                          label={railShown ? "Hide files and commits" : "Show files and commits"}
-                          icon="panelLeft"
-                          aria-pressed={railShown}
-                          active={railShown}
-                          onClick={toggleRail}
-                        />
-                      )}
                       {layerMenu}
                       {comparisonSelect}
                       {comparisonActionsElement}
@@ -6649,6 +6873,7 @@ export function App({
             label: "Changed files",
             ariaLabel: "Changed files",
             icon: "diff" as const,
+            hide: CHANGED_HIDE,
             render: (controls: ReactNode) => (
               <>
                 <FileSidebar

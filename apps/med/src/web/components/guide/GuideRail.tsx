@@ -277,7 +277,7 @@ const styles = stylex.create({
   // A narrow pane gives the diff the room; the Overview lists the segments.
   rail: {
     position: "relative",
-    display: { default: "flex", "@container (max-width: 720px)": "none" },
+    display: "flex",
     flexDirection: "column",
     flexShrink: 0,
     minHeight: 0,
