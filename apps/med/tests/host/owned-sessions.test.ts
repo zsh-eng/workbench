@@ -250,7 +250,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
       name: "Claude Code",
       kind: "claude",
       available: true,
-      // A queued message joins Claude Code's turn by itself: no Send now.
+      // Claude Code takes a message after its tools, without steering the turn.
       capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
     },
     {

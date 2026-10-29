@@ -653,7 +653,9 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
   app that does not run `med review wait` gets its messages when that session
   ends, or in a fork with **Continue in Med**
   ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
-- **Codex** gets the message in its queue (`codex queue`), and the thread's
+- **Codex**: a thread that no process has open resumes in Med, through
+  Codex's app-server, and Med runs it from then on. One that Codex Desktop or
+  a terminal has open gets the message in its queue (`codex queue`), and its
   next turn reads it first, as a user message. Med finds `codex` on the PATH,
   in the ChatGPT app, or at `MED_CODEX_PATH`.
 

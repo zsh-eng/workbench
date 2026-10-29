@@ -46,23 +46,25 @@ export function createQueuedMessages(options: {
     if (status === "idle")
       await options.inbox.deliverPending(reviewId, sessionId, (body) => runner.prompt(body));
     else if (status === "working") {
-      // During the turn, only the messages sent now, where the agent can take them.
-      const take = runner.runsTools?.()
+      // During the turn, only the messages sent now, where the agent can take
+      // them: Claude Code while its tools run, Codex by steering the turn.
+      const tools = runner.runsTools?.() ? () => runner.runsTools!() : undefined;
+      const take = tools
         ? (body: string) => runner.prompt(body)
         : runner.steer
           ? (body: string) => runner.steer!(body)
           : undefined;
       if (!take) return;
-      const now = (await options.inbox.messages(reviewId))
-        .filter(
-          (message) =>
-            message.sessionId === sessionId &&
-            message.delivery === "pending" &&
-            message.queued &&
-            !message.afterTurn,
-        )
-        .map((message) => message.id);
-      if (now.length) await options.inbox.deliverPending(reviewId, sessionId, take, undefined, now);
+      // Checked again inside the inbox's lock: a turn that ended meanwhile
+      // takes them all, in order, as its next prompt.
+      const when = () => {
+        const now = runner.state();
+        return now.status === "working" && !now.halt && (!tools || tools());
+      };
+      await options.inbox.deliverPending(reviewId, sessionId, take, undefined, {
+        only: (message) => !!message.queued && !message.afterTurn,
+        when,
+      });
     }
     if (!(await options.inbox.pending(reviewId, sessionId))) stop(key(reviewId, sessionId));
   };

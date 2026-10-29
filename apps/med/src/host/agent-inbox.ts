@@ -253,15 +253,17 @@ export class AgentInbox {
     sessionId: string,
     deliver: (body: string) => Promise<void>,
     to?: AgentSession,
-    /** Only these messages, such as one that the user sends now. */
-    only?: readonly string[],
+    /** During the agent's turn: only the messages that `only` picks, and
+     * none once `when` no longer holds, as when the turn ended meanwhile. */
+    during?: { only(message: AgentMessage): boolean; when(): boolean },
   ) {
     return this.change(reviewId, async (messages) => {
       const waiting = messages.filter(
         (message) => message.sessionId === sessionId && message.delivery === "pending",
       );
+      if (during && !during.when()) return { delivered: 0, left: waiting.length };
       const due = waiting.filter(
-        (message) => !this.unconfirmed.has(message.id) && (!only || only.includes(message.id)),
+        (message) => !this.unconfirmed.has(message.id) && (!during || during.only(message)),
       );
       if (!due.length) return { delivered: 0, left: waiting.length };
       let error: string | undefined;

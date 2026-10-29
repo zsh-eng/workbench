@@ -190,15 +190,15 @@ Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
 `src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
 the page shows only the controls that work:
 
-| Capability | Claude Code    | Codex | agy                   | Other ACP |
-| ---------- | -------------- | ----- | --------------------- | --------- |
-| Send now   | No: needs none | Yes   | No                    | No        |
-| Stop       | Yes            | Yes   | Ends the process      | Yes       |
-| Approvals  | Cards          | Cards | Mode and allow rules  | Cards     |
-| Images     | Yes            | Yes   | No                    | When set  |
-| Resume     | Yes            | Yes   | Yes                   | No        |
-| Subagents  | Yes            | Yes   | Yes                   | No        |
-| Spend      | Yes            | Yes   | No (no Gemini prices) | No        |
+| Capability | Claude Code     | Codex                      | agy                   | Other ACP |
+| ---------- | --------------- | -------------------------- | --------------------- | --------- |
+| Send now   | After its tools | In the turn (`turn/steer`) | No                    | No        |
+| Stop       | Yes             | Yes                        | Ends the process      | Yes       |
+| Approvals  | Cards           | Cards                      | Mode and allow rules  | Cards     |
+| Images     | Yes             | Yes                        | No                    | When set  |
+| Resume     | Yes             | Yes                        | Yes                   | No        |
+| Subagents  | Yes             | Yes                        | Yes                   | No        |
+| Spend      | Yes             | Yes                        | No (no Gemini prices) | No        |
 
 ### Queued messages
 

@@ -26,7 +26,12 @@ import type {
   SavedPrDraft,
   Since,
 } from "../../src/shared/saved-review";
-import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
+import {
+  AGENT_CAPABILITIES,
+  type AgentPreset,
+  type OwnedAction,
+  type OwnedState,
+} from "../../src/shared/owned-session";
 import type { ThreadUsage } from "../../src/shared/model-usage";
 import type { ReviewGuide } from "../../src/shared/review-guide";
 import type { QuestionState } from "../../src/shared/questions";
@@ -260,6 +265,7 @@ async function mountApp(
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
   const steered: string[] = [];
+  let ownedKind: "claude" | "codex" | "acp" = "claude";
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -442,7 +448,10 @@ async function mountApp(
           fork?: string;
         };
         ownedStarts.push({ preset, ...(fork ? { fork } : {}) });
-        sessions = [...sessions, { agent: "claude", id: "o1", cwd: "/test/repo" }];
+        // The session is of the preset's kind: Claude Code, Codex, or ACP.
+        const kind = options.agents?.find((agent) => agent.id === preset)?.kind ?? "claude";
+        ownedKind = kind === "codex" ? "codex" : kind === "claude" ? "claude" : "acp";
+        sessions = [...sessions, { agent: ownedKind, id: "o1", cwd: "/test/repo" }];
         // Continue in Med: the messages that waited for the terminal go to the fork.
         if (fork && inbox)
           inbox = {
@@ -539,7 +548,7 @@ async function mountApp(
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
           sessionId: input.sessionId === "o1" ? "o1" : "s1",
-          agent: "claude",
+          agent: input.sessionId === "o1" ? ownedKind : "claude",
           text: input.text,
           noteIds: input.noteIds,
           comments,
@@ -4502,6 +4511,80 @@ describe("agent session", () => {
       .poll(() => agentMessages.at(-1))
       .toMatchObject({ text: "Then the docs.", afterTurn: true });
     localStorage.removeItem("med:follow-up");
+  });
+
+  test("Codex takes a message sent now in the turn that runs, and a queued one at its end or on Send now; an ACP agent only queues", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages, steered } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "codex", name: "Codex", kind: "codex", available: true }],
+    });
+    localStorage.removeItem("med:follow-up");
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page.getByRole("region", { name: "Start a session" }).getByRole("button", { name: /Codex/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Codex" });
+    const field = composer.getByRole("combobox", { name: "Message Codex" });
+    setOwned({
+      status: "working",
+      settings: [],
+      commands: [],
+      capabilities: AGENT_CAPABILITIES.codex,
+    });
+    await userEvent.click(field);
+    await userEvent.keyboard("Check the hour.");
+    await expect.element(composer.getByRole("button", { name: "Send now" })).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages.at(-1)).toMatchObject({ text: "Check the hour." });
+    expect(agentMessages.at(-1)).not.toHaveProperty("afterTurn");
+    await expect.element(panel.getByText("Queued for Codex's next step")).toBeVisible();
+    await expect
+      .element(panel.getByRole("button", { name: "Send now", exact: true }))
+      .not.toBeInTheDocument();
+
+    await userEvent.keyboard("Then the docs.{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Then the docs.", afterTurn: true });
+    await expect.element(panel.getByText("Queued until Codex's turn ends")).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Send now", exact: true }));
+    await expect.poll(() => steered).toHaveLength(1);
+    await expect.element(panel.getByText("Queued until Codex's turn ends")).not.toBeInTheDocument();
+  });
+
+  test("an ACP agent takes messages only between turns: its button is Queue, and a queued message has no Send now", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "fake", name: "OpenCode", kind: "acp", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /OpenCode/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const field = panel.getByRole("combobox", { name: /^Message / });
+    setOwned({
+      status: "working",
+      settings: [],
+      commands: [],
+      capabilities: AGENT_CAPABILITIES.acp,
+    });
+    await userEvent.click(field);
+    await userEvent.keyboard("Wait for me.");
+    await expect.element(panel.getByRole("button", { name: "Queue", exact: true })).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages.at(-1)).toMatchObject({ text: "Wait for me." });
+    await expect.element(panel.getByText(/^Queued until .*'s turn ends$/)).toBeVisible();
+    await expect
+      .element(panel.getByRole("button", { name: "Send now", exact: true }))
+      .not.toBeInTheDocument();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {
