@@ -30,6 +30,24 @@
   --z-index-toast: 50;
 }
 
+/* The restore island (packages/background-activity/src/island.css), from
+   Spaced's tokens. Light: the foreground, as the floating pills use it;
+   text 19.8:1, detail 7.7:1. Dark: the muted surface raised by 12% of the
+   foreground, 1.9:1 on the page; text 10.2:1, detail 5.0:1. */
+:root {
+  --ba-island-surface: hsl(var(--foreground));
+  --ba-island-text: hsl(var(--background));
+}
+.dark {
+  --ba-island-surface: color-mix(
+    in oklab,
+    hsl(var(--muted)),
+    hsl(var(--foreground)) 12%
+  );
+  --ba-island-text: hsl(var(--foreground));
+  --ba-island-edge: hsl(var(--foreground) / 0.16);
+}
+
 /* The tab bar's height, and the space a page keeps free for it on phones. */
 :root {
   --tabbar-height: 3.5rem;

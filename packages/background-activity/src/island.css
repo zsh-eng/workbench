@@ -1,6 +1,6 @@
 /*
- * The activity island (island.tsx). An app sets these at :root or on the
- * slot:
+ * The activity island (island.tsx). An app sets these from its own tokens,
+ * at :root, per theme, or on the slot:
  *
  *   --ba-island-surface, --ba-island-text, --ba-island-edge  colours
  *   --ba-island-height                                       36px
@@ -8,17 +8,22 @@
  *                                          the mark (50%, -50%), or its start
  *                                          (0, 0)
  *
- * The island is dark in both themes, as the Dynamic Island is; in dark mode
- * an edge keeps it apart from the page. It takes no taps: they reach the
- * mark under it.
+ * In light mode the island is near black, as the Dynamic Island is. In
+ * dark mode a near-black pill disappears into the page, so it is a raised
+ * surface, lighter than the page, with a hairline. Without an app's
+ * colours it uses these defaults, dark under `prefers-color-scheme: dark`
+ * or a `.dark` root, light under a `.light` root. Keep the text at 4.5:1
+ * or more on the surface for the detail too, which is the text at 62%.
+ * It takes no taps: they reach the mark under it.
  */
 .ba-island-slot {
   position: relative;
   display: inline-grid;
   place-items: center;
-  --ba-island-surface: #0c0c0d;
-  --ba-island-text: #f4f4f5;
-  --ba-island-edge: transparent;
+  /* Text 17.8:1, detail 7.1:1. */
+  --ba-island-default-surface: #0c0c0d;
+  --ba-island-default-text: #f4f4f5;
+  --ba-island-default-edge: transparent;
   /* SPRINGS.morph (response 0.4 s, damping 0.8) over a 150 px change, from
      packages/elements/src/spring.ts: 1.5% overshoot. */
   --ba-island-morph: linear(
@@ -56,6 +61,19 @@
   );
   --ba-island-morph-duration: 487ms;
 }
+/* Raised: 1.85:1 on a black page, text 10.4:1, detail 5.1:1. */
+@media (prefers-color-scheme: dark) {
+  :where(:root:not(.light)) .ba-island-slot {
+    --ba-island-default-surface: #3a3a3c;
+    --ba-island-default-text: #f5f5f7;
+    --ba-island-default-edge: rgb(255 255 255 / 0.14);
+  }
+}
+:where(.dark) .ba-island-slot {
+  --ba-island-default-surface: #3a3a3c;
+  --ba-island-default-text: #f5f5f7;
+  --ba-island-default-edge: rgb(255 255 255 / 0.14);
+}
 
 .ba-island-rest {
   display: inline-grid;
@@ -76,10 +94,10 @@
   height: var(--ba-island-height, 36px);
   overflow: hidden;
   border-radius: 999px;
-  background: var(--ba-island-surface);
-  color: var(--ba-island-text);
+  background: var(--ba-island-surface, var(--ba-island-default-surface));
+  color: var(--ba-island-text, var(--ba-island-default-text));
   box-shadow:
-    0 0 0 1px var(--ba-island-edge),
+    inset 0 0 0 1px var(--ba-island-edge, var(--ba-island-default-edge)),
     0 6px 18px rgb(0 0 0 / 0.16);
   pointer-events: none;
   opacity: 0;

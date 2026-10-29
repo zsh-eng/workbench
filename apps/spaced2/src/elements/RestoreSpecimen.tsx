@@ -158,6 +158,11 @@ function ArrivingCard() {
   );
 }
 
+/*
+ * The mock-ups drop Spaced's island colours (initial falls back to the
+ * shared defaults), so they show what an app without its own gets.
+ */
+
 /**
  * Reader's Library on a phone, as the island would show its restore: it
  * grows out of the activity glyph in the filter row, and the covers
@@ -183,7 +188,7 @@ function ReaderMock() {
             label: "Restoring library",
             detail: "12 books",
           }}
-          className="h-9 w-9 [--ba-island-left:0] [--ba-island-shift:0] dark:[--ba-island-edge:rgb(255_255_255/0.16)]"
+          className="h-9 w-9 [--ba-island-left:0] [--ba-island-shift:0] [--ba-island-surface:initial] [--ba-island-text:initial] [--ba-island-edge:initial]"
         >
           <span className="grid size-9 place-items-center rounded-full border border-current/15">
             <MiniRing fraction={null} />
@@ -225,7 +230,7 @@ function ArcticMock() {
             label: "Getting your library",
             detail: "340 links",
           }}
-          className="h-10 w-24 dark:[--ba-island-edge:rgb(255_255_255/0.16)]"
+          className="h-10 w-24 [--ba-island-surface:initial] [--ba-island-text:initial] [--ba-island-edge:initial]"
         >
           <span className="text-[17px] font-semibold">Saved</span>
         </ActivityIsland>
