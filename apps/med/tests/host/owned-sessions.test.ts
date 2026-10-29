@@ -21,6 +21,9 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
+import type { RunningSession } from "../../src/shared/found-sessions";
+import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { longProcess, processStart, writeProcessRecord } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
 /** A one-pixel PNG, in base64. */
@@ -147,9 +150,9 @@ async function fixture({ key }: { key?: string } = {}) {
     })
   ).data;
   /** The session's thread, as the browser reads it. */
-  const thread = async (sessionId: string) => {
+  const thread = async (sessionId: string, reviewId = review.id) => {
     const response = await fetch(
-      `http://127.0.0.1:${host.port}/api/reviews/${review.id}/sessions/${sessionId}/events`,
+      `http://127.0.0.1:${host.port}/api/reviews/${reviewId}/sessions/${sessionId}/events`,
       { headers: { authorization: `Bearer ${host.token}` } },
     );
     expect(response.status).toBe(200);
@@ -1385,4 +1388,207 @@ test("Med runs agy in stream-json: refused actions say why, queued messages wait
   expect((await runs())[1]!.args).toEqual(
     expect.arrayContaining(["--conversation", "1f892c8e-f601-4c2f-b28c-e5f7d7b6e969"]),
   );
+});
+
+/** A process in `cwd` that holds `paths` open, as Codex and agy hold their
+ * lock files while they run a conversation. */
+async function holdOpen(cwd: string, paths: string[]) {
+  for (const path of paths) {
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(path, "");
+  }
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      "for (const path of process.argv.slice(1)) require('fs').openSync(path, 'r'); setInterval(() => {}, 1000)",
+      ...paths,
+    ],
+    { cwd, stdio: "ignore" },
+  );
+  const exited = once(child, "exit");
+  await once(child, "spawn");
+  return {
+    async end() {
+      child.kill();
+      await exited;
+    },
+  };
+}
+
+test("Running now lists the sessions that run in Med and elsewhere; an agy conversation continues in Med once its process ends, from its history", async () => {
+  const { api, home, repo, review, start, thread } = await fixture();
+  const lines = (entries: object[]) =>
+    entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+  const ends: (() => Promise<void>)[] = [];
+  try {
+    // Claude Code in a terminal.
+    const claude = "5d0c4b6a-1e2f-4a3b-9c8d-7e6f5a4b3c2d";
+    const project = join(home, ".claude", "projects", claudeProjectFolder(repo));
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, `${claude}.jsonl`),
+      lines([
+        {
+          type: "user",
+          cwd: repo,
+          sessionId: claude,
+          uuid: "u1",
+          timestamp: new Date().toISOString(),
+          message: { role: "user", content: "Tidy the duration helpers." },
+        },
+      ]),
+    );
+    const terminal = await longProcess();
+    ends.push(terminal.end);
+    await writeProcessRecord(home, terminal.pid, {
+      pid: terminal.pid,
+      sessionId: claude,
+      cwd: repo,
+      procStart: processStart(terminal.pid),
+      entrypoint: "cli",
+    });
+    // Codex with a thread open, and a guardian review that does not list.
+    const day = new Date();
+    const sessions = join(
+      home,
+      ".codex",
+      "sessions",
+      String(day.getFullYear()),
+      String(day.getMonth() + 1).padStart(2, "0"),
+      String(day.getDate()).padStart(2, "0"),
+    );
+    await mkdir(sessions, { recursive: true });
+    const codex = "01a189b0-0000-7000-8000-000000000001";
+    const guardian = "01a189b0-0000-7000-8000-000000000002";
+    for (const [id, source, text] of [
+      [codex, "cli", "Port the parser."],
+      [guardian, { subagent: { other: "guardian" } }, "Review this command."],
+    ] as const)
+      await writeFile(
+        join(sessions, `rollout-2026-10-30T06-00-00-${id}.jsonl`),
+        lines([
+          {
+            timestamp: new Date().toISOString(),
+            type: "session_meta",
+            payload: { id, cwd: repo, source },
+          },
+          {
+            timestamp: new Date().toISOString(),
+            type: "response_item",
+            payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+          },
+        ]),
+      );
+    const locks = join(home, ".codex", "thread-writer-locks");
+    const codexApp = await holdOpen(repo, [
+      join(locks, `${codex}.lock`),
+      join(locks, `${guardian}.lock`),
+    ]);
+    ends.push(codexApp.end);
+    // agy in a terminal, in the repository.
+    const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
+    const brain = join(
+      home,
+      ".gemini",
+      "antigravity-cli",
+      "brain",
+      agy,
+      ".system_generated",
+      "logs",
+    );
+    await mkdir(brain, { recursive: true });
+    await writeFile(
+      join(brain, "transcript.jsonl"),
+      lines([
+        {
+          step_index: 0,
+          source: "USER",
+          type: "USER_INPUT",
+          status: "DONE",
+          content: "<USER_REQUEST>\nName the files.\n</USER_REQUEST>",
+        },
+        {
+          step_index: 1,
+          source: "MODEL",
+          type: "PLANNER_RESPONSE",
+          status: "DONE",
+          content: "There is one: summary.ts.",
+        },
+      ]),
+    );
+    const agyTerminal = await holdOpen(repo, [
+      join(home, ".gemini", "antigravity-cli", "presence", `${agy}.lock`),
+    ]);
+    ends.push(agyTerminal.end);
+    // Codex in Med, at work on a turn: its card waits.
+    const owned = await start("codex", { model: "gpt-6-luna" });
+    await owned.until((state) => state.status === "idle");
+    await api(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: owned.id,
+      text: "Run ls -1, then name the files.",
+      noteIds: [],
+    });
+    await owned.until((state) => !!state.permission);
+
+    const running = async () =>
+      (await api<{ sessions: RunningSession[] }>("/api/sessions/running")).data.sessions;
+    expect(await running()).toEqual([
+      {
+        agent: "codex",
+        id: owned.id,
+        title: "Format durations",
+        cwd: repo,
+        place: "med",
+        thread: review.id,
+      },
+      {
+        agent: "claude",
+        id: claude,
+        title: "Tidy the duration helpers",
+        cwd: repo,
+        place: "terminal",
+      },
+      { agent: "codex", id: codex, title: "Port the parser", cwd: repo, place: "other-app" },
+      { agent: "agy", id: agy, title: "Name the files.", cwd: repo, place: "terminal" },
+    ]);
+
+    // agy has one writer: Med continues the conversation once agy ends.
+    const adopt = () =>
+      api<{ id: string; created: boolean; message?: string }>("/api/sessions/adopt", {
+        agent: "agy",
+        session: agy,
+        repo,
+        title: "Name the files",
+      });
+    const refused = await adopt();
+    expect(refused.status).toBe(409);
+    await agyTerminal.end();
+    const adopted = await adopt();
+    expect(adopted.data).toMatchObject({ created: true });
+    const saved = await api<{ sessions: { id: string; agent: string; name?: string }[] }>(
+      `/api/reviews/${adopted.data.id}`,
+    );
+    const [session] = saved.data.sessions;
+    expect(session).toMatchObject({ agent: "acp", name: "Antigravity" });
+    expect((await adopt()).data).toMatchObject({ id: adopted.data.id, created: false });
+    // Its thread starts with the conversation's history; the next message
+    // resumes the conversation in agy.
+    const replies = await thread(session!.id, adopted.data.id);
+    await vi.waitFor(() => expect(replies()).toEqual(["There is one: summary.ts."]));
+    await api(`/api/reviews/${adopted.data.id}/agent/messages`, {
+      sessionId: session!.id,
+      text: "Say ok.",
+      noteIds: [],
+    });
+    await vi.waitFor(async () => {
+      const runs = (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => (JSON.parse(line) as { args: string[] }).args);
+      expect(runs.at(-1)).toEqual(expect.arrayContaining(["--conversation", agy]));
+    });
+  } finally {
+    for (const end of ends) await end().catch(() => {});
+  }
 });

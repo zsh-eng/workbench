@@ -31,12 +31,14 @@ import {
 } from "./owned-sessions";
 import { HostError } from "./runtime/errors";
 import { userHome } from "./service/discover";
+import { HEAD_BYTES, readEdge } from "./found-sessions";
 
 // Antigravity's CLI, `agy`, in headless stream-json mode: one process keeps
 // a conversation open and runs a turn for each line on its input
 // (`{"event":"user","message":{...}}`). It writes `init`, `step_update`, and
-// one `result` per turn. Med logs the updates as for an ACP agent, because
-// agy's own history is not a format that Med reads.
+// one `result` per turn. Med logs the updates as for an ACP agent: agy's
+// transcript has no turn boundaries or results. A conversation that Med
+// continues shows the transcript's history first (`agyHistory`).
 //
 // Headless agy cannot ask: a tool that needs approval is refused, and the
 // turn's result lists it in `denied_actions`. Its mode (`--mode`,
@@ -52,6 +54,8 @@ import { userHome } from "./service/discover";
 const STREAM_MS = 80;
 /** A subagent's transcript is read this often while its parent works. */
 const CHILD_MS = 1000;
+/** The end of a transcript that a continued conversation shows. */
+const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
 
 type Json = Record<string, any>;
 const record = (value: unknown): Json | undefined =>
@@ -135,13 +139,27 @@ function toolOf(info: Json | undefined, name: string) {
 const requestText = (content: string) =>
   /<USER_REQUEST>\n?([\s\S]*?)\n?<\/USER_REQUEST>/.exec(content)?.[1] ?? content;
 
+/** Where agy keeps a conversation's transcript. */
+export const agyTranscript = (home: string, id: string) =>
+  join(
+    home,
+    ".gemini",
+    "antigravity-cli",
+    "brain",
+    id,
+    ".system_generated",
+    "logs",
+    "transcript.jsonl",
+  );
+
 /**
- * Reads a subagent's transcript (`brain/<id>/.system_generated/logs/transcript.jsonl`)
- * into the call that started it. It holds the subagent's task, its replies,
- * and its tool calls; their results follow as their own steps.
+ * Reads an agy transcript (`brain/<id>/.system_generated/logs/transcript.jsonl`):
+ * a subagent's, into the call that started it, or a conversation's that Med
+ * did not start. It holds the task or the requests, the replies, and the
+ * tool calls; their results follow as their own steps.
  */
-function createChildReader(parentToolCallId: string) {
-  const meta = { _meta: { med: { parentToolCallId } } };
+function createTranscriptReader(prefix: string, parentToolCallId?: string) {
+  const meta = parentToolCallId ? { _meta: { med: { parentToolCallId } } } : {};
   const open: string[] = [];
   return (line: string): SessionUpdate[] => {
     let step: Json | undefined;
@@ -151,9 +169,9 @@ function createChildReader(parentToolCallId: string) {
       return [];
     }
     if (!step) return [];
-    const id = `${parentToolCallId}-${step.step_index}`;
+    const id = `${prefix}-${step.step_index}`;
     const content = typeof step.content === "string" ? step.content : "";
-    if (step.type === "SYSTEM_MESSAGE" && !open.length) {
+    if (step.type === "SYSTEM_MESSAGE" && parentToolCallId && !open.length) {
       const task = /content=([\s\S]*?)\n<\/SYSTEM_MESSAGE>/.exec(content)?.[1];
       return task
         ? [{ sessionUpdate: "user_message_chunk", content: { type: "text", text: task }, ...meta }]
@@ -188,7 +206,7 @@ function createChildReader(parentToolCallId: string) {
           toolCallId: callId,
           status: "in_progress",
           ...toolOf({ parameters: record(call)?.args }, name),
-          _meta: { med: { parentToolCallId, tool: name } },
+          _meta: { med: { ...(parentToolCallId && { parentToolCallId }), tool: name } },
         });
       }
       return updates;
@@ -227,6 +245,8 @@ export interface AgyOptions {
   sessionId?: string;
   /** agy's conversation, to resume with `--conversation`. */
   conversation?: string;
+  /** What the conversation said before Med ran it. */
+  history?: SessionUpdate[];
   onConversation?(id: string): void;
   env?: () => Record<string, string>;
   choices?: AgentChoices;
@@ -347,17 +367,8 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
     } catch {
       path = undefined;
     }
-    path ??= join(
-      (options.home ?? userHome)(),
-      ".gemini",
-      "antigravity-cli",
-      "brain",
-      id,
-      ".system_generated",
-      "logs",
-      "transcript.jsonl",
-    );
-    children.set(id, { path, offset: 0, read: createChildReader(callId) });
+    path ??= agyTranscript((options.home ?? userHome)(), id);
+    children.set(id, { path, offset: 0, read: createTranscriptReader(callId, callId) });
     childTimer ??= setInterval(() => void readChildren().catch(() => {}), CHILD_MS);
   };
   const endTurn = () => {
@@ -558,6 +569,7 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
     );
   };
 
+  for (const update of options.attach ? [] : (options.history ?? [])) push(update);
   let attached: Promise<void> = Promise.resolve();
   if (options.attach) {
     const token = {};
@@ -659,4 +671,32 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
       held = undefined;
     },
   };
+}
+
+/** The first request of an agy conversation, as its title. */
+export async function agyTitle(home: string, id: string) {
+  const { lines } = await readEdge(agyTranscript(home, id), "head", HEAD_BYTES).catch(() => ({
+    lines: [] as string[],
+  }));
+  for (const line of lines) {
+    try {
+      const step = record(JSON.parse(line));
+      if (step?.type === "USER_INPUT" && typeof step.content === "string")
+        return requestText(step.content).trim().split("\n")[0]!.slice(0, 200);
+    } catch {
+      /* Not a step. */
+    }
+  }
+  return undefined;
+}
+
+/** A conversation's history from agy's transcript, for a session that Med
+ * continues: it shows before Med's own turns. */
+export async function agyHistory(home: string, id: string): Promise<SessionUpdate[]> {
+  const path = agyTranscript(home, id);
+  const { lines } = await readEdge(path, "tail", MAX_HISTORY_BYTES).catch(() => ({
+    lines: [] as string[],
+  }));
+  const read = createTranscriptReader(id);
+  return lines.flatMap((line) => read(line));
 }

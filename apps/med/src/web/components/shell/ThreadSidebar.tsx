@@ -33,6 +33,7 @@ import { withAttempts } from "../attempts/AttemptGroupRow";
 import { Icon, type IconName } from "../Icon";
 import { ShortcutKeys } from "../ShortcutKeys";
 import { RenameField } from "./RenameField";
+import { RunningNow } from "./RunningNow";
 import { StreamHeader, StreamTabs, type SidebarStream, type StreamActions } from "./StreamHeader";
 import { ToolButton } from "../ToolButton";
 
@@ -582,6 +583,13 @@ export function ThreadSidebar({
       </ContextMenu.Root>
       {notice}
       {scheduled}
+      <RunningNow
+        onOpen={(id, title) => {
+          const thread = threads.find((entry) => entry.id === id);
+          if (thread) openThread(thread);
+          else onOpen({ kind: "review", reviewId: id, title });
+        }}
+      />
       <section aria-label="Repositories" {...stylex.props(styles.sources)}>
         <div {...stylex.props(styles.sourcesHeader)}>
           <button

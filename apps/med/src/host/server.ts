@@ -119,6 +119,8 @@ import {
   foundUpdateSchema,
   sessionAdoptSchema,
   sessionFindSchema,
+  type RunningSession,
+  type SessionAdopt,
   type SessionAdopted,
 } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
@@ -528,6 +530,72 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   /** The saved thread that names a session: by its ID, or for a session
    * that Med runs through ACP, by the agent's own ID. */
+  /** Running now: Med's agents that work on a turn, then the sessions that
+   * other processes have open, each with its thread if one has it. */
+  const runningSessions = async (): Promise<RunningSession[]> => {
+    const running = await ownedSessions.running();
+    const named = await sessionThreads();
+    const titles = new Map((await savedReviews.list()).map((review) => [review.id, review.title]));
+    const infos = new Map(
+      (
+        await sessionSearch.exactly([
+          ...running.claude.map(({ id }) => ({ agent: "claude" as const, id })),
+          ...running.codex.map(({ id }) => ({ agent: "codex" as const, id })),
+        ])
+      ).map((info) => [`${info.agent}:${info.id}`, info]),
+    );
+    const thread = (id: string) => {
+      const found = named.get(id)?.id;
+      return found ? { thread: found } : {};
+    };
+    const sessions: RunningSession[] = running.med.map(({ session, kind, name }) => {
+      const saved = named.get(session.id)?.id;
+      return {
+        agent: kind,
+        id: session.id,
+        title: (saved && titles.get(saved)) ?? name,
+        cwd: session.cwd,
+        place: "med",
+        ...thread(session.id),
+      };
+    });
+    for (const { id, cwd, place } of running.claude) {
+      const info = infos.get(`claude:${id}`);
+      const where = info?.cwd ?? cwd;
+      sessions.push({
+        agent: "claude",
+        id,
+        title: info?.title ?? "New Claude Code session",
+        ...(where && { cwd: where }),
+        place,
+        ...thread(id),
+      });
+    }
+    for (const { id } of running.codex) {
+      const info = infos.get(`codex:${id}`);
+      // A guardian review or a subagent shows in its parent; a thread
+      // without a rollout has nothing to keep yet.
+      if (!info || info.automatic) continue;
+      sessions.push({
+        agent: "codex",
+        id,
+        title: info.title,
+        ...(info.cwd && { cwd: info.cwd }),
+        place: "other-app",
+        ...thread(id),
+      });
+    }
+    for (const { id, cwd, title } of running.agy)
+      sessions.push({
+        agent: "agy",
+        id,
+        title: title ?? "Antigravity conversation",
+        ...(cwd && { cwd }),
+        place: "terminal",
+        ...thread(id),
+      });
+    return sessions;
+  };
   const sessionThreads = async () => {
     const reviews = await savedReviews.list();
     const threads = new Map<string, { id: string; archived?: boolean }>();
@@ -1393,6 +1461,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send({ sessions: await sessionEntries(sessions) });
           return;
         }
+        // The agent sessions that run now, in Med or elsewhere ("Running now").
+        if (url.pathname === "/api/sessions/running" && request.method === "GET") {
+          send({ sessions: await runningSessions() });
+          return;
+        }
         if (url.pathname === "/api/agents" && request.method === "GET") {
           send({ agents: await ownedSessions.agents() });
           return;
@@ -2053,11 +2126,65 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(review);
             return;
           }
+          // Continue in Med: an agy conversation that no process has open
+          // becomes a thread whose agent Med runs, from its history. agy
+          // has one writer: one that runs elsewhere has to end there first.
+          const continueAgy = async (input: SessionAdopt): Promise<SessionAdopted> => {
+            const id = input.session;
+            if (!/^[A-Za-z0-9_-]{1,128}$/.test(id))
+              throw new HostError("session-not-found", "Choose an agy conversation ID.", 400);
+            const named = (await sessionThreads()).get(id);
+            if (named) {
+              if (named.archived) await threads.open(named.id, { restore: true });
+              const review = await savedReviews.get(named.id);
+              return { id: review.id, title: review.title, created: false };
+            }
+            const agent = (await ownedSessions.agents()).find(
+              (entry) => entry.kind === "agy" && entry.available,
+            );
+            if (!agent) throw new HostError("agent-unavailable", "agy is not installed here.", 409);
+            if (await ownedSessions.lockedElsewhere("agy", id))
+              throw new HostError(
+                "session-open",
+                "agy has this conversation open in another process. End it there (Ctrl-C twice), then continue in Med.",
+                409,
+              );
+            const place = input.repo ? await found.locate(input.repo) : undefined;
+            if (!input.repo || !place?.checkout)
+              throw new HostError(
+                "session-checkout",
+                `The conversation's folder${input.repo ? ` ${input.repo}` : ""} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")} first.`,
+                409,
+              );
+            const title = input.title ?? "Antigravity conversation";
+            const key = `${threadSlug(title)}-${id.slice(0, 8)}`;
+            const created = await savedReviews.create(
+              { title, key, sessions: [], targets: [] },
+              captureTarget,
+              assertRequestAccess,
+              await placeCheckout(place.checkout.path),
+            );
+            const runner = await ownedSessions.start(agent.id, input.repo, {
+              key,
+              conversation: id,
+            });
+            const review = await savedReviews.details(
+              created.id,
+              { sessions: [runner.session] },
+              assertRequestAccess,
+            );
+            await threads.opened(review);
+            return { id: review.id, title: review.title, created: true };
+          };
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
           // a thread names already gives that thread, back from history as a tab.
           if (url.pathname === "/api/sessions/adopt" && request.method === "POST") {
             const input = sessionAdoptSchema.parse(await readBody(request));
+            if (input.agent === "agy") {
+              send(await continueAgy(input));
+              return;
+            }
             const matches = await sessionSearch.lookup(input.session);
             if (matches.length !== 1)
               throw new HostError(

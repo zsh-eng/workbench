@@ -23,8 +23,8 @@ import {
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
 import { compactUpdate } from "./agent-transcripts";
-import { heldLocks, lockFolders } from "./agent-locks";
-import { probeAgy, startAgy } from "./agy-runner";
+import { heldLocks, lockFolders, processCwd } from "./agent-locks";
+import { agyHistory, agyTitle, probeAgy, startAgy } from "./agy-runner";
 import { probeCodex, startCodex, type CodexModel } from "./codex-runner";
 import {
   attachHeld,
@@ -1959,6 +1959,43 @@ export class OwnedSessions {
     const own = new Set(this.pids());
     return (await heldLocks(folder)).get(id)?.some((pid) => !own.has(pid)) ?? false;
   }
+  /**
+   * The agent sessions that run on this computer now: Med's that work on a
+   * turn, and the Claude Code, Codex, and agy sessions that other processes
+   * have open (session-processes.ts, agent-locks.ts).
+   */
+  async running() {
+    const home = this.options.home?.() ?? userHome();
+    const own = new Set(this.pids());
+    const folders = lockFolders(home);
+    const [claude, codex, agy] = await Promise.all([
+      this.processes.running(),
+      heldLocks(folders.codex),
+      heldLocks(folders.agy),
+    ]);
+    const outside = (held: Map<string, number[]>) =>
+      [...held].flatMap(([id, pids]) => {
+        const pid = pids.find((entry) => !own.has(entry));
+        return pid ? [{ id, pid }] : [];
+      });
+    return {
+      med: [...this.runners.values()]
+        .filter((runner) => runner.state().status === "working" && !runner.dormant())
+        .map((runner) => ({
+          session: runner.session,
+          kind: this.records[runner.session.id]?.kind ?? "acp",
+          name: runner.state().name,
+        })),
+      claude,
+      codex: outside(codex),
+      agy: await Promise.all(
+        outside(agy).map(async ({ id, pid }) => {
+          const [cwd, title] = await Promise.all([processCwd(pid), agyTitle(home, id)]);
+          return { id, pid, ...(cwd && { cwd }), ...(title && { title }) };
+        }),
+      ),
+    };
+  }
   async agents(): Promise<AgentPreset[]> {
     return (await this.options.agents()).map(({ id, name, kind, available, capabilities }) => ({
       id,
@@ -2113,7 +2150,16 @@ export class OwnedSessions {
   async start(
     presetId: string,
     cwd: string,
-    { key, choices }: { key?: string; choices?: AgentChoices } = {},
+    {
+      key,
+      choices,
+      conversation,
+    }: {
+      key?: string;
+      choices?: AgentChoices;
+      /** An agy conversation that Med continues, with its history. */
+      conversation?: string;
+    } = {},
   ): Promise<OwnedRunner> {
     const agent = await this.agent(presetId);
     // A thread keeps the mode that it last chose for Claude Code.
@@ -2154,6 +2200,10 @@ export class OwnedSessions {
         onConversation: (id) => this.noteAgentSession(runner.session.id, id),
         elsewhere: (id) => this.lockedElsewhere("agy", id),
         ...(this.options.home ? { home: this.options.home } : {}),
+        ...(conversation && {
+          conversation,
+          history: await agyHistory(this.options.home?.() ?? userHome(), conversation),
+        }),
       });
       this.track(runner, {
         preset: presetId,
@@ -2161,6 +2211,7 @@ export class OwnedSessions {
         name: agent.name,
         cwd,
         ...(key ? { key } : {}),
+        ...(conversation ? { agentSessionId: conversation } : {}),
         choices: {},
         updatedAt: Date.now(),
       });

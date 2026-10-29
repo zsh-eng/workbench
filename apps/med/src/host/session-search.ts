@@ -249,5 +249,13 @@ export function createSessionSearch(options: {
       const exact = listed.filter((file) => file.id === id);
       return sessions(exact.length ? exact : listed);
     },
+    /** The sessions with these IDs, from one listing. */
+    async exactly(wanted: readonly { agent: FoundAgent; id: string }[]): Promise<SessionInfo[]> {
+      if (!wanted.length) return [];
+      const keys = new Set(wanted.map(({ agent, id }) => `${agent}:${id}`));
+      return sessions(
+        (await listTranscripts(home())).filter((file) => keys.has(`${file.agent}:${file.id}`)),
+      );
+    },
   };
 }

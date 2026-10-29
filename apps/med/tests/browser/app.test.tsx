@@ -252,6 +252,7 @@ async function mountApp(
   let inbox = options.inbox;
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
+  const steered: string[] = [];
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -568,6 +569,17 @@ async function mountApp(
           );
         inbox = { ...inbox, messages: inbox.messages.filter((entry) => entry !== message) };
         return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/agent/steer" && inbox) {
+        const { id } = JSON.parse(String(init?.body)) as { id: string };
+        steered.push(id);
+        inbox = {
+          ...inbox,
+          messages: inbox.messages.map((entry) =>
+            entry.id === id ? { ...entry, queued: undefined, delivery: "delivered" } : entry,
+          ),
+        };
+        return Response.json({ state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/since")
         return Response.json({ since: options.since ?? null });
@@ -939,6 +951,7 @@ async function mountApp(
     setOwned,
     setOwnedTranscript,
     goneOnTake,
+    steered,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -4506,9 +4519,9 @@ describe("agent session", () => {
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
   });
 
-  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
+  test("while the agent works, a message queues until its turn ends; Edit brings it back, Remove drops it, ↑ takes back the rest, and Send now gives it to the turn", async () => {
     await page.viewport(1280, 800);
-    const { setOwned, agentMessages, goneOnTake } = await mountApp({
+    const { setOwned, agentMessages, goneOnTake, steered } = await mountApp({
       savedReview: true,
       inbox: { messages: [], waiting: [], drafts: [] },
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
@@ -4531,8 +4544,10 @@ describe("agent session", () => {
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
     await userEvent.click(composer.getByRole("button", { name: "Queue" }));
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
-    const queued = panel.getByText("Queued for Claude's next step");
+    const queued = panel.getByText("Queued until Claude's turn ends");
     await expect.element(queued).toBeVisible();
+    // An agent that takes no message during its turn offers no Send now.
+    await expect.element(panel.getByRole("button", { name: "Send now" })).not.toBeInTheDocument();
     await expect.element(field).toHaveValue("");
 
     // Edit takes it back into the box, before what the box holds.
@@ -4584,6 +4599,28 @@ describe("agent session", () => {
     await expect
       .element(panel.getByText("Its attachment did not come back; add it again."))
       .toBeVisible();
+
+    // Claude Code takes a message during its turn: Send now gives it to the turn.
+    setOwned({
+      status: "working",
+      settings: [],
+      commands: [],
+      capabilities: {
+        steer: true,
+        interrupt: true,
+        approvals: "ask",
+        images: true,
+        resume: true,
+        subagents: true,
+        usage: true,
+      },
+    });
+    await userEvent.fill(field, "Check the hour.");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.element(queued).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Send now" }));
+    await expect.poll(() => steered.length).toBe(1);
+    await expect.element(queued).not.toBeInTheDocument();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {

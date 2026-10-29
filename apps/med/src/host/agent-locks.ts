@@ -54,3 +54,24 @@ export async function heldLocks(folder: string): Promise<Map<string, number[]>> 
   }
   return held;
 }
+
+/** The working directory of a process, as `lsof` reports it. */
+export async function processCwd(pid: number) {
+  try {
+    const { stdout } = await runProcess("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-F", "n"], {
+      cwd: "/",
+      timeoutMs: LSOF_MS,
+      acceptedExitCodes: [0, 1],
+      env: { LC_ALL: "C" },
+    });
+    return (
+      stdout
+        .toString()
+        .split("\n")
+        .find((line) => line.startsWith("n/"))
+        ?.slice(1) || undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
