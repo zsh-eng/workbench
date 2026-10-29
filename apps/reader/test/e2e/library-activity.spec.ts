@@ -134,6 +134,38 @@ test.describe("a new device", () => {
       release();
     }
   });
+
+  test("a reload without a network keeps its frame and its island", async ({
+    page,
+  }) => {
+    const synced = page.waitForResponse("**/api/sync/v2/pull*");
+    await page.goto("/");
+    await synced;
+    // The restore began here and has not ended; the page opens offline, so
+    // no pull runs to say it restores.
+    await page.evaluate(async () => {
+      const { syncService } = await import("/src/lib/sync-service.ts");
+      while (syncService.controller.getSnapshot().running)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      const { readSyncClientState, writeSyncClientState } =
+        await import("/src/lib/sync-v2/client-state.ts");
+      writeSyncClientState({ ...readSyncClientState()!, bootstrapped: false });
+    });
+    await page.addInitScript(() =>
+      Object.defineProperty(Navigator.prototype, "onLine", {
+        get: () => false,
+      }),
+    );
+    await page.reload();
+    await expect(island(page).locator(".ba-island")).toHaveText(
+      "Waiting for a connection",
+    );
+    await expect(island(page).getByRole("status")).toHaveText(
+      "Restoring your library… Waiting for a connection.",
+    );
+    await expect(page.locator('[data-restore-frame="covers"]')).toBeVisible();
+    await expect(page.getByText("Your library is empty")).toHaveCount(0);
+  });
 });
 
 test.describe("with room", () => {

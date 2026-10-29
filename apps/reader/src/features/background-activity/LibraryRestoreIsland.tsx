@@ -9,11 +9,34 @@ const books = (count: number) =>
   `${count.toLocaleString()} ${count === 1 ? "book" : "books"}`;
 
 /**
+ * Whether this device's restore has not reached its end: a pull that
+ * restores now, or one that an account began here and that a reload, an
+ * offline start, a sign-in or a failed pull left unfinished. Only an
+ * account restores: one that this device has begun to sync with (the
+ * state's scope), or the one signed in now. A library without an account
+ * is local and never restores.
+ */
+export function useRestoreUnfinished(): boolean {
+  const { controller } = syncService;
+  const restoring = useSyncStatus(controller, (sync) => sync.restoring);
+  const auth = useSyncStatus(controller, (sync) => sync.auth.status);
+  if (restoring) return true;
+  // A pull's end, failed or not, publishes `restoring`: read the state then.
+  const state = readSyncClientState();
+  return (
+    state !== null &&
+    !state.bootstrapped &&
+    (state.scope !== undefined || auth === "signed-in" || auth === "expired")
+  );
+}
+
+/**
  * A new device's restore, as the shared island (packages/background-activity
  * /docs/MODEL.md): it grows out of the activity glyph, says "Restoring
  * library" with the books on this device so far (the restore's size is not
- * known), waits for a connection or a sign-in, says "Restored" once the
- * pull has reached the end, and folds back into the glyph. `align` is the side of the glyph it grows from.
+ * known), waits for a connection or a sign-in, says "Restored" once a pull
+ * has reached the end, and folds back into the glyph. `align` is the side
+ * of the glyph it grows from.
  */
 export function LibraryRestoreIsland({
   count,
@@ -25,7 +48,7 @@ export function LibraryRestoreIsland({
   children: ReactNode;
 }) {
   const { controller } = syncService;
-  const restoring = useSyncStatus(controller, (sync) => sync.restoring);
+  const unfinished = useRestoreUnfinished();
   const connection = useSyncStatus(controller, (sync) => sync.connection);
   const auth = useSyncStatus(controller, (sync) => sync.auth.status);
   const failure = useSyncStatus(
@@ -33,11 +56,7 @@ export function LibraryRestoreIsland({
     (sync) => sync.failure?.kind ?? null,
   );
   const seen = useRef(false);
-  if (restoring) seen.current = true;
-  // A restore that this page saw start lasts until a pull reaches the end,
-  // also while a failed one waits to try again: offline, or signed out.
-  const unfinished =
-    restoring || (seen.current && !readSyncClientState()?.bootstrapped);
+  if (unfinished) seen.current = true;
   const { content, status } = restoreIsland(
     {
       connection,
