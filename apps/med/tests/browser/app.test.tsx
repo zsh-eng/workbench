@@ -501,6 +501,7 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/agent/messages" && inbox) {
         const input = JSON.parse(String(init?.body)) as {
           id?: string;
+          sessionId?: string;
           text: string;
           noteIds: string[];
         };
@@ -517,9 +518,11 @@ async function mountApp(
           .drafts.filter((draft) => input.noteIds.includes(draft.id))
           .map(({ id: _id, replies: _replies, ...comment }) => comment);
         for (const id of input.noteIds) sentNotes.add(id);
+        // A session that Med runs and that works takes the message at its next step.
+        const queued = input.sessionId === "o1" && owned?.status === "working";
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
-          sessionId: "s1",
+          sessionId: input.sessionId === "o1" ? "o1" : "s1",
           agent: "claude",
           text: input.text,
           noteIds: input.noteIds,
@@ -527,7 +530,8 @@ async function mountApp(
           attachmentCount: 0,
           createdAt: new Date().toISOString(),
           // A session that a terminal or another app runs takes the message later.
-          delivery: inbox.elsewhere?.s1 ? "pending" : "delivered",
+          delivery: inbox.elsewhere?.s1 || queued ? "pending" : "delivered",
+          ...(queued ? { queued: true } : {}),
         };
         inbox = {
           ...inbox,
@@ -535,6 +539,17 @@ async function mountApp(
           waiting: [],
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
+        return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
+        const { id } = JSON.parse(String(init?.body)) as { id: string };
+        const message = inbox.messages.find((entry) => entry.id === id && entry.queued);
+        if (!message)
+          return Response.json(
+            { error: { code: "message-sent", message: "Sent" } },
+            { status: 409 },
+          );
+        inbox = { ...inbox, messages: inbox.messages.filter((entry) => entry !== message) };
         return Response.json({ message, state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/since")
@@ -4411,6 +4426,59 @@ describe("agent session", () => {
     await userEvent.click(composer.getByRole("button", { name: "Stop" }));
     await expect.element(composer.getByRole("button", { name: "Send" })).toBeVisible();
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
+  });
+
+  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /Claude Code/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Claude" });
+    const field = composer.getByRole("combobox", { name: "Message Claude" });
+    setOwned({ status: "working", settings: [], commands: [] });
+    // Working, with an empty box: Stop. With a message: Queue, and Stop beside it.
+    await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await expect.element(composer.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await userEvent.click(field);
+    await userEvent.keyboard("Round to minutes.");
+    await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
+    await userEvent.click(composer.getByRole("button", { name: "Queue" }));
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
+    const queued = panel.getByText("Queued for Claude's next step");
+    await expect.element(queued).toBeVisible();
+    await expect.element(field).toHaveValue("");
+
+    // Edit takes it back into the box, before what the box holds.
+    await userEvent.click(field);
+    await userEvent.keyboard("And hours.");
+    await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
+    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
+    await expect.element(queued).not.toBeInTheDocument();
+
+    // Remove drops one; ↑ in the empty box takes back the rest, in order.
+    await userEvent.click(field);
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await userEvent.keyboard("Keep seconds.{Meta>}{Enter}{/Meta}");
+    await userEvent.keyboard("Test the hour.{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages.length).toBe(4);
+    await expect.element(panel.getByText("Keep seconds.")).toBeVisible();
+    const removes = panel.getByRole("button", { name: "Remove", exact: true });
+    await expect.poll(() => removes.elements().length).toBe(3);
+    await userEvent.click(removes.nth(1));
+    await expect.element(panel.getByText("Keep seconds.")).not.toBeInTheDocument();
+    await userEvent.click(field);
+    await userEvent.keyboard("{ArrowUp}");
+    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.\n\nTest the hour.");
+    await expect.element(queued).not.toBeInTheDocument();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {

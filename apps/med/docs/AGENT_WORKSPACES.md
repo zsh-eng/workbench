@@ -131,6 +131,32 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   record as above. **Continue in Med** starts an owned fork of one that a
   terminal runs (`--resume <id> --fork-session --session-id <new ID>`).
 
+### Queued messages
+
+A message that comes while an agent that Med runs works waits for the agent's
+next step, as Claude Code's terminal queues one
+(https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
+The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
+
+- While Claude Code runs the main conversation's tools (an `assistant`
+  message with `tool_use`, until its `tool_result`), Med writes the message
+  to Claude Code's input at once. Claude Code reads it when the tools end, in
+  the same turn, and its transcript records it as a `queued_command`
+  attachment, which the thread shows where Claude read it.
+- Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
+  and goes as the next prompt, with the other queued messages in order. An
+  ACP agent takes messages only between turns. A turn that a restart cut
+  (Interrupted) waits for the reader, and so do its messages.
+- Until the agent has it, **Edit** in the thread puts the message back into
+  the message box, before what the box holds, and **Remove** drops it (`POST
+/api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box takes back
+  every queued message. Its comments become drafts again. Images in a queued
+  message go as paths to saved copies, as for an agent that takes no images.
+- The browser's outbox keeps a message until the host has it, so a reload or
+  a crashed tab loses none; the inbox file keeps it after that. When the host
+  restarts, it watches each session with queued messages again; the agent's
+  holder kept the turn running, so they go at its next step as before.
+
 ### What a thread's agent knows
 
 Med adds nothing to an agent's prompt. The user keeps short instructions in

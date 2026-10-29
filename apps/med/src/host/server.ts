@@ -95,6 +95,7 @@ import {
 } from "./agent-transcripts";
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
+import { createQueuedMessages } from "./queued-messages";
 import {
   agentEnvironment as startedAgentEnvironment,
   CONTINUE_TURN,
@@ -443,6 +444,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     },
   });
   for (const { reviewId, sessionId } of await inbox.held()) heldMessages.watch(reviewId, sessionId);
+  // Messages that came while an agent that Med runs worked.
+  const queuedMessages = createQueuedMessages({
+    inbox,
+    runner: (sessionId) => ownedSessions.get(sessionId),
+  });
+  for (const { reviewId, sessionId } of await inbox.queued())
+    queuedMessages.watch(reviewId, sessionId);
   const ownedStreams = new Set<ServerResponse>();
   const codexReviews = new CodexReviews();
   const reviewStatus = createAgentStatus({
@@ -1553,7 +1561,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1693,10 +1701,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   (await ownedSessions.runsElsewhere(session.id));
                 resume = !held && !live;
               }
+              // The agent that Med runs works: the message waits for its next
+              // step (queued-messages.ts), and the user can take it back.
+              const queue = !held && !resume && live?.state().status === "working";
               // An agent that Med runs and that takes images gets them in the
-              // prompt, as Claude Code does. Any other agent gets the paths of
-              // saved copies.
-              const native = resume || (live && !held && live.state().images) ? input.images : [];
+              // prompt, as Claude Code does. Any other agent, or a queued
+              // message, gets the paths of saved copies.
+              const native =
+                !queue && (resume || (live && !held && live.state().images)) ? input.images : [];
               if (input.images.length && !native.length)
                 parts.push(imagesText(await saveImages(imageDirectory, input.images)));
               if (!parts.length && !native.length)
@@ -1723,9 +1735,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   attachmentCount: input.attachments.length,
                 },
                 parts.join("\n\n"),
-                target ? { deliver: (body) => target.prompt(body, native) } : { held },
+                queue
+                  ? { queued: true }
+                  : target
+                    ? { deliver: (body) => target.prompt(body, native) }
+                    : { held },
               );
               if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
+              if (queue && message.delivery === "pending")
+                queuedMessages.watch(reviewId, session.id);
               return message;
             });
             send({ message, state: await inboxState() });
@@ -1759,6 +1777,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   }
                 : { message: null, ...(result ? { superseded: true } : {}) },
             );
+            return;
+          }
+          // Takes back a queued message that the agent has not had, to edit
+          // or to drop.
+          if (action === "take" && request.method === "POST") {
+            const input = z
+              .object({ id: z.string().min(1).max(128) })
+              .parse(await readBody(request));
+            const message = await inbox.takeBack(reviewId, input.id);
+            send({ message, state: await inboxState() });
             return;
           }
           if (action === "ack" && request.method === "POST") {
@@ -3206,6 +3234,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       closing = true;
       clearInterval(heartbeat);
       heldMessages.stop();
+      queuedMessages.stop();
       await ownedSessions.detachAll();
       await questions.stopAll();
       for (const stream of questionStreams) stream.end();

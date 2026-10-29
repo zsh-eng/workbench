@@ -632,6 +632,29 @@ export function SessionPanel({
     outbox.send(message);
   };
   const sending = new Set(outgoing.flatMap((message) => message.input.noteIds));
+  // A queued message comes back into the box to edit, or goes; ↑ in the
+  // empty box takes back all of them, as in Claude Code.
+  const [restore, setRestore] = useState<{ text: string; nonce: number }>();
+  const [takeError, setTakeError] = useState<string>();
+  const queued = (messages ?? []).filter(
+    (message) =>
+      message.sessionId === session.id && message.queued && message.delivery === "pending",
+  );
+  const takeBack = (ids: string[], edit: boolean) => {
+    if (!inbox?.takeBack) return;
+    setTakeError(undefined);
+    void Promise.all(ids.map((id) => inbox.takeBack!(id))).then(
+      (taken) => {
+        const text = taken
+          .map((message) => message.text)
+          .filter(Boolean)
+          .join("\n\n");
+        if (edit && text) setRestore({ text, nonce: Date.now() });
+      },
+      (reason: unknown) =>
+        setTakeError(reason instanceof Error ? reason.message : "The message went already."),
+    );
+  };
   const shown = useMemo(() => {
     const sent: SentMessage[] = [
       ...(messages
@@ -639,10 +662,16 @@ export function SessionPanel({
           (message) =>
             message.sessionId === session.id && !outgoing.some((entry) => entry.id === message.id),
         )
-        .map((message) =>
-          presence && presence !== "resumable" && message.delivery === "pending"
-            ? { ...message, waitsFor: presence }
-            : message,
+        .map((message): SentMessage =>
+          message.queued && message.delivery === "pending"
+            ? {
+                ...message,
+                edit: () => takeBack([message.id], true),
+                remove: () => takeBack([message.id], false),
+              }
+            : presence && presence !== "resumable" && message.delivery === "pending"
+              ? { ...message, waitsFor: presence }
+              : message,
         ) ?? []),
       ...outgoing
         .filter((message) => message.input.sessionId === session.id)
@@ -901,6 +930,19 @@ export function SessionPanel({
                 onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
                 onSend={send}
                 owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+                restore={restore}
+                onTakeBack={
+                  queued.length
+                    ? () =>
+                        takeBack(
+                          queued.map((message) => message.id),
+                          true,
+                        )
+                    : undefined
+                }
+                notice={
+                  takeError && <p {...stylex.props(styles.note, styles.takeError)}>{takeError}</p>
+                }
                 mentions={mentions}
                 onMentionsWanted={onMentionsWanted}
               />
@@ -1005,6 +1047,7 @@ const styles = stylex.create({
   turnText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
   stopped: { flexShrink: 0, marginInline: 12, marginBlock: 12 },
+  takeError: { color: tokens.red, textAlign: "start" },
   start: {
     flex: "1",
     minHeight: 0,

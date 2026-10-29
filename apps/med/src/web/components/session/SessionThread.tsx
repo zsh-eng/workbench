@@ -413,9 +413,11 @@ function Delivery({ message }: { message: SentMessage }) {
       ? ["Sending…"]
       : message.delivery === "pending"
         ? [
-            message.waitsFor
-              ? SESSION_PLACES[message.waitsFor].waiting
-              : `Waiting for ${agent} to take it`,
+            message.queued
+              ? `Queued for ${agent}'s next step`
+              : message.waitsFor
+                ? SESSION_PLACES[message.waitsFor].waiting
+                : `Waiting for ${agent} to take it`,
           ]
         : message.delivery === "queued"
           ? [`Queued for ${agent}`]
@@ -444,6 +446,16 @@ function Delivery({ message }: { message: SentMessage }) {
       {failed && message.discard && (
         <button type="button" onClick={message.discard} {...stylex.props(styles.deliveryAction)}>
           Discard
+        </button>
+      )}
+      {message.edit && (
+        <button type="button" onClick={message.edit} {...stylex.props(styles.deliveryAction)}>
+          Edit
+        </button>
+      )}
+      {message.remove && (
+        <button type="button" onClick={message.remove} {...stylex.props(styles.deliveryAction)}>
+          Remove
         </button>
       )}
     </span>

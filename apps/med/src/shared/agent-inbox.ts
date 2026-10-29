@@ -71,6 +71,11 @@ export const agentMessageSchema = z.object({
    * delivered: the agent took it. queued: Codex has it in its queue.
    */
   delivery: z.enum(["pending", "delivered", "queued", "failed"]),
+  /** A pending message that came while the agent that Med runs worked. Med
+   * gives it at the agent's next step: when Claude Code runs tools, after
+   * which it reads the message in the same turn, or at the turn's end. Until
+   * then the user can take it back (`/agent/take`). */
+  queued: z.boolean().optional(),
   deliveredAt: z.string().optional(),
   error: z.string().optional(),
 });

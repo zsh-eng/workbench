@@ -169,9 +169,42 @@ export class AgentInbox {
     );
   }
 
+  /**
+   * Takes back a queued message that the agent has not had: it leaves the
+   * review, and its comments are drafts again. Returns it, for the user to
+   * edit; a message that went already cannot come back.
+   */
+  takeBack(reviewId: string, id: string): Promise<AgentMessage> {
+    return this.change(reviewId, (messages) => {
+      const index = messages.findIndex((message) => message.id === id);
+      const message = messages[index];
+      if (!message?.queued || message.delivery !== "pending")
+        throw new HostError(
+          "message-sent",
+          "The agent has this message already, so it cannot come back.",
+          409,
+        );
+      messages.splice(index, 1);
+      const { body: _body, held: _held, ...taken } = message;
+      return taken;
+    });
+  }
+
+  /** The sessions whose messages wait for the agent's next step, in every
+   * review, as Med kept them before it restarted. */
+  queued(): Promise<{ reviewId: string; sessionId: string }[]> {
+    return this.sessionsWith((message) => !!message.queued);
+  }
+
   /** The sessions whose messages wait for another process to end, in every
    * review, as Med kept them before it restarted. */
-  async held(): Promise<{ reviewId: string; sessionId: string }[]> {
+  held(): Promise<{ reviewId: string; sessionId: string }[]> {
+    return this.sessionsWith((message) => !!message.held);
+  }
+
+  private async sessionsWith(
+    test: (message: StoredMessage) => boolean,
+  ): Promise<{ reviewId: string; sessionId: string }[]> {
     let names: string[];
     try {
       names = await readdir(this.directory);
@@ -184,7 +217,7 @@ export class AgentInbox {
       if (!reviewId) continue;
       const sessions = new Set(
         (await this.read(reviewId))
-          .filter((message) => message.held && message.delivery === "pending")
+          .filter((message) => test(message) && message.delivery === "pending")
           .map((message) => message.sessionId),
       );
       for (const sessionId of sessions) held.push({ reviewId, sessionId });
@@ -220,6 +253,7 @@ export class AgentInbox {
       const at = new Date(this.now()).toISOString();
       for (const message of due) {
         delete message.held;
+        delete message.queued;
         if (to) {
           message.sessionId = to.id;
           message.agent = to.agent;
@@ -280,6 +314,9 @@ export class AgentInbox {
       /** Another process runs the session: the message waits until that
        * process takes it with `med review wait`, or ends. */
       held?: boolean;
+      /** The session that Med runs works: the message waits for its next
+       * step (queued-messages.ts), and the user can take it back. */
+      queued?: boolean;
     } = {},
   ): Promise<AgentMessage> {
     if (message.id) {
@@ -301,6 +338,7 @@ export class AgentInbox {
       delivery: "pending",
       body,
       ...(route.held ? { held: true } : {}),
+      ...(route.queued ? { queued: true } : {}),
     };
     const { deliver } = route;
     if (deliver) {
@@ -318,6 +356,7 @@ export class AgentInbox {
           const at = new Date(this.now()).toISOString();
           for (const entry of [...earlier, stored]) {
             delete entry.held;
+            delete entry.queued;
             entry.delivery = "delivered";
             entry.deliveredAt = at;
           }
@@ -343,7 +382,8 @@ export class AgentInbox {
       await this.change(reviewId, (messages) => {
         messages.push(stored);
       });
-    if (!deliver && session.agent === "claude") await this.offer(reviewId, session.id);
+    if (!deliver && !route.queued && session.agent === "claude")
+      await this.offer(reviewId, session.id);
     const {
       body: _body,
       held: _held,
@@ -392,6 +432,8 @@ export class AgentInbox {
         (message) =>
           message.delivery === "pending" &&
           message.agent === "claude" &&
+          // A queued message waits for the agent's next step, which Med gives it.
+          !message.queued &&
           !this.unconfirmed.has(message.id) &&
           (!sessionId || message.sessionId === sessionId),
       );
