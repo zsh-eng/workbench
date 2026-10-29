@@ -212,6 +212,31 @@ describe("review output", () => {
     ]);
   });
 
+  it("keeps a proof that is only a table, and reads a table of misses row by row", () => {
+    const output = readReviewOutput([
+      [
+        "## Proof",
+        "",
+        "| Check | Result |",
+        "| --- | --- |",
+        "| Build | passed |",
+        "",
+        "## Not covered",
+        "",
+        "| Area | Why |",
+        "| --- | --- |",
+        "| The dashboard query | no fixture |",
+      ].join("\n"),
+    ]);
+    expect(output.proof).toEqual({
+      checks: [],
+      media: [],
+      misses: ["The dashboard query — no fixture"],
+      notes: [],
+      tables: ["| Check | Result |\n| --- | --- |\n| Build | passed |"],
+    });
+  });
+
   it("finds nothing in prose without its parts", () => {
     const output = readReviewOutput([
       "I changed the parser so that errors no longer stop it. The tests pass.",

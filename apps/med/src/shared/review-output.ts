@@ -447,6 +447,12 @@ function readOne(text: string): ReviewOutput {
             const finding = findingOf(rowItem(row), section === "findings" ? severity : undefined);
             if (finding) output.findings.push(finding);
           }
+        // A table of misses: each row is one, its cells in a line.
+        else if (section === "misses")
+          for (const row of table.rows) {
+            const miss = row.filter(Boolean).join(" — ");
+            if (miss) proof.misses.push(clean(miss));
+          }
         continue;
       }
       const item: Item =
@@ -516,7 +522,13 @@ function readOne(text: string): ReviewOutput {
     const path = match[0];
     if (!proof.media.includes(path)) proof.media.push(path);
   }
-  if (proof.checks.length || proof.media.length || proof.misses.length || proof.notes.length)
+  if (
+    proof.checks.length ||
+    proof.media.length ||
+    proof.misses.length ||
+    proof.notes.length ||
+    proof.tables?.length
+  )
     output.proof = proof;
   if (explainer.length) output.explainer = explainer.join("\n\n").trim();
   return output;
