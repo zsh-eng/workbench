@@ -73,20 +73,19 @@ const promptOf = (tokens: RequestTokens) =>
   tokens.input + tokens.cacheRead + tokens.cacheWrite5m + tokens.cacheWrite1h;
 
 function claudeLine(line: string, state: Read) {
-  if (line.includes('"compact_boundary"')) {
-    try {
-      const entry = record(JSON.parse(line));
-      if (entry?.type === "system" && entry.subtype === "compact_boundary") state.compacted = true;
-    } catch {
-      /* Not a line to read. */
-    }
-    return;
-  }
-  if (!line.includes('"usage"') || !line.includes('"assistant"')) return;
+  // Only these lines are parsed; the text tests are a cheap first look, and
+  // either can also match a line of the other kind, such as a call that
+  // searches for "compact_boundary".
+  const boundary = line.includes('"compact_boundary"');
+  if (!boundary && (!line.includes('"usage"') || !line.includes('"assistant"'))) return;
   let entry: Json | undefined;
   try {
     entry = record(JSON.parse(line));
   } catch {
+    return;
+  }
+  if (entry?.type === "system" && entry.subtype === "compact_boundary") {
+    state.compacted = true;
     return;
   }
   const message = record(entry?.message);

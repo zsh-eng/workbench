@@ -55,8 +55,21 @@ test("counts each response once, subagents included, at list price, and the cont
     transcript,
     // Haiku 5.5 with a prompt over 100,000 tokens costs more.
     response("msg_b", "claude-haiku-5-5", { input_tokens: 200_000, output_tokens: 100 }) +
-      // A model without a price counts its tokens only.
-      response("msg_d", "claude-test-unknown", { input_tokens: 100, output_tokens: 10 }) +
+      // A model without a price counts its tokens only. A call that names
+      // compact_boundary is a response, not a compaction.
+      line({
+        type: "assistant",
+        timestamp: "2026-10-29T09:00:00.000Z",
+        message: {
+          id: "msg_d",
+          model: "claude-test-unknown",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "t1", name: "Grep", input: { pattern: "compact_boundary" } },
+          ],
+          usage: { input_tokens: 100, output_tokens: 10 },
+        },
+      }) +
       // Two blocks of one response; the second has the final output count.
       response("msg_a", "claude-opus-5-5", {
         input_tokens: 10,
@@ -140,7 +153,11 @@ test("counts each response once, subagents included, at list price, and the cont
   expect(cost("claude-haiku-5-5")).toBeCloseTo(0.10025, 8);
   // A write without its lifetime is a 5-minute one.
   expect(cost("claude-sonnet-5-5")).toBeCloseTo(0.012, 8);
-  expect(cost("claude-test-unknown")).toBeNull();
+  expect(first.spend.models.find((entry) => entry.model === "claude-test-unknown")).toMatchObject({
+    input: 100,
+    output: 10,
+    cost: null,
+  });
   expect(first.spend.models.find((entry) => entry.model === "gpt-test")).toMatchObject({
     input: 1000,
     cacheRead: 4000,
