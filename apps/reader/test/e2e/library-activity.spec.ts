@@ -212,7 +212,8 @@ test.describe("with room", () => {
 
 /**
  * The controls of the header and the filter row that the island covers,
- * with the island's distance from the window's centre line.
+ * its distance from the window's centre line, and whether it is at the top
+ * (8 px) or below the filter row.
  */
 function underIsland(page: Page) {
   return page.evaluate(() => {
@@ -242,11 +243,20 @@ function underIsland(page: Page) {
         (control) => control.getAttribute("aria-label") ?? control.textContent,
       );
     const centre = island.left + island.width / 2;
+    const row = document
+      .querySelector('[role="group"][aria-label="Show"]')!
+      .getBoundingClientRect();
     return {
       covered,
       offCentre: Math.round(
         Math.abs(centre - document.documentElement.clientWidth / 2),
       ),
+      top:
+        island.top === 8
+          ? "top"
+          : island.top >= row.bottom
+            ? "below"
+            : island.top,
     };
   });
 }
@@ -274,14 +284,11 @@ test.describe("at every width", () => {
         [1920, 1080, "top"],
       ] as const) {
         await page.setViewportSize({ width, height });
-        await expect
-          .poll(() => underIsland(page), { message: `${width} px` })
-          .toEqual({ covered: [], offCentre: 0 });
         // With room, the header's top margin holds it; a phone's header
         // and filter row take the top centre, so it goes below them.
-        const box = (await page.locator(".ba-island").boundingBox())!;
-        if (top === "top") expect(box.y, `${width} px`).toBe(8);
-        else expect(box.y, `${width} px`).toBeGreaterThan(100);
+        await expect
+          .poll(() => underIsland(page), { message: `${width} px` })
+          .toEqual({ covered: [], offCentre: 0, top });
       }
     } finally {
       release();

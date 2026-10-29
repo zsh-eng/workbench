@@ -179,9 +179,7 @@ export function Library({ folder }: { folder: Folder }) {
   const count = compact ? (
     shelfCount
   ) : (
-    <RestoreIsland count={articles.length}>
-      {shelfCount}
-    </RestoreIsland>
+    <RestoreIsland count={articles.length}>{shelfCount}</RestoreIsland>
   );
   const layoutToggle = (
     <Choice

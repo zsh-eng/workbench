@@ -90,10 +90,13 @@ test("a new device shows its library once, in order, then its texts and highligh
 async function holdLinks(page: Page) {
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/api/apps/arctic/sync/v3/pull-stream**", async (route) => {
-    await held;
-    await route.continue();
-  });
+  await page.route(
+    "**/api/apps/arctic/sync/v3/pull-stream**",
+    async (route) => {
+      await held;
+      await route.continue();
+    },
+  );
   return release;
 }
 
@@ -194,7 +197,9 @@ function underIsland(page: Page) {
           box.bottom > island.top
         );
       })
-      .map((control) => control.getAttribute("aria-label") ?? control.textContent);
+      .map(
+        (control) => control.getAttribute("aria-label") ?? control.textContent,
+      );
     const centre = island.left + island.width / 2;
     return {
       covered,
@@ -233,6 +238,33 @@ test("at every width, the restore island floats at the top centre, below the bar
           message: `${width} px`,
         })
         .toBeCloseTo(top, 0);
+      // The account menu drops from the bar's end across the island, and
+      // opens over it.
+      if (width === 600) {
+        await page.getByRole("button", { name: "Account" }).click();
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        const onTop = await menu.evaluate((menu) => {
+          const island = document.querySelector<HTMLElement>(".ba-island")!;
+          const a = menu.getBoundingClientRect();
+          const b = island.getBoundingClientRect();
+          const x = (Math.max(a.left, b.left) + Math.min(a.right, b.right)) / 2;
+          const y = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2;
+          const overlap =
+            a.left < b.right &&
+            b.left < a.right &&
+            a.top < b.bottom &&
+            b.top < a.bottom;
+          // The island takes no taps: let the hit test see it.
+          island.style.pointerEvents = "auto";
+          const top = document.elementFromPoint(x, y);
+          island.style.pointerEvents = "";
+          return overlap && menu.contains(top);
+        });
+        expect(onTop).toBe(true);
+        await page.keyboard.press("Escape");
+        await expect(menu).toBeHidden();
+      }
       // Below the shelf's tabs, it rises with them as the page scrolls, up
       // to the bar, which stays (61 px with its hairline).
       if (width === 768) {

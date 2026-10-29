@@ -75,16 +75,19 @@ export function ActivityIsland({
   const resting = phase === "rest";
 
   // Where it floats, measured as it opens (before it paints), and again
-  // when the window or its words change size. In one window it only moves
-  // down, so a longer stage never makes it hop.
+  // when the window or its words change size. In one window it keeps clear
+  // for its widest words so far, so a shorter stage never makes it hop.
   const [place, setPlace] = useState<Place | null>(null);
   useLayoutEffect(() => {
     if (resting) return;
-    let floor = { window: -1, top: 0 };
+    let widest = { window: -1, width: 0 };
     const update = () => {
-      const next = measurePlace(layer, pill, words, slot, mark, floor);
+      const next = measurePlace(layer, pill, words, slot, mark, widest);
       if (!next) return;
-      floor = { window: window.innerWidth, top: next.top };
+      widest = {
+        window: window.innerWidth,
+        width: Math.max(next.width, widest.width),
+      };
       setPlace((place) => (samePlace(place, next) ? place : next));
     };
     update();
@@ -156,8 +159,13 @@ export function ActivityIsland({
         : dot;
   const travel = fold && !still ? fold : null;
   // The width the island last came to rest at, for `data-settled`: stills
-  // and tests wait for it.
+  // and tests wait for it. A move to another place, or another opening,
+  // settles again.
   const [settled, setSettled] = useState<number | null>(null);
+  const drop = place?.drop;
+  useEffect(() => {
+    if (phase !== "open" || !still) setSettled(null);
+  }, [phase, drop, still]);
   return (
     <span
       ref={slot}
@@ -187,7 +195,8 @@ export function ActivityIsland({
               onTransitionEnd={(event) => {
                 if (event.target !== event.currentTarget) return;
                 // With reduced motion only the opacity moves.
-                if (event.propertyName === "width" || still) setSettled(width);
+                const moved = ["width", "top"].includes(event.propertyName);
+                if (moved || still) setSettled(width);
               }}
               style={
                 {
@@ -278,7 +287,7 @@ function measurePlace(
   words: Ref<HTMLElement>,
   slot: Ref<HTMLElement>,
   mark: Ref<HTMLElement>,
-  floor: { window: number; top: number },
+  widest: { window: number; width: number },
 ): Place | null {
   if (!layer.current || !pill.current || !words.current || !slot.current)
     return null;
@@ -286,8 +295,10 @@ function measurePlace(
   const width = words.current.scrollWidth;
   const height = pill.current.offsetHeight;
   const centre = (frame.left + frame.right) / 2;
-  const left = centre - width / 2;
-  const right = centre + width / 2;
+  const column =
+    widest.window === window.innerWidth ? Math.max(width, widest.width) : width;
+  const left = centre - column / 2;
+  const right = centre + column / 2;
   const scrolled = window.scrollY;
   const obstacles: IslandObstacle[] = [];
   for (const control of document.querySelectorAll<HTMLElement>(CONTROLS)) {
@@ -309,14 +320,16 @@ function measurePlace(
       })
     )
       continue;
-    const { stays, bar } = whereItSits(control);
-    // The page's content scrolls under the island, as under a top bar.
-    if (!stays && !bar) continue;
+    const { stays, bar, passing } = whereItSits(control);
+    // The page's content scrolls under the island, as under a top bar, and
+    // toasts and dialogs pass over it.
+    if (passing || (!stays && !bar)) continue;
     if (stays) {
       // Below a fixed or sticky bar, not on its edge: the page passes
       // under the bar there.
       const edge = stays.getBoundingClientRect();
-      const bottom = edge.height <= 160 ? edge.bottom : box.bottom;
+      const bottom =
+        edge.height <= 160 ? Math.max(edge.bottom, box.bottom) : box.bottom;
       obstacles.push({ ...sides(box), top: box.top, bottom, stays: true });
     } else
       obstacles.push({
@@ -326,19 +339,13 @@ function measurePlace(
         stays: false,
       });
   }
-  const placed = placeIsland({
+  const { top, rise } = placeIsland({
     obstacles,
     left,
     right,
     top: frame.top,
     height,
   });
-  // A wider stage in the same window can move it down, never back up.
-  const top =
-    floor.window === window.innerWidth
-      ? Math.max(placed.top, floor.top)
-      : placed.top;
-  const rise = Math.max(0, placed.rise + top - placed.top);
   // Where it shows now, for whether it covers the mark.
   const shownTop = top - (risesWithScroll() ? Math.min(scrolled, rise) : 0);
   const rest = mark.current?.getBoundingClientRect();
@@ -372,15 +379,25 @@ const BAR_ROLES = new Set([
   "radiogroup",
 ]);
 
+/** What passes over the island for a moment: toasts and dialogs. */
+const PASSING_ROLES = new Set([
+  "alert",
+  "status",
+  "log",
+  "dialog",
+  "alertdialog",
+]);
+
 /**
  * Whether a control is in one of the app's bars (a header, a navigation, a
  * toolbar, a group of tabs or filters), and the fixed or sticky bar that
  * keeps it where it is as the page scrolls. Controls in neither are the
- * page's content.
+ * page's content. A control in a toast or a dialog is `passing`.
  */
 function whereItSits(control: Element): {
   stays: Element | null;
   bar: boolean;
+  passing: boolean;
 } {
   let stays: Element | null = null;
   let bar = control.getAttribute("role") === "tab";
@@ -390,12 +407,18 @@ function whereItSits(control: Element): {
     node = node.parentElement
   ) {
     const role = node.getAttribute("role");
+    if (
+      node.tagName === "DIALOG" ||
+      node.hasAttribute("aria-live") ||
+      (role !== null && PASSING_ROLES.has(role))
+    )
+      return { stays: null, bar: false, passing: true };
     if (BARS.has(node.tagName) || (role !== null && BAR_ROLES.has(role)))
       bar = true;
     const { position } = getComputedStyle(node);
     if (!stays && (position === "fixed" || position === "sticky")) stays = node;
   }
-  return { stays, bar };
+  return { stays, bar, passing: false };
 }
 
 const sides = (box: DOMRect) => ({ left: box.left, right: box.right });

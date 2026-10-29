@@ -137,8 +137,7 @@ twelve go at once, and the EPUBs wait until the covers are done.
   activity glyph when it is near (`LibraryRestoreIsland`,
   packages/background-activity). From 768 px it floats in the header's top
   margin, above the places; on a phone the places and the filter row hold
-  the top centre, so it floats below the filter row and rises with the page
-  as they scroll away. A
+  the top centre, so it floats below the filter row. A
   reload, an offline start or an expired session that leaves the restore
   unfinished shows it too: the saved sync state has not bootstrapped, and
   the account is signed in (also the remembered one offline) or its

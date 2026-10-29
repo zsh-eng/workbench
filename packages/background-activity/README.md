@@ -139,7 +139,8 @@ field. The island floats below each row of their controls that its column
 meets, 8 px clear of them (4 px above a row below it). A control counts if
 it is in a `header`, a `nav`, a toolbar, tab list, search or group, or in a
 fixed or sticky bar, whose bottom edge it then clears; the page's content
-scrolls under the island, as under a top bar. Below a bar that stays, it
+scrolls under the island, as under a top bar, and toasts and dialogs pass
+over it. An app's menus and popovers need a z-index above 25. Below a bar that stays, it
 stays; below one that scrolls away, it rises with the page to the top
 centre (a scroll-driven animation; without one it stays put). Where it
 floats in each app: Spaced at the top, over its icon on a phone; Reader at
@@ -166,9 +167,9 @@ on the compositor.
 grammar: the app's stage (its words, ring and count), "Waiting for a
 connection" offline, "Sign in to finish restoring" when signed out, "Sync
 stopped" or "Update to finish restoring" when sync is blocked, and `done`
-once at the end. Spaced folds it into its icon, Reader into its activity
-glyph, Arctic by the count by the title or into a phone's account button;
-each sets its colours in every theme it ships (Reader's light, dark, night
+once at the end. Each app's island folds into its mark when the mark is
+near: Spaced's icon, Reader's activity glyph, Arctic's count by the title
+or a phone's account button; each sets its colours in every theme it ships (Reader's light, dark, night
 and Flexoki; Arctic's themes in both modes).
 
 ## App updates

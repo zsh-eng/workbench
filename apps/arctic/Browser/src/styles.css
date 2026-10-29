@@ -923,6 +923,11 @@ a.article-source:hover {
 }
 
 /* Menus, tooltips and notices */
+/* Menus, popovers and tips open over the page's bars, the restore island
+   (z-index 25) and sheets (60), under toasts (70). */
+.popup-layer {
+  z-index: 65;
+}
 .menu {
   min-width: 220px;
   padding: 5px;
