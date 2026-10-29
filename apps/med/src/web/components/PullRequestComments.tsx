@@ -107,10 +107,10 @@ export function usePullRequestComments(
   const write = useCallback(
     async (input: PendingReviewInput) => {
       if (!key || !change) throw new Error("This review has no pull request.");
-      // A read that ends after the change would show GitHub from before it.
-      const id = ++request.current;
       const data = await change(input);
-      if (request.current === id) show(data);
+      // A read that started before the change would show GitHub from before it.
+      ++request.current;
+      show(data);
     },
     [key, change, show],
   );

@@ -221,7 +221,23 @@ const pendingQuery = z.object({
       reviews: z.object({
         nodes: z.array(z.object({ id: z.string(), viewerDidAuthor: z.boolean() })),
       }),
+    }),
+  }),
+});
+const PENDING_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      id
+      headRefOid
+      reviews(states: PENDING, first: 20) { nodes { id viewerDidAuthor } }
+    }
+  }
+}`;
+const threadsQuery = z.object({
+  repository: z.object({
+    pullRequest: z.object({
       reviewThreads: z.object({
+        pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
         nodes: z.array(
           z.object({
             id: z.string(),
@@ -232,13 +248,13 @@ const pendingQuery = z.object({
     }),
   }),
 });
-const PENDING_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      id
-      headRefOid
-      reviews(states: PENDING, first: 20) { nodes { id viewerDidAuthor } }
-      reviewThreads(last: 100) { nodes { id comments(first: 1) { nodes { databaseId } } } }
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id comments(first: 1) { nodes { databaseId } } }
+      }
     }
   }
 }`;
@@ -249,6 +265,21 @@ async function graphQl(host: string, query: string, variables: Record<string, st
   for (const [name, value] of Object.entries(variables))
     args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
   return graphQlAnswer.parse(JSON.parse(await gh(host, args))).data;
+}
+
+/** The GraphQL ID of the thread that starts with the comment `root` (a REST ID). */
+async function threadId(host: string, place: Record<string, string | number>, root: number) {
+  let after: string | null = null;
+  for (;;) {
+    const page: z.infer<typeof threadsQuery>["repository"]["pullRequest"]["reviewThreads"] =
+      threadsQuery.parse(
+        await graphQl(host, THREADS_QUERY, { ...place, ...(after ? { after } : {}) }),
+      ).repository.pullRequest.reviewThreads;
+    const found = page.nodes.find((entry) => entry.comments.nodes[0]?.databaseId === root);
+    if (found) return found.id;
+    if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) return undefined;
+    after = page.pageInfo.endCursor;
+  }
 }
 
 /**
@@ -262,9 +293,9 @@ export async function changePendingReview(url: string, change: PendingReviewChan
   const match = PULL_REQUEST.exec(url);
   if (!match) throw new HostError("invalid-pull-request", "This is not a pull request URL.", 400);
   const [, host, owner, repo, number] = match;
-  const pull = pendingQuery.parse(
-    await graphQl(host!, PENDING_QUERY, { owner: owner!, repo: repo!, number: Number(number) }),
-  ).repository.pullRequest;
+  const place = { owner: owner!, repo: repo!, number: Number(number) };
+  const pull = pendingQuery.parse(await graphQl(host!, PENDING_QUERY, place)).repository
+    .pullRequest;
   let review = pull.reviews.nodes.find((entry) => entry.viewerDidAuthor)?.id;
   if (change.kind === "submit" || change.kind === "discard") {
     if (!review)
@@ -287,23 +318,28 @@ export async function changePendingReview(url: string, change: PendingReviewChan
       );
   } else {
     const thread =
-      change.kind === "reply"
-        ? pull.reviewThreads.nodes.find(
-            (entry) => entry.comments.nodes[0]?.databaseId === change.thread,
-          )?.id
-        : undefined;
+      change.kind === "reply" ? await threadId(host!, place, change.thread) : undefined;
     if (change.kind === "reply" && !thread)
       throw new HostError(
         "thread-not-found",
         "GitHub has no such thread on this pull request.",
         404,
       );
-    if (change.kind === "comment" && change.commit !== pull.headRefOid)
-      throw new HostError(
-        "not-pull-request-head",
-        `GitHub comments go on the pull request head, ${pull.headRefOid.slice(0, 7)}. This comment is on ${change.commit.slice(0, 7)}.`,
-        409,
-      );
+    if (change.kind === "comment") {
+      if (change.commit !== pull.headRefOid)
+        throw new HostError(
+          "not-pull-request-head",
+          `GitHub comments go on the pull request head, ${pull.headRefOid.slice(0, 7)}. This comment is on ${change.commit.slice(0, 7)}.`,
+          409,
+        );
+      // A second click, or a click in another window, does not add it twice.
+      const shown = await loadPullRequestComments(url).catch(() => undefined);
+      if (shown && onGitHub(shown, change))
+        throw new HostError("comment-on-github", "GitHub has this comment already.", 409);
+    }
+    // A pending review that Med starts goes again if its first comment fails,
+    // as GitHub would keep an empty draft that Med does not show.
+    let started = false;
     if (!review) {
       const added = z
         .object({
@@ -317,30 +353,63 @@ export async function changePendingReview(url: string, change: PendingReviewChan
           ),
         );
       review = added.addPullRequestReview.pullRequestReview.id;
+      started = true;
     }
-    if (change.kind === "reply")
-      await graphQl(
-        host!,
-        "mutation($review: ID!, $thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewId: $review, pullRequestReviewThreadId: $thread, body: $body}) { comment { id } } }",
-        { review, thread: thread!, body: change.body },
-      );
-    else {
-      const side = change.side === "old" ? "LEFT" : "RIGHT";
-      const start =
-        change.startLine && change.startLine < change.line ? change.startLine : undefined;
-      await graphQl(
-        host!,
-        "mutation($review: ID!, $path: String!, $line: Int!, $side: DiffSide!, $startLine: Int, $startSide: DiffSide, $body: String!) { addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: $side, startLine: $startLine, startSide: $startSide, body: $body}) { thread { id } } }",
-        {
-          review,
-          path: change.path,
-          line: change.line,
-          side,
-          ...(start ? { startLine: start, startSide: side } : {}),
-          body: change.body,
-        },
-      );
+    try {
+      if (change.kind === "reply")
+        await graphQl(
+          host!,
+          "mutation($review: ID!, $thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewId: $review, pullRequestReviewThreadId: $thread, body: $body}) { comment { id } } }",
+          { review, thread: thread!, body: change.body },
+        );
+      else {
+        const side = change.side === "old" ? "LEFT" : "RIGHT";
+        const start =
+          change.startLine && change.startLine < change.line ? change.startLine : undefined;
+        await graphQl(
+          host!,
+          "mutation($review: ID!, $path: String!, $line: Int!, $side: DiffSide!, $startLine: Int, $startSide: DiffSide, $body: String!) { addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: $side, startLine: $startLine, startSide: $startSide, body: $body}) { thread { id } } }",
+          {
+            review,
+            path: change.path,
+            line: change.line,
+            side,
+            ...(start ? { startLine: start, startSide: side } : {}),
+            body: change.body,
+          },
+        );
+      }
+    } catch (error) {
+      if (started)
+        await graphQl(
+          host!,
+          "mutation($review: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $review}) { pullRequestReview { id } } }",
+          { review },
+        ).catch(() => {});
+      throw error;
     }
   }
-  return loadPullRequestComments(url, true);
+  // GitHub has the change now: a failed read must not read as a failed change.
+  return loadPullRequestComments(url, true).catch((error: unknown) => {
+    throw new HostError(
+      "pull-request-read-failed",
+      `GitHub has the change. Med could not read the comments again (${error instanceof Error ? error.message : String(error)}); use Refresh.`,
+      502,
+    );
+  });
+}
+
+/** Whether GitHub has a comment with this text where `change` would put it. */
+function onGitHub(
+  comments: PullRequestComments,
+  change: PendingReviewChange & { kind: "comment" },
+) {
+  const side = change.side === "old" ? "old" : "new";
+  return comments.threads.some(
+    (thread) =>
+      thread.path === change.path &&
+      thread.side === side &&
+      thread.line === change.line &&
+      thread.comments.some((comment) => comment.body.trim() === change.body.trim()),
+  );
 }

@@ -44,16 +44,22 @@ else if (path && path.startsWith(pull + "/reviews/")) {
   const query = vars.query;
   const data = (value) => process.stdout.write(JSON.stringify({ data: value }));
   const review = pending();
-  if (query.startsWith("query")) {
-    const roots = state.comments.filter((comment) => !comment.reply);
+  if (query.startsWith("query") && query.includes("reviewThreads")) {
+    // One thread a page, newest first, so that a lookup pages.
+    const roots = state.comments.filter((comment) => !comment.reply).reverse();
+    const at = vars.after ? Number(vars.after) : 0;
+    data({ repository: { pullRequest: { reviewThreads: {
+      pageInfo: { hasNextPage: at + 1 < roots.length, endCursor: String(at + 1) },
+      nodes: roots.slice(at, at + 1).map((comment) => ({ id: "T_" + comment.id, comments: { nodes: [{ databaseId: comment.id }] } })) } } } });
+  } else if (query.startsWith("query")) {
     data({ repository: { pullRequest: { id: "PR_7", headRefOid: state.head,
-      reviews: { nodes: review ? [{ id: "R_" + review.id, viewerDidAuthor: true }] : [] },
-      reviewThreads: { nodes: roots.map((comment) => ({ id: "T_" + comment.id, comments: { nodes: [{ databaseId: comment.id }] } })) } } } });
+      reviews: { nodes: review ? [{ id: "R_" + review.id, viewerDidAuthor: true }] : [] } } } });
   } else if (query.includes("addPullRequestReview(")) {
     if (review) { process.stderr.write("gh: User can only have one pending review per pull request\\n"); process.exit(1); }
     state.reviews.push({ id: ++state.next, state: "PENDING", body: "", commit: vars.commit });
     data({ addPullRequestReview: { pullRequestReview: { id: "R_" + state.next } } });
   } else if (query.includes("addPullRequestReviewThread(")) {
+    if (vars.body === "GitHub refuses this.") { process.stderr.write("gh: Line could not be resolved\\n"); process.exit(1); }
     state.comments.push({ id: ++state.next, review: review.id, author: "me", body: vars.body, path: vars.path, line: vars.line, startLine: vars.startLine, side: vars.side });
     data({ addPullRequestReviewThread: { thread: { id: "T_" + state.next } } });
   } else if (query.includes("addPullRequestReviewThreadReply(")) {
@@ -250,10 +256,17 @@ test("Med comments and replies go into the reader's pending review on GitHub, wh
   );
 });
 
-test("a discard removes the pending review; a comment off the pull request head, or with no pending review to submit, is refused", async () => {
-  const { target, addNote, pending, api, review } = await fixture();
+test("a discard removes the pending review; a comment twice, off the head or a removed line, a comment that GitHub refuses, or a submit without a pending review, is refused", async () => {
+  const { target, addNote, pending, api, review, calls } = await fixture();
   const noteId = await addNote({ path: "a.ts", side: "new", line: 1, text: "One." });
   await pending({ action: "note", targetId: target, noteId });
+  const again = await pending({ action: "note", targetId: target, noteId });
+  expect(again.status).toBe(409);
+  expect(again.data).toMatchObject({ error: { message: "GitHub has this comment already." } });
+  const removed = await addNote({ path: "a.ts", side: "old", line: 1, text: "Was 1." });
+  expect((await pending({ action: "note", targetId: target, noteId: removed })).data).toMatchObject(
+    { error: { message: "Only a comment on the new side can go to GitHub." } },
+  );
   const discarded = (await pending({ action: "discard" })).data as PullRequestComments;
   expect(discarded.reviews).toEqual([]);
   expect(shown(discarded)).toEqual([
@@ -268,6 +281,22 @@ test("a discard removes the pending review; a comment off the pull request head,
   expect(submit.data).toMatchObject({
     error: { message: "You have no pending review on GitHub." },
   });
+  // GitHub refuses the first comment of a pending review that Med started:
+  // the empty pending review goes too.
+  const refused = await addNote({
+    path: "a.ts",
+    side: "new",
+    line: 2,
+    text: "GitHub refuses this.",
+  });
+  const failed = await pending({ action: "note", targetId: target, noteId: refused });
+  expect(failed.status).toBe(502);
+  expect(failed.data).toMatchObject({ error: { message: "Line could not be resolved" } });
+  expect((await calls()).at(-1)!.join(" ")).toContain("deletePullRequestReview");
+  expect(
+    ((await api(`/api/reviews/${review}/pull-request?refresh=1`)).data as PullRequestComments)
+      .reviews,
+  ).toEqual([]);
 
   // The pull request moved on: its lines no longer match the review's.
   const github = process.env.FAKE_GITHUB!;

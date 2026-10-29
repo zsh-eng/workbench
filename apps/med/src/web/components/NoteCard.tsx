@@ -2,7 +2,7 @@ import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
-import { PendingReviewContext } from "../data/pending-review";
+import { onGitHub, PendingReviewContext } from "../data/pending-review";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -264,18 +264,23 @@ function ThreadMessage({
   // A comment on a saved version can go into the reader's pending review on
   // GitHub, when the review has a pull request.
   const github = useContext(PendingReviewContext);
-  const [posted, setPosted] = useState<"posting" | "posted" | null>(null);
+  const [sending, setSending] = useState<"posting" | "posted" | null>(null);
+  const posted = onGitHub(github?.comments, note) ? "posted" : sending;
   const postToGitHub =
-    github?.targetId && !reply && !note.parentId
+    github?.targetId &&
+    !reply &&
+    !note.parentId &&
+    note.side === "new" &&
+    (note.resolution ?? "active") === "active"
       ? async () => {
-          if (posted === "posting") return;
-          setPosted("posting");
+          if (posted) return;
+          setSending("posting");
           setError("");
           try {
             await github.write({ action: "note", targetId: github.targetId!, noteId: note.id });
-            setPosted("posted");
+            setSending("posted");
           } catch (cause) {
-            setPosted(null);
+            setSending(null);
             setError(cause instanceof Error ? cause.message : "GitHub did not take the comment.");
           }
         }
@@ -348,6 +353,7 @@ function ThreadMessage({
                       : "Add to your pending review on GitHub"
                   }
                   aria-busy={posted === "posting"}
+                  aria-disabled={!!posted}
                   {...stylex.props(ui.button, ui.iconButton, styles.tool)}
                   onClick={() => void postToGitHub()}
                 >

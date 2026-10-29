@@ -1363,16 +1363,26 @@ export function App({
   );
   // The reader's pending review on GitHub: replies to its threads, and the
   // comments on a saved version, which Med keeps with that version.
-  const pendingReview = useMemo<PendingReviewTarget | null>(
-    () =>
-      state.savedReview?.pullRequestUrl
-        ? {
-            ...(state.savedView && state.savedTargetId ? { targetId: state.savedTargetId } : {}),
-            write: pullRequest.write,
-          }
-        : null,
-    [state.savedReview?.pullRequestUrl, state.savedView, state.savedTargetId, pullRequest.write],
-  );
+  const pendingReview = useMemo<PendingReviewTarget | null>(() => {
+    if (!state.savedReview?.pullRequestUrl) return null;
+    const target = state.savedView
+      ? state.savedReview.targets.find((entry) => entry.id === state.savedTargetId)
+      : undefined;
+    // GitHub's lines are the head's: only a version of the head, not captured
+    // working changes, can add comments.
+    const onHead = target && !target.captured && target.head === pullRequest.data?.head;
+    return {
+      ...(onHead ? { targetId: target.id } : {}),
+      comments: pullRequest.data,
+      write: pullRequest.write,
+    };
+  }, [
+    state.savedReview,
+    state.savedView,
+    state.savedTargetId,
+    pullRequest.data,
+    pullRequest.write,
+  ]);
   // GitHub thread lines refer to the pull request's head commit. Threads show
   // in the diff only when it shows that commit and the line (data/pull-request.ts).
   const pullRequestThreads = useMemo(

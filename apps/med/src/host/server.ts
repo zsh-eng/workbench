@@ -2513,6 +2513,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     "This comment is on captured working changes, which GitHub does not have.",
                     409,
                   );
+                // GitHub reads a removed line against the pull request's own
+                // base, which can differ from this version's.
+                if (note.side === "old")
+                  throw new HostError(
+                    "old-side",
+                    "Only a comment on the new side can go to GitHub.",
+                    409,
+                  );
+                if (note.resolution && note.resolution !== "active")
+                  throw new HostError(
+                    "stale-note",
+                    "This comment's lines changed since you wrote it, so GitHub would show it on other lines.",
+                    409,
+                  );
                 change = {
                   kind: "comment",
                   commit: target.head,
