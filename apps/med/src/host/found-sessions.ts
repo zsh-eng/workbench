@@ -115,6 +115,30 @@ export async function readEdge(path: string, edge: "head" | "tail", bytes: numbe
   }
 }
 
+/** A rollout's long turn writes at least this often. */
+const TURN_WRITES_MS = 2 * 60_000;
+
+/**
+ * Whether a Codex rollout has a turn in progress: its last turn started
+ * (`task_started`) and did not end (`task_complete`, `turn_aborted`). Codex
+ * Desktop keeps the threads that it shows loaded, with their locks, so a
+ * lock alone does not say that one works. A tail without either is inside a
+ * long turn while the rollout still changes.
+ */
+export async function codexTurnOpen(path: string, now = Date.now()) {
+  const read = await readEdge(path, "tail", TAIL_BYTES).catch(() => undefined);
+  if (!read) return false;
+  for (let index = read.lines.length - 1; index >= 0; index--) {
+    const line = read.lines[index]!;
+    if (!line.includes('"event_msg"')) continue;
+    const type = record(parse(line)?.payload)?.type;
+    if (type === "task_started") return true;
+    if (type === "task_complete" || type === "turn_aborted") return false;
+  }
+  const info = await stat(path).catch(() => undefined);
+  return !!info && now - info.mtimeMs < TURN_WRITES_MS;
+}
+
 /** What a transcript says about its session. */
 interface SessionFile {
   agent: FoundAgent;

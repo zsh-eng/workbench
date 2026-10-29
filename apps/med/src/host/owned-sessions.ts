@@ -64,8 +64,11 @@ export interface OwnedRunner {
   /** Updates that Med keeps for an ACP session; Claude Code writes a transcript. */
   readonly log?: SessionLog;
   prompt(text: string, images?: PromptImage[]): Promise<void>;
-  /** Sends a message into the turn that runs now, where the agent can take
-   * one: Claude Code reads it after the tools that run, and Codex at its
+  /** The main conversation's tools run now. Claude Code reads a prompt that
+   * comes meanwhile when they end, in the same turn, as its terminal does
+   * with a message that the user queued (queued-messages.ts). */
+  runsTools?(): boolean;
+  /** Send now: a message into the turn that runs, which Codex takes at its
    * next step (`turn/steer`). Between turns it is the next prompt. */
   steer?(text: string, images?: PromptImage[]): Promise<void>;
   answer(id: string, option: string, reply?: PermissionReply): void;
@@ -449,6 +452,8 @@ export function startClaude(
   // Claude Code has the session's transcript: a new process resumes it. A
   // fork has its own transcript after its first prompt.
   let exists = !!options.resume && !options.fork;
+  /** The main conversation's tools run (runsTools). */
+  let tools = false;
   let stopping = false;
   let sequence = 0;
   const pending = new Map<string, (response: { error?: string; value?: unknown }) => void>();
@@ -589,6 +594,7 @@ export function startClaude(
     streamTimer = undefined;
     streaming = undefined;
     ask = undefined;
+    tools = false;
   };
 
   /** What the review shows for a tool call that waits: a question with its
@@ -646,6 +652,24 @@ export function startClaude(
 
   const onMessage = (message: Record<string, any>) => {
     switch (message.type) {
+      // A main-conversation response that calls tools starts them; their
+      // results end them. A subagent's calls run inside the main one's.
+      case "assistant":
+      case "user": {
+        if (message.parent_tool_use_id) return;
+        const blocks: unknown[] = Array.isArray(message.message?.content)
+          ? message.message.content
+          : [];
+        const has = (type: string) =>
+          blocks.some((block) => (block as { type?: unknown } | null)?.type === type);
+        const running =
+          message.type === "assistant" ? has("tool_use") : tools && !has("tool_result");
+        if (running !== tools) {
+          tools = running;
+          store.set({});
+        }
+        return;
+      }
       case "control_response": {
         const response = message.response ?? {};
         const done = pending.get(response.request_id);
@@ -946,6 +970,7 @@ export function startClaude(
     dormant: () => !held,
     pid: () => held?.pid(),
     subscribe: store.subscribe,
+    runsTools: () => tools,
     async prompt(text, images = []) {
       if (store.get().status === "exited")
         throw new HostError("session-stopped", "This session has stopped.", 409);
@@ -971,11 +996,6 @@ export function startClaude(
         error: undefined,
         halt: undefined,
       });
-    },
-    // Claude Code reads a message that comes during its turn after the tools
-    // that run, in the same turn, as its terminal does with a queued one.
-    async steer(text, images = []) {
-      return this.prompt(text, images);
     },
     answer(id, option, reply = {}) {
       if (!ask || ask.id !== id) return;
@@ -1930,6 +1950,9 @@ export class OwnedSessions {
       environment?: (key: string | undefined, cwd: string) => Record<string, string>;
       /** The home directory whose `.claude/sessions` Claude Code writes. */
       home?: () => string;
+      /** Antigravity (`agy`), which is off until the user turns it on
+       * (`MED_AGY=1`, docs/AGENT_WORKSPACES.md#antigravity-is-off). */
+      agy?: boolean;
     },
   ) {
     this.processes = createSessionProcesses({
@@ -1971,7 +1994,7 @@ export class OwnedSessions {
     const [claude, codex, agy] = await Promise.all([
       this.processes.running(),
       heldLocks(folders.codex),
-      heldLocks(folders.agy),
+      this.options.agy ? heldLocks(folders.agy) : new Map<string, number[]>(),
     ]);
     const outside = (held: Map<string, number[]>) =>
       [...held].flatMap(([id, pids]) => {
@@ -1996,8 +2019,16 @@ export class OwnedSessions {
       ),
     };
   }
+  /** Whether Med offers Antigravity. */
+  get agy() {
+    return !!this.options.agy;
+  }
+  /** The agents that Med offers: agy only when it is on. */
+  private async offeredAgents() {
+    return (await this.options.agents()).filter((agent) => agent.kind !== "agy" || this.agy);
+  }
   async agents(): Promise<AgentPreset[]> {
-    return (await this.options.agents()).map(({ id, name, kind, available, capabilities }) => ({
+    return (await this.offeredAgents()).map(({ id, name, kind, available, capabilities }) => ({
       id,
       name,
       kind,
@@ -2006,7 +2037,7 @@ export class OwnedSessions {
     }));
   }
   private async agent(presetId: string) {
-    const agent = (await this.options.agents()).find((entry) => entry.id === presetId);
+    const agent = (await this.offeredAgents()).find((entry) => entry.id === presetId);
     if (!agent?.available)
       throw new HostError("agent-unavailable", "This agent is not installed here.", 404);
     return agent;

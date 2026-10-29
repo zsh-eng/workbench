@@ -414,7 +414,9 @@ function Delivery({ message }: { message: SentMessage }) {
       : message.delivery === "pending"
         ? [
             message.queued
-              ? `Queued until ${agent}'s turn ends`
+              ? message.agent === "claude"
+                ? `Queued for ${agent}'s next step`
+                : `Queued until ${agent}'s turn ends`
               : message.waitsFor
                 ? SESSION_PLACES[message.waitsFor].waiting
                 : `Waiting for ${agent} to take it`,

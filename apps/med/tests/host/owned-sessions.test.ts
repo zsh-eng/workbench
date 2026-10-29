@@ -8,6 +8,7 @@ import {
   readdir,
   readFile,
   realpath,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,7 +52,7 @@ const alive = (pid: number) => {
 const agentScript = (name: string) =>
   fileURLToPath(new URL(`../fixtures/agents/${name}`, import.meta.url));
 
-async function fixture({ key }: { key?: string } = {}) {
+async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med owned sessions ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -68,6 +69,7 @@ async function fixture({ key }: { key?: string } = {}) {
     stateDir,
     port: 0,
     heldCheckMs: 100,
+    agy,
     agents: async () => [
       {
         id: "claude",
@@ -248,7 +250,8 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
       name: "Claude Code",
       kind: "claude",
       available: true,
-      capabilities: expect.objectContaining({ steer: true, approvals: "ask" }),
+      // A queued message joins Claude Code's turn by itself: no Send now.
+      capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
     },
     {
       id: "fake",
@@ -695,7 +698,7 @@ test("a turn goes on through a host restart; one that a reboot cuts waits as Int
   expect(back.halt).toBeUndefined();
 });
 
-test("a message sent while Claude Code works waits for the turn's end: it comes back until then, outlasts a host restart, and Send now joins the turn when a tool runs", async () => {
+test("a message sent while Claude Code works waits for its next step: it comes back until then, outlasts a host restart, and joins the turn when a tool runs", async () => {
   vi.stubEnv("MED_FAKE_TOOL_MS", "1500");
   const { api, review, thread, start, restart } = await fixture();
   const session = await start("claude");
@@ -740,16 +743,13 @@ test("a message sent while Claude Code works waits for the turn's end: it comes 
     (await api(`/api/reviews/${review.id}/agent/take`, { id: second.data.message.id })).status,
   ).toBe(409);
 
-  // Send now during a turn that runs a tool: Claude Code reads the message
-  // when the tool ends, in the same turn.
+  // A turn that runs a tool: Claude Code reads the message when the tool
+  // ends, in the same turn.
   await session.until((state) => state.status === "idle");
   await send("Work on the check.");
   await session.until((state) => state.status === "working");
   const during = await send("Also check the hour.");
   expect(during.data.message).toMatchObject({ delivery: "pending", queued: true });
-  expect(
-    (await api(`/api/reviews/${review.id}/agent/steer`, { id: during.data.message.id })).status,
-  ).toBe(200);
   await vi.waitFor(
     () => expect(replies().at(-1)).toBe("Checked, and read your note: Also check the hour."),
     { timeout: 5000 },
@@ -1448,7 +1448,9 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
       procStart: processStart(terminal.pid),
       entrypoint: "cli",
     });
-    // Codex with a thread open, and a guardian review that does not list.
+    // Codex Desktop with threads open: one with a turn in progress lists. A
+    // guardian review does not, nor a thread that it only has loaded: its
+    // last turn ended, or nothing has written to it for minutes.
     const day = new Date();
     const sessions = join(
       home,
@@ -1461,12 +1463,22 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
     await mkdir(sessions, { recursive: true });
     const codex = "01a189b0-0000-7000-8000-000000000001";
     const guardian = "01a189b0-0000-7000-8000-000000000002";
-    for (const [id, source, text] of [
-      [codex, "cli", "Port the parser."],
-      [guardian, { subagent: { other: "guardian" } }, "Review this command."],
-    ] as const)
+    const loaded = "01a189b0-0000-7000-8000-000000000003";
+    const quiet = "01a189b0-0000-7000-8000-000000000004";
+    const event = (type: string) => ({
+      timestamp: new Date().toISOString(),
+      type: "event_msg",
+      payload: { type },
+    });
+    for (const [id, source, text, turn] of [
+      [codex, "vscode", "Port the parser.", [event("task_started")]],
+      [guardian, { subagent: { other: "guardian" } }, "Review this command.", []],
+      [loaded, "vscode", "Rename the flags.", [event("task_started"), event("task_complete")]],
+      [quiet, "vscode", "Sort the imports.", []],
+    ] as const) {
+      const path = join(sessions, `rollout-2026-10-30T06-00-00-${id}.jsonl`);
       await writeFile(
-        join(sessions, `rollout-2026-10-30T06-00-00-${id}.jsonl`),
+        path,
         lines([
           {
             timestamp: new Date().toISOString(),
@@ -1478,13 +1490,19 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
             type: "response_item",
             payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
           },
+          ...turn,
         ]),
       );
+      if (id === quiet) {
+        const before = new Date(Date.now() - 10 * 60_000);
+        await utimes(path, before, before);
+      }
+    }
     const locks = join(home, ".codex", "thread-writer-locks");
-    const codexApp = await holdOpen(repo, [
-      join(locks, `${codex}.lock`),
-      join(locks, `${guardian}.lock`),
-    ]);
+    const codexApp = await holdOpen(
+      repo,
+      [codex, guardian, loaded, quiet].map((id) => join(locks, `${id}.lock`)),
+    );
     ends.push(codexApp.end);
     // agy in a terminal, in the repository.
     const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
@@ -1594,5 +1612,25 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
     });
   } finally {
     for (const end of ends) await end().catch(() => {});
+  }
+});
+
+test("Antigravity is off until the user turns it on: Med does not offer it, list it as running, or continue its conversations", async () => {
+  const { api, home, repo, review } = await fixture({ agy: false });
+  const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
+  const terminal = await holdOpen(repo, [
+    join(home, ".gemini", "antigravity-cli", "presence", `${agy}.lock`),
+  ]);
+  try {
+    const agents = await api<{ agents: { id: string }[] }>("/api/agents");
+    expect(agents.data.agents.map((agent) => agent.id)).not.toContain("agy");
+    expect((await api(`/api/reviews/${review.id}/owned`, { preset: "agy" })).status).toBe(404);
+    expect((await api("/api/agents/agy/choices")).status).toBe(404);
+    const running = await api<{ sessions: RunningSession[] }>("/api/sessions/running");
+    expect(running.data.sessions.filter((session) => session.agent === "agy")).toEqual([]);
+    const adopt = await api("/api/sessions/adopt", { agent: "agy", session: agy, repo });
+    expect(adopt.status).toBe(404);
+  } finally {
+    await terminal.end();
   }
 });

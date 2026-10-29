@@ -14,9 +14,10 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
 });
 
-/** A runner that the test drives: its state, and the prompts it took, and
- * with `steer`, the messages that it took during a turn. */
-function runner(steers: boolean) {
+/** A runner that the test drives: its state, whether it runs tools, and the
+ * prompts it took. ACP agents have no `runsTools`. With `steers`, as Codex,
+ * it takes Send now during a turn. */
+function runner(tools: boolean | undefined, steers = false) {
   let state: OwnedState = {
     sessionId: "s1",
     preset: "fake",
@@ -26,6 +27,7 @@ function runner(steers: boolean) {
     commands: [],
     turns: 1,
   };
+  let running = false;
   const listeners = new Set<() => void>();
   const prompts: string[] = [];
   const steered: string[] = [];
@@ -38,6 +40,7 @@ function runner(steers: boolean) {
     async prompt(text: string) {
       prompts.push(text);
     },
+    ...(tools === undefined ? {} : { runsTools: () => running }),
     ...(steers
       ? {
           async steer(text: string) {
@@ -51,8 +54,10 @@ function runner(steers: boolean) {
     prompts,
     steered,
     listeners,
-    set(change: Partial<OwnedState>) {
-      state = { ...state, ...change };
+    set(change: Partial<OwnedState> & { tools?: boolean }) {
+      const { tools: next, ...rest } = change;
+      if (next !== undefined) running = next;
+      state = { ...state, ...rest };
       for (const listener of [...listeners]) listener();
     },
   };
@@ -61,11 +66,11 @@ function runner(steers: boolean) {
 const session = (agent: AgentSession["agent"]): AgentSession => ({ agent, id: "s1", cwd: "/work" });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-async function setup(agent: AgentSession["agent"], steers: boolean) {
+async function setup(agent: AgentSession["agent"], tools: boolean | undefined, steers = false) {
   const directory = await mkdtemp(join(tmpdir(), "med-queued-"));
   directories.push(directory);
   const inbox = new AgentInbox(directory);
-  const agentRunner = runner(steers);
+  const agentRunner = runner(tools, steers);
   const queue = createQueuedMessages({ inbox, runner: () => agentRunner.fake });
   const send = async (text: string) => {
     await inbox.send("r1", session(agent), { text, noteIds: [], attachmentCount: 0 }, text, {
@@ -81,9 +86,10 @@ async function setup(agent: AgentSession["agent"], steers: boolean) {
 }
 
 test("an ACP agent takes queued messages only between turns, in order", async () => {
-  const { agent, send, pending, queue } = await setup("acp", false);
+  const { agent, send, pending, queue } = await setup("acp", undefined);
   await send("First.");
   await send("Second.");
+  // No runsTools: a turn that works keeps them, whatever it does.
   agent.set({ status: "working" });
   await settle();
   expect(agent.prompts).toEqual([]);
@@ -98,21 +104,21 @@ test("an ACP agent takes queued messages only between turns, in order", async ()
 });
 
 test("a turn that a restart cut keeps its queued messages until the reader acts, and a stopped session keeps them", async () => {
-  const { agent, send, pending, queue } = await setup("claude", true);
+  const { agent, send, pending, queue } = await setup("claude", false);
   agent.set({ status: "idle", halt: { kind: "interrupted" } });
   await send("Keep the tests.");
   await settle();
   expect(agent.prompts).toEqual([]);
-  // The reader continues the turn: the message waits for its end.
+  // The reader continues the turn: the message goes at its next step.
   agent.set({ status: "working", halt: undefined });
   await settle();
   expect(agent.prompts).toEqual([]);
-  agent.set({ status: "idle" });
+  agent.set({ tools: true });
   await settle();
   expect(agent.prompts).toEqual(["Keep the tests."]);
 
   // A session that the user stopped keeps what came after, as queued.
-  agent.set({ status: "working" });
+  agent.set({ tools: false });
   await send("And the docs.");
   agent.set({ status: "exited" });
   await settle();
@@ -122,22 +128,21 @@ test("a turn that a restart cut keeps its queued messages until the reader acts,
   queue.stop();
 });
 
-test("Send now gives one queued message to the turn that runs, where the agent can take it", async () => {
-  const claude = await setup("claude", true);
-  const first = await claude.send("Check the hour.");
-  const second = await claude.send("And the date.");
-  expect(await claude.queue.steer("r1", "s1", second.id)).toBe(true);
-  expect(claude.agent.steered).toEqual(["And the date."]);
-  expect(await claude.pending()).toMatchObject([{ id: first.id }]);
-  // Between turns, Send now sends it as the next prompt. (Stop the watch,
-  // which would send it as the turn ends.)
-  claude.queue.stop();
-  claude.agent.set({ status: "idle" });
-  expect(await claude.queue.steer("r1", "s1", first.id)).toBe(true);
-  expect(claude.agent.prompts).toEqual(["Check the hour."]);
+test("Send now gives one queued message to Codex's turn that runs; an agent that cannot take one keeps it", async () => {
+  const codex = await setup("codex", undefined, true);
+  const first = await codex.send("Check the hour.");
+  const second = await codex.send("And the date.");
+  // Codex takes them when the turn ends, or one now with Send now.
+  expect(codex.agent.prompts).toEqual([]);
+  expect(await codex.queue.steer("r1", "s1", second.id)).toBe(true);
+  expect(codex.agent.steered).toEqual(["And the date."]);
+  expect(await codex.pending()).toMatchObject([{ id: first.id }]);
+  codex.agent.set({ status: "idle" });
+  await settle();
+  expect(codex.agent.prompts).toEqual(["Check the hour."]);
+  codex.queue.stop();
 
-  // An agent that takes no message during a turn keeps it queued.
-  const acp = await setup("acp", false);
+  const acp = await setup("acp", undefined);
   const kept = await acp.send("Wait for me.");
   expect(await acp.queue.steer("r1", "s1", kept.id)).toBe(false);
   expect(await acp.pending()).toMatchObject([{ id: kept.id, queued: true }]);

@@ -82,7 +82,8 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   policy and sandbox, sent with each turn. Shapes are Codex 0.160's, from
   `codex app-server generate-ts` and a recorded session
   (`tests/fixtures/agents/codex-app-server.jsonl`).
-- **Antigravity** (`src/host/agy-runner.ts`): `agy --input-format stream-json
+- **Antigravity** (`src/host/agy-runner.ts`, off unless `MED_AGY=1`; see
+  [Antigravity is off](#antigravity-is-off)): `agy --input-format stream-json
 --output-format stream-json -p=`, with `--model`, `--mode` (or
   `--dangerously-skip-permissions`), and `--conversation <id>` to resume.
   One process keeps the conversation and runs a turn per input line; Med logs
@@ -168,8 +169,13 @@ and Claude Code, Codex, and agy sessions that another process has open. Med
 reads Claude Code's process records (`~/.claude/sessions/<pid>.json`),
 Codex's thread locks, and agy's presence locks
 (`~/.gemini/antigravity-cli/presence/<id>.lock`), and counts a lock only
-while a process other than Med's agents has it open (`lsof`). Codex's
-guardian reviews and subagents do not list. One with a thread opens it;
+while a process other than Med's agents has it open (`lsof`). Codex Desktop
+keeps every thread that it shows loaded, with its lock, so a Codex thread
+lists only while a turn is in progress: its rollout's last turn started
+(`task_started`) without a `task_complete` or `turn_aborted`, or, in a turn
+too long for the rollout's last 256 KB to show its start, the rollout
+changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`).
+Codex's guardian reviews and subagents do not list. One with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
 conversation a thread whose agent Med runs, from its transcript's history
@@ -183,33 +189,37 @@ Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
 `src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
 the page shows only the controls that work:
 
-| Capability | Claude Code | Codex | agy                   | Other ACP |
-| ---------- | ----------- | ----- | --------------------- | --------- |
-| Send now   | Yes         | Yes   | No                    | No        |
-| Stop       | Yes         | Yes   | Ends the process      | Yes       |
-| Approvals  | Cards       | Cards | Mode and allow rules  | Cards     |
-| Images     | Yes         | Yes   | No                    | When set  |
-| Resume     | Yes         | Yes   | Yes                   | No        |
-| Subagents  | Yes         | Yes   | Yes                   | No        |
-| Spend      | Yes         | Yes   | No (no Gemini prices) | No        |
+| Capability | Claude Code    | Codex | agy                   | Other ACP |
+| ---------- | -------------- | ----- | --------------------- | --------- |
+| Send now   | No: needs none | Yes   | No                    | No        |
+| Stop       | Yes            | Yes   | Ends the process      | Yes       |
+| Approvals  | Cards          | Cards | Mode and allow rules  | Cards     |
+| Images     | Yes            | Yes   | No                    | When set  |
+| Resume     | Yes            | Yes   | Yes                   | No        |
+| Subagents  | Yes            | Yes   | Yes                   | No        |
+| Spend      | Yes            | Yes   | No (no Gemini prices) | No        |
 
 ### Queued messages
 
-A message that comes while an agent that Med runs works waits for the turn's
-end, or for **Stop** (`Esc`), and goes as the next prompt, with the other
-queued messages in order. The inbox keeps it as `pending` with `queued: true`
-(`queued-messages.ts`):
+A message that comes while an agent that Med runs works waits for the agent's
+next step, as Claude Code's terminal queues one
+(https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
+The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
-- **Send now** gives one to the turn that runs (`POST
-/api/reviews/:id/agent/steer` with `{ id }`), for an agent that can take
-  it. Med writes it to Claude Code's input, which reads it after the tools
-  that run, in the same turn, as its terminal does
-  (https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works);
-  the transcript records it as a `queued_command` attachment, which the
-  thread shows where Claude read it. Codex takes it with `turn/steer`. agy
-  and other ACP agents take messages only between turns, so they offer no
-  Send now. A turn that a restart cut (Interrupted) waits for the reader, and
-  so do its messages.
+- While Claude Code runs the main conversation's tools (an `assistant`
+  message with `tool_use`, until its `tool_result`), Med writes the message
+  to Claude Code's input at once. Claude Code reads it when the tools end, in
+  the same turn, and its transcript records it as a `queued_command`
+  attachment, which the thread shows where Claude read it.
+- Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
+  and goes as the next prompt, with the other queued messages in order.
+  Codex, agy, and other ACP agents take queued messages between turns.
+- **Send now** gives one to Codex's turn that runs, which takes it at its
+  next step (`turn/steer`; `POST /api/reviews/:id/agent/steer` with
+  `{ id }`). Claude Code needs none, and agy and other ACP agents take no
+  message during a turn, so only Codex offers it.
+- A turn that a restart cut (Interrupted) waits for the reader, and so do its
+  messages.
 - Until the agent has it, **Edit** in the thread puts the message's text
   back into the message box, before what the box holds, and **Remove** drops
   it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box
@@ -221,7 +231,16 @@ queued messages in order. The inbox keeps it as `pending` with `queued: true`
 - The browser's outbox keeps a message until the host has it, so a reload or
   a crashed tab loses none; the inbox file keeps it after that. When the host
   restarts, it watches each session with queued messages again; the agent's
-  holder kept the turn running, so they go when it ends, as before.
+  holder kept the turn running, so they go at its next step as before.
+
+### Antigravity is off
+
+Med's Antigravity support is off by default, while the user does not use it:
+Med offers no agy agent, lists no agy sessions in Running now, and refuses
+Continue in Med for an agy conversation. The code and its tests stay
+(`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
+Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
+on. An agy session that Med started while it was on still restores.
 
 ### What a thread's agent knows
 
