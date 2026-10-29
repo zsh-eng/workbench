@@ -109,7 +109,7 @@ import {
 } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
-import { createFoundSessions } from "./found-sessions";
+import { codexTurnOpen, createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
@@ -200,6 +200,8 @@ export interface StartHostOptions {
    * reader chooses (default true). The CLI turns it off for a state folder
    * other than Med's own, so that a second Med lists only its own threads. */
   foundSessions?: boolean;
+  /** Offer Antigravity (`agy`): off unless `MED_AGY=1` (default false). */
+  agy?: boolean;
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -377,6 +379,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
     recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
     environment: agentEnvironment,
+    agy: options.agy ?? process.env.MED_AGY === "1",
   });
   await ownedSessions.restore();
   // The Scheduled list: a session's jobs fire while its process runs, in Med
@@ -587,11 +590,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...thread(id),
       });
     }
-    for (const { id } of running.codex) {
-      const info = infos.get(`codex:${id}`);
-      // A guardian review or a subagent shows in its parent; a thread
-      // without a rollout has nothing to keep yet.
-      if (!info || info.automatic) continue;
+    // A guardian review or a subagent shows in its parent; a thread without
+    // a rollout has nothing to keep yet; and one that Codex Desktop only has
+    // loaded does not work.
+    const working = await Promise.all(
+      running.codex.map(async ({ id }) => {
+        const info = infos.get(`codex:${id}`);
+        return info && !info.automatic && (await codexTurnOpen(info.path)) ? info : undefined;
+      }),
+    );
+    for (const info of working) {
+      if (!info) continue;
+      const { id } = info;
       sessions.push({
         agent: "codex",
         id,
@@ -2149,6 +2159,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // process has it open, a message says to end it there first.
           const continueAgy = async (input: SessionAdopt): Promise<SessionAdopted> => {
             const id = input.session;
+            if (!ownedSessions.agy)
+              throw new HostError("agent-unavailable", "Antigravity is off in Med.", 404);
             if (!/^[A-Za-z0-9_-]{1,128}$/.test(id))
               throw new HostError("session-not-found", "Choose an agy conversation ID.", 400);
             const named = (await sessionThreads()).get(id);

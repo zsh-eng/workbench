@@ -4,10 +4,15 @@ import type { OwnedRunner } from "./owned-sessions";
 /**
  * Messages that the user sent while a session that Med runs worked
  * (docs/AGENT_WORKSPACES.md#queued-messages). Each waits in the inbox, where
- * the user can still take it back, until the turn ends, or Esc stops it;
- * then they go as the next prompt, in order. **Send now** (`steer`) gives one
- * to the turn that runs, where the agent can take it: Claude Code reads it
- * after the tools that run, and Codex at its next step (`turn/steer`).
+ * the user can still take it back, until the agent's next step:
+ *
+ * - Claude Code runs the main conversation's tools: Med writes the messages
+ *   to its input now, and Claude Code reads them when the tools end, in the
+ *   same turn, as its terminal does with a queued message.
+ * - The turn ends, or Esc stops it: they go as the next prompt, in order.
+ *
+ * Codex and ACP agents take them when the turn ends. **Send now** (`steer`)
+ * gives one to Codex's turn that runs (`turn/steer`).
  *
  * A turn that a restart cut waits for the reader (OwnedState.halt), and so
  * do its messages. The inbox keeps them on disk; after a restart of the
@@ -24,7 +29,7 @@ export function createQueuedMessages(options: {
   const ready = (runner: OwnedRunner) => {
     const { status, halt } = runner.state();
     if (halt) return false;
-    return status === "idle";
+    return status === "idle" || (status === "working" && !!runner.runsTools?.());
   };
 
   const stop = (name: string) => {
@@ -61,7 +66,7 @@ export function createQueuedMessages(options: {
       );
       return true;
     },
-    /** Gives the session's queued messages to its agent when its turn ends. */
+    /** Gives the session's queued messages to its agent at its next step. */
     watch(reviewId: string, sessionId: string) {
       const name = key(reviewId, sessionId);
       const runner = options.runner(sessionId);

@@ -35,7 +35,8 @@ export type AgentCapabilities = z.infer<typeof agentCapabilitiesSchema>;
 /** The capabilities of each kind of agent that Med runs. */
 export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
   claude: {
-    steer: true,
+    // A queued message joins the turn by itself, after the tools that run.
+    steer: false,
     interrupt: true,
     approvals: "ask",
     images: true,

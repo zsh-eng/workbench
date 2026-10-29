@@ -4592,7 +4592,7 @@ describe("agent session", () => {
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
   });
 
-  test("while the agent works, a message queues until its turn ends; Edit brings it back, Remove drops it, ↑ takes back the rest, and Send now gives it to the turn", async () => {
+  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, ↑ takes back the rest, and Send now shows for an agent that takes one", async () => {
     await page.viewport(1280, 800);
     const { setOwned, agentMessages, goneOnTake, steered } = await mountApp({
       savedReview: true,
@@ -4617,9 +4617,9 @@ describe("agent session", () => {
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
     await userEvent.click(composer.getByRole("button", { name: "Queue" }));
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
-    const queued = panel.getByText("Queued until Claude's turn ends");
+    const queued = panel.getByText("Queued for Claude's next step");
     await expect.element(queued).toBeVisible();
-    // An agent that takes no message during its turn offers no Send now.
+    // Claude Code takes it after its tools by itself, so no Send now.
     await expect.element(panel.getByRole("button", { name: "Send now" })).not.toBeInTheDocument();
     await expect.element(field).toHaveValue("");
 
@@ -4673,7 +4673,8 @@ describe("agent session", () => {
       .element(panel.getByText("Its attachment did not come back; add it again."))
       .toBeVisible();
 
-    // Claude Code takes a message during its turn: Send now gives it to the turn.
+    // An agent whose capabilities say it takes a message during its turn, as
+    // Codex does, offers Send now, which gives it to the turn.
     setOwned({
       status: "working",
       settings: [],
