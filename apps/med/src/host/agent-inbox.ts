@@ -172,7 +172,8 @@ export class AgentInbox {
   /**
    * Takes back a queued message that the agent has not had: it leaves the
    * review, and its comments are drafts again. Returns it, for the user to
-   * edit; a message that went already cannot come back.
+   * edit; a message that went already cannot come back. Its attached
+   * selections and images stay out of it: the box gets its text again.
    */
   takeBack(reviewId: string, id: string): Promise<AgentMessage> {
     return this.change(reviewId, (messages) => {
@@ -305,6 +306,7 @@ export class AgentInbox {
       comments?: SentComment[];
       noteVersions?: Record<string, string>;
       attachmentCount: number;
+      imageCount?: number;
     },
     body: string,
     route: {
@@ -334,6 +336,7 @@ export class AgentInbox {
         ? { noteVersions: message.noteVersions }
         : {}),
       attachmentCount: message.attachmentCount,
+      ...(message.imageCount ? { imageCount: message.imageCount } : {}),
       createdAt: new Date(this.now()).toISOString(),
       delivery: "pending",
       body,

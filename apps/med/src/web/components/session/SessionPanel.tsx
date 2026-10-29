@@ -635,25 +635,48 @@ export function SessionPanel({
   // A queued message comes back into the box to edit, or goes; ↑ in the
   // empty box takes back all of them, as in Claude Code.
   const [restore, setRestore] = useState<{ text: string; nonce: number }>();
-  const [takeError, setTakeError] = useState<string>();
+  const [takeNote, setTakeNote] = useState<{ text: string; error: boolean }>();
   const queued = (messages ?? []).filter(
     (message) =>
       message.sessionId === session.id && message.queued && message.delivery === "pending",
   );
   const takeBack = (ids: string[], edit: boolean) => {
     if (!inbox?.takeBack) return;
-    setTakeError(undefined);
-    void Promise.all(ids.map((id) => inbox.takeBack!(id))).then(
-      (taken) => {
-        const text = taken
-          .map((message) => message.text)
-          .filter(Boolean)
-          .join("\n\n");
-        if (edit && text) setRestore({ text, nonce: Date.now() });
-      },
-      (reason: unknown) =>
-        setTakeError(reason instanceof Error ? reason.message : "The message went already."),
-    );
+    setTakeNote(undefined);
+    // Each comes back on its own: one that went meanwhile leaves the rest.
+    void Promise.allSettled(ids.map((id) => inbox.takeBack!(id))).then((results) => {
+      const taken = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      const text = taken
+        .map((message) => message.text)
+        .filter(Boolean)
+        .join("\n\n");
+      if (edit && text) setRestore({ text, nonce: Date.now() });
+      const went = results.length - taken.length;
+      const left = edit
+        ? taken.reduce(
+            (sum, message) => sum + message.attachmentCount + (message.imageCount ?? 0),
+            0,
+          )
+        : 0;
+      if (went)
+        setTakeNote({
+          text:
+            went === results.length && went === 1
+              ? `${agentName(session)} has this message already, so it cannot come back.`
+              : `${went} of them went to ${agentName(session)} already.`,
+          error: true,
+        });
+      else if (left)
+        setTakeNote({
+          text:
+            left === 1
+              ? "Its attachment did not come back; add it again."
+              : `Its ${left} attachments did not come back; add them again.`,
+          error: false,
+        });
+    });
   };
   const shown = useMemo(() => {
     const sent: SentMessage[] = [
@@ -941,7 +964,11 @@ export function SessionPanel({
                     : undefined
                 }
                 notice={
-                  takeError && <p {...stylex.props(styles.note, styles.takeError)}>{takeError}</p>
+                  takeNote && (
+                    <p {...stylex.props(styles.note, takeNote.error && styles.takeError)}>
+                      {takeNote.text}
+                    </p>
+                  )
                 }
                 mentions={mentions}
                 onMentionsWanted={onMentionsWanted}
@@ -1047,7 +1074,7 @@ const styles = stylex.create({
   turnText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
   stopped: { flexShrink: 0, marginInline: 12, marginBlock: 12 },
-  takeError: { color: tokens.red, textAlign: "start" },
+  takeError: { color: tokens.red },
   start: {
     flex: "1",
     minHeight: 0,

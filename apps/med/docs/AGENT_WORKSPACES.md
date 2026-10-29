@@ -147,11 +147,14 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
   and goes as the next prompt, with the other queued messages in order. An
   ACP agent takes messages only between turns. A turn that a restart cut
   (Interrupted) waits for the reader, and so do its messages.
-- Until the agent has it, **Edit** in the thread puts the message back into
-  the message box, before what the box holds, and **Remove** drops it (`POST
-/api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box takes back
-  every queued message. Its comments become drafts again. Images in a queued
-  message go as paths to saved copies, as for an agent that takes no images.
+- Until the agent has it, **Edit** in the thread puts the message's text
+  back into the message box, before what the box holds, and **Remove** drops
+  it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box
+  takes back every queued message. Its comments become drafts again. Its
+  attached selections and images do not come back, and the box says so. Each
+  message comes back on its own, so one that went meanwhile leaves the rest in
+  the box. Images in a queued message go as paths to saved copies, as for an
+  agent that takes no images.
 - The browser's outbox keeps a message until the host has it, so a reload or
   a crashed tab loses none; the inbox file keeps it after that. When the host
   restarts, it watches each session with queued messages again; the agent's

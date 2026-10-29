@@ -1733,6 +1733,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   comments,
                   noteVersions,
                   attachmentCount: input.attachments.length,
+                  ...(input.images.length ? { imageCount: input.images.length } : {}),
                 },
                 parts.join("\n\n"),
                 queue

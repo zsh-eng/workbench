@@ -65,6 +65,8 @@ export const agentMessageSchema = z.object({
    * comment's `updatedAt` when Med read it. A later change is a draft. */
   noteVersions: z.record(z.string(), z.string()).optional(),
   attachmentCount: z.number().int().nonnegative(),
+  /** The images that went with it. */
+  imageCount: z.number().int().positive().optional(),
   createdAt: z.string(),
   /**
    * pending: Med keeps it until the agent runs `med review wait`.

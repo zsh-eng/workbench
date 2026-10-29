@@ -250,6 +250,8 @@ async function mountApp(
   });
   const pullRequestReads: string[] = [];
   let inbox = options.inbox;
+  /** Queued messages that the agent gets just before the user takes them back. */
+  const goneOnTake = new Set<string>();
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -504,6 +506,7 @@ async function mountApp(
           sessionId?: string;
           text: string;
           noteIds: string[];
+          images?: unknown[];
         };
         if (options.answerAgentMessages) {
           const error = await new Promise<string | undefined>((answer) =>
@@ -528,6 +531,7 @@ async function mountApp(
           noteIds: input.noteIds,
           comments,
           attachmentCount: 0,
+          ...(input.images?.length ? { imageCount: input.images.length } : {}),
           createdAt: new Date().toISOString(),
           // A session that a terminal or another app runs takes the message later.
           delivery: inbox.elsewhere?.s1 || queued ? "pending" : "delivered",
@@ -544,6 +548,19 @@ async function mountApp(
       if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
         const { id } = JSON.parse(String(init?.body)) as { id: string };
         const message = inbox.messages.find((entry) => entry.id === id && entry.queued);
+        // The agent's next step took it just before.
+        if (message && goneOnTake.has(message.text)) {
+          inbox = {
+            ...inbox,
+            messages: inbox.messages.map((entry) =>
+              entry === message ? { ...entry, queued: undefined, delivery: "delivered" } : entry,
+            ),
+          };
+          return Response.json(
+            { error: { code: "message-sent", message: "Sent" } },
+            { status: 409 },
+          );
+        }
         if (!message)
           return Response.json(
             { error: { code: "message-sent", message: "Sent" } },
@@ -921,6 +938,7 @@ async function mountApp(
     agentAnswers,
     setOwned,
     setOwnedTranscript,
+    goneOnTake,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -4435,7 +4453,7 @@ describe("agent session", () => {
 
   test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
     await page.viewport(1280, 800);
-    const { setOwned, agentMessages } = await mountApp({
+    const { setOwned, agentMessages, goneOnTake } = await mountApp({
       savedReview: true,
       inbox: { messages: [], waiting: [], drafts: [] },
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
@@ -4480,10 +4498,37 @@ describe("agent session", () => {
     await expect.poll(() => removes.elements().length).toBe(3);
     await userEvent.click(removes.nth(1));
     await expect.element(panel.getByText("Keep seconds.")).not.toBeInTheDocument();
+    // One that the agent takes meanwhile goes; the rest come back.
+    goneOnTake.add("Test the hour.");
     await userEvent.click(field);
     await userEvent.keyboard("{ArrowUp}");
-    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.\n\nTest the hour.");
+    await expect.element(field).toHaveValue("Round to minutes.\n\nAnd hours.");
     await expect.element(queued).not.toBeInTheDocument();
+    await expect.element(panel.getByText("1 of them went to Claude already.")).toBeVisible();
+
+    // A queued image does not come back with its text, and the box says so.
+    setOwned({ status: "working", images: true, settings: [], commands: [] });
+    await userEvent.fill(field, "");
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const clipboard = new DataTransfer();
+    clipboard.items.add(
+      new File([Uint8Array.from(atob(png), (char) => char.charCodeAt(0))], "shot.png", {
+        type: "image/png",
+      }),
+    );
+    field
+      .element()
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true }));
+    await expect.element(composer.getByRole("list", { name: "Images to send" })).toBeVisible();
+    await userEvent.click(field);
+    await userEvent.keyboard("See the chart.{Meta>}{Enter}{/Meta}");
+    await expect.element(queued).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Edit", exact: true }));
+    await expect.element(field).toHaveValue("See the chart.");
+    await expect
+      .element(panel.getByText("Its attachment did not come back; add it again."))
+      .toBeVisible();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {

@@ -501,8 +501,8 @@ and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Queue**
 (`⌘↩`) keeps a message for its next step: Claude Code reads it after the
 tools that run, in the same turn, and otherwise it goes when the turn ends.
-Until then, **Edit** or `↑` brings it back into the box, and **Remove**
-drops it. The pane's header shows how full
+Until then, **Edit** or `↑` brings its text back into the box (attachments
+stay out, and the box says so), and **Remove** drops it. The pane's header shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
 its thread shows a side panel instead: the context, the spend, the background
