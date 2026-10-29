@@ -10,8 +10,8 @@ const REVIEWS = 600;
 
 /**
  * A migrated account, straight to the server: the cards and their deck,
- * their review history (pages of 500), then the latest review of Alder,
- * which moves Alder's schedule to the end of a plain pull.
+ * their review history (pages of 500), then each card's latest review,
+ * which moves its schedule after its content in every pull.
  */
 async function seed(context: BrowserContext) {
   const signUp = await context.request.post(`${api}/api/auth/sign-up/email`, {
@@ -31,6 +31,8 @@ async function seed(context: BrowserContext) {
     ).json(),
   );
   let clock = Date.now() - 30 * DAY;
+  /** When each card was made; its schedule row carries it. */
+  const born = CARDS.map((_, index) => clock - 30 * DAY + index * 1_000);
   const record = (
     table: string,
     type: string,
@@ -51,7 +53,7 @@ async function seed(context: BrowserContext) {
   const schedule = (index: number, reps: number) =>
     record("operations", "card", cardId(index), {
       id: cardId(index),
-      createdAt: clock,
+      createdAt: born[index],
       due: new Date(Date.now() - DAY).toISOString(),
       stability: 10,
       difficulty: 5,
@@ -114,8 +116,12 @@ async function seed(context: BrowserContext) {
   );
   await push(reviews.slice(0, 500));
   await push(reviews.slice(500));
-  await push([schedule(0, 5)], "phone");
+  await push(
+    CARDS.map((_, index) => schedule(index, 5)),
+    "phone",
+  );
   return {
+    born,
     /** Another device edits Birch's front. */
     editBirch: () => push([content(1, "Birch, edited")], "phone"),
     async serverRecords() {
@@ -175,8 +181,10 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
   const account = await seed(context);
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
+  // The full pull waits; once `holdAll` is set, so does the priority pull.
+  let holdAll = false;
   await context.route(`${spaced}/sync/v3/pull-stream?**`, async (route) => {
-    if (!route.request().url().includes("prefix=")) await held;
+    if (holdAll || !route.request().url().includes("prefix=")) await held;
     await route.continue().catch(() => {});
   });
 
@@ -190,17 +198,23 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
     pullCursor: 0,
     bootstrapped: false,
   });
+  // A grade on the cards as the priority pull left them: each card's
+  // content came before its schedule.
+  const graded = (await front(page))!.trim();
+  await good(page).click();
+  await expect(page.locator('a[href="/"]').first()).toHaveText("2");
+  expect((await front(page))!.trim()).not.toBe(graded);
+
+  // With every pull held, only the device's marker can open the pages.
+  holdAll = true;
   // Stats waits for the history rather than showing part of it.
   await page.goto(`${app}/stats`);
   await expect(page.getByText("Restoring your review history…")).toBeVisible();
   // A reload during the rest of the restore opens Review at once.
   await page.goto(app);
   await expect(good(page)).toBeVisible();
-
-  const graded = (await front(page))!.trim();
-  await good(page).click();
+  await expect(page.getByText("Restoring review history…")).toBeVisible();
   await expect(page.locator('a[href="/"]').first()).toHaveText("2");
-  expect((await front(page))!.trim()).not.toBe(graded);
   await account.editBirch();
   release();
 
@@ -226,6 +240,7 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
       );
       return {
         reps: card.payload.reps,
+        createdAt: card.payload.createdAt,
         birch: birch.payload.front,
         reviews: await db.reviewLogOperations.count(),
         outbox: await outbox(),
@@ -233,10 +248,12 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
     },
     { index },
   );
-  // The review made during the restore stays: the full pull's copy of the
-  // card is the older version, and its log is the only new one.
+  // The review made during the restore stays, with the card's creation
+  // time: the full pull's copy of the card is the older version, and its
+  // log is the only new one.
   expect(local).toEqual({
-    reps: (index === 0 ? 5 : 4) + 1,
+    reps: 6,
+    createdAt: account.born[index],
     birch: "Birch, edited",
     reviews: REVIEWS + 1,
     outbox: 0,
@@ -254,6 +271,9 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
         JSON.stringify(["card", `first-review-card-${index}`]),
       ]),
   )!;
-  expect(JSON.parse(schedule.value).payload.reps).toBe(local.reps);
+  expect(JSON.parse(schedule.value).payload).toMatchObject({
+    reps: local.reps,
+    createdAt: local.createdAt,
+  });
   await context.close();
 });

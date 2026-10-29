@@ -1,4 +1,4 @@
-import { useLocation } from "react-router";
+import { matchPath, useLocation } from "react-router";
 import { useSyncExternalStore, type ReactNode } from "react";
 import SyncEngine from "@/lib/sync/engine";
 
@@ -33,7 +33,7 @@ export function SyncBoundary({
         Restoring your cards…
       </p>
     );
-  if (restoring === "history" && pathname === "/stats")
+  if (restoring === "history" && matchPath("/stats", pathname))
     return (
       <p role="status" className="col-span-full p-4">
         Restoring your review history…
