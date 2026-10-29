@@ -1732,6 +1732,8 @@ export function WorkspaceHost({
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.shiftKey) return;
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "b") return;
+      // ⌘⌃B is the review's Changed files pane, not the sidebar.
+      if (event.metaKey && event.ctrlKey) return;
       if ((event.target as HTMLElement).closest?.(".cm-editor") && event.ctrlKey) return;
       event.preventDefault();
       toggleSidebar();

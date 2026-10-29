@@ -238,6 +238,15 @@ function preloadPanes() {
   preloadFileEditor();
   CommitView.preload();
 }
+/** ⌘⌃B shows or hides the Changed files pane, beside ⌘B for the sidebar,
+ * ⌘⇧B for the session, and ⌘⌥B for the review's rail. Linux reads ⌘⌃ as
+ * Ctrl+Alt, which is the rail's, so there the button and ⌘K show it. */
+const CHANGED_SHORTCUT = platform === "mac" ? "Mod+Ctrl+B" : undefined;
+const CHANGED_HIDE = {
+  label: "Hide changed files",
+  icon: "panelLeft" as const,
+  ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
+};
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
@@ -1045,6 +1054,30 @@ export function App({
     return () => observer.disconnect();
   }, [mainElement]);
   const mode = preferredMode === "split" && !roomy ? "unified" : preferredMode;
+  // A pane hidden from its header takes its button, and the focus, with it:
+  // the button that shows it again, where it was, takes the focus. The review
+  // widens as the pane goes, so the button can come a frame later, with room.
+  const panesShown = useRef({ changed: changedVisible, session: sessionVisible });
+  const focusShow = useRef<"changed" | "session">(undefined);
+  useLayoutEffect(() => {
+    const before = panesShown.current;
+    panesShown.current = { changed: changedVisible, session: sessionVisible };
+    const active = document.activeElement;
+    const lost =
+      !(active instanceof HTMLElement) || active === document.body || !active.checkVisibility();
+    if (before.changed && !changedVisible) focusShow.current = lost ? "changed" : undefined;
+    else if (before.session && !sessionVisible) focusShow.current = lost ? "session" : undefined;
+    const id = focusShow.current;
+    if (!id) return;
+    if (!lost || (id === "changed" ? changedVisible : sessionVisible)) {
+      focusShow.current = undefined;
+      return;
+    }
+    const button = visibleElement(`[data-pane-show="${id}"]`);
+    if (!button) return;
+    focusShow.current = undefined;
+    button.focus();
+  }, [changedVisible, sessionVisible, roomy]);
   const wrap = useViewSetting(viewSettings.wrap) === "on";
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
@@ -1672,6 +1705,9 @@ export function App({
   // any width, so a pane at the edge of the breakpoint stays as chosen.
   const guideRail = guideTab && !zen;
   const railChoice = useViewSetting(viewSettings.reviewRail);
+  // The session's side panel shows where its pane has room (SessionPanel.tsx).
+  const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
+  const [sessionSideRoom, setSessionSideRoom] = useState(false);
   const railRoom = guideRail ? guideRoomy : roomy;
   const railOpen = railChoice === "open" || (railChoice === "auto" && railRoom);
   const railShown = changesRail && railOpen;
@@ -2909,6 +2945,21 @@ export function App({
           return;
         }
       }
+      // ⌘⌃B shows or hides the Changed files pane, in the shell or alone.
+      // Without Git it does nothing, rather than ⌘B's sidebar.
+      if (
+        CHANGED_SHORTCUT &&
+        event.metaKey &&
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyB"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat && gitAvailable) toggleChanged();
+        return;
+      }
       // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
       if (
         (event.metaKey || event.ctrlKey) &&
@@ -3215,6 +3266,7 @@ export function App({
     changesRail,
     guideRail,
     toggleRail,
+    toggleChanged,
   ]);
 
   const selectBranch = useCallback(
@@ -4413,11 +4465,12 @@ export function App({
       shortcut: "⌘ B",
       run: toggleReviewSidebar,
     },
-    ...(shell
+    ...(shell && gitAvailable
       ? [
           {
             id: "changed-files",
             label: changedVisible ? "Hide changed files" : "Show changed files",
+            ...(CHANGED_SHORTCUT ? { shortcut: "⌘⌃B" } : {}),
             run: toggleChanged,
           },
         ]
@@ -4501,6 +4554,21 @@ export function App({
             label: railLabel,
             shortcut: "⌘⌥B",
             run: toggleRail,
+          },
+        ]
+      : []),
+    // As the side panel's own button: where the session's pane has room.
+    ...(sessionVisible && sessionSideRoom && !zen
+      ? [
+          {
+            id: "session-side-panel",
+            label:
+              sessionPanelChoice === "closed"
+                ? "Show the session's side panel"
+                : "Hide the session's side panel",
+            shortcut: "⌘⌥⇧B",
+            run: () =>
+              viewSettings.sessionPanel.set(sessionPanelChoice === "closed" ? "auto" : "closed"),
           },
         ]
       : []),
@@ -5439,10 +5507,44 @@ export function App({
     </span>
   );
   // Quiet chrome leaves the branch to the title band, which names the checkout.
-  const leading = !state.savedReview && !(quiet && shell) && (
+  const identityShown = !state.savedReview && !(quiet && shell);
+  // A hidden pane at the review's left leaves its button where the pane was,
+  // at the start of the review's row: a session with its agent's mark, as
+  // full chrome's button, and the changed files with the panel icon that
+  // hides them in their header. Alone, the identity's sidebar button shows
+  // the changed files; full chrome has its session button. Like the rail's
+  // at the row's other end, they show where the row has room; a narrow row
+  // keeps its tabs in place, and ⋯, the shortcuts and ⌘K still work.
+  const sessionShow = quiet && roomy && !sessionVisible && (agentSessions.length > 0 || found) && (
+    <ToolButton
+      icon={found?.agent ?? leadIcon}
+      label="Show agent session"
+      shortcut="Mod+Shift+B"
+      aria-pressed={false}
+      data-pane-show="session"
+      onClick={toggleSession}
+    />
+  );
+  const changedShow = gitAvailable && !changedVisible && roomy && !(identityShown && !shell) && (
+    <ToolButton
+      icon="panelLeft"
+      label="Show changed files"
+      {...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {})}
+      aria-pressed={false}
+      data-pane-show="changed"
+      onClick={toggleChanged}
+    />
+  );
+  const leading = (identityShown || sessionShow || changedShow) && (
     <>
-      {identity}
-      <span {...stylex.props(styles.headerDivider)} />
+      {sessionShow}
+      {changedShow}
+      {identityShown && (
+        <>
+          {identity}
+          <span {...stylex.props(styles.headerDivider)} />
+        </>
+      )}
     </>
   );
   // The nested sidebar's toggle, at the end of the review's row with the
@@ -5715,6 +5817,13 @@ export function App({
             open: () => openWorkingFile(selectedFile.path),
           }
         : undefined,
+    changed: gitAvailable
+      ? {
+          on: changedVisible,
+          toggle: toggleChanged,
+          ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
+        }
+      : undefined,
     session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
     files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
     openBranch:
@@ -5962,6 +6071,7 @@ export function App({
                     onOpenPath={openFromPane}
                     fileRefs={fileRefs}
                     onClose={() => closePane("session")}
+                    onSideRoom={setSessionSideRoom}
                     pins={sessionPins}
                     controls={controls}
                     starter={sessionStarter}
@@ -6007,6 +6117,7 @@ export function App({
                   onOpenPath={openFromPane}
                   fileRefs={fileRefs}
                   onClose={() => closePane("session")}
+                  onSideRoom={setSessionSideRoom}
                   openAgent={openAgent}
                 />
               </Suspense>
@@ -6762,6 +6873,7 @@ export function App({
             label: "Changed files",
             ariaLabel: "Changed files",
             icon: "diff" as const,
+            hide: CHANGED_HIDE,
             render: (controls: ReactNode) => (
               <>
                 <FileSidebar
