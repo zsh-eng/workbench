@@ -56,7 +56,11 @@ import {
   loadRangeCommits,
   resolveRepository,
 } from "./repository/history";
-import { loadPullRequestComments } from "./repository/pull-request";
+import {
+  changePendingReview,
+  loadPullRequestComments,
+  type PendingReviewChange,
+} from "./repository/pull-request";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
@@ -2473,6 +2477,62 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const input = pinMutationSchema.parse(await readBody(request, MAX_BRIEF_BODY));
               assertRequestAccess();
               send(await savedReviews.pin(id!, input, assertRequestAccess));
+              return;
+            }
+            // The reader's pending review on GitHub: a Med comment or a reply
+            // goes into it, and the reader submits or discards it.
+            if (request.method === "POST" && action === "pull-request") {
+              if (!bundle.pullRequestUrl)
+                throw new HostError("no-pull-request", "This review has no pull request.", 404);
+              const text = z.string().trim().min(1).max(65_536);
+              const input = z
+                .discriminatedUnion("action", [
+                  z.object({ action: z.literal("note"), targetId: z.string(), noteId: z.string() }),
+                  z.object({ action: z.literal("reply"), thread: z.number().int(), body: text }),
+                  z.object({
+                    action: z.literal("submit"),
+                    event: z.enum(["COMMENT", "APPROVE", "REQUEST_CHANGES"]),
+                    body: z.string().max(65_536).optional(),
+                  }),
+                  z.object({ action: z.literal("discard") }),
+                ])
+                .parse(await readBody(request));
+              let change: PendingReviewChange;
+              if (input.action === "note") {
+                const target = bundle.targets.find((entry) => entry.id === input.targetId);
+                const note = target
+                  ? (await savedReviews.notes(id!, target.id)).notes.find(
+                      (entry) => entry.id === input.noteId,
+                    )
+                  : undefined;
+                if (!target || !note || note.parentId)
+                  throw new HostError("note-not-found", "This review has no such comment.", 404);
+                if (target.captured)
+                  throw new HostError(
+                    "not-pull-request-head",
+                    "This comment is on captured working changes, which GitHub does not have.",
+                    409,
+                  );
+                change = {
+                  kind: "comment",
+                  commit: target.head,
+                  path: note.path,
+                  side: note.side,
+                  line: note.endLine ?? note.line,
+                  ...(note.endLine ? { startLine: note.line } : {}),
+                  body: note.text,
+                };
+              } else if (input.action === "reply")
+                change = { kind: "reply", thread: input.thread, body: input.body };
+              else if (input.action === "submit")
+                change = {
+                  kind: "submit",
+                  event: input.event,
+                  ...(input.body ? { body: input.body } : {}),
+                };
+              else change = { kind: "discard" };
+              assertRequestAccess();
+              send(await changePendingReview(bundle.pullRequestUrl, change));
               return;
             }
             if (request.method === "POST" && action === "details") {
