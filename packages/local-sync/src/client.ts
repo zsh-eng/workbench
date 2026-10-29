@@ -332,7 +332,8 @@ export class SyncClient<Prepared> {
           if (!last && prefixes) return { pulled, skipped };
           if (!last) throw new Error("Sync stream returned no pages");
           if (!last.hasMore) {
-            if (!prefixes)
+            if (prefixes) observer?.prioritized?.();
+            else
               this.stateStore.write({
                 ...this.requireState(),
                 bootstrapped: true,

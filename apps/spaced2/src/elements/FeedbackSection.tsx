@@ -7,7 +7,12 @@ import {
   UpdatePillButton,
   type UpdatePillPhase,
 } from "@/components/update-pill";
-import { SyncBoundary, type SyncStatusSource } from "@/components/sync-status";
+import {
+  HistoryRestoreNote,
+  SyncBoundary,
+  type SyncStatusSource,
+} from "@/components/sync-status";
+import type { Restoring } from "@/lib/sync/engine";
 import EmptyImages from "@/lib/images/empty";
 import { useMemo, useState } from "react";
 import { sampleDecks } from "./deck-fixture";
@@ -17,31 +22,36 @@ import { useSelection } from "./selection";
 import { Specimen } from "./Specimen";
 
 const RESTORE_STATES = [
-  { id: "restoring", label: "Restoring" },
+  { id: "cards", label: "Restoring cards" },
+  { id: "history", label: "Restoring history" },
   { id: "restored", label: "Restored" },
 ] as const;
 
 /** A sync status that never changes, so the boundary does not run sync. */
-function sampleSyncStatus(restoring: boolean): SyncStatusSource {
-  const snapshot = { syncing: restoring, error: null, restoring };
+function sampleSyncStatus(restoring: Restoring): SyncStatusSource {
+  const snapshot = { syncing: restoring !== false, error: null, restoring };
   return { subscribe: () => () => {}, getSnapshot: () => snapshot };
 }
 
 function Restore() {
   const selection = useSelection(RESTORE_STATES);
-  const restoring = selection.state === "restoring";
+  const restoring: Restoring =
+    selection.state === "cards" || selection.state === "history"
+      ? selection.state
+      : false;
   const source = useMemo(() => sampleSyncStatus(restoring), [restoring]);
   const [deck] = useState(() => sampleDecks()[0]);
   return (
     <Specimen
       title="First restore"
-      note="On a new device the sync boundary holds the pages until the first download finishes. The specimen gives SyncBoundary a sample status, so nothing syncs."
+      note="On a new device the sync boundary holds the pages until the cards are stored; Review then opens with a note while the review history restores, and only Stats waits for it. The specimen gives SyncBoundary a sample status, so nothing syncs."
       states={RESTORE_STATES}
       selection={selection}
     >
       <div className="grid min-h-40 grid-cols-12 items-start">
         <SyncBoundary source={source}>
-          <div className="col-span-12 flex justify-center">
+          <div className="relative col-span-12 flex justify-center pt-8">
+            <HistoryRestoreNote source={source} />
             <DeckCard {...deck} />
           </div>
         </SyncBoundary>

@@ -225,14 +225,10 @@ repository with the before/after clip.
   pages; by FIRST_SYNC's numbers that is under 1 s in large far and less
   elsewhere, before the extra request. It cannot reach the bar. Not
   measured; not wired.
-- **Spaced: slow, not built.** The user's account has about 99,800 records;
-  a traced local restore of the 97,266-record snapshot took 15.2–16.2 s
-  (`apps/spaced2/docs/SYNC_RESTORE_TRACE.md`), and Spaced shows "Restoring
-  your cards and review history…" until all of it commits. Its review
-  screen reads only `operations` (about 30,200 records); review logs feed
-  Stats. A priority of `syncTablePrefix("operations")` could open review
-  after about a third of the restore, but only if Spaced ends its restoring
-  screen and reloads memory when the priority pull ends. That needs a
-  "priority pull done" signal from the engine and app changes, and a
-  Spaced lab with a synthetic large account to prove it. Recommended as
-  the next step; not part of this change.
+- **Spaced: built.** Its first screen reads only `operations` (about 30%
+  of the records); review logs feed Stats. Spaced declares
+  `syncTablePrefix("operations")` and opens Review when the engine's
+  `prioritized()` observer hears that the priority pull has committed. In a
+  Spaced lab with a synthetic account of 101,312 records, the first due
+  card came at 16.9 s instead of 59.1 s, and the restore ended 5.4 s
+  earlier (`apps/spaced2/docs/FIRST_REVIEW.md`).

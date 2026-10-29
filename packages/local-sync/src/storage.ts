@@ -63,6 +63,15 @@ export interface SyncPassObserver {
     sent: readonly SyncPushChange[];
     results: SyncPushResponse["results"];
   }): void;
+  /**
+   * A priority pull has committed its last page: every record with one of
+   * the client's `priority` prefixes, as of that pull's head, is stored
+   * (or kept by a newer local edit). Heard once, before the full pull's
+   * first commit. Not heard when no priority pull runs, or when the server
+   * refuses or ignores the prefixes; then only the end of the pull says the
+   * records are there.
+   */
+  prioritized?(): void;
 }
 
 export interface SyncOptions {

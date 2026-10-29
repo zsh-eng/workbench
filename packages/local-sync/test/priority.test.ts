@@ -275,6 +275,50 @@ describe("priority restore", () => {
     expect((await tablet.db.notes.get("n0"))?.title).toBe("Edited");
   });
 
+  it("tells the observer once the priority records are stored, before the full pull commits", async () => {
+    const heard: string[] = [];
+    const observer = {
+      pulled: ({ records }: { records: readonly SyncRecord[] }) =>
+        heard.push(
+          [
+            ...new Set(records.map((record) => JSON.parse(record.key)[0])),
+          ].join(),
+        ),
+      pushed() {},
+      prioritized: () => heard.push("prioritized"),
+    };
+    const server = host();
+    await seed(server);
+    const tablet = device(server);
+    await tablet.client.sync({ observer });
+    expect(heard).toEqual(["books", "prioritized", "notes", "notes"]);
+
+    // A restored device runs no priority pull, so it hears none.
+    heard.length = 0;
+    await server.push([change("books", "a", "Book a, edited")]);
+    await tablet.client.sync({ observer });
+    expect(heard).toEqual(["books"]);
+
+    // Nor does a device whose server refuses or ignores the prefixes: only
+    // the end of its pull says the books are there.
+    for (const answer of ["refuse", "ignore"]) {
+      heard.length = 0;
+      const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (!url.searchParams.has("prefix")) return server.fetch(url, init);
+        if (answer === "refuse")
+          return new Response('{"success":false}', { status: 400 });
+        url.searchParams.delete("prefix");
+        return server.fetch(url, init);
+      };
+      const phone = device(server, { fetch });
+      await phone.client.sync({ observer });
+      expect(heard).not.toContain("prioritized");
+      expect(phone.state()).toMatchObject({ bootstrapped: true });
+      expect(await phone.db.books.count()).toBe(3);
+    }
+  });
+
   it("keeps a newer version or a tombstone that the full pull brings", async () => {
     const server = host();
     await seed(server);

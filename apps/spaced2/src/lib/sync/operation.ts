@@ -394,6 +394,9 @@ function handleCardOperation(operation: CardOperation): OperationResult {
     lapses: operation.payload.lapses,
     state: STATE_NAME_TO_NUMBER[operation.payload.state],
     last_review: operation.payload.last_review ?? undefined,
+    // The schedule's row owns the creation time, as when it creates the
+    // card: a restore can bring a card's content before its schedule.
+    createdAt: operation.payload.createdAt ?? operation.timestamp,
 
     cardLastModified: operation.timestamp,
   };

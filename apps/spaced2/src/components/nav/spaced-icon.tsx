@@ -1,12 +1,22 @@
 import BouncyButton from "@/components/bouncy-button";
-import { useReviewCards } from "@/components/hooks/query";
+import { useCards, useReviewCards } from "@/components/hooks/query";
 import MemoryDB from "@/lib/db/memory";
+import SyncEngine from "@/lib/sync/engine";
 import { cn } from "@/lib/utils";
 import { Telescope } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { Link } from "react-router";
 
 export function SpacedIcon() {
+  const cards = useCards();
   const reviewCards = useReviewCards();
+  // Until a new device has its cards, it does not know how many are due;
+  // an empty library has no count, before or after it learns that.
+  const { restoring } = useSyncExternalStore(
+    SyncEngine.subscribe,
+    SyncEngine.getSnapshot,
+  );
+  const known = restoring !== "cards" && cards.length > 0;
 
   return (
     <Link
@@ -24,7 +34,7 @@ export function SpacedIcon() {
         </BouncyButton>
 
         <div className="absolute -bottom-1 left-9 font-bold text-xs text-muted-foreground rounded-xl px-2 sm:hidden">
-          {reviewCards.length}
+          {known ? reviewCards.length : null}
         </div>
       </div>
     </Link>

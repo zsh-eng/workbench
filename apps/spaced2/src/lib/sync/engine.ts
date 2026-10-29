@@ -26,18 +26,35 @@ import {
   disableLocalWrites,
 } from "../db/persistence";
 import MemoryDB, { reloadMemory, memoryReady } from "../db/memory";
-import { syncTables } from "./records";
+import { handleClientOperation } from "./operation";
+import {
+  SPACED_RESTORE_PRIORITY,
+  syncTables,
+  type StoredOperation,
+} from "./records";
+import type { PreparedRemoteRecord } from "@zsh-eng/local-sync/dexie";
+import type { SyncApplyResult } from "@zsh-eng/local-sync";
 import { createRemote } from "./server";
 import { withSyncLock, withNetworkSyncLock } from "./lock";
 
 /** The remembered account and last sync time, per API origin. */
 const SYNC_STATUS_KEY = "spaced-sync-status" + SHARED_STORAGE_SUFFIX;
 
+/**
+ * A new device's first download: its cards (every record but the review
+ * history) and then its review history (docs/FIRST_REVIEW.md).
+ */
+export type Restoring = "cards" | "history" | false;
 /** The snapshot that SyncBoundary and the debug Sync page read. */
-type Status = { syncing: boolean; error: string | null; restoring: boolean };
+type Status = { syncing: boolean; error: string | null; restoring: Restoring };
 let snapshot: Status = { syncing: false, error: null, restoring: false };
-/** Stays true until the first full download finishes, across failed attempts. */
-let restoring = false;
+/** Stays set until the first full download finishes, across failed attempts. */
+let restoring: Restoring = false;
+/**
+ * In `metadataKv`, the device whose cards a priority pull restored, so
+ * that a reload during the rest of the restore opens Review at once.
+ */
+const CARDS_RESTORED = "cardsRestored";
 const listeners = new Set<() => void>();
 let stopped = false,
   started = false,
@@ -84,6 +101,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           stateStore.write(createSyncClientState(crypto.randomUUID()));
           MemoryDB._db.undoGradeStack = [];
           await reloadMemory();
+          restoring = false;
         }
         await db.metadataKv.put({ key: "owner", value: userId });
         const state = ensureSyncState();
@@ -91,10 +109,14 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
         if (!(await db.metadataKv.get("clientId")))
           await db.metadataKv.put({ key: "clientId", value: state.deviceId });
         localState = createLocalSyncState(stateStore);
+        if (!state.bootstrapped && restoring !== "history")
+          restoring =
+            (await db.metadataKv.get(CARDS_RESTORED))?.value === state.deviceId
+              ? "history"
+              : "cards";
         return state;
       });
       if (!state.bootstrapped) {
-        restoring = true;
         markRestoring();
         refresh();
       }
@@ -118,15 +140,29 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           prepareRemoteRecords: (records) =>
             storage.prepareRemoteRecords(records),
           applyRemoteRecords: (records, deviceId) =>
-            locally(() => storage.applyRemoteRecords(records, deviceId)),
+            locally(async () => {
+              const result = await storage.applyRemoteRecords(
+                records,
+                deviceId,
+              );
+              showInMemory(records, result);
+              return result;
+            }),
           reconcilePushResults: (sent, records) =>
             locally(() => storage.reconcilePushResults(sent, records)),
         },
         stateStore: localState!.store,
         remote: createRemote(signal, localState!.store),
         signal,
+        priority: SPACED_RESTORE_PRIORITY,
       });
-      await client.sync();
+      await client.sync({
+        observer: {
+          pulled() {},
+          pushed() {},
+          prioritized: () => cardsRestored(state.deviceId),
+        },
+      });
 
       // Explicit cutover: only discard the old database after successful bootstrap.
       if (!SHARED_API_ORIGIN) {
@@ -151,11 +187,42 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           });
         }
       } finally {
-        restoring = restoring && !stateStore.read()?.bootstrapped;
+        if (stateStore.read()?.bootstrapped) restoring = false;
         refresh();
       }
     }
   });
+}
+
+/**
+ * Each committed `operations` row goes into memory as it commits, which
+ * is what a reload would read: a row replaces what its key held. During
+ * the restore's first part memory changes unseen; Review opens on it.
+ */
+function showInMemory(
+  records: readonly PreparedRemoteRecord[],
+  result: SyncApplyResult,
+) {
+  const kept = new Set(result.keptLocal);
+  let changed = false;
+  for (const record of records)
+    if (record.tableName === "operations" && !kept.has(record.source.key)) {
+      handleClientOperation(record.row as StoredOperation);
+      changed = true;
+    }
+  if (changed && restoring !== "cards") MemoryDB.notify();
+}
+
+/** The priority pull has stored every card: Review can open. */
+function cardsRestored(deviceId: string) {
+  if (restoring !== "cards") return;
+  restoring = "history";
+  MemoryDB.notify();
+  broadcastRecordsChanged();
+  refresh();
+  void withSyncLock(() =>
+    db.metadataKv.put({ key: CARDS_RESTORED, value: deviceId }),
+  ).catch(() => {});
 }
 
 /**

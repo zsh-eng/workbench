@@ -248,6 +248,15 @@ is needed. A server without it answers 400 to the unknown parameter;
 ask again, and the client does a plain pull. The design and its measurements
 are in [docs/PRIORITY_RESTORE.md](docs/PRIORITY_RESTORE.md).
 
+An app whose first screen waits for the whole restore can open earlier:
+`sync({ observer })` with `prioritized()` hears once that the priority
+pull has committed its last page, before the full pull's first commit.
+Every record with a priority prefix, as of that pull's head, is then
+stored or kept by a newer local edit. It is not heard when no priority pull
+runs or the server refuses or ignores the prefixes; then only the end of
+the pull says so. Spaced opens Review on it
+([FIRST_REVIEW.md](../../apps/spaced2/docs/FIRST_REVIEW.md)).
+
 ## Client performance
 
 - Parse domain values once. Select schemas by record type; avoid trying every
