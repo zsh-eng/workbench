@@ -1553,17 +1553,15 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
       { agent: "agy", id: agy, title: "Name the files.", cwd: repo, place: "terminal" },
     ]);
 
-    // agy has one writer: Med continues the conversation once agy ends.
+    // Continue in Med makes the agy conversation a thread at once, with its
+    // history. agy has one writer, so a message waits for agy to end there.
     const adopt = () =>
-      api<{ id: string; created: boolean; message?: string }>("/api/sessions/adopt", {
+      api<{ id: string; created: boolean }>("/api/sessions/adopt", {
         agent: "agy",
         session: agy,
         repo,
         title: "Name the files",
       });
-    const refused = await adopt();
-    expect(refused.status).toBe(409);
-    await agyTerminal.end();
     const adopted = await adopt();
     expect(adopted.data).toMatchObject({ created: true });
     const saved = await api<{ sessions: { id: string; agent: string; name?: string }[] }>(
@@ -1572,15 +1570,21 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
     const [session] = saved.data.sessions;
     expect(session).toMatchObject({ agent: "acp", name: "Antigravity" });
     expect((await adopt()).data).toMatchObject({ id: adopted.data.id, created: false });
-    // Its thread starts with the conversation's history; the next message
-    // resumes the conversation in agy.
     const replies = await thread(session!.id, adopted.data.id);
     await vi.waitFor(() => expect(replies()).toEqual(["There is one: summary.ts."]));
-    await api(`/api/reviews/${adopted.data.id}/agent/messages`, {
-      sessionId: session!.id,
-      text: "Say ok.",
-      noteIds: [],
+    const send = (text: string) =>
+      api<{ message: AgentMessage }>(`/api/reviews/${adopted.data.id}/agent/messages`, {
+        sessionId: session!.id,
+        text,
+        noteIds: [],
+      });
+    expect((await send("Say ok.")).data.message).toMatchObject({
+      delivery: "failed",
+      error: expect.stringContaining("Close it there"),
     });
+    // Once agy ends there, the next message resumes the conversation in Med.
+    await agyTerminal.end();
+    expect((await send("Say ok.")).data.message).toMatchObject({ delivery: "delivered" });
     await vi.waitFor(async () => {
       const runs = (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
         .trim()

@@ -279,6 +279,9 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** Serve one local review process; Git operations never change the checkout. */
+/** How long an answer of Running now serves the pages that poll it. */
+const RUNNING_MS = 3000;
+
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   let repository: Repository;
   try {
@@ -528,14 +531,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     codexNames: () => found.codexNames(),
     excluded: (agent, id) => questions.excludes(agent, id),
   });
-  /** The saved thread that names a session: by its ID, or for a session
-   * that Med runs through ACP, by the agent's own ID. */
   /** Running now: Med's agents that work on a turn, then the sessions that
-   * other processes have open, each with its thread if one has it. */
-  const runningSessions = async (): Promise<RunningSession[]> => {
+   * other processes have open, each with its thread if one has it. Pages
+   * poll it, so an answer serves for a few seconds. */
+  let runningAnswer: { at: number; sessions: Promise<RunningSession[]> } | undefined;
+  const runningSessions = () => {
+    if (!runningAnswer || Date.now() - runningAnswer.at > RUNNING_MS) {
+      const sessions = readRunning();
+      runningAnswer = { at: Date.now(), sessions };
+      sessions.catch(() => (runningAnswer = undefined));
+    }
+    return runningAnswer.sessions;
+  };
+  const readRunning = async (): Promise<RunningSession[]> => {
     const running = await ownedSessions.running();
-    const named = await sessionThreads();
-    const titles = new Map((await savedReviews.list()).map((review) => [review.id, review.title]));
+    const reviews = await savedReviews.list();
+    const named = await sessionThreads(reviews);
+    const titles = new Map(reviews.map((review) => [review.id, review.title]));
     const infos = new Map(
       (
         await sessionSearch.exactly([
@@ -596,8 +608,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
     return sessions;
   };
-  const sessionThreads = async () => {
-    const reviews = await savedReviews.list();
+  /** The saved thread that names a session: by its ID, or for a session
+   * that Med runs through ACP, by the agent's own ID. */
+  const sessionThreads = async (reviews?: Awaited<ReturnType<typeof savedReviews.list>>) => {
+    reviews ??= await savedReviews.list();
     const threads = new Map<string, { id: string; archived?: boolean }>();
     for (const review of reviews)
       for (const session of review.sessions ?? [])
@@ -2126,9 +2140,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(review);
             return;
           }
-          // Continue in Med: an agy conversation that no process has open
-          // becomes a thread whose agent Med runs, from its history. agy
-          // has one writer: one that runs elsewhere has to end there first.
+          // Continue in Med: an agy conversation becomes a thread whose agent
+          // Med runs, from its history. agy has one writer: while another
+          // process has it open, a message says to end it there first.
           const continueAgy = async (input: SessionAdopt): Promise<SessionAdopted> => {
             const id = input.session;
             if (!/^[A-Za-z0-9_-]{1,128}$/.test(id))
@@ -2143,12 +2157,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               (entry) => entry.kind === "agy" && entry.available,
             );
             if (!agent) throw new HostError("agent-unavailable", "agy is not installed here.", 409);
-            if (await ownedSessions.lockedElsewhere("agy", id))
-              throw new HostError(
-                "session-open",
-                "agy has this conversation open in another process. End it there (Ctrl-C twice), then continue in Med.",
-                409,
-              );
             const place = input.repo ? await found.locate(input.repo) : undefined;
             if (!input.repo || !place?.checkout)
               throw new HostError(

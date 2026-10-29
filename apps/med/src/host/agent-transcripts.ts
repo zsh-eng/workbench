@@ -594,9 +594,12 @@ export async function readTranscriptPage(
   const { lines, first: start } = await readSpan(path, Math.max(0, end - PAGE_BYTES), end);
   const events: SessionEvent[] = [];
   if (session.agent === "codex") {
-    const children: [string, string][] = [];
+    // The spawn's output and its activity event both name the child.
+    const children = new Map<string, string>();
     const reader = createCodexRolloutReader({
-      onSubagent: (threadId, toolCallId) => children.push([threadId, toolCallId]),
+      onSubagent: (threadId, toolCallId) => {
+        if (!children.has(threadId)) children.set(threadId, toolCallId);
+      },
     });
     for (const line of lines) events.push(...reader.line(line));
     for (const [threadId, toolCallId] of children) {

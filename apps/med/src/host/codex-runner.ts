@@ -199,6 +199,9 @@ const sandboxPolicy = (sandbox: "workspace-write" | "read-only" | "danger-full-a
           excludeSlashTmp: false,
         };
 
+/** How long Send now waits for Codex to start the turn that it steers. */
+const STEER_WAIT_MS = 10_000;
+
 const capitalized = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 const effortName = (level: string) =>
   level === "xhigh" ? "Extra high" : level === "none" ? "None" : capitalized(level);
@@ -271,6 +274,8 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
   };
   /** The mode changed since Codex last heard it: the next turn says so. */
   let modeChanged = false;
+  /** The thread's policy when it opened, from Codex's config. */
+  let ownPolicy: { approvalPolicy: string; sandboxPolicy: Json } | undefined;
   let streaming: OwnedState["streaming"];
   let streamTimer: ReturnType<typeof setTimeout> | undefined;
   /** Approval requests that wait for the user, by the card's ID. */
@@ -428,8 +433,17 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       for (const raw of Array.isArray(params.questions) ? params.questions : []) {
         const question = record(raw);
         const answer = question && answers?.[String(question.question)]?.trim();
-        if (question && typeof question.id === "string" && answer)
-          result[question.id] = { answers: answer.split(", ") };
+        if (!question || typeof question.id !== "string" || !answer) continue;
+        // Choices come joined with ", "; a typed answer stays whole.
+        const labels = new Set(
+          (Array.isArray(question.options) ? question.options : []).map((option: unknown) =>
+            String(record(option)?.label),
+          ),
+        );
+        const parts = answer.split(", ");
+        result[question.id] = {
+          answers: parts.length > 1 && parts.every((part) => labels.has(part)) ? parts : [answer],
+        };
       }
       return { answers: result };
     }
@@ -553,6 +567,8 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
         store.set({ sessionId: id });
       }
       loaded = true;
+      if (typeof result?.approvalPolicy === "string" && record(result.sandbox))
+        ownPolicy = { approvalPolicy: result.approvalPolicy, sandboxPolicy: result.sandbox };
       if (
         typeof result?.model === "string" &&
         chosen.model === "default" &&
@@ -742,20 +758,17 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       },
       events(token, () => {}),
     );
-    const policy = modePolicy(chosen.mode);
     return (async () => {
       await call("initialize", initialize);
       rpc.notify("initialized", undefined);
       if (!models.length) await call("model/list", {}).catch(() => undefined);
-      const common = {
-        cwd,
-        ...(chosen.model !== "default" ? { model: chosen.model } : {}),
-        ...(policy ? { approvalPolicy: policy.approvalPolicy, sandbox: policy.sandbox } : {}),
-      };
+      // The thread opens with Codex's own policy, which "Codex's setting"
+      // goes back to; a chosen mode goes with the first turn.
+      const common = { cwd, ...(chosen.model !== "default" ? { model: chosen.model } : {}) };
       if (session.id)
         await call("thread/resume", { threadId: session.id, excludeTurns: true, ...common });
       else await call("thread/start", { ...common, serviceName: "Med" });
-      modeChanged = false;
+      modeChanged = chosen.mode !== "default";
     })();
   };
 
@@ -802,7 +815,16 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
         `Another ${agent.name} process has this thread open, such as Codex Desktop. Close it there, then send again.`,
         409,
       );
-    await launch();
+    try {
+      await launch();
+    } catch (error) {
+      // A thread that did not open leaves no app-server behind.
+      const failed = held;
+      active = undefined;
+      held = undefined;
+      failed?.stop();
+      throw error;
+    }
   };
   const ensure = () =>
     held && loaded
@@ -819,7 +841,9 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       ...(chosen.effort !== "default" ? { effort: chosen.effort } : {}),
       ...(policy
         ? { approvalPolicy: policy.approvalPolicy, sandboxPolicy: sandboxPolicy(policy.sandbox) }
-        : {}),
+        : modeChanged && ownPolicy
+          ? ownPolicy
+          : {}),
     };
   };
   const startTurn = async (text: string, images: { data: string; mimeType: string }[]) => {
@@ -861,16 +885,38 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
     subscribe: store.subscribe,
     prompt,
     async steer(text, images = []) {
-      if (store.get().status !== "working" || !turnId) return prompt(text, images);
+      const working = () => store.get().status === "working";
+      if (!working()) return prompt(text, images);
+      // A turn that Codex has not started yet has no ID to steer.
+      if (!turnId)
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(done, STEER_WAIT_MS);
+          const unsubscribe = store.subscribe(() => {
+            if (turnId || !working()) done();
+          });
+          function done() {
+            clearTimeout(timer);
+            unsubscribe();
+            resolve();
+          }
+        });
+      if (!working()) return prompt(text, images);
+      if (!turnId)
+        throw new HostError("agent-busy", "Codex has not started the turn yet. Try again.", 409);
       try {
         await call("turn/steer", {
           threadId: session.id,
           expectedTurnId: turnId,
           input: inputOf(text, images),
         });
-      } catch {
+      } catch (error) {
         // The turn ended meanwhile: the message starts the next one.
-        await startTurn(text, images);
+        if (!working()) return prompt(text, images);
+        throw new HostError(
+          "agent-error",
+          error instanceof Error ? error.message : String(error),
+          502,
+        );
       }
     },
     answer(id, option, answer = {}) {
@@ -897,8 +943,11 @@ export function startCodex(agent: RunnableAgent, cwd: string, options: CodexOpti
       if (!setting || !setting.options.some((option) => option.value === value))
         throw new HostError("invalid-setting", "The agent does not offer this choice.", 400);
       // Codex takes each choice with the next turn.
-      if (id === "model") chosen.model = value;
-      else if (id === "effort") chosen.effort = value;
+      if (id === "model") {
+        chosen.model = value;
+        const efforts = models.find((model) => model.id === value)?.efforts;
+        if (efforts && !efforts.includes(chosen.effort)) chosen.effort = "default";
+      } else if (id === "effort") chosen.effort = value;
       else if (id === "mode") {
         chosen.mode = value;
         modeChanged = true;

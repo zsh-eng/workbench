@@ -338,7 +338,13 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
     streamTimer = undefined;
     store.set({ streaming });
   };
-  const readChildren = async () => {
+  let reading: Promise<void> | undefined;
+  /** Reads what the subagents' transcripts added, one read at a time. */
+  const readChildren = () =>
+    (reading ??= readNew().finally(() => {
+      reading = undefined;
+    }));
+  const readNew = async () => {
     for (const child of children.values()) {
       const handle = await open(child.path, "r").catch(() => undefined);
       if (!handle) continue;
@@ -378,7 +384,11 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
     if (childTimer) {
       clearInterval(childTimer);
       childTimer = undefined;
-      void readChildren().catch(() => {});
+      // After a read that runs, once more for what came last.
+      void readChildren()
+        .catch(() => {})
+        .then(readChildren)
+        .catch(() => {});
     }
   };
 
@@ -590,17 +600,23 @@ export function startAgy(agent: RunnableAgent, cwd: string, options: AgyOptions)
     });
   }
 
-  const wake = async () => {
-    await attached;
-    if (held || stopping) return;
-    if (conversation && (await options.elsewhere?.(conversation)))
-      throw new HostError(
-        "session-busy",
-        `Another agy process has this conversation open, such as agy in a terminal. Close it there, then send again.`,
-        409,
-      );
-    launch();
-  };
+  let waking: Promise<void> | undefined;
+  /** Starts agy for a conversation that no process of Med's runs now, once
+   * for prompts that come together. */
+  const wake = () =>
+    (waking ??= (async () => {
+      await attached;
+      if (held || stopping) return;
+      if (conversation && (await options.elsewhere?.(conversation)))
+        throw new HostError(
+          "session-busy",
+          `Another agy process has this conversation open, such as agy in a terminal. Close it there, then send again.`,
+          409,
+        );
+      launch();
+    })().finally(() => {
+      waking = undefined;
+    }));
 
   return {
     session,
