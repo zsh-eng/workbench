@@ -3911,8 +3911,8 @@ describe("agent session", () => {
     });
     await page.getByRole("button", { name: "Toggle agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
-    const chip = panel.getByRole("button", { name: "Context and spend" });
-    await expect.element(chip.getByRole("img", { name: "Context 31% full" })).toBeVisible();
+    // The chip's name says its figures.
+    const chip = panel.getByRole("button", { name: "Context 31% full, $230.62 spent" });
     await expect.element(chip).toMatchTextContent("$230.62");
 
     await userEvent.click(chip);
@@ -4017,13 +4017,13 @@ describe("agent session", () => {
       .toMatchTextContent(/Claude/);
     // The header leaves context and spend to the panel.
     await expect
-      .element(pane.getByRole("button", { name: "Context and spend" }))
+      .element(pane.getByRole("button", { name: /^Context \d+% full/ }))
       .not.toBeInTheDocument();
 
     await pane.getByRole("button", { name: "Hide the side panel" }).click();
     await expect.element(side).not.toBeInTheDocument();
     expect(localStorage.getItem("med:session-panel")).toBe("closed");
-    await expect.element(pane.getByRole("button", { name: "Context and spend" })).toBeVisible();
+    await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
     await expect.poll(box).toBeCloseTo(516, 0);
     await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
     await expect.element(side).toBeVisible();
@@ -4365,7 +4365,7 @@ describe("agent session", () => {
       context: { used: 40_000, total: 200_000 },
     });
     // Before the transcript has a request, the header shows what the runner reports.
-    await expect.element(page.getByRole("img", { name: "Context 20% full" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
     // Model, effort, and mode are pickers, not commands.
     await userEvent.click(composer.getByRole("combobox", { name: "Model" }));
     await userEvent.click(page.getByRole("option", { name: "Haiku" }));

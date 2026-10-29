@@ -233,18 +233,18 @@ export function UsageChip({
   if (!usage && !context) return null;
   const share = context?.window ? context.used / context.window : 0;
   const percent = Math.round(share * 100);
+  // The figures are the name, so that a screen reader says them too.
+  const name = [
+    context && `Context ${percent}% full`,
+    usage && `${dollars(usage.spend.total)} spent`,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <Popover.Root>
-      <Popover.Trigger
-        aria-label="Context and spend"
-        {...stylex.props(ui.button, ui.pressable, styles.chip)}
-      >
+      <Popover.Trigger aria-label={name} {...stylex.props(ui.button, ui.pressable, styles.chip)}>
         {context && (
-          <span
-            role="img"
-            aria-label={`Context ${percent}% full`}
-            {...stylex.props(styles.part, nearFull(context) && styles.full)}
-          >
+          <span {...stylex.props(styles.part, nearFull(context) && styles.full)}>
             <Ring share={share} full={nearFull(context)} />
             {percent}%
           </span>
