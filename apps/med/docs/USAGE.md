@@ -777,6 +777,20 @@ findings to show.
   item that it underlines: in the **⋯** menu, `n` starts new notes and `d`
   deletes them.
 
+### Pull request drafts
+
+When an agent drafts a pull request with
+[`med pr draft`](AGENT_INTEGRATION.md#draft-a-pull-request), the draft is the
+first note, under **Pull request draft · revision N**: its title, its
+description from the repository's template, and its images. Comment on its
+words as on a brief; the comments go to the agent with your other comments,
+and its next draft replaces the shown one. **Create pull request…** asks
+first, then runs `gh pr create` from the checkout's branch, as a draft unless
+you clear **As a draft**. Med does not push: push the branch first. GitHub
+takes images only as links, so a local image stays out and the text names it;
+Med says which ones to drag into the description on GitHub. Then the note's
+**Open on GitHub** opens the pull request, and the review links to it.
+
 A link can be `path`, `path:12`, `path:12-20`, `path#L12-L20`, an absolute
 path, an editor link, or a GitHub blob URL. A unique suffix such as
 `App.tsx:42` works. A link or a path in inline code to a file that the change

@@ -23,6 +23,7 @@ import type {
   BriefCommentMutation,
   PinMutation,
   SavedPin,
+  SavedPrDraft,
   Since,
 } from "../../src/shared/saved-review";
 import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
@@ -196,6 +197,8 @@ async function mountApp(
     since?: Since;
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
+    /** The agent's pull request draft. */
+    prDraft?: SavedPrDraft;
   } = {},
 ) {
   initializeTheme();
@@ -278,6 +281,8 @@ async function mountApp(
   let pins: SavedPin[] = [];
   let approvals: { version: number; at: string }[] = [];
   let briefComments: BriefComment[] = [];
+  let prDraft = options.prDraft;
+  const prCreates: unknown[] = [];
   let sessions: AgentSession[] = options.session
     ? [{ agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }]
     : [];
@@ -371,6 +376,8 @@ async function mountApp(
     ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
     ...(briefComments.length ? { briefComments } : {}),
+    ...(prDraft ? { prDraft } : {}),
+    ...(prDraft?.pullRequestUrl ? { pullRequestUrl: prDraft.pullRequestUrl } : {}),
     ...(approvals.length ? { approvals } : {}),
     ...(options.iterationBriefs
       ? {
@@ -676,6 +683,20 @@ async function mountApp(
         else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
         return Response.json(savedBundle());
       }
+      if (url.pathname === "/api/reviews/saved/pr-draft-create" && prDraft) {
+        prCreates.push(JSON.parse(String(init?.body)));
+        prDraft = { ...prDraft, pullRequestUrl: "https://github.com/example/repo/pull/7" };
+        return Response.json({
+          review: savedBundle(),
+          url: prDraft.pullRequestUrl,
+          left: ["The retry chart"],
+        });
+      }
+      if (url.pathname === "/api/reviews/saved/pr-draft" && prDraft)
+        return new Response(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><rect width="200" height="80" fill="#2a6"/></svg>`,
+          { headers: { "content-type": "image/svg+xml" } },
+        );
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
         brief = JSON.parse(String(init.body)).brief ?? undefined;
         return Response.json(savedBundle());
@@ -948,6 +969,7 @@ async function mountApp(
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
   return {
     controller,
+    prCreates,
     requests,
     fileRequests,
     vaultWrites,
@@ -3155,6 +3177,55 @@ describe("review brief", () => {
     await userEvent.click(card.getByRole("button", { name: "Delete review note" }));
     await expect.element(card).not.toBeInTheDocument();
     await expect.poll(marked).toEqual([]);
+  });
+
+  test("the agent's pull request draft is a note with its image; a comment goes to the agent, and Create opens the pull request", async () => {
+    const { prCreates } = await mountApp({
+      savedReview: true,
+      prDraft: {
+        title: "Retry failed fetches",
+        body: "## Why\n\nCalls failed once and gave up.\n\n![The retry chart](shots/chart.png)\n",
+        repo: "/test/repo",
+        images: [{ href: "shots/chart.png", file: `${"a".repeat(64)}.png` }],
+        revision: 2,
+        updatedAt: "2026-10-30T02:00:00Z",
+      },
+    });
+    // The Review stays the first tab; the draft is in the Notes.
+    await userEvent.click(page.getByRole("tab", { name: "Notes" }));
+    await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Retry failed fetches" })).toBeVisible();
+    // Med shows its copy of the local image.
+    await expect
+      .poll(() => page.getByRole("img", { name: "The retry chart" }).element().getAttribute("src"))
+      .toBe(`/api/reviews/saved/pr-draft?image=${"a".repeat(64)}.png`);
+
+    const paragraph = page.getByText(/^Calls failed once/);
+    const text = paragraph.element().firstChild as Text;
+    const range = new Range();
+    range.setStart(text, 0);
+    range.setEnd(text, "Calls failed once".length);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
+    await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
+    await userEvent.fill(page.getByRole("textbox", { name: "Comment text" }), "How many times?");
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+    await expect
+      .element(page.getByRole("article", { name: "Comment on “Calls failed once”" }))
+      .toBeVisible();
+
+    // Create asks first, as a draft by default, and says the image stays out.
+    await userEvent.click(page.getByRole("button", { name: "Create pull request…" }));
+    const ask = page.getByRole("alertdialog", { name: "Create pull request" });
+    await expect.poll(() => ask.element().textContent).toMatch(/its image stays out/);
+    await userEvent.click(ask.getByRole("button", { name: "Create" }));
+    await expect.poll(() => prCreates).toEqual([{ draft: true }]);
+    await expect
+      .poll(() => page.getByRole("status").element().textContent)
+      .toBe("Add The retry chart on GitHub: drag it into the description.");
+    await expect
+      .element(page.getByRole("link", { name: "Open on GitHub" }))
+      .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
   });
 
   test("an agent's versions switch the brief and its comparison together", async () => {

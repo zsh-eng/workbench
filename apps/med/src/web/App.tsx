@@ -184,6 +184,7 @@ import { questionExcerpt, useQuestion } from "./data/questions";
 import { questionComment } from "../shared/questions";
 import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
+import { prDraftImageUrl } from "./data/pr-draft";
 import { SaveReviewDialog } from "./components/SaveReviewDialog";
 import { GuideRail } from "./components/guide/GuideRail";
 import { ChangesRail, RangeCommits } from "./components/ChangesRail";
@@ -1562,7 +1563,16 @@ export function App({
   const savedPins = shownIteration
     ? iterations.find((entry) => entry.number === shownIteration)?.pins
     : state.savedReview?.pins;
+  // The agent's pull request draft is the first note of every version.
+  const prDraft = state.savedReview?.prDraft;
+  const draftReviewId = state.savedReview?.id;
+  const prDraftImage = useCallback(
+    (href: string) =>
+      prDraft && draftReviewId ? prDraftImageUrl(draftReviewId, prDraft, href) : undefined,
+    [prDraft, draftReviewId],
+  );
   const hasNotes =
+    !!prDraft ||
     !!savedBrief ||
     !!savedPins?.length ||
     (briefSource?.fresh === true && briefSource.number === shownIteration);
@@ -1571,11 +1581,13 @@ export function App({
   const briefComments = useMemo(
     () =>
       (allBriefComments ?? []).filter((comment) =>
-        comment.section === "brief"
-          ? comment.iteration === briefSource?.number
-          : !!savedPins?.some((pin) => pin.id === comment.section),
+        comment.section === "pr"
+          ? !!prDraft
+          : comment.section === "brief"
+            ? comment.iteration === briefSource?.number
+            : !!savedPins?.some((pin) => pin.id === comment.section),
       ),
-    [allBriefComments, briefSource?.number, savedPins],
+    [allBriefComments, briefSource?.number, savedPins, prDraft],
   );
   const notesText = useMemo(
     () =>
@@ -6803,6 +6815,9 @@ export function App({
                     comments={briefComments}
                     briefIteration={briefSource?.number}
                     onCommentBrief={(mutation) => controller.commentBrief(mutation)}
+                    prDraft={prDraft}
+                    prDraftImage={prDraftImage}
+                    onCreatePullRequest={(asDraft) => controller.createPullRequest(asDraft)}
                   />
                 </Suspense>
               </div>

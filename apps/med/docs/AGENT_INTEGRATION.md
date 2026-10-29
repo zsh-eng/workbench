@@ -315,6 +315,36 @@ Headings such as Checks, Tests, or Verification also mark proof; `[P1]`-style
 tags read as Important (P0–P1) or Nit (P2–P3). Globs under Generated join
 `--generated`.
 
+### Draft a pull request
+
+When the user asks for a pull request, draft its description in Med first.
+Med shows the draft rendered, the user comments on it as on a brief, and
+only the user opens the pull request, with **Create** in Med:
+
+```sh
+med pr template --repo ~/code/parser      # the repository's templates, each under its path
+med pr draft --key fix/parser --file pr.md
+```
+
+- Fill the template that `med pr template` prints, such as
+  `.github/pull_request_template.md` or a file of
+  `.github/PULL_REQUEST_TEMPLATE/`. Without one, say why, what changed, and
+  how you checked it. Leave out sections that do not apply.
+- The file's first line, `# <title>`, is the pull request's title, unless
+  `--title` gives one. `--base` names the branch to merge into; without it,
+  gh uses the repository's default branch. `--repo` names the checkout
+  (default: `MED_THREAD_REPO`, or the current one).
+- Images can be local PNG, JPEG, GIF, or WebP files, relative to the file
+  (`![Retry chart](shots/retry.png)`), or https links. Med keeps a copy of
+  each local one, up to 8 images of 5 MB.
+- Comments on the draft come back as the user's other comments do, marked
+  `On: the pull request draft`. Revise the file and run `med pr draft` again
+  with the same key: each run is the next revision.
+- Never run `gh pr create` yourself. **Create** runs it from the checkout's
+  branch, which must be on GitHub already, and links the pull request to the
+  review. GitHub takes images only as links, so a local image stays out of
+  the body and the text names it, for the user to add on GitHub.
+
 ### Compare with a base branch
 
 `--base` and `--head` take branch names and other local refs. Run the command

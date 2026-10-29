@@ -25,6 +25,7 @@ import {
   type BriefCommentMutation,
   type SavedBrief,
   type SavedPin,
+  type SavedPrDraft,
 } from "../../shared/saved-review";
 import {
   annotateBrief,
@@ -113,6 +114,13 @@ export interface BriefViewProps {
   /** The iteration of the shown brief, for a new comment on it. */
   briefIteration?: number;
   onCommentBrief?(mutation: BriefCommentMutation): Promise<void>;
+  /** The pull request description that the agent drafted (`med pr draft`):
+   * the first note, which the reader comments on like the others. */
+  prDraft?: SavedPrDraft;
+  /** The URL of a local image of the draft, which Med keeps a copy of. */
+  prDraftImage?(href: string): string | undefined;
+  /** Opens the pull request on GitHub with gh: what Create does. */
+  onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
 }
 interface Draft {
   key: string;
@@ -136,12 +144,13 @@ const NO_COMMENTS: readonly BriefComment[] = [];
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** One note: the brief or a pinned reply. */
+/** One note: the pull request draft, the brief, or a pinned reply. */
 interface NoteSection {
   key: string;
   text: string;
   at: string;
   pin?: SavedPin;
+  draft?: SavedPrDraft;
 }
 /** The notes on screen, with the comparison they were annotated with. */
 interface Shown {
@@ -218,15 +227,28 @@ export default function BriefView({
   comments = NO_COMMENTS,
   briefIteration,
   onCommentBrief,
+  prDraft,
+  prDraftImage,
+  onCreatePullRequest,
 }: BriefViewProps) {
   const workspaceShown = useWorkspaceShown();
   const { active: theme } = useTheme();
   const sections = useMemo<NoteSection[]>(
     () => [
+      ...(prDraft
+        ? [
+            {
+              key: "pr",
+              text: `# ${prDraft.title}\n\n${prDraft.body}`,
+              at: prDraft.updatedAt,
+              draft: prDraft,
+            },
+          ]
+        : []),
       ...(brief ? [{ key: "brief", text: brief.text, at: brief.updatedAt }] : []),
       ...(pins ?? []).map((pin) => ({ key: pin.id, text: pin.text, at: pin.createdAt, pin })),
     ],
-    [brief, pins],
+    [prDraft, brief, pins],
   );
   const joined = useMemo(() => joinNotes(sections.map((section) => section.text)), [sections]);
   const text = joined.text;
@@ -612,7 +634,10 @@ export default function BriefView({
       const raw = image.dataset.imageSource ?? "";
       let url: string | undefined;
       try {
-        url = markdownImageUrl(raw, source, "BRIEF.md");
+        // The draft's local images are Med's copies.
+        url =
+          (image.closest('[data-note-section="pr"]') ? prDraftImage?.(raw) : undefined) ??
+          markdownImageUrl(raw, source, "BRIEF.md");
       } catch {
         /* Display the alt text. */
       }
@@ -622,7 +647,7 @@ export default function BriefView({
         image.title = `Image unavailable: ${raw}`;
       };
     }
-  }, [annotated, root]);
+  }, [annotated, root, prDraftImage]);
 
   // A pinned reply opens at its note.
   const revealed = useRef<number | null>(null);
@@ -750,7 +775,7 @@ export default function BriefView({
               aria-label={total > 1 ? `Note ${number + 1} of ${total}` : undefined}
               className="med-note"
             >
-              {total > 1 && (
+              {(total > 1 || section.draft) && (
                 <NoteHead
                   number={number + 1}
                   total={total}
@@ -758,6 +783,7 @@ export default function BriefView({
                   briefFrom={section.pin ? undefined : briefFrom}
                   onCopy={() => onCopy(section.text)}
                   onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : onRemove}
+                  onCreatePullRequest={section.draft ? onCreatePullRequest : undefined}
                 />
               )}
               {blocks.map(({ block, index }) => (
@@ -1367,6 +1393,7 @@ function NoteHead({
   briefFrom,
   onCopy,
   onRemove,
+  onCreatePullRequest,
 }: {
   number: number;
   total: number;
@@ -1374,43 +1401,141 @@ function NoteHead({
   briefFrom?: number;
   onCopy(): void;
   onRemove(): void;
+  onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
 }) {
   const source = section.pin?.source;
-  const from = section.pin
-    ? source
-      ? `Reply from ${agentName(source)}`
-      : "Pinned reply"
-    : briefFrom !== undefined
-      ? `Brief from version ${briefFrom}`
-      : "Brief";
+  const { draft } = section;
+  const from = draft
+    ? `Pull request draft · revision ${draft.revision}`
+    : section.pin
+      ? source
+        ? `Reply from ${agentName(source)}`
+        : "Pinned reply"
+      : briefFrom !== undefined
+        ? `Brief from version ${briefFrom}`
+        : "Brief";
+  const [creating, setCreating] = useState<
+    | { step: "ask"; asDraft: boolean }
+    | { step: "busy" }
+    | { step: "error"; message: string }
+    | { step: "done"; left: string[] }
+    | null
+  >(null);
+  const local = draft?.images.length ?? 0;
+  const create = (asDraft: boolean) => {
+    setCreating({ step: "busy" });
+    onCreatePullRequest!(asDraft).then(
+      ({ left }) => setCreating({ step: "done", left }),
+      (error: unknown) =>
+        setCreating({
+          step: "error",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+    );
+  };
   return (
-    <div {...stylex.props(styles.noteHead, number === 1 && styles.noteHeadFirst)}>
-      <span {...stylex.props(styles.noteNumber)}>
-        {pad(number)}
-        <span {...stylex.props(styles.noteTotal)}> / {pad(total)}</span>
-      </span>
-      <span {...stylex.props(styles.noteFrom)}>
-        <Icon name={section.pin ? "pin" : "brief"} size={12} />
-        {from}
-      </span>
-      <time dateTime={section.at} {...stylex.props(styles.noteTime)}>
-        {noteTime(section.at)}
-      </time>
-      <span {...stylex.props(styles.grow)} />
-      <ActionMenu
-        label={`Note ${number} options`}
-        sections={[
-          [{ label: "Copy note", letter: "c", onClick: onCopy }],
-          [
-            section.pin
-              ? { label: "Unpin from review", letter: "u", onClick: onRemove }
-              : { label: "Remove the brief", letter: "r", onClick: onRemove },
-          ],
-        ]}
-      >
-        <Icon name="more" size={14} />
-      </ActionMenu>
-    </div>
+    <>
+      <div {...stylex.props(styles.noteHead, number === 1 && styles.noteHeadFirst)}>
+        {total > 1 && (
+          <span {...stylex.props(styles.noteNumber)}>
+            {pad(number)}
+            <span {...stylex.props(styles.noteTotal)}> / {pad(total)}</span>
+          </span>
+        )}
+        <span {...stylex.props(styles.noteFrom)}>
+          <Icon name={draft ? "pullRequest" : section.pin ? "pin" : "brief"} size={12} />
+          {from}
+        </span>
+        <time dateTime={section.at} {...stylex.props(styles.noteTime)}>
+          {noteTime(section.at)}
+        </time>
+        <span {...stylex.props(styles.grow)} />
+        {draft?.pullRequestUrl ? (
+          <a
+            href={draft.pullRequestUrl}
+            target="_blank"
+            rel="noreferrer"
+            {...stylex.props(ui.button)}
+          >
+            <Icon name="github" size={13} />
+            Open on GitHub
+          </a>
+        ) : (
+          draft &&
+          onCreatePullRequest && (
+            <button
+              type="button"
+              disabled={creating?.step === "busy"}
+              onClick={() => setCreating({ step: "ask", asDraft: true })}
+              {...stylex.props(ui.button)}
+            >
+              Create pull request…
+            </button>
+          )
+        )}
+        <ActionMenu
+          label={`Note ${number} options`}
+          sections={[
+            [{ label: "Copy note", letter: "c", onClick: onCopy }],
+            ...(draft
+              ? []
+              : [
+                  [
+                    section.pin
+                      ? { label: "Unpin from review", letter: "u", onClick: onRemove }
+                      : { label: "Remove the brief", letter: "r", onClick: onRemove },
+                  ],
+                ]),
+          ]}
+        >
+          <Icon name="more" size={14} />
+        </ActionMenu>
+      </div>
+      {draft && creating && creating.step !== "done" && (
+        <div role="alertdialog" aria-label="Create pull request" {...stylex.props(styles.confirm)}>
+          <span {...stylex.props(styles.confirmText)}>
+            {creating.step === "error"
+              ? creating.message
+              : `Open “${draft.title}” on GitHub with gh pr create, from the checkout's branch${draft.base ? ` into ${draft.base}` : ""}.${local ? ` GitHub takes images only as links: ${local === 1 ? "its image stays" : `its ${local} images stay`} out, named in the text, for you to add there.` : ""}`}
+          </span>
+          {creating.step !== "error" && (
+            <label {...stylex.props(styles.draftChoice)}>
+              <input
+                type="checkbox"
+                checked={creating.step === "ask" ? creating.asDraft : true}
+                disabled={creating.step === "busy"}
+                onChange={(event) => setCreating({ step: "ask", asDraft: event.target.checked })}
+              />
+              As a draft
+            </label>
+          )}
+          {creating.step !== "error" && (
+            <button
+              type="button"
+              disabled={creating.step === "busy"}
+              onClick={() => create(creating.step === "ask" ? creating.asDraft : true)}
+              {...stylex.props(ui.button)}
+            >
+              {creating.step === "busy" ? "Creating…" : "Create"}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={creating.step === "busy"}
+            onClick={() => setCreating(null)}
+            {...stylex.props(ui.button)}
+          >
+            {creating.step === "error" ? "Close" : "Cancel"}
+          </button>
+        </div>
+      )}
+      {draft && creating?.step === "done" && creating.left.length > 0 && (
+        <p role="status" {...stylex.props(styles.confirm, styles.confirmText)}>
+          Add {creating.left.join(", ")} on GitHub: drag{" "}
+          {creating.left.length === 1 ? "it" : "them"} into the description.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -1634,6 +1759,7 @@ const styles = stylex.create({
     fontSize: 12.5,
   },
   confirmText: { flex: "1", minWidth: 200, color: tokens.text },
+  draftChoice: { display: "inline-flex", alignItems: "center", gap: 6, color: tokens.muted },
   root: {
     position: "relative",
     containerType: "inline-size",

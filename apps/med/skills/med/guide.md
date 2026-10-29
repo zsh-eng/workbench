@@ -37,7 +37,8 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
   Several repositories: see "Several repositories".
 - Put the printed Markdown link in your final message. Never invent a link
   or print Med's token.
-- After you open a pull request: `med review update --key <task> --pr <url>`.
+- A pull request: draft it in Med (see "Draft a pull request"); the user
+  opens it. One that is open already: `med review update --key <task> --pr <url>`.
 - To get the user's comments back: see "Comments from the user".
 
 ## Write a guide
@@ -124,6 +125,23 @@ MANIFEST
 
 Comparison kinds: `commit`, `range`, `working`, `staged`, `unstaged`. Choose
 each repository's base on its own.
+
+## Draft a pull request
+
+```sh
+med pr template --repo <root>             # the repository's templates
+med pr draft --key <task> --file pr.md    # attach the draft; again for each revision
+```
+
+- Fill the template; without one, say why, what changed, and how you
+  checked it. The file's first line, `# <title>`, is the title (or
+  `--title`). `--base <branch>` is the branch to merge into.
+- Images: local PNG, JPEG, GIF, or WebP files relative to the file, or
+  https links. Med keeps a copy of each local one (up to 8, 5 MB each).
+- The user comments on the draft in Med; the comments come back marked
+  `On: the pull request draft`. Revise the file and run `med pr draft` again.
+- Never run `gh pr create`: the user opens the pull request with Create in
+  Med, from the checkout's branch once it is pushed.
 
 ## Comments from the user
 

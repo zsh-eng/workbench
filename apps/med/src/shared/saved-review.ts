@@ -64,12 +64,34 @@ export const pinMutationSchema = z.union([
   z.object({ remove: z.string().min(1).max(64) }),
 ]);
 export type PinMutation = z.infer<typeof pinMutationSchema>;
-/** A comment on a passage of the Notes: the brief or a pinned reply. */
+/**
+ * A pull request description that an agent drafts from the repository's
+ * template (`med pr draft`, src/host/pr-drafts.ts). The Notes show it first;
+ * the reader comments on it, and its Create button opens the pull request
+ * with gh. `images` names the local images that Med keeps a copy of, by the
+ * href the Markdown gives them.
+ */
+export const savedPrDraftSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  /** The checkout that `gh pr create` runs in, and the branch to merge into. */
+  repo: z.string().optional(),
+  base: z.string().optional(),
+  images: z.array(z.object({ href: z.string(), file: z.string() })),
+  /** Counts the agent's drafts: the first is 1. */
+  revision: z.number().int().positive(),
+  updatedAt: z.string(),
+  /** The pull request that Create opened. */
+  pullRequestUrl: pullRequestUrlSchema.optional(),
+});
+export type SavedPrDraft = z.infer<typeof savedPrDraftSchema>;
+/** A comment on a passage of the Notes: the brief, a pinned reply, or the
+ * pull request draft. */
 export const MAX_QUOTE_LENGTH = 4000;
 const commentTextSchema = z.string().trim().min(1).max(16384);
 export const briefCommentInputSchema = z.object({
-  /** "brief", or the pinned reply's ID. */
-  section: z.string().regex(/^(?:brief|p_[a-f0-9]{12})$/),
+  /** "brief", "pr" for the pull request draft, or the pinned reply's ID. */
+  section: z.string().regex(/^(?:brief|pr|p_[a-f0-9]{12})$/),
   /** The iteration of the brief. A review without iterations has none. */
   iteration: z.number().int().positive().optional(),
   quote: z.string().trim().min(1).max(MAX_QUOTE_LENGTH),
@@ -332,6 +354,7 @@ export const savedReviewSchema = z.object({
   pins: z.array(savedPinSchema).optional(),
   /** Comments on passages of the Notes. `commentCount` counts them. */
   briefComments: z.array(briefCommentSchema).optional(),
+  prDraft: savedPrDraftSchema.optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative(),

@@ -4,9 +4,10 @@
 // `pr list --head <branch>` prints that branch's entry of FAKE_GH_PULLS, a
 // JSON object of branch names and pull request lists. FAKE_GH_LOG names a
 // file that gets each command's arguments as a line of JSON.
-// FAKE_GH_DELAY_MS slows each command, to watch progress by hand.
+// FAKE_GH_DELAY_MS slows each command, to watch progress by hand. `pr create`
+// copies its --body-file to FAKE_GH_BODY_OUT and prints FAKE_GH_CREATED.
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, copyFileSync } from "node:fs";
 
 await new Promise((done) => setTimeout(done, Number(process.env.FAKE_GH_DELAY_MS ?? 0)));
 
@@ -25,6 +26,10 @@ if (command === "pr" && action === "view") {
 } else if (command === "pr" && action === "list") {
   const head = argv[argv.indexOf("--head") + 1];
   process.stdout.write(JSON.stringify(JSON.parse(process.env.FAKE_GH_PULLS ?? "{}")[head] ?? []));
+} else if (command === "pr" && action === "create" && process.env.FAKE_GH_CREATED) {
+  if (process.env.FAKE_GH_BODY_OUT)
+    copyFileSync(argv[argv.indexOf("--body-file") + 1], process.env.FAKE_GH_BODY_OUT);
+  process.stdout.write(`${process.env.FAKE_GH_CREATED}\n`);
 } else {
   process.stderr.write(`fake gh: unknown command ${command} ${action}\n`);
   process.exit(1);

@@ -100,6 +100,7 @@ import {
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
 import { createQueuedMessages } from "./queued-messages";
+import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
   agentEnvironment as startedAgentEnvironment,
   CONTINUE_TURN,
@@ -349,6 +350,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
+  const prDrafts = createPrDrafts({
+    directory: join(options.stateDir ?? temporaryState!, "pr-drafts"),
+    gh: options.gh ?? { command: "gh", args: [] },
+  });
   void pruneImages(imageDirectory);
   const bin = options.cli ? join(options.stateDir ?? temporaryState!, "bin") : undefined;
   if (bin) await writeMedCommand(bin, options.cli!);
@@ -1613,7 +1618,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 })),
                 ...(briefComments ?? []).filter(unsent).map((comment) => ({
                   id: comment.id,
-                  path: "Notes",
+                  path: comment.section === "pr" ? "PR draft" : "Notes",
                   quote: comment.quote,
                   text: comment.text,
                   replies: 0,
@@ -2309,7 +2314,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2416,6 +2421,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     )
                     .slice(0, 20),
                 });
+              } else if (action === "pr-draft") {
+                // An image of the pull request draft, which Med keeps.
+                const image = await prDrafts.image(id!, url.searchParams.get("image") ?? "");
+                response.writeHead(200, {
+                  "Content-Type": image.mime,
+                  "Content-Length": image.bytes.length,
+                  "Cache-Control": "private, max-age=31536000, immutable",
+                  "X-Content-Type-Options": "nosniff",
+                  "Content-Security-Policy": "default-src 'none'; sandbox",
+                });
+                response.end(image.bytes);
               } else if (!action) send(bundle);
               else
                 throw new HostError(
@@ -2501,6 +2517,45 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (request.method === "POST" && action === "iterations") {
               assertRequestAccess();
               send(await savedReviews.startNotes(id!, captureTarget, assertRequestAccess));
+              return;
+            }
+            // The pull request draft that the agent wrote (med pr draft), its
+            // images, and Create, which opens the pull request with gh.
+            if (request.method === "POST" && action === "pr-draft") {
+              const input = prDraftInputSchema.parse(await readBody(request, MAX_PR_DRAFT_BODY));
+              const checkout = input.repo ?? threadCheckout(bundle)?.repo;
+              const repo = checkout
+                ? (await registry.require(checkout, abort.signal)).path
+                : undefined;
+              const draft = await prDrafts.prepare(id!, { ...input, repo });
+              assertRequestAccess();
+              send(await savedReviews.setPrDraft(id!, { draft }, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "pr-draft-create") {
+              const input = z.object({ draft: z.boolean() }).parse(await readBody(request));
+              const draft = bundle.prDraft;
+              if (!draft)
+                throw new HostError("no-pr-draft", "This review has no pull request draft.", 404);
+              if (draft.pullRequestUrl)
+                throw new HostError(
+                  "pr-created",
+                  `The pull request is open already: ${draft.pullRequestUrl}`,
+                  409,
+                );
+              const checkout = draft.repo ?? threadCheckout(bundle)?.repo;
+              if (!checkout)
+                throw new HostError("no-checkout", "The draft names no checkout.", 409);
+              const repo = (await registry.require(checkout, abort.signal)).path;
+              const created = await prDrafts.create(draft, repo, input.draft, abort.signal);
+              assertRequestAccess();
+              const review = await savedReviews.setPrDraft(
+                id!,
+                { created: created.url },
+                assertRequestAccess,
+              );
+              send({ review, url: created.url, left: created.left });
               return;
             }
             if (request.method === "POST" && action === "pins") {
