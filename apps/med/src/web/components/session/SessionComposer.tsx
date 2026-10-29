@@ -189,7 +189,7 @@ export function SessionComposer({
     attachments: { label: string; text: string }[];
     images: PromptImage[];
     /** While the agent works: wait for its turn's end, not its next step. */
-    afterTurn: boolean;
+    afterTurn?: boolean;
   }): void;
 }) {
   const [kept] = useState(() => (draftKey ? readDraft(draftKey) : undefined));
@@ -307,7 +307,8 @@ export function SessionComposer({
       noteIds: chosen.map((draft) => draft.id),
       attachments: attachments.map(({ label, text }) => ({ label, text })),
       images: images.map(({ mimeType, data }) => ({ mimeType, data })),
-      afterTurn,
+      // Only a Queue message says so; the host sends the rest now.
+      ...(afterTurn ? { afterTurn: true } : {}),
     });
     setText("");
     mentions.clear();

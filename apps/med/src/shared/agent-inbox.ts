@@ -39,7 +39,7 @@ export const agentMessageInputSchema = z.object({
   images: z.array(promptImageSchema).max(10).default([]),
   /** While the agent that Med runs works: wait for its turn's end, not its
    * next step (queued-messages.ts). */
-  afterTurn: z.boolean().default(false),
+  afterTurn: z.boolean().optional(),
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 
