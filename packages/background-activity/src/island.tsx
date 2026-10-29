@@ -40,19 +40,21 @@ export function ActivityIsland({
   style?: CSSProperties;
 }) {
   const clock = useRef(RESTING_ISLAND);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const step = islandStep(clock.current, content, performance.now());
   clock.current = step.clock;
   const { phase, shown, wakeAt } = step;
 
+  // A timer can fire a little early (it rounds to whole milliseconds): each
+  // tick sets the next one until the step moves on.
   useEffect(() => {
     if (wakeAt === null) return;
     const timer = setTimeout(
       () => setTick((tick) => tick + 1),
-      Math.max(0, wakeAt - performance.now()),
+      Math.max(0, Math.ceil(wakeAt - performance.now()) + 1),
     );
     return () => clearTimeout(timer);
-  }, [wakeAt]);
+  }, [wakeAt, tick]);
 
   // The island opens from the mark's width and fits its words; it folds
   // back to the mark's width.
@@ -85,7 +87,14 @@ export function ActivityIsland({
   }, [phase]);
 
   const open = phase === "open" && grown;
-  const width = open ? widths.words : Math.max(widths.rest, 36);
+  // With reduced motion the island keeps its words' width and only fades.
+  const still =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const width =
+    open || (still && phase !== "rest")
+      ? widths.words
+      : Math.max(widths.rest, 36);
   // The width the island last came to rest at, for `data-settled`: stills
   // and tests wait for it.
   const [settled, setSettled] = useState<number | null>(null);

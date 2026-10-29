@@ -33,7 +33,7 @@ const RESTORED: Sample = { restoring: false, fraction: null };
  * The first restore on a phone, in the island that the app ships ("cards",
  * "history", "done", "offline"), and the two directions it was chosen over
  * ("subject-*", "ring-*"), with the island as Reader and Arctic would show
- * it ("reader", "arctic"). See docs/FIRST_REVIEW.md, "The restore indicator".
+ * it ("reader", "arctic"). See docs/FIRST_REVIEW.md, "The restore island".
  */
 export function RestoreSpecimen({ state }: FrameSpecimenProps) {
   const [sample, setSample] = useState<Sample>(

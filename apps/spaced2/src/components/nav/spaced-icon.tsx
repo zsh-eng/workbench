@@ -24,6 +24,9 @@ export function SpacedIcon() {
   return (
     <Link
       to="/"
+      // Its own name, so the restore island's status inside does not
+      // rename it.
+      aria-label={known ? `Spaced, ${reviewCards.length} due` : "Spaced"}
       onClick={() => {
         MemoryDB.notify();
       }}

@@ -2,6 +2,7 @@ import { matchPath, useLocation } from "react-router";
 import { useRef, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIsland } from "@workbench/background-activity/island";
 import { useSyncStatus } from "@zsh-eng/local-sync/react";
+import { isSyncBlocked } from "@zsh-eng/local-sync";
 import SyncEngine, { spacedSync } from "@/lib/sync/engine";
 import {
   restoreIslandContent,
@@ -92,12 +93,18 @@ export function RestoreIsland({
   connection?: RestoreConnection;
 }) {
   const status = useSyncExternalStore(source.subscribe, source.getSnapshot);
-  const live = useSyncStatus(spacedSync, (sync) =>
-    sync.connection === "offline"
-      ? "offline"
-      : sync.auth.status === "expired"
-        ? "signed-out"
-        : "online",
+  const live = useSyncStatus(
+    spacedSync,
+    (sync): RestoreConnection =>
+      isSyncBlocked(sync.failure)
+        ? sync.failure?.kind === "upgrade-required"
+          ? "update"
+          : "stopped"
+        : sync.connection === "offline"
+          ? "offline"
+          : sync.auth.status === "expired"
+            ? "signed-out"
+            : "online",
   );
   const connection = given ?? live;
   const seen = useRef(false);

@@ -283,20 +283,30 @@ its due count (cards phase) or part of the history on Stats (history
 phase) until then: after a reload, for the whole of an offline start
 (sync never runs), and in every other tab.
 
-- **Proposal.** Every page starts from what the device saved: an account
-  it remembers, a sync state that is not bootstrapped, and the marker. The
-  sync state and the marker are both in localStorage, so the phase is
-  known before the first render, and other tabs hear both change through
+- **Proposal.** Every page starts from what the device saved: a sync
+  state that is not bootstrapped, an account, and the marker. The sync
+  state and the marker are both in localStorage, so the phase is known
+  before the first render, and other tabs hear both change through
   `storage` events.
 - **Critique.** A device used without an account also has a sync state
-  that is not bootstrapped, so the remembered account is required, or a
-  local library would wait for a restore that never comes. A tab that
-  follows another into the history phase must reload memory first, or it
-  would open Review on the cards it loaded at the start. The marker
-  moved from IndexedDB to localStorage so the first render can read it;
-  a reset gives the device a new ID, so an old marker never matches.
+  that is not bootstrapped, so an account is required, or a local library
+  would wait for a restore that never comes. The account is one the state
+  has begun to sync with (its scope, which every tab reads) or one this
+  tab remembers; a tab's own auth alone misses a tab opened before the
+  first sign-in and the redirect back from one. A tab that follows another
+  into the history phase reloads memory first, so it opens Review on the
+  cards that tab stored. The marker moved to localStorage so the first
+  render can read it (the IndexedDB write stays, see below); a reset gives
+  the device a new ID, so an old marker never matches. A browser that
+  clears IndexedDB but keeps localStorage gets a new sync state once
+  persistence is ready, so the phase is taken again then. A sync that
+  stops for another account's session opens the preserved library, as
+  before.
 - **Built** as proposed. The e2e "a reload, an offline start and a second
-  tab…" fails in six places on the first build and passes on this one.
+  tab…" fails in six places on the first build and passes on this one. It
+  also follows a second tab from the cards into the history, and starts
+  offline after IndexedDB is cleared (that step fails without the second
+  look after persistence).
 
 ## The restore island
 

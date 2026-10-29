@@ -72,13 +72,13 @@ the words the app uses:
 
 Sync is not a job that you start, so it shows only its exceptions:
 
-| Sync state                         | What you see                                                                                  |
-| ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| Synced, syncing                    | Nothing.                                                                                      |
-| Restoring on a new device          | The island grows out of the app's mark and says the stage; the pages keep their frames.       |
-| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs. |
-| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                    |
-| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").            |
+| Sync state                         | What you see                                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Synced, syncing                    | Nothing.                                                                                        |
+| Restoring on a new device          | Spaced: the island grows out of its icon and says the stage. Reader: "Restoring your library…". |
+| Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs.   |
+| Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                      |
+| Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").              |
 
 The update has its own small moment:
 
@@ -207,7 +207,7 @@ scenarios, on the real engine with simulated jobs:
 3. **Covers and a sheet.** 1 with 2, the choice: progress on the subject,
    and the glyph and sheet for what has no subject on screen.
 
-The island was a fourth direction, dropped (see the critique). The Library
+An island for downloads was a fourth direction, dropped (see the critique); the restore's island is another matter. The Library
 wires the choice. The glyph and its sheet show for everyone. Of sync, the
 glyph speaks only for a restore; what sync needs from you (a sign-in, two
 failures in a row) has the account menu, and the sheet lists it under This

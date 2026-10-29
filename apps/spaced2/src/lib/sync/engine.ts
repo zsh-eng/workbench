@@ -12,8 +12,10 @@ import {
   SyncScopeError,
   createSyncClientState,
   createSyncController,
+  isSyncBlocked,
   type SyncFailure,
   type SyncRunContext,
+  type SyncClientState,
   type SyncStatus,
 } from "@zsh-eng/local-sync";
 import { DexieSyncStorage } from "@zsh-eng/local-sync/dexie";
@@ -24,6 +26,7 @@ import {
   ensureSyncState,
   STATE_KEY,
   disableLocalWrites,
+  persistenceReady,
 } from "../db/persistence";
 import MemoryDB, { reloadMemory, memoryReady } from "../db/memory";
 import { handleClientOperation } from "./operation";
@@ -65,10 +68,14 @@ let snapshot: Status = {
 };
 /**
  * Stays set until the first full download finishes, across failed
- * attempts. A page starts from what the device saved (`startingPhase`).
+ * attempts. A page starts from what the device saved (`savedPhase`).
  */
 let restoring: Restoring = false;
 let restoreFraction: number | null = null;
+/** The device whose priority pull this page heard finish. */
+let primedDevice: string | null = null;
+/** A sync attempt has set the phase; the starting phase no longer applies. */
+let phaseFromSync = false;
 /**
  * The device whose cards a priority pull restored, so that a reload or
  * another tab during the rest of the restore opens Review at once. Beside
@@ -112,10 +119,14 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
         signal.throwIfAborted();
         const owner = await db.metadataKv.get("owner");
         if (owner && owner.value !== userId) {
-          if (SHARED_API_ORIGIN)
+          if (SHARED_API_ORIGIN) {
+            // Sync stops here; the preserved library opens as it is.
+            restoring = false;
+            restoreFraction = null;
             throw new SyncScopeError(
               "This local library belongs to another account. Local data was preserved.",
             );
+          }
           await rawDb.transaction("rw", rawDb.tables, async () => {
             for (const table of rawDb.tables) await table.clear();
           });
@@ -131,8 +142,8 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
         if (!(await db.metadataKv.get("clientId")))
           await db.metadataKv.put({ key: "clientId", value: state.deviceId });
         localState = createLocalSyncState(stateStore);
-        if (!state.bootstrapped && restoring !== "history")
-          restoring = savedPhase();
+        if (!state.bootstrapped) restoring = phaseOf(state);
+        phaseFromSync = true;
         return state;
       });
       if (!state.bootstrapped) {
@@ -243,6 +254,7 @@ function showInMemory(
 function cardsRestored(deviceId: string) {
   if (restoring !== "cards") return;
   restoring = "history";
+  primedDevice = deviceId;
   try {
     localStorage.setItem(CARDS_RESTORED_KEY, deviceId);
   } catch {
@@ -260,10 +272,10 @@ function cardsRestored(deviceId: string) {
   ).catch(() => {});
 }
 
-/** The first download's phase, as this device saved it. */
-function savedPhase(): Restoring {
-  const state = stateStore.read();
-  if (!state || state.bootstrapped) return false;
+/** A state's restore phase, once an account is known to be restoring. */
+function phaseOf(state: SyncClientState): Restoring {
+  if (state.bootstrapped) return false;
+  if (primedDevice === state.deviceId) return "history";
   let restored: string | null = null;
   try {
     restored = localStorage.getItem(CARDS_RESTORED_KEY);
@@ -275,13 +287,20 @@ function savedPhase(): Restoring {
 
 /**
  * A page's phase before it syncs: a reload, an offline start, or a tab
- * that waits while another one restores. Only an account that this
- * device remembers is restoring; without one, the library is local.
+ * that waits while another one restores. Only an account restores: one
+ * that this device has begun to sync with (the state's scope, which every
+ * tab reads), or one that this tab remembers. Without one, the library is
+ * local.
  */
-function startingPhase(): Restoring {
+function savedPhase(): Restoring {
+  const state = stateStore.read();
+  if (!state) return false;
   const { auth } = spacedSync.getSnapshot();
-  if (auth.status !== "signed-in" && auth.status !== "expired") return false;
-  return savedPhase();
+  const account =
+    state.scope !== undefined ||
+    auth.status === "signed-in" ||
+    auth.status === "expired";
+  return account ? phaseOf(state) : false;
 }
 
 /**
@@ -289,9 +308,11 @@ function startingPhase(): Restoring {
  * memory reloaded first, so pages open on the cards that tab stored.
  */
 function followOtherTab() {
-  if (startingPhase() === restoring) return;
+  // A stopped sync (another account, or an update needed) keeps its phase.
+  if (isSyncBlocked(spacedSync.getSnapshot().failure)) return;
+  if (savedPhase() === restoring) return;
   void withSyncLock(async () => {
-    const next = startingPhase();
+    const next = savedPhase();
     if (stopped || next === restoring) return;
     await reloadMemory();
     restoring = next;
@@ -309,8 +330,15 @@ export const spacedSync = createSyncController({
   intervalMs: 30_000,
   persist: { storage: localStorage, key: SYNC_STATUS_KEY },
 });
-restoring = startingPhase();
+restoring = savedPhase();
 refresh();
+// A cleared IndexedDB gets a new sync state once persistence is ready:
+// take the phase again, unless a sync has set it.
+void persistenceReady.then(() => {
+  if (phaseFromSync) return;
+  restoring = savedPhase();
+  refresh();
+});
 
 function errorOf(status: SyncStatus): string | null {
   const failure = status.failure;

@@ -326,13 +326,23 @@ test("a reload, an offline start and a second tab show the restore, not part of 
   let account = await holdAccount(page);
   await page.reload();
   await expect.soft(cardsWait(page)).toBeVisible();
+  // A second tab, which waits while the first one restores: it keeps the
+  // frame, with no due count, until the first tab has the cards.
+  const second = await context.newPage();
+  await second.goto(app);
+  await expect
+    .soft(second.locator('[data-restore-frame="review"]'))
+    .toBeVisible();
+  await expect.soft(cardsWait(second)).toBeVisible();
+  await expect(dueCount(second)).toHaveText("");
   priorityHeld = false;
   account.open();
   await expect(good(page)).toBeVisible();
   await expect(historyNote(page)).toBeVisible();
+  // It follows into the history with the cards that tab stored.
+  await expect(good(second)).toBeVisible();
+  await expect(dueCount(second)).toHaveText("3");
 
-  // A second tab, which waits while the first one restores.
-  const second = await context.newPage();
   await second.goto(`${app}/stats`);
   await expect.soft(historyWait(second)).toBeVisible();
   await second.goto(app);
@@ -362,5 +372,24 @@ test("a reload, an offline start and a second tab show the restore, not part of 
     await expect(tab.getByText(/Restoring/)).toHaveCount(0, {
       timeout: 30_000,
     });
+
+  // IndexedDB cleared while localStorage stays: the device starts over with
+  // a new sync state, so an offline start waits for the cards rather than
+  // show an empty library.
+  for (const tab of [second, offline]) await tab.close();
+  await page.goto("about:blank");
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Storage.clearDataForOrigin", {
+    origin: app,
+    storageTypes: "indexeddb",
+  });
+  await cdp.detach();
+  const cleared = await context.newPage();
+  await cleared.addInitScript(() =>
+    Object.defineProperty(navigator, "onLine", { get: () => false }),
+  );
+  await cleared.goto(app);
+  await expect(cleared.locator('[data-restore-frame="review"]')).toBeVisible();
+  await expect(cardsWait(cleared)).toBeVisible();
   await context.close();
 });
