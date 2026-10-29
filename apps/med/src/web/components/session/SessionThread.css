@@ -49,7 +49,7 @@
 /* Tables in a pane or a guide column keep their cells compact, so more of
    them fit before the table scrolls. */
 .med-session-prose :is(th, td) {
-  padding: 7px 10px;
+  padding: 7px 8px;
 }
 /* Links open a file in Med or a page in a new tab: underlined on hover, with
    the link cursor, also for a file link, which has no href. */

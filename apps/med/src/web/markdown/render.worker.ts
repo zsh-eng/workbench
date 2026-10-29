@@ -21,6 +21,49 @@ const replyParser = unified()
 const stringify = unified().use(rehypeStringify);
 const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
+/** The pieces of a word longer than this may go on separate lines. */
+const LONG_WORD = 12;
+/** A piece shorter than this stays with its neighbour. */
+const SHORT_PIECE = 3;
+/**
+ * Text with a line break opportunity (<wbr>) at the separators of each long
+ * word: after / - _ ( , = & ? ; and before . and :, as in
+ * `./gradlew :core:test`, `src/web/App.tsx` or `registry.timer(name)`. A
+ * column's narrowest width is then its longest piece, not its longest word,
+ * and no piece is a letter or two. Copied text is unchanged.
+ */
+function breakable(value: string): Element["children"] {
+  if (!new RegExp(`\\S{${LONG_WORD + 1}}`).test(value)) return [{ type: "text", value }];
+  const out: Element["children"] = [];
+  let text = "";
+  for (const part of value.split(/(\s+)/)) {
+    if (part.length <= LONG_WORD || /^\s/.test(part)) {
+      text += part;
+      continue;
+    }
+    let last = 0;
+    for (let at = 1; at < part.length; at++) {
+      const before = part[at - 1]!;
+      const after = part[at]!;
+      const cut =
+        ("/-_(,=&?;".includes(before) && before !== after) ||
+        (".:".includes(after) &&
+          !"./:".includes(before) &&
+          part[at + 1] !== "/" &&
+          // A file's extension stays with its name.
+          !(after === "." && /^\.\w{1,4}\W*$/.test(part.slice(at))));
+      if (!cut || at - last < SHORT_PIECE || part.length - at < SHORT_PIECE) continue;
+      text += part.slice(last, at);
+      out.push({ type: "text", value: text });
+      out.push({ type: "element", tagName: "wbr", properties: {}, children: [] });
+      text = "";
+      last = at;
+    }
+    text += part.slice(last);
+  }
+  if (text) out.push({ type: "text", value: text });
+  return out;
+}
 const textOf = (node: RootContent): string =>
   node.type === "text" ? node.value : "children" in node ? node.children.map(textOf).join("") : "";
 const firstSourceLine = (node: RootContent): number | undefined => {
@@ -80,7 +123,7 @@ async function drain() {
       if (!known) throw new Error("The Markdown theme is not loaded. Reload the page.");
       const theme: AdapterTheme = known;
       highlighter.loadThemeSync(theme);
-      async function visit(node: RootContent, sourceLine: number): Promise<void> {
+      async function visit(node: RootContent, sourceLine: number, cell = false): Promise<void> {
         if (node.type !== "element") return;
         if (node.position) {
           node.properties.dataSourceLine = node.position.start.line;
@@ -227,7 +270,14 @@ async function drain() {
             }
           }
         }
-        for (const child of node.children) await visit(child, sourceLine);
+        // In a table, a long path or command can break at its separators, so
+        // that its column shares the width instead of pushing the last ones out.
+        const inCell = cell || node.tagName === "td" || node.tagName === "th";
+        if (inCell)
+          node.children = node.children.flatMap((child) =>
+            child.type === "text" ? breakable(child.value) : [child],
+          );
+        for (const child of node.children) await visit(child, sourceLine, inCell);
       }
       for (const node of tree.children) await visit(node, firstSourceLine(node) ?? 1);
       if (hasMath) {
