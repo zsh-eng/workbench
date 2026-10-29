@@ -10,24 +10,22 @@ const books = (count: number) =>
 
 /**
  * Whether this device's restore has not reached its end: a pull that
- * restores now, or one that an account began here and that a reload, an
- * offline start, a sign-in or a failed pull left unfinished. Only an
- * account restores: one that this device has begun to sync with (the
- * state's scope), or the one signed in now. A library without an account
- * is local and never restores.
+ * restores now, or one that a reload, an offline start, an ended session
+ * or a failed pull left unfinished. Only the account signed in on this
+ * device restores, also offline (the remembered user) or once its session
+ * has ended. A library without an account, or after a sign-out, is local
+ * and does not restore: sign-out keeps the sync state and its scope, so
+ * the scope does not say.
  */
 export function useRestoreUnfinished(): boolean {
   const { controller } = syncService;
   const restoring = useSyncStatus(controller, (sync) => sync.restoring);
   const auth = useSyncStatus(controller, (sync) => sync.auth.status);
   if (restoring) return true;
+  if (auth !== "signed-in" && auth !== "expired") return false;
   // A pull's end, failed or not, publishes `restoring`: read the state then.
   const state = readSyncClientState();
-  return (
-    state !== null &&
-    !state.bootstrapped &&
-    (state.scope !== undefined || auth === "signed-in" || auth === "expired")
-  );
+  return state !== null && !state.bootstrapped;
 }
 
 /**
@@ -57,6 +55,9 @@ export function LibraryRestoreIsland({
   );
   const seen = useRef(false);
   if (unfinished) seen.current = true;
+  // "Restored" only once a pull has reached the end, not after a sign-out.
+  const ended =
+    seen.current && !unfinished && !!readSyncClientState()?.bootstrapped;
   const { content, status } = restoreIsland(
     {
       connection,
@@ -74,7 +75,7 @@ export function LibraryRestoreIsland({
           status: "Restoring your library…",
         }
       : null,
-    seen.current,
+    ended,
   );
   return (
     <ActivityIsland

@@ -137,8 +137,9 @@ twelve go at once, and the EPUBs wait until the covers are done.
   folds back (`LibraryRestoreIsland`, packages/background-activity). A
   reload, an offline start or an expired session that leaves the restore
   unfinished shows it too: the saved sync state has not bootstrapped, and
-  an account began it (the state's scope) or is signed in. A library
-  without an account never restores. Its colours come from each theme, at
+  the account is signed in (also the remembered one offline) or its
+  session has ended. A library without an account, or after a sign-out,
+  does not restore and does not say "Restored". Its colours come from each theme, at
   4.5:1 or more in light, dark, night and both Flexoki themes
   (`src/index.css`). In the large lab, 4 runs a side interleaved with the
   build before it: first shelf 912 → 916 ms, restore done 3,264 → 2,266

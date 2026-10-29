@@ -168,6 +168,37 @@ test.describe("a new device", () => {
   });
 });
 
+test.describe("signed out", () => {
+  test.use({ viewport: { width: 390, height: 844 }, signedIn: false });
+
+  test("a restore that a sign-out left unfinished shows the Library, not its frame", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const { createSyncClientState, writeSyncClientState } =
+        await import("/src/lib/sync-v2/client-state.ts");
+      // Shared sync bound the account's scope; the pull did not reach the end.
+      writeSyncClientState({
+        ...createSyncClientState("test-device"),
+        bootstrapped: false,
+        scope: {
+          origin: location.origin,
+          userId: "test-user",
+          namespace: "reader",
+          epoch: "1",
+        },
+      });
+      const { syncService } = await import("/src/lib/sync-service.ts");
+      syncService.controller.signOut();
+    });
+    await page.reload();
+    await expect(page.getByText("Your library is empty")).toBeVisible();
+    await expect(page.locator('[data-restore-frame="covers"]')).toHaveCount(0);
+    await expect(island(page)).toHaveCount(0);
+  });
+});
+
 test.describe("with room", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 

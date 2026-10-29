@@ -137,8 +137,8 @@ a hairline in dark mode, with its text at AA in both. The defaults follow a
 themes sets its own. With reduced motion it cross-fades at its final
 width. Its growth and fold move `width`, which the main thread lays out
 each frame: in the large restore labs, the lists that fill meanwhile end
-20–50 ms later (Reader's and Arctic's restore docs); its sweep turns on
-the compositor.
+later, about 20 ms in Arctic and 50 ms in Reader (their restore docs); its
+sweep turns on the compositor.
 
 `restoreIsland(sync, stage, ended, done)` gives every app's restore one
 grammar: the app's stage (its words, ring and count), "Waiting for a
