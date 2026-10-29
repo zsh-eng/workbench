@@ -396,6 +396,9 @@ const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> 
 
 /** The narrowest review pane that shows a split diff, in pixels. */
 const SPLIT_MIN_WIDTH = 760;
+/** The narrowest review pane that shows the Guide's rail on "auto"; the
+ * Overview lists the segments in a narrower one. */
+const GUIDE_RAIL_MIN_WIDTH = 721;
 /** Below this width, the line selection bar leaves out its label and keys. */
 const SELECTION_BAR_FULL_WIDTH = 420;
 /** The Question pane's width to aim for, in pixels; a narrow row gives it more. */
@@ -1022,6 +1025,7 @@ export function App({
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
+  const [guideRoomy, setGuideRoomy] = useState(true);
   // The Commit tab's file, for the status bar.
   const [commitPath] = useState(createPathValue);
   const [compactSelection, setCompactSelection] = useState(false);
@@ -1032,6 +1036,7 @@ export function App({
       const width = mainElement.clientWidth;
       if (!width) return;
       setRoomy(width >= SPLIT_MIN_WIDTH);
+      setGuideRoomy(width >= GUIDE_RAIL_MIN_WIDTH);
       setCompactSelection(width < SELECTION_BAR_FULL_WIDTH);
     };
     measure();
@@ -1667,7 +1672,8 @@ export function App({
   // any width, so a pane at the edge of the breakpoint stays as chosen.
   const guideRail = guideTab && !zen;
   const railChoice = useViewSetting(viewSettings.reviewRail);
-  const railOpen = railChoice === "open" || (railChoice === "auto" && roomy);
+  const railRoom = guideRail ? guideRoomy : roomy;
+  const railOpen = railChoice === "open" || (railChoice === "auto" && railRoom);
   const railShown = changesRail && railOpen;
   const guideRailShown = guideRail && railOpen;
   const toggleRail = useCallback(
@@ -5433,7 +5439,9 @@ export function App({
   // The nested sidebar's toggle, at the end of the review's row with the
   // pane's other controls; the tabs keep their places. It stays where it
   // is, so a hidden rail is one click back.
-  const railToggle = (changesRail || guideRail) && (
+  // The button shows where the rail has room, or while it shows; a narrow
+  // row keeps its room for the comparison, and ⌘⌥B or ⌘K still opens it.
+  const railToggle = (changesRail || guideRail) && (railOpen || railRoom) && (
     <ToolButton
       icon="panelLeft"
       label={railLabel}

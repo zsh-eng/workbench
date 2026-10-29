@@ -712,7 +712,8 @@ branch's commits, or the Review's range, and **All changes** goes back. The
 Guide's list takes the same place in the Guide. The two are one nested
 sidebar: it shows by itself when the review pane has room, and the button at
 the end of the review's row, `⌘⌥B`, or **Hide the guide** or **Show files
-and commits** in `⌘K` hides or shows it in any width. Med keeps that choice
+and commits** in `⌘K` hides or shows it in any width. A narrow row keeps its
+room for the comparison, so the button shows there only while the rail does. Med keeps that choice
 for both, so a hidden rail stays hidden between the Guide and the diff. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,

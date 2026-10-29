@@ -2897,9 +2897,14 @@ describe("review guide", () => {
     await page.viewport(700, 800);
     await page.getByRole("tab", { name: "Review" }).click();
     await expect.element(guide).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Hide the guide" })).toBeVisible();
     await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
     await expect.element(guide).not.toBeInTheDocument();
     expect(localStorage.getItem("med:changes-rail")).toBe("closed");
+    // There the row keeps its room: the button goes with the rail.
+    await expect
+      .element(page.getByRole("button", { name: "Show the guide" }))
+      .not.toBeInTheDocument();
   });
 });
 
