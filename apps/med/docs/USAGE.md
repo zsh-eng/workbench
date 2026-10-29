@@ -497,8 +497,17 @@ Gemini CLI in the review's repository, with your own sign-in; it does not
 install them. To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, a context meter, `/` commands, and **Stop** (or `Esc`). A
-tool call that needs an answer shows **Allow** and **Deny**.
+and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
+needs an answer shows **Allow** and **Deny**. While the agent works, **Queue**
+(`⌘↩`) keeps a message for its next step: Claude Code reads it after the
+tools that run, in the same turn, and otherwise it goes when the turn ends.
+Until then, **Edit** or `↑` brings its text back into the box (attachments
+stay out, and the box says so), and **Remove** drops it. The pane's header shows how full
+the context is and what the thread has spent, subagents included; click it
+for where autocompact starts and each model's tokens. A pane with room beside
+its thread shows a side panel instead: the context, the spend, the background
+tasks, links to the thread's Review, Changes, and pull request, and where the
+agent works. Its button in the header, or `⌘⌥⇧B`, hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
@@ -699,9 +708,13 @@ tab. Each part shows only when the version has it.
 A thread's diff has a rail of its changed files as a tree. In **Review**, the
 rail also lists the range's commits when it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
-branch's commits, or the Review's range, and **All changes** goes back. The rail shows by itself when the review
-pane has room; the toolbar's first button, or **Show files and commits** in
-`⌘K`, shows or hides it in any width, and Med keeps that choice. With the
+branch's commits, or the Review's range, and **All changes** goes back. The
+Guide's list takes the same place in the Guide. The two are one nested
+sidebar: it shows by itself when the review pane has room, and the button at
+the end of the review's row, `⌘⌥B`, or **Hide the guide** or **Show files
+and commits** in `⌘K` hides or shows it in any width. A narrow row keeps its
+room for the comparison, so the button shows there only while the rail does. Med keeps that choice
+for both, so a hidden rail stays hidden between the Guide and the diff. With the
 **Changed files** pane open, as for a pull request, the pane lists the files
 and the commits instead. Med reads the commits ahead while the review is idle,
 so each one shows at once, in **Review** and in **Changes**.
@@ -1265,12 +1278,13 @@ every workspace and window, except where the table says "each window" or
 | Split or unified diff                          | Split        | `med:mode`                         |
 | Wrap long lines                                | Off          | `med:wrap`                         |
 | Show comments                                  | On           | `med:comments`                     |
-| Files and commits rail                         | Auto         | `med:changes-rail`                 |
+| Guide or files and commits rail                | Auto         | `med:changes-rail`                 |
 | Quiet or full chrome                           | Quiet        | `med:chrome:v1`                    |
 | Theme                                          | Med Night    | `med:theme:v1`                     |
 | Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |
 | Find file's preview                            | On           | `med:picker-preview`               |
 | Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`       |
+| Session side panel                             | Shown        | `med:session-panel`                |
 | Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width` |
 | Zen mode (each workspace)                      | Off          | `med:zen`                          |
 | Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`         |

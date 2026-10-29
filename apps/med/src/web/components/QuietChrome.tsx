@@ -116,6 +116,7 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
                 ...item(
                   diff.rail && {
                     label: "Files and commits",
+                    shortcut: "Mod+Alt+B",
                     checked: diff.rail.on,
                     onClick: diff.rail.toggle,
                   },

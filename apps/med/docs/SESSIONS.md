@@ -26,17 +26,17 @@ source needs a new reader, not a new renderer.
 
 `src/shared/agent-session.ts` defines the updates. ACP fields keep their names.
 
-| Update                          | Thread                                          |
-| ------------------------------- | ----------------------------------------------- |
-| `user_message_chunk`            | The user's message, at the right                |
-| `agent_message_chunk`           | A Markdown reply; chunks with one ID join       |
-| `agent_thought_chunk`           | "Thought for 4s", open for its text             |
-| `tool_call`, `tool_call_update` | A row by kind: command, edit diff, read, search |
-| `plan`                          | The Tasks dock; each update replaces the plan   |
-| `session_info_update`           | The sidebar title                               |
-| `usage_update`                  | Kept in the store; not shown yet                |
-| `notice` (Med)                  | A warning or error line                         |
-| `compaction_update` (Med)       | A "Context compacted" divider with the summary  |
+| Update                          | Thread                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `user_message_chunk`            | The user's message, at the right                                                             |
+| `agent_message_chunk`           | A Markdown reply; chunks with one ID join                                                    |
+| `agent_thought_chunk`           | "Thought for 4s", open for its text                                                          |
+| `tool_call`, `tool_call_update` | A row by kind: command, edit diff, read, search                                              |
+| `plan`                          | The Tasks dock; each update replaces the plan                                                |
+| `session_info_update`           | The sidebar title                                                                            |
+| `usage_update`                  | Kept in the store; the header reads the transcript ([spend and context](#spend-and-context)) |
+| `notice` (Med)                  | A warning or error line                                                                      |
+| `compaction_update` (Med)       | A "Context compacted" divider with the summary                                               |
 
 ACP has no field for some things that a transcript records. Med adds them
 under ACP's reserved `_meta` key, as `_meta.med`:
@@ -473,6 +473,55 @@ reply on top. Med logs an ACP session's updates and streams them from
 `/sessions/:session/events` as for a transcript. The thread, the docks, and
 the replay do not change.
 
+## Spend and context
+
+The session's header has a chip with the context in use and the thread's
+spend; a click shows where both come from. `GET /api/thread-usage` reads them
+from the transcripts (`src/host/session-usage.ts`) and keeps its place in each
+file, so the next call reads only the new lines.
+
+- **Spend** adds up every request in the thread: each session's transcript and,
+  for Claude Code, its subagents' (`<session>/subagents/agent-*.jsonl`).
+  Claude Code writes each block of a response as its own line with the
+  response's `usage`, so a response counts once by its message ID, as it does
+  across a fork and its original. Each request is priced at list price from
+  `src/shared/model-prices.json` (source URL and read date inside): input,
+  output, 5-minute and 1-hour cache writes, cache reads, web searches, fast
+  mode, US-only inference, and Haiku 5.5's long-context rate. A model that the
+  table lacks shows its tokens and no price; Codex's rollouts have totals and
+  no price. ACP agents' logs have no token counts and are listed as not
+  available. The figure is an estimate: Claude Code also makes small requests
+  that the transcript leaves out (titles, suggestions), so `/usage` reads a
+  few percent higher.
+- **Context** is the prompt of the session's last main request: its input,
+  cache reads, and cache writes. The window is what Med's runner reports
+  (`get_context_usage`), else the model's window in Claude Code (1M for the
+  models with a native 1M window, else 200K). Where autocompact starts comes
+  from the settings Claude Code reads, read only: `DISABLE_AUTO_COMPACT` and
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (from the environment of an agent that Med
+  starts, or a settings file's `env`), `autoCompactEnabled`, and
+  `autoCompactWindow`, where a window saved for the model under
+  `modelSettings` wins over the top-level key in the same file. The local,
+  project, and user files count in that order. With none, Claude Code's
+  default shows as "about 967k" on a native 1M window, else the window's end.
+  Med does not read managed settings, `--autocompact`, or a terminal's
+  environment, so a session started with those can differ.
+
+## Side panel
+
+A session pane at least 900 pixels wide shows a side panel at its right, as
+Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
+([above](#spend-and-context); the Spend title opens each model's tokens),
+**Background** (the dock moves here from under the thread, through a portal
+from the thread, so a task still scrolls the thread to its call),
+**Reviews** (the thread's Review, its Changes, and its pull request), and
+**Environment** (the checkout, its branch, and the agent with its model and
+what runs it). 900 pixels is the thread's 540 pixel column, 30 pixels at each
+of its sides, and the panel's 300, so the column never narrows for the panel;
+in a narrower pane, the panel and its button are gone and the header's chip
+shows the context and spend. The header's button or `⌘⌥⇧B` closes it, and
+Med keeps that choice (`med:session-panel`).
+
 ## Limits and next steps
 
 [Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining
@@ -485,8 +534,8 @@ work.
   they are not virtual lists.
 - Estimates of open edits miss Pierre's hunk separators. A wrong estimate
   costs only a move of the units below it when the edit renders.
-- Not shown yet for attached sessions: context usage, permission requests
-  (owned sessions show both), questions that the agent asked the user, and the
+- Not shown yet for attached sessions: permission requests (owned sessions
+  show them), questions that the agent asked the user, and the
   dev servers that Claude Desktop starts from
   `.claude/launch.json` (the Background dock shows servers that the agent
   started in a shell).

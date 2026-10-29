@@ -14,7 +14,8 @@ export function GuideMarkdown({
   onOpenLink,
 }: {
   text: string;
-  size?: "body" | "lead";
+  /** "table": a table of the Overview, as wide as its column. */
+  size?: "body" | "lead" | "table";
   onOpenLink?(href: string): void;
 }) {
   return (

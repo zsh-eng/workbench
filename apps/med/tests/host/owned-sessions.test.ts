@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentInboxState } from "../../src/shared/agent-inbox";
+import type { AgentInboxState, AgentMessage } from "../../src/shared/agent-inbox";
 import type { SessionEvent } from "../../src/shared/agent-session";
 import type { Thread, ThreadList } from "../../src/shared/threads";
 import type { AgentOptions, OwnedState } from "../../src/shared/owned-session";
@@ -642,6 +642,68 @@ test("a turn goes on through a host restart; one that a reboot cuts waits as Int
   await restart();
   const back = await session.until((state) => state.settings.length > 0);
   expect(back.halt).toBeUndefined();
+});
+
+test("a message sent while Claude Code works waits for its next step: it comes back until then, outlasts a host restart, and joins the turn when a tool runs", async () => {
+  vi.stubEnv("MED_FAKE_TOOL_MS", "1500");
+  const { api, review, thread, start, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const send = (text: string) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+    });
+  const messages = async () =>
+    (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data.messages;
+
+  // A turn that runs no tool: a message waits for its end.
+  await session.act({ action: "prompt", text: "Wait for the build." });
+  await session.until((state) => state.status === "working");
+  const first = await send("Use two spaces.");
+  expect(first.data.message).toMatchObject({ delivery: "pending", queued: true });
+  // Until the agent has it, the user can take it back, to edit it or drop it.
+  const taken = await api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/take`, {
+    id: first.data.message.id,
+  });
+  expect(taken.data.message).toMatchObject({ text: "Use two spaces." });
+  expect((await messages()).map((message) => message.text)).toEqual([]);
+  const second = await send("Keep the tests.");
+  expect(second.data.message.queued).toBe(true);
+
+  // The host restarts: the message waits on disk, and the turn goes on.
+  await restart();
+  expect(await session.state()).toMatchObject({ status: "working" });
+  expect(await messages()).toMatchObject([
+    { text: "Keep the tests.", delivery: "pending", queued: true },
+  ]);
+  // Esc ends the turn; the message goes next, as Claude Code's terminal sends it.
+  const replies = await thread(session.id);
+  await session.act({ action: "interrupt" });
+  await vi.waitFor(() => expect(replies().at(-1)).toMatch(/: Keep the tests\.$/));
+  expect(await messages()).toMatchObject([{ text: "Keep the tests.", delivery: "delivered" }]);
+  expect((await messages())[0]!.queued).toBeUndefined();
+  // A message that went cannot come back.
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/take`, { id: second.data.message.id })).status,
+  ).toBe(409);
+
+  // A turn that runs a tool: Claude Code reads the message when the tool
+  // ends, in the same turn.
+  await session.until((state) => state.status === "idle");
+  await send("Work on the check.");
+  await session.until((state) => state.status === "working");
+  const during = await send("Also check the hour.");
+  expect(during.data.message).toMatchObject({ delivery: "pending", queued: true });
+  await vi.waitFor(
+    () => expect(replies().at(-1)).toBe("Checked, and read your note: Also check the hour."),
+    { timeout: 5000 },
+  );
+  expect((await messages()).at(-1)).toMatchObject({
+    text: "Also check the hour.",
+    delivery: "delivered",
+  });
 });
 
 test("med agents lists the agents that keep working; one that it stops resumes with the next message, and one whose holder dies waits as Interrupted", async () => {

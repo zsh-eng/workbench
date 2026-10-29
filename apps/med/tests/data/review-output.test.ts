@@ -179,6 +179,64 @@ describe("review output", () => {
     ).toEqual(["633 passed (106 files)", "0 warnings", "(3 passed) and (1 skipped)", "passed"]);
   });
 
+  it("reads a table's rows as findings, not as lines of pipes", () => {
+    const output = readReviewOutput([
+      [
+        "## Findings",
+        "",
+        "| # | Severity | Where | Finding | Status |",
+        "| - | --- | --- | --- | --- |",
+        "| 1 | **Important** | `src/a.ts:12` | The retry ignores the abort signal. | Fixed: it passes the signal |",
+        "| 2 | Nit | src/b.ts:3 | Rename `x`. | open |",
+        "| 3 | P1 | src/c.ts:9-11 | The empty list throws \\| crashes. | |",
+      ].join("\n"),
+    ]);
+    expect(output.findings).toEqual([
+      {
+        severity: "important",
+        title: "The retry ignores the abort signal.",
+        file: "src/a.ts",
+        line: 12,
+        state: "fixed",
+        reason: "it passes the signal",
+      },
+      { severity: "nit", title: "Rename `x`.", file: "src/b.ts", line: 3, state: "open" },
+      {
+        severity: "important",
+        title: "The empty list throws | crashes.",
+        file: "src/c.ts",
+        line: 9,
+        endLine: 11,
+        state: "open",
+      },
+    ]);
+  });
+
+  it("keeps a proof that is only a table, and reads a table of misses row by row", () => {
+    const output = readReviewOutput([
+      [
+        "## Proof",
+        "",
+        "| Check | Result |",
+        "| --- | --- |",
+        "| Build | passed |",
+        "",
+        "## Not covered",
+        "",
+        "| Area | Why |",
+        "| --- | --- |",
+        "| The dashboard query | no fixture |",
+      ].join("\n"),
+    ]);
+    expect(output.proof).toEqual({
+      checks: [],
+      media: [],
+      misses: ["The dashboard query — no fixture"],
+      notes: [],
+      tables: ["| Check | Result |\n| --- | --- |\n| Build | passed |"],
+    });
+  });
+
   it("finds nothing in prose without its parts", () => {
     const output = readReviewOutput([
       "I changed the parser so that errors no longer stop it. The tests pass.",

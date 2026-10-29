@@ -252,6 +252,40 @@ test("a task in the Background dock scrolls a long thread to its call", async ()
   await expect.poll(() => Math.round(topOf("server"))).toBe(16);
 });
 
+test("in the side panel, the Background dock sits outside the thread and still scrolls it to a task's call", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "server",
+        title: "Start the dev server",
+        kind: "execute",
+        status: "in_progress",
+        _meta: { med: { background: { id: "b1", kind: "shell" } } },
+      },
+    },
+    ...turnEvents(1, 300),
+  ]);
+  const side = document.createElement("div");
+  document.body.append(side);
+  try {
+    root!.render(<SessionThread snapshot={store.getSnapshot()} backgroundIn={side} />);
+    await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r300");
+    const dock = page.getByRole("region", { name: "Background tasks" });
+    await expect.element(dock).toBeVisible();
+    expect(side.contains(dock.element())).toBe(true);
+    await userEvent.click(dock.getByRole("button", { name: "Start the dev server" }));
+    await expect.poll(() => document.querySelector('[data-unit="server"]')).not.toBeNull();
+    await expect.poll(() => Math.round(topOf("server"))).toBe(16);
+  } finally {
+    side.remove();
+  }
+});
+
 test("the Background dock lists only what runs: a task ends in its place, Done leaves, and Failed stays until seen", async () => {
   await page.viewport(1280, 900);
   initializeTheme();
@@ -788,6 +822,31 @@ test("a finished turn's work folds into one row that opens in place, and Show wo
   await expect.element(page.getByText("Then the docs.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: /Run the tests 2/ })).toBeVisible();
   expect(rows.elements()).toHaveLength(2);
+
+  // When it ends, its work folds before the note, and one row says how long it took.
+  store.applyAll([
+    {
+      at: 34_000,
+      update: {
+        sessionUpdate: "tool_call_update" as const,
+        toolCallId: "run-2",
+        status: "completed" as const,
+      },
+    },
+    {
+      at: 36_000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "final-2",
+        content: { type: "text" as const, text: "Tests pass, and the docs say so." },
+      },
+    },
+  ]);
+  root!.render(<SessionThread snapshot={{ ...store.getSnapshot(), running: false }} />);
+  await expect.element(page.getByText("Tests pass, and the docs say so.")).toBeVisible();
+  await expect.element(page.getByText("Then the docs.")).toBeVisible();
+  expect(page.getByRole("button", { name: /Run the tests 2/ }).query()).toBeNull();
+  expect(page.getByText(/^Worked for 6s/).elements()).toHaveLength(1);
 });
 
 test("a message from Med joins the thread where the agent took it, so the turn before keeps its reply", async () => {

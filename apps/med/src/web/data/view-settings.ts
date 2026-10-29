@@ -83,8 +83,10 @@ export const viewSettings = {
   wrap: viewSetting("med:wrap", "off", ["on", "off"]),
   /** Comments in the diff. Writing or opening a comment shows them again. */
   comments: viewSetting("med:comments", "shown", ["shown", "hidden"]),
-  /** The Changes rail beside the diff; "auto" shows it in a wide review. */
-  changesRail: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
+  /** The rail beside Review and Changes: the Guide, or the files and
+   * commits. "auto" shows it in a wide review; a choice holds in any width.
+   * The key is the one that the files rail had before the Guide's joined it. */
+  reviewRail: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
   /** Vim keys in files. */
   vim: viewSetting("med:vim", "on", ["on", "off"]),
   /** The blame of the cursor's line in files. */
@@ -95,6 +97,8 @@ export const viewSettings = {
   filePreview: viewSetting("med:picker-preview", "on", ["on", "off"]),
   /** The work of finished turns in a session, folded into one row or shown. */
   work: viewSetting("med:work", "folded", ["folded", "shown"]),
+  /** The session's side panel, which shows in a wide pane unless closed. */
+  sessionPanel: viewSetting("med:session-panel", "auto", ["auto", "closed"]),
   /** The background tasks dock under a session. */
   backgroundTasks: viewSetting("med:background", "open", ["open", "closed"]),
   /** Each window's sidebar, read when the window opens. */

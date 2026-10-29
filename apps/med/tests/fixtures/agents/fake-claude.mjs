@@ -129,6 +129,56 @@ async function thinkAndReply(text) {
   send({ type: "result", subtype: "success", is_error: false, result: text });
 }
 
+/** A turn that runs a tool, as Claude Code does: the messages that come
+ * while the tool runs wait in its queue, and Claude reads them when the tool
+ * ends, in the same turn, recorded as `queued_command` attachments. A message
+ * that comes after that waits for the turn's end, as the next prompt. */
+let working = false;
+const queue = [];
+async function work() {
+  working = true;
+  // Before its first call, as a model that thinks first does.
+  await pause(Number(process.env.MED_FAKE_THINK_MS ?? 0));
+  const id = `msg_${randomUUID().slice(0, 8)}`;
+  const call = {
+    type: "tool_use",
+    id: `toolu_${randomUUID().slice(0, 8)}`,
+    name: "Bash",
+    input: { command: "bun run check", description: "Run the slow check" },
+  };
+  const message = { id, type: "message", role: "assistant", model: "claude-opus-5-5" };
+  record({
+    type: "assistant",
+    uuid: randomUUID(),
+    message: { ...message, stop_reason: "tool_use", content: [call] },
+  });
+  send({ type: "assistant", message: { ...message, content: [call] }, parent_tool_use_id: null });
+  await pause(Number(process.env.MED_FAKE_TOOL_MS ?? 1500));
+  const result = { type: "tool_result", tool_use_id: call.id, content: "All checks passed." };
+  record({ type: "user", uuid: randomUUID(), message: { role: "user", content: [result] } });
+  send({ type: "user", message: { role: "user", content: [result] }, parent_tool_use_id: null });
+  const took = queue.splice(0);
+  for (const prompt of took)
+    record({
+      type: "attachment",
+      uuid: randomUUID(),
+      attachment: { type: "queued_command", prompt, commandMode: "prompt" },
+    });
+  await pause(Number(process.env.MED_FAKE_TOOL_MS ?? 1500) / 3);
+  working = false;
+  reply(took.length ? `Checked, and read your note: ${took.join(" / ")}` : "Checked.");
+  // What came after the tool ran starts the next turn.
+  const next = queue.splice(0);
+  if (next.length) take(next.join("\n\n"));
+}
+
+/** A prompt from Med: a new turn. */
+function take(content) {
+  record({ type: "user", uuid: randomUUID(), message: { role: "user", content } });
+  send({ type: "system", subtype: "status", status: "requesting" });
+  void work();
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   if (message.type === "control_response") {
@@ -222,6 +272,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     .map((block) => block.text)
     .join("");
   const images = blocks.filter((block) => block.type === "image");
+  // During a working turn, Claude Code queues what comes.
+  if (working) {
+    queue.push(text);
+    return;
+  }
   if (forkOf) copyHistory();
   record({ type: "user", uuid: randomUUID(), message: { role: "user", content } });
   send({ type: "system", subtype: "status", status: "requesting" });
@@ -322,6 +377,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (text.includes("Wait")) {
     waiting = true;
+    return;
+  }
+  if (text.includes("Work")) {
+    void work();
     return;
   }
   // An agent that dies during its turn, as on an out-of-memory error.
