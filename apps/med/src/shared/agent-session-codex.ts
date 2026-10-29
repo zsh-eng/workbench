@@ -1,4 +1,5 @@
 import type {
+  MedMeta,
   PlanEntry,
   SessionEvent,
   SessionUpdate,
@@ -22,7 +23,66 @@ const list = (value: unknown) => (Array.isArray(value) ? value : []);
 
 /** Context that Codex adds to the user's turn; the user did not write it. */
 const CONTEXT =
-  /^\s*<(environment_context|user_instructions|user_shell_command|turn_aborted|codex_delegation|[a-z_]+_context)>/;
+  /^\s*(<(environment_context|user_instructions|user_shell_command|turn_aborted|codex_delegation|[a-z_]+_context)>|# AGENTS\.md instructions\b)/;
+
+/* Codex's subagents (multi-agent v2). The main thread calls tools of the
+ * `collaboration` namespace: `spawn_agent` starts a child thread, which has
+ * its own rollout; `wait_agent` waits for children; `send_message` and
+ * `close_agent` talk to one. The parent's rollout links each spawn call to
+ * its child with an `item_completed` event of a `SubAgentActivity` item (its
+ * `id` is the call's ID, and it names the child's thread), and a child's
+ * report comes back as an `agent_message` item whose author is the child's
+ * path. The child's rollout names its parent in
+ * `session_meta.source.subagent.thread_spawn.parent_thread_id`. */
+const COLLABORATION = new Set([
+  "spawn_agent",
+  "wait_agent",
+  "close_agent",
+  "send_message",
+  "send_input",
+  "followup_task",
+  "resume_agent",
+  "interrupt_agent",
+  "list_agents",
+]);
+
+/** Where a Codex rollout comes from, by its `session_meta.source`: one of the
+ * user's sessions, an automatic review ("guardian"), or a subagent that a
+ * thread spawned. */
+export type RolloutSource =
+  | { kind: "session" }
+  | { kind: "guardian" }
+  | { kind: "subagent"; parent: string; path?: string; nickname?: string };
+
+export function rolloutSource(meta: Record<string, unknown> | undefined): RolloutSource {
+  const subagent = record(record(meta?.source)?.subagent);
+  if (!subagent) return { kind: "session" };
+  const spawn = record(subagent.thread_spawn);
+  const parent = text(spawn?.parent_thread_id);
+  if (parent)
+    return {
+      kind: "subagent",
+      parent,
+      ...(text(spawn?.agent_path) ? { path: text(spawn?.agent_path) } : {}),
+      ...(text(spawn?.agent_nickname) ? { nickname: text(spawn?.agent_nickname) } : {}),
+    };
+  // `{ other: "guardian" }`, and any other automatic thread.
+  return { kind: "guardian" };
+}
+
+/** A subagent's name from its path, such as `/root/backup_review`. */
+const agentName = (path: string) =>
+  (path.split("/").filter(Boolean).at(-1) ?? path).replaceAll("_", " ");
+
+/** The report in an agent message: its type and its plain payload. */
+function agentReport(content: unknown) {
+  const header = list(content)
+    .map((part) => (record(part)?.type === "input_text" ? (text(record(part)?.text) ?? "") : ""))
+    .join("");
+  const type = /^Message Type: (\w+)/m.exec(header)?.[1];
+  const payload = /\nPayload:\n([\s\S]*)$/.exec(header)?.[1]?.trim();
+  return { type, payload };
+}
 
 function parseJson(value: unknown): Json | undefined {
   if (typeof value !== "string") return record(value);
@@ -167,18 +227,41 @@ function execResult(result: Json): { output?: string; exit: number; rejected: bo
   };
 }
 
+export interface CodexReaderOptions {
+  /** Updates of a subagent's rollout belong to the parent's spawn call. */
+  parentToolCallId?: string;
+  /** A spawn call started a subagent, whose rollout has this thread ID. */
+  onSubagent?(threadId: string, toolCallId: string): void;
+}
+
 /** Converts rollout lines to session updates, one line at a time. */
-export function createCodexRolloutReader() {
+export function createCodexRolloutReader(options: CodexReaderOptions = {}) {
   const calls = new Map<
     string,
     { kind: ToolKind; name: string; diffs?: DiffContent[]; command?: boolean }
   >();
+  /** Spawn calls by their child's path and by their child's thread. */
+  const spawned = new Map<string, string>();
   let at = 0;
   let cwd: string | undefined;
   let sequence = 0;
   let idle = true;
+  let metas = 0;
+  // A subagent's rollout can start with a copy of its parent's history (a
+  // second session_meta); its own work starts when its task arrives.
+  let copied = false;
   const relative = (path: string) =>
     cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+  const withParent = (update: SessionUpdate): SessionUpdate => {
+    if (!options.parentToolCallId) return update;
+    const meta = (update as { _meta?: MedMeta })._meta;
+    return {
+      ...update,
+      _meta: { med: { ...meta?.med, parentToolCallId: options.parentToolCallId } },
+    } as SessionUpdate;
+  };
+  /** A spawn call's child, by the path or the thread that names it. */
+  const spawnOf = (key: string | undefined) => (key ? spawned.get(key) : undefined);
 
   function call(
     id: string,
@@ -291,6 +374,43 @@ export function createCodexRolloutReader() {
         },
       ];
     }
+    if (COLLABORATION.has(name) && (namespace === undefined || namespace === "collaboration")) {
+      calls.set(id, { kind: "other", name });
+      const target = text(args.target) ?? text(args.task_name);
+      const targets = list(args.targets).map(String);
+      const title =
+        name === "spawn_agent"
+          ? target
+            ? capitalize(agentName(target))
+            : "Subagent"
+          : name === "wait_agent"
+            ? targets.length
+              ? `Wait for ${targets.map(agentName).join(", ")}`
+              : "Wait for subagents"
+            : name === "close_agent"
+              ? `Close ${target ? agentName(target) : "a subagent"}`
+              : name === "list_agents"
+                ? "List subagents"
+                : name === "interrupt_agent"
+                  ? `Interrupt ${target ? agentName(target) : "a subagent"}`
+                  : `Message ${target ? agentName(target) : "a subagent"}`;
+      if (name === "spawn_agent" && target) spawned.set(`/root/${target}`, id);
+      return [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title,
+          kind: "other",
+          status: "in_progress",
+          _meta: {
+            med: {
+              tool: name,
+              ...(name === "spawn_agent" ? { background: { id, kind: "agent" as const } } : {}),
+            },
+          },
+        },
+      ];
+    }
     calls.set(id, { kind: "other", name });
     const described = text(args.title) ?? text(args.description);
     return [
@@ -313,6 +433,45 @@ export function createCodexRolloutReader() {
   function output(id: string, raw: unknown): SessionUpdate[] {
     const known = calls.get(id);
     if (!known || known.name === "update_plan") return [];
+    if (COLLABORATION.has(known.name)) {
+      const result = parseJson(raw);
+      if (known.name === "spawn_agent") {
+        // The child runs on; its report or its end completes the call.
+        const path = text(result?.task_name);
+        if (path) spawned.set(path, id);
+        const child = text(result?.agent_id) ?? text(result?.thread_id);
+        if (child) {
+          spawned.set(child, id);
+          options.onSubagent?.(child, id);
+        }
+        return [];
+      }
+      const message =
+        text(result?.message) ?? (typeof raw === "string" && !result ? raw : undefined);
+      const timedOut = result?.timed_out === true;
+      if (known.name === "close_agent") {
+        const done = spawnOf(text(result?.task_name));
+        if (done)
+          return [{ sessionUpdate: "tool_call_update", toolCallId: done, status: "completed" }];
+      }
+      return [
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: id,
+          status: "completed",
+          ...(message || timedOut
+            ? {
+                content: [
+                  {
+                    type: "content" as const,
+                    content: { type: "text" as const, text: timedOut ? "Timed out" : message! },
+                  },
+                ],
+              }
+            : {}),
+        },
+      ];
+    }
     // Older rollouts wrap the output as JSON with its exit code; newer ones write
     // "Exit code: N" and the output as text.
     const listed = outputText(raw);
@@ -375,9 +534,42 @@ export function createCodexRolloutReader() {
   function convert(entry: Json): SessionUpdate[] {
     const payload = record(entry.payload);
     if (!payload) return [];
-    if (entry.type === "session_meta" || entry.type === "turn_context") {
+    if (entry.type === "session_meta") {
+      metas++;
+      if (metas === 2 && options.parentToolCallId) copied = true;
+      if (metas === 1) cwd = text(payload.cwd) ?? cwd;
+      return [];
+    }
+    if (entry.type === "turn_context") {
       cwd = text(payload.cwd) ?? cwd;
       return [];
+    }
+    if (copied) {
+      // The copy ends where the child's own settings and task arrive.
+      if (
+        (entry.type === "event_msg" && payload.type === "thread_settings_applied") ||
+        entry.type === "inter_agent_communication_metadata" ||
+        (entry.type === "response_item" && payload.type === "agent_message")
+      )
+        copied = false;
+      else return [];
+    }
+    if (entry.type === "event_msg" && payload.type === "item_completed") {
+      const item = record(payload.item);
+      if (item?.type !== "SubAgentActivity") return [];
+      const thread = text(item.agent_thread_id);
+      const path = text(item.agent_path);
+      const call = text(item.id);
+      if (item.kind === "started" && thread && call && calls.has(call)) {
+        spawned.set(thread, call);
+        if (path) spawned.set(path, call);
+        options.onSubagent?.(thread, call);
+        return [];
+      }
+      const done = spawnOf(thread) ?? spawnOf(path);
+      return item.kind === "completed" && done
+        ? [{ sessionUpdate: "tool_call_update", toolCallId: done, status: "completed" }]
+        : [];
     }
     if (entry.type === "event_msg") {
       if (payload.type === "task_started") idle = false;
@@ -401,6 +593,31 @@ export function createCodexRolloutReader() {
     }
     if (entry.type !== "response_item") return [];
     switch (payload.type) {
+      case "agent_message": {
+        // Between agents: a child's report to its parent, or a parent's task
+        // to its child. Codex encrypts a task; a report is plain text.
+        const author = text(payload.author);
+        const { type, payload: body } = agentReport(payload.content);
+        const call = spawnOf(author);
+        if (call && body)
+          return [
+            {
+              sessionUpdate: "tool_call_update",
+              toolCallId: call,
+              ...(type === "FINAL_ANSWER" ? { status: "completed" as const } : {}),
+              content: [{ type: "content", content: { type: "text", text: body } }],
+            },
+          ];
+        if (options.parentToolCallId && type === "NEW_TASK" && body)
+          return [
+            {
+              sessionUpdate: "user_message_chunk",
+              content: { type: "text", text: body },
+              messageId: text(payload.id) ?? `task-${++sequence}`,
+            },
+          ];
+        return [];
+      }
       case "message": {
         const role = payload.role;
         if (role !== "user" && role !== "assistant") return [];
@@ -496,12 +713,14 @@ export function createCodexRolloutReader() {
       if (!entry) return [];
       const time = Date.parse(text(entry.timestamp) ?? "");
       if (Number.isFinite(time)) at = time;
-      return convert(entry).map((update) => ({ at, update }));
+      return convert(entry).map((update) => ({ at, update: withParent(update) }));
     },
   };
 }
 
-export function readCodexRollout(source: string): SessionEvent[] {
-  const reader = createCodexRolloutReader();
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+export function readCodexRollout(source: string, options?: CodexReaderOptions): SessionEvent[] {
+  const reader = createCodexRolloutReader(options);
   return source.split("\n").flatMap((line) => reader.line(line));
 }

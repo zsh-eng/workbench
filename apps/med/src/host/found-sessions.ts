@@ -11,7 +11,11 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createClaudeTranscriptReader } from "../shared/agent-session-claude";
-import { createCodexRolloutReader } from "../shared/agent-session-codex";
+import {
+  createCodexRolloutReader,
+  rolloutSource,
+  type RolloutSource,
+} from "../shared/agent-session-codex";
 import {
   FOUND_DAYS,
   foundSettingsSchema,
@@ -128,6 +132,9 @@ interface SessionFile {
   idle: boolean;
   /** The last turn, from the tail (thread-turns.ts). */
   turn?: ThreadTurn;
+  /** Codex's own threads: a guardian review or a subagent, which its
+   * parent's thread shows. Found sessions and search leave them out. */
+  automatic?: RolloutSource["kind"];
 }
 
 /** A transcript's head: its first 64 KB, or for a Codex rollout whose first
@@ -157,6 +164,7 @@ export function scanLines(
     name?: string;
     summary?: string;
     id?: string;
+    source?: RolloutSource;
   } = {};
   const updates: SessionEvent[] = [];
   for (const line of lines) {
@@ -173,7 +181,10 @@ export function scanLines(
     if (cwd) found.cwd = cwd;
     const at = Date.parse(text(entry.timestamp) ?? "");
     if (!Number.isNaN(at)) found.createdAt ??= at;
-    if (agent === "codex" && entry.type === "session_meta") found.id ??= text(payload?.id);
+    if (agent === "codex" && entry.type === "session_meta") {
+      found.id ??= text(payload?.id);
+      found.source ??= rolloutSource(payload);
+    }
     if (entry.type === "custom-title") found.name = text(entry.customTitle) ?? found.name;
     if (entry.type === "agent-name" && !found.name) found.name = text(entry.agentName);
     if (entry.type === "summary") found.summary = text(entry.summary) ?? found.summary;
@@ -214,10 +225,12 @@ async function readSession(
     agent === "claude" ? basename(path, ".jsonl") : (first?.id ?? known?.id ?? rolloutId(path));
   if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return undefined;
   const cwd = tail.cwd ?? first?.cwd ?? known?.cwd;
+  const source = first?.source?.kind ?? known?.automatic;
   return {
     agent,
     id,
     path,
+    ...(source && source !== "session" ? { automatic: source } : {}),
     mtimeMs: info.mtimeMs,
     size: info.size,
     ...(cwd ? { cwd } : {}),
@@ -500,7 +513,13 @@ export function createFoundSessions(options: {
         files.set(file.path, session);
       }
       const key = `${session.agent}:${session.id}`;
-      if (!session.cwd || seen.has(key) || options.excluded?.(session.agent, session.id)) continue;
+      if (
+        !session.cwd ||
+        session.automatic ||
+        seen.has(key) ||
+        options.excluded?.(session.agent, session.id)
+      )
+        continue;
       seen.add(key);
       const checkout = await place(session.cwd, checkouts);
       const name = session.agent === "codex" ? names.get(session.id) : undefined;

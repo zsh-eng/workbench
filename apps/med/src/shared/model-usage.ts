@@ -22,13 +22,20 @@ const table = prices as {
   version: number;
   source: string;
   readAt: string;
+  /** The GPT models' prices, from OpenAI's page. */
+  openai: { source: string; readAt: string };
   webSearchPerThousand: number;
   dataResidency: number;
   models: Record<string, ModelPrice>;
 };
 
 /** Where the prices come from, for the page to say. */
-export const PRICE_TABLE = { version: table.version, source: table.source, readAt: table.readAt };
+export const PRICE_TABLE = {
+  version: table.version,
+  source: table.source,
+  readAt: table.readAt,
+  openai: { source: table.openai.source, readAt: table.openai.readAt },
+};
 
 /**
  * The canonical ID of a model ID as a transcript or a provider writes it:
@@ -175,7 +182,12 @@ export const threadUsageSchema = z.object({
     /** Sessions whose transcripts have no token counts, such as ACP agents'. */
     missing: z.array(z.string()),
   }),
-  prices: z.object({ version: z.number(), source: z.string(), readAt: z.string() }),
+  prices: z.object({
+    version: z.number(),
+    source: z.string(),
+    readAt: z.string(),
+    openai: z.object({ source: z.string(), readAt: z.string() }).optional(),
+  }),
 });
 export type ThreadUsage = z.infer<typeof threadUsageSchema>;
 

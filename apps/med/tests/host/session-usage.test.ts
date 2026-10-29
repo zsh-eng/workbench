@@ -115,6 +115,34 @@ test("counts each response once, subagents included, at list price, and the cont
             model_context_window: 272000,
           },
         },
+      }) +
+      // Codex 0.160 records each response. Over 272K input tokens, a GPT
+      // model's long-context rate applies; the running total that follows
+      // the record does not count again.
+      line({ type: "turn_context", payload: { model: "gpt-6-astra" } }) +
+      line({
+        type: "token_usage_record",
+        payload: {
+          response_id: "resp_1",
+          usage: { input_tokens: 300_000, cached_input_tokens: 200_000, output_tokens: 1000 },
+          thread_token_usage: { input_tokens: 305_000, output_tokens: 1300, total_tokens: 306_300 },
+        },
+      }) +
+      line({
+        type: "event_msg",
+        timestamp: "2026-10-29T09:00:09.000Z",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 305_000,
+              output_tokens: 1300,
+              total_tokens: 306_300,
+            },
+            last_token_usage: { input_tokens: 300_000 },
+            model_context_window: 400_000,
+          },
+        },
       }),
   );
   vi.stubEnv("MED_HOME_DIR", home);
@@ -164,7 +192,9 @@ test("counts each response once, subagents included, at list price, and the cont
     output: 300,
     cost: null,
   });
-  expect(first.spend.total).toBeCloseTo(0.13109, 8);
+  // 100,000 × $20 + 200,000 × $2 (cached) + 1,000 × $75, per million.
+  expect(cost("gpt-6-astra")).toBeCloseTo(2.475, 8);
+  expect(first.spend.total).toBeCloseTo(2.60609, 8);
   expect(first.spend.subagents).toEqual({ count: 1, cost: expect.closeTo(0.012, 8) });
   expect(first.context).toMatchObject({
     sessionId: claude,
@@ -184,9 +214,14 @@ test("counts each response once, subagents included, at list price, and the cont
   await appendFile(transcript, line({ type: "system", subtype: "compact_boundary", uuid: "c1" }));
   const second = await usage();
   expect(second.context?.compacted).toBe(true);
-  expect(second.spend.total).toBeCloseTo(0.13109, 8);
+  expect(second.spend.total).toBeCloseTo(2.60609, 8);
   // The thread's latest session is Codex's, which reports its own window.
   const latest = (await (await api(`/api/thread-usage?id=${id}`)).json()) as ThreadUsage;
-  expect(latest.context).toMatchObject({ agent: "codex", used: 3000, window: 272000 });
+  expect(latest.context).toMatchObject({
+    agent: "codex",
+    model: "gpt-6-astra",
+    used: 300_000,
+    window: 400_000,
+  });
   expect(latest.context?.compaction).toBeUndefined();
 });

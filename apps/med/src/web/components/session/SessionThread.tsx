@@ -414,7 +414,7 @@ function Delivery({ message }: { message: SentMessage }) {
       : message.delivery === "pending"
         ? [
             message.queued
-              ? `Queued for ${agent}'s next step`
+              ? `Queued until ${agent}'s turn ends`
               : message.waitsFor
                 ? SESSION_PLACES[message.waitsFor].waiting
                 : `Waiting for ${agent} to take it`,
@@ -446,6 +446,16 @@ function Delivery({ message }: { message: SentMessage }) {
       {failed && message.discard && (
         <button type="button" onClick={message.discard} {...stylex.props(styles.deliveryAction)}>
           Discard
+        </button>
+      )}
+      {message.sendNow && (
+        <button
+          type="button"
+          title={`Give it to ${agent} now, in the turn that runs`}
+          onClick={message.sendNow}
+          {...stylex.props(styles.deliveryAction)}
+        >
+          Send now
         </button>
       )}
       {message.edit && (

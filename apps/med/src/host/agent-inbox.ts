@@ -238,12 +238,16 @@ export class AgentInbox {
     sessionId: string,
     deliver: (body: string) => Promise<void>,
     to?: AgentSession,
+    /** Only these messages, such as one that the user sends now. */
+    only?: readonly string[],
   ) {
     return this.change(reviewId, async (messages) => {
       const waiting = messages.filter(
         (message) => message.sessionId === sessionId && message.delivery === "pending",
       );
-      const due = waiting.filter((message) => !this.unconfirmed.has(message.id));
+      const due = waiting.filter(
+        (message) => !this.unconfirmed.has(message.id) && (!only || only.includes(message.id)),
+      );
       if (!due.length) return { delivered: 0, left: waiting.length };
       let error: string | undefined;
       try {
@@ -369,7 +373,7 @@ export class AgentInbox {
         }
         messages.push(stored);
       });
-    } else if (session.agent === "codex") {
+    } else if (session.agent === "codex" && !route.queued) {
       try {
         if (Buffer.byteLength(body) > MAX_CODEX_MESSAGE_BYTES)
           throw new Error("The message is too long for codex queue. Send fewer comments.");

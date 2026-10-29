@@ -301,7 +301,10 @@ export function SessionStart({
                   }}
                   {...stylex.props(ui.button, ui.pressable, styles.agent)}
                 >
-                  <Icon name={agent.kind === "claude" ? "claude" : "agent"} size={14} />
+                  <Icon
+                    name={agent.kind === "claude" || agent.kind === "codex" ? agent.kind : "agent"}
+                    size={14}
+                  />
                   <span {...stylex.props(styles.agentName)}>{agent.name}</span>
                   <span {...stylex.props(styles.agentNote)}>
                     {starting === agent.id ? "Starting…" : agent.available ? "" : "Not installed"}
@@ -540,6 +543,8 @@ export function SessionPanel({
     if (prompt) setReveal({ id: prompt.id, nonce: Date.now() });
   };
   const ownedState = owned.state;
+  // An agent that takes a message during its turn offers Send now.
+  const steers = !!ownedState?.capabilities?.steer;
   // Med's runner tells what its session does. While it waits, a transcript
   // that changed after it holds another process's turn, such as Claude Code's
   // in a terminal or the Claude app: the transcript tells, as for a session
@@ -695,6 +700,17 @@ export function SessionPanel({
                 ...message,
                 edit: () => takeBack([message.id], true),
                 remove: () => takeBack([message.id], false),
+                ...(steers &&
+                  inbox?.sendNow && {
+                    sendNow: () =>
+                      void inbox.sendNow!(message.id).catch((reason: unknown) =>
+                        setTakeNote({
+                          text:
+                            reason instanceof Error ? reason.message : "Med did not send it now.",
+                          error: true,
+                        }),
+                      ),
+                  }),
               }
             : presence && presence !== "resumable" && message.delivery === "pending"
               ? { ...message, waitsFor: presence }
@@ -733,7 +749,17 @@ export function SessionPanel({
       : { ...snapshot, items, running };
     // outbox changes each render; the rows take it when the list changes.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, messages, outgoing, session.id, session.agent, streaming, running, presence]);
+  }, [
+    snapshot,
+    messages,
+    outgoing,
+    session.id,
+    session.agent,
+    streaming,
+    running,
+    presence,
+    steers,
+  ]);
   const needsYou = !!ownedState?.permission;
   // Asked again as the transcript grows, at a turn's end, and now and then
   // while subagents work, whose transcripts the thread does not follow.

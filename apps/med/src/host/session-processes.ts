@@ -68,6 +68,8 @@ export interface SessionProcesses {
    * `maxAgeMs` accepts an answer of that age; a decision to send reads anew.
    */
   elsewhere(ids: readonly string[], maxAgeMs?: number): Promise<Map<string, SessionPlace>>;
+  /** The sessions that other processes run now, by their records. */
+  running(): Promise<{ id: string; pid: number; cwd?: string; place: SessionPlace }[]>;
 }
 
 export function createSessionProcesses(
@@ -81,12 +83,12 @@ export function createSessionProcesses(
   const home = options.home ?? userHome;
   const answers = new Map<string, { at: number; place: SessionPlace | undefined }>();
 
-  /** What one record says about the sessions of `wanted`. */
+  /** What one record says about the sessions of `wanted`, or of any. */
   const verdict = async (
     name: string,
-    wanted: ReadonlySet<string>,
+    wanted: ReadonlySet<string> | undefined,
     own: ReadonlySet<number>,
-  ): Promise<{ verdict: Verdict; session?: string; place?: SessionPlace }> => {
+  ): Promise<{ verdict: Verdict; session?: string; place?: SessionPlace; cwd?: string }> => {
     const pid = Number(name.slice(0, -".json".length));
     if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid || own.has(pid))
       return { verdict: "no" };
@@ -104,9 +106,10 @@ export function createSessionProcesses(
       sessionId?: unknown;
       procStart?: unknown;
       entrypoint?: unknown;
+      cwd?: unknown;
     };
     if (typeof fields.sessionId !== "string") return { verdict: "unsure" };
-    if (!wanted.has(fields.sessionId)) return { verdict: "no" };
+    if (wanted && !wanted.has(fields.sessionId)) return { verdict: "no" };
     const session = fields.sessionId;
     if (typeof fields.procStart !== "string" || !fields.procStart)
       return { verdict: "unsure", session };
@@ -119,7 +122,12 @@ export function createSessionProcesses(
     const args = await ps(["-o", "args=", "-p", String(pid)]);
     if (args === undefined) return { verdict: "unsure", session };
     if (args.includes("--fork-session")) return { verdict: "no" };
-    return { verdict: "yes", session, place: placeOf(fields.entrypoint) };
+    return {
+      verdict: "yes",
+      session,
+      place: placeOf(fields.entrypoint),
+      ...(typeof fields.cwd === "string" && { cwd: fields.cwd }),
+    };
   };
 
   /** The sessions of `wanted` that a running process names in its arguments. */
@@ -171,6 +179,27 @@ export function createSessionProcesses(
   };
 
   return {
+    async running() {
+      const own = new Set(options.ownPids?.() ?? []);
+      const names = await readdir(join(home(), ".claude", "sessions")).catch(() => [] as string[]);
+      const found = await Promise.all(
+        names
+          .filter((name) => /^\d+\.json$/.test(name))
+          .map(async (name) => {
+            const {
+              verdict: result,
+              session,
+              place = "other-app",
+              cwd,
+            } = await verdict(name, undefined, own);
+            const pid = Number(name.slice(0, -".json".length));
+            return result === "yes" && session
+              ? [{ id: session, pid, place, ...(cwd && { cwd }) }]
+              : [];
+          }),
+      );
+      return found.flat();
+    },
     async elsewhere(ids, maxAgeMs = 0) {
       const now = Date.now();
       const due = ids.filter((id) => {
