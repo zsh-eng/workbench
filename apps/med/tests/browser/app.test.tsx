@@ -3898,6 +3898,105 @@ describe("agent session", () => {
       .toHaveAttribute("href", "https://platform.claude.com/docs/en/about-claude/pricing");
   });
 
+  test("a wide session pane shows the side panel, which the reader closes and opens again", async () => {
+    await page.viewport(2400, 900);
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      usage: {
+        context: {
+          sessionId: "s1",
+          agent: "claude",
+          model: "claude-opus-5-5",
+          used: 312_932,
+          window: 1_000_000,
+          windowFrom: "model",
+          compaction: {
+            at: 500_000,
+            from: "modelSettings in ~/.claude/settings.json",
+            approximate: false,
+          },
+          compacted: false,
+        },
+        spend: {
+          total: 230.62,
+          subagents: { count: 4, cost: 40.44 },
+          models: [
+            {
+              model: "claude-opus-5-5",
+              requests: 812,
+              input: 41_000,
+              output: 690_000,
+              cacheWrite5m: 0,
+              cacheWrite1h: 3_100_000,
+              cacheRead: 410_000_000,
+              webSearches: 0,
+              cost: 230.62,
+            },
+            {
+              model: "gpt-test",
+              requests: 1,
+              input: 1000,
+              output: 300,
+              cacheWrite5m: 0,
+              cacheWrite1h: 0,
+              cacheRead: 4000,
+              webSearches: 0,
+              cost: null,
+            },
+          ],
+          missing: [],
+        },
+        prices: {
+          version: 1,
+          source: "https://platform.claude.com/docs/en/about-claude/pricing",
+          readAt: "2026-10-29",
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Toggle agent session" }).click();
+    const pane = page.getByRole("region", { name: "Agent session" });
+    const side = pane.getByRole("complementary", { name: "Session details" });
+    await expect.element(side).toBeVisible();
+    // The thread's column keeps its 540 pixels beside the panel: the message
+    // box is the column less its 12 pixel sides.
+    const box = () =>
+      pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
+    await expect.poll(box).toBeCloseTo(516, 0);
+    const context = side.getByRole("region", { name: "Context" });
+    await expect.element(context).toMatchTextContent(/^Context31%/);
+    await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
+    await expect
+      .element(side.getByRole("region", { name: "Spend" }))
+      .toMatchTextContent(/^Spend\$230\.62/);
+    await expect
+      .element(
+        side.getByRole("region", { name: "Reviews" }).getByRole("button", { name: /Changes/ }),
+      )
+      .toBeVisible();
+    await expect
+      .element(side.getByRole("region", { name: "Environment" }))
+      .toMatchTextContent(/Claude/);
+    // The header leaves context and spend to the panel.
+    await expect
+      .element(pane.getByRole("button", { name: "Context and spend" }))
+      .not.toBeInTheDocument();
+
+    await pane.getByRole("button", { name: "Hide the side panel" }).click();
+    await expect.element(side).not.toBeInTheDocument();
+    expect(localStorage.getItem("med:session-panel")).toBe("closed");
+    await expect.element(pane.getByRole("button", { name: "Context and spend" })).toBeVisible();
+    await expect.poll(box).toBeCloseTo(516, 0);
+    await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
+    await expect.element(side).toBeVisible();
+    expect(localStorage.getItem("med:session-panel")).toBe("auto");
+
+    // A pane without room for the column and the panel has neither the panel nor its button.
+    await page.viewport(1100, 900);
+    await expect.element(side).not.toBeInTheDocument();
+    await expect.element(pane.getByRole("button", { name: /side panel/ })).not.toBeInTheDocument();
+  });
+
   test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {
     const { agentMessages } = await mountApp({
       savedReview: true,

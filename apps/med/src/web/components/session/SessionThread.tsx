@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
 import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
@@ -930,7 +930,11 @@ export function SessionThread({
   recap,
   endMark,
   onOpenLink,
+  backgroundIn,
 }: {
+  /** The side panel's place for the Background dock; without it, the dock
+   * shows under the thread. */
+  backgroundIn?: HTMLElement | null;
   snapshot: SessionSnapshot;
   /** The recap of a turn that ended unseen, at the end of the thread. It
    * takes the place of the plan for that turn. */
@@ -1738,14 +1742,20 @@ export function SessionThread({
               )}
             </div>
             <div inert={!!agent} {...stylex.props(styles.docks)}>
-              <BackgroundDock
-                items={snapshot.items}
-                now={now}
-                // An agent task opens its thread; a shell's call shows in the thread.
-                onShow={(id) =>
-                  agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
-                }
-              />
+              {(() => {
+                const dock = (
+                  <BackgroundDock
+                    items={snapshot.items}
+                    now={now}
+                    card={!!backgroundIn}
+                    // An agent task opens its thread; a shell's call shows in the thread.
+                    onShow={(id) =>
+                      agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
+                    }
+                  />
+                );
+                return backgroundIn ? createPortal(dock, backgroundIn) : dock;
+              })()}
               {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
             </div>
             {agent && (

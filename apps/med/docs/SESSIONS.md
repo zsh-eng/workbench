@@ -507,6 +507,21 @@ file, so the next call reads only the new lines.
   Med does not read managed settings, `--autocompact`, or a terminal's
   environment, so a session started with those can differ.
 
+## Side panel
+
+A session pane at least 900 pixels wide shows a side panel at its right, as
+Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
+([above](#spend-and-context); the Spend title opens each model's tokens),
+**Background** (the dock moves here from under the thread, through a portal
+from the thread, so a task still scrolls the thread to its call),
+**Reviews** (the thread's Review, its Changes, and its pull request), and
+**Environment** (the checkout, its branch, and the agent with its model and
+what runs it). 900 pixels is the thread's 540 pixel column, 30 pixels at each
+of its sides, and the panel's 300, so the column never narrows for the panel;
+in a narrower pane, the panel and its button are gone and the header's chip
+shows the context and spend. The header's button or `⌘⌥⇧B` closes it, and
+Med keeps that choice (`med:session-panel`).
+
 ## Limits and next steps
 
 [Agent workspaces](AGENT_WORKSPACES.md) records the design and the remaining

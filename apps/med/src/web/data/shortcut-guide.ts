@@ -223,6 +223,11 @@ export const guideContexts: GuideContext[] = [
             command: "changes-rail",
           },
           {
+            label: "Toggle the session's side panel",
+            keys: ["Mod+Alt+Shift+B"],
+            note: "In a session pane with room beside its thread",
+          },
+          {
             label: "Zen mode",
             keys: ["Alt+Z"],
             note: "Hides every bar; the sidebar keys still show panels",

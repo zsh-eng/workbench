@@ -128,15 +128,18 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
   const unpriced = spend.models.filter((model) => model.cost === null);
   return (
     <div {...stylex.props(styles.block)}>
-      <p {...stylex.props(styles.line)}>
-        <span {...stylex.props(styles.total)}>{dollars(spend.total)}</span>
-        {spend.subagents.count > 0 && (
-          <span {...stylex.props(styles.note)}>
-            {dollars(spend.subagents.cost)} by {spend.subagents.count}{" "}
-            {spend.subagents.count === 1 ? "subagent" : "subagents"}
-          </span>
-        )}
-      </p>
+      {/* A card's title has the total; a popover's table starts with it. */}
+      {(table || spend.subagents.count > 0) && (
+        <p {...stylex.props(styles.line)}>
+          {table && <span {...stylex.props(styles.total)}>{dollars(spend.total)}</span>}
+          {spend.subagents.count > 0 && (
+            <span {...stylex.props(styles.note)}>
+              {dollars(spend.subagents.cost)} by {spend.subagents.count}{" "}
+              {spend.subagents.count === 1 ? "subagent" : "subagents"}
+            </span>
+          )}
+        </p>
+      )}
       {table ? (
         <table {...stylex.props(styles.table)}>
           <thead>
@@ -197,19 +200,23 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
           transcript.
         </p>
       )}
-      <p {...stylex.props(styles.line, styles.note)}>
-        An estimate at list price from the transcripts; Claude Code also makes small requests that
-        they leave out. Prices read {usage.prices.readAt} from{" "}
-        <a
-          href={usage.prices.source}
-          target="_blank"
-          rel="noreferrer"
-          {...stylex.props(styles.link)}
-        >
-          Anthropic's pricing page
-        </a>
-        .
-      </p>
+      {!table ? (
+        <p {...stylex.props(styles.line, styles.note)}>An estimate at list price</p>
+      ) : (
+        <p {...stylex.props(styles.line, styles.note)}>
+          An estimate at list price from the transcripts; Claude Code also makes small requests that
+          they leave out. Prices read {usage.prices.readAt} from{" "}
+          <a
+            href={usage.prices.source}
+            target="_blank"
+            rel="noreferrer"
+            {...stylex.props(styles.link)}
+          >
+            Anthropic's pricing page
+          </a>
+          .
+        </p>
+      )}
     </div>
   );
 }

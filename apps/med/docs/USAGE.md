@@ -500,7 +500,10 @@ gets your messages from Med as new turns. The message box has model, effort,
 and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
 needs an answer shows **Allow** and **Deny**. The pane's header shows how full
 the context is and what the thread has spent, subagents included; click it
-for where autocompact starts and each model's tokens.
+for where autocompact starts and each model's tokens. A pane with room beside
+its thread shows a side panel instead: the context, the spend, the background
+tasks, links to the thread's Review, Changes, and pull request, and where the
+agent works. Its button in the header, or `⌘⌥⇧B`, hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
@@ -1276,6 +1279,7 @@ every workspace and window, except where the table says "each window" or
 | Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |
 | Find file's preview                            | On           | `med:picker-preview`               |
 | Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`       |
+| Session side panel                             | Shown        | `med:session-panel`                |
 | Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width` |
 | Zen mode (each workspace)                      | Off          | `med:zen`                          |
 | Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`         |

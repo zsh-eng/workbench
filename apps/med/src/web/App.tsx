@@ -213,6 +213,7 @@ import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionPins, SessionStarter } from "./components/session/SessionPanel";
+import type { ThreadLink } from "./components/session/SessionSidePanel";
 import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
@@ -2901,6 +2902,20 @@ export function App({
           else if (key === "KeyZ" && !event.shiftKey) toggleZen();
           return;
         }
+      }
+      // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.altKey &&
+        event.shiftKey &&
+        event.code === "KeyB"
+      ) {
+        const toggle = visibleElement("[data-session-panel] [data-side-panel-toggle]");
+        if (!toggle) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggle.click();
+        return;
       }
       if (
         (event.metaKey || event.ctrlKey) &&
@@ -5838,6 +5853,50 @@ export function App({
         .filter(Boolean)
         .join(" · ")
     : undefined;
+  // The session side panel's Reviews card.
+  const reviewVersion = shownIteration ?? 1;
+  const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
+  const sessionLinks: ThreadLink[] = [
+    ...(reviewAvailable
+      ? [
+          {
+            id: "review",
+            icon: "guide" as const,
+            label: "Review",
+            detail: approvals?.some((entry) => entry.version === reviewVersion)
+              ? `Version ${reviewVersion} · approved`
+              : hasGuide && shownGuideFiles.length
+                ? `Version ${reviewVersion} · ${guideViewedIds.size}/${shownGuideFiles.length} viewed`
+                : `Version ${reviewVersion}`,
+            onOpen: () => {
+              revealPane("review");
+              selectTab("review");
+            },
+          },
+        ]
+      : []),
+    {
+      id: "changes",
+      icon: "diff",
+      label: "Changes",
+      detail: "Live in the checkout",
+      onOpen: () => {
+        revealPane("review");
+        selectTab("changes");
+      },
+    },
+    ...(state.savedReview?.pullRequestUrl
+      ? [
+          {
+            id: "pull-request",
+            icon: "pullRequest" as const,
+            label: state.savedReview.pullRequestTitle ?? "Pull request",
+            ...(pullNumber ? { detail: `#${pullNumber}` } : {}),
+            href: state.savedReview.pullRequestUrl,
+          },
+        ]
+      : []),
+  ];
   const sidePanes: PaneSpec[] = [
     ...(state.savedReview
       ? [
@@ -5895,6 +5954,15 @@ export function App({
                     openAgent={openAgent}
                     recap={recapProps}
                     onContinue={continueInMed}
+                    links={sessionLinks}
+                    place={
+                      threadTarget
+                        ? {
+                            folder: threadTarget.repo,
+                            ...(threadTarget.branch ? { branch: threadTarget.branch } : {}),
+                          }
+                        : undefined
+                    }
                   />
                 )}
               </Suspense>

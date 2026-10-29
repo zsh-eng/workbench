@@ -45,11 +45,17 @@ import { paneHandle } from "../PaneTree";
 import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
+import {
+  SIDE_PANEL_MIN_PANE,
+  SessionSidePanel,
+  type SessionEnvironment,
+  type ThreadLink,
+} from "./SessionSidePanel";
 import { TurnMark } from "./SessionNotice";
 import { ReplyActionsContext, SessionThread, type ReplyActions } from "./SessionThread";
 import { FileRefsContext, type FileRefs } from "../FileRefs";
 import type { TurnRecapProps } from "./TurnRecap";
-import { useViewSwitch, viewSettings } from "../../data/view-settings";
+import { useViewSetting, useViewSwitch, viewSettings } from "../../data/view-settings";
 import { column } from "./session-styles";
 
 type PinSource = NonNullable<Extract<PinMutation, { add: unknown }>["add"]["source"]>;
@@ -368,7 +374,13 @@ export function SessionPanel({
   openAgent,
   recap,
   onContinue,
+  links,
+  place,
 }: {
+  /** The side panel's Reviews card: the thread's review and pull request. */
+  links?: ThreadLink[];
+  /** The side panel's Environment card: the thread's checkout. */
+  place?: Pick<SessionEnvironment, "folder" | "branch">;
   /** The recap of the thread's last turn, which ended unseen. It shows at
    * the end of the latest session; Reply goes to its message box. */
   recap?: Omit<TurnRecapProps, "onReply">;
@@ -682,6 +694,23 @@ export function SessionPanel({
         ? { used: ownedState.context.used, window: ownedState.context.total, windowFrom: "agent" }
         : undefined;
   const panel = useRef<HTMLElement>(null);
+  // The side panel shows where the thread's column keeps its width beside it,
+  // unless the reader closed it.
+  const [roomy, setRoomy] = useState(false);
+  useLayoutEffect(() => {
+    const node = panel.current;
+    if (!node) return;
+    const measure = () => {
+      // A hidden workspace has no width; it keeps its layout for its return.
+      if (node.clientWidth) setRoomy(node.clientWidth >= SIDE_PANEL_MIN_PANE);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const sideChoice = useViewSetting(viewSettings.sessionPanel);
+  const [background, setBackground] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
     () =>
       recap && session.id === latest
@@ -695,6 +724,29 @@ export function SessionPanel({
   );
   const zen = useContext(ZenContext);
   const quiet = useQuietChrome();
+  const side = roomy && !zen && sideChoice === "auto";
+  const model =
+    shownContext?.model ??
+    ownedState?.settings.find((setting) => setting.category === "model")?.value;
+  const sessionPlace: SessionEnvironment = {
+    ...(place?.folder || session.cwd ? { folder: place?.folder ?? session.cwd } : {}),
+    ...(place?.branch ? { branch: place.branch } : {}),
+    agent: agentName(session),
+    agentIcon:
+      session.agent === "claude" ? "claude" : session.agent === "codex" ? "codex" : "agent",
+    ...(model && model !== "default" ? { model } : {}),
+    runs: ownedState
+      ? ownedState.status === "exited"
+        ? "Stopped"
+        : "Runs in Med"
+      : presence === "terminal"
+        ? "In a terminal"
+        : presence === "claude-app"
+          ? "In the Claude app"
+          : presence === "other-app"
+            ? "In another app"
+            : "Not running",
+  };
   // The first view has not come, and no earlier thread stays meanwhile.
   const loading = state.status === "connecting" && !snapshot.items.length;
   const status = runner
@@ -774,7 +826,17 @@ export function SessionPanel({
           {status}
         </span>
         {quiet ? <span {...stylex.props(styles.grow)} /> : menu}
-        {!zen && <UsageChip usage={usage} context={shownContext} />}
+        {!zen && !side && <UsageChip usage={usage} context={shownContext} />}
+        {roomy && !zen && (
+          <ToolButton
+            icon="panelRight"
+            label={side ? "Hide the side panel" : "Show the side panel"}
+            shortcut="Mod+Alt+Shift+B"
+            aria-pressed={side}
+            data-side-panel-toggle=""
+            onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
+          />
+        )}
         {!zen &&
           (controls ?? (
             <ToolButton
@@ -785,63 +847,77 @@ export function SessionPanel({
             />
           ))}
       </header>
-      {state.status === "missing" && !ownedState ? (
-        <p {...stylex.props(styles.empty)}>{state.message}</p>
-      ) : (
-        <div {...stylex.props(styles.thread)}>
-          <ReplyActionsContext.Provider value={replyActions}>
-            <FileRefsContext.Provider value={sessionFileRefs}>
-              <SessionThread
-                snapshot={shown}
-                loading={loading}
-                earlier={earlier}
-                reveal={reveal}
-                openAgent={openAgent}
-                showWork={showWork}
-                recap={turnRecap}
-                endMark={endMark}
-                before={
-                  state.truncated && !pageable ? (
-                    <p {...stylex.props(styles.note)}>
-                      The session is long; the thread starts with its latest work.
-                    </p>
-                  ) : undefined
-                }
-                onOpenLink={(href) => {
-                  const link = sessionLink(href, root);
-                  if (link) onOpenPath(link.path, link.line);
-                }}
+      <div {...stylex.props(styles.split)}>
+        <div {...stylex.props(styles.main)}>
+          {state.status === "missing" && !ownedState ? (
+            <p {...stylex.props(styles.empty)}>{state.message}</p>
+          ) : (
+            <div {...stylex.props(styles.thread)}>
+              <ReplyActionsContext.Provider value={replyActions}>
+                <FileRefsContext.Provider value={sessionFileRefs}>
+                  <SessionThread
+                    snapshot={shown}
+                    loading={loading}
+                    earlier={earlier}
+                    reveal={reveal}
+                    openAgent={openAgent}
+                    showWork={showWork}
+                    recap={turnRecap}
+                    endMark={endMark}
+                    backgroundIn={side ? background : undefined}
+                    before={
+                      state.truncated && !pageable ? (
+                        <p {...stylex.props(styles.note)}>
+                          The session is long; the thread starts with its latest work.
+                        </p>
+                      ) : undefined
+                    }
+                    onOpenLink={(href) => {
+                      const link = sessionLink(href, root);
+                      if (link) onOpenPath(link.path, link.line);
+                    }}
+                  />
+                </FileRefsContext.Provider>
+              </ReplyActionsContext.Provider>
+            </div>
+          )}
+          {inbox && session.agent === "acp" && !ownedState ? (
+            // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
+            <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
+              {agent} stopped with the Med host. Start a new session to continue.
+            </p>
+          ) : (
+            inbox && (
+              <SessionComposer
+                key={session.id}
+                draftKey={`${reviewId}/${session.id}`}
+                agent={session.agent}
+                name={agent}
+                waiting={waiting}
+                presence={presence}
+                onContinue={onContinue && (() => onContinue(session.id))}
+                drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
+                attachments={attachments}
+                onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+                onSend={send}
+                owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+                mentions={mentions}
+                onMentionsWanted={onMentionsWanted}
               />
-            </FileRefsContext.Provider>
-          </ReplyActionsContext.Provider>
+            )
+          )}
+          {!inbox && footer}
         </div>
-      )}
-      {inbox && session.agent === "acp" && !ownedState ? (
-        // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
-        <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
-          {agent} stopped with the Med host. Start a new session to continue.
-        </p>
-      ) : (
-        inbox && (
-          <SessionComposer
-            key={session.id}
-            draftKey={`${reviewId}/${session.id}`}
-            agent={session.agent}
-            name={agent}
-            waiting={waiting}
-            presence={presence}
-            onContinue={onContinue && (() => onContinue(session.id))}
-            drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
-            attachments={attachments}
-            onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
-            onSend={send}
-            owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
-            mentions={mentions}
-            onMentionsWanted={onMentionsWanted}
+        {side && (
+          <SessionSidePanel
+            usage={usage}
+            context={shownContext}
+            links={links}
+            place={sessionPlace}
+            backgroundRef={setBackground}
           />
-        )
-      )}
-      {!inbox && footer}
+        )}
+      </div>
     </section>
   );
 }
@@ -900,6 +976,15 @@ const styles = stylex.create({
   dotLive: { backgroundColor: tokens.green },
   dotWaiting: { backgroundColor: tokens.accent },
   thread: { flex: "1", minHeight: 0 },
+  // The thread and its message box, beside the side panel when it shows.
+  split: { display: "flex", flex: "1", minHeight: 0, minWidth: 0 },
+  main: {
+    display: "flex",
+    flexDirection: "column",
+    flex: "1",
+    minWidth: 0,
+    minHeight: 0,
+  },
   menuPositioner: { zIndex: 100, outline: "none" },
   menuTrigger: { flexShrink: 0, gap: 4, height: 24, paddingInline: 8, fontSize: 12 },
   menu: { minWidth: 220 },

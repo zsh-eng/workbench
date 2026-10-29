@@ -124,7 +124,10 @@ export function BackgroundDock({
   items,
   now,
   onShow,
+  card = false,
 }: {
+  /** A card in the session's side panel, not a bar under the thread. */
+  card?: boolean;
   items: SessionItem[];
   /** A fixed clock, for stills; without it, running times follow the clock. */
   now?: number;
@@ -165,7 +168,10 @@ export function BackgroundDock({
     store(HIDDEN, JSON.stringify(next));
   };
   return (
-    <section aria-label="Background tasks" {...stylex.props(styles.dock, column.bar)}>
+    <section
+      aria-label="Background tasks"
+      {...stylex.props(styles.dock, card ? styles.card : column.bar)}
+    >
       <div {...stylex.props(styles.top)}>
         <button
           type="button"
@@ -265,6 +271,8 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
   },
+  // As the side panel's other cards: its width, and no gap under it.
+  card: { marginInline: 0, marginBottom: 0, paddingInline: 12, paddingBlock: 4 },
   top: { display: "flex", alignItems: "center", gap: 4 },
   head: { flex: "1", cursor: "pointer", gap: 8 },
   hide: {
