@@ -768,6 +768,7 @@ export function SessionPanel({
   }, []);
   const sideChoice = useViewSetting(viewSettings.sessionPanel);
   const [background, setBackground] = useState<HTMLDivElement | null>(null);
+  const [agentsSlot, setAgentsSlot] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
     () =>
       recap && session.id === latest
@@ -927,6 +928,7 @@ export function SessionPanel({
                     recap={turnRecap}
                     endMark={endMark}
                     backgroundIn={side ? background : undefined}
+                    agentsIn={side ? agentsSlot : undefined}
                     before={
                       state.truncated && !pageable ? (
                         <p {...stylex.props(styles.note)}>
@@ -994,6 +996,7 @@ export function SessionPanel({
             links={links}
             place={sessionPlace}
             backgroundRef={setBackground}
+            agentsRef={setAgentsSlot}
           />
         )}
       </div>

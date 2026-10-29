@@ -555,6 +555,60 @@ test("tabs switch between the session and its subagents, and Escape goes back", 
   await expect.element(view.getByText("Two paths fetch.")).toBeVisible();
 });
 
+test("beside the side panel, the subagents are a list in its card, not tabs over the thread", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  store.applyAll(
+    [
+      ["fetches", "Find every place that fetches", "in_progress"],
+      ["tests", "Check the cache tests", "completed"],
+      ["types", "Tighten the cache types", "failed"],
+    ].map(([id, title, status], at) => ({
+      at: at * 1000,
+      update: {
+        sessionUpdate: "tool_call" as const,
+        toolCallId: id!,
+        title: title!,
+        kind: "other" as const,
+        status: status as "in_progress" | "completed" | "failed",
+        _meta: { med: { tool: "Agent" } },
+      },
+    })),
+  );
+  const side = document.createElement("div");
+  document.body.append(side);
+  try {
+    root!.render(<SessionThread snapshot={store.getSnapshot()} agentsIn={side} showWork />);
+    const tabs = page.getByRole("tablist", { name: "Session and subagents" });
+    await expect.element(tabs).toHaveAttribute("aria-orientation", "vertical");
+    // The list is the card's, and the thread has no row of tabs over it.
+    const card = page.getByRole("region", { name: "Subagents" });
+    expect(side.contains(card.element())).toBe(true);
+    expect(side.contains(tabs.element())).toBe(true);
+    expect(document.querySelectorAll('[role="tablist"]')).toHaveLength(1);
+    await expect.element(card).toMatchTextContent(/^Subagents1 working/);
+    // Each row says how its subagent is doing, in words.
+    await expect
+      .element(tabs)
+      .toHaveTextContent(
+        "MainFind every place that fetchesWorkingCheck the cache testsDoneTighten the cache typesFailed",
+      );
+    await userEvent.click(tabs.getByRole("tab", { name: /Check the cache tests/ }));
+    const view = page.getByRole("region", { name: "Subagent" });
+    await expect.element(view).toBeVisible();
+    // A list that stands, so the arrow keys go down and up it.
+    await userEvent.keyboard("{ArrowDown}");
+    await expect
+      .element(tabs.getByRole("tab", { name: /Tighten the cache types/ }))
+      .toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Home}");
+    await expect.element(view).not.toBeInTheDocument();
+  } finally {
+    side.remove();
+  }
+});
+
 test("hidden work keeps each reply: the one before med review wait, and one that ended a turn", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

@@ -515,12 +515,18 @@ Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
 ([above](#spend-and-context); the Spend title opens each model's tokens),
 **Background** (the dock moves here from under the thread, through a portal
 from the thread, so a task still scrolls the thread to its call),
+**Subagents** (the tabs over the thread move here the same way, as a list of
+rows with each subagent's state, so they never meet the panel's first card;
+the arrow keys go down and up the list),
 **Reviews** (the thread's Review, its Changes, and its pull request), and
 **Environment** (the checkout, its branch, and the agent with its model and
-what runs it). 900 pixels is the thread's 540 pixel column, 30 pixels at each
-of its sides, and the panel's 300, so the column never narrows for the panel;
-in a narrower pane, the panel and its button are gone and the header's chip
-shows the context and spend. The header's button, `⌘⌥⇧B`, or **Hide the
+what runs it). The thread's column has Claude Desktop's 768 pixel text
+measure (`session-styles.ts`). 900 pixels is a 540 pixel column, 30 pixels
+at each of its sides, and the panel's 300: beside the panel the column
+narrows to the room that is left, as Claude Desktop's transcript narrows
+beside its side panel. In a narrower pane, the panel and its button are gone,
+the subagents are tabs over the thread again, and the header's chip shows the
+context and spend. The header's button, `⌘⌥⇧B`, or **Hide the
 session's side panel** in `⌘K` closes it, and
 Med keeps that choice (`med:session-panel`).
 

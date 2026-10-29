@@ -430,11 +430,12 @@ toolbar, and **Show agent session** in the palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
-- In a wide pane, the thread keeps to a column of 540 pixels in the middle
-  of the pane, about 80 characters of a reply on a line: the replies, the
-  code blocks and tool output, the cards under the thread, and the message
-  box. The pane keeps the width that you give it; drag its edge to give the
-  review the room beside the column.
+- In a wide pane, the thread keeps to a column in the middle of the pane,
+  with text 768 pixels wide as in Claude Desktop: the replies, the code
+  blocks and tool output, the cards under the thread, and the message box.
+  A narrower pane, or the side panel, narrows the column. The pane keeps the
+  width that you give it; drag its edge to give the review the room beside
+  the column. Markdown files, the Notes, and the Guide read at the same width.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
@@ -507,8 +508,9 @@ stay out, and the box says so), and **Remove** drops it. The pane's header shows
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
 its thread shows a side panel instead: the context, the spend, the background
-tasks, links to the thread's Review, Changes, and pull request, and where the
-agent works. Its button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
+tasks, the subagents, links to the thread's Review, Changes, and pull request,
+and where the agent works. There the subagents are a list, with each one's
+state, in place of the tabs over the thread. Its button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't
