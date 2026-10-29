@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   balance as balanceTree,
   balanced,
@@ -515,7 +516,10 @@ function useBox(element: HTMLElement | null) {
       );
     };
     measure();
-    const observer = new ResizeObserver(measure);
+    // The panes take the new size before the browser paints. Otherwise one
+    // frame shows them at their old size where the workspace moved, such as
+    // when ⌘B hides the sidebar, and a pane's right side jumps twice.
+    const observer = new ResizeObserver(() => flushSync(measure));
     observer.observe(element);
     return () => observer.disconnect();
   }, [element]);

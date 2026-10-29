@@ -551,6 +551,56 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   expect(showSession.query()).toBeNull();
 });
 
+/**
+ * What the browser painted while `act` ran, and in the frames after it, in
+ * order and without repeats. A ResizeObserver runs after a frame's animation
+ * callbacks and before its paint, so the last record of a frame is what it
+ * painted.
+ */
+async function painted(watched: Element, read: () => string, act: () => Promise<void>) {
+  const frames = new Map<number, string>();
+  let at = 0;
+  let on = true;
+  const tick = () => {
+    frames.set(++at, read());
+    if (on) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  const observer = new ResizeObserver(() => frames.set(at, read()));
+  observer.observe(watched);
+  await act();
+  for (let count = 0; count < 10; count++) await frame();
+  on = false;
+  observer.disconnect();
+  return [...frames.values()].filter((value, index, all) => value !== all[index - 1]);
+}
+
+test("the sidebar moves the session pane and its side panel in one frame, as wide as they end", async () => {
+  // With the sidebar, the session pane is too narrow for its side panel;
+  // without it, the panel has room.
+  await page.viewport(2050, 900);
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await openThread("A thread about the export");
+  const pane = () => visible("[data-session-panel]");
+  await expect.poll(pane).toBeTruthy();
+  // The pane's width, and where its side panel starts when it has one.
+  const read = () =>
+    `${pane()!.clientWidth} ${visible('[aria-label="Session details"]')?.getBoundingClientRect().x ?? "none"}`;
+  const start = read();
+  expect(start).toMatch(/ none$/);
+  const hidden = await painted(pane()!, read, () =>
+    page.getByRole("button", { name: "Hide sidebar" }).click(),
+  );
+  expect(hidden).toHaveLength(2);
+  expect(hidden[0]).toBe(start);
+  expect(hidden[1]).not.toMatch(/ none$/);
+  const shownAgain = await painted(pane()!, read, () =>
+    page.getByRole("button", { name: "Show sidebar" }).click(),
+  );
+  expect(shownAgain).toEqual([hidden[1], start]);
+});
+
 test.runIf(platform === "mac")(
   "⌘⌃B hides and shows the Changed files pane, and ⌘B's sidebar stays",
   async () => {
