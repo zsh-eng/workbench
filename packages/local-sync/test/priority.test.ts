@@ -277,13 +277,27 @@ describe("priority restore", () => {
 
   it("tells the observer once the priority records are stored, before the full pull commits", async () => {
     const heard: string[] = [];
+    const positions: { priority?: boolean; cursor?: number; head?: number }[] =
+      [];
     const observer = {
-      pulled: ({ records }: { records: readonly SyncRecord[] }) =>
+      pulled: ({
+        records,
+        priority,
+        cursor,
+        head,
+      }: {
+        records: readonly SyncRecord[];
+        priority?: boolean;
+        cursor?: number;
+        head?: number;
+      }) => {
+        positions.push({ priority, cursor, head });
         heard.push(
           [
             ...new Set(records.map((record) => JSON.parse(record.key)[0])),
           ].join(),
-        ),
+        );
+      },
       pushed() {},
       prioritized: () => heard.push("prioritized"),
     };
@@ -292,6 +306,15 @@ describe("priority restore", () => {
     const tablet = device(server);
     await tablet.client.sync({ observer });
     expect(heard).toEqual(["books", "prioritized", "notes", "notes"]);
+    // Each page says where its pull is, so an app can show a restore's share.
+    expect(positions.map((page) => page.priority)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(positions.every((page) => page.head === 603)).toBe(true);
+    expect(positions.at(-1)?.cursor).toBe(603);
+    expect(positions[1]!.cursor!).toBeLessThan(603);
 
     // A restored device runs no priority pull, so it hears none.
     heard.length = 0;

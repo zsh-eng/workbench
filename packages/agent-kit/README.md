@@ -25,6 +25,7 @@ If the server answers `/__e2e`, the kit refuses a server from another checkout.
 | `--wait <selector>`   | Waits for a Playwright selector after the page loads.           |
 | `--out <file>`        | Output path. The default is in the system temp folder.          |
 | `--dark`, `--desktop` | Dark colour scheme; a 1280 × 800 window without touch.          |
+| `--reduced-motion`    | The page sees `prefers-reduced-motion: reduce`.                 |
 | `--size <w>x<h>`      | Another window size, e.g. an iPad's `820x1180`.                 |
 | `--screen <w>x<h>`    | The screen behind the window (`screen`), e.g. a tablet's.       |
 | `--scale <n>`         | Device pixels per CSS pixel (2), e.g. Android's density `2.5`.  |
