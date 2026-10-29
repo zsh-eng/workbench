@@ -1013,11 +1013,14 @@ registered repository's name and press **Tab** to search that one; the scope
 shows its full path, so clones and worktrees stay distinct. Backspace in an
 empty field, **Clear filters**, or the scope button goes back.
 
-A vault is a scope too: type its name and press **Tab** to find a note, such as
-a plan that an agent works from. The note opens in this workspace's tabs, beside
-the thread, rendered to read; its wiki links stay in the vault, and `⌘⇧V` edits
-and saves it in place. With spaces, a query matches each of its words, so
-`study plan` finds `study-plan.md`.
+Vault notes need no scope. Type part of a note's name, and up to three notes
+whose names hold each word show at the top, marked **Note** with the vault's
+name and folder; `↵` opens one. A vault is also a scope: its chip beside
+**Code**, **Tests**, and **Docs**, or its name and **Tab**, searches only its
+notes, such as a plan that an agent works from. The note opens in this
+workspace's tabs, beside the thread, rendered to read; its wiki links stay in
+the vault, and `⌘⇧V` edits and saves it in place. With spaces, a query matches
+each of its words, so `study plan` finds `study-plan.md`.
 
 Combine **Code**, **Tests**, and **Docs**, or type filters such as
 `type:tests ext:java,kt`. Values in one filter match any; the two filters must

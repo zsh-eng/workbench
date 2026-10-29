@@ -1691,6 +1691,37 @@ describe("graphical review", () => {
       ]);
     await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
   });
+  test("Find file shows a vault's notes without the Tab step, and the vault's chip searches only it", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({ vault: true });
+    const open = () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+      );
+    open();
+    const find = page.getByRole("combobox", { name: "Find file", exact: true });
+    await expect
+      .element(find)
+      .toHaveAttribute("placeholder", expect.stringMatching(/^Find a file or a note/));
+    // A note whose name holds the words is an option, with its vault's name.
+    await find.fill("plan");
+    const note = page.getByRole("option", { name: /Plan\.md/ });
+    await expect.poll(() => note.element().textContent).toBe("Plan.mdnotes · ProjectsNote");
+    await expect.element(page.getByText("0 files · 1 note")).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    const reading = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();
+    await expect.element(page.getByText("notes · Projects/Plan.md", { exact: true })).toBeVisible();
+
+    // The chip under the field scopes the search to the vault.
+    open();
+    await page.getByRole("button", { name: "notes", exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Back to current repository" }))
+      .toHaveTextContent("notes");
+    await find.fill("target");
+    await expect.element(page.getByRole("option", { name: /Target\.md/ })).toBeVisible();
+  });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);
     await mountApp();
