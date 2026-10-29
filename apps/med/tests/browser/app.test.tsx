@@ -2956,7 +2956,7 @@ describe("review guide", () => {
     // Hidden in the Guide, hidden beside the diff: one choice for the place.
     // (The Changed files pane would list the files instead of the rail.)
     await page.getByRole("tab", { name: "Changes" }).click();
-    await page.getByRole("button", { name: "Close changed files" }).click();
+    await page.getByRole("button", { name: "Hide changed files" }).click();
     const files = page.getByRole("navigation", { name: "Files and commits" });
     await expect
       .element(page.getByRole("button", { name: "Show files and commits" }))
@@ -3149,7 +3149,7 @@ describe("review brief", () => {
     // The Changed files pane holds the tree; without it, the rail does.
     const rail = page.getByRole("navigation", { name: "Files and commits" });
     await expect.element(rail).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Close changed files" }).click();
+    await page.getByRole("button", { name: "Hide changed files" }).click();
     await expect.element(rail).toBeVisible();
     await expect.element(rail.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
     const list = rail.getByRole("list", { name: "Commits" });

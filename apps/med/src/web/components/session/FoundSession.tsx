@@ -26,6 +26,7 @@ export function FoundSessionPane({
   onOpenPath,
   fileRefs,
   onClose,
+  onSideRoom,
   openAgent,
 }: {
   session: WorkspaceSession;
@@ -38,6 +39,8 @@ export function FoundSessionPane({
   onOpenPath(path: string, line?: number): void;
   fileRefs?: FileRefs;
   onClose(): void;
+  /** Whether the pane has room for the side panel (SessionPanel). */
+  onSideRoom?(room: boolean): void;
 }) {
   const workspace = useWorkspace();
   const entry = useWorkspaceEntry();
@@ -67,6 +70,7 @@ export function FoundSessionPane({
       onOpenPath={onOpenPath}
       {...(fileRefs && { fileRefs })}
       onClose={onClose}
+      {...(onSideRoom && { onSideRoom })}
       {...(openAgent && { openAgent })}
       footer={
         <FoundSessionBar

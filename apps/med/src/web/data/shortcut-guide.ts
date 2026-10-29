@@ -215,6 +215,12 @@ export const guideContexts: GuideContext[] = [
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
+          {
+            label: "Toggle the changed files",
+            keys: mac ? ["Mod+Ctrl+B"] : [],
+            note: "The Changes pane, with its tree and filter",
+            command: "changed-files",
+          },
           { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
           {
             label: "Toggle the guide, or the files and commits",
@@ -226,6 +232,7 @@ export const guideContexts: GuideContext[] = [
             label: "Toggle the session's side panel",
             keys: ["Mod+Alt+Shift+B"],
             note: "In a session pane with room beside its thread",
+            command: "session-side-panel",
           },
           {
             label: "Zen mode",

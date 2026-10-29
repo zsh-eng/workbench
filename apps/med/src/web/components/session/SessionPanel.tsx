@@ -358,6 +358,7 @@ export function SessionPanel({
   onOpenPath,
   fileRefs,
   onClose,
+  onSideRoom,
   fetcher,
   inbox,
   attachments = [],
@@ -423,6 +424,8 @@ export function SessionPanel({
   /** The checkout's files: paths in prompts and replies that name one link to it. */
   fileRefs?: FileRefs;
   onClose(): void;
+  /** Whether the pane has room for the side panel, for its ⌘K command. */
+  onSideRoom?(room: boolean): void;
 }) {
   const latest = sessions.at(-1)!.id;
   // A new session, such as one just started, comes to the front.
@@ -777,6 +780,11 @@ export function SessionPanel({
   const zen = useContext(ZenContext);
   const quiet = useQuietChrome();
   const side = roomy && !zen && sideChoice === "auto";
+  useEffect(() => {
+    if (!onSideRoom) return;
+    onSideRoom(roomy);
+    return () => onSideRoom(false);
+  }, [roomy, onSideRoom]);
   const model =
     shownContext?.model ??
     ownedState?.settings.find((setting) => setting.category === "model")?.value;
