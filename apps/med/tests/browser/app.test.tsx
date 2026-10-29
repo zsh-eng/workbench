@@ -2784,6 +2784,44 @@ describe("review guide", () => {
       await expect.poll(() => part.scrollWidth - part.clientWidth).toBeLessThanOrEqual(0);
   });
 
+  test("a guide summary's proof shows once, in the Proof part, and the rest of the summary stays", async () => {
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: [
+          "Renames the export, so the CSV keeps its old column names.",
+          "",
+          "## Proof",
+          "",
+          "| Check | Result |",
+          "| --- | --- |",
+          "| `bun run test` | 3 passed |",
+          "",
+          "### Not covered",
+          "",
+          "- The import.",
+          "",
+          "## Read first",
+          "",
+          "The rename in alpha.ts; beta.ts follows it.",
+        ].join("\n"),
+        segments: [{ title: "Rename alpha", files: ["src/alpha.ts"] }],
+      },
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    const proof = overview.getByRole("region", { name: "Proof" });
+    await expect.element(proof.getByRole("table")).toBeVisible();
+    await expect.element(proof.getByText("The import.")).toBeVisible();
+    await expect
+      .element(overview.getByText("The rename in alpha.ts; beta.ts follows it."))
+      .toBeVisible();
+    await expect.element(overview.getByText(/^Renames the export/)).toBeVisible();
+    // One table, one list of misses, and no Proof heading in the summary.
+    expect(overview.getByRole("table").elements()).toHaveLength(1);
+    expect(overview.getByText("The import.").elements()).toHaveLength(1);
+    expect(overview.getByRole("heading", { name: "Proof", level: 2 }).elements()).toHaveLength(0);
+  });
+
   test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
     const guide: ReviewGuide = { segments: [{ title: "Rename", files: ["src/**"] }] };
     const overview = page.getByRole("region", { name: "Guide overview" });

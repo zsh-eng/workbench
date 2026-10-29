@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readReviewOutput } from "../../src/shared/review-output";
+import { readReviewOutput, withoutProof } from "../../src/shared/review-output";
 
 // The reader takes review output in the shapes that real tools write. These
 // are parser edge cases, kept as a focused test (docs/TESTING.md): the browser
@@ -235,6 +235,32 @@ describe("review output", () => {
       notes: [],
       tables: ["| Check | Result |\n| --- | --- |\n| Build | passed |"],
     });
+  });
+
+  it("takes the proof and its misses out of a text, as the reader finds them, and keeps the rest", () => {
+    const text = [
+      "Renames the export.",
+      "",
+      "## Proof",
+      "",
+      "```sh",
+      "$ bun run test",
+      "## not a heading in a fence",
+      "```",
+      "",
+      "**Not covered:**",
+      "- The import.",
+      "",
+      "## Read first",
+      "",
+      "The rename in alpha.ts.",
+    ].join("\n");
+    expect(withoutProof(text)).toBe(
+      ["Renames the export.", "", "## Read first", "", "The rename in alpha.ts."].join("\n"),
+    );
+    expect(withoutProof("No proof here.\n\n## Why\n\nBecause.")).toBe(
+      "No proof here.\n\n## Why\n\nBecause.",
+    );
   });
 
   it("finds nothing in prose without its parts", () => {

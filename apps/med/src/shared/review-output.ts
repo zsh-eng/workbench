@@ -534,6 +534,29 @@ function readOne(text: string): ReviewOutput {
   return output;
 }
 
+/**
+ * The text without the sections that the Guide's Proof part shows: its proof
+ * and what the checks miss, found as readReviewOutput finds them. A guide
+ * summary that holds its proof then shows it once, in the Proof part.
+ */
+export function withoutProof(text: string): string {
+  const kept: string[] = [];
+  let fence = false;
+  let proof = false;
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) fence = !fence;
+    else if (!fence) {
+      const label = headingOf(line);
+      if (label !== undefined) {
+        const { section } = sectionOf(label);
+        proof = section === "proof" || section === "misses";
+      }
+    }
+    if (!proof) kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
 /** Reads review output from several texts, such as a brief, its pins, and a guide summary. */
 export function readReviewOutput(texts: readonly (string | undefined)[]): ReviewOutput {
   const all: ReviewOutput = { findings: [], generated: [] };

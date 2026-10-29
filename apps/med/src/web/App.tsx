@@ -197,7 +197,7 @@ import {
 } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
-import { isOpenFinding, readReviewOutput } from "../shared/review-output";
+import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
 import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
@@ -5158,6 +5158,15 @@ export function App({
         }
       : undefined;
   const overviewProof = reviewOutput.proof ?? turnProof;
+  // A summary's proof shows once, in the Proof part above it, which counts
+  // its checks and marks a failed one. A guide from an earlier version keeps
+  // its proof: this version's Proof part does not show it.
+  const guideSummary = resolvedGuide?.summary;
+  const overviewSummary = !guideSummary
+    ? reviewOutput.explainer
+    : ownGuideSummary === guideSummary && reviewOutput.proof
+      ? withoutProof(guideSummary) || reviewOutput.explainer
+      : guideSummary;
   // Practices that would help this version, offered one at a time; each can
   // be dismissed for good (docs/PRACTICES.md#d-suggestion-pack).
   const overviewOffers: Offer[] = [];
@@ -6238,7 +6247,7 @@ export function App({
                       "Review"
                     }
                     meta={guideMeta}
-                    summary={resolvedGuide?.summary ?? reviewOutput.explainer}
+                    summary={overviewSummary}
                     from={
                       guideSource &&
                       shownIteration !== undefined &&
