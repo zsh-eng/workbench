@@ -31,9 +31,10 @@ validates domain payloads. Deck membership is a last-write-wins boolean.
 The app sync engine retries in the background every 30 seconds while online,
 and on connectivity or visibility changes. Transient failures do not show a
 retry banner. A new device pulls `operations` first (local-sync's priority
-restore): its pages wait with a progress message until those records are
-stored, then open while the review history restores, except Stats. See
-`docs/FIRST_REVIEW.md`. Session expiry still asks the user to sign in.
+restore): its pages keep their frames until those records are stored, then
+open while the review history restores, except Stats. An island that grows
+out of the Spaced icon says the stage. Every page, tab and offline start
+takes the phase from what the device saved. See `docs/FIRST_REVIEW.md`. Session expiry still asks the user to sign in.
 
 Network requests hold only the cross-tab network-sync lock. Local writes and
 incoming transactions use a separate short lock. The app's sync state bridge

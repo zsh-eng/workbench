@@ -75,7 +75,7 @@ Sync is not a job that you start, so it shows only its exceptions:
 | Sync state                         | What you see                                                                                  |
 | ---------------------------------- | --------------------------------------------------------------------------------------------- |
 | Synced, syncing                    | Nothing.                                                                                      |
-| Restoring on a new device          | The Library arrives book by book: "Restoring your library · 12 books".                        |
+| Restoring on a new device          | The island grows out of the app's mark and says the stage; the pages keep their frames.       |
 | Offline, changes waiting           | One tick on each changed thing, as Telegram's sent tick. The second tick draws when it syncs. |
 | Signed out or ended, changes saved | "3 changes are only on this device. Sign in to keep them."                                    |
 | Failing twice or more              | The account menu's existing words ("Couldn't reach the server · Retrying in 8 s").            |
@@ -175,6 +175,11 @@ pill above the tab bar that a review hides. "Updated" is a toast.
   shows only while work you asked for runs, or while something needs you.
 - **The update as its own moment** is right: a reload is a product event.
   "What's new" is not needed for a one-person app; "Updated" is the closure.
+- **An island for the restore** is the exception: the one sync state you
+  wait for. It grows out of the app's own mark, says the stage and its
+  share when known ("Restoring history 42%"), confirms "Restored" and folds
+  back (`./island`; Spaced's apps/spaced2/docs/FIRST_REVIEW.md, "The
+  restore island"). Reader and Arctic have mock-ups, not the island.
 - **A Dynamic Island for every sync** is the boring version. A spinner on
   each 30 s sync is noise, and noise trains people to ignore the one state
   that matters (your changes are only here).

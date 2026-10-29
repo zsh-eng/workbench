@@ -58,6 +58,8 @@ export function ActivityIsland({
   // back to the mark's width.
   const rest = useRef<HTMLSpanElement>(null);
   const words = useRef<HTMLSpanElement>(null);
+  // The words mount when the island opens: measure them then.
+  const resting = phase === "rest";
   const [widths, setWidths] = useState({ rest: 0, words: 0 });
   const [grown, setGrown] = useState(false);
   useLayoutEffect(() => {
@@ -71,7 +73,7 @@ export function ActivityIsland({
     if (rest.current) observer.observe(rest.current);
     if (words.current) observer.observe(words.current);
     return () => observer.disconnect();
-  }, [phase === "rest"]);
+  }, [resting]);
   // One frame at the mark's width first, so the growth has a start.
   useEffect(() => {
     if (phase !== "open") {

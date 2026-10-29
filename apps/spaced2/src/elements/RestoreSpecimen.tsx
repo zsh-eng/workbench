@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ReviewScreen } from "./ReviewSpecimen";
 import type { FrameSpecimenProps } from "./selection";
 
-type Sample = Pick<Status, "restoring" | "cards" | "fraction">;
+type Sample = Pick<Status, "restoring" | "fraction">;
 
 /** A sync status that never changes, so nothing syncs. */
 function sampleSource(sample: Sample): SyncStatusSource {
@@ -25,9 +25,9 @@ function sampleSource(sample: Sample): SyncStatusSource {
   return { subscribe: () => () => {}, getSnapshot: () => snapshot };
 }
 
-const CARDS: Sample = { restoring: "cards", cards: 1_204, fraction: null };
-const HISTORY: Sample = { restoring: "history", cards: null, fraction: 0.42 };
-const RESTORED: Sample = { restoring: false, cards: null, fraction: null };
+const CARDS: Sample = { restoring: "cards", fraction: null };
+const HISTORY: Sample = { restoring: "history", fraction: 0.42 };
+const RESTORED: Sample = { restoring: false, fraction: null };
 
 /**
  * The first restore on a phone, in the island that the app ships ("cards",

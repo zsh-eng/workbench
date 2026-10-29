@@ -47,22 +47,20 @@ const SYNC_STATUS_KEY = "spaced-sync-status" + SHARED_STORAGE_SUFFIX;
 export type Restoring = "cards" | "history" | false;
 /**
  * The snapshot that SyncBoundary, the restore island and the debug Sync
- * page read. While restoring: `cards`, how many live cards memory holds so
- * far (the cards' total is not known); `fraction`, the full pull's share,
- * from its sequence (null until its first page commits).
+ * page read. While restoring, `fraction` is the full pull's share, from its
+ * sequence (null until its first page commits). The cards' share is not
+ * known: the priority pull's cursor skips the other records' sequences.
  */
 export type Status = {
   syncing: boolean;
   error: string | null;
   restoring: Restoring;
-  cards: number | null;
   fraction: number | null;
 };
 let snapshot: Status = {
   syncing: false,
   error: null,
   restoring: false,
-  cards: null,
   fraction: null,
 };
 /**
@@ -70,7 +68,6 @@ let snapshot: Status = {
  * attempts. A page starts from what the device saved (`startingPhase`).
  */
 let restoring: Restoring = false;
-let restoredCards: number | null = null;
 let restoreFraction: number | null = null;
 /**
  * The device whose cards a priority pull restored, so that a reload or
@@ -126,7 +123,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           MemoryDB._db.undoGradeStack = [];
           await reloadMemory();
           restoring = false;
-          restoredCards = restoreFraction = null;
+          restoreFraction = null;
         }
         await db.metadataKv.put({ key: "owner", value: userId });
         const state = ensureSyncState();
@@ -215,7 +212,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
       } finally {
         if (stateStore.read()?.bootstrapped) {
           restoring = false;
-          restoredCards = restoreFraction = null;
+          restoreFraction = null;
         }
         refresh();
       }
@@ -239,12 +236,7 @@ function showInMemory(
       handleClientOperation(record.row as StoredOperation);
       changed = true;
     }
-  if (!changed) return;
-  if (restoring !== "cards") return MemoryDB.notify();
-  restoredCards = Object.values(MemoryDB._db.cards).filter(
-    (card) => card && !card.deleted,
-  ).length;
-  refresh();
+  if (changed && restoring !== "cards") MemoryDB.notify();
 }
 
 /** The priority pull has stored every card: Review can open. */
@@ -259,6 +251,13 @@ function cardsRestored(deviceId: string) {
   MemoryDB.notify();
   broadcastRecordsChanged();
   refresh();
+  // The same marker in IndexedDB, as the first build kept it. Without this
+  // one small write between the two pulls, the rest of a large restore
+  // took 8 s longer in the lab (docs/FIRST_REVIEW.md, "The restore
+  // island"); why is not known. Nothing reads it.
+  void withSyncLock(() =>
+    db.metadataKv.put({ key: "cardsRestored", value: deviceId }),
+  ).catch(() => {});
 }
 
 /** The first download's phase, as this device saved it. */
@@ -334,14 +333,12 @@ function refresh() {
     syncing: status.running,
     error: errorOf(status),
     restoring,
-    cards: restoring ? restoredCards : null,
     fraction: restoring ? restoreFraction : null,
   };
   if (
     next.syncing === snapshot.syncing &&
     next.error === snapshot.error &&
     next.restoring === snapshot.restoring &&
-    next.cards === snapshot.cards &&
     next.fraction === snapshot.fraction
   )
     return;

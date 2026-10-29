@@ -15,11 +15,11 @@ const STATUS_WORDS = {
  * `ended` is true once this page saw a restore finish.
  */
 export function restoreIslandContent(
-  status: Pick<Status, "restoring" | "cards" | "fraction">,
+  status: Pick<Status, "restoring" | "fraction">,
   connection: RestoreConnection,
   ended: boolean,
 ): { content: IslandContent | null; status: string } {
-  const { restoring, cards, fraction } = status;
+  const { restoring, fraction } = status;
   if (!restoring)
     return ended
       ? { content: { mark: "done", label: "Restored" }, status: "Restored" }
@@ -41,7 +41,6 @@ export function restoreIslandContent(
         mark: "progress",
         fraction,
         label: "Restoring cards",
-        detail: cards ? cards.toLocaleString() : undefined,
       },
       status: words,
     };
