@@ -2,15 +2,10 @@ import { matchPath, useLocation } from "react-router";
 import { useRef, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIsland } from "@workbench/background-activity/island";
 import { useSyncStatus } from "@zsh-eng/local-sync/react";
-import { isSyncBlocked } from "@zsh-eng/local-sync";
 import SyncEngine, { spacedSync } from "@/lib/sync/engine";
-import {
-  restoreIslandContent,
-  type RestoreConnection,
-} from "@/lib/sync/restore-island";
+import { restoreStage } from "@/lib/sync/restore-island";
+import { restoreIsland } from "@workbench/background-activity";
 import { cn } from "@/lib/utils";
-
-export type { RestoreConnection };
 
 /** The sync state that the boundary and the island read. The Elements page gives a sample. */
 export type SyncStatusSource = Pick<
@@ -77,41 +72,40 @@ export function RestoreFrame({ page }: { page: "review" | "stats" | "list" }) {
   );
 }
 
+/** The parts of sync's status that the island reads. */
+export type RestoreSync = Parameters<typeof restoreIsland>[0];
+
 /**
- * The restore, as an island that grows out of `children` (the Spaced icon
- * and its due count) and folds back into it when the restore is done.
+ * The restore, as the island at the top centre, which folds into
+ * `children` (the Spaced icon and its due count) when the restore is done.
  */
 export function RestoreIsland({
   children,
   className,
   source = SyncEngine,
-  connection: given,
+  sync: given,
 }: {
   children: ReactNode;
   className?: string;
   source?: SyncStatusSource;
-  connection?: RestoreConnection;
+  sync?: RestoreSync;
 }) {
   const status = useSyncExternalStore(source.subscribe, source.getSnapshot);
-  const live = useSyncStatus(
+  const connection = useSyncStatus(spacedSync, (sync) => sync.connection);
+  const auth = useSyncStatus(spacedSync, (sync) => sync.auth.status);
+  const failure = useSyncStatus(
     spacedSync,
-    (sync): RestoreConnection =>
-      isSyncBlocked(sync.failure)
-        ? sync.failure?.kind === "upgrade-required"
-          ? "update"
-          : "stopped"
-        : sync.connection === "offline"
-          ? "offline"
-          : sync.auth.status === "expired"
-            ? "signed-out"
-            : "online",
+    (sync) => sync.failure?.kind ?? null,
   );
-  const connection = given ?? live;
   const seen = useRef(false);
   if (status.restoring) seen.current = true;
-  const { content, status: words } = restoreIslandContent(
-    status,
-    connection,
+  const { content, status: words } = restoreIsland(
+    given ?? {
+      connection,
+      auth: { status: auth },
+      failure: failure ? { kind: failure } : null,
+    },
+    restoreStage(status),
     seen.current,
   );
   return (

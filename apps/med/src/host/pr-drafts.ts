@@ -213,9 +213,10 @@ export function createPrDrafts(options: {
           );
         // A pull request that gh finds open already, as when Create ran
         // while the window closed, is the one this draft opened.
-        const open = error instanceof ProcessFailure && /already exists/.test(error.stderr ?? "")
-          ? pullRequestUrlSchema.safeParse(error.stderr.match(/https:\/\/\S+\/pull\/\d+/)?.[0])
-          : undefined;
+        const open =
+          error instanceof ProcessFailure && /already exists/.test(error.stderr ?? "")
+            ? pullRequestUrlSchema.safeParse(error.stderr.match(/https:\/\/\S+\/pull\/\d+/)?.[0])
+            : undefined;
         if (open?.success) return { url: open.data, left };
         if (error instanceof ProcessFailure)
           throw new HostError(

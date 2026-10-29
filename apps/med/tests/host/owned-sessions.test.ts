@@ -8,6 +8,7 @@ import {
   readdir,
   readFile,
   realpath,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +22,9 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
+import type { RunningSession } from "../../src/shared/found-sessions";
+import { claudeProjectFolder } from "../../src/host/found-sessions";
+import { longProcess, processStart, writeProcessRecord } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
 /** A one-pixel PNG, in base64. */
@@ -48,7 +52,7 @@ const alive = (pid: number) => {
 const agentScript = (name: string) =>
   fileURLToPath(new URL(`../fixtures/agents/${name}`, import.meta.url));
 
-async function fixture({ key }: { key?: string } = {}) {
+async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med owned sessions ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -65,6 +69,7 @@ async function fixture({ key }: { key?: string } = {}) {
     stateDir,
     port: 0,
     heldCheckMs: 100,
+    agy,
     agents: async () => [
       {
         id: "claude",
@@ -81,6 +86,22 @@ async function fixture({ key }: { key?: string } = {}) {
         available: true,
         command: process.execPath,
         args: [agentScript("fake-acp.mjs")],
+      },
+      {
+        id: "codex",
+        name: "Codex",
+        kind: "codex",
+        available: true,
+        command: process.execPath,
+        args: [agentScript("fake-codex-app-server.mjs")],
+      },
+      {
+        id: "agy",
+        name: "Antigravity",
+        kind: "agy",
+        available: true,
+        command: process.execPath,
+        args: [agentScript("fake-agy.mjs")],
       },
       { id: "missing", name: "Missing", kind: "acp", available: false, command: "x", args: [] },
     ],
@@ -131,9 +152,9 @@ async function fixture({ key }: { key?: string } = {}) {
     })
   ).data;
   /** The session's thread, as the browser reads it. */
-  const thread = async (sessionId: string) => {
+  const thread = async (sessionId: string, reviewId = review.id) => {
     const response = await fetch(
-      `http://127.0.0.1:${host.port}/api/reviews/${review.id}/sessions/${sessionId}/events`,
+      `http://127.0.0.1:${host.port}/api/reviews/${reviewId}/sessions/${sessionId}/events`,
       { headers: { authorization: `Bearer ${host.token}` } },
     );
     expect(response.status).toBe(200);
@@ -150,12 +171,17 @@ async function fixture({ key }: { key?: string } = {}) {
       controller.signal,
       4 * 1024 * 1024,
     ).catch(() => {});
-    return () =>
-      events.flatMap((event) =>
-        event.update.sessionUpdate === "agent_message_chunk" && event.update.content.type === "text"
-          ? [event.update.content.text]
-          : [],
-      );
+    // The replies; `events` has every update.
+    return Object.assign(
+      () =>
+        events.flatMap((event) =>
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text"
+            ? [event.update.content.text]
+            : [],
+        ),
+      { events },
+    );
   };
   const start = async (preset: string, choices?: { model?: string; effort?: string }) => {
     const started = await api<{ review: SavedReview; state: OwnedState }>(
@@ -217,10 +243,38 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   vi.stubEnv("CLAUDE_CODE_SIMPLE", "1");
   const { api, review, stateDir, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
+  // Each says what Med can do with it, so the page shows only what works.
   expect(agents.data.agents).toEqual([
-    { id: "claude", name: "Claude Code", kind: "claude", available: true },
-    { id: "fake", name: "Fake ACP", kind: "acp", available: true },
-    { id: "missing", name: "Missing", kind: "acp", available: false },
+    {
+      id: "claude",
+      name: "Claude Code",
+      kind: "claude",
+      available: true,
+      // A queued message joins Claude Code's turn by itself: no Send now.
+      capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
+    },
+    {
+      id: "fake",
+      name: "Fake ACP",
+      kind: "acp",
+      available: true,
+      capabilities: expect.objectContaining({ steer: false, usage: false }),
+    },
+    {
+      id: "codex",
+      name: "Codex",
+      kind: "codex",
+      available: true,
+      capabilities: expect.objectContaining({ steer: true, subagents: true }),
+    },
+    {
+      id: "agy",
+      name: "Antigravity",
+      kind: "agy",
+      available: true,
+      capabilities: expect.objectContaining({ steer: false, approvals: "rules" }),
+    },
+    expect.objectContaining({ id: "missing", available: false }),
   ]);
   expect((await api(`/api/reviews/${review.id}/owned`, { preset: "missing" })).status).toBe(404);
 
@@ -734,10 +788,7 @@ test("Queue keeps a message for the turn's end past a tool step and a host resta
   });
   expect(now.status).toBe(200);
   await vi.waitFor(
-    () =>
-      expect(replies().at(-1)).toBe(
-        "Checked, and read your note: Then update the docs.",
-      ),
+    () => expect(replies().at(-1)).toBe("Checked, and read your note: Then update the docs."),
     { timeout: 8000 },
   );
   expect((await messages()).at(-1)).toMatchObject({ delivery: "delivered" });
@@ -1203,4 +1254,427 @@ test("Claude Code that Med runs streams its reply after it thinks; a turn that a
     { timeout: 5000 },
   );
   expect(lead()!.turn!.endedAt).toBeGreaterThan(lead()!.turn!.startedAt!);
+});
+
+test("Med runs Codex through its app-server: a card asks, Send now steers, a subagent nests, and Stop ends the turn", async () => {
+  // The fake replays a recorded Codex 0.160 session (codex-app-server.jsonl).
+  const { api, review, thread, start } = await fixture();
+  // model/list gives the choices before a thread starts; no turn runs.
+  expect((await api<AgentOptions>("/api/agents/codex/choices")).data).toMatchObject({
+    model: {
+      value: expect.any(String),
+      options: [{ value: "gpt-6-luna" }, { value: "gpt-5.6-terra" }, { value: "gpt-5.6-luna" }],
+    },
+  });
+  const session = await start("codex", { model: "gpt-6-luna" });
+  // Codex names the thread. The review keeps it as a Codex session, whose
+  // rollout the thread reads, as for a session that Med finds.
+  expect(session.id).toBe("01a189a8-50ca-72c2-b4ab-e477ea3036c6");
+  expect(session.review.sessions).toMatchObject([{ agent: "codex", id: session.id }]);
+  const ready = await session.until((state) => state.status === "idle");
+  expect(ready.capabilities).toMatchObject({ steer: true, interrupt: true, approvals: "ask" });
+  expect(ready.settings.map((setting) => [setting.id, setting.value])).toEqual([
+    ["model", "gpt-6-luna"],
+    ["effort", "default"],
+    ["mode", "default"],
+  ]);
+  const replies = await thread(session.id);
+  const send = (text: string) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+    });
+
+  // Codex asks before the command; the card answers it.
+  await send("Run ls -1, then name the files.");
+  const asked = await session.until((state) => !!state.permission);
+  expect(asked.permission).toMatchObject({
+    title: "Codex wants to run a command",
+    detail: expect.stringContaining("ls -1"),
+    options: [{ id: "accept" }, { id: "acceptForSession" }, { id: "decline" }],
+  });
+  await session.act({ action: "permission", id: asked.permission!.id, option: "accept" });
+  // A message queued during the turn waits for its end; Send now steers it
+  // into the turn.
+  const queued = await api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Also end your reply with the word steered.",
+    noteIds: [],
+    afterTurn: true,
+  });
+  expect(queued.data.message).toMatchObject({ delivery: "pending", queued: true, afterTurn: true });
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
+  ).toBe(200);
+  await vi.waitFor(() =>
+    expect(replies()).toEqual([
+      "`ls -1` lists one file: `README.md`.",
+      "`ls -1` lists one file: `README.md`. steered",
+    ]),
+  );
+  const done = await session.until((state) => state.status === "idle");
+  expect(done.context).toEqual({ used: 19028, total: 258400 });
+
+  // The subagent's thread nests in its spawn call.
+  await send("Ask a subagent for the word pong.");
+  await vi.waitFor(() => expect(replies().at(-1)).toBe("pong"), { timeout: 5000 });
+  const spawn = replies.events.find(
+    (event) =>
+      event.update.sessionUpdate === "tool_call" && event.update._meta?.med?.tool === "spawn_agent",
+  );
+  expect(spawn?.update).toMatchObject({ title: "Pong" });
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) =>
+          event.update._meta?.med?.parentToolCallId ===
+            (spawn!.update as { toolCallId: string }).toolCallId &&
+          event.update.sessionUpdate === "agent_message_chunk",
+      ),
+    ).toBe(true),
+  );
+  await session.until((state) => state.status === "idle");
+
+  // Stop interrupts the turn that runs.
+  await send("Run sleep 20, then say done.");
+  await vi.waitFor(() =>
+    expect(replies().at(-1)).toBe("I\u2019ll run `sleep 20` in the shell and let it finish."),
+  );
+  await session.act({ action: "interrupt" });
+  await session.until((state) => state.status === "idle");
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) => event.update.sessionUpdate === "notice" && event.update.title === "Interrupted",
+      ),
+    ).toBe(true),
+  );
+});
+
+test("Med runs agy in stream-json: refused actions say why, queued messages wait for the turn, a subagent nests, and Stop ends the process until the next message resumes it", async () => {
+  // The fake replays a recorded agy 1.4.10 session (agy-stream.jsonl).
+  const { api, home, review, thread, start } = await fixture();
+  const session = await start("agy");
+  expect(session.review.sessions).toMatchObject([
+    { agent: "acp", name: "Antigravity", id: session.id },
+  ]);
+  const ready = await session.until((state) => state.status === "idle");
+  expect(ready.capabilities).toMatchObject({ steer: false, approvals: "rules" });
+  expect(ready.settings.find((setting) => setting.id === "mode")?.value).toBe("accept-edits");
+  const replies = await thread(session.id);
+  const notices = () =>
+    replies.events.flatMap((event) =>
+      event.update.sessionUpdate === "notice" ? [event.update.title] : [],
+    );
+  const send = (text: string) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+    });
+  const runs = async () =>
+    (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { args: string[] });
+
+  // agy cannot ask: what it refused shows as a notice that says what to do.
+  await send("Run ls -1, then name the files.");
+  await vi.waitFor(() =>
+    expect(notices()).toEqual(["Antigravity refused RunCommand: it cannot ask in Med"]),
+  );
+  expect((await runs())[0]!.args).toEqual(
+    expect.arrayContaining(["--input-format", "stream-json", "--mode", "accept-edits", "-p="]),
+  );
+  await session.until((state) => state.status === "idle");
+
+  // A message during the turn waits for it; agy takes no message mid-turn.
+  await send("Start a subagent that says pong.");
+  await session.until((state) => state.status === "working");
+  const queued = await send("After that, also say the word queued.");
+  expect(queued.data.message).toMatchObject({ queued: true, delivery: "pending" });
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
+  ).toBe(409);
+  await vi.waitFor(() => expect(replies()).toContain("queued"), { timeout: 5000 });
+  // The subagent's transcript nests in its call.
+  const call = replies.events.find(
+    (event) =>
+      event.update.sessionUpdate === "tool_call" &&
+      event.update._meta?.med?.tool === "invoke_subagent",
+  );
+  expect(call?.update).toMatchObject({ title: "Echo Responder" });
+  await vi.waitFor(() =>
+    expect(
+      replies.events.some(
+        (event) =>
+          event.update._meta?.med?.parentToolCallId ===
+            (call!.update as { toolCallId: string }).toolCallId &&
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text" &&
+          event.update.content.text === "pong",
+      ),
+    ).toBe(true),
+  );
+
+  // Stop ends agy's process; the next message resumes the conversation.
+  await session.until((state) => state.status === "idle");
+  await send("Run sleep 30, then say done.");
+  await session.until((state) => state.status === "working");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await session.act({ action: "interrupt" });
+  const stopped = await session.until((state) => state.status === "idle");
+  expect(stopped.halt).toBeUndefined();
+  expect(notices()).toContain("Interrupted");
+  await send("Say ok.");
+  await vi.waitFor(async () => expect(await runs()).toHaveLength(2), { timeout: 5000 });
+  expect((await runs())[1]!.args).toEqual(
+    expect.arrayContaining(["--conversation", "1f892c8e-f601-4c2f-b28c-e5f7d7b6e969"]),
+  );
+});
+
+/** A process in `cwd` that holds `paths` open, as Codex and agy hold their
+ * lock files while they run a conversation. */
+async function holdOpen(cwd: string, paths: string[]) {
+  for (const path of paths) {
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(path, "");
+  }
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      "for (const path of process.argv.slice(1)) require('fs').openSync(path, 'r'); setInterval(() => {}, 1000)",
+      ...paths,
+    ],
+    { cwd, stdio: "ignore" },
+  );
+  const exited = once(child, "exit");
+  await once(child, "spawn");
+  return {
+    async end() {
+      child.kill();
+      await exited;
+    },
+  };
+}
+
+test("Running now lists the sessions that run in Med and elsewhere; an agy conversation continues in Med once its process ends, from its history", async () => {
+  const { api, home, repo, review, start, thread } = await fixture();
+  const lines = (entries: object[]) =>
+    entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+  const ends: (() => Promise<void>)[] = [];
+  try {
+    // Claude Code in a terminal.
+    const claude = "5d0c4b6a-1e2f-4a3b-9c8d-7e6f5a4b3c2d";
+    const project = join(home, ".claude", "projects", claudeProjectFolder(repo));
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, `${claude}.jsonl`),
+      lines([
+        {
+          type: "user",
+          cwd: repo,
+          sessionId: claude,
+          uuid: "u1",
+          timestamp: new Date().toISOString(),
+          message: { role: "user", content: "Tidy the duration helpers." },
+        },
+      ]),
+    );
+    const terminal = await longProcess();
+    ends.push(terminal.end);
+    await writeProcessRecord(home, terminal.pid, {
+      pid: terminal.pid,
+      sessionId: claude,
+      cwd: repo,
+      procStart: processStart(terminal.pid),
+      entrypoint: "cli",
+    });
+    // Codex Desktop with threads open: one with a turn in progress lists. A
+    // guardian review does not, nor a thread that it only has loaded: its
+    // last turn ended, or nothing has written to it for minutes.
+    const day = new Date();
+    const sessions = join(
+      home,
+      ".codex",
+      "sessions",
+      String(day.getFullYear()),
+      String(day.getMonth() + 1).padStart(2, "0"),
+      String(day.getDate()).padStart(2, "0"),
+    );
+    await mkdir(sessions, { recursive: true });
+    const codex = "01a189b0-0000-7000-8000-000000000001";
+    const guardian = "01a189b0-0000-7000-8000-000000000002";
+    const loaded = "01a189b0-0000-7000-8000-000000000003";
+    const quiet = "01a189b0-0000-7000-8000-000000000004";
+    const event = (type: string) => ({
+      timestamp: new Date().toISOString(),
+      type: "event_msg",
+      payload: { type },
+    });
+    for (const [id, source, text, turn] of [
+      [codex, "vscode", "Port the parser.", [event("task_started")]],
+      [guardian, { subagent: { other: "guardian" } }, "Review this command.", []],
+      [loaded, "vscode", "Rename the flags.", [event("task_started"), event("task_complete")]],
+      [quiet, "vscode", "Sort the imports.", []],
+    ] as const) {
+      const path = join(sessions, `rollout-2026-10-30T06-00-00-${id}.jsonl`);
+      await writeFile(
+        path,
+        lines([
+          {
+            timestamp: new Date().toISOString(),
+            type: "session_meta",
+            payload: { id, cwd: repo, source },
+          },
+          {
+            timestamp: new Date().toISOString(),
+            type: "response_item",
+            payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+          },
+          ...turn,
+        ]),
+      );
+      if (id === quiet) {
+        const before = new Date(Date.now() - 10 * 60_000);
+        await utimes(path, before, before);
+      }
+    }
+    const locks = join(home, ".codex", "thread-writer-locks");
+    const codexApp = await holdOpen(
+      repo,
+      [codex, guardian, loaded, quiet].map((id) => join(locks, `${id}.lock`)),
+    );
+    ends.push(codexApp.end);
+    // agy in a terminal, in the repository.
+    const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
+    const brain = join(
+      home,
+      ".gemini",
+      "antigravity-cli",
+      "brain",
+      agy,
+      ".system_generated",
+      "logs",
+    );
+    await mkdir(brain, { recursive: true });
+    await writeFile(
+      join(brain, "transcript.jsonl"),
+      lines([
+        {
+          step_index: 0,
+          source: "USER",
+          type: "USER_INPUT",
+          status: "DONE",
+          content: "<USER_REQUEST>\nName the files.\n</USER_REQUEST>",
+        },
+        {
+          step_index: 1,
+          source: "MODEL",
+          type: "PLANNER_RESPONSE",
+          status: "DONE",
+          content: "There is one: summary.ts.",
+        },
+      ]),
+    );
+    const agyTerminal = await holdOpen(repo, [
+      join(home, ".gemini", "antigravity-cli", "presence", `${agy}.lock`),
+    ]);
+    ends.push(agyTerminal.end);
+    // Codex in Med, at work on a turn: its card waits.
+    const owned = await start("codex", { model: "gpt-6-luna" });
+    await owned.until((state) => state.status === "idle");
+    await api(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: owned.id,
+      text: "Run ls -1, then name the files.",
+      noteIds: [],
+    });
+    await owned.until((state) => !!state.permission);
+
+    const running = async () =>
+      (await api<{ sessions: RunningSession[] }>("/api/sessions/running")).data.sessions;
+    expect(await running()).toEqual([
+      {
+        agent: "codex",
+        id: owned.id,
+        title: "Format durations",
+        cwd: repo,
+        place: "med",
+        thread: review.id,
+      },
+      {
+        agent: "claude",
+        id: claude,
+        title: "Tidy the duration helpers",
+        cwd: repo,
+        place: "terminal",
+      },
+      { agent: "codex", id: codex, title: "Port the parser", cwd: repo, place: "other-app" },
+      { agent: "agy", id: agy, title: "Name the files.", cwd: repo, place: "terminal" },
+    ]);
+
+    // Continue in Med makes the agy conversation a thread at once, with its
+    // history. agy has one writer, so a message waits for agy to end there.
+    const adopt = () =>
+      api<{ id: string; created: boolean }>("/api/sessions/adopt", {
+        agent: "agy",
+        session: agy,
+        repo,
+        title: "Name the files",
+      });
+    const adopted = await adopt();
+    expect(adopted.data).toMatchObject({ created: true });
+    const saved = await api<{ sessions: { id: string; agent: string; name?: string }[] }>(
+      `/api/reviews/${adopted.data.id}`,
+    );
+    const [session] = saved.data.sessions;
+    expect(session).toMatchObject({ agent: "acp", name: "Antigravity" });
+    expect((await adopt()).data).toMatchObject({ id: adopted.data.id, created: false });
+    const replies = await thread(session!.id, adopted.data.id);
+    await vi.waitFor(() => expect(replies()).toEqual(["There is one: summary.ts."]));
+    const send = (text: string) =>
+      api<{ message: AgentMessage }>(`/api/reviews/${adopted.data.id}/agent/messages`, {
+        sessionId: session!.id,
+        text,
+        noteIds: [],
+      });
+    expect((await send("Say ok.")).data.message).toMatchObject({
+      delivery: "failed",
+      error: expect.stringContaining("Close it there"),
+    });
+    // Once agy ends there, the next message resumes the conversation in Med.
+    await agyTerminal.end();
+    expect((await send("Say ok.")).data.message).toMatchObject({ delivery: "delivered" });
+    await vi.waitFor(async () => {
+      const runs = (await readFile(join(home, "agy-runs.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => (JSON.parse(line) as { args: string[] }).args);
+      expect(runs.at(-1)).toEqual(expect.arrayContaining(["--conversation", agy]));
+    });
+  } finally {
+    for (const end of ends) await end().catch(() => {});
+  }
+});
+
+test("Antigravity is off until the user turns it on: Med does not offer it, list it as running, or continue its conversations", async () => {
+  const { api, home, repo, review } = await fixture({ agy: false });
+  const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
+  const terminal = await holdOpen(repo, [
+    join(home, ".gemini", "antigravity-cli", "presence", `${agy}.lock`),
+  ]);
+  try {
+    const agents = await api<{ agents: { id: string }[] }>("/api/agents");
+    expect(agents.data.agents.map((agent) => agent.id)).not.toContain("agy");
+    expect((await api(`/api/reviews/${review.id}/owned`, { preset: "agy" })).status).toBe(404);
+    expect((await api("/api/agents/agy/choices")).status).toBe(404);
+    const running = await api<{ sessions: RunningSession[] }>("/api/sessions/running");
+    expect(running.data.sessions.filter((session) => session.agent === "agy")).toEqual([]);
+    const adopt = await api("/api/sessions/adopt", { agent: "agy", session: agy, repo });
+    expect(adopt.status).toBe(404);
+  } finally {
+    await terminal.end();
+  }
 });

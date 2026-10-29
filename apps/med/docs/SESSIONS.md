@@ -84,6 +84,20 @@ program is `rg`, `grep`, `ls`, or `find` are searches; `cat`, `sed`, and
 `head` are reads, so they join an "Explored" group as in Codex. `apply_patch`
 becomes one diff per file. `task_complete` ends the turn.
 
+### Codex subagents
+
+Codex records automatic threads in rollouts of their own, with
+`session_meta.source.subagent`. A guardian review (`{ other: "guardian" }`)
+never lists, in found sessions or session search; `med thread adopt` with its
+ID still reaches it. A subagent (`thread_spawn`, with `parent_thread_id`)
+shows in its parent's thread, as Claude Code's do: `spawn_agent` is a call
+named after the task, `wait_agent` and `close_agent` are calls of their own,
+and the child's rollout nests in the spawn call. Its `SubAgentActivity` event
+links the call to the child's thread, and its `FINAL_ANSWER` message is the
+call's result. A child's rollout starts with a copy of the parent's history,
+which the reader skips. The thread follows a child's rollout while it works,
+and spend counts it.
+
 Codex Desktop runs its tools from short JavaScript programs (an `exec` call)
 that call `tools.exec_command`, `tools.apply_patch`, and MCP tools. The reader
 takes the commands and patches from the program's string literals. A program
@@ -182,10 +196,12 @@ it stays a tab after its session leaves the 7-day window.
   reads the day folders of the window. Every 60 seconds, Med lists all day
   folders, so a session that started earlier and runs again shows within a
   minute. Codex's archived sessions do not show.
-- A session that a saved review names shows only as that thread. Med runs
-  Codex through ACP under its own session ID, and Codex writes a rollout with
-  Codex's thread ID. Med keeps that ID with the session (`owned-sessions.json`),
-  so the rollout does not show again as a found thread.
+- A session that a saved review names shows only as that thread. Codex
+  threads that Med runs have Codex's thread ID, so their rollouts are that
+  thread's. Med keeps an agy conversation's ID with its session
+  (`owned-sessions.json`) in the same way.
+- Codex's guardian reviews and subagents do not show
+  ([Codex subagents](#codex-subagents)).
 - A fork that answers a question about lines (**Ask**) never shows. Med keeps
   its ID in `question-forks.json`, and found sessions and session search leave
   it out ([questions](../ARCHITECTURE.md#saved-reviews-and-agent-sessions)).
@@ -450,8 +466,8 @@ ACP is not a file format. A client, such as an editor, starts the agent as a
 child process and talks JSON-RPC over its stdin and stdout: `initialize`,
 `session/new`, then `session/prompt`. The agent answers with `session/update`
 notifications while it works, and asks `session/request_permission` before a
-tool runs. Claude Code and Codex speak ACP through adapters
-(`claude-agent-acp` and `codex-acp`).
+tool runs. Med runs Claude Code through `stream-json` and Codex through its
+app-server, not through ACP adapters.
 
 Med reads the transcripts of agents that Claude Desktop, a terminal, or Codex
 runs. For those, two things differ from a real ACP connection:
@@ -488,9 +504,14 @@ file, so the next call reads only the new lines.
   across a fork and its original. Each request is priced at list price from
   `src/shared/model-prices.json` (source URL and read date inside): input,
   output, 5-minute and 1-hour cache writes, cache reads, web searches, fast
-  mode, US-only inference, and Haiku 5.5's long-context rate. A model that the
-  table lacks shows its tokens and no price; Codex's rollouts have totals and
-  no price. ACP agents' logs have no token counts and are listed as not
+  mode, US-only inference, and Haiku 5.5's long-context rate. GPT models have
+  OpenAI's standard prices from the same file (URL and read date in its
+  `openai` entry), with the long-context rate above 272K input tokens. Codex
+  writes a `token_usage_record` for each response, priced on its own, and
+  older rollouts a running total (`token_count`), priced by its growth; a
+  subagent's rollout counts too. Codex's cache writes are priced at the
+  30-minute rate. A model that the table lacks shows its tokens and no price.
+  ACP agents' and agy's logs have no token counts and are listed as not
   available. The figure is an estimate: Claude Code also makes small requests
   that the transcript leaves out (titles, suggestions), so `/usage` reads a
   few percent higher.

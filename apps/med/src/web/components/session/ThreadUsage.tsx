@@ -214,6 +214,20 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
           >
             Anthropic's pricing page
           </a>
+          {usage.prices.openai && (
+            <>
+              {" "}
+              and {usage.prices.openai.readAt} from{" "}
+              <a
+                href={usage.prices.openai.source}
+                target="_blank"
+                rel="noreferrer"
+                {...stylex.props(styles.link)}
+              >
+                OpenAI's
+              </a>
+            </>
+          )}
           .
         </p>
       )}

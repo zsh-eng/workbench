@@ -80,6 +80,7 @@ import {
   ON_DEVICE_FILTER,
   useOnDeviceFilter,
 } from "@/features/background-activity/LibraryActivity";
+import { useRestoreUnfinished } from "@/features/background-activity/LibraryRestoreIsland";
 
 // A new filter shows its books at once: the old list goes without a fade, so
 // the switch does not wait for it.
@@ -353,12 +354,16 @@ export function Library() {
   const noBooks =
     data !== undefined && data.books.length === 0 && arriving === 0;
   // A new device's restore fills the library, so until its books arrive
-  // the library is not empty and asks for no files.
-  const libraryEmpty = noBooks && !restoring;
+  // the library is not empty and asks for no files: also after a reload or
+  // an offline start that left the restore unfinished.
+  const unfinished = useRestoreUnfinished();
+  const libraryEmpty = noBooks && !unfinished;
   const nothingFound = terms !== "" && found.length === 0;
   const showShelf = reading.length > 0;
+  // A restore shows the Library's frame from the start: the filter row,
+  // with the glyph that the island folds into on a phone, and quiet covers.
   const showRest =
-    !noBooks &&
+    (!noBooks || unfinished) &&
     !nothingFound &&
     (!terms || shown.length > 0 || filter !== "all");
 
@@ -505,7 +510,9 @@ export function Library() {
         placeholder="Title or author"
         count={`${found.length} of ${data?.books.length ?? 0}`}
         onSubmit={openFirstMatch}
-        status={<LibraryActivity place="header" />}
+        status={
+          <LibraryActivity place="header" books={data?.books.length ?? 0} />
+        }
         actions={
           <div className="flex items-center gap-0.5 max-md:hidden">
             {designIdeas}
@@ -534,15 +541,6 @@ export function Library() {
               Choose EPUB files
             </Button>
           </div>
-        )}
-
-        {noBooks && restoring && (
-          <p
-            role="status"
-            className="py-24 text-center text-[14px] text-muted-foreground md:py-32"
-          >
-            Restoring your library…
-          </p>
         )}
 
         {nothingFound && (
@@ -624,7 +622,7 @@ export function Library() {
               {/* The glyph goes first: when it comes or goes, the buttons
                   after it keep their places. */}
               <div className="flex shrink-0 items-center md:hidden">
-                <LibraryActivity place="row" />
+                <LibraryActivity place="row" books={data?.books.length ?? 0} />
                 {designIdeas}
                 {addBooks(true)}
                 {viewMenu}
@@ -637,7 +635,9 @@ export function Library() {
                 className="mt-6"
                 {...FADE}
               >
-                {gridItems.length === 0 ? (
+                {gridItems.length === 0 && unfinished && !terms ? (
+                  <RestoreCovers />
+                ) : gridItems.length === 0 ? (
                   <p className="py-20 text-center text-[14px] text-muted-foreground">
                     {terms
                       ? "No books here match."
@@ -698,5 +698,28 @@ export function Library() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * A new device's Library before its books arrive: quiet covers in the
+ * grid's shape, still, so nothing moves when the books replace them. The
+ * restore island says what is happening.
+ */
+function RestoreCovers() {
+  return (
+    <ul
+      aria-busy="true"
+      data-restore-frame="covers"
+      className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 md:grid-cols-[repeat(auto-fill,minmax(128px,1fr))] md:gap-x-8"
+    >
+      {Array.from({ length: 6 }, (_, index) => (
+        <li
+          key={index}
+          aria-hidden="true"
+          className="aspect-[2/3] rounded-sm bg-muted"
+        />
+      ))}
+    </ul>
   );
 }

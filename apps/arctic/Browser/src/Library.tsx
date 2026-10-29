@@ -58,6 +58,7 @@ import { useCompact, useWide } from "./surface";
 import { idlePrefetchable, isCover, prefetch } from "./text";
 import { useProgress } from "./position";
 import { AccountMenu, CardMenu, CardMenuButton } from "./ui";
+import { RestoreIsland } from "./RestoreIsland";
 
 export function Library({ folder }: { folder: Folder }) {
   const articles = useArticles();
@@ -166,14 +167,19 @@ export function Library({ folder }: { folder: Folder }) {
     return result;
   }, [articles]);
 
-  const count = (
+  const shelfCount = (
     <span className="shelf-count">
-      {waiting ? (
-        <WaitingText count={articles.length} />
-      ) : (
-        `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`
-      )}
+      {waiting
+        ? "\u00a0"
+        : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
     </span>
+  );
+  // A new device's restore floats at the top centre and, once the links
+  // are in, folds by the count, or a phone's account button.
+  const count = compact ? (
+    shelfCount
+  ) : (
+    <RestoreIsland count={articles.length}>{shelfCount}</RestoreIsland>
   );
   const layoutToggle = (
     <Choice
@@ -237,7 +243,7 @@ export function Library({ folder }: { folder: Folder }) {
     [layout, visible, rendered, columns, deferredQuery, reserved],
   );
   const list = waiting ? (
-    <Waiting layout={layout} count={articles.length} />
+    <Waiting layout={layout} />
   ) : visible.length > 0 ? (
     <main className="grid" data-layout={layout} ref={grid} {...intent}>
       {layout === "magazine"
@@ -364,6 +370,7 @@ export function Library({ folder }: { folder: Folder }) {
     <>
       {compact ? (
         <PhoneStrip
+          links={articles.length}
           folder={folder}
           query={query}
           onQuery={setQuery}
@@ -421,27 +428,15 @@ export function Library({ folder }: { folder: Folder }) {
 
 const NO_ARTICLES: Article[] = [];
 
-/** What a new device's library is waiting for: its links, or a connection. */
-function WaitingText({ count }: { count: number }) {
-  const syncing = useSyncing();
-  const status = useStatusText();
-  if (!syncing) return status.label;
-  return count > 0
-    ? `Getting your library… ${count.toLocaleString()} ${count === 1 ? "link" : "links"}`
-    : "Getting your library…";
-}
-
 /**
  * A new device's library before its links arrive: quiet cards in the
  * layout's shape, so the page keeps its frame and nothing moves when the
- * real cards replace them. Nothing animates; the note says what happens.
+ * real cards replace them. Nothing animates here; the restore island says
+ * what happens (RestoreIsland.tsx).
  */
-function Waiting({ layout, count }: { layout: string; count: number }) {
+function Waiting({ layout }: { layout: string }) {
   return (
     <main className="grid waiting" data-layout={layout} aria-busy="true">
-      <p className="waiting-note" role="status">
-        <WaitingText count={count} />
-      </p>
       {Array.from({ length: 12 }, (_, index) => (
         <div key={index} className="card" data-image="" aria-hidden>
           <span className="cover" />
@@ -549,11 +544,14 @@ function useSearchKey(input: RefObject<HTMLInputElement | null>) {
  * line into the field, with Cancel.
  */
 function PhoneStrip({
+  links,
   folder,
   query,
   onQuery,
   input,
 }: {
+  /** The links on this device, for the restore island's count. */
+  links: number;
   folder: Folder;
   query: string;
   onQuery: (value: string) => void;
@@ -593,7 +591,9 @@ function PhoneStrip({
           </Link>
         ))}
       </nav>
-      <AccountMenu />
+      <RestoreIsland count={links}>
+        <AccountMenu />
+      </RestoreIsland>
       <label className="strip-search">
         <Search size={16} />
         <span className="visually-hidden">Search</span>

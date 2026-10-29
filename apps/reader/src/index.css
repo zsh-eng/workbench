@@ -464,3 +464,49 @@
     transform: none !important;
   }
 }
+
+/* The restore island (packages/background-activity/src/island.css), from
+   each theme's tokens, at 4.5:1 or more for its words in every theme. Light
+   themes: the foreground (text 19.8:1 light, 18.6:1 Flexoki; count 7.8:1,
+   7.4:1). Dark themes: the secondary surface raised by some of the
+   foreground, so the pill stands off the page, with a hairline. Dark: 12%
+   (1.8:1 on the page, text 10.6:1, count 5.1:1). Night and Flexoki dark
+   keep a dim foreground, so they raise more and show the count at 80%:
+   Night 28% (1.6:1, text 6.7:1, count 4.8:1), Flexoki dark 20% (1.7:1,
+   text 7.1:1, count 5.2:1). The ring's arc is the text's colour; the
+   amber attention mark is 5.3:1 or more. Measured in Chromium from the
+   computed colours, the count and marks composited on the surface. */
+:root,
+.light,
+.flexoki-light {
+  --ba-island-surface: var(--foreground);
+  --ba-island-text: var(--background);
+  --ba-island-edge: transparent;
+}
+.dark,
+.night,
+.flexoki-dark {
+  --ba-island-surface: color-mix(
+    in oklab,
+    var(--secondary),
+    var(--foreground) 12%
+  );
+  --ba-island-text: var(--foreground);
+  --ba-island-edge: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.night {
+  --ba-island-surface: color-mix(
+    in oklab,
+    var(--secondary),
+    var(--foreground) 28%
+  );
+  --ba-island-detail: color-mix(in oklab, currentColor 80%, transparent);
+}
+.flexoki-dark {
+  --ba-island-surface: color-mix(
+    in oklab,
+    var(--secondary),
+    var(--foreground) 20%
+  );
+  --ba-island-detail: color-mix(in oklab, currentColor 80%, transparent);
+}

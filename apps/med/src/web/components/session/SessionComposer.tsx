@@ -235,9 +235,10 @@ export function SessionComposer({
   };
   const status = owned?.state.status;
   const working = status === "working";
-  // Claude Code reads a message at its next step, in the same turn; other
-  // agents take one only when the turn ends, so for them it is a queue.
-  const steers = agent === "claude";
+  // Claude Code reads a message at its next step, and Codex in the turn that
+  // runs (steer); other agents take one only when the turn ends, so for them
+  // it is a queue.
+  const steers = agent === "claude" || !!owned?.state.capabilities?.steer;
   const followUp = useViewSetting(viewSettings.followUp);
   /** Whether ⌘↩ (or ⇧⌘↩, `other`) queues the message for the turn's end. */
   const queues = (other = false) => working && steers && (followUp === "queue") !== other;

@@ -51,6 +51,15 @@ export function useRestoring() {
   );
 }
 
+/** Whether the links' first pull on this device has ended with every page. */
+export function useLinksRestored() {
+  const session = useSession();
+  return useSyncExternalStore(
+    (listener) => session.subscribe(listener),
+    () => session.linksRestored,
+  );
+}
+
 /** Each derivation's last value, per storage: one per record change. */
 const derived = new WeakMap<
   RecordStorage,

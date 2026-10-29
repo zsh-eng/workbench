@@ -129,8 +129,28 @@ twelve go at once, and the EPUBs wait until the covers are done.
 - **Covers fade in** over their BlurHash in 320 ms.
 - **The Library reads whole tables** instead of walking Dexie cursors on
   every refresh during the restore.
-- **"Restoring your library…"** replaces the empty Library while a restore
-  runs.
+- **The restore island** replaces the empty Library while a restore runs:
+  the Library's frame with quiet covers, and the shared island at the top
+  centre, "Restoring library · 12 books" (the books on this device so far;
+  the restore's size is not known). It waits for a connection or a sign-in
+  until a pull reaches the end, says "Restored" and folds away, into the
+  activity glyph when it is near (`LibraryRestoreIsland`,
+  packages/background-activity). From 768 px it floats in the header's top
+  margin, above the places; on a phone the places and the filter row hold
+  the top centre, so it floats below the filter row. A
+  reload, an offline start or an expired session that leaves the restore
+  unfinished shows it too: the saved sync state has not bootstrapped, and
+  the account is signed in (also the remembered one offline) or its
+  session has ended. A library without an account, or after a sign-out,
+  does not restore and does not say "Restored". Its colours come from each theme, at
+  4.5:1 or more in light, dark, night and both Flexoki themes
+  (`src/index.css`). In the large lab, 4 runs a side interleaved with the
+  build before it: first shelf 912 → 916 ms, restore done 3,264 → 2,266
+  ms (the two modes below; 1 of 4 base runs and 4 of 4 island runs were
+  in the faster one). Every book is listed 54 ms later (1,264 → 1,318 ms):
+  the island grows from about 0.8 s to 1.3 s, and its width moves on the
+  main thread each frame. With reduced motion, which only fades it, the
+  difference is 12 ms (1,240 → 1,252, 3 runs a side).
 
 ## Books first (built)
 

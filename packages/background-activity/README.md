@@ -121,21 +121,56 @@ import { ActivityIsland } from "@workbench/background-activity/island";
 </ActivityIsland>;
 ```
 
-Work you wait for, such as a new device's restore, as one dark pill that
-grows out of `children` (the app's own mark), changes its words and ring in
-place, confirms `done` and folds back. `islandStep` is its timing as a pure
+Work you wait for, such as a new device's restore, as one dark pill at the
+top centre of the window, as the Dynamic Island is: below the safe area,
+over the page, under sheets, menus and toasts. It grows from a dot there,
+changes its words and ring in place, confirms `done` and folds away: into
+`children` (the app's own mark, which stays where the app puts it) when the
+mark is within 200 px, else in place. `islandStep` is its timing as a pure
 step: nothing for 0.5 s, at least 0.6 s once shown, `done` for 1.5 s if it
 showed. Marks: `progress` (a ring; `fraction: null` sweeps), `waiting`,
 `attention`, `done`. `status` is heard once per stage. The island takes no
-taps, so they reach the mark. Colours and where it grows from are custom
-properties (`island.css`): an app sets `--ba-island-surface`, `-text` and
-`-edge` from its own tokens per theme; without them the island is near
-black in light mode and a raised grey with a hairline in dark mode, with
-its text at AA in both. The defaults follow a `.light` or `.dark` class on
-the root, else the OS; an app with other themes (Reader's `night` and
-Flexoki, Arctic's `data-mode`) sets its own. With reduced motion it cross-fades at its final
-width. Spaced uses it; Reader and Arctic have mock-ups in Spaced's Elements
-page.
+taps, so they reach what is under it.
+
+Where it floats is the package's, not the app's (`placeIsland`, from the
+page as it opens and when the window or its words change size). The
+app's bars can hold the top centre: a header's places, tabs, a search
+field. The island floats below each row of their controls that its column
+meets, 8 px clear of them (4 px above a row below it). A control counts if
+it is in a `header`, a `nav`, a toolbar, tab list, search or group, or in a
+fixed or sticky bar, whose bottom edge it then clears; the page's content
+scrolls under the island, as under a top bar, and toasts and dialogs pass
+over it. An app's menus and popovers need a z-index above 25. Below a bar that stays, it
+stays; below one that scrolls away, it rises with the page to the top
+centre (a scroll-driven animation; without one it stays put). Where it
+floats in each app: Spaced at the top, over its icon on a phone; Reader at
+the top from 768 px, in the header's top margin, and on a phone below the
+places and the filter row; Arctic below a phone's strip, below the bar and
+the shelf's tabs from 600 px, below the desk's bar where its search field
+reaches the centre, and at the top beside it in a wide window.
+
+Colours are custom properties (`island.css`), set at `:root` or per theme
+on the root element, since the island is in a layer at the end of the
+page: an app sets `--ba-island-surface`, `-text` and `-edge` from its own
+tokens per theme, and `--ba-island-detail` where a dim theme needs the
+count brighter than 62% of the text to keep it at 4.5:1. Without them the
+island is near black in light mode and a raised grey with a hairline in
+dark mode, with its text at AA in both. The defaults follow a `.light` or
+`.dark` class on the root, else the OS; an app with other themes sets its
+own. With reduced motion it cross-fades at its final width, in place. Its
+growth and fold move `width`, which the main thread lays out each frame:
+in the large restore labs, the lists that fill meanwhile end later, about
+20 ms in Arctic and 50 ms in Reader (their restore docs); its sweep turns
+on the compositor.
+
+`restoreIsland(sync, stage, ended, done)` gives every app's restore one
+grammar: the app's stage (its words, ring and count), "Waiting for a
+connection" offline, "Sign in to finish restoring" when signed out, "Sync
+stopped" or "Update to finish restoring" when sync is blocked, and `done`
+once at the end. Each app's island folds into its mark when the mark is
+near: Spaced's icon, Reader's activity glyph, Arctic's count by the title
+or a phone's account button; each sets its colours in every theme it ships (Reader's light, dark, night
+and Flexoki; Arctic's themes in both modes).
 
 ## App updates
 

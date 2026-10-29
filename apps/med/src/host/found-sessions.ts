@@ -11,7 +11,11 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createClaudeTranscriptReader } from "../shared/agent-session-claude";
-import { createCodexRolloutReader } from "../shared/agent-session-codex";
+import {
+  createCodexRolloutReader,
+  rolloutSource,
+  type RolloutSource,
+} from "../shared/agent-session-codex";
 import {
   FOUND_DAYS,
   foundSettingsSchema,
@@ -111,6 +115,37 @@ export async function readEdge(path: string, edge: "head" | "tail", bytes: numbe
   }
 }
 
+/** How far back Med looks for the start of a long Codex turn. */
+const TURN_TAIL_BYTES = 4 * 1024 * 1024;
+/** A turn whose start is further back than that counts while its rollout
+ * changed this recently. */
+const TURN_WRITES_MS = 2 * 60_000;
+
+/**
+ * Whether a Codex rollout has a turn in progress: its last turn started
+ * (`task_started`) and did not end (`task_complete`, `turn_aborted`). Codex
+ * Desktop keeps the threads that it shows loaded, with their locks, so a
+ * lock alone does not say that one works. A tail without either is inside a
+ * long turn while the rollout still changes.
+ */
+export async function codexTurnOpen(path: string, now = Date.now()) {
+  // A long turn's start is further back: a larger tail finds most.
+  for (const bytes of [TAIL_BYTES, TURN_TAIL_BYTES]) {
+    const read = await readEdge(path, "tail", bytes).catch(() => undefined);
+    if (!read) return false;
+    for (let index = read.lines.length - 1; index >= 0; index--) {
+      const line = read.lines[index]!;
+      if (!line.includes('"event_msg"')) continue;
+      const type = record(parse(line)?.payload)?.type;
+      if (type === "task_started") return true;
+      if (type === "task_complete" || type === "turn_aborted") return false;
+    }
+    if (read.size <= bytes) break;
+  }
+  const info = await stat(path).catch(() => undefined);
+  return !!info && now - info.mtimeMs < TURN_WRITES_MS;
+}
+
 /** What a transcript says about its session. */
 interface SessionFile {
   agent: FoundAgent;
@@ -128,6 +163,9 @@ interface SessionFile {
   idle: boolean;
   /** The last turn, from the tail (thread-turns.ts). */
   turn?: ThreadTurn;
+  /** Codex's own threads: a guardian review or a subagent, which its
+   * parent's thread shows. Found sessions and search leave them out. */
+  automatic?: RolloutSource["kind"];
 }
 
 /** A transcript's head: its first 64 KB, or for a Codex rollout whose first
@@ -157,6 +195,7 @@ export function scanLines(
     name?: string;
     summary?: string;
     id?: string;
+    source?: RolloutSource;
   } = {};
   const updates: SessionEvent[] = [];
   for (const line of lines) {
@@ -173,7 +212,10 @@ export function scanLines(
     if (cwd) found.cwd = cwd;
     const at = Date.parse(text(entry.timestamp) ?? "");
     if (!Number.isNaN(at)) found.createdAt ??= at;
-    if (agent === "codex" && entry.type === "session_meta") found.id ??= text(payload?.id);
+    if (agent === "codex" && entry.type === "session_meta") {
+      found.id ??= text(payload?.id);
+      found.source ??= rolloutSource(payload);
+    }
     if (entry.type === "custom-title") found.name = text(entry.customTitle) ?? found.name;
     if (entry.type === "agent-name" && !found.name) found.name = text(entry.agentName);
     if (entry.type === "summary") found.summary = text(entry.summary) ?? found.summary;
@@ -214,10 +256,12 @@ async function readSession(
     agent === "claude" ? basename(path, ".jsonl") : (first?.id ?? known?.id ?? rolloutId(path));
   if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return undefined;
   const cwd = tail.cwd ?? first?.cwd ?? known?.cwd;
+  const source = first?.source?.kind ?? known?.automatic;
   return {
     agent,
     id,
     path,
+    ...(source && source !== "session" ? { automatic: source } : {}),
     mtimeMs: info.mtimeMs,
     size: info.size,
     ...(cwd ? { cwd } : {}),
@@ -500,7 +544,13 @@ export function createFoundSessions(options: {
         files.set(file.path, session);
       }
       const key = `${session.agent}:${session.id}`;
-      if (!session.cwd || seen.has(key) || options.excluded?.(session.agent, session.id)) continue;
+      if (
+        !session.cwd ||
+        session.automatic ||
+        seen.has(key) ||
+        options.excluded?.(session.agent, session.id)
+      )
+        continue;
       seen.add(key);
       const checkout = await place(session.cwd, checkouts);
       const name = session.agent === "codex" ? names.get(session.id) : undefined;

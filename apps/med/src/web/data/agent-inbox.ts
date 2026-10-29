@@ -56,8 +56,8 @@ export interface AgentInbox {
   send(input: AgentMessageInput): Promise<AgentMessage>;
   /** Takes back a queued message that the agent has not had, and returns it. */
   takeBack?(id: string): Promise<AgentMessage>;
-  /** Sends a message that waits for the turn's end, and its session's
-   * others, at the agent's next step. */
+  /** Send now on a queued message: the agent takes it at its next step, not
+   * at its turn's end. */
   sendNow?(id: string): Promise<void>;
 }
 
@@ -155,10 +155,10 @@ export type SentMessage = Omit<AgentMessage, "delivery"> & {
   waitsFor?: SessionPlace;
   retry?(): void;
   discard?(): void;
-  /** A queued message: back into the message box, or gone. */
+  /** A queued message: back into the message box, or gone, or into the
+   * turn that runs, where the agent can take one (Send now). */
   edit?(): void;
   remove?(): void;
-  /** A message queued for the turn's end: at the agent's next step instead. */
   sendNow?(): void;
 };
 

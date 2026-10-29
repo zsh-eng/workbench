@@ -125,6 +125,24 @@ describe("sync status", () => {
     expect(summary(restarted).label).toBe("Synced just now");
   });
 
+  it("a pass that ends after the device went offline leaves it Offline", async () => {
+    const network = fakeNetwork();
+    const server = fakeServer();
+    const controller = createSyncController({ run: server.run, network });
+    controller.confirmSignedIn(ada, "session-1");
+    controller.start();
+    expect(controller.getSnapshot().running).toBe(true);
+    // Its last request has returned; the network drops before the pass ends.
+    network.set(false);
+    server.last().resolve();
+    await controller.drain();
+    expect(controller.getSnapshot()).toMatchObject({
+      connection: "offline",
+      failure: null,
+    });
+    expect(summary(controller).label).toBe("Offline");
+  });
+
   it("a device with no remembered identity cannot tell, so it stays unknown offline", () => {
     const controller = createSyncController({
       run: fakeServer().run,

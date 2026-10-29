@@ -259,6 +259,7 @@ async function mountApp(
   let inbox = options.inbox;
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
+  const steered: string[] = [];
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -559,10 +560,16 @@ async function mountApp(
         return Response.json({ message, state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/agent/send-now" && inbox) {
-        // The session's messages go at the agent's next step.
+        // The message goes at the agent's next step, not its turn's end.
+        const { id } = JSON.parse(String(init?.body)) as { id: string };
+        steered.push(id);
         inbox = {
           ...inbox,
-          messages: inbox.messages.map(({ afterTurn: _afterTurn, ...entry }) => entry),
+          messages: inbox.messages.map((entry) => {
+            if (entry.id !== id) return entry;
+            const { afterTurn: _afterTurn, ...next } = entry;
+            return next;
+          }),
         };
         return Response.json({ state: inboxState() });
       }
@@ -980,6 +987,7 @@ async function mountApp(
     setOwned,
     setOwnedTranscript,
     goneOnTake,
+    steered,
     ownedActions,
     ownedStarts,
     pageReads,
@@ -4397,6 +4405,8 @@ describe("agent session", () => {
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
     const queued = panel.getByText("Queued for Claude's next step");
     await expect.element(queued).toBeVisible();
+    // Claude Code takes it after its tools by itself, so no Send now.
+    await expect.element(panel.getByRole("button", { name: "Send now" })).not.toBeInTheDocument();
     await expect.element(field).toHaveValue("");
 
     // Edit takes it back into the box, before what the box holds.
@@ -4452,7 +4462,7 @@ describe("agent session", () => {
 
   test("while the agent works, ⇧⌘↩ queues a message for the turn's end, Send now sends it at the next step, and ⌘↩ can queue instead", async () => {
     await page.viewport(1280, 800);
-    const { setOwned, agentMessages } = await mountApp({
+    const { setOwned, agentMessages, steered } = await mountApp({
       savedReview: true,
       inbox: { messages: [], waiting: [], drafts: [] },
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
@@ -4471,9 +4481,10 @@ describe("agent session", () => {
     await userEvent.click(field);
     await userEvent.keyboard("Rename it.{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Rename it.", afterTurn: true }]);
-    const queued = panel.getByText("Queued for the end of Claude's turn");
+    const queued = panel.getByText("Queued until Claude's turn ends");
     await expect.element(queued).toBeVisible();
     await userEvent.click(panel.getByRole("button", { name: "Send now", exact: true }));
+    await expect.poll(() => steered).toHaveLength(1);
     await expect.element(panel.getByText("Queued for Claude's next step")).toBeVisible();
     await expect.element(queued).not.toBeInTheDocument();
 

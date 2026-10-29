@@ -38,7 +38,13 @@ const VERBS: Record<string, [running: string, done: string]> = {
   Fetch: ["Fetching", "Fetched"],
 };
 
-export const isSubagent = (call: ToolCallState) => call.tool === "Agent" || call.tool === "Task";
+/** A call that starts a subagent: Claude Code's Agent or Task, Codex's
+ * spawn_agent, or Antigravity's invoke_subagent. */
+export const isSubagent = (call: ToolCallState) =>
+  call.tool === "Agent" ||
+  call.tool === "Task" ||
+  call.tool === "spawn_agent" ||
+  call.tool === "invoke_subagent";
 /** Opens a subagent's thread in place of the session's, by the item ID of its call. */
 export const OpenAgentContext = createContext<((id: string) => void) | null>(null);
 const diffsOf = (call: ToolCallState) =>

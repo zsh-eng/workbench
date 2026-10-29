@@ -21,16 +21,16 @@ Med **attaches** to a session that another app started, or **owns** a session
 that Med started. Both feed the same store and events; the thread does not
 know which way an update came.
 
-| Feature            | Attach                                          | Own                                                               |
-| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------- |
-| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                      |
-| Source of updates  | Transcript lines, read every 400 ms             | Claude: the transcript and `stream-json`. ACP: the agent's stdio  |
-| Replies            | Whole blocks                                    | Token by token                                                    |
-| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. ACP: `session/prompt`             |
-| Images in a prompt | Saved copies, named by path in the message      | Claude: image blocks. ACP: when `promptCapabilities.image` is set |
-| Permission prompts | Not visible                                     | A card above the prompt box                                       |
-| Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                        |
-| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates             |
+| Feature            | Attach                                          | Own                                                                        |
+| ------------------ | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                               |
+| Source of updates  | Transcript lines, read every 400 ms             | Claude, Codex: the transcript and the agent's stdio. ACP, agy: stdio       |
+| Replies            | Whole blocks                                    | Token by token                                                             |
+| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. Codex: `turn/start`. ACP: `session/prompt` |
+| Images in a prompt | Saved copies, named by path in the message      | Claude: image blocks. ACP: when `promptCapabilities.image` is set          |
+| Permission prompts | Not visible                                     | A card above the prompt box                                                |
+| Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                                 |
+| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates                      |
 
 **One writer per session.** Only the process that runs an agent can safely add
 turns. Med sends prompts only to sessions that it owns, or through a path that
@@ -67,6 +67,32 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   that started the Med host, such as `CLAUDE_CODE_SESSION_ID` and
   `CLAUDE_CODE_SIMPLE`. Bare mode (`CLAUDE_CODE_SIMPLE=1`) never reads the
   keychain login, so each new session said "Not logged in".
+- **Codex** (`src/host/codex-runner.ts`): `codex app-server`, JSON-RPC over
+  stdio, with `initialize`, `model/list`, `thread/start` or `thread/resume`,
+  `turn/start`, `turn/steer`, and `turn/interrupt`. Codex names the thread,
+  so the session's ID is the thread's, and the thread reads its rollout as
+  for a found session, with streamed text (`item/agentMessage/delta`) until
+  the rollout has it. Approvals (`item/commandExecution/requestApproval`,
+  `item/fileChange/requestApproval`, `item/permissions/requestApproval`) and
+  `item/tool/requestUserInput` become cards; `thread/tokenUsage/updated`
+  gives the context chip. Notifications of a subagent's thread come on the
+  same connection, and its rollout nests in its spawn call
+  ([Sessions](SESSIONS.md#codex-subagents)). The modes are Codex's approval
+  policy and sandbox, sent with each turn. Shapes are Codex 0.160's, from
+  `codex app-server generate-ts` and a recorded session
+  (`tests/fixtures/agents/codex-app-server.jsonl`).
+- **Antigravity** (`src/host/agy-runner.ts`, off unless `MED_AGY=1`; see
+  [Antigravity is off](#antigravity-is-off)): `agy --input-format stream-json
+--output-format stream-json -p=`, with `--model`, `--mode` (or
+  `--dangerously-skip-permissions`), and `--conversation <id>` to resume.
+  One process keeps the conversation and runs a turn per input line; Med logs
+  its `step_update` events as for an ACP agent, and follows a subagent's
+  transcript (`subagent_info.log_uri`) into its call. Headless agy cannot
+  ask: what needs approval it refuses, and Med shows each refused action with
+  what to change (a mode, or an allow rule from `/permissions` in agy). Stop
+  ends the process, as agy takes no stop on its input; the next message
+  resumes the conversation. Shapes are agy 1.4.10's
+  (`tests/fixtures/agents/agy-stream.jsonl`).
 - **ACP agents** (`src/host/json-rpc.ts`): `initialize`, `session/new`,
   `session/prompt`, `session/cancel`, and `session/set_config_option`. Med
   answers `session/request_permission` with the user's choice and appends the
@@ -128,7 +154,51 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a
   record as above. **Continue in Med** starts an owned fork of one that a
-  terminal runs (`--resume <id> --fork-session --session-id <new ID>`).
+  terminal runs (`--resume <id> --fork-session --session-id <new ID>`). A
+  Codex thread resumes the same way through `thread/resume` when no other
+  process has it open (`~/.codex/thread-writer-locks/<id>.lock`,
+  `src/host/agent-locks.ts`); one that Codex Desktop or a terminal has open
+  takes messages through `codex queue`.
+
+### Running now
+
+The sidebar's **Running now** lists the agent sessions that run on this
+computer (`GET /api/sessions/running`): Med's own while they work on a turn,
+and Claude Code, Codex, and agy sessions that another process has open. Med
+reads Claude Code's process records (`~/.claude/sessions/<pid>.json`),
+Codex's thread locks, and agy's presence locks
+(`~/.gemini/antigravity-cli/presence/<id>.lock`), and counts a lock only
+while a process other than Med's agents has it open (`lsof`). Codex Desktop
+keeps every thread that it shows loaded, with its lock, so a Codex thread
+lists only while a turn is in progress: its rollout's last turn started
+(`task_started`) without a `task_complete` or `turn_aborted`, or, in a turn
+too long for the rollout's last 256 KB to show its start, the rollout
+changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`
+reads the last 256 KB, then the last 4 MiB). An idle `codex` in a terminal
+does not list either; Claude Code sessions list while their process runs.
+Codex's guardian reviews and subagents do not list. One with a thread opens it;
+**Keep in Med** saves a Claude Code or Codex session as a thread
+(`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
+conversation a thread whose agent Med runs, from its transcript's history
+(`{ agent: "agy", session, repo }`). agy has one writer: until the other
+process ends, a message to the thread fails and says to end it there. Turns
+that the other process adds after that do not show in Med's thread.
+
+### What each agent can do
+
+Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
+`src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
+the page shows only the controls that work:
+
+| Capability | Claude Code    | Codex | agy                   | Other ACP |
+| ---------- | -------------- | ----- | --------------------- | --------- |
+| Send now   | No: needs none | Yes   | No                    | No        |
+| Stop       | Yes            | Yes   | Ends the process      | Yes       |
+| Approvals  | Cards          | Cards | Mode and allow rules  | Cards     |
+| Images     | Yes            | Yes   | No                    | When set  |
+| Resume     | Yes            | Yes   | Yes                   | No        |
+| Subagents  | Yes            | Yes   | Yes                   | No        |
+| Spend      | Yes            | Yes   | No (no Gemini prices) | No        |
 
 ### Queued messages
 
@@ -137,27 +207,24 @@ next step, as Claude Code's terminal queues one
 (https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
 The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
-- **Send now** (`⌘↩`, the default): while Claude Code runs the main
-  conversation's tools (an `assistant` message with `tool_use`, until its
-  `tool_result`), Med writes the message to Claude Code's input at once.
-  Claude Code reads it when the tools end, in the same turn, and its
-  transcript records it as a `queued_command` attachment, which the thread
-  shows where Claude read it.
+- **Send now** (`⌘↩`, the default): the message goes at the agent's next
+  step. While Claude Code runs the main conversation's tools (from an
+  `assistant` message's `tool_use` blocks until each has its `tool_result`),
+  Med writes it to Claude Code's input at once; Claude Code reads it when the
+  tools end, in the same turn, and its transcript records it as a
+  `queued_command` attachment, which the thread shows where Claude read it.
+  Codex takes it in the turn that runs (`turn/steer`). Before then, it waits.
 - **Queue** (`⇧⌘↩`, or `⌘↩` after the `⌘K` choice, `med:follow-up`): the
-  message waits for the turn's end. The input's `afterTurn: true` asks for
-  it; the host keeps the IDs of such messages in
-  `queued-after-turn.json`, so a restart keeps them, and the inbox
-  state marks them `afterTurn`. **Send now** on one
-  (`POST /api/reviews/:id/agent/send-now` with `{ id }`) sends it at the next
-  step.
-- Messages go in order, as one prompt, so a session's messages wait for the
-  turn's end while any of them is queued; Send now, on a queued message or
-  with a new one, sends them all at the next step.
-- Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
-  and goes as the next prompt, with the other queued messages in order. An
-  ACP agent takes messages only between turns, so its button is **Queue**. A
-  turn that a restart cut (Interrupted) waits for the reader, and so do its
-  messages.
+  message waits for the turn's end, or for **Stop** (`Esc`), and goes as the
+  next prompt, with the other waiting messages in order. The input's
+  `afterTurn: true` asks for it, and the inbox keeps `afterTurn` on the stored
+  message, so a restart keeps it. **Send now** on one
+  (`POST /api/reviews/:id/agent/send-now` with `{ id }`) clears it, so it goes
+  at the next step.
+- agy and other ACP agents take no message during a turn: every message waits
+  for the turn's end, so their button is **Queue** and a queued message has
+  no Send now. A turn that a restart cut (Interrupted) waits for the reader,
+  and so do its messages.
 - Until the agent has it, **Edit** in the thread puts the message's text
   back into the message box, before what the box holds, and **Remove** drops
   it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box
@@ -170,6 +237,16 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
   a crashed tab loses none; the inbox file keeps it after that. When the host
   restarts, it watches each session with queued messages again; the agent's
   holder kept the turn running, so they go at its next step as before.
+
+### Antigravity is off
+
+Med's Antigravity support is off by default, while the user does not use it:
+Med offers no agy agent, lists no agy sessions in Running now, and refuses
+Continue in Med for an agy conversation. The code and its tests stay
+(`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
+Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
+on. An agy session that Med started while it was on shows as stopped, with
+its log, until agy is on again.
 
 ### What a thread's agent knows
 
@@ -193,9 +270,9 @@ The `med` command in `<state>/bin` lets an agent hand off work when `med` is
 not on PATH, such as when the host runs from a checkout, and it always matches
 the host's version.
 
-Med finds `claude`, `opencode acp`, `codex-acp`, and `gemini
---experimental-acp`, and reads other ACP agents from `agents.json` in the state
-directory:
+Med finds `claude`, `codex` (its `app-server`), `agy`, `opencode acp`, and
+`gemini --experimental-acp`, and reads other ACP agents from `agents.json` in
+the state directory:
 
 ```json
 [{ "id": "my-agent", "name": "My agent", "command": "/path/to/agent", "args": ["acp"] }]
@@ -289,8 +366,9 @@ the `/` menu lists only skills and custom commands. Attached sessions show
 model and effort as text, with a divider when they change.
 
 Med talks to agents, not models. A Claude Code or Codex session with another
-provider still writes Claude Code's or Codex's format. ACP covers OpenCode,
-Codex (`codex-acp`), and other ACP agents; Claude Code uses `stream-json`.
+provider still writes Claude Code's or Codex's format. ACP covers OpenCode
+and other ACP agents; Claude Code and agy use `stream-json`, and Codex its
+app-server.
 Attaching to another agent needs a reader for its transcript format.
 
 ### Review and Changes

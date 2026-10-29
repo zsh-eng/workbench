@@ -143,6 +143,7 @@ export function AddLinkButton({ row = false }: { row?: boolean }) {
       )}
       <Popover.Portal>
         <Popover.Positioner
+          className="popup-layer"
           sideOffset={8}
           align={row ? "start" : "end"}
           side={row ? "right" : "bottom"}

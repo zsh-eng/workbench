@@ -415,8 +415,9 @@ function Delivery({ message }: { message: SentMessage }) {
       : message.delivery === "pending"
         ? [
             message.queued
-              ? message.afterTurn
-                ? `Queued for the end of ${agent}'s turn`
+              ? // Queue, or an agent that takes messages only between turns.
+                message.afterTurn || (message.agent !== "claude" && message.agent !== "codex")
+                ? `Queued until ${agent}'s turn ends`
                 : `Queued for ${agent}'s next step`
               : message.waitsFor
                 ? SESSION_PLACES[message.waitsFor].waiting
@@ -454,7 +455,7 @@ function Delivery({ message }: { message: SentMessage }) {
       {message.sendNow && (
         <button
           type="button"
-          title={`${agent} reads it at its next step, in this turn, with the messages queued before it`}
+          title={`${agent} takes it at its next step, in the turn that runs`}
           onClick={message.sendNow}
           {...stylex.props(styles.deliveryAction)}
         >

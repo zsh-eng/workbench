@@ -207,6 +207,29 @@ listed, in order, and the first screen changes once.
 - In large, the first card now shows 0.4–0.9 s later than before's first
   (wrong) card, in exchange for showing the right one.
 
+## The restore island
+
+The placeholder's "Getting your library…" is now the shared restore island
+(`src/RestoreIsland.tsx`, packages/background-activity): it floats at
+the top centre of the window, says "Getting your library · 2,000 links"
+(the links on this device so far; the library's size is not known until
+its last page), waits for a connection or a sign-in, says "Library ready"
+when the links' first pull has every page, and folds away: into a phone's
+account button, which is near, or in place with room, where the count by
+the title is far. Where the bars hold the top centre it floats below them:
+below a phone's strip (61 px), below the bar and the shelf's tabs from
+600 px (142 px, rising to below the bar as the page scrolls), and below
+the desk's bar where its search field reaches the centre (68 px, as at
+1,280 px); in a wider window, at the top (8 px, as at 1,920 px). Its colours come from each palette, at 4.5:1 or more in
+every theme and mode (`src/styles.css`).
+
+Large, near, 4 runs a side interleaved with the build before it (medians,
+ms): all listed 1,439 → 1,461, screen covers 1,608 → 1,630, sync done
+2,945 → 2,986. The island grows from about 0.7 s to 1.2 s and folds after
+the list, and its width moves on the main thread each frame. With reduced
+motion, which only fades it, there is no difference: 1,443 → 1,439,
+1,606 → 1,599, 2,957 → 2,946 (3 runs a side).
+
 ## Server proposals (not built)
 
 1. **One session read per sync request.** `/sync/v3/*` routes run

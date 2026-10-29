@@ -78,6 +78,9 @@ export type SessionEntry = z.infer<typeof sessionEntrySchema>;
  * Med does. `repo` gives the checkout when the session's folder is not one. */
 export const sessionAdoptSchema = z.object({
   session: z.string().trim().min(1).max(4096),
+  /** An Antigravity conversation, which Med continues: `session` is its ID,
+   * and `repo` the folder that it runs in. */
+  agent: z.literal("agy").optional(),
   repo: z.string().min(1).max(4096).optional(),
   title: z.string().trim().min(1).max(200).optional(),
 });
@@ -89,6 +92,25 @@ export const sessionAdoptedSchema = z.object({
   title: z.string(),
   /** False when a saved thread named the session already. */
   created: z.boolean(),
-  session: sessionEntrySchema,
+  /** The Claude Code or Codex session; an agy conversation has none. */
+  session: sessionEntrySchema.optional(),
 });
 export type SessionAdopted = z.infer<typeof sessionAdoptedSchema>;
+
+/**
+ * `GET /api/sessions/running`: an agent session that runs on this computer
+ * now. Med's own show while they work on a turn; another process's while it
+ * has the session open, as a terminal or the agent's app does.
+ */
+export const runningSessionSchema = z.object({
+  agent: z.enum(["claude", "codex", "agy", "acp"]),
+  id: z.string(),
+  title: z.string(),
+  cwd: z.string().optional(),
+  /** Where it runs: in Med, a terminal, the Claude app, or another app. */
+  place: z.enum(["med", "terminal", "claude-app", "other-app"]),
+  /** The saved thread that has it. */
+  thread: z.string().optional(),
+});
+export type RunningSession = z.infer<typeof runningSessionSchema>;
+export const runningSessionsSchema = z.object({ sessions: z.array(runningSessionSchema) });

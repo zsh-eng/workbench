@@ -110,7 +110,7 @@ import {
 } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
-import { createFoundSessions } from "./found-sessions";
+import { codexTurnOpen, createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
@@ -124,6 +124,8 @@ import {
   foundUpdateSchema,
   sessionAdoptSchema,
   sessionFindSchema,
+  type RunningSession,
+  type SessionAdopt,
   type SessionAdopted,
 } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
@@ -199,6 +201,8 @@ export interface StartHostOptions {
    * reader chooses (default true). The CLI turns it off for a state folder
    * other than Med's own, so that a second Med lists only its own threads. */
   foundSessions?: boolean;
+  /** Offer Antigravity (`agy`): off unless `MED_AGY=1` (default false). */
+  agy?: boolean;
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -282,6 +286,9 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** Serve one local review process; Git operations never change the checkout. */
+/** How long an answer of Running now serves the pages that poll it. */
+const RUNNING_MS = 3000;
+
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   let repository: Repository;
   try {
@@ -379,6 +386,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     offersFile: join(options.stateDir ?? temporaryState!, "agent-offers.json"),
     recordsFile: join(options.stateDir ?? temporaryState!, "owned-sessions.json"),
     environment: agentEnvironment,
+    agy: options.agy ?? process.env.MED_AGY === "1",
   });
   await ownedSessions.restore();
   // The Scheduled list: a session's jobs fire while its process runs, in Med
@@ -459,7 +467,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const queuedMessages = createQueuedMessages({
     inbox,
     runner: (sessionId) => ownedSessions.get(sessionId),
-    stateFile: join(options.stateDir ?? temporaryState!, "queued-after-turn.json"),
   });
   for (const { reviewId, sessionId } of await inbox.queued())
     queuedMessages.watch(reviewId, sessionId);
@@ -538,10 +545,94 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     codexNames: () => found.codexNames(),
     excluded: (agent, id) => questions.excludes(agent, id),
   });
+  /** Running now: Med's agents that work on a turn, then the sessions that
+   * other processes have open, each with its thread if one has it. Pages
+   * poll it, so an answer serves for a few seconds. */
+  let runningAnswer: { at: number; sessions: Promise<RunningSession[]> } | undefined;
+  const runningSessions = () => {
+    if (!runningAnswer || Date.now() - runningAnswer.at > RUNNING_MS) {
+      const sessions = readRunning();
+      runningAnswer = { at: Date.now(), sessions };
+      sessions.catch(() => (runningAnswer = undefined));
+    }
+    return runningAnswer.sessions;
+  };
+  const readRunning = async (): Promise<RunningSession[]> => {
+    const running = await ownedSessions.running();
+    const reviews = await savedReviews.list();
+    const named = await sessionThreads(reviews);
+    const titles = new Map(reviews.map((review) => [review.id, review.title]));
+    const infos = new Map(
+      (
+        await sessionSearch.exactly([
+          ...running.claude.map(({ id }) => ({ agent: "claude" as const, id })),
+          ...running.codex.map(({ id }) => ({ agent: "codex" as const, id })),
+        ])
+      ).map((info) => [`${info.agent}:${info.id}`, info]),
+    );
+    const thread = (id: string) => {
+      const found = named.get(id)?.id;
+      return found ? { thread: found } : {};
+    };
+    const sessions: RunningSession[] = running.med.map(({ session, kind, name }) => {
+      const saved = named.get(session.id)?.id;
+      return {
+        agent: kind,
+        id: session.id,
+        title: (saved && titles.get(saved)) ?? name,
+        cwd: session.cwd,
+        place: "med",
+        ...thread(session.id),
+      };
+    });
+    for (const { id, cwd, place } of running.claude) {
+      const info = infos.get(`claude:${id}`);
+      const where = info?.cwd ?? cwd;
+      sessions.push({
+        agent: "claude",
+        id,
+        title: info?.title ?? "New Claude Code session",
+        ...(where && { cwd: where }),
+        place,
+        ...thread(id),
+      });
+    }
+    // A guardian review or a subagent shows in its parent; a thread without
+    // a rollout has nothing to keep yet; and one that Codex Desktop only has
+    // loaded does not work.
+    const working = await Promise.all(
+      running.codex.map(async ({ id }) => {
+        const info = infos.get(`codex:${id}`);
+        return info && !info.automatic && (await codexTurnOpen(info.path)) ? info : undefined;
+      }),
+    );
+    for (const info of working) {
+      if (!info) continue;
+      const { id } = info;
+      sessions.push({
+        agent: "codex",
+        id,
+        title: info.title,
+        ...(info.cwd && { cwd: info.cwd }),
+        place: "other-app",
+        ...thread(id),
+      });
+    }
+    for (const { id, cwd, title } of running.agy)
+      sessions.push({
+        agent: "agy",
+        id,
+        title: title ?? "Antigravity conversation",
+        ...(cwd && { cwd }),
+        place: "terminal",
+        ...thread(id),
+      });
+    return sessions;
+  };
   /** The saved thread that names a session: by its ID, or for a session
    * that Med runs through ACP, by the agent's own ID. */
-  const sessionThreads = async () => {
-    const reviews = await savedReviews.list();
+  const sessionThreads = async (reviews?: Awaited<ReturnType<typeof savedReviews.list>>) => {
+    reviews ??= await savedReviews.list();
     const threads = new Map<string, { id: string; archived?: boolean }>();
     for (const review of reviews)
       for (const session of review.sessions ?? [])
@@ -1405,6 +1496,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           send({ sessions: await sessionEntries(sessions) });
           return;
         }
+        // The agent sessions that run now, in Med or elsewhere ("Running now").
+        if (url.pathname === "/api/sessions/running" && request.method === "GET") {
+          send({ sessions: await runningSessions() });
+          return;
+        }
         if (url.pathname === "/api/agents" && request.method === "GET") {
           send({ agents: await ownedSessions.agents() });
           return;
@@ -1595,13 +1691,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 else if ((sentAt.get(id) ?? "") < message.createdAt)
                   sentAt.set(id, message.createdAt);
               }
-            const afterTurnSessions = new Set(
-              messages.flatMap((message) =>
-                message.delivery === "pending" && queuedMessages.queued(message.id)
-                  ? [message.sessionId]
-                  : [],
-              ),
-            );
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
             const { briefComments, sessions } = await savedReviews.get(reviewId);
@@ -1609,13 +1698,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
-              // A Queue message holds its session's others until the turn
-              // ends too (queued-messages.ts), so they all say so.
-              messages: messages.map((message) =>
-                message.delivery === "pending" && afterTurnSessions.has(message.sessionId)
-                  ? { ...message, afterTurn: true }
-                  : message,
-              ),
+              messages,
               waiting: inbox.waiting(reviewId),
               ...(await claudeSessions(reviewId, sessions)),
               drafts: [
@@ -1725,7 +1808,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   waits.includes("*") ||
                   (await ownedSessions.runsElsewhere(session.id));
                 resume = !held && !live;
-              }
+              } else if (
+                session.agent === "codex" &&
+                !live &&
+                !runner &&
+                (await ownedSessions.agents()).some(
+                  (agent) => agent.kind === "codex" && agent.available,
+                ) &&
+                !(await ownedSessions.lockedElsewhere("codex", session.id))
+              )
+                // A Codex thread that no process has open: Med resumes it
+                // through Codex's app-server and runs it from then on. One
+                // that Codex Desktop or a terminal has open takes the message
+                // through `codex queue`.
+                resume = true;
               // The agent that Med runs works: the message waits for its next
               // step (queued-messages.ts), and the user can take it back.
               const queue = !held && !resume && live?.state().status === "working";
@@ -1748,8 +1844,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 : resume
                   ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
                   : live;
-              const store = () =>
-                inbox.send(
+              const message = await inbox.send(
                 reviewId,
                 session,
                 {
@@ -1763,24 +1858,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 },
                 parts.join("\n\n"),
                 queue
-                  ? { queued: true }
+                  ? { queued: true, afterTurn: !!input.afterTurn }
                   : target
                     ? { deliver: (body) => target.prompt(body, native) }
                     : { held },
               );
-              const message =
-                queue && input.afterTurn
-                  ? await queuedMessages.queueing(reviewId, session.id, store)
-                  : await store();
               if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
-              if (queue && message.delivery === "pending") {
-                if (input.afterTurn) {
-                  queuedMessages.watch(reviewId, session.id);
-                  return { ...message, afterTurn: true };
-                }
-                // Send now: the messages queued before it go with it.
-                await queuedMessages.sendNow(reviewId, session.id);
-              }
+              if (queue && message.delivery === "pending")
+                queuedMessages.watch(reviewId, session.id);
               return message;
             });
             send({ message, state: await inboxState() });
@@ -1823,24 +1908,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
             const message = await inbox.takeBack(reviewId, input.id);
-            queuedMessages.forget(input.id);
             send({ message, state: await inboxState() });
             return;
           }
-          // Sends a queued message, and the others of its session, at the
-          // agent's next step, not at its turn's end.
+          // Send now on a queued message: the agent takes it at its next
+          // step, not at its turn's end (queued-messages.ts).
           if (action === "send-now" && request.method === "POST") {
             const input = z
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
-            const message = (await inbox.messages(reviewId)).find((entry) => entry.id === input.id);
-            if (!message || message.delivery !== "pending" || !message.queued)
+            const message = (await inbox.messages(reviewId)).find(
+              (entry) => entry.id === input.id && entry.queued && entry.delivery === "pending",
+            );
+            if (!message)
+              throw new HostError("message-gone", "The agent has this message already.", 409);
+            if (!(await queuedMessages.sendNow(reviewId, message.sessionId, input.id)))
               throw new HostError(
-                "message-gone",
-                "The agent has this message already, or it came back.",
+                "steer-unsupported",
+                "This agent takes the message when its turn ends.",
                 409,
               );
-            await queuedMessages.sendNow(reviewId, message.sessionId);
             send({ state: await inboxState() });
             return;
           }
@@ -2075,11 +2162,61 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(review);
             return;
           }
+          // Continue in Med: an agy conversation becomes a thread whose agent
+          // Med runs, from its history. agy has one writer: while another
+          // process has it open, a message says to end it there first.
+          const continueAgy = async (input: SessionAdopt): Promise<SessionAdopted> => {
+            const id = input.session;
+            if (!ownedSessions.agy)
+              throw new HostError("agent-unavailable", "Antigravity is off in Med.", 404);
+            if (!/^[A-Za-z0-9_-]{1,128}$/.test(id))
+              throw new HostError("session-not-found", "Choose an agy conversation ID.", 400);
+            const named = (await sessionThreads()).get(id);
+            if (named) {
+              if (named.archived) await threads.open(named.id, { restore: true });
+              const review = await savedReviews.get(named.id);
+              return { id: review.id, title: review.title, created: false };
+            }
+            const agent = (await ownedSessions.agents()).find(
+              (entry) => entry.kind === "agy" && entry.available,
+            );
+            if (!agent) throw new HostError("agent-unavailable", "agy is not installed here.", 409);
+            const place = input.repo ? await found.locate(input.repo) : undefined;
+            if (!input.repo || !place?.checkout)
+              throw new HostError(
+                "session-checkout",
+                `The conversation's folder${input.repo ? ` ${input.repo}` : ""} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")} first.`,
+                409,
+              );
+            const title = input.title ?? "Antigravity conversation";
+            const key = `${threadSlug(title)}-${id.slice(0, 8)}`;
+            const created = await savedReviews.create(
+              { title, key, sessions: [], targets: [] },
+              captureTarget,
+              assertRequestAccess,
+              await placeCheckout(place.checkout.path),
+            );
+            const runner = await ownedSessions.start(agent.id, input.repo, {
+              key,
+              conversation: id,
+            });
+            const review = await savedReviews.details(
+              created.id,
+              { sessions: [runner.session] },
+              assertRequestAccess,
+            );
+            await threads.opened(review);
+            return { id: review.id, title: review.title, created: true };
+          };
           // `med thread adopt`: a Claude Code or Codex session of any age
           // becomes a saved thread, as Keep in Med makes one. A session that
           // a thread names already gives that thread, back from history as a tab.
           if (url.pathname === "/api/sessions/adopt" && request.method === "POST") {
             const input = sessionAdoptSchema.parse(await readBody(request));
+            if (input.agent === "agy") {
+              send(await continueAgy(input));
+              return;
+            }
             const matches = await sessionSearch.lookup(input.session);
             if (matches.length !== 1)
               throw new HostError(

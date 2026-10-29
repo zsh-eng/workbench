@@ -1,12 +1,13 @@
 /*
- * The activity island (island.tsx). An app sets these from its own tokens,
- * at :root, per theme, or on the slot:
+ * The activity island (island.tsx). It floats at the top centre of the
+ * window, in a layer of its own at the end of the page, below the safe area
+ * and below the app's controls where they hold the top centre
+ * (island-place.ts). An app sets its colours from its own tokens, at :root
+ * or per theme on the root element (the layer is not inside the app's
+ * tree):
  *
  *   --ba-island-surface, --ba-island-text, --ba-island-edge  colours
- *   --ba-island-height                                       36px
- *   --ba-island-left, --ba-island-shift   where it grows from: the centre of
- *                                          the mark (50%, -50%), or its start
- *                                          (0, 0)
+ *   --ba-island-detail     the count or share, 62% of the text by default
  *
  * In light mode the island is near black, as the Dynamic Island is. In
  * dark mode a near-black pill disappears into the page, so it is a raised
@@ -15,12 +16,24 @@
  * or a `.dark` root, light under a `.light` root; an app with other theme
  * names sets its own. Keep the text at 4.5:1
  * or more on the surface for the detail too, which is the text at 62%.
- * It takes no taps: they reach the mark under it.
+ * It takes no taps: they reach what is under it.
+ *
+ * Its layer is at z-index 25: over the page and its sticky bars (which it
+ * keeps clear of), under sheets, menus, dialogs and toasts.
  */
 .ba-island-slot {
   position: relative;
   display: inline-grid;
   place-items: center;
+}
+.ba-island-layer {
+  position: fixed;
+  z-index: 25;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: 0;
+  left: 0;
+  height: 0;
+  pointer-events: none;
   /* Text 17.8:1, detail 7.1:1. */
   --ba-island-default-surface: #0c0c0d;
   --ba-island-default-text: #f4f4f5;
@@ -64,13 +77,13 @@
 }
 /* Raised: 1.85:1 on #000, text 10.4:1, detail 5.1:1. */
 @media (prefers-color-scheme: dark) {
-  :where(:root:not(.light)) .ba-island-slot {
+  :where(:root:not(.light)) .ba-island-layer {
     --ba-island-default-surface: #3a3a3c;
     --ba-island-default-text: #f5f5f7;
     --ba-island-default-edge: rgb(255 255 255 / 0.14);
   }
 }
-:where(.dark) .ba-island-slot {
+:where(.dark) .ba-island-layer {
   --ba-island-default-surface: #3a3a3c;
   --ba-island-default-text: #f5f5f7;
   --ba-island-default-edge: rgb(255 255 255 / 0.14);
@@ -86,13 +99,22 @@
 .ba-island-rest[data-hidden] {
   opacity: 0;
 }
+/* The island folds into the mark: the mark returns as it arrives. */
+[data-island="folding"] > .ba-island-rest {
+  transition-delay: 150ms;
+}
 
+/* It grows from a dot at the top centre: its width on the morph spring.
+   `top` is set below the app's controls; --ba-island-dx and -dy carry it
+   into the mark as it folds. */
 .ba-island {
   position: absolute;
-  top: 50%;
-  left: var(--ba-island-left, 50%);
-  transform: translate(var(--ba-island-shift, -50%), -50%);
-  height: var(--ba-island-height, 36px);
+  left: 50%;
+  display: flex;
+  /* The words stay still and centred while the island opens and folds
+     around them. */
+  justify-content: center;
+  height: 36px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--ba-island-surface, var(--ba-island-default-surface));
@@ -102,6 +124,10 @@
     0 6px 18px rgb(0 0 0 / 0.16);
   pointer-events: none;
   opacity: 0;
+  transform: translate(
+    calc(-50% + var(--ba-island-dx, 0px)),
+    var(--ba-island-dy, 0px)
+  );
   transition:
     width var(--ba-island-morph-duration) var(--ba-island-morph),
     opacity 140ms ease-in;
@@ -110,12 +136,36 @@
   opacity: 1;
   transition:
     width var(--ba-island-morph-duration) var(--ba-island-morph),
+    top var(--ba-island-morph-duration) var(--ba-island-morph),
     opacity 180ms ease-out;
+}
+/* The fold (ISLAND_FOLD_MS, 0.32 s): it narrows, and moves into a mark
+   that is near, on the morph spring made quicker; it fades as it arrives. */
+.ba-island[data-fold] {
+  transition:
+    width 320ms var(--ba-island-morph),
+    transform 320ms var(--ba-island-morph),
+    opacity 200ms ease-in 120ms;
+}
+/* Under a bar that scrolls away (a page's header), it rises with the page
+   until it reaches the top centre, as a sticky bar would. */
+@supports (animation-timeline: scroll()) {
+  .ba-island[data-rise] {
+    animation: ba-island-rise linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0px var(--ba-island-rise);
+  }
+}
+@keyframes ba-island-rise {
+  to {
+    translate: 0 calc(-1 * var(--ba-island-rise));
+  }
 }
 
 /* The words keep their natural width; the island's width follows them. */
 .ba-island-words {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   width: max-content;
@@ -130,8 +180,12 @@
 .ba-island-label {
   animation: ba-island-in 150ms ease-out;
 }
+/* A dim theme can raise the detail to keep it at 4.5:1. */
 .ba-island-detail {
-  color: color-mix(in oklab, currentColor 62%, transparent);
+  color: var(
+    --ba-island-detail,
+    color-mix(in oklab, currentColor 62%, transparent)
+  );
 }
 @keyframes ba-island-in {
   from {
@@ -171,12 +225,16 @@
   stroke-dashoffset: calc(1 - var(--ba-fraction, 0));
   transition: stroke-dashoffset 220ms linear;
 }
-/* Size unknown: one short arc turns slowly. The one loop allowed is a wait. */
+/* Size unknown: one short arc turns slowly. The one loop allowed is a wait.
+   The ring's box turns, not the SVG circle: a transform on an HTML box runs
+   on the compositor, one on an SVG shape repaints on the main thread each
+   frame, while the restore commits its pages there. */
+.ba-island-ring[data-unknown] {
+  animation: ba-island-sweep 1.4s linear infinite;
+}
 .ba-island-ring[data-unknown] .ba-island-ring-fill {
   stroke-dasharray: 0.22 0.78;
   stroke-dashoffset: 0;
-  transform-origin: 50% 50%;
-  animation: ba-island-sweep 1.4s linear infinite;
 }
 @keyframes ba-island-sweep {
   to {
@@ -218,10 +276,11 @@
    cross-fades in and out at the size of its words. */
 @media (prefers-reduced-motion: reduce) {
   .ba-island,
-  .ba-island[data-open] {
+  .ba-island[data-open],
+  .ba-island[data-fold] {
     transition: opacity 150ms linear;
   }
-  .ba-island-ring[data-unknown] .ba-island-ring-fill {
+  .ba-island-ring[data-unknown] {
     animation: none;
   }
   .ba-island-ring-fill {

@@ -375,7 +375,19 @@ and after: `media/spaced-first-load/island-dark/`.
 **Built.** `@workbench/background-activity/island` (`ActivityIsland`,
 `islandStep`: nothing for 0.5 s, at least 0.6 s once shown, Restored for
 1.5 s, a 0.32 s fold; morph spring for its width). Spaced's words are in
-`src/lib/sync/restore-island.ts`; `SyncBoundary` shows `RestoreFrame`s.
+`src/lib/sync/restore-island.ts`, and the shared `restoreIsland` says the
+offline, sign-in and stopped states, as in Reader and Arctic, which use
+the island too (their mock-ups left the Elements page); `SyncBoundary`
+shows `RestoreFrame`s.
+The island floats at the top centre of the window in every app, below the
+safe area and below an app's bars where they hold the top centre; the
+package places it (`placeIsland`), the apps give only words, marks and
+colours. Spaced's icon is at the top centre on a phone, so there it opens
+over the icon and folds back into it; with room, the icon is in the
+corner, far from it, and the island folds where it is. Reader's and
+Arctic's first build grew it out of their glyph's place, mid-page over the
+shelf's filters and over Arctic's Archive tab
+(`media/island-finish/`); the stills after are in `media/island-center/`.
 The island's status line says the stage to assistive technology once, not
 each percent.
 

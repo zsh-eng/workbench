@@ -8,7 +8,7 @@
     "build": "bun run build:packages && tsc -b && tsc -p tsconfig.server.json && vite build",
     "lint": "eslint .",
     "test": "bun run build:packages && bun test ./src ./tests ./server ./scripts/sync-optimization-benchmark",
-    "test:browser": "bun run build:packages && bun test ./tests/browser/tab-bar.browser.ts",
+    "test:browser": "bun run build:packages && bun test ./tests/browser/tab-bar.browser.ts ./tests/browser/restore-island.browser.ts",
     "test:update": "bun test ./tests/browser/app-update.browser.ts",
     "spaced-compile": "bun run ./scripts/spaced-compile.ts",
     "preview": "bun run build && wrangler dev --env local --local --port 8791 --persist-to consolidation.local/state --var BASE_URL:http://localhost:8791",

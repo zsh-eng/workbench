@@ -586,7 +586,7 @@ function TypePanel() {
         <Popover.Trigger render={trigger} />
       </Tip>
       <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="end">
+        <Popover.Positioner className="popup-layer" sideOffset={8} align="end">
           <Popover.Popup className="menu type-panel">
             <ReadingControls />
             <AppearanceControls />

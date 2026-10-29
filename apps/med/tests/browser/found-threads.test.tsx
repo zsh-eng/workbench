@@ -7,6 +7,7 @@ import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
 import type { SavedCheckout } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
+import type { RunningSession } from "../../src/shared/found-sessions";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 // Sessions that Med found by itself (src/host/found-sessions.ts) list as
@@ -142,7 +143,7 @@ const stream = (init: RequestInit | undefined, first?: string) =>
 
 /** A host with one repository and its glossary worktree. It lists the
  * threads that the test sets, and records the requests that change them. */
-function createHost(threads: Thread[]) {
+function createHost(threads: Thread[], running: RunningSession[] = []) {
   const posts: { path: string; body: unknown }[] = [];
   const sessionStreams: string[] = [];
   const reviews: { repo: string; comparison: Comparison }[] = [];
@@ -215,6 +216,8 @@ function createHost(threads: Thread[]) {
       return Response.json(keptReview);
     }
     switch (url.pathname) {
+      case "/api/sessions/running":
+        return Response.json({ sessions: running });
       case "/api/threads/events":
         return stream(
           init,
@@ -353,6 +356,48 @@ test("a found session lists as a thread, opens on its checkout with its session,
     .toHaveAttribute("aria-selected", "true");
   expect(tabs.getByRole("tab", { name: "Review" }).query()).toBeNull();
   expect(document.body.textContent).not.toContain("Return to review");
+});
+
+test("Running now lists the agent sessions that run, in Med or elsewhere: one with a thread opens it, and Keep in Med makes one a thread", async () => {
+  const host = createHost(
+    [found()],
+    [
+      {
+        agent: "claude",
+        id: glossarySession.id,
+        title: "README glossary",
+        cwd: "/test/glossary",
+        place: "med",
+        thread: found().id,
+      },
+      {
+        agent: "codex",
+        id: "01a189b0-0000-7000-8000-000000000001",
+        title: "Port the tide parser",
+        cwd: "/test/repo",
+        place: "other-app",
+      },
+    ],
+  );
+  render(host);
+  const running = page
+    .getByRole("navigation", { name: "Threads" })
+    .getByRole("region", { name: "Running now" });
+  await expect.element(running.getByText("2")).toBeVisible();
+  // One that a thread has opens it.
+  await running.getByRole("button", { name: /README glossary/ }).click();
+  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("glossary");
+  // Codex in its app: one click keeps it in Med, as a thread.
+  const codex = running.getByRole("button", { name: /Port the tide parser/ });
+  await expect.element(running.getByText("Keep in Med")).toBeVisible();
+  await codex.click();
+  await expect.poll(() => location.pathname).toBe("/review/r_kept");
+  expect(host.posts).toEqual([
+    {
+      path: "/api/sessions/adopt",
+      body: { session: "01a189b0-0000-7000-8000-000000000001", title: "Port the tide parser" },
+    },
+  ]);
 });
 
 test("Close on a found tab sends it to history, Delete hides its session, and the palette hides all", async () => {

@@ -107,11 +107,17 @@ test("a new device shows the books from the priority pull, and a delete in the f
   const page = await context.newPage();
   await page.goto(app);
   for (const title of BOOKS) await expect(bookLink(page, title)).toBeVisible();
-  // The books are on screen while the full pull has not started to commit.
+  // The books are on screen while the full pull has not started to commit,
+  // and the restore island says the restore goes on.
   expect(await syncState(page)).toMatchObject({
     pullCursor: 0,
     bootstrapped: false,
   });
+  const island = page.locator(".ba-island-slot");
+  await expect(island.getByRole("status")).toHaveText("Restoring your library…");
+  await expect(page.locator(".ba-island")).toHaveText(
+    /^Restoring library\s*3 books$/,
+  );
 
   // Another device deletes a book before the full pull reaches the server.
   await account.deleteBook(2);
@@ -121,6 +127,7 @@ test("a new device shows the books from the priority pull, and a delete in the f
     .toBe(true);
   await expect(bookLink(page, "Cedar")).toHaveCount(0);
   await expect(bookLink(page, "Alder")).toBeVisible();
+  await expect(island).toHaveAttribute("data-island", "rest");
   const counts = await page.evaluate(async () => {
     const path = "/src/lib/sync-v2/db.ts";
     const { syncV2SyncDb: db } = await import(path);

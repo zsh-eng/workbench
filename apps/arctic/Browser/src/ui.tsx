@@ -89,7 +89,7 @@ export function Tip({
     <Tooltip.Root>
       <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
-        <Tooltip.Positioner sideOffset={8}>
+        <Tooltip.Positioner className="popup-layer" sideOffset={8}>
           <Tooltip.Popup className="tooltip">
             {label}
             {keys && <kbd>{keys}</kbd>}
@@ -464,7 +464,12 @@ function ArticleMenuPopup({
   );
   return (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={6} align="end" anchor={anchor}>
+      <Menu.Positioner
+        className="popup-layer"
+        sideOffset={6}
+        align="end"
+        anchor={anchor}
+      >
         <Menu.Popup
           className="menu"
           finalFocus={
@@ -612,6 +617,7 @@ export function AccountMenu({ row = false }: { row?: boolean }) {
       )}
       <Menu.Portal>
         <Menu.Positioner
+          className="popup-layer"
           sideOffset={8}
           align={row ? "start" : "end"}
           side={row ? "top" : "bottom"}

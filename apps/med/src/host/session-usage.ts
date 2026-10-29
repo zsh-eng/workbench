@@ -20,7 +20,11 @@ import { userHome } from "./service/discover";
 // - Claude Code writes each block of a response as its own line, and each
 //   line carries the response's `usage`, so a response counts once by its
 //   message ID. The session's subagents are in `<session>/subagents/`.
-// - Codex writes running totals (`token_count`), so the last one counts.
+// - Codex 0.160 writes each response's usage as a `token_usage_record`, by
+//   its response ID. Older rollouts have only running totals
+//   (`token_count`); each total that grows adds its `last_token_usage`, and
+//   a record of the same total replaces it. Pricing each response applies
+//   the long-context rate. A subagent's own rollout counts with its parent.
 
 const CHUNK = 4 * 1024 * 1024;
 /** Transcripts whose reads Med keeps, at most. */
@@ -47,8 +51,29 @@ interface Read {
   last?: { used: number; model?: string; at?: number; window?: number };
   /** A compaction came after the last request. */
   compacted: boolean;
-  /** Codex: its running totals and model. */
-  codex?: { model?: string; total?: RequestTokens };
+  /** Codex: the model of the turn, the running totals so far, and the
+   * subagents' threads. `file` keeps one rollout's keys apart from another's. */
+  codex?: { file: number; model?: string; totals: Json; children: Set<string> };
+}
+
+let codexFiles = 0;
+/** A running total's size, for its key. */
+const totalOf = (usage: Json | undefined) =>
+  count(usage?.total_tokens) || count(usage?.input_tokens) + count(usage?.output_tokens);
+
+/** A Codex usage object as Med's tokens. Cached input and cache writes are
+ * part of Codex's input count. */
+function codexTokens(usage: Json): RequestTokens {
+  const cached = count(usage.cached_input_tokens);
+  const written = count(usage.cache_write_input_tokens);
+  return {
+    input: Math.max(0, count(usage.input_tokens) - cached - written),
+    output: count(usage.output_tokens),
+    cacheWrite5m: written,
+    cacheWrite1h: 0,
+    cacheRead: cached,
+    webSearches: 0,
+  };
 }
 
 function tokensOf(usage: Json): RequestTokens {
@@ -107,7 +132,13 @@ function claudeLine(line: string, state: Read) {
 }
 
 function codexLine(line: string, state: Read) {
-  if (!line.includes('"token_count"') && !line.includes('"turn_context"')) return;
+  if (
+    !line.includes('"token_count"') &&
+    !line.includes('"turn_context"') &&
+    !line.includes('"token_usage_record"') &&
+    !line.includes('"SubAgentActivity"')
+  )
+    return;
   let entry: Json | undefined;
   try {
     entry = record(JSON.parse(line));
@@ -115,25 +146,52 @@ function codexLine(line: string, state: Read) {
     return;
   }
   const payload = record(entry?.payload);
-  const codex = (state.codex ??= {});
+  const codex = (state.codex ??= { file: ++codexFiles, totals: {}, children: new Set() });
+  const model = () => codex.model ?? "Codex";
   if (entry?.type === "turn_context" && typeof payload?.model === "string")
     codex.model = payload.model;
-  if (entry?.type !== "event_msg" || payload?.type !== "token_count") return;
-  const info = record(payload.info);
-  const total = record(info?.total_token_usage);
-  if (total) {
-    // Codex counts cached input inside its input.
-    const cached = count(total.cached_input_tokens);
-    codex.total = {
-      input: Math.max(0, count(total.input_tokens) - cached),
-      output: count(total.output_tokens),
-      cacheWrite5m: count(total.cache_write_input_tokens),
-      cacheWrite1h: 0,
-      cacheRead: cached,
-      webSearches: 0,
-    };
+  if (entry?.type === "token_usage_record") {
+    const usage = record(payload?.usage);
+    const id = typeof payload?.response_id === "string" ? payload.response_id : undefined;
+    if (!usage || !id) return;
+    // A total that counted before this record is this response.
+    const totals = record(payload?.thread_token_usage);
+    if (totals) {
+      state.requests.delete(`${codex.file}:${totalOf(totals)}`);
+      if (totalOf(totals) >= totalOf(codex.totals)) codex.totals = totals;
+    }
+    state.requests.set(id, { model: model(), tokens: codexTokens(usage) });
+    return;
   }
-  const used = count(record(info?.last_token_usage)?.input_tokens);
+  if (entry?.type !== "event_msg") return;
+  if (payload?.type === "item_completed") {
+    const item = record(payload.item);
+    if (item?.type === "SubAgentActivity" && item.kind === "started")
+      if (typeof item.agent_thread_id === "string") codex.children.add(item.agent_thread_id);
+    return;
+  }
+  if (payload?.type !== "token_count") return;
+  const info = record(payload.info);
+  const totals = record(info?.total_token_usage);
+  const last = record(info?.last_token_usage);
+  if (totals && totalOf(totals) > totalOf(codex.totals)) {
+    // What the total grew by is one response, or more when Codex wrote no
+    // count between them.
+    const grown: Json = {};
+    for (const key of [
+      "input_tokens",
+      "cached_input_tokens",
+      "cache_write_input_tokens",
+      "output_tokens",
+    ])
+      grown[key] = count(totals[key]) - count(codex.totals[key]);
+    state.requests.set(`${codex.file}:${totalOf(totals)}`, {
+      model: model(),
+      tokens: codexTokens(grown),
+    });
+    codex.totals = totals;
+  }
+  const used = count(last?.input_tokens);
   const window = count(info?.model_context_window);
   const at = Date.parse(String(entry.timestamp ?? ""));
   if (used && window) state.last = { used, window, ...(Number.isFinite(at) ? { at } : {}) };
@@ -300,6 +358,15 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
     const path = await findTranscript(session, home());
     if (!path) return undefined;
     const main = await readFile(session.agent, path);
+    if (session.agent === "codex") {
+      const children = await Promise.all(
+        [...(main.codex?.children ?? [])].map(async (id) => {
+          const child = await findTranscript({ agent: "codex", id }, home());
+          return child ? readFile("codex", child).catch(() => undefined) : undefined;
+        }),
+      );
+      return { main, subagents: children.filter((entry): entry is Read => !!entry) };
+    }
     if (session.agent !== "claude") return { main, subagents: [] };
     const folder = join(dirname(path), session.id, "subagents");
     const names = await readdir(folder).catch(() => [] as string[]);
@@ -359,11 +426,7 @@ export function createSessionUsage(options: { home?: () => string } = {}) {
           missing.push(agentName(session));
           continue;
         }
-        if (session.agent === "codex") {
-          const codex = read.main.codex;
-          if (codex?.total) add(codex.model ?? "Codex", codex.total, undefined);
-          else missing.push(agentName(session));
-        }
+        if (session.agent === "codex" && !read.main.requests.size) missing.push(agentName(session));
         // A fork starts with its original's history: a response counts once
         // in the thread, by its message ID.
         for (const [index, file] of [read.main, ...read.subagents].entries()) {

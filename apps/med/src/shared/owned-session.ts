@@ -8,13 +8,83 @@ import { sessionHaltSchema } from "./agent-status";
  * Protocol (ACP), such as OpenCode.
  */
 
+/**
+ * What an agent that Med runs can do, so the page shows only the controls
+ * that work (docs/AGENT_WORKSPACES.md#what-each-agent-can-do).
+ */
+export const agentCapabilitiesSchema = z.object({
+  /** Takes a message during its turn: **Send now** on a queued message. */
+  steer: z.boolean(),
+  /** Stops a turn: **Stop** and Esc. */
+  interrupt: z.boolean(),
+  /** How a tool that needs approval gets it: a card in Med ("ask"), or the
+   * mode and allow rules chosen before the turn ("rules"), as Antigravity's
+   * headless mode refuses what they do not allow. */
+  approvals: z.enum(["ask", "rules"]),
+  /** Takes images in a prompt. */
+  images: z.boolean(),
+  /** Its session goes on after its process ends: the next message resumes it. */
+  resume: z.boolean(),
+  /** Its subagents' threads show in the session. */
+  subagents: z.boolean(),
+  /** Context and spend come from its token counts. */
+  usage: z.boolean(),
+});
+export type AgentCapabilities = z.infer<typeof agentCapabilitiesSchema>;
+
+/** The capabilities of each kind of agent that Med runs. */
+export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
+  claude: {
+    // A queued message joins the turn by itself, after the tools that run.
+    steer: false,
+    interrupt: true,
+    approvals: "ask",
+    images: true,
+    resume: true,
+    subagents: true,
+    usage: true,
+  },
+  codex: {
+    steer: true,
+    interrupt: true,
+    approvals: "ask",
+    images: true,
+    resume: true,
+    subagents: true,
+    usage: true,
+  },
+  agy: {
+    steer: false,
+    interrupt: true,
+    approvals: "rules",
+    images: false,
+    resume: true,
+    subagents: true,
+    // agy reports tokens, but Med has no Gemini prices or context windows.
+    usage: false,
+  },
+  acp: {
+    steer: false,
+    interrupt: true,
+    approvals: "ask",
+    images: false,
+    resume: false,
+    subagents: false,
+    usage: false,
+  },
+};
+
+export const agentKindSchema = z.enum(["claude", "codex", "agy", "acp"]);
+export type AgentKind = z.infer<typeof agentKindSchema>;
+
 /** An installed agent that Med can start. */
 export const agentPresetSchema = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(["claude", "acp"]),
+  kind: agentKindSchema,
   /** Not found on this computer; shown so the user knows what to install. */
   available: z.boolean(),
+  capabilities: agentCapabilitiesSchema.optional(),
 });
 export type AgentPreset = z.infer<typeof agentPresetSchema>;
 
@@ -101,6 +171,8 @@ export const ownedStateSchema = z.object({
   turns: z.number().int().nonnegative(),
   /** The agent takes images in a prompt. */
   images: z.boolean().optional(),
+  /** What the agent can do; the page shows only these controls. */
+  capabilities: agentCapabilitiesSchema.optional(),
   error: z.string().optional(),
   /** What stopped the session's work: Med shows its cause and one action. */
   halt: sessionHaltSchema
@@ -132,6 +204,7 @@ export type AgentChoices = z.infer<typeof agentChoicesSchema>;
 export const AGENT_DEFAULTS: Record<string, AgentChoices> = {
   claude: { model: "opus", effort: "medium", mode: "auto" },
   codex: { model: "gpt-6-astra" },
+  agy: { mode: "accept-edits" },
 };
 
 /**
