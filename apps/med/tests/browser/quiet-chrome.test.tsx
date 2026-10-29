@@ -562,8 +562,9 @@ async function painted(watched: Element, read: () => string, act: () => Promise<
   let at = 0;
   let on = true;
   const tick = () => {
+    if (!on) return;
     frames.set(++at, read());
-    if (on) requestAnimationFrame(tick);
+    requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
   const observer = new ResizeObserver(() => frames.set(at, read()));

@@ -279,7 +279,7 @@ async function openChanges() {
 /** A GitHub thread, at its line or in the panel. */
 const inDiff = '[aria-label^="GitHub thread by"]';
 const thread = (author: string, line: string) =>
-  page.getByRole("article", { name: `GitHub thread by ${author} at ${line}, read-only` });
+  page.getByRole("article", { name: `GitHub thread by ${author} at ${line}` });
 
 test("Branch changes at the pull request head show its threads at their lines, apart from files edited after it", async () => {
   await openChanges();
