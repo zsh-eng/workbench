@@ -59,7 +59,7 @@ export function RestoreIsland({
     <ActivityIsland
       content={content}
       status={status}
-      className={`restore-island ${align}`}
+      className={`restore-island restore-island-${align}`}
     >
       {children}
     </ActivityIsland>

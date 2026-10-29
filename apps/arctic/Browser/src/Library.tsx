@@ -167,15 +167,20 @@ export function Library({ folder }: { folder: Folder }) {
     return result;
   }, [articles]);
 
+  const shelfCount = (
+    <span className="shelf-count">
+      {waiting
+        ? "\u00a0"
+        : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
+    </span>
+  );
   // A new device's restore grows out of the count, and folds back into it
   // once the links are in. A phone's grows out of its account button.
-  const count = (
+  const count = compact ? (
+    shelfCount
+  ) : (
     <RestoreIsland count={articles.length} align="start">
-      <span className="shelf-count">
-        {waiting
-          ? "\u00a0"
-          : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
-      </span>
+      {shelfCount}
     </RestoreIsland>
   );
   const layoutToggle = (
@@ -390,7 +395,7 @@ export function Library({ folder }: { folder: Folder }) {
           ))}
         </nav>
         <div className="shelf-meta" hidden={compact}>
-          {!compact && count}
+          {count}
           {layoutToggle}
         </div>
         {showTopics && (

@@ -123,7 +123,15 @@ test("on a phone, the restore island grows from the account button and says what
   await expect(page.locator(".card[data-id]").first()).toBeVisible();
   await expect(island.getByRole("status")).toHaveText("Library ready");
   await expect(island).toHaveAttribute("data-island", "rest");
-  await expect(page.getByRole("button", { name: "Account" })).toBeVisible();
+  // The account button keeps its place in the strip.
+  const strip = await page.locator(".strip").boundingBox();
+  const avatar = await page
+    .getByRole("button", { name: "Account" })
+    .boundingBox();
+  expect(avatar!.y).toBeGreaterThanOrEqual(strip!.y);
+  expect(avatar!.y + avatar!.height).toBeLessThanOrEqual(
+    strip!.y + strip!.height,
+  );
 });
 
 test("with room, the restore island grows from the count and folds back into it", async ({
