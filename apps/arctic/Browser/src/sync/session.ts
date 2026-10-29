@@ -73,6 +73,12 @@ export class Session {
    * library's, so the library waits for the last one (docs/FIRST_SYNC.md).
    */
   restoring: boolean;
+  /**
+   * The links' first pull has ended with every page, in this page load or
+   * an earlier one. Until then a new device's restore island shows, also
+   * while a failed pull waits to try again (RestoreIsland.tsx).
+   */
+  linksRestored: boolean;
   private listeners = new Set<() => void>();
   private files = new Map<string, Promise<string>>();
 
@@ -88,6 +94,7 @@ export class Session {
     for (const channel of Object.values(channels))
       channel.storage.timeCommits = true;
     this.restoring = !channels.library.stateStore.read()?.bootstrapped;
+    this.linksRestored = !this.restoring;
     this.controller = createSyncController({
       run: async ({ signal, markRestoring }) => {
         if (!channels.library.stateStore.read()?.bootstrapped) markRestoring();
@@ -432,9 +439,12 @@ export class Session {
     localStorage.removeItem(statusKey(this.account.userId));
   }
 
+  /** After each pull of the links: a first pull has ended, or a retry has. */
   private restored() {
-    if (!this.restoring) return;
+    const restored = !!this.channels.library.stateStore.read()?.bootstrapped;
+    if (!this.restoring && restored === this.linksRestored) return;
     this.restoring = false;
+    this.linksRestored = restored;
     this.emit();
   }
 

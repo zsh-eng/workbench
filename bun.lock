@@ -15,6 +15,7 @@
         "@base-ui/react": "1.8.0",
         "@workbench/activity-time": "workspace:*",
         "@workbench/arctic-links": "workspace:*",
+        "@workbench/background-activity": "workspace:*",
         "@workbench/elements": "workspace:*",
         "@workbench/file-batch": "workspace:*",
         "@zsh-eng/local-sync": "workspace:*",

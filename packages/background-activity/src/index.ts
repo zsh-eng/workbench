@@ -37,3 +37,4 @@ export {
   type IslandContent,
   type IslandPhase,
 } from "./island-timing";
+export { restoreIsland, type RestoreStage } from "./restore";

@@ -314,18 +314,17 @@ describe("the activity glyph", () => {
     return glyph?.getAttribute("data-activity-glyph") ?? null;
   }
 
-  it("speaks for a restore, and leaves what sync needs from you to the account menu", () => {
+  it("leaves a restore to the island, and what sync needs from you to the account menu", () => {
     vi.stubGlobal("matchMedia", () => ({
       matches: false,
       addEventListener() {},
       removeEventListener() {},
     }));
-    expect(
-      glyphFor([sync("running", { title: "Restoring your library" })]),
-    ).toBe("progress");
-    // A sign-in and two failures in a row have the account menu; a routine
-    // pass is silent.
+    // A restore has the island that grows out of the glyph
+    // (LibraryRestoreIsland). A sign-in and two failures in a row have the
+    // account menu; a routine pass is silent.
     const quiet = [
+      sync("running", { title: "Restoring your library" }),
       sync("waiting", {
         origin: "app",
         waitingFor: "sign-in",

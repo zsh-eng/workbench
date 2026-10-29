@@ -88,6 +88,31 @@
   --accent: #4385be;
   --danger: #d14d41;
 }
+/* The restore island (@workbench/background-activity/island), from each
+   palette, its words at 4.5:1 or more in every theme and mode. Light: ink
+   on paper (text 19.6:1, count 7.8:1; Flexoki 18.6:1, 7.4:1). Dark: the
+   raised surface lifted by some of the text, with a hairline, so the pill
+   stands off the page: Arctic 16% (1.7:1 on the page, text 9.7:1, count
+   4.8:1). Night and Flexoki keep a dim text, so they lift 20% and show the
+   count at 80%: Night 1.7:1, text 7.5:1, count 5.4:1; Flexoki 1.7:1, text
+   7.1:1, count 5.2:1. The ring's arc is the text's colour; the amber
+   attention mark is 5.3:1 or more. Measured in Chromium from the computed
+   colours, the count and marks composited on the surface. */
+:root {
+  --ba-island-surface: var(--fg);
+  --ba-island-text: var(--bg);
+  --ba-island-edge: transparent;
+}
+:root[data-mode="dark"] {
+  --ba-island-surface: color-mix(in oklab, var(--raised), var(--fg) 16%);
+  --ba-island-text: var(--fg);
+  --ba-island-edge: color-mix(in oklab, var(--fg) 16%, transparent);
+}
+:root[data-theme="night"][data-mode="dark"],
+:root[data-theme="flexoki"][data-mode="dark"] {
+  --ba-island-surface: color-mix(in oklab, var(--raised), var(--fg) 20%);
+  --ba-island-detail: color-mix(in oklab, currentColor 80%, transparent);
+}
 /* Compact width, below 600 px: the phone layout (useCompact in surface.tsx,
    the size classes in @workbench/elements/size-class). */
 @media (width < 600px) {
@@ -537,27 +562,24 @@ img.favicon {
 }
 
 /* A new device's library before its links arrive (Waiting in Library.tsx):
-   still cards in the layout's shape, and one line that says what happens.
-   Wider windows say it in the count by the title. */
+   still cards in the layout's shape. The restore island says what happens,
+   from the count by the title, or a phone's account button. */
 .waiting .card {
   pointer-events: none;
 }
-.waiting-note {
-  grid-column: 1 / -1;
-  margin: 0 0 -8px;
-  font-size: 14px;
-  color: var(--fg-2);
-  font-variant-numeric: tabular-nums;
+.restore-island-start {
+  --ba-island-left: 0;
+  --ba-island-shift: 0;
 }
-@media (width >= 600px) {
-  .waiting-note {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+.restore-island-end {
+  --ba-island-left: 100%;
+  --ba-island-shift: -100%;
+}
+/* A phone's island grows out of the account button, at its height, and
+   over the folders (raised over their capsule); the search field covers it. */
+.strip .restore-island {
+  z-index: 1;
+  --ba-island-height: 32px;
 }
 .waiting .card-title {
   display: block;

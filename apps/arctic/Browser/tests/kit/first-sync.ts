@@ -25,6 +25,9 @@ import {
  *     --steps tests/kit/first-sync.ts --runs 5 --warmup 0 --timeout 900
  *
  * FIRST_SYNC_SECONDS=<n> watches for n seconds instead, for `kit clip`.
+ * FIRST_SYNC_SETTINGS='{"theme":"night","appearance":"dark"}' opens it in a
+ * theme (as src/settings.ts keeps it), for stills: the clear drops the
+ * saved one.
  */
 export default async function firstSync({
   page,
@@ -41,6 +44,12 @@ export default async function firstSync({
     origin,
     storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
   });
+  const settings = process.env.FIRST_SYNC_SETTINGS;
+  if (settings)
+    await page.addInitScript(
+      (value) => localStorage.setItem("arctic:settings", value),
+      settings,
+    );
   await fetch(`${LAB_API}/__lab`, {
     method: "POST",
     body: JSON.stringify({ d1Ms: profile.d1Ms, r2Ms: profile.r2Ms }),

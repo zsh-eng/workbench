@@ -19,6 +19,9 @@ import { LAB_API, LAB_APP_ORIGIN } from "../../../scripts/restore-lab";
  * RESTORE_LAB_TRACE_MS (12 s); use --runs 1. For `kit clip`,
  * RESTORE_LAB_SECONDS=<n> watches the new device for n seconds instead of
  * until the last cover, and records the milestones reached by then.
+ * RESTORE_LAB_THEME=<light|night|flexoki-light> opens it in that theme,
+ * following the system's appearance (the kit's --dark), for stills: the
+ * clear drops the saved one.
  */
 export default async function freshRestore({
   page,
@@ -35,6 +38,15 @@ export default async function freshRestore({
     storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
   });
   await cdp.detach();
+  const theme = process.env.RESTORE_LAB_THEME;
+  if (theme)
+    await page.addInitScript((value) => {
+      localStorage.setItem(
+        "epub-reader-settings",
+        JSON.stringify({ theme: value }),
+      );
+      localStorage.setItem("epub-reader-appearance", "system");
+    }, theme);
 
   const requests: {
     path: string;
