@@ -173,8 +173,9 @@ guardian reviews and subagents do not list. One with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
 conversation a thread whose agent Med runs, from its transcript's history
-(`{ agent: "agy", session, repo }`). agy has one writer, so that waits until
-the other process ends.
+(`{ agent: "agy", session, repo }`). agy has one writer: until the other
+process ends, a message to the thread fails and says to end it there. Turns
+that the other process adds after that do not show in Med's thread.
 
 ### What each agent can do
 
