@@ -166,6 +166,8 @@ async function mountApp(
     review?: { paths: string[]; patch: string };
     /** GitHub comments; the first saved target compares the pull request head. */
     pullRequest?: PullRequestComments;
+    /** What GitHub has after a change to the reader's pending review. */
+    pullRequestWrite?(input: unknown, current: PullRequestComments): PullRequestComments;
     /** Codex reviews; the first saved target compares the first run's commit. */
     codexReviews?: CodexReviewRun[];
     loadBlame?: BlameLoader;
@@ -249,6 +251,8 @@ async function mountApp(
     };
   });
   const pullRequestReads: string[] = [];
+  const pullRequestWrites: unknown[] = [];
+  let pullRequest = options.pullRequest;
   let inbox = options.inbox;
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
@@ -584,9 +588,13 @@ async function mountApp(
       }
       if (url.pathname === "/api/reviews/saved/codex-reviews")
         return Response.json({ runs: options.codexReviews ?? [] });
-      if (url.pathname === "/api/reviews/saved/pull-request" && options.pullRequest) {
-        pullRequestReads.push(url.search);
-        return Response.json(options.pullRequest);
+      if (url.pathname === "/api/reviews/saved/pull-request" && pullRequest) {
+        if (init?.method === "POST") {
+          const input = JSON.parse(String(init.body)) as unknown;
+          pullRequestWrites.push(input);
+          pullRequest = options.pullRequestWrite?.(input, pullRequest) ?? pullRequest;
+        } else pullRequestReads.push(url.search);
+        return Response.json(pullRequest);
       }
       if (/^\/api\/reviews\/saved\/targets\/[^/]+\/drift$/.test(url.pathname))
         return Response.json({
@@ -934,6 +942,7 @@ async function mountApp(
     fileRequests,
     vaultWrites,
     pullRequestReads,
+    pullRequestWrites,
     agentMessages,
     agentAnswers,
     setOwned,
@@ -3492,7 +3501,7 @@ describe("review brief", () => {
       .toBe(2);
   });
 
-  test("shows GitHub pull request comments read-only, apart from local notes", async () => {
+  test("shows GitHub pull request comments apart from local notes; replies and Med comments go into the reader's pending review, which they submit", async () => {
     const comment = (id: number, author: string, body: string) => ({
       id,
       author,
@@ -3500,8 +3509,41 @@ describe("review brief", () => {
       createdAt: "2026-09-20T00:00:00Z",
       url: `https://github.com/acme/med/pull/7#discussion_r${id}`,
     });
-    const { pullRequestReads } = await mountApp({
+    const { pullRequestReads, pullRequestWrites, controller } = await mountApp({
       savedReview: true,
+      // GitHub as Med reads it after each change: a reply is a draft until
+      // the reader submits their review.
+      pullRequestWrite: (input, current) => {
+        const change = input as { action: string; body?: string };
+        if (change.action === "reply")
+          return {
+            ...current,
+            threads: current.threads.map((thread) =>
+              thread.id === 11
+                ? {
+                    ...thread,
+                    comments: [
+                      ...thread.comments,
+                      { ...comment(13, "me", change.body!), draft: true },
+                    ],
+                  }
+                : thread,
+            ),
+          };
+        if (change.action === "submit")
+          return {
+            ...current,
+            threads: current.threads.map((thread) => ({
+              ...thread,
+              comments: thread.comments.map(({ draft: _draft, ...entry }) => entry),
+            })),
+            reviews: [
+              ...current.reviews,
+              { ...comment(42, "me", change.body ?? ""), state: "COMMENTED" },
+            ],
+          };
+        return current;
+      },
       pullRequest: {
         url: "https://github.com/acme/med/pull/7",
         head: firstCommit,
@@ -3542,27 +3584,47 @@ describe("review brief", () => {
       )
       .toBeVisible();
     expect(document.title).toBe("Agent review");
-    // The thread on the pull request head shows on its line, with no way to write.
-    const thread = page.getByRole("article", {
-      name: "GitHub thread by mira at R1, read-only",
-    });
+    // The thread on the pull request head shows on its line.
+    const thread = page.getByRole("article", { name: "GitHub thread by mira at R1" });
     await expect.element(thread).toBeVisible();
     await expect
       .poll(() => thread.element().textContent, { timeout: 10_000 })
       .toMatch(/Rename after to next\..*sam.*Done in the next push/);
-    expect(thread.element().querySelector("textarea, [contenteditable]")).toBeNull();
     expect(
       thread
         .getByRole("button")
         .elements()
         .map((button) => button.ariaLabel),
-    ).toEqual(["Copy thread"]);
+    ).toEqual(["Reply on GitHub", "Copy thread"]);
     await expect
       .element(thread.getByRole("link", { name: "Open on GitHub" }))
       .toHaveAttribute("href", "https://github.com/acme/med/pull/7#discussion_r11");
+    // A reply goes into the reader's pending review, and shows as Pending.
+    await thread.getByRole("button", { name: "Reply on GitHub" }).click();
+    await thread.getByRole("textbox", { name: "Reply on GitHub" }).fill("Renamed.");
+    await thread.getByRole("button", { name: "Add to review" }).click();
+    await expect.poll(() => thread.element().textContent).toMatch(/me\s*Pending.*Renamed\./);
+    expect(pullRequestWrites).toEqual([{ action: "reply", thread: 11, body: "Renamed." }]);
 
-    // The panel holds the conversation and the thread the diff cannot show.
-    await page.getByRole("button", { name: "5 pull request comments" }).click();
+    // A Med comment on this version can go there too.
+    await controller.mutateNote({
+      type: "add",
+      note: { path: "src/alpha.ts", side: "new", line: 1, text: "Name it next." },
+    });
+    const note = page.getByRole("article", { name: "Comment thread at line R1" });
+    await note.getByRole("button", { name: "Add to your pending review on GitHub" }).click();
+    await expect
+      .element(note.getByRole("button", { name: "In your pending review on GitHub" }))
+      .toBeVisible();
+    expect(pullRequestWrites.at(-1)).toEqual({
+      action: "note",
+      targetId: "target-0",
+      noteId: "saved-note-0",
+    });
+
+    // The panel holds the pending review, the conversation, and the thread
+    // the diff cannot show.
+    await page.getByRole("button", { name: "6 pull request comments" }).click();
     const panel = page.getByRole("dialog", { name: "Pull request comments" });
     await expect.element(panel).toBeVisible();
     const text = panel.element().textContent;
@@ -3570,6 +3632,17 @@ describe("review brief", () => {
     expect(text).toContain("Ready for review.");
     expect(text).toContain("1 thread shows in the diff.");
     expect(text).toMatch(/src\/beta\.ts\s*L2\s*Outdated.*Is this still needed\?/);
+    const pending = panel.getByRole("region", { name: "Your pending review" });
+    await expect.element(pending).toMatchTextContent(/1 comment, only you see them/);
+    await pending.getByRole("textbox", { name: "Review summary" }).fill("Looks right.");
+    await pending.getByRole("button", { name: "Submit comments" }).click();
+    await expect.element(pending).not.toBeInTheDocument();
+    expect(pullRequestWrites.at(-1)).toEqual({
+      action: "submit",
+      event: "COMMENT",
+      body: "Looks right.",
+    });
+    await expect.element(panel).toMatchTextContent(/me\s*Reviewed.*Looks right\./);
     await panel.getByRole("button", { name: "Read again from GitHub" }).click();
     await expect.poll(() => pullRequestReads.at(-1)).toBe("?refresh=1");
     expect(pullRequestReads.slice(0, -1).every((search) => search === "")).toBe(true);

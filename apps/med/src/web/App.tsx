@@ -134,6 +134,11 @@ import {
   useCodexReviews,
   usePullRequestComments,
 } from "./components/PullRequestComments";
+import {
+  PendingReviewContext,
+  type PendingReviewInput,
+  type PendingReviewTarget,
+} from "./data/pending-review";
 import { placeThreads } from "./data/pull-request";
 import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
 import { PathLabel } from "./components/PathLabel";
@@ -1351,6 +1356,22 @@ export function App({
     state.savedReview?.pullRequestUrl
       ? `${state.savedReview.id} ${state.savedReview.pullRequestUrl}`
       : null,
+    useCallback(
+      (input: PendingReviewInput) => controller.changePullRequestReview(input),
+      [controller],
+    ),
+  );
+  // The reader's pending review on GitHub: replies to its threads, and the
+  // comments on a saved version, which Med keeps with that version.
+  const pendingReview = useMemo<PendingReviewTarget | null>(
+    () =>
+      state.savedReview?.pullRequestUrl
+        ? {
+            ...(state.savedView && state.savedTargetId ? { targetId: state.savedTargetId } : {}),
+            write: pullRequest.write,
+          }
+        : null,
+    [state.savedReview?.pullRequestUrl, state.savedView, state.savedTargetId, pullRequest.write],
   );
   // GitHub thread lines refer to the pull request's head commit. Threads show
   // in the diff only when it shows that commit and the line (data/pull-request.ts).
@@ -6901,85 +6922,119 @@ export function App({
   ];
   const app = (
     <AgentReplyContext.Provider value={agentReply}>
-      <div
-        {...stylex.props(styles.app)}
-        data-theme={activeTheme.id}
-        data-sidebar-visible={shell ? shell.sidebarVisible : changedVisible}
-        data-selected-branch={state.activeBranch ?? ""}
-        data-selected-repository={state.activeRepositoryId ?? ""}
-        data-selected-commit={loadedCommit}
-        data-review-id={state.review?.id ?? ""}
-        data-review-status={state.status}
-        data-pending={state.status === "loading" || undefined}
-        // Which pane a saved review shows first: its session, when on screen.
-        data-leads={
-          state.savedReview ? (sessionVisible && hasSessions ? "session" : "review") : undefined
-        }
-        data-file-count={state.files.length}
-        data-active-file={activeFile?.path ?? ""}
-      >
-        {zen ? (
-          <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
-        ) : (
-          !workspace && <BranchStrip model={branches} />
-        )}
-        {branchPicker}
-        {/* A stack's band names the shown layer's pull request. */}
-        {shownLayer?.pullRequestUrl && !savedCardHeader && (
-          <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={shownLayer.pullRequestUrl}
-                title={shownLayer.pullRequestTitle ?? shownLayer.title}
-              />
-            }
-          />
-        )}
-        {state.savedReview?.pullRequestUrl && !shownLayer?.pullRequestUrl && !savedCardHeader && (
-          <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={state.savedReview.pullRequestUrl}
-                title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-                pull={pullRequest.data?.pull}
-              />
-            }
-            trail={
-              <PullRequestPanel
-                state={pullRequest}
-                placement={pullRequestThreads.placement}
-                words
-              />
-            }
-          />
-        )}
-        <SaveReviewDialog
-          brief={pendingBrief}
-          files={state.files}
-          root={state.review?.repo}
-          comparisonLabel={state.review?.label ?? "These changes"}
-          onClose={() => setPendingBrief(null)}
-          onSave={async (title) => {
-            const id = await controller.saveReview({
-              title,
-              brief: pendingBrief ?? undefined,
-            });
-            setPendingBrief(null);
-            onOpenReview(id);
-          }}
-        />
-        <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
-        {definitions && (
-          <SymbolPicker
-            open
-            mode="project"
-            definitionResult={definitions}
-            source={definitions.source}
-            sourceLabel={sourceLabel}
-            api={browseApi}
-            onOpenChange={(open) => {
-              if (!open) setDefinitions(null);
+      <PendingReviewContext.Provider value={pendingReview}>
+        <div
+          {...stylex.props(styles.app)}
+          data-theme={activeTheme.id}
+          data-sidebar-visible={shell ? shell.sidebarVisible : changedVisible}
+          data-selected-branch={state.activeBranch ?? ""}
+          data-selected-repository={state.activeRepositoryId ?? ""}
+          data-selected-commit={loadedCommit}
+          data-review-id={state.review?.id ?? ""}
+          data-review-status={state.status}
+          data-pending={state.status === "loading" || undefined}
+          // Which pane a saved review shows first: its session, when on screen.
+          data-leads={
+            state.savedReview ? (sessionVisible && hasSessions ? "session" : "review") : undefined
+          }
+          data-file-count={state.files.length}
+          data-active-file={activeFile?.path ?? ""}
+        >
+          {zen ? (
+            <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
+          ) : (
+            !workspace && <BranchStrip model={branches} />
+          )}
+          {branchPicker}
+          {/* A stack's band names the shown layer's pull request. */}
+          {shownLayer?.pullRequestUrl && !savedCardHeader && (
+            <InTitleBand
+              lead={
+                <PullRequestTitle
+                  url={shownLayer.pullRequestUrl}
+                  title={shownLayer.pullRequestTitle ?? shownLayer.title}
+                />
+              }
+            />
+          )}
+          {state.savedReview?.pullRequestUrl && !shownLayer?.pullRequestUrl && !savedCardHeader && (
+            <InTitleBand
+              lead={
+                <PullRequestTitle
+                  url={state.savedReview.pullRequestUrl}
+                  title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+                  pull={pullRequest.data?.pull}
+                />
+              }
+              trail={
+                <PullRequestPanel
+                  state={pullRequest}
+                  placement={pullRequestThreads.placement}
+                  words
+                />
+              }
+            />
+          )}
+          <SaveReviewDialog
+            brief={pendingBrief}
+            files={state.files}
+            root={state.review?.repo}
+            comparisonLabel={state.review?.label ?? "These changes"}
+            onClose={() => setPendingBrief(null)}
+            onSave={async (title) => {
+              const id = await controller.saveReview({
+                title,
+                brief: pendingBrief ?? undefined,
+              });
+              setPendingBrief(null);
+              onOpenReview(id);
             }}
+          />
+          <ThemePicker open={themePickerOpen} onOpenChange={setThemePickerOpen} />
+          {definitions && (
+            <SymbolPicker
+              open
+              mode="project"
+              definitionResult={definitions}
+              source={definitions.source}
+              sourceLabel={sourceLabel}
+              api={browseApi}
+              onOpenChange={(open) => {
+                if (!open) setDefinitions(null);
+              }}
+              onOpen={(path, line, source, column) =>
+                fileWorkspace.open(
+                  path,
+                  line,
+                  source,
+                  source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
+                  column,
+                )
+              }
+            />
+          )}
+          <SymbolPicker
+            sidebarWidth={316}
+            beginFilePreview={beginFilePreview}
+            open={symbolPickerOpen}
+            onOpenChange={setSymbolPickerOpen}
+            mode={symbolMode}
+            onModeChange={setSymbolMode}
+            source={
+              symbolMode === "file"
+                ? activeFile && activeFile.source.kind !== "vault"
+                  ? activeFile.source
+                  : null
+                : browseSource
+            }
+            path={activeFile?.path}
+            identity={fileState.file?.kind === "text" ? fileState.file.identity : undefined}
+            currentFile={fileState.file && isBrowseFile(fileState.file) ? fileState.file : null}
+            sourceRevision={state.sourceRevision}
+            sourceLabel={
+              symbolMode === "file" ? (activeFile?.sourceLabel ?? sourceLabel) : sourceLabel
+            }
+            api={browseApi}
             onOpen={(path, line, source, column) =>
               fileWorkspace.open(
                 path,
@@ -6990,178 +7045,146 @@ export function App({
               )
             }
           />
-        )}
-        <SymbolPicker
-          sidebarWidth={316}
-          beginFilePreview={beginFilePreview}
-          open={symbolPickerOpen}
-          onOpenChange={setSymbolPickerOpen}
-          mode={symbolMode}
-          onModeChange={setSymbolMode}
-          source={
-            symbolMode === "file"
-              ? activeFile && activeFile.source.kind !== "vault"
-                ? activeFile.source
-                : null
-              : browseSource
-          }
-          path={activeFile?.path}
-          identity={fileState.file?.kind === "text" ? fileState.file.identity : undefined}
-          currentFile={fileState.file && isBrowseFile(fileState.file) ? fileState.file : null}
-          sourceRevision={state.sourceRevision}
-          sourceLabel={
-            symbolMode === "file" ? (activeFile?.sourceLabel ?? sourceLabel) : sourceLabel
-          }
-          api={browseApi}
-          onOpen={(path, line, source, column) =>
-            fileWorkspace.open(
-              path,
-              line,
-              source,
-              source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
-              column,
-            )
-          }
-        />
-        <FilePicker
-          repositories={state.repositories}
-          vaults={vaults}
-          open={filePickerOpen && !!browseSource}
-          onOpenChange={setFilePickerOpen}
-          entries={repositoryFiles.entries}
-          loading={repositoryFiles.loading}
-          error={repositoryFiles.error}
-          sourceLabel={sourceLabel}
-          source={browseSource}
-          api={browseApi}
-          sourceRevision={state.sourceRevision}
-          openPaths={fileState.tabs
-            .filter((tab) => browseSource && sourceKey(tab.source) === sourceKey(browseSource))
-            .map((tab) => tab.path)}
-          recentPaths={fileState.recentPaths}
-          initialMode={pickerMode}
-          initialQuery={pickerQuery}
-          resume={pickerResume}
-          onOpen={(path, line, source, label) =>
-            fileWorkspace.open(
-              path,
-              line,
-              source,
-              source?.kind === "commit"
-                ? `Commit ${source.oid.slice(0, 8)}`
-                : (label ?? sourceLabel),
-            )
-          }
-        />
-        <div
-          {...stylex.props(
-            styles.workspace,
-            (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
-            (zen || quiet) && styles.zenWorkspace,
-          )}
-          id={`${idPrefix}review-workspace`}
-          role="tabpanel"
-          aria-label={`${state.activeBranch ?? "Workspace"} review`}
-        >
-          <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
-          {quiet && !zen && <ConnectionNotice connection={state.connection} />}
-        </div>
-        {/* Quiet chrome has no status bar: the comparison names the review, a
-            file's header its path, and ⋯ and ⌘K have the rest. */}
-        <footer
-          {...stylex.props(
-            styles.statusbar,
-            stylex.defaultMarker(),
-            (zen || quiet) && styles.hiddenSurface,
-          )}
-          hidden={zen || quiet}
-        >
-          <span {...stylex.props(styles.statusItem)}>
-            <span
-              key={state.sourceRevision}
-              data-connection={state.connection}
-              {...stylex.props(
-                styles.statusDot,
-                state.connection === "reconnecting" && styles.statusWaiting,
-                state.connection !== "connected" &&
-                  state.connection !== "reconnecting" &&
-                  styles.statusIdle,
-              )}
-            />
-            {activeFile
-              ? fileReading
-                ? "Reading file"
-                : editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
-                  ? "Editing file · Vim"
-                  : fileState.file?.media
-                    ? fileState.file.kind === "video"
-                      ? "Video"
-                      : "Image"
-                    : vimEnabled
-                      ? "Read-only file · Vim"
-                      : "Read-only file"
-              : state.savedView
-                ? "Saved review"
-                : state.comparison.kind === "patch"
-                  ? "Patch review"
-                  : state.comparison.kind === "files"
-                    ? "File comparison"
-                    : state.comparison.kind === "commit" || state.comparison.kind === "range"
-                      ? "Commit review"
-                      : state.connection === "connected"
-                        ? "Live changes"
-                        : state.connection === "reconnecting"
-                          ? "Reconnecting…"
-                          : "Connecting…"}
-          </span>
-          {activeFile && (
-            <span>
-              {fileState.file
-                ? `${fileState.file.size.toLocaleString()} bytes`
-                : activeFile.sourceLabel}
-            </span>
-          )}
-          <span {...stylex.props(ui.grow)} />
-          <StatusPath
-            shown={activeFile?.path ?? selectedFile?.path}
-            commit={fileState.active === "commit" && !activeFile ? commitPath : null}
+          <FilePicker
+            repositories={state.repositories}
+            vaults={vaults}
+            open={filePickerOpen && !!browseSource}
+            onOpenChange={setFilePickerOpen}
+            entries={repositoryFiles.entries}
+            loading={repositoryFiles.loading}
+            error={repositoryFiles.error}
+            sourceLabel={sourceLabel}
+            source={browseSource}
+            api={browseApi}
+            sourceRevision={state.sourceRevision}
+            openPaths={fileState.tabs
+              .filter((tab) => browseSource && sourceKey(tab.source) === sourceKey(browseSource))
+              .map((tab) => tab.path)}
+            recentPaths={fileState.recentPaths}
+            initialMode={pickerMode}
+            initialQuery={pickerQuery}
+            resume={pickerResume}
+            onOpen={(path, line, source, label) =>
+              fileWorkspace.open(
+                path,
+                line,
+                source,
+                source?.kind === "commit"
+                  ? `Commit ${source.oid.slice(0, 8)}`
+                  : (label ?? sourceLabel),
+              )
+            }
           />
-          {!activeFile && state.metrics && (
-            <span
-              title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
-              {...stylex.props(styles.performance, styles.onStatusHover)}
-            >
-              {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
-              ms parse
-              {frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
-              {state.metrics.cacheHit
-                ? "client cache"
-                : state.review?.metrics.cacheHit
-                  ? "server cache"
-                  : "fresh"}
-            </span>
-          )}
-          <button
-            {...stylex.props(ui.button, styles.helpButton)}
-            {...tooltip("Shortcuts and commands", "?")}
-            onClick={() => setHelpOpen(true)}
-            aria-label="Shortcuts and commands"
+          <div
+            {...stylex.props(
+              styles.workspace,
+              (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
+              (zen || quiet) && styles.zenWorkspace,
+            )}
+            id={`${idPrefix}review-workspace`}
+            role="tabpanel"
+            aria-label={`${state.activeBranch ?? "Workspace"} review`}
           >
-            <kbd>?</kbd>
-          </button>
-        </footer>
-        <CommandDialog
-          open={commandsOpen}
-          onOpenChange={setCommandsOpen}
-          commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
-        />
-        <ShortcutGuide
-          open={helpOpen}
-          onOpenChange={setHelpOpen}
-          context={guideContext}
-          commands={commands}
-        />
-      </div>
+            <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
+            {quiet && !zen && <ConnectionNotice connection={state.connection} />}
+          </div>
+          {/* Quiet chrome has no status bar: the comparison names the review, a
+            file's header its path, and ⋯ and ⌘K have the rest. */}
+          <footer
+            {...stylex.props(
+              styles.statusbar,
+              stylex.defaultMarker(),
+              (zen || quiet) && styles.hiddenSurface,
+            )}
+            hidden={zen || quiet}
+          >
+            <span {...stylex.props(styles.statusItem)}>
+              <span
+                key={state.sourceRevision}
+                data-connection={state.connection}
+                {...stylex.props(
+                  styles.statusDot,
+                  state.connection === "reconnecting" && styles.statusWaiting,
+                  state.connection !== "connected" &&
+                    state.connection !== "reconnecting" &&
+                    styles.statusIdle,
+                )}
+              />
+              {activeFile
+                ? fileReading
+                  ? "Reading file"
+                  : editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
+                    ? "Editing file · Vim"
+                    : fileState.file?.media
+                      ? fileState.file.kind === "video"
+                        ? "Video"
+                        : "Image"
+                      : vimEnabled
+                        ? "Read-only file · Vim"
+                        : "Read-only file"
+                : state.savedView
+                  ? "Saved review"
+                  : state.comparison.kind === "patch"
+                    ? "Patch review"
+                    : state.comparison.kind === "files"
+                      ? "File comparison"
+                      : state.comparison.kind === "commit" || state.comparison.kind === "range"
+                        ? "Commit review"
+                        : state.connection === "connected"
+                          ? "Live changes"
+                          : state.connection === "reconnecting"
+                            ? "Reconnecting…"
+                            : "Connecting…"}
+            </span>
+            {activeFile && (
+              <span>
+                {fileState.file
+                  ? `${fileState.file.size.toLocaleString()} bytes`
+                  : activeFile.sourceLabel}
+              </span>
+            )}
+            <span {...stylex.props(ui.grow)} />
+            <StatusPath
+              shown={activeFile?.path ?? selectedFile?.path}
+              commit={fileState.active === "commit" && !activeFile ? commitPath : null}
+            />
+            {!activeFile && state.metrics && (
+              <span
+                title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
+                {...stylex.props(styles.performance, styles.onStatusHover)}
+              >
+                {Math.round(state.metrics.requestMs)} ms request ·{" "}
+                {Math.round(state.metrics.parseMs)} ms parse
+                {frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
+                {state.metrics.cacheHit
+                  ? "client cache"
+                  : state.review?.metrics.cacheHit
+                    ? "server cache"
+                    : "fresh"}
+              </span>
+            )}
+            <button
+              {...stylex.props(ui.button, styles.helpButton)}
+              {...tooltip("Shortcuts and commands", "?")}
+              onClick={() => setHelpOpen(true)}
+              aria-label="Shortcuts and commands"
+            >
+              <kbd>?</kbd>
+            </button>
+          </footer>
+          <CommandDialog
+            open={commandsOpen}
+            onOpenChange={setCommandsOpen}
+            commands={[...commands].sort((a, b) => commandRank(a.id) - commandRank(b.id))}
+          />
+          <ShortcutGuide
+            open={helpOpen}
+            onOpenChange={setHelpOpen}
+            context={guideContext}
+            commands={commands}
+          />
+        </div>
+      </PendingReviewContext.Provider>
     </AgentReplyContext.Provider>
   );
   return <ZenContext.Provider value={zen}>{app}</ZenContext.Provider>;

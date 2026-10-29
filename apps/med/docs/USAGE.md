@@ -805,7 +805,9 @@ passes options such as `--force` and `--branch` to `gh`, and `--no-open` prints
 the launch URL instead. It needs the GitHub CLI, signed in.
 
 A saved review with a pull request shows its GitHub comments. Med reads them
-with `gh`; it never posts, replies, or resolves.
+with `gh`. It writes only into your pending review, GitHub's draft that
+nobody else sees until you submit it; it never resolves a thread or posts a
+comment by itself.
 
 - When the diff shows the pull request's head commit, each code thread shows on
   its line with the GitHub mark. This includes Changes when the branch tip is
@@ -823,8 +825,18 @@ with `gh`; it never posts, replies, or resolves.
   **Suggested change**.
 - Hover a comment for **Copy** and **Open on GitHub**. **Copy comments** copies
   only Med's comments.
-- Med reads again when the window gets focus, at most every 30 seconds, or when
-  you click refresh. **Hide comments** hides GitHub's comments and Med's.
+- **Reply on GitHub** on a thread, and the GitHub button on a Med comment in a
+  Review version on the pull request's head, add to your pending review. Med
+  starts one when you have none. Its comments show **Pending**. A comment on
+  another commit, or on captured working changes, cannot go: GitHub's lines
+  belong to the head.
+- **Your pending review** at the top of the panel says how many comments it
+  holds. Add a summary, then **Submit comments**, **Approve** or **Request
+  changes**; **Discard** deletes it on GitHub.
+- Med reads again when the window gets focus, at most every 30 seconds, when
+  you open the panel, after each change to your pending review, and with
+  **Refresh** in the panel. **Hide comments** hides GitHub's comments and
+  Med's.
 
 ## Codex reviews
 

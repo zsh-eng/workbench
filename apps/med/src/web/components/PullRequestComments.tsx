@@ -20,7 +20,8 @@ import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
-import { CommentText } from "./NoteCard";
+import { PendingReviewContext, type PendingReviewInput } from "../data/pending-review";
+import { CommentEditor, CommentText } from "./NoteCard";
 import { useRowPart } from "./QuietChrome";
 import { tooltip } from "./ToolButton";
 
@@ -35,6 +36,9 @@ export interface PullRequestState {
   /** Increases only when the inline threads change, so the diff redraws them. */
   threadsRevision: number;
   refresh(force?: boolean): void;
+  /** Changes the reader's pending review on GitHub and shows the comments
+   * that GitHub then has. Rejects with the reason. */
+  write(input: PendingReviewInput): Promise<void>;
 }
 
 interface Loaded {
@@ -45,10 +49,13 @@ interface Loaded {
   threadsRevision: number;
 }
 
-/** Loads a saved review's pull request comments, again when the window gets focus. */
+/** Loads a saved review's pull request comments, again when the window gets
+ * focus, when the reader opens the panel, and after each change that the
+ * reader makes to their pending review. */
 export function usePullRequestComments(
   load: (refresh: boolean) => Promise<PullRequestComments>,
   key: string | null,
+  change?: (input: PendingReviewInput) => Promise<PullRequestComments>,
 ): PullRequestState {
   const [state, setState] = useState<Loaded>({
     key: null,
@@ -58,6 +65,22 @@ export function usePullRequestComments(
     threadsRevision: 0,
   });
   const request = useRef(0);
+  const show = useCallback(
+    (data: PullRequestComments) =>
+      setState((current) => {
+        const previous = current.key === key ? current : null;
+        const same =
+          previous?.data && JSON.stringify(previous.data.threads) === JSON.stringify(data.threads);
+        return {
+          key,
+          data: same ? { ...data, threads: previous.data!.threads } : data,
+          error: null,
+          loading: false,
+          threadsRevision: (previous?.threadsRevision ?? 0) + (same ? 0 : 1),
+        };
+      }),
+    [key],
+  );
   // State changes only when a read ends, or from the event that asks again.
   const read = useCallback(
     (force: boolean) => {
@@ -65,20 +88,7 @@ export function usePullRequestComments(
       const id = ++request.current;
       load(force).then(
         (data) => {
-          if (request.current !== id) return;
-          setState((current) => {
-            const previous = current.key === key ? current : null;
-            const same =
-              previous?.data &&
-              JSON.stringify(previous.data.threads) === JSON.stringify(data.threads);
-            return {
-              key,
-              data: same ? { ...data, threads: previous.data!.threads } : data,
-              error: null,
-              loading: false,
-              threadsRevision: (previous?.threadsRevision ?? 0) + (same ? 0 : 1),
-            };
-          });
+          if (request.current === id) show(data);
         },
         (error: unknown) => {
           if (request.current !== id) return;
@@ -92,7 +102,17 @@ export function usePullRequestComments(
         },
       );
     },
-    [key, load],
+    [key, load, show],
+  );
+  const write = useCallback(
+    async (input: PendingReviewInput) => {
+      if (!key || !change) throw new Error("This review has no pull request.");
+      // A read that ends after the change would show GitHub from before it.
+      const id = ++request.current;
+      const data = await change(input);
+      if (request.current === id) show(data);
+    },
+    [key, change, show],
   );
   const refresh = useCallback(
     (force = false) => {
@@ -116,6 +136,7 @@ export function usePullRequestComments(
     loading: current ? current.loading : key !== null,
     threadsRevision: current?.threadsRevision ?? 0,
     refresh,
+    write,
   };
 }
 
@@ -342,8 +363,8 @@ function Entry({
   );
 }
 
-/** An inline GitHub thread in the diff. It has no reply, edit, or resolve:
- * Med reads GitHub and keeps its own notes local. */
+/** A GitHub thread, in the diff or the panel. A reply goes into the reader's
+ * pending review on GitHub; Med does not edit or resolve threads. */
 export function PullRequestThreadCard({
   thread,
   now: fixedNow,
@@ -355,13 +376,15 @@ export function PullRequestThreadCard({
   embedded?: boolean;
 }) {
   const [now] = useState(() => fixedNow ?? Date.now());
+  const github = useContext(PendingReviewContext);
+  const [replying, setReplying] = useState(false);
   const [first, ...replies] = thread.comments;
   if (!first) return null;
   return (
     <article
       data-comment-card
       data-pull-request-thread={thread.id}
-      aria-label={`GitHub thread by ${first.author} at ${lineLabel(thread)}, read-only`}
+      aria-label={`GitHub thread by ${first.author} at ${lineLabel(thread)}`}
       {...stylex.props(styles.card, embedded && styles.embedded)}
     >
       <Entry
@@ -370,6 +393,17 @@ export function PullRequestThreadCard({
         mark="github"
         tools={
           <>
+            {github && !replying && (
+              <button
+                type="button"
+                title="Reply on GitHub, in your pending review"
+                aria-label="Reply on GitHub"
+                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                onClick={() => setReplying(true)}
+              >
+                <Icon name="edit" size={13} />
+              </button>
+            )}
             <AddToReplyButton label={threadLabel(thread)} text={() => threadText(thread)} />
             <CopyButton label="Copy thread" text={() => threadText(thread)} />
             <OpenButton url={first.url} />
@@ -381,7 +415,106 @@ export function PullRequestThreadCard({
           <Entry comment={reply} now={now} />
         </div>
       ))}
+      {github && replying && (
+        <div {...stylex.props(styles.reply)}>
+          <CommentEditor
+            label="Reply on GitHub"
+            formLabel="Reply on GitHub"
+            submitLabel="Add to review"
+            onSave={(body) => github.write({ action: "reply", thread: thread.id, body })}
+            onCancel={() => setReplying(false)}
+          />
+        </div>
+      )}
     </article>
+  );
+}
+
+/** The reader's pending review on GitHub: what it holds, and Submit or
+ * Discard. GitHub shows it to nobody else until they submit it. */
+function PendingReview({ data }: { data: PullRequestComments }) {
+  const github = useContext(PendingReviewContext);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState<PendingReviewInput["action"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const drafts = data.threads.reduce(
+    (sum, thread) => sum + thread.comments.filter((comment) => comment.draft).length,
+    0,
+  );
+  const summary = data.reviews.find((review) => review.draft);
+  if (!github || (!drafts && !summary)) return null;
+  const run = async (input: PendingReviewInput) => {
+    setBusy(input.action);
+    setError(null);
+    try {
+      await github.write(input);
+      setBody("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "GitHub did not take the change.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const submit = (event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES") =>
+    void run({ action: "submit", event, ...(body.trim() ? { body: body.trim() } : {}) });
+  return (
+    <section aria-label="Your pending review" {...stylex.props(styles.section, styles.pending)}>
+      <div {...stylex.props(styles.headingRow)}>
+        <h3 {...stylex.props(ui.label, styles.heading)}>Your pending review</h3>
+        <span {...stylex.props(styles.time)}>
+          {drafts} {drafts === 1 ? "comment" : "comments"}, only you see them
+        </span>
+      </div>
+      <textarea
+        aria-label="Review summary"
+        placeholder={summary?.body.trim() ? summary.body : "Summary (optional)"}
+        value={body}
+        rows={2}
+        disabled={busy !== null}
+        onChange={(event) => setBody(event.target.value)}
+        {...stylex.props(styles.summary)}
+      />
+      {error && (
+        <p role="alert" {...stylex.props(styles.error)}>
+          {error}
+        </p>
+      )}
+      <div {...stylex.props(styles.submitRow)}>
+        <button
+          type="button"
+          disabled={busy !== null}
+          {...stylex.props(ui.button, ui.pressable, styles.addAll)}
+          onClick={() => void run({ action: "discard" })}
+        >
+          Discard
+        </button>
+        <span {...stylex.props(ui.grow)} />
+        <button
+          type="button"
+          disabled={busy !== null}
+          {...stylex.props(ui.button, ui.pressable, styles.addAll)}
+          onClick={() => submit("REQUEST_CHANGES")}
+        >
+          Request changes
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          {...stylex.props(ui.button, ui.pressable, styles.addAll)}
+          onClick={() => submit("APPROVE")}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          {...stylex.props(ui.button, ui.pressable, styles.addAll, ui.primary)}
+          onClick={() => submit("COMMENT")}
+        >
+          {busy === "submit" ? "Submitting…" : "Submit comments"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -506,6 +639,7 @@ export function PanelContent({
     : [];
   const others = data ? data.threads.filter((thread) => !placement.inline.has(thread.id)) : [];
   const inline = data ? data.threads.length - others.length : 0;
+  const writable = !!useContext(PendingReviewContext);
   return (
     <div {...stylex.props(styles.content)}>
       <header {...stylex.props(styles.head)}>
@@ -520,17 +654,20 @@ export function PanelContent({
         )}
         <button
           type="button"
-          title="Read again from GitHub"
+          title="Read again from GitHub. Med also reads when the window gets focus."
           aria-label="Read again from GitHub"
           aria-busy={loading}
-          {...stylex.props(ui.button, ui.iconButton, styles.tool, styles.visible)}
+          {...stylex.props(ui.button, ui.pressable, styles.addAll)}
           onClick={onRefresh}
         >
-          <Icon name="refresh" size={13} />
+          <Icon name="refresh" size={12} />
+          Refresh
         </button>
       </header>
       <p {...stylex.props(styles.lede)}>
-        Read-only from GitHub. To reply, open a comment on GitHub. Med notes stay local.
+        {writable
+          ? "A reply, or a Med comment that you add to GitHub, goes into your pending review. Nobody else sees it until you submit it."
+          : "Read-only from GitHub. To reply, open a comment on GitHub. Med notes stay local."}
       </p>
       {error && (
         <p role="alert" {...stylex.props(styles.error)}>
@@ -540,6 +677,7 @@ export function PanelContent({
       {!data && !error && <p {...stylex.props(styles.lede)}>Reading comments…</p>}
       {data && (
         <>
+          <PendingReview data={data} />
           <section aria-label="Conversation" {...stylex.props(styles.section)}>
             <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
             {timeline.length ? (
@@ -981,6 +1119,32 @@ const styles = stylex.create({
   runTitle: { margin: 0, color: tokens.muted, fontSize: 12, fontWeight: 550 },
   headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
   addAll: { minHeight: 22, paddingInline: 6, fontSize: 11.5 },
+  // The reader's own draft on GitHub sits above what others wrote.
+  pending: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: 8,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  summary: {
+    boxSizing: "border-box",
+    width: "100%",
+    resize: "vertical",
+    paddingBlock: 6,
+    paddingInline: 8,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: { default: tokens.line, ":focus": tokens.lineStrong },
+    borderRadius: `calc(6px * ${tokens.round})`,
+    outline: "none",
+    backgroundColor: tokens.canvas,
+    color: tokens.text,
+    fontFamily: "inherit",
+    fontSize: 12,
+  },
+  submitRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 },
   // The same card as a local note, so both read as one system; the GitHub
   // mark and the author line set it apart.
   card: {
