@@ -131,7 +131,9 @@ taps, so they reach the mark. Colours and where it grows from are custom
 properties (`island.css`): an app sets `--ba-island-surface`, `-text` and
 `-edge` from its own tokens per theme; without them the island is near
 black in light mode and a raised grey with a hairline in dark mode, with
-its text at AA in both. With reduced motion it cross-fades at its final
+its text at AA in both. The defaults follow a `.light` or `.dark` class on
+the root, else the OS; an app with other themes (Reader's `night` and
+Flexoki, Arctic's `data-mode`) sets its own. With reduced motion it cross-fades at its final
 width. Spaced uses it; Reader and Arctic have mock-ups in Spaced's Elements
 page.
 

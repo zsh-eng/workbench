@@ -12,7 +12,8 @@
  * dark mode a near-black pill disappears into the page, so it is a raised
  * surface, lighter than the page, with a hairline. Without an app's
  * colours it uses these defaults, dark under `prefers-color-scheme: dark`
- * or a `.dark` root, light under a `.light` root. Keep the text at 4.5:1
+ * or a `.dark` root, light under a `.light` root; an app with other theme
+ * names sets its own. Keep the text at 4.5:1
  * or more on the surface for the detail too, which is the text at 62%.
  * It takes no taps: they reach the mark under it.
  */
@@ -61,7 +62,7 @@
   );
   --ba-island-morph-duration: 487ms;
 }
-/* Raised: 1.85:1 on a black page, text 10.4:1, detail 5.1:1. */
+/* Raised: 1.85:1 on #000, text 10.4:1, detail 5.1:1. */
 @media (prefers-color-scheme: dark) {
   :where(:root:not(.light)) .ba-island-slot {
     --ba-island-default-surface: #3a3a3c;

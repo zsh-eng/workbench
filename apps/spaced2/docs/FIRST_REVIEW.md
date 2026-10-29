@@ -366,10 +366,10 @@ are waiting for it), so it gets a designed one. Stills, light and dark at
 for the whole wait, the Dynamic Island's shape from MOTION.md's references,
 and the cheapest to share. In light mode the island is near black. In
 dark mode a near-black pill vanished into the page (1.02:1 on Spaced's,
-1.01:1 on black), so it is a raised surface with a hairline: Spaced's
+1.01:1 on Arctic's #0a0a0a), so it is a raised surface with a hairline: Spaced's
 muted token raised by 12% of its foreground (1.9:1 on the page, text
 10.2:1, detail 5.0:1), and a shared default of #3a3a3c for apps without
-their own (1.85:1 on black, text 10.4:1, detail 5.1:1). Stills before
+their own (1.85:1 on #000, 1.74:1 on #0a0a0a; text 10.4:1, detail 5.1:1). Stills before
 and after: `media/spaced-first-load/island-dark/`.
 
 **Built.** `@workbench/background-activity/island` (`ActivityIsland`,
