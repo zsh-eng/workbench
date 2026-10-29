@@ -5,7 +5,8 @@
 // JSON object of branch names and pull request lists. FAKE_GH_LOG names a
 // file that gets each command's arguments as a line of JSON.
 // FAKE_GH_DELAY_MS slows each command, to watch progress by hand. `pr create`
-// copies its --body-file to FAKE_GH_BODY_OUT and prints FAKE_GH_CREATED.
+// copies its --body-file to FAKE_GH_BODY_OUT and prints FAKE_GH_CREATED, or
+// with FAKE_GH_EXISTS fails as gh does for a branch whose pull request is open.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, copyFileSync } from "node:fs";
 
@@ -26,6 +27,12 @@ if (command === "pr" && action === "view") {
 } else if (command === "pr" && action === "list") {
   const head = argv[argv.indexOf("--head") + 1];
   process.stdout.write(JSON.stringify(JSON.parse(process.env.FAKE_GH_PULLS ?? "{}")[head] ?? []));
+} else if (command === "pr" && action === "create" && process.env.FAKE_GH_EXISTS) {
+  const head = argv[argv.indexOf("--head") + 1];
+  process.stderr.write(
+    `a pull request for branch "${head}" into branch "main" already exists:\n${process.env.FAKE_GH_EXISTS}\n`,
+  );
+  process.exit(1);
 } else if (command === "pr" && action === "create" && process.env.FAKE_GH_CREATED) {
   if (process.env.FAKE_GH_BODY_OUT)
     copyFileSync(argv[argv.indexOf("--body-file") + 1], process.env.FAKE_GH_BODY_OUT);

@@ -354,6 +354,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     directory: join(options.stateDir ?? temporaryState!, "pr-drafts"),
     gh: options.gh ?? { command: "gh", args: [] },
   });
+  /** Reviews whose pull request gh is opening, so a second Create waits. */
+  const creatingPullRequests = new Set<string>();
   void pruneImages(imageDirectory);
   const bin = options.cli ? join(options.stateDir ?? temporaryState!, "bin") : undefined;
   if (bin) await writeMedCommand(bin, options.cli!);
@@ -457,7 +459,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const queuedMessages = createQueuedMessages({
     inbox,
     runner: (sessionId) => ownedSessions.get(sessionId),
-    stateFile: join(options.stateDir ?? temporaryState!, "agent-messages", "after-turn.json"),
+    stateFile: join(options.stateDir ?? temporaryState!, "queued-after-turn.json"),
   });
   for (const { reviewId, sessionId } of await inbox.queued())
     queuedMessages.watch(reviewId, sessionId);
@@ -1571,7 +1573,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1593,6 +1595,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 else if ((sentAt.get(id) ?? "") < message.createdAt)
                   sentAt.set(id, message.createdAt);
               }
+            const afterTurnSessions = new Set(
+              messages.flatMap((message) =>
+                message.delivery === "pending" && queuedMessages.queued(message.id)
+                  ? [message.sessionId]
+                  : [],
+              ),
+            );
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
             const { briefComments, sessions } = await savedReviews.get(reviewId);
@@ -1600,8 +1609,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
+              // A Queue message holds its session's others until the turn
+              // ends too (queued-messages.ts), so they all say so.
               messages: messages.map((message) =>
-                message.delivery === "pending" && queuedMessages.queued(message.id)
+                message.delivery === "pending" && afterTurnSessions.has(message.sessionId)
                   ? { ...message, afterTurn: true }
                   : message,
               ),
@@ -1737,7 +1748,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 : resume
                   ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
                   : live;
-              const message = await inbox.send(
+              const store = () =>
+                inbox.send(
                 reviewId,
                 session,
                 {
@@ -1756,10 +1768,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     ? { deliver: (body) => target.prompt(body, native) }
                     : { held },
               );
+              const message =
+                queue && input.afterTurn
+                  ? await queuedMessages.queueing(reviewId, session.id, store)
+                  : await store();
               if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
               if (queue && message.delivery === "pending") {
                 if (input.afterTurn) {
-                  queuedMessages.queue(message.id);
                   queuedMessages.watch(reviewId, session.id);
                   return { ...message, afterTurn: true };
                 }
@@ -2548,14 +2563,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               if (!checkout)
                 throw new HostError("no-checkout", "The draft names no checkout.", 409);
               const repo = (await registry.require(checkout, abort.signal)).path;
-              const created = await prDrafts.create(draft, repo, input.draft, abort.signal);
-              assertRequestAccess();
-              const review = await savedReviews.setPrDraft(
-                id!,
-                { created: created.url },
-                assertRequestAccess,
-              );
-              send({ review, url: created.url, left: created.left });
+              if (creatingPullRequests.has(id!))
+                throw new HostError("pr-creating", "Med is opening this pull request.", 409);
+              creatingPullRequests.add(id!);
+              try {
+                // Without the request's signal: once gh runs, GitHub may open
+                // the pull request, so Med records its URL even when the
+                // window closes meanwhile.
+                const created = await prDrafts.create(draft, repo, input.draft);
+                const review = await savedReviews.setPrDraft(id!, { created: created.url });
+                send({ review, url: created.url, left: created.left });
+              } finally {
+                creatingPullRequests.delete(id!);
+              }
               return;
             }
             if (request.method === "POST" && action === "pins") {

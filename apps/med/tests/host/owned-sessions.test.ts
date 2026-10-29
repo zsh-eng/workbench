@@ -706,6 +706,47 @@ test("a message sent while Claude Code works waits for its next step: it comes b
   });
 });
 
+test("Queue keeps a message for the turn's end past a tool step and a host restart; Send now gives it to Claude Code at its next step", async () => {
+  vi.stubEnv("MED_FAKE_TOOL_MS", "4000");
+  const { api, review, thread, start, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const send = (text: string, afterTurn = false) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+      afterTurn,
+    });
+  const messages = async () =>
+    (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data.messages;
+  await send("Work on the check.");
+  await session.until((state) => state.status === "working");
+  const later = await send("Then update the docs.", true);
+  expect(later.data.message).toMatchObject({ delivery: "pending", afterTurn: true });
+
+  // A new host keeps the flag; then Send now lets the tool step take it.
+  await restart();
+  expect((await messages()).at(-1)).toMatchObject({ delivery: "pending", afterTurn: true });
+  const replies = await thread(session.id);
+  const now = await api(`/api/reviews/${review.id}/agent/send-now`, {
+    id: later.data.message.id,
+  });
+  expect(now.status).toBe(200);
+  await vi.waitFor(
+    () =>
+      expect(replies().at(-1)).toBe(
+        "Checked, and read your note: Then update the docs.",
+      ),
+    { timeout: 8000 },
+  );
+  expect((await messages()).at(-1)).toMatchObject({ delivery: "delivered" });
+  // A message that went has nothing to send now.
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: later.data.message.id })).status,
+  ).toBe(409);
+});
+
 test("med agents lists the agents that keep working; one that it stops resumes with the next message, and one whose holder dies waits as Interrupted", async () => {
   const { stateDir, thread, start } = await fixture();
   const session = await start("claude");

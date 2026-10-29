@@ -1474,14 +1474,12 @@ const tunedThemes: readonly Theme[] = [
 // their editor colors. They use Med's aesthetic.
 export const themes: readonly Theme[] = [
   ...tunedThemes,
-  ...editorThemes.map(
-    (theme): Theme => ({
-      ...theme,
-      pierreTheme: `med-${theme.id}`,
-      aesthetic: aesthetics.med,
-      palette: { ...theme.palette, shadow: theme.appearance === "dark" ? darkShadow : lightShadow },
-    }),
-  ),
+  ...editorThemes.map((theme): Theme => ({
+    ...theme,
+    pierreTheme: `med-${theme.id}`,
+    aesthetic: aesthetics.med,
+    palette: { ...theme.palette, shadow: theme.appearance === "dark" ? darkShadow : lightShadow },
+  })),
 ];
 
 // Product themes first, then editor themes by name.

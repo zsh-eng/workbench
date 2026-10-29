@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runPullRequestCommand } from "../../src/cli/pr";
+import { createPrDrafts } from "../../src/host/pr-drafts";
 import { removeFolder } from "./remove-folder";
 
 const directories: string[] = [];
@@ -23,7 +24,7 @@ const PNG = Buffer.from(
   "base64",
 );
 
-test("an agent drafts a pull request from the template with an image; the reader comments, and Create runs gh pr create once the branch is pushed", async () => {
+test("an agent drafts a pull request from the template with an image; the reader comments, and Create runs gh pr create once GitHub has the branch's commits", async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med pr drafts ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -42,16 +43,11 @@ test("an agent drafts a pull request from the template with an image; the reader
   vi.stubEnv("FAKE_GH_BODY_OUT", sentBody);
   vi.stubEnv("FAKE_GH_CREATED", "https://github.com/example/repo/pull/7");
   const stateDir = join(directory, "state");
-  const host = await startHost({
-    repo,
-    repos: [repo],
-    stateDir,
-    port: 0,
-    gh: {
-      command: process.execPath,
-      args: [fileURLToPath(new URL("../fixtures/gh/fake-gh.mjs", import.meta.url))],
-    },
-  });
+  const gh = {
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../fixtures/gh/fake-gh.mjs", import.meta.url))],
+  };
+  const host = await startHost({ repo, repos: [repo], stateDir, port: 0, gh });
   hosts.push(host);
   const api = async (path: string, body?: unknown) => {
     const response = await fetch(`http://127.0.0.1:${host.port}${path}`, {
@@ -132,6 +128,13 @@ test("an agent drafts a pull request from the template with an image; the reader
   execFileSync("git", ["init", "-q", "--bare", remote]);
   git("remote", "add", "origin", remote);
   git("push", "-q", "-u", "origin", "feat/retry");
+  // A commit that GitHub does not have yet waits for the next push.
+  await writeFile(join(repo, "retry.ts"), "export const retry = 3;\n");
+  git("-c", "user.name=Med", "-c", "user.email=med@example.invalid", "commit", "-qam", "Three");
+  const behind = await create();
+  expect(behind.status).toBe(409);
+  expect(await behind.response.text()).toContain("GitHub does not have its last commit");
+  git("push", "-q");
   const opened = await create();
   expect(opened.status).toBe(200);
   expect(await opened.response.json()).toMatchObject({
@@ -163,4 +166,14 @@ test("an agent drafts a pull request from the template with an image; the reader
   });
   // Once open, Create does not run again.
   expect((await create()).status).toBe(409);
+
+  // A pull request that gh finds open already, as when the window closed
+  // while gh ran, is the one that the draft opened.
+  vi.stubEnv("FAKE_GH_EXISTS", "https://github.com/example/repo/pull/8");
+  const again = await createPrDrafts({ directory: join(directory, "again"), gh }).create(
+    (await review()).prDraft!,
+    repo,
+    false,
+  );
+  expect(again.url).toBe("https://github.com/example/repo/pull/8");
 });

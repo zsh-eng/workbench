@@ -23,6 +23,8 @@
 }
 .med-session-prose :is(h4, h5, h6) {
   font-size: 1em;
+  font-weight: 500;
+  color: inherit;
   margin: 1em 0 0.4em;
 }
 .med-session-prose :is(ul, ol) {

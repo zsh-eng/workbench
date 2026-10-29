@@ -141,17 +141,37 @@ export function createPrDrafts(options: {
           "The checkout is on no branch. Check out the branch to open the pull request from.",
           409,
         );
-      const upstream = (
-        await git(repo, ["for-each-ref", "--format=%(upstream:short)", `refs/heads/${head}`], {
-          signal,
-        })
+      // The pull request opens from the branch that the remote holds, so it
+      // must hold every commit of the checkout's branch.
+      const [upstream = "", remote = "", branch = ""] = (
+        await git(
+          repo,
+          [
+            "for-each-ref",
+            "--format=%(upstream)%00%(upstream:remotename)%00%(upstream:lstrip=3)",
+            `refs/heads/${head}`,
+          ],
+          { signal },
+        )
       )
         .toString()
-        .trim();
-      if (!upstream)
+        .trim()
+        .split("\0");
+      if (!upstream.startsWith("refs/remotes/") || !remote || remote === "." || !branch)
         throw new HostError(
           "branch-not-pushed",
           `Push ${head} to GitHub first, such as with git push -u origin ${head}. Med does not push.`,
+          409,
+        );
+      const ahead = Number(
+        (await git(repo, ["rev-list", "--count", `${upstream}..refs/heads/${head}`], { signal }))
+          .toString()
+          .trim(),
+      );
+      if (ahead > 0)
+        throw new HostError(
+          "branch-not-pushed",
+          `Push ${head} first: GitHub does not have its last ${ahead === 1 ? "commit" : `${ahead} commits`}. Med does not push.`,
           409,
         );
       const { body, left } = gitHubBody(draft);
@@ -169,7 +189,7 @@ export function createPrDrafts(options: {
             "--body-file",
             scratch,
             "--head",
-            head,
+            branch,
             ...(draft.base ? ["--base", draft.base] : []),
             ...(asDraft ? ["--draft"] : []),
           ],
@@ -191,6 +211,12 @@ export function createPrDrafts(options: {
             "Install the GitHub CLI (gh), then sign in with gh auth login.",
             502,
           );
+        // A pull request that gh finds open already, as when Create ran
+        // while the window closed, is the one this draft opened.
+        const open = error instanceof ProcessFailure && /already exists/.test(error.stderr ?? "")
+          ? pullRequestUrlSchema.safeParse(error.stderr.match(/https:\/\/\S+\/pull\/\d+/)?.[0])
+          : undefined;
+        if (open?.success) return { url: open.data, left };
         if (error instanceof ProcessFailure)
           throw new HostError(
             "pr-create-failed",

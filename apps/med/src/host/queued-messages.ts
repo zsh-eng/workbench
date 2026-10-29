@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import type { AgentInbox } from "./agent-inbox";
 import type { OwnedRunner } from "./owned-sessions";
+import { writeStateFile } from "./runtime/state-file";
 
 /**
  * Messages that the user sent while a session that Med runs worked
@@ -34,8 +34,17 @@ export function createQueuedMessages(options: {
   const watched = new Map<string, { check(): void; unsubscribe(): void }>();
   const key = (reviewId: string, sessionId: string) => `${reviewId}:${sessionId}`;
   const afterTurn = new Set<string>(readIds(options.stateFile));
+  // Sessions with a Queue message on its way into the inbox: it waits from
+  // the moment it is stored, before `queue` has its ID.
+  const arriving = new Map<string, number>();
+  // One write at a time, in order. The flags are a convenience: without
+  // them, the messages go at the next step.
+  let saving = Promise.resolve();
   const save = () => {
-    if (options.stateFile) writeIds(options.stateFile, [...afterTurn]);
+    const file = options.stateFile;
+    if (!file) return;
+    const text = JSON.stringify([...afterTurn].slice(-1000));
+    saving = saving.then(() => writeStateFile(file, text)).catch(() => {});
   };
 
   /** The session's messages that have not gone yet. */
@@ -61,13 +70,9 @@ export function createQueuedMessages(options: {
     // A session that the user stopped keeps its messages; they show as queued.
     if (!runner || runner.state().status === "exited") return stop(key(reviewId, sessionId));
     const before = await waiting(reviewId, sessionId);
-    if (
-      !ready(
-        runner,
-        before.some((message) => afterTurn.has(message.id)),
-      )
-    )
-      return;
+    const queued =
+      arriving.has(key(reviewId, sessionId)) || before.some((message) => afterTurn.has(message.id));
+    if (!ready(runner, queued)) return;
     await options.inbox.deliverPending(reviewId, sessionId, (body) => runner.prompt(body));
     const left = await waiting(reviewId, sessionId);
     // The ones that went, or that the user took back, wait for nothing now.
@@ -110,10 +115,29 @@ export function createQueuedMessages(options: {
 
   return {
     watch,
-    /** Keeps this message, and the session's others, until the turn ends. */
-    queue(id: string) {
-      afterTurn.add(id);
-      save();
+    /**
+     * Stores a Queue message with `send`. The session's messages wait for the
+     * turn's end from the moment the inbox has it, before its ID is known.
+     */
+    async queueing<T extends { id: string; delivery: string }>(
+      reviewId: string,
+      sessionId: string,
+      send: () => Promise<T>,
+    ) {
+      const name = key(reviewId, sessionId);
+      arriving.set(name, (arriving.get(name) ?? 0) + 1);
+      try {
+        const message = await send();
+        if (message.delivery === "pending") {
+          afterTurn.add(message.id);
+          save();
+        }
+        return message;
+      } finally {
+        const left = arriving.get(name)! - 1;
+        if (left) arriving.set(name, left);
+        else arriving.delete(name);
+      }
     },
     /** The user took the message back. */
     forget(id: string) {
@@ -121,6 +145,8 @@ export function createQueuedMessages(options: {
     },
     /** Whether this message waits for its turn's end. */
     queued: (id: string) => afterTurn.has(id),
+    /** Lets the last write of the flags end, as before the host closes. */
+    settled: () => saving,
     /** Sends the session's waiting messages at the agent's next step. */
     async sendNow(reviewId: string, sessionId: string) {
       let changed = false;
@@ -143,15 +169,5 @@ function readIds(file: string | undefined): string[] {
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
   } catch {
     return [];
-  }
-}
-
-function writeIds(file: string, ids: string[]) {
-  try {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(`${file}.tmp`, JSON.stringify(ids.slice(-1000)));
-    renameSync(`${file}.tmp`, file);
-  } catch {
-    /* The flags are a convenience: without them, the messages go at the next step. */
   }
 }

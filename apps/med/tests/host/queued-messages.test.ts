@@ -124,14 +124,15 @@ test("Queue holds a session's messages for the turn's end, across a restart; Sen
   const start = () => createQueuedMessages({ inbox, runner: () => agent.fake, stateFile });
   const queue = start();
   const add = async (text: string) => {
-    const message = await inbox.send(
-      "r1",
-      session("claude"),
-      { text, noteIds: [], attachmentCount: 0 },
-      text,
-      { queued: true },
+    const message = await queue.queueing("r1", "s1", () =>
+      inbox.send(
+        "r1",
+        session("claude"),
+        { text, noteIds: [], attachmentCount: 0 },
+        text,
+        { queued: true },
+      ),
     );
-    queue.queue(message.id);
     queue.watch("r1", "s1");
     await settle();
     return message;
@@ -142,6 +143,7 @@ test("Queue holds a session's messages for the turn's end, across a restart; Sen
   await settle();
   expect(agent.prompts).toEqual([]);
   // A new host reads which messages wait for the turn's end.
+  await queue.settled();
   expect(start().queued(rename.id)).toBe(true);
 
   await queue.sendNow("r1", "s1");
