@@ -237,7 +237,8 @@ Comments work as a pending GitHub review: drafts until sent, one message with
 each comment's `path:line`, the quoted lines, and your remark. A sent comment
 shows **Maybe addressed** when the agent changes its lines. GitHub comments
 appear with a badge; **Add to reply** and **Add all open** copy them into the
-draft. Med never posts to GitHub.
+draft. Med writes to GitHub only into your pending review, which you submit
+yourself ([pull requests](USAGE.md#pull-requests)).
 
 ## Notes
 
