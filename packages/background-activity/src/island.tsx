@@ -7,6 +7,13 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import {
+  ISLAND_CLEARANCE,
+  islandFold,
+  placeIsland,
+  type IslandObstacle,
+} from "./island-place";
 import {
   RESTING_ISLAND,
   islandStep,
@@ -16,15 +23,19 @@ import {
 export type { IslandContent } from "./island-timing";
 
 /**
- * Work you are waiting for, as one dark island that grows out of the app's
- * own mark, says what it does in place, and folds back into the mark when
- * it is done (docs/MODEL.md, "Restoring on a new device"). One element for
- * the whole wait: its words and ring change in place, and its width moves
- * on the morph spring. With reduced motion it cross-fades and does not
- * change shape.
+ * Work you are waiting for, as one island at the top centre of the window
+ * (docs/MODEL.md, "Restoring on a new device"), as the Dynamic Island is:
+ * below the safe area, above the page, and below the app's own controls
+ * where they hold the top centre (island-place.ts). It grows from the top
+ * centre, says what it does in place, and when it is done folds into the
+ * app's mark if the mark is near, or folds and fades where it is. One
+ * element for the whole wait: its words and ring change in place, and its
+ * width moves on the morph spring. With reduced motion it cross-fades and
+ * does not change shape or move.
  *
- * `children` is the mark at rest, such as the app's icon. `status` is what
- * assistive technology hears, once per stage, not each percent.
+ * `children` is the app's mark, such as its icon or sync glyph, which stays
+ * where the app puts it. `status` is what assistive technology hears, once
+ * per stage, not each percent.
  */
 export function ActivityIsland({
   content,
@@ -56,27 +67,69 @@ export function ActivityIsland({
     return () => clearTimeout(timer);
   }, [wakeAt, tick]);
 
-  // The island opens from the mark's width and fits its words; it folds
-  // back to the mark's width.
-  const rest = useRef<HTMLSpanElement>(null);
+  const slot = useRef<HTMLSpanElement>(null);
+  const mark = useRef<HTMLSpanElement>(null);
+  const layer = useRef<HTMLSpanElement>(null);
+  const pill = useRef<HTMLSpanElement>(null);
   const words = useRef<HTMLSpanElement>(null);
-  // The words mount when the island opens: measure them then.
   const resting = phase === "rest";
-  const [widths, setWidths] = useState({ rest: 0, words: 0 });
-  const [grown, setGrown] = useState(false);
+
+  // Where it floats, measured as it opens (before it paints), and again
+  // when the window or its words change size. In one window it only moves
+  // down, so a longer stage never makes it hop.
+  const [place, setPlace] = useState<Place | null>(null);
   useLayoutEffect(() => {
-    const measure = () =>
-      setWidths({
-        rest: rest.current?.offsetWidth ?? 0,
-        words: words.current?.scrollWidth ?? 0,
-      });
-    measure();
-    const observer = new ResizeObserver(measure);
-    if (rest.current) observer.observe(rest.current);
+    if (resting) return;
+    let floor = { window: -1, top: 0 };
+    const update = () => {
+      const next = measurePlace(layer, pill, words, slot, mark, floor);
+      if (!next) return;
+      floor = { window: window.innerWidth, top: next.top };
+      setPlace((place) => (samePlace(place, next) ? place : next));
+    };
+    update();
+    const observer = new ResizeObserver(update);
     if (words.current) observer.observe(words.current);
-    return () => observer.disconnect();
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, [resting]);
-  // One frame at the mark's width first, so the growth has a start.
+
+  // Where it folds to: the mark, if it is near and in view.
+  const [fold, setFold] = useState<Fold | null>(null);
+  useLayoutEffect(() => {
+    if (phase !== "folding") {
+      setFold(null);
+      return;
+    }
+    const box = pill.current?.getBoundingClientRect();
+    const rest = mark.current?.getBoundingClientRect();
+    if (!box) return;
+    const inView =
+      rest !== undefined &&
+      rest.width > 0 &&
+      rest.bottom > 0 &&
+      rest.top < window.innerHeight &&
+      rest.right > 0 &&
+      rest.left < window.innerWidth;
+    setFold(
+      islandFold({
+        island: { x: box.left + box.width / 2, y: box.top + box.height / 2 },
+        mark: inView
+          ? {
+              x: rest.left + rest.width / 2,
+              y: rest.top + rest.height / 2,
+              width: rest.width,
+            }
+          : null,
+      }),
+    );
+  }, [phase]);
+
+  // One frame at a dot's width first, so the growth has a start.
+  const [grown, setGrown] = useState(false);
   useEffect(() => {
     if (phase !== "open") {
       setGrown(false);
@@ -91,61 +144,264 @@ export function ActivityIsland({
   const still =
     typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const dot = place?.height ?? 36;
+  const full = place?.width ?? dot;
   const width =
-    open || (still && phase !== "rest")
-      ? widths.words
-      : Math.max(widths.rest, 36);
+    still || open
+      ? full
+      : phase === "folding"
+        ? fold
+          ? Math.max(fold.width ?? dot, dot)
+          : full
+        : dot;
+  const travel = fold && !still ? fold : null;
   // The width the island last came to rest at, for `data-settled`: stills
   // and tests wait for it.
   const [settled, setSettled] = useState<number | null>(null);
   return (
     <span
+      ref={slot}
       className={["ba-island-slot", className].filter(Boolean).join(" ")}
       data-island={phase}
       style={style}
     >
       <span
-        ref={rest}
+        ref={mark}
         className="ba-island-rest"
-        data-hidden={open || undefined}
+        data-hidden={(open && place?.covers) || undefined}
       >
         {children}
       </span>
-      {phase !== "rest" && shown && (
-        <span
-          aria-hidden="true"
-          className="ba-island"
-          data-open={open || undefined}
-          data-settled={(open && settled === width) || undefined}
-          onTransitionEnd={(event) => {
-            if (event.target !== event.currentTarget) return;
-            // With reduced motion only the opacity moves.
-            if (
-              event.propertyName === "width" ||
-              matchMedia("(prefers-reduced-motion: reduce)").matches
-            )
-              setSettled(width);
-          }}
-          style={{ width }}
-        >
-          <span ref={words} className="ba-island-words">
-            <IslandMark content={shown} />
-            {/* A new stage cross-fades its words in place. */}
-            <span key={shown.label} className="ba-island-label">
-              {shown.label}
+      {!resting &&
+        shown &&
+        createPortal(
+          <span ref={layer} className="ba-island-layer">
+            <span
+              ref={pill}
+              aria-hidden="true"
+              className="ba-island"
+              data-open={open || undefined}
+              data-fold={phase === "folding" || undefined}
+              data-rise={(place && place.rise > 0) || undefined}
+              data-settled={(open && settled === width) || undefined}
+              onTransitionEnd={(event) => {
+                if (event.target !== event.currentTarget) return;
+                // With reduced motion only the opacity moves.
+                if (event.propertyName === "width" || still) setSettled(width);
+              }}
+              style={
+                {
+                  width,
+                  top: place?.drop ?? 0,
+                  "--ba-island-rise": `${place?.rise ?? 0}px`,
+                  "--ba-island-dx": `${travel?.dx ?? 0}px`,
+                  "--ba-island-dy": `${travel?.dy ?? 0}px`,
+                } as CSSProperties
+              }
+            >
+              <span ref={words} className="ba-island-words">
+                <IslandMark content={shown} />
+                {/* A new stage cross-fades its words in place. */}
+                <span key={shown.label} className="ba-island-label">
+                  {shown.label}
+                </span>
+                {shown.detail !== undefined && (
+                  <span className="ba-island-detail">{shown.detail}</span>
+                )}
+              </span>
             </span>
-            {shown.detail !== undefined && (
-              <span className="ba-island-detail">{shown.detail}</span>
-            )}
-          </span>
-        </span>
-      )}
+          </span>,
+          document.body,
+        )}
       <span className="ba-island-status" role="status">
         {phase === "rest" ? "" : (status ?? "")}
       </span>
     </span>
   );
 }
+
+interface Place {
+  /** The island's top below the layer's (the safe area and a gap). */
+  drop: number;
+  /** In the window at the page's top; it rises by `rise` as the page scrolls. */
+  top: number;
+  rise: number;
+  width: number;
+  height: number;
+  /** Whether it covers the app's mark, which then steps aside. */
+  covers: boolean;
+}
+
+type Fold = ReturnType<typeof islandFold>;
+
+const samePlace = (a: Place | null, b: Place) =>
+  a !== null &&
+  a.drop === b.drop &&
+  a.rise === b.rise &&
+  a.width === b.width &&
+  a.height === b.height &&
+  a.covers === b.covers;
+
+/** What the island keeps clear of: whatever a tap or a key reaches. */
+const CONTROLS = [
+  "a[href]",
+  "button",
+  "input:not([type=hidden])",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable=true]",
+  "[tabindex]:not([tabindex='-1'])",
+  ...[
+    "button",
+    "link",
+    "tab",
+    "menuitem",
+    "checkbox",
+    "radio",
+    "switch",
+    "combobox",
+    "searchbox",
+  ].map((role) => `[role=${role}]`),
+].join();
+
+type Ref<T> = { current: T | null };
+
+/**
+ * The app's bar controls in the island's column on the first screen, and
+ * where that leaves the island. The app's mark and what holds it are not in
+ * its way: the island folds into it.
+ */
+function measurePlace(
+  layer: Ref<HTMLElement>,
+  pill: Ref<HTMLElement>,
+  words: Ref<HTMLElement>,
+  slot: Ref<HTMLElement>,
+  mark: Ref<HTMLElement>,
+  floor: { window: number; top: number },
+): Place | null {
+  if (!layer.current || !pill.current || !words.current || !slot.current)
+    return null;
+  const frame = layer.current.getBoundingClientRect();
+  const width = words.current.scrollWidth;
+  const height = pill.current.offsetHeight;
+  const centre = (frame.left + frame.right) / 2;
+  const left = centre - width / 2;
+  const right = centre + width / 2;
+  const scrolled = window.scrollY;
+  const obstacles: IslandObstacle[] = [];
+  for (const control of document.querySelectorAll<HTMLElement>(CONTROLS)) {
+    if (slot.current.contains(control) || control.contains(slot.current))
+      continue;
+    const box = control.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0 || box.top > window.innerHeight)
+      continue;
+    if (
+      box.right <= left - ISLAND_CLEARANCE ||
+      box.left >= right + ISLAND_CLEARANCE
+    )
+      continue;
+    if (
+      control.checkVisibility &&
+      !control.checkVisibility({
+        opacityProperty: true,
+        visibilityProperty: true,
+      })
+    )
+      continue;
+    const { stays, bar } = whereItSits(control);
+    // The page's content scrolls under the island, as under a top bar.
+    if (!stays && !bar) continue;
+    if (stays) {
+      // Below a fixed or sticky bar, not on its edge: the page passes
+      // under the bar there.
+      const edge = stays.getBoundingClientRect();
+      const bottom = edge.height <= 160 ? edge.bottom : box.bottom;
+      obstacles.push({ ...sides(box), top: box.top, bottom, stays: true });
+    } else
+      obstacles.push({
+        ...sides(box),
+        top: box.top + scrolled,
+        bottom: box.bottom + scrolled,
+        stays: false,
+      });
+  }
+  const placed = placeIsland({
+    obstacles,
+    left,
+    right,
+    top: frame.top,
+    height,
+  });
+  // A wider stage in the same window can move it down, never back up.
+  const top =
+    floor.window === window.innerWidth
+      ? Math.max(placed.top, floor.top)
+      : placed.top;
+  const rise = Math.max(0, placed.rise + top - placed.top);
+  // Where it shows now, for whether it covers the mark.
+  const shownTop = top - (risesWithScroll() ? Math.min(scrolled, rise) : 0);
+  const rest = mark.current?.getBoundingClientRect();
+  const covers =
+    rest !== undefined &&
+    rest.width > 0 &&
+    rest.left < right &&
+    rest.right > left &&
+    rest.top < shownTop + height &&
+    rest.bottom > shownTop;
+  return {
+    drop: top - frame.top,
+    top,
+    rise,
+    width,
+    height,
+    covers,
+  };
+}
+
+/** The landmarks and widgets that hold an app's bars of controls. */
+const BARS = new Set(["HEADER", "NAV"]);
+const BAR_ROLES = new Set([
+  "banner",
+  "navigation",
+  "search",
+  "toolbar",
+  "tablist",
+  "menubar",
+  "group",
+  "radiogroup",
+]);
+
+/**
+ * Whether a control is in one of the app's bars (a header, a navigation, a
+ * toolbar, a group of tabs or filters), and the fixed or sticky bar that
+ * keeps it where it is as the page scrolls. Controls in neither are the
+ * page's content.
+ */
+function whereItSits(control: Element): {
+  stays: Element | null;
+  bar: boolean;
+} {
+  let stays: Element | null = null;
+  let bar = control.getAttribute("role") === "tab";
+  for (
+    let node: Element | null = control;
+    node && node !== document.body;
+    node = node.parentElement
+  ) {
+    const role = node.getAttribute("role");
+    if (BARS.has(node.tagName) || (role !== null && BAR_ROLES.has(role)))
+      bar = true;
+    const { position } = getComputedStyle(node);
+    if (!stays && (position === "fixed" || position === "sticky")) stays = node;
+  }
+  return { stays, bar };
+}
+
+const sides = (box: DOMRect) => ({ left: box.left, right: box.right });
+
+const risesWithScroll = () =>
+  typeof CSS !== "undefined" && CSS.supports("animation-timeline: scroll()");
 
 function IslandMark({ content }: { content: IslandContent }) {
   if (content.mark === "progress")

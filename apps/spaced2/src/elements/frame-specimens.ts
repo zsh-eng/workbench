@@ -64,7 +64,7 @@ export const FRAME_SPECIMENS = [
   {
     id: "restore",
     title: "First restore",
-    note: "A new device's restore as an island that grows out of the Spaced icon: the cards, then the review history with its share, Restored, and a wait for a connection. The pages keep their frames meanwhile. Then the two directions it was chosen over (the card itself, a ring in the count). Nothing syncs.",
+    note: "A new device's restore as an island at the top centre, over the Spaced icon: the cards, then the review history with its share, Restored, and a wait for a connection. The pages keep their frames meanwhile. Then the two directions it was chosen over (the card itself, a ring in the count). Nothing syncs.",
     states: [
       { id: "cards", label: "Cards", demo: "Reset" },
       { id: "history", label: "History", demo: "Reset" },

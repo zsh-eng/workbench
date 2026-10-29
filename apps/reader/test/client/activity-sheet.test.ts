@@ -320,7 +320,7 @@ describe("the activity glyph", () => {
       addEventListener() {},
       removeEventListener() {},
     }));
-    // A restore has the island that grows out of the glyph
+    // A restore has the island, which folds into the glyph
     // (LibraryRestoreIsland). A sign-in and two failures in a row have the
     // account menu; a routine pass is silent.
     const quiet = [

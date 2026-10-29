@@ -210,12 +210,17 @@ listed, in order, and the first screen changes once.
 ## The restore island
 
 The placeholder's "Getting your library…" is now the shared restore island
-(`src/RestoreIsland.tsx`, packages/background-activity): it grows out of
-the count by the title, or a phone's account button, says "Getting your
-library · 2,000 links" (the links on this device so far; the library's
-size is not known until its last page), waits for a connection or a
-sign-in, says "Library ready" when the links' first pull has every page,
-and folds back. Its colours come from each palette, at 4.5:1 or more in
+(`src/RestoreIsland.tsx`, packages/background-activity): it floats at
+the top centre of the window, says "Getting your library · 2,000 links"
+(the links on this device so far; the library's size is not known until
+its last page), waits for a connection or a sign-in, says "Library ready"
+when the links' first pull has every page, and folds away: into a phone's
+account button, which is near, or in place with room, where the count by
+the title is far. Where the bars hold the top centre it floats below them:
+below a phone's strip (61 px), below the bar and the shelf's tabs from
+600 px (142 px, rising to below the bar as the page scrolls), and below
+the desk's bar where its search field reaches the centre (68 px, as at
+1,280 px); in a wider window, at the top (8 px, as at 1,920 px). Its colours come from each palette, at 4.5:1 or more in
 every theme and mode (`src/styles.css`).
 
 Large, near, 4 runs a side interleaved with the build before it (medians,

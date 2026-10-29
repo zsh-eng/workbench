@@ -563,23 +563,9 @@ img.favicon {
 
 /* A new device's library before its links arrive (Waiting in Library.tsx):
    still cards in the layout's shape. The restore island says what happens,
-   from the count by the title, or a phone's account button. */
+   at the top centre. */
 .waiting .card {
   pointer-events: none;
-}
-.restore-island-start {
-  --ba-island-left: 0;
-  --ba-island-shift: 0;
-}
-.restore-island-end {
-  --ba-island-left: 100%;
-  --ba-island-shift: -100%;
-}
-/* A phone's island grows out of the account button, at its height, and
-   over the folders (raised over their capsule); the search field covers it. */
-.strip .restore-island {
-  z-index: 1;
-  --ba-island-height: 32px;
 }
 .waiting .card-title {
   display: block;

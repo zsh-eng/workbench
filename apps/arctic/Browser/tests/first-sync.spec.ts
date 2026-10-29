@@ -97,7 +97,7 @@ async function holdLinks(page: Page) {
   return release;
 }
 
-test("on a phone, the restore island grows from the account button and says what it waits for", async ({
+test("on a phone, the restore island says what it waits for, and folds into the account button", async ({
   page,
   context,
 }) => {
@@ -106,22 +106,43 @@ test("on a phone, the restore island grows from the account button and says what
   await page.goto("/");
   const island = page.locator(".strip .ba-island-slot");
   await expect(island.getByRole("status")).toHaveText("Getting your library…");
-  await expect(island.locator(".ba-island")).toHaveText("Getting your library");
+  await expect(page.locator(".ba-island")).toHaveText("Getting your library");
   await expect(page.locator(".grid.waiting")).toHaveAttribute(
     "aria-busy",
     "true",
   );
   await context.setOffline(true);
-  await expect(island.locator(".ba-island")).toHaveText(
+  await expect(page.locator(".ba-island")).toHaveText(
     "Waiting for a connection",
   );
   await expect(island.getByRole("status")).toHaveText(
     "Getting your library… Waiting for a connection.",
   );
   await context.setOffline(false);
+  // Its fold lasts 0.32 s: the page notes where it goes.
+  const fold = page.evaluate(
+    () =>
+      new Promise<{ dx: number; dy: number }>((resolve) =>
+        new MutationObserver((_, observer) => {
+          const pill = document.querySelector<HTMLElement>(
+            ".ba-island[data-fold]",
+          );
+          if (!pill) return;
+          observer.disconnect();
+          resolve({
+            dx: parseFloat(pill.style.getPropertyValue("--ba-island-dx")),
+            dy: parseFloat(pill.style.getPropertyValue("--ba-island-dy")),
+          });
+        }).observe(document.body, { attributes: true, subtree: true }),
+      ),
+  );
   release();
   await expect(page.locator(".card[data-id]").first()).toBeVisible();
   await expect(island.getByRole("status")).toHaveText("Library ready");
+  // It folds up and right, into the account button at the strip's end.
+  const travel = await fold;
+  expect(travel.dx).toBeGreaterThan(100);
+  expect(travel.dy).toBeLessThan(-30);
   await expect(island).toHaveAttribute("data-island", "rest");
   // The account button keeps its place in the strip.
   const strip = await page.locator(".strip").boundingBox();
@@ -134,7 +155,7 @@ test("on a phone, the restore island grows from the account button and says what
   );
 });
 
-test("with room, the restore island grows from the count and folds back into it", async ({
+test("with room, the restore island folds away by the count", async ({
   page,
 }) => {
   const release = await holdLinks(page);
@@ -145,4 +166,84 @@ test("with room, the restore island grows from the count and folds back into it"
   await expect(island.getByRole("status")).toHaveText("Library ready");
   await expect(island).toHaveAttribute("data-island", "rest");
   await expect(island.locator(".shelf-count")).toHaveText("300 articles");
+});
+
+/**
+ * The controls of the library's bars that the island covers (the phone's
+ * strip, the bar and the shelf's tabs, or the desk's bar, title and
+ * sidebar), and its distance from the window's centre line.
+ */
+function underIsland(page: Page) {
+  return page.evaluate(() => {
+    const open = document.querySelector(".ba-island[data-settled]");
+    if (!open) return null;
+    const island = open.getBoundingClientRect();
+    const bars = document.querySelectorAll(
+      ".strip, .bar, .shelf, .desk-bar, .desk-head, .sidebar, .library-dock",
+    );
+    const covered = [...bars]
+      .flatMap((bar) => [...bar.querySelectorAll("a, button, input")])
+      .filter((control) => {
+        const box = control.getBoundingClientRect();
+        return (
+          box.width > 0 &&
+          control.checkVisibility({ opacityProperty: true }) &&
+          box.left < island.right &&
+          box.right > island.left &&
+          box.top < island.bottom &&
+          box.bottom > island.top
+        );
+      })
+      .map((control) => control.getAttribute("aria-label") ?? control.textContent);
+    const centre = island.left + island.width / 2;
+    return {
+      covered,
+      offCentre: Math.round(
+        Math.abs(centre - document.documentElement.clientWidth / 2),
+      ),
+    };
+  });
+}
+
+test("at every width, the restore island floats at the top centre, below the bars that hold it", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const release = await holdLinks(page);
+  await page.goto("/");
+  try {
+    // The top below which it floats: under the phone's strip, the bar and
+    // the shelf's tabs, or the desk's bar where its search field reaches
+    // the centre, and at the top with room beside the search field.
+    for (const [width, height, top] of [
+      [320, 640, 61],
+      [390, 844, 61],
+      [600, 900, 142],
+      [768, 1024, 142],
+      [1024, 768, 68],
+      [1280, 800, 68],
+      [1920, 1080, 8],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await expect
+        .poll(() => underIsland(page), { message: `${width} px` })
+        .toEqual({ covered: [], offCentre: 0 });
+      await expect
+        .poll(async () => (await page.locator(".ba-island").boundingBox())?.y, {
+          message: `${width} px`,
+        })
+        .toBeCloseTo(top, 0);
+      // Below the shelf's tabs, it rises with them as the page scrolls, up
+      // to the bar, which stays (61 px with its hairline).
+      if (width === 768) {
+        await page.evaluate(() => window.scrollTo(0, 200));
+        await expect
+          .poll(async () => (await page.locator(".ba-island").boundingBox())?.y)
+          .toBeCloseTo(69, 0);
+        await page.evaluate(() => window.scrollTo(0, 0));
+      }
+    }
+  } finally {
+    release();
+  }
 });

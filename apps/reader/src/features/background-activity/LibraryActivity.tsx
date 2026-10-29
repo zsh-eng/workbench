@@ -17,8 +17,8 @@ import { LibraryRestoreIsland } from "./LibraryRestoreIsland";
 import { UpdateChip } from "./UpdateChip";
 
 /**
- * The Library's background parts: the update chip, and the activity glyph
- * with the restore island around it.
+ * The Library's background parts: the update chip, and the activity glyph,
+ * which the restore island folds into.
  * With room, both sit in the header. A phone's header is full with the
  * places, so the glyph joins Sort and layout in the filter row, where
  * Download all starts, and the chip floats at the bottom of the page. The
@@ -34,10 +34,11 @@ export function LibraryActivity({
   books: number;
 }) {
   const phone = usePhoneLayout();
-  // A new device's restore grows out of the glyph's place as the island.
+  // A new device's restore is the island at the top centre, which folds
+  // into the glyph.
   if (place === "row")
     return phone ? (
-      <LibraryRestoreIsland count={books} align="end">
+      <LibraryRestoreIsland count={books}>
         <ActivityGlyph />
       </LibraryRestoreIsland>
     ) : null;
@@ -45,7 +46,7 @@ export function LibraryActivity({
   return (
     <>
       <UpdateChip className="mr-1" />
-      <LibraryRestoreIsland count={books} align="end">
+      <LibraryRestoreIsland count={books}>
         <ActivityGlyph />
       </LibraryRestoreIsland>
     </>

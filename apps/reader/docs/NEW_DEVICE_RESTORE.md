@@ -130,11 +130,15 @@ twelve go at once, and the EPUBs wait until the covers are done.
 - **The Library reads whole tables** instead of walking Dexie cursors on
   every refresh during the restore.
 - **The restore island** replaces the empty Library while a restore runs:
-  the Library's frame with quiet covers, and the shared island growing out
-  of the activity glyph's place, "Restoring library · 12 books" (the books on
-  this device so far; the restore's size is not known). It waits for a
-  connection or a sign-in until a pull reaches the end, says "Restored" and
-  folds back (`LibraryRestoreIsland`, packages/background-activity). A
+  the Library's frame with quiet covers, and the shared island at the top
+  centre, "Restoring library · 12 books" (the books on this device so far;
+  the restore's size is not known). It waits for a connection or a sign-in
+  until a pull reaches the end, says "Restored" and folds away, into the
+  activity glyph when it is near (`LibraryRestoreIsland`,
+  packages/background-activity). From 768 px it floats in the header's top
+  margin, above the places; on a phone the places and the filter row hold
+  the top centre, so it floats below the filter row and rises with the page
+  as they scroll away. A
   reload, an offline start or an expired session that leaves the restore
   unfinished shows it too: the saved sync state has not bootstrapped, and
   the account is signed in (also the remembered one offline) or its

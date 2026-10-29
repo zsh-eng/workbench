@@ -32,9 +32,9 @@ export function SpacedIcon() {
       }}
     >
       <div className="absolute top-4 md:top-4 left-1/2 -translate-x-1/2 md:translate-x-0 md:left-4 w-16 h-12 z-sticky flex items-center justify-center cursor-pointer">
-        {/* A new device's restore grows out of the icon and its count, and
-            folds back into them when it is done. */}
-        <RestoreIsland className="size-full md:[--ba-island-left:0] md:[--ba-island-shift:0]">
+        {/* A new device's restore floats at the top centre, over the
+            icon on a phone, and folds into it when it is done. */}
+        <RestoreIsland className="size-full">
           <BouncyButton asButton>
             <Telescope
               className={cn("h-10 w-10 text-foreground")}

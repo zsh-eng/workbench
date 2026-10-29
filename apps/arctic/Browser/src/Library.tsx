@@ -174,12 +174,12 @@ export function Library({ folder }: { folder: Folder }) {
         : `${visible.length.toLocaleString()} ${visible.length === 1 ? "article" : "articles"}`}
     </span>
   );
-  // A new device's restore grows out of the count, and folds back into it
-  // once the links are in. A phone's grows out of its account button.
+  // A new device's restore floats at the top centre and, once the links
+  // are in, folds by the count, or a phone's account button.
   const count = compact ? (
     shelfCount
   ) : (
-    <RestoreIsland count={articles.length} align="start">
+    <RestoreIsland count={articles.length}>
       {shelfCount}
     </RestoreIsland>
   );
@@ -593,7 +593,7 @@ function PhoneStrip({
           </Link>
         ))}
       </nav>
-      <RestoreIsland count={links} align="end">
+      <RestoreIsland count={links}>
         <AccountMenu />
       </RestoreIsland>
       <label className="strip-search">
