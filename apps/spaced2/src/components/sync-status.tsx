@@ -1,8 +1,17 @@
 import { matchPath, useLocation } from "react-router";
-import { useSyncExternalStore, type ReactNode } from "react";
-import SyncEngine from "@/lib/sync/engine";
+import { useRef, useSyncExternalStore, type ReactNode } from "react";
+import { ActivityIsland } from "@workbench/background-activity/island";
+import { useSyncStatus } from "@zsh-eng/local-sync/react";
+import SyncEngine, { spacedSync } from "@/lib/sync/engine";
+import {
+  restoreIslandContent,
+  type RestoreConnection,
+} from "@/lib/sync/restore-island";
+import { cn } from "@/lib/utils";
 
-/** The sync state that the boundary reads. The Elements page gives a sample. */
+export type { RestoreConnection };
+
+/** The sync state that the boundary and the island read. The Elements page gives a sample. */
 export type SyncStatusSource = Pick<
   typeof SyncEngine,
   "subscribe" | "getSnapshot"
@@ -13,7 +22,8 @@ const OPEN_WHILE_RESTORING = ["/profile", "/login-success"];
 
 /**
  * A new device's first download: until its cards are stored, every page
- * but Profile waits; until its review history is stored, Stats waits.
+ * but Profile keeps its frame and waits; until its review history is
+ * stored, Stats waits. The island beside the icon says what is happening.
  */
 export function SyncBoundary({
   children,
@@ -22,47 +32,88 @@ export function SyncBoundary({
   children: ReactNode;
   source?: SyncStatusSource;
 }) {
-  const { restoring } = useSyncExternalStore(
+  const restoring = useSyncExternalStore(
     source.subscribe,
-    source.getSnapshot,
+    () => source.getSnapshot().restoring,
   );
   const { pathname } = useLocation();
+  const stats = matchPath("/stats", pathname) !== null;
   if (restoring === "cards" && !OPEN_WHILE_RESTORING.includes(pathname))
     return (
-      <p role="status" className="col-span-full p-4">
-        Restoring your cards…
-      </p>
+      <RestoreFrame
+        page={stats ? "stats" : matchPath("/", pathname) ? "review" : "list"}
+      />
     );
-  if (restoring === "history" && matchPath("/stats", pathname))
-    return (
-      <p role="status" className="col-span-full p-4">
-        Restoring your review history…
-      </p>
-    );
+  if (restoring === "history" && stats) return <RestoreFrame page="stats" />;
   return children;
 }
 
 /**
- * On Review while the history restores: what is not yet on the device. At
- * phone width it sits in the card's corner, so the card does not move when
- * it goes; wider, it joins the count badges.
+ * A page's frame while its records restore: the shape it will have, quiet
+ * and still, so nothing moves when the page arrives. No words: the island
+ * says what is happening.
  */
-export function HistoryRestoreNote({
-  source = SyncEngine,
-}: {
-  source?: SyncStatusSource;
-}) {
-  const { restoring } = useSyncExternalStore(
-    source.subscribe,
-    source.getSnapshot,
-  );
-  if (restoring !== "history") return null;
+export function RestoreFrame({ page }: { page: "review" | "stats" | "list" }) {
+  const surface = "rounded-2xl bg-background/60 dark:bg-muted/30 dark:border";
   return (
-    <p
-      role="status"
-      className="absolute left-4 top-2 sm:static text-xs text-muted-foreground"
+    <div
+      aria-busy="true"
+      data-restore-frame={page}
+      className="col-span-12 md:col-start-3 md:col-end-11 md:mt-12 mb-6 grid gap-2"
     >
-      Restoring review history…
-    </p>
+      {page === "review" && (
+        <div className={cn(surface, "h-[min(68svh,560px)] medium:shadow-lg")} />
+      )}
+      {page === "stats" &&
+        ["h-24", "h-40", "h-56", "h-56"].map((height, index) => (
+          <div key={index} className={cn(surface, height)} />
+        ))}
+      {page === "list" &&
+        Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className={cn(surface, "h-16")} />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * The restore, as an island that grows out of `children` (the Spaced icon
+ * and its due count) and folds back into it when the restore is done.
+ */
+export function RestoreIsland({
+  children,
+  className,
+  source = SyncEngine,
+  connection: given,
+}: {
+  children: ReactNode;
+  className?: string;
+  source?: SyncStatusSource;
+  connection?: RestoreConnection;
+}) {
+  const status = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  const live = useSyncStatus(spacedSync, (sync) =>
+    sync.connection === "offline"
+      ? "offline"
+      : sync.auth.status === "expired"
+        ? "signed-out"
+        : "online",
+  );
+  const connection = given ?? live;
+  const seen = useRef(false);
+  if (status.restoring) seen.current = true;
+  const { content, status: words } = restoreIslandContent(
+    status,
+    connection,
+    seen.current,
+  );
+  return (
+    <ActivityIsland
+      content={content}
+      status={words}
+      className={cn("dark:[--ba-island-edge:rgb(255_255_255/0.16)]", className)}
+    >
+      {children}
+    </ActivityIsland>
   );
 }

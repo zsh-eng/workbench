@@ -67,10 +67,16 @@ function recordMilestones(expected: { origin: string }) {
   };
   const tick = () => {
     const now = Math.round(performance.now());
-    const restoring = /Restoring/.test(document.body?.innerText ?? "");
-    const blocked = /Restoring your cards/.test(
-      document.querySelector("main")?.textContent ?? "",
-    );
+    // The island's words and the pages' frames (the first build said
+    // "Restoring your cards…" in the page instead).
+    const restoring =
+      /Restoring/.test(document.body?.innerText ?? "") ||
+      document.querySelector(".ba-island") !== null;
+    const blocked =
+      document.querySelector("main [data-restore-frame]") !== null ||
+      /Restoring your cards/.test(
+        document.querySelector("main")?.textContent ?? "",
+      );
     if (blocked) marks.blockedUntil = now;
     const card = [...document.querySelectorAll("main article")].some(
       (article) => visible(article) && article.textContent!.trim() !== "",
@@ -82,7 +88,10 @@ function recordMilestones(expected: { origin: string }) {
         visible(button),
     );
     if (card && good && !blocked) marks.firstReview ??= now;
-    const count = document.querySelector('a[href="/"]')?.textContent?.trim();
+    const count = (
+      document.querySelector("[data-due-count]") ??
+      document.querySelector('a[href="/"]')
+    )?.textContent?.trim();
     const last = marks.counts!.at(-1);
     if (count !== undefined && (last?.[1] !== count || last?.[2] !== restoring))
       marks.counts!.push([now, count, restoring]);

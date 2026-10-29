@@ -170,6 +170,10 @@ const front = (page: Page) =>
   page.locator("main article").first().textContent();
 const good = (page: Page) =>
   page.getByRole("button", { name: "Good", exact: true });
+/** The due count beside the Spaced icon. */
+const dueCount = (page: Page) => page.locator("[data-due-count]");
+/** Stats' frame while the review history restores. */
+const statsFrame = (page: Page) => page.locator('[data-restore-frame="stats"]');
 
 test("a new device reviews from the priority pull, and the full pull keeps its review", async ({
   browser,
@@ -192,8 +196,8 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
   await page.goto(app);
   // Review opens while the review history has not started to commit.
   await expect(good(page)).toBeVisible();
-  await expect(page.getByText("Restoring review history…")).toBeVisible();
-  await expect(page.locator('a[href="/"]').first()).toHaveText("3");
+  await expect(page.getByText("Restoring your review history…")).toBeVisible();
+  await expect(dueCount(page)).toHaveText("3");
   expect(await syncState(page)).toMatchObject({
     pullCursor: 0,
     bootstrapped: false,
@@ -202,19 +206,19 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
   // content came before its schedule.
   const graded = (await front(page))!.trim();
   await good(page).click();
-  await expect(page.locator('a[href="/"]').first()).toHaveText("2");
+  await expect(dueCount(page)).toHaveText("2");
   expect((await front(page))!.trim()).not.toBe(graded);
 
   // With every pull held, only the device's marker can open the pages.
   holdAll = true;
   // Stats waits for the history rather than showing part of it.
   await page.goto(`${app}/stats`);
-  await expect(page.getByText("Restoring your review history…")).toBeVisible();
+  await expect(statsFrame(page)).toBeVisible();
   // A reload during the rest of the restore opens Review at once.
   await page.goto(app);
   await expect(good(page)).toBeVisible();
-  await expect(page.getByText("Restoring review history…")).toBeVisible();
-  await expect(page.locator('a[href="/"]').first()).toHaveText("2");
+  await expect(page.getByText("Restoring your review history…")).toBeVisible();
+  await expect(dueCount(page)).toHaveText("2");
   await account.editBirch();
   release();
 
@@ -223,7 +227,7 @@ test("a new device reviews from the priority pull, and the full pull keeps its r
       timeout: 30_000,
     })
     .toBe(true);
-  await expect(page.getByText("Restoring review history…")).toHaveCount(0);
+  await expect(page.getByText(/Restoring/)).toHaveCount(0);
   const index = CARDS.indexOf(graded);
   const local = await page.evaluate(
     async ({ index }) => {
@@ -311,10 +315,9 @@ test("a reload, an offline start and a second tab show the restore, not part of 
     return account;
   };
   const cardsWait = (page: Page) => page.getByText("Restoring your cards…");
-  const historyWait = (page: Page) =>
-    page.getByText("Restoring your review history…");
+  const historyWait = (page: Page) => statsFrame(page);
   const historyNote = (page: Page) =>
-    page.getByText("Restoring review history…");
+    page.getByText("Restoring your review history…");
 
   const page = await context.newPage();
   await page.goto(app);

@@ -45,14 +45,33 @@ const SYNC_STATUS_KEY = "spaced-sync-status" + SHARED_STORAGE_SUFFIX;
  * history) and then its review history (docs/FIRST_REVIEW.md).
  */
 export type Restoring = "cards" | "history" | false;
-/** The snapshot that SyncBoundary and the debug Sync page read. */
-type Status = { syncing: boolean; error: string | null; restoring: Restoring };
-let snapshot: Status = { syncing: false, error: null, restoring: false };
+/**
+ * The snapshot that SyncBoundary, the restore island and the debug Sync
+ * page read. While restoring: `cards`, how many live cards memory holds so
+ * far (the cards' total is not known); `fraction`, the full pull's share,
+ * from its sequence (null until its first page commits).
+ */
+export type Status = {
+  syncing: boolean;
+  error: string | null;
+  restoring: Restoring;
+  cards: number | null;
+  fraction: number | null;
+};
+let snapshot: Status = {
+  syncing: false,
+  error: null,
+  restoring: false,
+  cards: null,
+  fraction: null,
+};
 /**
  * Stays set until the first full download finishes, across failed
  * attempts. A page starts from what the device saved (`startingPhase`).
  */
 let restoring: Restoring = false;
+let restoredCards: number | null = null;
+let restoreFraction: number | null = null;
 /**
  * The device whose cards a priority pull restored, so that a reload or
  * another tab during the rest of the restore opens Review at once. Beside
@@ -107,6 +126,7 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           MemoryDB._db.undoGradeStack = [];
           await reloadMemory();
           restoring = false;
+          restoredCards = restoreFraction = null;
         }
         await db.metadataKv.put({ key: "owner", value: userId });
         const state = ensureSyncState();
@@ -160,7 +180,11 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
       });
       await client.sync({
         observer: {
-          pulled() {},
+          pulled(page) {
+            if (!page.restoring || page.priority || !page.head) return;
+            restoreFraction = Math.min(1, (page.cursor ?? 0) / page.head);
+            refresh();
+          },
           pushed() {},
           prioritized: () => cardsRestored(state.deviceId),
         },
@@ -189,7 +213,10 @@ async function runSync({ signal, markRestoring }: SyncRunContext) {
           });
         }
       } finally {
-        if (stateStore.read()?.bootstrapped) restoring = false;
+        if (stateStore.read()?.bootstrapped) {
+          restoring = false;
+          restoredCards = restoreFraction = null;
+        }
         refresh();
       }
     }
@@ -212,7 +239,12 @@ function showInMemory(
       handleClientOperation(record.row as StoredOperation);
       changed = true;
     }
-  if (changed && restoring !== "cards") MemoryDB.notify();
+  if (!changed) return;
+  if (restoring !== "cards") return MemoryDB.notify();
+  restoredCards = Object.values(MemoryDB._db.cards).filter(
+    (card) => card && !card.deleted,
+  ).length;
+  refresh();
 }
 
 /** The priority pull has stored every card: Review can open. */
@@ -279,7 +311,7 @@ export const spacedSync = createSyncController({
   persist: { storage: localStorage, key: SYNC_STATUS_KEY },
 });
 restoring = startingPhase();
-snapshot = { ...snapshot, restoring };
+refresh();
 
 function errorOf(status: SyncStatus): string | null {
   const failure = status.failure;
@@ -302,11 +334,15 @@ function refresh() {
     syncing: status.running,
     error: errorOf(status),
     restoring,
+    cards: restoring ? restoredCards : null,
+    fraction: restoring ? restoreFraction : null,
   };
   if (
     next.syncing === snapshot.syncing &&
     next.error === snapshot.error &&
-    next.restoring === snapshot.restoring
+    next.restoring === snapshot.restoring &&
+    next.cards === snapshot.cards &&
+    next.fraction === snapshot.fraction
   )
     return;
   snapshot = next;

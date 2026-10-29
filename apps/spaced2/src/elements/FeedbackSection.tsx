@@ -1,5 +1,4 @@
 import FlashcardTable from "@/components/cards-table";
-import DeckCard from "@/components/deck/deck-card";
 import { ConnectionNotice } from "@/components/profile/connection-notice";
 import EmptyReviewUi from "@/components/review/empty";
 import EmptyStats from "@/components/stats/empty";
@@ -7,58 +6,11 @@ import {
   UpdatePillButton,
   type UpdatePillPhase,
 } from "@/components/update-pill";
-import {
-  HistoryRestoreNote,
-  SyncBoundary,
-  type SyncStatusSource,
-} from "@/components/sync-status";
-import type { Restoring } from "@/lib/sync/engine";
 import EmptyImages from "@/lib/images/empty";
-import { useMemo, useState } from "react";
-import { sampleDecks } from "./deck-fixture";
 import { ElementsSection } from "./ElementsLayout";
 import { FrameSpecimen } from "./FrameSpecimen";
 import { useSelection } from "./selection";
 import { Specimen } from "./Specimen";
-
-const RESTORE_STATES = [
-  { id: "cards", label: "Restoring cards" },
-  { id: "history", label: "Restoring history" },
-  { id: "restored", label: "Restored" },
-] as const;
-
-/** A sync status that never changes, so the boundary does not run sync. */
-function sampleSyncStatus(restoring: Restoring): SyncStatusSource {
-  const snapshot = { syncing: restoring !== false, error: null, restoring };
-  return { subscribe: () => () => {}, getSnapshot: () => snapshot };
-}
-
-function Restore() {
-  const selection = useSelection(RESTORE_STATES);
-  const restoring: Restoring =
-    selection.state === "cards" || selection.state === "history"
-      ? selection.state
-      : false;
-  const source = useMemo(() => sampleSyncStatus(restoring), [restoring]);
-  const [deck] = useState(() => sampleDecks()[0]);
-  return (
-    <Specimen
-      title="First restore"
-      note="On a new device the sync boundary holds the pages until the cards are stored; Review then opens with a note while the review history restores, and only Stats waits for it. The specimen gives SyncBoundary a sample status, so nothing syncs."
-      states={RESTORE_STATES}
-      selection={selection}
-    >
-      <div className="grid min-h-40 grid-cols-12 items-start">
-        <SyncBoundary source={source}>
-          <div className="relative col-span-12 flex justify-center pt-8">
-            <HistoryRestoreNote source={source} />
-            <DeckCard {...deck} />
-          </div>
-        </SyncBoundary>
-      </div>
-    </Specimen>
-  );
-}
 
 function Offline() {
   return (
@@ -136,7 +88,7 @@ export function FeedbackSection() {
     >
       <FrameSpecimen id="toasts" />
       <FrameSpecimen id="session" />
-      <Restore />
+      <FrameSpecimen id="restore" />
       <Offline />
       <Update />
       <EmptyStates />
