@@ -5178,7 +5178,7 @@ export function App({
       text: "A change that needs a fourth round often needs another approach. The round-limit practice asks the agent to stop after 3 rounds and rethink.",
       action: { kind: "copy", label: "Copy skill", text: roundLimitSkill },
     });
-  if (!resolvedGuide?.summary && !reviewOutput.explainer && agentReply)
+  if (!overviewSummary && agentReply)
     overviewOffers.push({
       id: "explain-first",
       slot: "explainer",

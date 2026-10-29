@@ -237,16 +237,17 @@ describe("review output", () => {
     });
   });
 
-  it("takes the proof and its misses out of a text, as the reader finds them, and keeps the rest", () => {
-    const text = [
+  it("takes out of a text the proof and misses that the Proof part shows whole, and keeps the rest", () => {
+    const whole = [
       "Renames the export.",
       "",
       "## Proof",
       "",
-      "```sh",
-      "$ bun run test",
-      "## not a heading in a fence",
-      "```",
+      "| Check | Result |",
+      "| --- | --- |",
+      "| `bun run test` | 3 passed |",
+      "",
+      "- `bun run lint`: no warnings",
       "",
       "**Not covered:**",
       "- The import.",
@@ -255,9 +256,22 @@ describe("review output", () => {
       "",
       "The rename in alpha.ts.",
     ].join("\n");
-    expect(withoutProof(text)).toBe(
+    expect(withoutProof(whole)).toBe(
       ["Renames the export.", "", "## Read first", "", "The rename in alpha.ts."].join("\n"),
     );
+    // What the Proof part would show only in part stays where it was written:
+    // a fence's output, a nested item, a wrapped paragraph, a link, a table of
+    // misses.
+    for (const body of [
+      ["```sh", "$ bun run test", "42 passed", "```"],
+      ["- `bun run test`: 42 passed", "  - covers the CSV header"],
+      ["The cache is cold on the first run, so", "the timing is from the second."],
+      ["- See [the design note](docs/cache.md)."],
+    ])
+      expect(withoutProof(["Why.", "", "## Testing", "", ...body].join("\n"))).toContain(body[0]);
+    expect(
+      withoutProof("## Not covered\n\n| Area | Why |\n| --- | --- |\n| Import | no fixture |"),
+    ).toContain("| Import | no fixture |");
     expect(withoutProof("No proof here.\n\n## Why\n\nBecause.")).toBe(
       "No proof here.\n\n## Why\n\nBecause.",
     );

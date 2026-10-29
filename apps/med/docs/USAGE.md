@@ -689,10 +689,12 @@ tab. Each part shows only when the version has it.
   and **Not covered**, what the checks miss. A proof written as a table shows
   as that table: its columns share the width, long commands and paths break at
   their `/`, `:`, `-` and `.`, and only a table too wide for whole words
-  scrolls sideways in its own box. When the guide summary holds the proof, it
-  shows here only, and the summary below keeps the rest. Without written
-  proof, the checks that the session ran in the turn that made the latest
-  version show, marked "from the session's last turn".
+  scrolls sideways in its own box. When the guide summary holds the proof and
+  this part shows it whole (its tables, and lines whose only markup is code),
+  it shows here only; a proof with a fence's output, nested items, links or a
+  long paragraph stays in the summary too. Without written proof, the checks
+  that the session ran in the turn that made the latest version show, marked
+  "from the session's last turn".
 - **Since version N.** From version 2: the files that changed since the last
   version that you approved or commented on, or else the version before.
   Click a file to open it in the diff.
