@@ -786,7 +786,8 @@ description from the repository's template, and its images. Comment on its
 words as on a brief; the comments go to the agent with your other comments,
 and its next draft replaces the shown one. **Create pull request…** asks
 first, then runs `gh pr create` from the checkout's branch, as a draft unless
-you clear **As a draft**. Med does not push: push the branch first. GitHub
+you clear **As a draft**. Med does not push: push the branch, with all of its
+commits, first. GitHub
 takes images only as links, so a local image stays out and the text names it;
 Med says which ones to drag into the description on GitHub. Then the note's
 **Open on GitHub** opens the pull request, and the review links to it.

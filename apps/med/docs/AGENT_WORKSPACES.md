@@ -147,7 +147,7 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 - **Queue** (`⇧⌘↩`, or `⌘↩` after the `⌘K` choice, `med:follow-up`): the
   message waits for the turn's end. The input's `afterTurn: true` asks for
   it; the host keeps the IDs of such messages in
-  `agent-messages/after-turn.json`, so a restart keeps them, and the inbox
+  `queued-after-turn.json`, so a restart keeps them, and the inbox
   state marks them `afterTurn`. **Send now** on one
   (`POST /api/reviews/:id/agent/send-now` with `{ id }`) sends it at the next
   step.

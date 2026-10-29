@@ -341,7 +341,7 @@ med pr draft --key fix/parser --file pr.md
   `On: the pull request draft`. Revise the file and run `med pr draft` again
   with the same key: each run is the next revision.
 - Never run `gh pr create` yourself. **Create** runs it from the checkout's
-  branch, which must be on GitHub already, and links the pull request to the
+  branch, which must be on GitHub with all of its commits, and links the pull request to the
   review. GitHub takes images only as links, so a local image stays out of
   the body and the text names it, for the user to add on GitHub.
 
