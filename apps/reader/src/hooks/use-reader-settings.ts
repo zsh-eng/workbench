@@ -210,7 +210,7 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute(
         "content",
-        getComputedStyle(root).getPropertyValue("--background").trim(),
+        hexColor(getComputedStyle(root).getPropertyValue("--background")),
       );
 
     // Cleanup: clear timeout if component unmounts
@@ -312,6 +312,26 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
   );
 
   return createElement(ReaderSettingsContext.Provider, { value }, children);
+}
+
+/**
+ * A CSS colour as `#rrggbb` for `<meta name="theme-color">`: the themes'
+ * oklch() and hsl() tokens may be ignored there by Chrome on Android, which
+ * then keeps the manifest's white. A canvas pixel converts any colour the
+ * page can draw. index.html's startup script holds the same values.
+ */
+function hexColor(color: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return color.trim();
+  context.fillStyle = color;
+  context.fillRect(0, 0, 1, 1);
+  const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+  return `#${[red, green, blue]
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 export function useReaderSettings(): ReaderSettingsContextValue {

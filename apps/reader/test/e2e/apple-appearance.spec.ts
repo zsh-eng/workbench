@@ -26,8 +26,46 @@ test("restores the dark browser appearance on launch", async ({ page }) => {
       body: getComputedStyle(document.body).backgroundColor,
     };
   });
-  expect(appearance.tint).toBe(appearance.token);
+  expect(appearance.tint).toBe("#0a0a0a");
   expect(appearance.canvas).toBe(appearance.body);
+});
+
+// Chrome on Android may not read oklch() or hsl() in theme-color and then
+// keeps the manifest's white, so each theme's page colour goes in as hex:
+// from index.html's startup script, then from the app.
+test("each theme gives the browser bar its page colour in hex", async ({
+  page,
+}) => {
+  const themes = {
+    light: "#ffffff",
+    dark: "#0a0a0a",
+    night: "#000000",
+    "flexoki-light": "#fffcf0",
+    "flexoki-dark": "#100f0f",
+  };
+  const tint = page.locator('meta[name="theme-color"]');
+  for (const [theme, hex] of Object.entries(themes)) {
+    await page.goto("/");
+    await page.evaluate((theme) => {
+      localStorage.setItem("epub-reader-settings", JSON.stringify({ theme }));
+      localStorage.removeItem("epub-reader-appearance");
+    }, theme);
+
+    // The startup script alone, before the app runs.
+    await page.route("**/src/main.tsx", (route) => route.abort());
+    await page.goto("/");
+    await expect(tint).toHaveAttribute("content", hex);
+    await page.unroute("**/src/main.tsx");
+
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Choose EPUB files", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("html")).toHaveClass(
+      new RegExp(`(^|\\s)${theme}(\\s|$)`),
+    );
+    await expect(tint).toHaveAttribute("content", hex);
+  }
 });
 
 test("system appearance follows changes and survives a mobile reload", async ({

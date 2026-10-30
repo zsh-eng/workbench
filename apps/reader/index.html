@@ -520,6 +520,17 @@
           "flexoki-dark",
         ];
         const DEFAULT_THEME = "light";
+        // Each theme's --background as #rrggbb (src/index.css): Chrome on
+        // Android may not read oklch() or hsl() in theme-color. Reader's
+        // pages are --background, so the bar matches them from the first
+        // frame; use-reader-settings.ts resolves the same colour later.
+        const THEME_COLORS = {
+          light: "#ffffff",
+          dark: "#0a0a0a",
+          night: "#000000",
+          "flexoki-light": "#fffcf0",
+          "flexoki-dark": "#100f0f",
+        };
 
         try {
           const stored = localStorage.getItem(STORAGE_KEY);
@@ -544,11 +555,9 @@
             }
           }
           document.documentElement.classList.add(theme);
-          if (theme === "night") {
-            document
-              .querySelector('meta[name="theme-color"]')
-              ?.setAttribute("content", "#000000");
-          }
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute("content", THEME_COLORS[theme]);
         } catch (e) {
           document.documentElement.classList.add(DEFAULT_THEME);
         }
