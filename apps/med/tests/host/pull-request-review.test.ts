@@ -47,8 +47,9 @@ else if (path && path.startsWith(pull + "/reviews/")) {
   const data = (value) => process.stdout.write(JSON.stringify({ data: value }));
   const review = pending();
   if (query.startsWith("query") && query.includes("reviewThreads")) {
-    // One thread a page, newest first, so that a lookup pages.
-    const roots = state.comments.filter((comment) => !comment.reply).reverse();
+    // One thread a page, oldest first, as GitHub gives them: a lookup and
+    // the sides of later threads page.
+    const roots = state.comments.filter((comment) => !comment.reply);
     const at = vars.after ? Number(vars.after) : 0;
     data({ repository: { pullRequest: { reviewThreads: {
       pageInfo: { hasNextPage: at + 1 < roots.length, endCursor: String(at + 1) },

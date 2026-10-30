@@ -360,7 +360,7 @@ async function pendingComments(host: string, place: Record<string, string | numb
     line: entry.line,
     startLine: entry.startLine,
     originalLine: entry.originalLine,
-    side: sides.get(entry.databaseId) ?? null,
+    side: sides.get(entry.replyTo?.databaseId ?? entry.databaseId) ?? null,
   }));
 }
 
