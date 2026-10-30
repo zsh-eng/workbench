@@ -1352,8 +1352,6 @@ export function App({
       [controller],
     ),
   );
-  // The reader's pending review on GitHub: replies to its threads, and the
-  // comments on a saved version, which Med keeps with that version.
   // Comments, Med's, the agent's and GitHub's, link the files that they name
   // as the thread does, and also paths in their text and GitHub links to
   // the pull request's head.
@@ -1370,6 +1368,8 @@ export function App({
       },
     };
   }, [fileRefs, pullRequestUrl, pullRequestHead]);
+  // The reader's pending review on GitHub: replies to its threads, and the
+  // comments on a saved version, which Med keeps with that version.
   const pendingReview = useMemo<PendingReviewTarget | null>(() => {
     if (!state.savedReview?.pullRequestUrl) return null;
     const target = state.savedView

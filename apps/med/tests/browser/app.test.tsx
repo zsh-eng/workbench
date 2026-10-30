@@ -3202,7 +3202,13 @@ describe("file references in comments", () => {
                 [
                   "Mirror src/beta.ts#L2; src/gone.ts:4 went away.",
                   `Same as https://github.com/acme/med/blob/${firstCommit}/src/beta.ts#L1-L2,`,
-                  `not https://github.com/acme/med/blob/${"b".repeat(40)}/src/beta.ts#L1.`,
+                  `not https://github.com/acme/med/blob/${"b".repeat(40)}/src/beta.ts#L1`,
+                  `or https://github.com/other/med/blob/${firstCommit}/src/beta.ts#L2.`,
+                  `The guide: https://github.com/acme/med/blob/${firstCommit}/docs/GUIDE.md?plain=1#L1`,
+                  "",
+                  "```",
+                  "src/alpha.ts:1",
+                  "```",
                 ].join("\n"),
               ),
             ],
@@ -3221,6 +3227,15 @@ describe("file references in comments", () => {
     await expect
       .element(thread.getByRole("link", { name: /blob\/b{40}\/src\/beta\.ts#L1$/ }))
       .toHaveAttribute("href", `https://github.com/acme/med/blob/${"b".repeat(40)}/src/beta.ts#L1`);
+    // So does a link to another repository; a Markdown file's lines open.
+    await expect
+      .element(thread.getByRole("link", { name: /github\.com\/other\/med\// }))
+      .toBeVisible();
+    await expect
+      .element(thread.getByRole("link", { name: "Open docs/GUIDE.md at L1" }))
+      .toBeVisible();
+    // A path in a code block stays code.
+    expect(thread.getByRole("link", { name: /alpha/ }).query()).toBeNull();
     await opensBeta(thread);
   });
 });

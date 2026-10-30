@@ -27,7 +27,8 @@ export function lineTarget(path: string, line?: string, end?: string): FileTarge
 
 /** Read a path and lines from `path:12`, `path:12-20`, `path:12:4`, or `path#L12-L20`. */
 function splitLines(value: string): FileTarget | null {
-  let path = value.split("?")[0]!;
+  // A query goes; a fragment after it, as in GitHub's `?plain=1#L12`, stays.
+  let path = value.replace(/\?[^#]*/, "");
   const hash = path.indexOf("#");
   if (hash >= 0) {
     const fragment = path.slice(hash + 1);
