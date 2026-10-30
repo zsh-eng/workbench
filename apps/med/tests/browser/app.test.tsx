@@ -4513,7 +4513,7 @@ describe("agent session", () => {
     localStorage.removeItem("med:follow-up");
   });
 
-  test("Codex takes a message sent now in the turn that runs, and a queued one at its end or on Send now; an ACP agent only queues", async () => {
+  test("Codex takes a message sent now in the turn that runs, and a queued one at its end or on Send now", async () => {
     await page.viewport(1280, 800);
     const { setOwned, agentMessages, steered } = await mountApp({
       savedReview: true,
