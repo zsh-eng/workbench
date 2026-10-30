@@ -32,8 +32,10 @@ else if (path === "repos/example/repo/issues/7/comments?per_page=100") lines([])
 else if (path === pull + "/reviews?per_page=100")
   lines(state.reviews.map((review) => ({ id: review.id, author: "me", body: review.body, createdAt: null, url: "https://github.com/example/repo/pull/7#r" + review.id, state: review.state })));
 else if (path && path.startsWith(pull + "/reviews/")) {
+  // GitHub gives a pending review's comments diff positions, but no lines.
   const id = Number(path.split("/")[6]);
-  lines(state.comments.filter((comment) => comment.review === id).map(inline));
+  lines(state.comments.filter((comment) => comment.review === id)
+    .map((comment) => ({ ...inline(comment), line: null, startLine: null, originalLine: null, side: null })));
 } else if (args.includes("graphql")) {
   const vars = {};
   for (let index = 0; index < args.length; index++)
@@ -45,12 +47,23 @@ else if (path && path.startsWith(pull + "/reviews/")) {
   const data = (value) => process.stdout.write(JSON.stringify({ data: value }));
   const review = pending();
   if (query.startsWith("query") && query.includes("reviewThreads")) {
-    // One thread a page, newest first, so that a lookup pages.
-    const roots = state.comments.filter((comment) => !comment.reply).reverse();
+    // One thread a page, oldest first, as GitHub gives them: a lookup and
+    // the sides of later threads page.
+    const roots = state.comments.filter((comment) => !comment.reply);
     const at = vars.after ? Number(vars.after) : 0;
     data({ repository: { pullRequest: { reviewThreads: {
       pageInfo: { hasNextPage: at + 1 < roots.length, endCursor: String(at + 1) },
-      nodes: roots.slice(at, at + 1).map((comment) => ({ id: "T_" + comment.id, comments: { nodes: [{ databaseId: comment.id }] } })) } } } });
+      nodes: roots.slice(at, at + 1).map((comment) => ({ id: "T_" + comment.id, diffSide: comment.side, comments: { nodes: [{ databaseId: comment.id }] } })) } } } });
+  } else if (query.startsWith("query") && query.includes("replyTo")) {
+    // The reader's pending review's comments, one a page.
+    const own = state.comments.filter((comment) => comment.review === review?.id);
+    const at = vars.after ? Number(vars.after) : 0;
+    data({ repository: { pullRequest: { reviews: { nodes: review ? [{ comments: {
+      pageInfo: { hasNextPage: at + 1 < own.length, endCursor: String(at + 1) },
+      nodes: own.slice(at, at + 1).map((comment) => ({
+        databaseId: comment.id, author: { login: comment.author }, body: comment.body, createdAt: "2026-10-01T00:00:00Z",
+        url: "https://github.com/example/repo/pull/7#c" + comment.id, replyTo: comment.reply ? { databaseId: comment.reply } : null,
+        path: comment.path, line: comment.line, startLine: comment.startLine ?? null, originalLine: comment.line })) } }] : [] } } } });
   } else if (query.startsWith("query")) {
     data({ repository: { pullRequest: { id: "PR_7", headRefOid: state.head,
       reviews: { nodes: review ? [{ id: "R_" + review.id, viewerDidAuthor: true }] : [] } } } });
@@ -193,6 +206,7 @@ async function fixture() {
 
 const shown = (comments: PullRequestComments) =>
   comments.threads.map((thread) => ({
+    side: thread.side,
     line: thread.line,
     startLine: thread.startLine,
     comments: thread.comments.map(({ author, body, draft }) => ({ author, body, draft })),
@@ -210,14 +224,32 @@ test("Med comments and replies go into the reader's pending review on GitHub, wh
   });
   const first = await pending({ action: "note", targetId: target, noteId });
   expect(first.status).toBe(200);
-  // A reply to the other reviewer's thread joins the same pending review.
-  const second = await pending({
-    action: "reply",
-    thread: 2,
-    body: "Because the package says so.",
+  // The reader starts a comment on github.com too, on the removed line.
+  const github = process.env.FAKE_GITHUB!;
+  const state = JSON.parse(await readFile(github, "utf8")) as {
+    next: number;
+    reviews: { id: number; state: string }[];
+    comments: object[];
+  };
+  const started = ++state.next;
+  state.comments.push({
+    id: started,
+    review: state.reviews.find((entry) => entry.state === "PENDING")!.id,
+    author: "me",
+    body: "Why remove 1?",
+    path: "a.ts",
+    line: 1,
+    side: "LEFT",
   });
+  await writeFile(github, JSON.stringify(state));
+  // Replies to the other reviewer's thread and to the reader's own pending
+  // thread join the same pending review.
+  await pending({ action: "reply", thread: 2, body: "Because the package says so." });
+  const second = await pending({ action: "reply", thread: started, body: "It moved." });
+  // Each pending thread shows on its line: GitHub's REST API gives them none.
   expect(shown(second.data as PullRequestComments)).toEqual([
     {
+      side: "new",
       line: 1,
       startLine: null,
       comments: [
@@ -226,9 +258,19 @@ test("Med comments and replies go into the reader's pending review on GitHub, wh
       ],
     },
     {
+      side: "new",
       line: 3,
       startLine: 2,
       comments: [{ author: "me", body: "Name b and c.", draft: true }],
+    },
+    {
+      side: "old",
+      line: 1,
+      startLine: null,
+      comments: [
+        { author: "me", body: "Why remove 1?", draft: true },
+        { author: "me", body: "It moved.", draft: true },
+      ],
     },
   ]);
   // One pending review, on the head; lines on the new side are GitHub's RIGHT.
@@ -238,6 +280,7 @@ test("Med comments and replies go into the reader's pending review on GitHub, wh
   expect(mutations.map((args) => /mutation\([^)]*\) \{ (\w+)/.exec(args.join(" "))![1])).toEqual([
     "addPullRequestReview",
     "addPullRequestReviewThread",
+    "addPullRequestReviewThreadReply",
     "addPullRequestReviewThreadReply",
   ]);
   expect(mutations[1]).toEqual(
@@ -271,6 +314,7 @@ test("a discard removes the pending review; a comment twice, off the head or a r
   expect(discarded.reviews).toEqual([]);
   expect(shown(discarded)).toEqual([
     {
+      side: "new",
       line: 1,
       startLine: null,
       comments: [{ author: "author", body: "Why 2?", draft: undefined }],

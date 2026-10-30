@@ -13,7 +13,10 @@ beforeEach(async () => {
   await writeFile(
     join(directory, "gh"),
     `#!/usr/bin/env node
-const path = process.argv.slice(2).find((arg) => arg.startsWith("repos/"));
+// REST answers go by path; GraphQL answers by the connection that they read.
+const args = process.argv.slice(2);
+const path = args.find((arg) => arg.startsWith("repos/")) ??
+  /reviewThreads|reviews\\(states: PENDING/.exec(args.join(" "))?.[0];
 const answer = JSON.parse(process.env.FAKE_GH_API)[path];
 if (answer === undefined) process.exit(1);
 process.stdout.write(
@@ -47,6 +50,14 @@ const inline = (id: number, author: string, body: string, reply: number | null =
   side: "RIGHT",
 });
 
+/** A comment as GitHub's GraphQL API gives it. */
+const draft = ({ id, author, reply, side: _side, ...rest }: ReturnType<typeof inline>) => ({
+  ...rest,
+  databaseId: id,
+  author: { login: author },
+  replyTo: reply === null ? null : { databaseId: reply },
+});
+
 test("the reader's pending review on GitHub shows as draft comments and a draft summary", async () => {
   const pull = "repos/example/repo/pulls/7";
   process.env.FAKE_GH_API = JSON.stringify({
@@ -67,10 +78,52 @@ test("the reader's pending review on GitHub shows as draft comments and a draft 
       { ...by("reviewer", 10), body: "", state: "COMMENTED" },
       { ...by("me", 11), createdAt: null, body: "Two things before merge.", state: "PENDING" },
     ],
-    // GitHub lists a pending review's comments only under the review.
-    [`${pull}/reviews/11/comments?per_page=100`]: [
-      inline(2, "me", "Agreed, and the test too.", 1),
-      { ...inline(3, "me", "This can be null."), line: 9, originalLine: 9 },
+    // GitHub's REST API gives a pending review's comments no lines; GraphQL
+    // does, and gives each thread's side.
+    "reviews(states: PENDING": [
+      {
+        data: {
+          repository: {
+            pullRequest: {
+              reviews: {
+                nodes: [
+                  {
+                    comments: {
+                      pageInfo: { hasNextPage: false, endCursor: null },
+                      nodes: [
+                        draft(inline(2, "me", "Agreed, and the test too.", 1)),
+                        draft({
+                          ...inline(3, "me", "This can be null."),
+                          line: 9,
+                          originalLine: 9,
+                        }),
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ],
+    reviewThreads: [
+      {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [1, 3].map((id) => ({
+                  id: `T_${id}`,
+                  diffSide: id === 3 ? "LEFT" : "RIGHT",
+                  comments: { nodes: [{ databaseId: id }] },
+                })),
+              },
+            },
+          },
+        },
+      },
     ],
   });
   const comments = await loadPullRequestComments("https://github.com/example/repo/pull/7", true);
@@ -83,18 +136,20 @@ test("the reader's pending review on GitHub shows as draft comments and a draft 
   });
   expect(
     comments.threads.map((thread) => ({
+      side: thread.side,
       line: thread.line,
       comments: thread.comments.map(({ author, body, draft }) => ({ author, body, draft })),
     })),
   ).toEqual([
     {
+      side: "new",
       line: 3,
       comments: [
         { author: "reviewer", body: "Name this after the package.", draft: undefined },
         { author: "me", body: "Agreed, and the test too.", draft: true },
       ],
     },
-    { line: 9, comments: [{ author: "me", body: "This can be null.", draft: true }] },
+    { side: "old", line: 9, comments: [{ author: "me", body: "This can be null.", draft: true }] },
   ]);
   // The empty submitted comment review does not show; the draft's text does.
   expect(comments.reviews.map(({ author, state, draft }) => ({ author, state, draft }))).toEqual([
