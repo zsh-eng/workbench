@@ -19,67 +19,74 @@
   background: var(--med-canvas);
   font-family: var(--med-font-ui);
 }
-.med-md-layout {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
+/* The pane's size: its table of contents keeps to the pane's height. */
 .med-md-scroll {
+  container-type: size;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scroll-padding-top: 40px;
 }
+/* The type tokens (--med-md-*) come from themes.ts (READING), so previews,
+   notes and briefs read alike in every theme. */
 .med-md-prose {
   box-sizing: border-box;
   --med-md-gutter: clamp(24px, 4cqw, 48px);
+  /* Code blocks and diagrams: the page, raised a little toward the text. */
+  --med-md-surface: color-mix(in srgb, var(--med-text) 5%, var(--med-canvas));
   /* Keep the reading measure independent of the surrounding page padding. */
   width: 100%;
-  max-width: calc(var(--med-measure, 38em) + 2 * var(--med-md-gutter));
+  max-width: calc(var(--med-measure, 51em) + 2 * var(--med-md-gutter));
   margin: 0 auto;
   padding: 38px var(--med-md-gutter) 48px;
   font-family: var(--med-font-prose);
-  font-size: 14px;
-  line-height: 1.625;
+  font-size: var(--med-md-size, 15px);
+  line-height: var(--med-md-leading, 1.6);
   overflow-wrap: anywhere;
 }
 .med-md-prose p {
-  margin: 0 0 1.5em;
+  margin: 0 0 var(--med-md-space, 1.07em);
 }
+/* Headings rank by weight and the space above them more than by size. */
 .med-md-prose :is(h1, h2, h3, h4, h5, h6) {
   font-family: var(--med-font-headings);
-  line-height: 1.22;
-  letter-spacing: var(--med-headings-tracking, -0.035em);
-  font-weight: 400;
+  line-height: 1.3;
+  font-weight: 600;
   text-wrap: balance;
-  scroll-margin-top: 40px;
+  scroll-margin-top: 32px;
 }
 .med-md-prose h1 {
-  font-size: clamp(1.875em, 4.375cqw, 2.75em);
-  margin: 0 0 28px;
+  font-size: var(--med-md-h1, clamp(1.875em, 4.375cqw, 2.6em));
+  line-height: 1.2;
+  letter-spacing: var(--med-headings-tracking, -0.035em);
+  margin: 0 0 0.7em;
 }
 .med-md-prose h2 {
-  font-size: 1.625em;
-  margin: 49px 0 21px;
+  font-size: var(--med-md-h2, 1.2em);
+  font-weight: 500;
+  margin: 2.8em 0 0.8em;
 }
 .med-md-prose h3 {
-  font-size: 1.375em;
-  margin: 35px 0 18px;
+  font-size: var(--med-md-h3, 1em);
+  margin: 2.1em 0 0.7em;
 }
 .med-md-prose :is(h4, h5, h6) {
   font-size: 1em;
-  font-weight: 500;
-  margin: 28px 0 14px;
+  color: var(--med-muted);
+  margin: 1.8em 0 0.6em;
 }
 .med-md-prose a {
   color: var(--med-accent);
-  text-underline-offset: 4px;
+  text-underline-offset: 0.2em;
   text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  transition: text-decoration-color 120ms ease-out;
 }
 .med-md-prose a:hover {
-  text-decoration-thickness: 2px;
+  text-decoration-color: currentColor;
 }
 .med-md-prose a:not([href]) {
   text-decoration-style: dotted;
@@ -89,13 +96,13 @@
 }
 .med-md-prose :is(ul, ol) {
   padding-left: 1.5em;
-  margin: 0 0 1.4em;
+  margin: 0 0 var(--med-md-space, 1.07em);
 }
 .med-md-prose li {
-  margin: 0.35em 0;
+  margin: 0.3em 0;
 }
 .med-md-prose li p {
-  margin: 0.45em 0;
+  margin: 0.4em 0;
 }
 .med-md-prose .contains-task-list {
   list-style: none;
@@ -124,24 +131,23 @@
   border-top: 1px solid var(--med-border);
   margin: 2.7em 0;
 }
+/* Code sits on a raised surface with no outline, a step smaller than the text. */
 .med-md-prose code {
   font-family: "Paper Mono", monospace;
-  font-size: 0.86em;
-  background: var(--med-panel);
-  border: 1px solid var(--med-border);
-  border-radius: calc(4px * var(--med-round, 1));
-  padding: 0.15em 0.35em;
+  font-size: var(--med-md-small, 0.867em);
+  background: color-mix(in srgb, var(--med-text) 6%, transparent);
+  border-radius: calc(5px * var(--med-round, 1));
+  padding: 0.12em 0.3em;
 }
 .med-md-prose pre {
   position: relative;
-  margin: 1.5em 0;
-  padding: 34px 20px 20px;
-  background: var(--med-panel);
-  border: 1px solid var(--med-border);
-  border-radius: calc(10px * var(--med-round, 1));
+  margin: 1.65em 0;
+  padding: 32px 20px 16px;
+  background: var(--med-md-surface);
+  border-radius: calc(12px * var(--med-round, 1));
   overflow: auto;
   line-height: 1.7;
-  font-size: 13px;
+  font-size: var(--med-md-small, 0.867em);
 }
 .med-md-prose pre::before {
   content: attr(data-language);
@@ -154,7 +160,6 @@
   color: var(--med-muted);
 }
 .med-md-prose pre code {
-  border: 0;
   padding: 0;
   background: transparent;
   font-size: inherit;
@@ -172,13 +177,13 @@
 /* Pele draws in these colors and fonts, so a diagram matches the theme. It
  * sits on the code-block surface, and its nodes are raised cards on it. */
 .med-md-diagram {
-  --pele-bg: var(--med-panel);
+  --pele-bg: var(--med-md-surface, var(--med-panel));
   --pele-fg: var(--med-text);
   --pele-muted: var(--med-muted);
-  --pele-line: color-mix(in srgb, var(--med-text) 40%, var(--med-panel));
+  --pele-line: color-mix(in srgb, var(--med-text) 40%, var(--pele-bg));
   --pele-surface: var(--med-raised);
-  --pele-surface-alt: color-mix(in srgb, var(--med-text) 5%, var(--med-panel));
-  --pele-border: color-mix(in srgb, var(--med-text) 20%, var(--med-panel));
+  --pele-surface-alt: color-mix(in srgb, var(--med-text) 5%, var(--pele-bg));
+  --pele-border: color-mix(in srgb, var(--med-text) 20%, var(--pele-bg));
   --pele-accent: var(--med-accent);
   --pele-critical: var(--med-red);
   --pele-error: var(--med-red);
@@ -220,17 +225,18 @@
   margin: 1.7em auto;
   border-radius: calc(8px * var(--med-round, 1));
 }
+/* Rows divide by hairlines alone, and the first column lines up with the text. */
 .med-md-prose table {
   display: block;
   max-width: 100%;
   overflow: auto;
   border-collapse: collapse;
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 1.6em 0;
+  font-size: var(--med-md-small, 0.867em);
+  line-height: 1.55;
+  margin: 1.55em 0;
 }
 .med-md-prose :is(th, td) {
-  padding: 10px 14px;
+  padding: 0.9em 1.1em 0.9em 0;
   border-bottom: 1px solid var(--med-border);
   text-align: left;
   vertical-align: top;
@@ -244,14 +250,12 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+.med-md-prose :is(th, td):last-child {
+  padding-right: 0;
+}
 .med-md-prose th {
   color: var(--med-muted);
-  font-size: 11px;
-  font-weight: 550;
-  background: var(--med-panel);
-}
-.med-md-prose tr:nth-child(even) {
-  background: color-mix(in srgb, var(--med-panel) 45%, transparent);
+  font-weight: 500;
 }
 /* A table wider than its column scrolls in its own box. Its edges fade
    where more of it is out of view, so a cut column reads as one that
@@ -310,20 +314,50 @@
 .med-md-prose .footnotes h2 {
   font-size: 14px;
 }
+/* A long document lists its headings on the left when the pane has room.
+   The list keeps to the pane's height and scrolls in its own box; the text
+   stays centered in the pane until the list needs that room, then moves
+   right of it. The heading being read is in the text's color, the ones
+   above it fainter, and the ones below it muted. */
+.med-md-page {
+  --med-md-toc-column: 204px;
+}
 .med-md-toc {
   display: none;
-  flex: 0 0 166px;
-  box-sizing: border-box;
-  padding: 42px 16px 20px 0;
-  overflow: auto;
-  scrollbar-width: thin;
 }
-.med-md-toc > span {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--med-muted);
-  margin: 0 0 16px 10px;
+@container (min-width: 760px) {
+  .med-md-page[data-toc] {
+    display: grid;
+    grid-template-columns: var(--med-md-toc-column) minmax(0, 1fr);
+    align-items: start;
+  }
+  .med-md-toc {
+    display: block;
+    position: sticky;
+    top: 0;
+    box-sizing: border-box;
+    max-height: 100cqh;
+    padding: 46px 0 24px 24px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .med-md-page[data-toc] > .med-md-prose {
+    margin-left: max(
+      0px,
+      calc(
+        (100cqw - var(--med-measure, 51em) - 2 * var(--med-md-gutter)) / 2 -
+          var(--med-md-toc-column)
+      )
+    );
+    margin-right: 0;
+  }
+}
+.med-md-toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--med-border);
 }
 .med-markdown .med-md-toc button {
   /* Above page-wide button rules, such as .med-local button. */
@@ -334,21 +368,17 @@
   color: var(--med-muted);
   background: transparent;
   border: 0;
-  border-left: 1px solid var(--med-border);
   border-radius: 0;
-  font: 11px/1.6 var(--med-font-ui);
-  padding: 5px 6px;
+  font: 13px/1.35 var(--med-font-ui);
+  padding: 4px 0 4px calc(12px + var(--med-md-toc-depth, 0) * 12px);
   cursor: pointer;
-  transition:
-    color 120ms ease-out,
-    border-color 120ms ease-out;
+  transition: color 200ms ease-out;
 }
-.med-markdown .med-md-toc button:hover {
+.med-markdown .med-md-toc button[data-read] {
+  color: var(--med-faint);
+}
+.med-markdown .med-md-toc button:is(:hover, [aria-current]) {
   color: var(--med-text);
-}
-.med-markdown .med-md-toc button[aria-current] {
-  color: var(--med-accent);
-  border-left: 2px solid var(--med-accent);
 }
 .med-md-notice {
   padding: 18px 24px;
@@ -357,11 +387,6 @@
 }
 .med-md-empty {
   color: var(--med-muted);
-}
-@container (min-width:760px) {
-  .med-md-toc {
-    display: block;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .med-markdown .med-md-toc button {

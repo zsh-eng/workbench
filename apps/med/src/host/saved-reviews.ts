@@ -50,6 +50,8 @@ import {
   MAX_SESSIONS,
   pinSourceSchema,
   briefCommentSchema,
+  savedPrDraftSchema,
+  type SavedPrDraft,
   endpointNamesSchema,
   partsProblem,
   savedPartsSchema,
@@ -166,6 +168,7 @@ const savedSchema = z.object({
     .array(briefCommentSchema.extend({ id: z.string().regex(/^c_[a-f0-9]{12}$/) }))
     .max(MAX_NOTES)
     .optional(),
+  prDraft: savedPrDraftSchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
     .array(
@@ -2043,6 +2046,38 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Sets the pull request draft that the agent wrote, as its next revision;
+   * `created` records the pull request that Create opened from it. */
+  setPrDraft(
+    id: string,
+    change:
+      | { draft: Omit<SavedPrDraft, "revision" | "updatedAt" | "pullRequestUrl"> }
+      | { created: string },
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      if ("created" in change) {
+        if (!saved.prDraft)
+          throw new HostError("no-pr-draft", "This review has no pull request draft.", 404);
+        saved.prDraft.pullRequestUrl = change.created;
+        saved.pullRequestUrl = change.created;
+      } else
+        saved.prDraft = {
+          ...change.draft,
+          revision: (saved.prDraft?.revision ?? 0) + 1,
+          updatedAt: new Date().toISOString(),
+          ...(saved.prDraft?.pullRequestUrl
+            ? { pullRequestUrl: saved.prDraft.pullRequestUrl }
+            : {}),
+        };
+      saved.revision++;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(
     id: string,
@@ -2063,11 +2098,13 @@ export class SavedReviewStore {
               : saved.brief
             : saved.iterations?.find((entry) => entry.number === iteration)?.brief;
         const shown =
-          input.section === "brief"
-            ? brief !== undefined
-            : [saved, ...(saved.iterations ?? [])].some((owner) =>
-                owner.pins?.some((pin) => pin.id === input.section),
-              );
+          input.section === "pr"
+            ? !!saved.prDraft
+            : input.section === "brief"
+              ? brief !== undefined
+              : [saved, ...(saved.iterations ?? [])].some((owner) =>
+                  owner.pins?.some((pin) => pin.id === input.section),
+                );
         if (!shown)
           throw new HostError("notes-not-found", "These notes are no longer in the review.", 404);
         if (saved.commentCount >= MAX_NOTES)
@@ -2270,14 +2307,20 @@ export class SavedReviewStore {
         if (include && !include.has(comment.id)) continue;
         threadsOut.set(comment.id, {
           version: comment.updatedAt,
-          comment: { path: "Notes", quote: comment.quote, text: comment.text },
+          comment: {
+            path: comment.section === "pr" ? "PR draft" : "Notes",
+            quote: comment.quote,
+            text: comment.text,
+          },
         });
         const pin = pins.find((item) => item.id === comment.section);
         appendText(
           `## User Comment ${++index}`,
-          comment.section === "brief"
-            ? `On: the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
-            : `On: an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
+          comment.section === "pr"
+            ? `On: the pull request draft${record.saved.prDraft ? ` (revision ${record.saved.prDraft.revision}; revise it and run med pr draft again)` : ""}`
+            : comment.section === "brief"
+              ? `On: the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
+              : `On: an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
           `Comment ID: ${comment.id}`,
           "",
           "Quote:",

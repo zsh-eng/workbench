@@ -23,9 +23,15 @@ import type {
   BriefCommentMutation,
   PinMutation,
   SavedPin,
+  SavedPrDraft,
   Since,
 } from "../../src/shared/saved-review";
-import type { AgentPreset, OwnedAction, OwnedState } from "../../src/shared/owned-session";
+import {
+  AGENT_CAPABILITIES,
+  type AgentPreset,
+  type OwnedAction,
+  type OwnedState,
+} from "../../src/shared/owned-session";
 import type { ThreadUsage } from "../../src/shared/model-usage";
 import type { ReviewGuide } from "../../src/shared/review-guide";
 import type { QuestionState } from "../../src/shared/questions";
@@ -196,6 +202,8 @@ async function mountApp(
     since?: Since;
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
+    /** The agent's pull request draft. */
+    prDraft?: SavedPrDraft;
   } = {},
 ) {
   initializeTheme();
@@ -257,6 +265,7 @@ async function mountApp(
   /** Queued messages that the agent gets just before the user takes them back. */
   const goneOnTake = new Set<string>();
   const steered: string[] = [];
+  let ownedKind: "claude" | "codex" | "acp" = "claude";
   const agentMessages: unknown[] = [];
   // The host's answers to the messages that wait, in order: an error, or
   // NO_ANSWER for a host that is not there.
@@ -279,6 +288,8 @@ async function mountApp(
   let pins: SavedPin[] = [];
   let approvals: { version: number; at: string }[] = [];
   let briefComments: BriefComment[] = [];
+  let prDraft = options.prDraft;
+  const prCreates: unknown[] = [];
   let sessions: AgentSession[] = options.session
     ? [{ agent: options.sessionAgent ?? "claude", id: "s1", cwd: "/test/repo" }]
     : [];
@@ -372,6 +383,8 @@ async function mountApp(
     ...(options.guide ? { guide: { ...options.guide, updatedAt: "2026-09-20T00:00:00Z" } } : {}),
     ...(pins.length ? { pins } : {}),
     ...(briefComments.length ? { briefComments } : {}),
+    ...(prDraft ? { prDraft } : {}),
+    ...(prDraft?.pullRequestUrl ? { pullRequestUrl: prDraft.pullRequestUrl } : {}),
     ...(approvals.length ? { approvals } : {}),
     ...(options.iterationBriefs
       ? {
@@ -435,7 +448,10 @@ async function mountApp(
           fork?: string;
         };
         ownedStarts.push({ preset, ...(fork ? { fork } : {}) });
-        sessions = [...sessions, { agent: "claude", id: "o1", cwd: "/test/repo" }];
+        // The session is of the preset's kind: Claude Code, Codex, or ACP.
+        const kind = options.agents?.find((agent) => agent.id === preset)?.kind ?? "claude";
+        ownedKind = kind === "codex" ? "codex" : kind === "claude" ? "claude" : "acp";
+        sessions = [...sessions, { agent: ownedKind, id: "o1", cwd: "/test/repo" }];
         // Continue in Med: the messages that waited for the terminal go to the fork.
         if (fork && inbox)
           inbox = {
@@ -512,6 +528,7 @@ async function mountApp(
           text: string;
           noteIds: string[];
           images?: unknown[];
+          afterTurn?: boolean;
         };
         if (options.answerAgentMessages) {
           const error = await new Promise<string | undefined>((answer) =>
@@ -531,7 +548,7 @@ async function mountApp(
         const message: AgentInboxState["messages"][number] = {
           id: input.id ?? `m${agentMessages.length}`,
           sessionId: input.sessionId === "o1" ? "o1" : "s1",
-          agent: "claude",
+          agent: input.sessionId === "o1" ? ownedKind : "claude",
           text: input.text,
           noteIds: input.noteIds,
           comments,
@@ -541,6 +558,7 @@ async function mountApp(
           // A session that a terminal or another app runs takes the message later.
           delivery: inbox.elsewhere?.s1 || queued ? "pending" : "delivered",
           ...(queued ? { queued: true } : {}),
+          ...(queued && input.afterTurn ? { afterTurn: true } : {}),
         };
         inbox = {
           ...inbox,
@@ -549,6 +567,20 @@ async function mountApp(
           drafts: inbox.drafts.filter((draft) => !input.noteIds.includes(draft.id)),
         };
         return Response.json({ message, state: inboxState() });
+      }
+      if (url.pathname === "/api/reviews/saved/agent/send-now" && inbox) {
+        // The message goes at the agent's next step, not its turn's end.
+        const { id } = JSON.parse(String(init?.body)) as { id: string };
+        steered.push(id);
+        inbox = {
+          ...inbox,
+          messages: inbox.messages.map((entry) => {
+            if (entry.id !== id) return entry;
+            const { afterTurn: _afterTurn, ...next } = entry;
+            return next;
+          }),
+        };
+        return Response.json({ state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/agent/take" && inbox) {
         const { id } = JSON.parse(String(init?.body)) as { id: string };
@@ -573,17 +605,6 @@ async function mountApp(
           );
         inbox = { ...inbox, messages: inbox.messages.filter((entry) => entry !== message) };
         return Response.json({ message, state: inboxState() });
-      }
-      if (url.pathname === "/api/reviews/saved/agent/steer" && inbox) {
-        const { id } = JSON.parse(String(init?.body)) as { id: string };
-        steered.push(id);
-        inbox = {
-          ...inbox,
-          messages: inbox.messages.map((entry) =>
-            entry.id === id ? { ...entry, queued: undefined, delivery: "delivered" } : entry,
-          ),
-        };
-        return Response.json({ state: inboxState() });
       }
       if (url.pathname === "/api/reviews/saved/since")
         return Response.json({ since: options.since ?? null });
@@ -678,6 +699,20 @@ async function mountApp(
         else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
         return Response.json(savedBundle());
       }
+      if (url.pathname === "/api/reviews/saved/pr-draft-create" && prDraft) {
+        prCreates.push(JSON.parse(String(init?.body)));
+        prDraft = { ...prDraft, pullRequestUrl: "https://github.com/example/repo/pull/7" };
+        return Response.json({
+          review: savedBundle(),
+          url: prDraft.pullRequestUrl,
+          left: ["The retry chart"],
+        });
+      }
+      if (url.pathname === "/api/reviews/saved/pr-draft" && prDraft)
+        return new Response(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><rect width="200" height="80" fill="#2a6"/></svg>`,
+          { headers: { "content-type": "image/svg+xml" } },
+        );
       if (url.pathname === "/api/reviews/saved/brief" && init?.method === "POST") {
         brief = JSON.parse(String(init.body)).brief ?? undefined;
         return Response.json(savedBundle());
@@ -950,6 +985,7 @@ async function mountApp(
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
   return {
     controller,
+    prCreates,
     requests,
     fileRequests,
     vaultWrites,
@@ -1703,6 +1739,37 @@ describe("graphical review", () => {
         { path: "/test/notes/Target.md", text: "# Target again\n\nLinked from the plan.\n" },
       ]);
     await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
+  });
+  test("Find file shows a vault's notes without the Tab step, and the vault's chip searches only it", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({ vault: true });
+    const open = () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "K", metaKey: true, shiftKey: true, bubbles: true }),
+      );
+    open();
+    const find = page.getByRole("combobox", { name: "Find file", exact: true });
+    await expect
+      .element(find)
+      .toHaveAttribute("placeholder", expect.stringMatching(/^Find a file or a note/));
+    // A note whose name holds the words is an option, with its vault's name.
+    await find.fill("plan");
+    const note = page.getByRole("option", { name: /Plan\.md/ });
+    await expect.poll(() => note.element().textContent).toBe("Plan.mdnotes · ProjectsNote");
+    await expect.element(page.getByText("0 files · 1 note")).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    const reading = page.getByRole("region", { name: "Markdown preview" });
+    await expect.element(reading.getByRole("heading", { name: "Plan" })).toBeVisible();
+    await expect.element(page.getByText("notes · Projects/Plan.md", { exact: true })).toBeVisible();
+
+    // The chip under the field scopes the search to the vault.
+    open();
+    await page.getByRole("button", { name: "notes", exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Back to current repository" }))
+      .toHaveTextContent("notes");
+    await find.fill("target");
+    await expect.element(page.getByRole("option", { name: /Target\.md/ })).toBeVisible();
   });
   test("a pane's header drags it beside another pane or swaps the two; Escape keeps it", async () => {
     await page.viewport(1280, 800);
@@ -3040,117 +3107,54 @@ describe("review guide comments", () => {
   });
 });
 
-describe("review brief", () => {
-  const excerptText = () =>
-    [...document.querySelectorAll("[data-brief-excerpt] diffs-container")]
-      .map((host) => host.shadowRoot?.textContent ?? "")
-      .join("\n");
-
-  test("opens on the brief, shows the cited lines, and follows a link into the Review", async () => {
-    await mountApp({
+describe("saved reviews", () => {
+  test("the agent's pull request draft has its tab, with its image; a comment goes to the agent, and Create opens the pull request", async () => {
+    const { prCreates } = await mountApp({
       savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
+      prDraft: {
+        title: "Retry failed fetches",
+        body: "## Why\n\nCalls failed once and gave up.\n\n![The retry chart](shots/chart.png)\n",
+        repo: "/test/repo",
+        images: [{ href: "shots/chart.png", file: `${"a".repeat(64)}.png` }],
+        revision: 2,
+        updatedAt: "2026-10-30T02:00:00Z",
+      },
     });
+    // The Review stays the first tab; the draft has its own, after it.
+    await userEvent.click(page.getByRole("tab", { name: "Pull request" }));
+    await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Retry failed fetches" })).toBeVisible();
+    // Med shows its copy of the local image.
     await expect
-      .element(page.getByRole("tab", { name: "Notes" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-    await expect.element(page.getByText("Cites 1 of 2 changed files")).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Open src/alpha.ts L1 in Changes" }))
-      .toBeVisible();
-    await expect.poll(excerptText).toContain("export const after = 2;");
-    await expect.element(page.getByRole("heading", { name: "Not in the notes 1" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "src/beta.ts +1 −1" })).toBeVisible();
+      .poll(() => page.getByRole("img", { name: "The retry chart" }).element().getAttribute("src"))
+      .toBe(`/api/reviews/saved/pr-draft?image=${"a".repeat(64)}.png`);
 
-    await page.getByRole("link", { name: "alpha.ts:1" }).click();
-    await expect
-      .element(page.getByRole("tab", { name: "Review" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect
-      .element(page.getByRole("button", { name: "Clear line selection" }))
-      .toBeInTheDocument();
-  });
-
-  test("comments on a selected passage of the notes, marks it, and edits the comment", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes. Callers keep the old name for now.\n",
-    });
-    const paragraph = page.getByText(/^The constant changes\./);
-    await expect.element(paragraph).toBeVisible();
-    const select = (words: string) => {
-      const text = paragraph.element().firstChild as Text;
-      const range = new Range();
-      range.setStart(text, text.data.indexOf(words));
-      range.setEnd(text, text.data.indexOf(words) + words.length);
-      document.getSelection()!.removeAllRanges();
-      document.getSelection()!.addRange(range);
-    };
-    const marked = () =>
-      [...(CSS.highlights.get("med-brief-comment") ?? [])].map((range) => String(range));
-
-    select("Callers keep the old name");
+    const paragraph = page.getByText(/^Calls failed once/);
+    const text = paragraph.element().firstChild as Text;
+    const range = new Range();
+    range.setStart(text, 0);
+    range.setEnd(text, "Calls failed once".length);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
     await userEvent.click(page.getByRole("button", { name: "Comment on the selection" }));
-    await userEvent.fill(
-      page.getByRole("textbox", { name: "Comment text" }),
-      "Rename the callers too.",
-    );
+    await userEvent.fill(page.getByRole("textbox", { name: "Comment text" }), "How many times?");
     await userEvent.click(page.getByRole("button", { name: "Save note" }));
-    // The comment shows below its paragraph, and the passage stays marked.
-    const card = page.getByRole("article", {
-      name: "Comment on “Callers keep the old name”",
-    });
-    await expect.element(card.getByText("Rename the callers too.")).toBeVisible();
-    await expect.poll(marked).toEqual(["Callers keep the old name"]);
     await expect
-      .poll(() => page.getByRole("button", { name: "Copy comments" }).element().textContent)
-      .toMatch(/1$/);
-
-    await userEvent.click(card.getByRole("button", { name: "Edit" }));
-    await userEvent.fill(
-      page.getByRole("textbox", { name: "Edit note text" }),
-      "Rename them here.",
-    );
-    await userEvent.click(card.getByRole("button", { name: "Save" }));
-    await expect.element(card.getByText("Rename them here.")).toBeVisible();
-
-    // C starts a comment on the selection, as on lines in Changes.
-    select("The constant changes");
-    await expect
-      .element(page.getByRole("button", { name: "Comment on the selection" }))
+      .element(page.getByRole("article", { name: "Comment on “Calls failed once”" }))
       .toBeVisible();
-    await userEvent.keyboard("c");
-    await expect.element(page.getByRole("textbox", { name: "Comment text" })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
 
-    await userEvent.click(card.getByRole("button", { name: "Delete review note" }));
-    await expect.element(card).not.toBeInTheDocument();
-    await expect.poll(marked).toEqual([]);
-  });
-
-  test("an agent's versions switch the brief and its comparison together", async () => {
-    await page.viewport(1280, 800);
-    const { controller } = await mountApp({
-      savedReview: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    // The latest version opens: its brief and its comparison.
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    expect(controller.getSnapshot().savedTargetId).toBe("target-1");
+    // Create asks first, as a draft by default, and says the image stays out.
+    await userEvent.click(page.getByRole("button", { name: "Create pull request…" }));
+    const ask = page.getByRole("alertdialog", { name: "Create pull request" });
+    await expect.poll(() => ask.element().textContent).toMatch(/its image stays out/);
+    await userEvent.click(ask.getByRole("button", { name: "Create" }));
+    await expect.poll(() => prCreates).toEqual([{ draft: true }]);
     await expect
-      .element(page.getByRole("button", { name: "Version 2" }))
-      .toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Version 1" }).click();
-    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-0");
-    // The keys choose the comparison, so the header has no second picker.
+      .poll(() => page.getByRole("status").element().textContent)
+      .toBe("Add The retry chart on GitHub: drag it into the description.");
     await expect
-      .element(page.getByRole("combobox", { name: "Review version" }))
-      .not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Version 2" }).click();
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
+      .element(page.getByRole("link", { name: "Open on GitHub" }))
+      .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
   });
 
   test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {
@@ -3323,195 +3327,6 @@ describe("review brief", () => {
     await bar.getByRole("button", { name: "Refresh review" }).click();
     await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
     await expect.element(bar).not.toBeInTheDocument();
-  });
-
-  test("Start new notes makes an empty iteration of the current comparison, and Delete removes it", async () => {
-    await page.viewport(1280, 800);
-    const { controller } = await mountApp({
-      savedReview: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    // In the open menu, a letter chooses its item.
-    await page.getByRole("button", { name: "Notes options" }).click();
-    await expect
-      .element(page.getByRole("menuitem", { name: "Start new notes" }))
-      .toHaveAttribute("aria-keyshortcuts", "n");
-    await userEvent.keyboard("n");
-    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-    // The new notes are empty: the brief before them stays with its iteration.
-    await expect.element(page.getByText("No notes yet.", { exact: false })).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Version 3" }))
-      .toHaveAttribute("aria-pressed", "true");
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-2");
-    await expect
-      .element(page.getByRole("heading", { name: "Second round" }))
-      .not.toBeInTheDocument();
-
-    // Deleting them asks first; their iteration goes, and the agent's latest notes show.
-    await page.getByRole("button", { name: "Notes options" }).click();
-    await expect.element(page.getByRole("menuitem", { name: "Delete these notes…" })).toBeVisible();
-    await userEvent.keyboard("d");
-    const confirm = page.getByRole("alertdialog", { name: "Delete notes" });
-    // The Notes tab stays in front while the earlier comparison loads.
-    const tabs = new Set<string>();
-    const observer = new MutationObserver(() =>
-      tabs.add(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? ""),
-    );
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-    });
-    await confirm.getByRole("button", { name: "Delete", exact: true }).click();
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    await expect.poll(() => controller.getSnapshot().savedTargetId).toBe("target-1");
-    await expect.poll(() => controller.getSnapshot().status).toBe("ready");
-    observer.disconnect();
-    expect([...tabs]).toEqual(["Notes"]);
-    await expect.element(page.getByRole("button", { name: "Version 3" })).not.toBeInTheDocument();
-    await expect.element(confirm).not.toBeInTheDocument();
-  });
-
-  test("many iterations keep the latest keys and list earlier ones in a menu", async () => {
-    await page.viewport(1280, 800);
-    await mountApp({
-      savedReview: true,
-      iterationBriefs: Array.from({ length: 12 }, (_, index) => `# Round ${index + 1}\n`),
-    });
-    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    const keys = page.getByRole("group", { name: "Versions" });
-    expect(
-      keys
-        .getByRole("button")
-        .elements()
-        .map((key) => key.textContent),
-    ).toEqual(["…", "7", "8", "9", "10", "11", "12"]);
-    const header = keys.element().parentElement!;
-    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
-    // An earlier round opens from the menu, and the menu key shows it.
-    await page.getByRole("button", { name: "Earlier versions" }).click();
-    await page.getByRole("menuitemcheckbox", { name: /^Version 3 · / }).click();
-    await expect.element(page.getByRole("heading", { name: "Round 3" })).toBeVisible();
-    await expect
-      .element(page.getByRole("button", { name: "Version 3, earlier versions" }))
-      .toHaveTextContent("3");
-    await page.getByRole("button", { name: "Version 12" }).click();
-    await expect.element(page.getByRole("heading", { name: "Round 12" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Earlier versions" })).toBeVisible();
-    // A narrow pane keeps fewer keys; the label stays on one line.
-    await page.viewport(600, 800);
-    await expect.poll(() => keys.getByRole("button").elements().length).toBeLessThan(7);
-    expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
-    const label = header.firstElementChild!.getBoundingClientRect();
-    expect(label.height).toBeLessThan(24);
-  });
-
-  test("an iteration on the same branch replaces the brief without reloading the review", async () => {
-    await page.viewport(1280, 800);
-    await mountApp({
-      savedReview: true,
-      oneBranch: true,
-      iterationBriefs: ["# First round\n", "# Second round\n"],
-    });
-    await expect.element(page.getByRole("heading", { name: "Second round" })).toBeVisible();
-    // Record each state that the window shows, from the click to the new brief.
-    const shown = new Set<string>();
-    const record = () => {
-      const app = document.querySelector<HTMLElement>("[data-review-status]");
-      const tab = document.querySelector('[role="tab"][aria-selected="true"]');
-      const heading = document.querySelector(".med-brief-prose h1")?.textContent;
-      shown.add(`${app?.dataset.reviewStatus} ${tab?.textContent} ${heading}`);
-    };
-    const observer = new MutationObserver(record);
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-    });
-    await page.getByRole("button", { name: "Version 1" }).click();
-    await expect.element(page.getByRole("heading", { name: "First round" })).toBeVisible();
-    observer.disconnect();
-    expect([...shown].filter((state) => !/^ready Notes (First|Second) round$/.test(state))).toEqual(
-      [],
-    );
-  });
-
-  test("draws a Mermaid diagram in the brief", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Flow\n\n```mermaid\nflowchart LR\n  Edit --> Journal\n```\n",
-    });
-    await expect.element(page.getByRole("img", { name: "Mermaid diagram" })).toBeInTheDocument();
-    const diagram = document.querySelector(".med-md-diagram svg")!;
-    expect(diagram.textContent).toContain("Journal");
-    // Nodes are raised cards in the theme's colors, not Pele's own grey.
-    const raised = document.createElement("span");
-    raised.style.color = "var(--med-raised)";
-    diagram.parentElement!.append(raised);
-    expect(getComputedStyle(diagram.querySelector(".pele-node rect")!).fill).toBe(
-      getComputedStyle(raised).color,
-    );
-    raised.remove();
-  });
-
-  test("loads a brief image from the repository", async () => {
-    await mountApp({
-      savedReview: true,
-      brief: "# Screens\n\n![The review](docs/review.png)\n",
-    });
-    await expect.element(page.getByRole("img", { name: "The review" })).toBeInTheDocument();
-    const source = new URL(document.querySelector<HTMLImageElement>("img[alt='The review']")!.src);
-    expect(source.pathname).toBe("/api/markdown/image");
-    expect(source.searchParams.get("href")).toBe("docs/review.png");
-    expect(JSON.parse(source.searchParams.get("source")!)).toMatchObject({
-      kind: "worktree",
-    });
-  });
-
-  test("adds a note on excerpt lines that also shows in the Review", async () => {
-    const { controller } = await mountApp({
-      savedReview: true,
-      brief: "The constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
-    });
-    const excerpt = () => document.querySelector("[data-brief-excerpt] diffs-container");
-    await expect
-      .poll(() => excerpt()?.shadowRoot?.querySelectorAll("[data-column-number]").length)
-      .toBeGreaterThanOrEqual(2);
-    const host = excerpt()!;
-    const added = page
-      .getByText("1", { exact: true })
-      .all()
-      .find((locator) => {
-        const element = locator.element();
-        return (
-          element.getRootNode() === host.shadowRoot &&
-          element.closest("[data-column-number]") &&
-          element.closest('[data-line-type="change-addition"]')
-        );
-      })!;
-    await added.click();
-    await userEvent.keyboard("c");
-    await page.getByRole("textbox", { name: "Review note text" }).fill("Keep this name");
-    await page.getByRole("button", { name: "Save note", exact: true }).click();
-    await expect
-      .poll(() => controller.getSnapshot().notes?.notes[0])
-      .toMatchObject({
-        path: "src/alpha.ts",
-        side: "new",
-        line: 1,
-        text: "Keep this name",
-      });
-    await expect.element(page.getByTitle("1 note on these lines")).toBeVisible();
-    await expect
-      .element(page.getByRole("textbox", { name: "Review note text" }))
-      .not.toBeInTheDocument();
-
-    await page.getByRole("tab", { name: "Review", exact: true }).click();
-    await expect
-      .poll(() => page.getByText("Keep this name", { exact: true }).elements().length)
-      .toBe(2);
   });
 
   test("shows GitHub pull request comments apart from local notes; replies and Med comments go into the reader's pending review, which they submit", async () => {
@@ -3735,32 +3550,6 @@ describe("review brief", () => {
       `Lines refer to ${secondCommit.slice(0, 7)}, the commit that Codex reviewed. This comparison shows ${firstCommit.slice(0, 7)}, so they are listed here.`,
     );
     expect(text).toContain("An older finding");
-  });
-
-  test("attaches a pasted brief to a saved review and undoes it", async () => {
-    await mountApp({ savedReview: true });
-    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
-    const data = new DataTransfer();
-    data.setData("text/plain", "Only [beta.ts:2](src/beta.ts:2) matters.");
-    document.body.dispatchEvent(
-      new ClipboardEvent("paste", {
-        clipboardData: data,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    await expect
-      .element(page.getByRole("tab", { name: "Notes" }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("status")).toMatchTextContent("Brief attached.");
-    await expect.poll(excerptText).toContain("export const shared = true;");
-
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect.element(page.getByRole("tab", { name: "Notes" })).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("tab", { name: "Review", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
-    await expect.element(page.getByRole("status")).toHaveTextContent("Brief removed.");
   });
 });
 
@@ -4137,11 +3926,13 @@ describe("agent session", () => {
     const pane = page.getByRole("region", { name: "Agent session" });
     const side = pane.getByRole("complementary", { name: "Session details" });
     await expect.element(side).toBeVisible();
-    // The thread's column keeps its 540 pixels beside the panel: the message
-    // box is the column less its 12 pixel sides.
+    // Beside the panel, the thread's column takes the room that is left: the
+    // message box is that room less its 12 pixel sides.
     const box = () =>
       pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
-    await expect.poll(box).toBeCloseTo(516, 0);
+    const room = () =>
+      pane.element().getBoundingClientRect().width - side.element().getBoundingClientRect().width;
+    await expect.poll(box).toBeCloseTo(room() - 24, 0);
     const context = side.getByRole("region", { name: "Context" });
     await expect.element(context).toMatchTextContent(/^Context31%/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
@@ -4165,7 +3956,9 @@ describe("agent session", () => {
     await expect.element(side).not.toBeInTheDocument();
     expect(localStorage.getItem("med:session-panel")).toBe("closed");
     await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
-    await expect.poll(box).toBeCloseTo(516, 0);
+    // Without it, the column is Claude Desktop's 768 pixels of text and the
+    // thread's 18 pixel sides.
+    await expect.poll(box).toBeCloseTo(768 + 36 - 24, 0);
     await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
     await expect.element(side).toBeVisible();
     expect(localStorage.getItem("med:session-panel")).toBe("auto");
@@ -4592,9 +4385,9 @@ describe("agent session", () => {
     expect(ownedActions.at(-1)).toEqual({ action: "interrupt" });
   });
 
-  test("while the agent works, a message queues for its next step; Edit brings it back, Remove drops it, ↑ takes back the rest, and Send now shows for an agent that takes one", async () => {
+  test("while the agent works, a message goes at its next step; Edit brings it back, Remove drops it, and ↑ takes back the rest", async () => {
     await page.viewport(1280, 800);
-    const { setOwned, agentMessages, goneOnTake, steered } = await mountApp({
+    const { setOwned, agentMessages, goneOnTake } = await mountApp({
       savedReview: true,
       inbox: { messages: [], waiting: [], drafts: [] },
       agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
@@ -4609,13 +4402,15 @@ describe("agent session", () => {
     const composer = panel.getByRole("form", { name: "Message Claude" });
     const field = composer.getByRole("combobox", { name: "Message Claude" });
     setOwned({ status: "working", settings: [], commands: [] });
-    // Working, with an empty box: Stop. With a message: Queue, and Stop beside it.
+    // Working, with an empty box: Stop. With a message: Send now, and Stop beside it.
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
-    await expect.element(composer.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await expect
+      .element(composer.getByRole("button", { name: "Send now" }))
+      .not.toBeInTheDocument();
     await userEvent.click(field);
     await userEvent.keyboard("Round to minutes.");
     await expect.element(composer.getByRole("button", { name: "Stop" })).toBeVisible();
-    await userEvent.click(composer.getByRole("button", { name: "Queue" }));
+    await userEvent.click(composer.getByRole("button", { name: "Send now" }));
     await expect.poll(() => agentMessages).toMatchObject([{ text: "Round to minutes." }]);
     const queued = panel.getByText("Queued for Claude's next step");
     await expect.element(queued).toBeVisible();
@@ -4672,29 +4467,124 @@ describe("agent session", () => {
     await expect
       .element(panel.getByText("Its attachment did not come back; add it again."))
       .toBeVisible();
+  });
 
-    // An agent whose capabilities say it takes a message during its turn, as
-    // Codex does, offers Send now, which gives it to the turn.
+  test("while the agent works, ⇧⌘↩ queues a message for the turn's end, Send now sends it at the next step, and ⌘↩ can queue instead", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages, steered } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "claude", name: "Claude Code", kind: "claude", available: true }],
+    });
+    localStorage.removeItem("med:follow-up");
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /Claude Code/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Claude" });
+    const field = composer.getByRole("combobox", { name: "Message Claude" });
+    setOwned({ status: "working", settings: [], commands: [] });
+    await userEvent.click(field);
+    await userEvent.keyboard("Rename it.{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+    await expect.poll(() => agentMessages).toMatchObject([{ text: "Rename it.", afterTurn: true }]);
+    const queued = panel.getByText("Queued until Claude's turn ends");
+    await expect.element(queued).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Send now", exact: true }));
+    await expect.poll(() => steered).toHaveLength(1);
+    await expect.element(panel.getByText("Queued for Claude's next step")).toBeVisible();
+    await expect.element(queued).not.toBeInTheDocument();
+
+    // The palette's choice makes ⌘↩ queue, and the button says so.
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.click(
+      page.getByRole("option", { name: "While the agent works, ⌘↩ queues for the turn's end" }),
+    );
+    expect(localStorage.getItem("med:follow-up")).toBe("queue");
+    await userEvent.click(field);
+    await userEvent.keyboard("Then the docs.");
+    await expect.element(composer.getByRole("button", { name: "Queue" })).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Then the docs.", afterTurn: true });
+    localStorage.removeItem("med:follow-up");
+  });
+
+  test("Codex takes a message sent now in the turn that runs, and a queued one at its end or on Send now", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages, steered } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "codex", name: "Codex", kind: "codex", available: true }],
+    });
+    localStorage.removeItem("med:follow-up");
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page.getByRole("region", { name: "Start a session" }).getByRole("button", { name: /Codex/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const composer = panel.getByRole("form", { name: "Message Codex" });
+    const field = composer.getByRole("combobox", { name: "Message Codex" });
     setOwned({
       status: "working",
       settings: [],
       commands: [],
-      capabilities: {
-        steer: true,
-        interrupt: true,
-        approvals: "ask",
-        images: true,
-        resume: true,
-        subagents: true,
-        usage: true,
-      },
+      capabilities: AGENT_CAPABILITIES.codex,
     });
-    await userEvent.fill(field, "Check the hour.");
+    await userEvent.click(field);
+    await userEvent.keyboard("Check the hour.");
+    await expect.element(composer.getByRole("button", { name: "Send now" })).toBeVisible();
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
-    await expect.element(queued).toBeVisible();
-    await userEvent.click(panel.getByRole("button", { name: "Send now" }));
-    await expect.poll(() => steered.length).toBe(1);
-    await expect.element(queued).not.toBeInTheDocument();
+    await expect.poll(() => agentMessages.at(-1)).toMatchObject({ text: "Check the hour." });
+    expect(agentMessages.at(-1)).not.toHaveProperty("afterTurn");
+    await expect.element(panel.getByText("Queued for Codex's next step")).toBeVisible();
+    await expect
+      .element(panel.getByRole("button", { name: "Send now", exact: true }))
+      .not.toBeInTheDocument();
+
+    await userEvent.keyboard("Then the docs.{Meta>}{Shift>}{Enter}{/Shift}{/Meta}");
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ text: "Then the docs.", afterTurn: true });
+    await expect.element(panel.getByText("Queued until Codex's turn ends")).toBeVisible();
+    await userEvent.click(panel.getByRole("button", { name: "Send now", exact: true }));
+    await expect.poll(() => steered).toHaveLength(1);
+    await expect.element(panel.getByText("Queued until Codex's turn ends")).not.toBeInTheDocument();
+  });
+
+  test("an ACP agent takes messages only between turns: its button is Queue, and a queued message has no Send now", async () => {
+    await page.viewport(1280, 800);
+    const { setOwned, agentMessages } = await mountApp({
+      savedReview: true,
+      inbox: { messages: [], waiting: [], drafts: [] },
+      agents: [{ id: "fake", name: "OpenCode", kind: "acp", available: true }],
+    });
+    await userEvent.click(page.getByRole("button", { name: "Toggle agent session" }));
+    await userEvent.click(
+      page
+        .getByRole("region", { name: "Start a session" })
+        .getByRole("button", { name: /OpenCode/ }),
+    );
+    const panel = page.getByRole("region", { name: "Agent session" });
+    const field = panel.getByRole("combobox", { name: /^Message / });
+    setOwned({
+      status: "working",
+      settings: [],
+      commands: [],
+      capabilities: AGENT_CAPABILITIES.acp,
+    });
+    await userEvent.click(field);
+    await userEvent.keyboard("Wait for me.");
+    await expect.element(panel.getByRole("button", { name: "Queue", exact: true })).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.poll(() => agentMessages.at(-1)).toMatchObject({ text: "Wait for me." });
+    await expect.element(panel.getByText(/^Queued until .*'s turn ends$/)).toBeVisible();
+    await expect
+      .element(panel.getByRole("button", { name: "Send now", exact: true }))
+      .not.toBeInTheDocument();
   });
 
   test("a turn that another process runs on a session that Med runs works until it ends, then shows its time", async () => {
@@ -4761,71 +4651,6 @@ describe("agent session", () => {
     // The transcript ends at the prompt: under a second, the turn shows no time.
     await expect.element(thread.getByText("Worked", { exact: true })).toBeVisible();
     expect(thread.element().textContent).not.toContain("Working");
-  });
-
-  test("a reply pinned from the session becomes a note after the brief", async () => {
-    await page.viewport(1280, 800);
-    const events = [
-      {
-        at: 0,
-        update: {
-          sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: "Why rename the export?" },
-        },
-      },
-      {
-        at: 1000,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          messageId: "r1",
-          content: {
-            type: "text",
-            text: "The old name clashed in [alpha.ts:1](src/alpha.ts:1). The guide asks for it in `/test/repo/docs/GUIDE.md:3`.",
-          },
-        },
-      },
-    ];
-    await mountApp({
-      savedReview: true,
-      brief: "# Rename the export\n\nThe constant changes in [alpha.ts:1](src/alpha.ts:1).\n",
-      session: `event: reset\ndata: ${JSON.stringify({ events, idle: true, modifiedAt: 0, truncated: false })}\n\n`,
-    });
-    const notes = page.getByRole("region", { name: "Notes" });
-    await expect.element(notes.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-    // One note has no note heads.
-    await expect.element(notes.getByRole("region", { name: /^Note 1/ })).not.toBeInTheDocument();
-
-    await page.getByRole("button", { name: "Toggle agent session" }).click();
-    const panel = page.getByRole("region", { name: "Agent session" });
-    await panel.getByRole("button", { name: "Pin to review" }).click();
-    await expect.element(page.getByText("Pinned to the review's Notes.")).toBeVisible();
-    const pinned = notes.getByRole("region", { name: "Note 2 of 2" });
-    await expect.element(pinned.getByText("Reply from Claude")).toBeVisible();
-    await expect.element(pinned.getByText(/The old name clashed in/)).toBeVisible();
-    // The pinned reply cites its own lines, as the brief does.
-    await expect.element(pinned.getByRole("button", { name: /Open src\/alpha\.ts/ })).toBeVisible();
-    // A file that the change does not touch links to the checkout's copy, and its
-    // lines show from the checkout, with the path in the checkout.
-    const guide = pinned.getByRole("link", { name: "docs/GUIDE.md:3" });
-    await expect.element(guide).toHaveAttribute("title", "docs/GUIDE.md:3 · Open file");
-    const excerpt = pinned.getByRole("figure").filter({ hasText: "Not in the change" });
-    await expect
-      .element(excerpt.getByRole("button", { name: "Open docs/GUIDE.md L3" }))
-      .toBeVisible();
-    await expect
-      .poll(() => excerpt.element().querySelector("diffs-container")?.shadowRoot?.textContent ?? "")
-      .toContain("Read the review in order.");
-    await guide.click();
-    await expect.element(page.getByRole("tab", { name: "GUIDE.md", exact: true })).toBeVisible();
-    await page.getByRole("tab", { name: "Notes" }).click();
-    await expect.element(panel.getByRole("button", { name: "Pinned" })).toBeVisible();
-
-    await pinned.getByRole("button", { name: "Note 2 options" }).click();
-    await page.getByRole("menuitem", { name: "Unpin from review" }).click();
-    await expect
-      .element(notes.getByRole("region", { name: "Note 2 of 2" }))
-      .not.toBeInTheDocument();
-    await expect.element(panel.getByRole("button", { name: "Pin to review" })).toBeVisible();
   });
 });
 

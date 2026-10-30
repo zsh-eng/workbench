@@ -12,6 +12,7 @@ import {
   browseSourceKey,
   useBrowseFiles,
   useVaultFiles,
+  useVaultsFiles,
   type BrowseApi,
   type Vault,
 } from "../data/browse";
@@ -78,6 +79,13 @@ export interface FilePickerProps {
   resume?: boolean;
 }
 
+/** A vault's files, for the notes that Find file shows beside the files. */
+type VaultNotes = { scope: RepositoryScope & { source: VaultSource }; entries: BrowseEntry[] };
+const NO_NOTES: VaultNotes[] = [];
+const isNote = (entry: BrowseEntry) => /\.(?:md|markdown)$/i.test(entry.path);
+/** At most this many notes show beside a repository's files. */
+const NOTE_MATCHES = 3;
+
 export function parseFileQuery(query: string): { text: string; line?: number } {
   const match = /^(.*?):([1-9]\d*)(?::[1-9]\d*)?$/.exec(query.trim());
   if (!match || !Number.isSafeInteger(Number(match[2]))) return { text: query.trim() };
@@ -114,12 +122,17 @@ export function findFiles(
 }
 
 type PickerMode = "files" | "content";
+type NoteProps = { vaultNotes?: VaultNotes[]; noteApi?: BrowseApi };
+const NO_API: BrowseApi = {} as BrowseApi;
+const NO_VAULTS: Vault[] = [];
 type PickerResult = {
   id: string;
   path: string;
   line?: number;
   text?: string;
   repository?: RepositoryScope;
+  /** A note of this vault, which opens without the Tab step. */
+  note?: RepositoryScope & { source: VaultSource };
 };
 type PickerSession = { query: string; selected: string | null; scroll: Map<string, number> };
 const emptyPaths: string[] = [];
@@ -128,10 +141,13 @@ export function FilePicker(props: FilePickerProps) {
   const [scopeQuery, setScopeQuery] = useState<string>();
   const [repository, setRepository] = useState<RepositoryScope>();
   const [previousOpen, setPreviousOpen] = useState(props.open);
+  // Each opening lists the vaults' files again, for their notes.
+  const [opened, setOpened] = useState(props.open ? 1 : 0);
   if (previousOpen !== props.open) {
     setPreviousOpen(props.open);
     setScopeQuery(undefined);
     if (props.open && !props.resume) setRepository(undefined);
+    if (props.open) setOpened((count) => count + 1);
   }
   const repositoryScopes = useMemo(
     () =>
@@ -182,6 +198,19 @@ export function FilePicker(props: FilePickerProps) {
     { api: props.api },
   );
   const vaultFiles = useVaultFiles(props.api, vault?.source.id, props.open);
+  const vaultsFiles = useVaultsFiles(
+    props.api ?? NO_API,
+    props.vaults ?? NO_VAULTS,
+    props.open && props.api && !selectedRepository ? opened : 0,
+  );
+  const vaultNotes = useMemo(
+    () =>
+      vaultsFiles.flatMap(({ vault: entry, entries }) => {
+        const scope = vaultScopes.find((item) => item.id === `vault:${entry.id}`);
+        return isVault(scope) ? [{ scope, entries: entries.filter(isNote) }] : [];
+      }),
+    [vaultsFiles, vaultScopes],
+  );
   const effective = vault
     ? {
         ...props,
@@ -238,6 +267,8 @@ export function FilePicker(props: FilePickerProps) {
         setRepository(scope);
       }}
       initialQuery={scopeQuery ?? effective.initialQuery}
+      vaultNotes={selectedRepository ? NO_NOTES : vaultNotes}
+      noteApi={props.api}
       initialMode={mode}
       scope={scope}
       sessions={sessions}
@@ -268,11 +299,14 @@ function PickerSessionView({
   scope,
   sessions,
   onModeChange,
-}: FilePickerProps & {
-  scope: string;
-  sessions: Map<string, PickerSession>;
-  onModeChange(mode: PickerMode): void;
-}) {
+  vaultNotes,
+  noteApi,
+}: FilePickerProps &
+  NoteProps & {
+    scope: string;
+    sessions: Map<string, PickerSession>;
+    onModeChange(mode: PickerMode): void;
+  }) {
   const [mode, setMode] = useState<PickerMode>(initialMode);
   const [selectionQuery, setSelectionQuery] = useState(initialQuery);
   useEffect(() => onModeChange(initialMode), [initialMode, onModeChange]);
@@ -309,6 +343,8 @@ function PickerSessionView({
         previewReader,
         openPaths,
         recentPaths,
+        vaultNotes,
+        noteApi,
         mode,
         initialQuery: selectionQuery,
         setMode: (next: PickerMode) => {
@@ -344,12 +380,15 @@ function PickerContents({
   session,
   initialQuery,
   onSave,
-}: FilePickerProps & {
-  mode: PickerMode;
-  setMode(mode: PickerMode): void;
-  session: PickerSession;
-  onSave(patch: Partial<PickerSession>): void;
-}) {
+  vaultNotes = NO_NOTES,
+  noteApi,
+}: FilePickerProps &
+  NoteProps & {
+    mode: PickerMode;
+    setMode(mode: PickerMode): void;
+    session: PickerSession;
+    onSave(patch: Partial<PickerSession>): void;
+  }) {
   const [query, setQuery] = useState(initialQuery ?? session.query);
   const filters = useMemo(
     () =>
@@ -376,6 +415,21 @@ function PickerContents({
         repository,
       }));
   }, [repositoryScopes, scopedRepository, filters.text, repositoryMode, mode]);
+  // A note whose name holds each word of the query shows at the top, so a
+  // vault's note opens from any workspace without the Tab step.
+  const noteMatches = useMemo<PickerResult[]>(() => {
+    const words = filters.text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (mode !== "files" || scopedRepository || filters.text.trim().length < 2) return [];
+    const found: PickerResult[] = [];
+    for (const { scope, entries } of vaultNotes)
+      for (const entry of findFiles(entries, filters.text)) {
+        const name = entry.path.slice(entry.path.lastIndexOf("/") + 1).toLowerCase();
+        if (!words.every((word) => name.includes(word))) continue;
+        found.push({ id: `note:${scope.id}:${entry.path}`, path: entry.path, note: scope });
+        if (found.length === NOTE_MATCHES) return found;
+      }
+    return found;
+  }, [vaultNotes, filters.text, scopedRepository, mode]);
   const [selected, setSelected] = useState(initialQuery === undefined ? session.selected : null);
   const [restoreId, setRestoreId] = useState(initialQuery === undefined ? session.selected : null);
   const [refresh, setRefresh] = useState(0);
@@ -430,23 +484,40 @@ function PickerContents({
     // Place the previously selected result first on resume. Base UI owns keyboard highlight.
     const index = matches.findIndex((entry) => entry.id === restoreId);
     if (index > 0) matches.unshift(matches.splice(index, 1)[0]!);
-    return [...repoMatches, ...matches.filter((entry) => matchesFileFilters(entry.path, filters))];
-  }, [entries, filters, openPaths, recentPaths, mode, displayedSearch, restoreId, repoMatches]);
+    return [
+      ...repoMatches,
+      ...noteMatches,
+      ...matches.filter((entry) => matchesFileFilters(entry.path, filters)),
+    ];
+  }, [
+    entries,
+    filters,
+    openPaths,
+    recentPaths,
+    mode,
+    displayedSearch,
+    restoreId,
+    repoMatches,
+    noteMatches,
+  ]);
   const selectedResult = results.find((entry) => entry.id === selected) ?? results[0];
-  const fileCount = results.length - repoMatches.length;
+  const fileCount = results.length - repoMatches.length - noteMatches.length;
   const currentSearch = search.key === searchKey ? search.result : undefined;
   const resultSource = displayedSearch?.resultSource;
   const previewSource = resultSource ?? source;
   const previewSourceKey = previewSource ? browseSourceKey(previewSource) : "";
   const previewScrollKey = JSON.stringify([previewSourceKey, selectedResult?.id]);
   const previewShown = useFilePreviewShown();
-  const previewAvailable = !!((api && source) || previewReader);
+  const previewAvailable = !!((api && source) || previewReader || noteMatches.length);
+  const noteReader = selectedResult?.note
+    ? vaultReader(noteApi, selectedResult.note.source.id)
+    : undefined;
   const preview = usePickerPreview(
     api,
     previewSource,
     selectedResult?.repository || !previewShown ? undefined : selectedResult?.path,
     `${sourceRevision}:${refresh}`,
-    previewReader,
+    noteReader ?? previewReader,
   );
   const busy =
     mode === "files" ? loading : !!query.trim() && search.key !== searchKey && !!api?.search;
@@ -464,6 +535,12 @@ function PickerContents({
   const choose = (entry: PickerResult) => {
     if (entry.repository) {
       selectRepository(entry.repository);
+      return;
+    }
+    if (entry.note) {
+      accepted.current = true;
+      onOpen(entry.path, undefined, entry.note.source, entry.note.name);
+      onOpenChange(false);
       return;
     }
     if (busy || failure) return;
@@ -630,7 +707,9 @@ function PickerContents({
                   mode === "files"
                     ? scopedRepository
                       ? `Find a file in ${scopedRepository.name}`
-                      : "Find a file, or type a repository or vault and press Tab"
+                      : repositoryScopes.some(isVault)
+                        ? "Find a file or a note, or type a repository or vault and press Tab"
+                        : "Find a file, or type a repository and press Tab"
                     : "Search committed text"
                 }
                 onKeyDown={(event) => {
@@ -696,6 +775,21 @@ function PickerContents({
                     {kind[0]!.toUpperCase() + kind.slice(1)}
                   </button>
                 ))}
+                {!scopedRepository &&
+                  repositoryScopes.filter(isVault).map((vault) => (
+                    <button
+                      key={vault.id}
+                      {...stylex.props(ui.button, styles.chip, styles.vaultChip)}
+                      title={`Find notes in ${vault.name} only`}
+                      onClick={() => {
+                        selectRepository(vault);
+                        inputRef.current?.focus();
+                      }}
+                    >
+                      <Icon name="vault" size={12} />
+                      {vault.name}
+                    </button>
+                  ))}
                 {filters.extensions.map((ext) => (
                   <button
                     key={ext}
@@ -772,7 +866,7 @@ function PickerContents({
                           <Combobox.Item
                             key={entry.id}
                             value={entry}
-                            disabled={busy && !entry.repository}
+                            disabled={busy && !entry.repository && !entry.note}
                             aria-label={
                               entry.repository
                                 ? `${isVault(entry.repository) ? "Vault" : "Repository"} ${scopeLabel(entry.repository)}`
@@ -796,9 +890,11 @@ function PickerContents({
                                   ? isVault(entry.repository)
                                     ? "Vault"
                                     : "Repository"
-                                  : isTestFile(entry.path)
-                                    ? "Test file"
-                                    : "File"
+                                  : entry.note
+                                    ? `Note in ${entry.note.name}`
+                                    : isTestFile(entry.path)
+                                      ? "Test file"
+                                      : "File"
                               }
                             >
                               <Icon
@@ -807,9 +903,11 @@ function PickerContents({
                                     ? isVault(entry.repository)
                                       ? "vault"
                                       : "branch"
-                                    : isTestFile(entry.path)
-                                      ? "testFile"
-                                      : "file"
+                                    : entry.note
+                                      ? "vault"
+                                      : isTestFile(entry.path)
+                                        ? "testFile"
+                                        : "file"
                                 }
                                 size={14}
                               />
@@ -825,9 +923,13 @@ function PickerContents({
                                     ? isVault(entry.repository)
                                       ? "Vault"
                                       : entry.path
-                                    : slash >= 0
-                                      ? entry.path.slice(0, slash)
-                                      : ""}
+                                    : entry.note
+                                      ? [entry.note.name, entry.path.slice(0, Math.max(0, slash))]
+                                          .filter(Boolean)
+                                          .join(" · ")
+                                      : slash >= 0
+                                        ? entry.path.slice(0, slash)
+                                        : ""}
                                 </span>
                               </span>
                               {entry.text !== undefined && (
@@ -835,7 +937,9 @@ function PickerContents({
                               )}
                             </span>
                             {entry.repository && <ShortcutKeys value="Tab" />}
+                            {entry.note && <span {...stylex.props(styles.label)}>Note</span>}
                             {!entry.repository &&
+                              !entry.note &&
                               mode === "files" &&
                               (openPaths.includes(entry.path) ? (
                                 <span {...stylex.props(styles.label)}>Open</span>
@@ -857,9 +961,11 @@ function PickerContents({
                       compact
                       {...preview}
                       sourceLabel={
-                        resultSource?.kind === "commit"
-                          ? `Commit ${resultSource.oid.slice(0, 8)}`
-                          : sourceLabel
+                        selectedResult.note
+                          ? selectedResult.note.name
+                          : resultSource?.kind === "commit"
+                            ? `Commit ${resultSource.oid.slice(0, 8)}`
+                            : sourceLabel
                       }
                       line={selectedResult.line}
                       highlightQuery={displayedSearch?.query}
@@ -934,9 +1040,12 @@ function PickerContents({
               </span>
               <span>
                 {mode === "files"
-                  ? fileCount === 50
-                    ? "Top 50 matches"
-                    : `${fileCount} ${fileCount === 1 ? "file" : "files"}`
+                  ? (fileCount === 50
+                      ? "Top 50 matches"
+                      : `${fileCount} ${fileCount === 1 ? "file" : "files"}`) +
+                    (noteMatches.length
+                      ? ` · ${noteMatches.length} ${noteMatches.length === 1 ? "note" : "notes"}`
+                      : "")
                   : `${results.length} matches${displayedSearch?.truncated || (displayedSearch?.matches.length ?? 0) > 200 ? " · more available" : ""}`}
               </span>
             </div>
@@ -973,6 +1082,7 @@ const styles = stylex.create({
     boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tokens.accent} 30%, transparent)`,
   },
   extension: { gap: 4, paddingInlineEnd: 6, fontFamily: tokens.code, fontSize: 11 },
+  vaultChip: { gap: 5, paddingInlineStart: 7 },
   clear: { minHeight: 24, height: 24, fontSize: 11.5, color: tokens.faint },
   filterHint: {
     display: "inline-flex",

@@ -14,25 +14,11 @@
   inherits: true;
   initial-value: 0px;
 }
-.med-md-prose.med-brief-prose {
-  /* A brief is read at length, so its text is a half step larger than a
-     preview's. A theme can scale it, as for a wide monospace. */
-  font-size: calc(15px * var(--med-prose-scale, 1));
-}
-.med-md-prose.med-brief-prose h1 {
-  font-size: calc(clamp(1.875em, 4.375cqw, 2.75em) * var(--med-heading-scale, 1));
-}
-.med-md-prose.med-brief-prose h2 {
-  font-size: calc(1.625em * var(--med-heading-scale, 1));
-}
-.med-md-prose.med-brief-prose h3 {
-  font-size: calc(1.375em * var(--med-heading-scale, 1));
-}
 .med-brief-prose {
   /* Excerpts and code reach past the text column when the pane has room. */
-  --med-brief-bleed: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 24px), 36px);
+  --med-brief-bleed: clamp(0px, calc((100cqw - var(--med-measure, 51em)) / 2 - 24px), 36px);
   /* Tables and images can use more of a wide pane. */
-  --med-brief-wide: clamp(0px, calc((100cqw - var(--med-measure, 38em)) / 2 - 32px), 9em);
+  --med-brief-wide: clamp(0px, calc((100cqw - var(--med-measure, 51em)) / 2 - 32px), 9em);
 }
 .med-brief-prose a.med-brief-ref {
   color: var(--med-accent);

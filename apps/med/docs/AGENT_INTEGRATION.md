@@ -1,7 +1,7 @@
 # Agent reviews
 
-An agent hands off its changes as a review in Med. You read its brief, comment
-on lines, and send the comments back. A review can hold comparisons from
+An agent hands off its changes as a review in Med. You read its guide and its
+diff, comment on lines, and send the comments back. A review can hold comparisons from
 several repositories, and it stays on your machine.
 
 ## Set up
@@ -122,8 +122,8 @@ request covers it all.
 `--key` names the task, such as its branch. Create the review again with the
 same key after each round of work: Med adds a version to that review instead
 of a new workspace. The review is marked new again, and its new comparison and
-brief become current. Earlier briefs stay as numbered versions on the Notes
-tab, and comments stay on their comparisons. Keys use letters, digits, and
+brief become current. Earlier versions stay in the version menu, and comments
+stay on their comparisons. Keys use letters, digits, and
 `. / @ : + # _ -`. Without `--key`, `create` uses the branch's name, when the
 branch is not the repository's base branch, and prints it. `update --key`
 also takes the review's ID (`r_…`).
@@ -262,8 +262,10 @@ what the reader sees.
 
 ### Attach a brief
 
-A brief explains the change to the reviewer. Write it in Markdown, and cite
-code with repository-relative links that end in line numbers:
+A brief is Markdown that Med keeps with the version. The Overview shows its
+Proof, Findings, and Explainer sections (below); Med keeps the rest of its text
+but no longer shows it ([Removed: Notes](USAGE.md#removed-notes)). Cite code
+with repository-relative links that end in line numbers:
 
 ```markdown
 The parser now rejects empty input ([parse.ts:42-58](src/parse.ts:42-58)).
@@ -278,18 +280,14 @@ med review create --title "Fix the parser" --repo ~/code/parser \
 ```
 
 Cite the files that need attention; the reviewer reads the rest in Changes.
-Replies that the user pins from your session follow the brief, so cite files
-there the same way ([notes and briefs](USAGE.md#notes-and-briefs)).
 
 Links can be `path:line`, `path:start-end`, `path#Lstart-Lend`, absolute paths
 in the repository, and GitHub blob URLs. With `--manifest`, links resolve
-against the open target. A brief holds up to 100,000 characters. The user can
-also paste your final message into Med with `⌘V`.
+against the open target. A brief holds up to 100,000 characters.
 
 Med reads these sections of a brief, a pinned reply, or the guide's summary,
 and shows them on the Overview
-([proof, findings, and later versions](USAGE.md#proof-findings-and-later-versions));
-other text shows in the Notes as before:
+([proof, findings, and later versions](USAGE.md#proof-findings-and-later-versions)):
 
 ```markdown
 ## Proof
@@ -314,6 +312,36 @@ other text shows in the Notes as before:
 Headings such as Checks, Tests, or Verification also mark proof; `[P1]`-style
 tags read as Important (P0–P1) or Nit (P2–P3). Globs under Generated join
 `--generated`.
+
+### Draft a pull request
+
+When the user asks for a pull request, draft its description in Med first.
+Med shows the draft rendered, the user comments on it as on a brief, and
+only the user opens the pull request, with **Create** in Med:
+
+```sh
+med pr template --repo ~/code/parser      # the repository's templates, each under its path
+med pr draft --key fix/parser --file pr.md
+```
+
+- Fill the template that `med pr template` prints, such as
+  `.github/pull_request_template.md` or a file of
+  `.github/PULL_REQUEST_TEMPLATE/`. Without one, say why, what changed, and
+  how you checked it. Leave out sections that do not apply.
+- The file's first line, `# <title>`, is the pull request's title, unless
+  `--title` gives one. `--base` names the branch to merge into; without it,
+  gh uses the repository's default branch. `--repo` names the checkout
+  (default: `MED_THREAD_REPO`, or the current one).
+- Images can be local PNG, JPEG, GIF, or WebP files, relative to the file
+  (`![Retry chart](shots/retry.png)`), or https links. Med keeps a copy of
+  each local one, up to 8 images of 5 MB.
+- Comments on the draft come back as the user's other comments do, marked
+  `On: the pull request draft`. Revise the file and run `med pr draft` again
+  with the same key: each run is the next revision.
+- Never run `gh pr create` yourself. **Create** runs it from the checkout's
+  branch, which must be on GitHub with all of its commits, and links the pull request to the
+  review. GitHub takes images only as links, so a local image stays out of
+  the body and the text names it, for the user to add on GitHub.
 
 ### Compare with a base branch
 

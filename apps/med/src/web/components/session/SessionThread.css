@@ -23,6 +23,8 @@
 }
 .med-session-prose :is(h4, h5, h6) {
   font-size: 1em;
+  font-weight: 500;
+  color: inherit;
   margin: 1em 0 0.4em;
 }
 .med-session-prose :is(ul, ol) {
@@ -47,9 +49,18 @@
   padding: 0.1em 0.3em;
 }
 /* Tables in a pane or a guide column keep their cells compact, so more of
-   them fit before the table scrolls. */
-.med-session-prose :is(th, td) {
+   them fit before the table scrolls. Every cell has the same padding, as the
+   thread's height estimate expects (thread-heights.ts). */
+.med-md-prose.med-session-prose table {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.med-md-prose.med-session-prose :is(th, td) {
   padding: 7px 8px;
+}
+.med-md-prose.med-session-prose th {
+  font-size: 11px;
+  font-weight: 550;
 }
 /* Links open a file in Med or a page in a new tab: underlined on hover, with
    the link cursor, also for a file link, which has no href. */

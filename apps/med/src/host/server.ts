@@ -100,6 +100,7 @@ import {
 import { AgentInbox, findCodex } from "./agent-inbox";
 import { createHeldMessages } from "./held-messages";
 import { createQueuedMessages } from "./queued-messages";
+import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
   agentEnvironment as startedAgentEnvironment,
   CONTINUE_TURN,
@@ -356,6 +357,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
+  const prDrafts = createPrDrafts({
+    directory: join(options.stateDir ?? temporaryState!, "pr-drafts"),
+    gh: options.gh ?? { command: "gh", args: [] },
+  });
+  /** Reviews whose pull request gh is opening, so a second Create waits. */
+  const creatingPullRequests = new Set<string>();
   void pruneImages(imageDirectory);
   const bin = options.cli ? join(options.stateDir ?? temporaryState!, "bin") : undefined;
   if (bin) await writeMedCommand(bin, options.cli!);
@@ -1662,7 +1669,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|steer))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1705,7 +1712,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 })),
                 ...(briefComments ?? []).filter(unsent).map((comment) => ({
                   id: comment.id,
-                  path: "Notes",
+                  path: comment.section === "pr" ? "PR draft" : "Notes",
                   quote: comment.quote,
                   text: comment.text,
                   replies: 0,
@@ -1851,7 +1858,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 },
                 parts.join("\n\n"),
                 queue
-                  ? { queued: true }
+                  ? { queued: true, afterTurn: !!input.afterTurn }
                   : target
                     ? { deliver: (body) => target.prompt(body, native) }
                     : { held },
@@ -1904,8 +1911,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ message, state: await inboxState() });
             return;
           }
-          // Send now: a queued message goes into the turn that runs.
-          if (action === "steer" && request.method === "POST") {
+          // Send now on a queued message: the agent takes it at its next
+          // step, not at its turn's end (queued-messages.ts).
+          if (action === "send-now" && request.method === "POST") {
             const input = z
               .object({ id: z.string().min(1).max(128) })
               .parse(await readBody(request));
@@ -1914,7 +1922,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
             if (!message)
               throw new HostError("message-gone", "The agent has this message already.", 409);
-            if (!(await queuedMessages.steer(reviewId, message.sessionId, input.id)))
+            if (!(await queuedMessages.sendNow(reviewId, message.sessionId, input.id)))
               throw new HostError(
                 "steer-unsupported",
                 "This agent takes the message when its turn ends.",
@@ -2458,7 +2466,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2565,6 +2573,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     )
                     .slice(0, 20),
                 });
+              } else if (action === "pr-draft") {
+                // An image of the pull request draft, which Med keeps.
+                const image = await prDrafts.image(id!, url.searchParams.get("image") ?? "");
+                response.writeHead(200, {
+                  "Content-Type": image.mime,
+                  "Content-Length": image.bytes.length,
+                  "Cache-Control": "private, max-age=31536000, immutable",
+                  "X-Content-Type-Options": "nosniff",
+                  "Content-Security-Policy": "default-src 'none'; sandbox",
+                });
+                response.end(image.bytes);
               } else if (!action) send(bundle);
               else
                 throw new HostError(
@@ -2650,6 +2669,50 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             if (request.method === "POST" && action === "iterations") {
               assertRequestAccess();
               send(await savedReviews.startNotes(id!, captureTarget, assertRequestAccess));
+              return;
+            }
+            // The pull request draft that the agent wrote (med pr draft), its
+            // images, and Create, which opens the pull request with gh.
+            if (request.method === "POST" && action === "pr-draft") {
+              const input = prDraftInputSchema.parse(await readBody(request, MAX_PR_DRAFT_BODY));
+              const checkout = input.repo ?? threadCheckout(bundle)?.repo;
+              const repo = checkout
+                ? (await registry.require(checkout, abort.signal)).path
+                : undefined;
+              const draft = await prDrafts.prepare(id!, { ...input, repo });
+              assertRequestAccess();
+              send(await savedReviews.setPrDraft(id!, { draft }, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "pr-draft-create") {
+              const input = z.object({ draft: z.boolean() }).parse(await readBody(request));
+              const draft = bundle.prDraft;
+              if (!draft)
+                throw new HostError("no-pr-draft", "This review has no pull request draft.", 404);
+              if (draft.pullRequestUrl)
+                throw new HostError(
+                  "pr-created",
+                  `The pull request is open already: ${draft.pullRequestUrl}`,
+                  409,
+                );
+              const checkout = draft.repo ?? threadCheckout(bundle)?.repo;
+              if (!checkout)
+                throw new HostError("no-checkout", "The draft names no checkout.", 409);
+              const repo = (await registry.require(checkout, abort.signal)).path;
+              if (creatingPullRequests.has(id!))
+                throw new HostError("pr-creating", "Med is opening this pull request.", 409);
+              creatingPullRequests.add(id!);
+              try {
+                // Without the request's signal: once gh runs, GitHub may open
+                // the pull request, so Med records its URL even when the
+                // window closes meanwhile.
+                const created = await prDrafts.create(draft, repo, input.draft);
+                const review = await savedReviews.setPrDraft(id!, { created: created.url });
+                send({ review, url: created.url, left: created.left });
+              } finally {
+                creatingPullRequests.delete(id!);
+              }
               return;
             }
             if (request.method === "POST" && action === "pins") {

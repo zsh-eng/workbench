@@ -82,7 +82,7 @@ are at the end.
 ## B. Read review output from any source
 
 `src/shared/review-output.ts` reads Markdown leniently. The sources are a
-version's notes: the brief (`--brief` or ⌘V), its pinned replies, and the
+version's notes: the brief (`--brief`), its pinned replies, and the
 guide's summary. So output from the user's skills, `/code-review`, a pasted
 Codex review, or a GitHub review reads the same. It recognises, where present:
 
@@ -103,7 +103,8 @@ Codex review, or a GitHub review reads the same. It recognises, where present:
   CLI passes them as `--generated` (round 4) when the brief comes with
   `create`.
 
-Nothing else changes: the Notes still show the whole text.
+Med keeps the whole text; since the Notes tab went, only these parts show
+([Removed: Notes](USAGE.md#removed-notes)).
 
 ## C. Views
 

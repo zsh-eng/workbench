@@ -118,7 +118,7 @@ export function FileViewTabs({
           <Tabs.Tab
             value="brief"
             aria-controls={panelId}
-            aria-label="Notes"
+            aria-label="Pull request"
             {...stylex.props(
               styles.tab,
               styles.changes,
@@ -126,7 +126,7 @@ export function FileViewTabs({
               active === "brief" && styles.active,
             )}
           >
-            Notes
+            Pull request
           </Tabs.Tab>
         )}
         {showChanges && (

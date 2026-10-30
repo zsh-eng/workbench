@@ -62,7 +62,16 @@ why in 1–3 sentences; comment only where it saves the reader time (`kind`:
 note, suggestion, risk, question). To fix what the guide check reports for
 the version that you just made: `med review update --key <key> --guide -`.
 
-After you open a pull request: `med review update --key <key> --pr <url>`.
+## Draft a pull request
+
+When the user asks for a pull request, do not run `gh pr create`. Run
+`med pr template --repo <root>`, fill the template in a Markdown file whose
+first line is `# <title>`, with images as local files beside it or https
+links, and run `med pr draft --key <key> --file <file>`. The user comments
+on the draft in Med; revise the file and run it again. The user opens the
+pull request with Create in Med. `med docs agents` has the details.
+
+After a pull request is open elsewhere: `med review update --key <key> --pr <url>`.
 
 ## When comments come back
 

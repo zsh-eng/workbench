@@ -1,6 +1,6 @@
-/* Guide summaries use the session's compact prose, at a reading measure. */
+/* Guide summaries use the session's compact prose, at the thread's measure. */
 .med-guide-prose {
-  max-width: 68ch;
+  max-width: 768px;
 }
 .med-guide-prose .med-md-prose.med-session-prose {
   margin: 0;

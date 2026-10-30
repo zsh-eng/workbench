@@ -37,6 +37,9 @@ export const agentMessageInputSchema = z.object({
     .default([]),
   /** Images, for a session that Med runs. */
   images: z.array(promptImageSchema).max(10).default([]),
+  /** While the agent that Med runs works: wait for its turn's end, not its
+   * next step (queued-messages.ts). */
+  afterTurn: z.boolean().optional(),
 });
 export type AgentMessageInput = z.input<typeof agentMessageInputSchema>;
 
@@ -75,9 +78,13 @@ export const agentMessageSchema = z.object({
   delivery: z.enum(["pending", "delivered", "queued", "failed"]),
   /** A pending message that came while the agent that Med runs worked. Med
    * gives it at the agent's next step: when Claude Code runs tools, after
-   * which it reads the message in the same turn, or at the turn's end. Until
-   * then the user can take it back (`/agent/take`). */
+   * which it reads the message in the same turn, into Codex's turn
+   * (`turn/steer`), or at the turn's end. Until then the user can take it
+   * back (`/agent/take`). */
   queued: z.boolean().optional(),
+  /** A queued message that waits for the turn's end, not the next step
+   * (Queue); Send now (`/agent/send-now`) clears it. */
+  afterTurn: z.boolean().optional(),
   deliveredAt: z.string().optional(),
   error: z.string().optional(),
 });

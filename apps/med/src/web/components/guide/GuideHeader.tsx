@@ -369,7 +369,7 @@ const styles = stylex.create({
   },
   content: { marginTop: 14 },
   body: {
-    maxWidth: "68ch",
+    maxWidth: 768,
     margin: 0,
     color: tokens.muted,
     fontSize: 13,

@@ -212,6 +212,9 @@ export interface ReviewController {
   deleteNotes(notes: { iteration?: number; briefFrom?: number }): Promise<void>;
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(mutation: BriefCommentMutation): Promise<void>;
+  /** Opens the saved review's pull request draft on GitHub with gh, and
+   * returns its URL and the local images that GitHub did not get. */
+  createPullRequest(asDraft: boolean): Promise<{ url: string; left: string[] }>;
   /** Starts an installed agent in the review's repository and returns its
    * session ID. With `fork`, the new Claude session starts from that one's
    * history (Continue in Med). */
@@ -2557,6 +2560,22 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       );
     },
     refreshSavedReview: () => refreshSavedMetadata(),
+    async createPullRequest(asDraft) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a saved review to open its pull request.");
+      const created = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pr-draft-create`,
+        z.object({ review: savedReviewSchema, url: z.string(), left: z.array(z.string()) }),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draft: asDraft }),
+        },
+      );
+      if (!disposed && snapshot.savedReview?.id === saved.id)
+        update({ savedReview: created.review });
+      return { url: created.url, left: created.left };
+    },
     async revealPath(repo, path) {
       await api.json("/api/reveal", revealSchema, {
         method: "POST",

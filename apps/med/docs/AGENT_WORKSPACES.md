@@ -12,7 +12,6 @@ them, without leaving the review.
 | Workspace | A repository checkout (the main checkout or a worktree) and its changes         |
 | Session   | One agent conversation: an agent, an ID, and a working directory                |
 | Review    | A saved set of changes with comments and notes                                  |
-| Note      | An agent reply that you saved in a review. The brief is the first note          |
 | Comment   | Your remark on a line. A GitHub comment is a comment that Med imported          |
 | Lead      | The session that a workspace shows by default. Other sessions are in its picker |
 
@@ -191,15 +190,15 @@ Each agent declares what Med can do with it (`AGENT_CAPABILITIES` in
 `src/shared/owned-session.ts`, in `GET /api/agents` and the owned state), and
 the page shows only the controls that work:
 
-| Capability | Claude Code    | Codex | agy                   | Other ACP |
-| ---------- | -------------- | ----- | --------------------- | --------- |
-| Send now   | No: needs none | Yes   | No                    | No        |
-| Stop       | Yes            | Yes   | Ends the process      | Yes       |
-| Approvals  | Cards          | Cards | Mode and allow rules  | Cards     |
-| Images     | Yes            | Yes   | No                    | When set  |
-| Resume     | Yes            | Yes   | Yes                   | No        |
-| Subagents  | Yes            | Yes   | Yes                   | No        |
-| Spend      | Yes            | Yes   | No (no Gemini prices) | No        |
+| Capability | Claude Code     | Codex                      | agy                   | Other ACP |
+| ---------- | --------------- | -------------------------- | --------------------- | --------- |
+| Send now   | After its tools | In the turn (`turn/steer`) | No                    | No        |
+| Stop       | Yes             | Yes                        | Ends the process      | Yes       |
+| Approvals  | Cards           | Cards                      | Mode and allow rules  | Cards     |
+| Images     | Yes             | Yes                        | No                    | When set  |
+| Resume     | Yes             | Yes                        | Yes                   | No        |
+| Subagents  | Yes             | Yes                        | Yes                   | No        |
+| Spend      | Yes             | Yes                        | No (no Gemini prices) | No        |
 
 ### Queued messages
 
@@ -208,20 +207,24 @@ next step, as Claude Code's terminal queues one
 (https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works).
 The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 
-- While Claude Code runs the main conversation's tools (from an `assistant`
-  message's `tool_use` blocks until each has its `tool_result`), Med writes the message
-  to Claude Code's input at once. Claude Code reads it when the tools end, in
-  the same turn, and its transcript records it as a `queued_command`
-  attachment, which the thread shows where Claude read it.
-- Otherwise the message waits for the turn's end, or for **Stop** (`Esc`),
-  and goes as the next prompt, with the other queued messages in order.
-  Codex, agy, and other ACP agents take queued messages between turns.
-- **Send now** gives one to Codex's turn that runs, which takes it at its
-  next step (`turn/steer`; `POST /api/reviews/:id/agent/steer` with
-  `{ id }`). Claude Code needs none, and agy and other ACP agents take no
-  message during a turn, so only Codex offers it.
-- A turn that a restart cut (Interrupted) waits for the reader, and so do its
-  messages.
+- **Send now** (`⌘↩`, the default): the message goes at the agent's next
+  step. While Claude Code runs the main conversation's tools (from an
+  `assistant` message's `tool_use` blocks until each has its `tool_result`),
+  Med writes it to Claude Code's input at once; Claude Code reads it when the
+  tools end, in the same turn, and its transcript records it as a
+  `queued_command` attachment, which the thread shows where Claude read it.
+  Codex takes it in the turn that runs (`turn/steer`). Before then, it waits.
+- **Queue** (`⇧⌘↩`, or `⌘↩` after the `⌘K` choice, `med:follow-up`): the
+  message waits for the turn's end, or for **Stop** (`Esc`), and goes as the
+  next prompt, with the other waiting messages in order. The input's
+  `afterTurn: true` asks for it, and the inbox keeps `afterTurn` on the stored
+  message, so a restart keeps it. **Send now** on one
+  (`POST /api/reviews/:id/agent/send-now` with `{ id }`) clears it, so it goes
+  at the next step.
+- agy and other ACP agents take no message during a turn: every message waits
+  for the turn's end, so their button is **Queue** and a queued message has
+  no Send now. A turn that a restart cut (Interrupted) waits for the reader,
+  and so do its messages.
 - Until the agent has it, **Edit** in the thread puts the message's text
   back into the message box, before what the box holds, and **Remove** drops
   it (`POST /api/reviews/:id/agent/take` with `{ id }`); `↑` in the empty box
@@ -325,14 +328,12 @@ appear with a badge; **Add to reply** and **Add all open** copy them into the
 draft. Med writes to GitHub only into your pending review, which you submit
 yourself ([pull requests](USAGE.md#pull-requests)).
 
-## Notes
+## Notes (removed)
 
-Replies scroll away, and compaction can remove them, so the reply that ends
-each turn has **Pin to review**. Med copies the text into the review (`POST
-/api/reviews/:id/pins`). The brief and the pins are the review's **Notes**; each
-version has its own pins. With two or more notes, each has a head
-(`02 / 03`) and a minimap rail marks notes, headings, and excerpts. Excerpts
-sit under the sentence that cites them, not in a side list.
+Med no longer shows a review's brief and pinned replies, and replies have no
+**Pin to review**: they read in the session's thread. Med keeps what was saved,
+and `POST /api/reviews/:id/pins` still stores a pin
+([Removed: Notes](USAGE.md#removed-notes)).
 
 The right column holds **Session**, **Files**, and **Preview** panes, at most
 two stacked, with one shared, resizable width. **Show side panes as tabs**

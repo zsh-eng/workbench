@@ -1,8 +1,21 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { resolveTheme } from "@pierre/diffs";
 import type { FileRead } from "../../shared/local-file";
 import { useTheme } from "../themes";
-import type { MarkdownModel, MarkdownBlock, MarkdownResult } from "../markdown/model";
+import type {
+  MarkdownModel,
+  MarkdownBlock,
+  MarkdownHeading,
+  MarkdownResult,
+} from "../markdown/model";
 import { connectPreviewScroll } from "../markdown/scroll";
 import RenderWorker from "../markdown/render.worker?worker";
 import type { Mounted } from "pele/lazy";
@@ -116,6 +129,19 @@ const Block = memo(
     a.vault === b.vault,
 );
 
+/**
+ * The headings that the table of contents lists: a document's one top-level
+ * heading is its title, which the page shows at its top, so the list starts
+ * below it. Fewer than three is too short a document to need the list.
+ */
+function contentsOf(headings: MarkdownHeading[]) {
+  const titles = headings.filter((heading) => heading.level === 1);
+  const listed = titles.length === 1 && headings[0] === titles[0] ? headings.slice(1) : headings;
+  if (listed.length < 3) return [];
+  const top = Math.min(...listed.map((heading) => heading.level));
+  return listed.map((heading) => ({ ...heading, depth: heading.level - top }));
+}
+
 export default function MarkdownPreview({
   model,
   file,
@@ -132,6 +158,7 @@ export default function MarkdownPreview({
   const [error, setError] = useState("");
   const [heading, setHeading] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
+  const contents = useRef<HTMLElement>(null);
   const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
   const worker = useRef<Worker | null>(null);
   const sequence = useRef(0);
@@ -227,16 +254,33 @@ export default function MarkdownPreview({
     pane.addEventListener("click", followLink);
     return () => pane.removeEventListener("click", followLink);
   }, [file.path, onOpenFile]);
+  const toc = result ? contentsOf(result.headings) : [];
+  // The heading being read: the last one above a line near the pane's top,
+  // or the last one once the pane reaches the document's end.
   const updateHeading = () => {
     const pane = scroller.current;
-    if (!pane || !result) return;
+    if (!pane || !toc.length) return;
+    const nodes = toc.flatMap(({ id }) => {
+      const node = pane.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+      return node ? [node] : [];
+    });
+    const atEnd = pane.scrollTop > 0 && pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
     const top = pane.getBoundingClientRect().top + 100;
-    const nodes = [
-      ...pane.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]"),
-    ];
-    const current = nodes.findLast((node) => node.getBoundingClientRect().top <= top);
-    setHeading(current?.id ?? result.headings[0]?.id ?? "");
+    const current = atEnd
+      ? nodes.at(-1)
+      : nodes.findLast((node) => node.getBoundingClientRect().top <= top);
+    setHeading(current?.id ?? "");
   };
+  // A list taller than the pane scrolls to keep the current heading in view.
+  useEffect(() => {
+    const list = contents.current;
+    const entry = list?.querySelector<HTMLElement>("[aria-current]");
+    if (!list || !entry || list.scrollHeight <= list.clientHeight) return;
+    const above = entry.offsetTop - list.scrollTop;
+    if (above < 24 || above + entry.offsetHeight > list.clientHeight - 24)
+      list.scrollTop = entry.offsetTop - list.clientHeight / 2;
+  }, [heading]);
+  const read = toc.findIndex(({ id }) => id === heading);
   return (
     <section className="med-markdown" aria-label="Markdown preview">
       {error && (
@@ -244,13 +288,36 @@ export default function MarkdownPreview({
           {error}
         </div>
       )}
-      <div className="med-md-layout">
-        <div
-          className="med-md-scroll"
-          ref={scroller}
-          onScroll={updateHeading}
-          data-render-ms={result?.milliseconds}
-        >
+      <div
+        className="med-md-scroll"
+        ref={scroller}
+        onScroll={updateHeading}
+        data-render-ms={result?.milliseconds}
+      >
+        <div className="med-md-page" data-toc={toc.length ? "" : undefined}>
+          {toc.length > 0 && (
+            <nav className="med-md-toc" aria-label="Table of contents" ref={contents}>
+              <ol>
+                {toc.map((h, index) => (
+                  <li key={h.id}>
+                    <button
+                      aria-current={heading === h.id ? "location" : undefined}
+                      data-read={index < read ? "" : undefined}
+                      style={{ "--med-md-toc-depth": h.depth } as CSSProperties}
+                      onClick={() => {
+                        const target = scroller.current?.querySelector(`#${CSS.escape(h.id)}`);
+                        if (target) scrollController.current?.reveal(target);
+                        model.navigate(h.line);
+                        setHeading(h.id);
+                      }}
+                    >
+                      {h.text}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
           <article className="med-md-prose">
             {result?.blocks.map((block, index) => (
               <Block
@@ -266,26 +333,6 @@ export default function MarkdownPreview({
             )}
           </article>
         </div>
-        {result && result.headings.length > 1 && (
-          <nav className="med-md-toc" aria-label="Table of contents">
-            <span>ON THIS PAGE</span>
-            {result.headings.map((h) => (
-              <button
-                key={h.id}
-                aria-current={heading === h.id ? "location" : undefined}
-                style={{ paddingLeft: 10 + (h.level - 1) * 10 }}
-                onClick={() => {
-                  const target = scroller.current?.querySelector(`#${CSS.escape(h.id)}`);
-                  if (target) scrollController.current?.reveal(target);
-                  model.navigate(h.line);
-                  setHeading(h.id);
-                }}
-              >
-                {h.text}
-              </button>
-            ))}
-          </nav>
-        )}
       </div>
     </section>
   );

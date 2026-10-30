@@ -250,7 +250,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
       name: "Claude Code",
       kind: "claude",
       available: true,
-      // A queued message joins Claude Code's turn by itself: no Send now.
+      // Claude Code takes a message after its tools, without steering the turn.
       capabilities: expect.objectContaining({ steer: false, approvals: "ask" }),
     },
     {
@@ -760,6 +760,44 @@ test("a message sent while Claude Code works waits for its next step: it comes b
   });
 });
 
+test("Queue keeps a message for the turn's end past a tool step and a host restart; Send now gives it to Claude Code at its next step", async () => {
+  vi.stubEnv("MED_FAKE_TOOL_MS", "4000");
+  const { api, review, thread, start, restart } = await fixture();
+  const session = await start("claude");
+  await session.until((state) => state.status === "idle" && state.settings.length > 0);
+  const send = (text: string, afterTurn = false) =>
+    api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+      sessionId: session.id,
+      text,
+      noteIds: [],
+      afterTurn,
+    });
+  const messages = async () =>
+    (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data.messages;
+  await send("Work on the check.");
+  await session.until((state) => state.status === "working");
+  const later = await send("Then update the docs.", true);
+  expect(later.data.message).toMatchObject({ delivery: "pending", afterTurn: true });
+
+  // A new host keeps the flag; then Send now lets the tool step take it.
+  await restart();
+  expect((await messages()).at(-1)).toMatchObject({ delivery: "pending", afterTurn: true });
+  const replies = await thread(session.id);
+  const now = await api(`/api/reviews/${review.id}/agent/send-now`, {
+    id: later.data.message.id,
+  });
+  expect(now.status).toBe(200);
+  await vi.waitFor(
+    () => expect(replies().at(-1)).toBe("Checked, and read your note: Then update the docs."),
+    { timeout: 8000 },
+  );
+  expect((await messages()).at(-1)).toMatchObject({ delivery: "delivered" });
+  // A message that went has nothing to send now.
+  expect(
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: later.data.message.id })).status,
+  ).toBe(409);
+});
+
 test("med agents lists the agents that keep working; one that it stops resumes with the next message, and one whose holder dies waits as Interrupted", async () => {
   const { stateDir, thread, start } = await fixture();
   const session = await start("claude");
@@ -1257,11 +1295,17 @@ test("Med runs Codex through its app-server: a card asks, Send now steers, a sub
     options: [{ id: "accept" }, { id: "acceptForSession" }, { id: "decline" }],
   });
   await session.act({ action: "permission", id: asked.permission!.id, option: "accept" });
-  // A message during the turn waits; Send now steers it into the turn.
-  const queued = await send("Also end your reply with the word steered.");
-  expect(queued.data.message).toMatchObject({ delivery: "pending", queued: true });
+  // A message queued during the turn waits for its end; Send now steers it
+  // into the turn.
+  const queued = await api<{ message: AgentMessage }>(`/api/reviews/${review.id}/agent/messages`, {
+    sessionId: session.id,
+    text: "Also end your reply with the word steered.",
+    noteIds: [],
+    afterTurn: true,
+  });
+  expect(queued.data.message).toMatchObject({ delivery: "pending", queued: true, afterTurn: true });
   expect(
-    (await api(`/api/reviews/${review.id}/agent/steer`, { id: queued.data.message.id })).status,
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
   ).toBe(200);
   await vi.waitFor(() =>
     expect(replies()).toEqual([
@@ -1351,7 +1395,7 @@ test("Med runs agy in stream-json: refused actions say why, queued messages wait
   const queued = await send("After that, also say the word queued.");
   expect(queued.data.message).toMatchObject({ queued: true, delivery: "pending" });
   expect(
-    (await api(`/api/reviews/${review.id}/agent/steer`, { id: queued.data.message.id })).status,
+    (await api(`/api/reviews/${review.id}/agent/send-now`, { id: queued.data.message.id })).status,
   ).toBe(409);
   await vi.waitFor(() => expect(replies()).toContain("queued"), { timeout: 5000 });
   // The subagent's transcript nests in its call.

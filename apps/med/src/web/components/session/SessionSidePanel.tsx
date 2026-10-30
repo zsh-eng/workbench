@@ -10,9 +10,11 @@ import { ContextBlock, dollars, modelName, SpendBlock, type ShownContext } from 
 // cards for the context, the spend, the background tasks, the thread's
 // reviews, and where the agent works. docs/SESSIONS.md#side-panel.
 
-/** The narrowest pane that shows the panel: the thread's 540 pixel column,
- * 30 pixels at each of its sides, and the panel's 300. The column never
- * gets narrower for the panel. */
+/** The narrowest pane that shows the panel: a 540 pixel column for the
+ * thread, 30 pixels at each of its sides, and the panel's 300. Beside the
+ * panel the thread's column (session-styles.ts) narrows to the room that is
+ * left, down to 540 pixels, as Claude Desktop's transcript narrows beside its
+ * side panel. */
 export const SIDE_PANEL_MIN_PANE = 900;
 
 /** A row of the Reviews card: a part of the thread's review, or its pull request. */
@@ -37,7 +39,8 @@ export interface SessionEnvironment {
   runs: string;
 }
 
-function Card({
+/** A card of the panel, also for what the thread puts here (SessionThread.tsx). */
+export function SidePanelCard({
   label,
   figure,
   children,
@@ -136,6 +139,7 @@ export function SessionSidePanel({
   links,
   place,
   backgroundRef,
+  agentsRef,
 }: {
   usage: ThreadUsage | null;
   context: ShownContext | undefined;
@@ -143,18 +147,20 @@ export function SessionSidePanel({
   place: SessionEnvironment;
   /** Where the thread puts its Background dock. */
   backgroundRef: Ref<HTMLDivElement>;
+  /** Where the thread puts its list of subagents, in place of the tabs over it. */
+  agentsRef?: Ref<HTMLDivElement>;
 }) {
   const percent =
     context && context.window ? `${Math.round((context.used / context.window) * 100)}%` : undefined;
   return (
     <aside aria-label="Session details" {...stylex.props(styles.panel)}>
       {context && (
-        <Card label="Context" figure={percent}>
+        <SidePanelCard label="Context" figure={percent}>
           <ContextBlock context={context} />
-        </Card>
+        </SidePanelCard>
       )}
       {usage && (
-        <Card
+        <SidePanelCard
           label="Spend"
           figure={dollars(usage.spend.total)}
           details={
@@ -165,19 +171,20 @@ export function SessionSidePanel({
           }
         >
           <SpendBlock usage={usage} table={false} />
-        </Card>
+        </SidePanelCard>
       )}
       <div ref={backgroundRef} {...stylex.props(styles.slot)} />
+      <div ref={agentsRef} {...stylex.props(styles.slot)} />
       {links && links.length > 0 && (
-        <Card label="Reviews">
+        <SidePanelCard label="Reviews">
           <div {...stylex.props(styles.rows)}>
             {links.map(({ id, ...link }) => (
               <Row key={id} {...link} />
             ))}
           </div>
-        </Card>
+        </SidePanelCard>
       )}
-      <Card label="Environment">
+      <SidePanelCard label="Environment">
         <div {...stylex.props(styles.rows)}>
           {place.folder && (
             // The checkout's name, then the folder that holds it, as Claude Desktop shows a folder.
@@ -195,7 +202,7 @@ export function SessionSidePanel({
             detail={place.runs}
           />
         </div>
-      </Card>
+      </SidePanelCard>
     </aside>
   );
 }

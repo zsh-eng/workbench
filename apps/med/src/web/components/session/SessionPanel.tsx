@@ -543,8 +543,9 @@ export function SessionPanel({
     if (prompt) setReveal({ id: prompt.id, nonce: Date.now() });
   };
   const ownedState = owned.state;
-  // An agent that takes a message during its turn offers Send now.
-  const steers = !!ownedState?.capabilities?.steer;
+  // An agent that takes a message during its turn offers Send now on a
+  // queued one: Claude Code at its next step, Codex in the turn (steer).
+  const takesMidTurn = session.agent === "claude" || !!ownedState?.capabilities?.steer;
   // Med's runner tells what its session does. While it waits, a transcript
   // that changed after it holds another process's turn, such as Claude Code's
   // in a terminal or the Claude app: the transcript tells, as for a session
@@ -700,17 +701,20 @@ export function SessionPanel({
                 ...message,
                 edit: () => takeBack([message.id], true),
                 remove: () => takeBack([message.id], false),
-                ...(steers &&
-                  inbox?.sendNow && {
-                    sendNow: () =>
-                      void inbox.sendNow!(message.id).catch((reason: unknown) =>
-                        setTakeNote({
-                          text:
-                            reason instanceof Error ? reason.message : "Med did not send it now.",
-                          error: true,
-                        }),
-                      ),
-                  }),
+                ...(message.afterTurn && takesMidTurn && inbox?.sendNow
+                  ? {
+                      sendNow: () => {
+                        setTakeNote(undefined);
+                        inbox.sendNow!(message.id).catch((error: unknown) =>
+                          setTakeNote({
+                            text:
+                              error instanceof Error ? error.message : "Med did not send it now.",
+                            error: true,
+                          }),
+                        );
+                      },
+                    }
+                  : {}),
               }
             : presence && presence !== "resumable" && message.delivery === "pending"
               ? { ...message, waitsFor: presence }
@@ -758,7 +762,7 @@ export function SessionPanel({
     streaming,
     running,
     presence,
-    steers,
+    takesMidTurn,
   ]);
   const needsYou = !!ownedState?.permission;
   // Asked again as the transcript grows, at a turn's end, and now and then
@@ -794,6 +798,7 @@ export function SessionPanel({
   }, []);
   const sideChoice = useViewSetting(viewSettings.sessionPanel);
   const [background, setBackground] = useState<HTMLDivElement | null>(null);
+  const [agentsSlot, setAgentsSlot] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
     () =>
       recap && session.id === latest
@@ -953,6 +958,7 @@ export function SessionPanel({
                     recap={turnRecap}
                     endMark={endMark}
                     backgroundIn={side ? background : undefined}
+                    agentsIn={side ? agentsSlot : undefined}
                     before={
                       state.truncated && !pageable ? (
                         <p {...stylex.props(styles.note)}>
@@ -1020,6 +1026,7 @@ export function SessionPanel({
             links={links}
             place={sessionPlace}
             backgroundRef={setBackground}
+            agentsRef={setAgentsSlot}
           />
         )}
       </div>

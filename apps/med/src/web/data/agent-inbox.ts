@@ -56,7 +56,8 @@ export interface AgentInbox {
   send(input: AgentMessageInput): Promise<AgentMessage>;
   /** Takes back a queued message that the agent has not had, and returns it. */
   takeBack?(id: string): Promise<AgentMessage>;
-  /** Send now: gives a queued message to the turn that runs. */
+  /** Send now on a queued message: the agent takes it at its next step, not
+   * at its turn's end. */
   sendNow?(id: string): Promise<void>;
 }
 
@@ -118,7 +119,7 @@ export function useAgentInbox(
       if (!reviewId) throw new Error("This review has no agent session.");
       const api = createApi(fetcher, readBrowserToken());
       const result = await api.json(
-        `/api/reviews/${encodeURIComponent(reviewId)}/agent/steer`,
+        `/api/reviews/${encodeURIComponent(reviewId)}/agent/send-now`,
         z.object({ state: agentInboxStateSchema }),
         {
           method: "POST",

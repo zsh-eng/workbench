@@ -191,6 +191,21 @@ export class AgentInbox {
     });
   }
 
+  /**
+   * Send now on a queued message: it waits for the agent's next step, not
+   * its turn's end. Returns it; one that went already is an error.
+   */
+  sendNow(reviewId: string, id: string): Promise<AgentMessage> {
+    return this.change(reviewId, (messages) => {
+      const message = messages.find((entry) => entry.id === id);
+      if (!message?.queued || message.delivery !== "pending")
+        throw new HostError("message-gone", "The agent has this message already.", 409);
+      delete message.afterTurn;
+      const { body: _body, held: _held, ...shown } = message;
+      return shown;
+    });
+  }
+
   /** The sessions whose messages wait for the agent's next step, in every
    * review, as Med kept them before it restarted. */
   queued(): Promise<{ reviewId: string; sessionId: string }[]> {
@@ -238,15 +253,17 @@ export class AgentInbox {
     sessionId: string,
     deliver: (body: string) => Promise<void>,
     to?: AgentSession,
-    /** Only these messages, such as one that the user sends now. */
-    only?: readonly string[],
+    /** During the agent's turn: only the messages that `only` picks, and
+     * none once `when` no longer holds, as when the turn ended meanwhile. */
+    during?: { only(message: AgentMessage): boolean; when(): boolean },
   ) {
     return this.change(reviewId, async (messages) => {
       const waiting = messages.filter(
         (message) => message.sessionId === sessionId && message.delivery === "pending",
       );
+      if (during && !during.when()) return { delivered: 0, left: waiting.length };
       const due = waiting.filter(
-        (message) => !this.unconfirmed.has(message.id) && (!only || only.includes(message.id)),
+        (message) => !this.unconfirmed.has(message.id) && (!during || during.only(message)),
       );
       if (!due.length) return { delivered: 0, left: waiting.length };
       let error: string | undefined;
@@ -259,6 +276,7 @@ export class AgentInbox {
       for (const message of due) {
         delete message.held;
         delete message.queued;
+        delete message.afterTurn;
         if (to) {
           message.sessionId = to.id;
           message.agent = to.agent;
@@ -323,6 +341,8 @@ export class AgentInbox {
       /** The session that Med runs works: the message waits for its next
        * step (queued-messages.ts), and the user can take it back. */
       queued?: boolean;
+      /** With `queued`: it waits for the turn's end instead (Queue). */
+      afterTurn?: boolean;
     } = {},
   ): Promise<AgentMessage> {
     if (message.id) {
@@ -346,6 +366,7 @@ export class AgentInbox {
       body,
       ...(route.held ? { held: true } : {}),
       ...(route.queued ? { queued: true } : {}),
+      ...(route.queued && route.afterTurn ? { afterTurn: true } : {}),
     };
     const { deliver } = route;
     if (deliver) {
@@ -364,6 +385,7 @@ export class AgentInbox {
           for (const entry of [...earlier, stored]) {
             delete entry.held;
             delete entry.queued;
+            delete entry.afterTurn;
             entry.delivery = "delivered";
             entry.deliveredAt = at;
           }

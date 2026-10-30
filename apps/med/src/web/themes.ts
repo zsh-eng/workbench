@@ -54,8 +54,10 @@ export interface CodePalette {
 export interface Aesthetic {
   /**
    * Interface text, Markdown and brief prose, and Markdown headings with their
-   * tracking. `measure` is the prose column width in em. Characters per line
-   * depend on the prose font: 38em holds about 86 in Geist, 66 in Paper Mono at 40em.
+   * tracking. `measure` is the prose column width in em: 51em of 15 pixel
+   * prose (READING) is 765 pixels, about the 768 pixel column of Claude
+   * Desktop's transcript (see session-styles.ts). It holds about 110
+   * characters in Geist and 85 in Paper Mono.
    */
   fonts: {
     ui: string;
@@ -544,7 +546,7 @@ export const aesthetics = {
       prose: geist,
       headings: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", sans-serif',
       headingTracking: "-0.035em",
-      measure: "38em",
+      measure: "51em",
     },
     round: 1,
     buttons: "rounded",
@@ -562,7 +564,7 @@ export const aesthetics = {
       prose: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headings: 'ui-serif, "New York", Georgia, "Times New Roman", serif',
       headingTracking: "-0.015em",
-      measure: "38em",
+      measure: "51em",
     },
     round: 1.3,
     buttons: "rounded",
@@ -579,7 +581,7 @@ export const aesthetics = {
       prose: systemSans,
       headings: systemSans,
       headingTracking: "-0.025em",
-      measure: "38em",
+      measure: "51em",
     },
     round: 1.4,
     buttons: "pill",
@@ -596,7 +598,7 @@ export const aesthetics = {
       prose: systemSans,
       headings: systemSans,
       headingTracking: "-0.02em",
-      measure: "38em",
+      measure: "51em",
     },
     round: 0.7,
     buttons: "rounded",
@@ -615,7 +617,7 @@ export const aesthetics = {
       headings:
         '"Inter Display", "Inter Variable", "Inter", "SF Pro Display", -apple-system, sans-serif',
       headingTracking: "-0.022em",
-      measure: "38em",
+      measure: "51em",
     },
     round: 1,
     buttons: "rounded",
@@ -634,7 +636,7 @@ export const aesthetics = {
       headings: '"Paper Mono", "SFMono-Regular", Consolas, monospace',
       headingTracking: "0",
       // A Paper Mono character is about 0.61em wide, so 40em holds about 66.
-      measure: "40em",
+      measure: "51em",
       // Notes at 14px, and headings closer to the text.
       proseScale: 14 / 15,
       headingScale: 0.85,
@@ -1508,6 +1510,28 @@ export function findTheme(id: string | null | undefined): Theme {
   return themes.find((theme) => theme.id === id) ?? defaultTheme;
 }
 
+/**
+ * The type of rendered Markdown, which previews, vault notes and briefs share
+ * (MarkdownPreview.css). Its proportions follow a documentation page the user
+ * chose, pele.run/api, measured in a browser: text on 1.55 lines, paragraphs
+ * about 1.07em apart, a second-level heading only 1.2 times the text and set
+ * apart by weight and the space above it, a third-level one at the text's
+ * size, and code and tables 0.83 of it. Med sets the text at 15 pixels, a
+ * step under that page's 16.9, since its panes sit beside others. A theme
+ * scales the text by `proseScale` and the headings by `headingScale`.
+ */
+export const READING = {
+  size: 15,
+  leading: 1.6,
+  /** Between paragraphs and lists. */
+  space: "1.07em",
+  /** Code and tables: 13 of 15 pixels. */
+  small: "0.867em",
+  h1: "clamp(1.875em, 4.375cqw, 2.6em)",
+  h2: "1.2em",
+  h3: "1em",
+} as const;
+
 /** The aesthetic's CSS variables. theme.stylex.ts reads them; it lists their defaults. */
 export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<string, string> {
   const fill = look.selection === "fill";
@@ -1518,8 +1542,16 @@ export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<
     "--med-font-headings": look.fonts.headings,
     "--med-headings-tracking": look.fonts.headingTracking,
     "--med-measure": look.fonts.measure,
-    "--med-prose-scale": String(look.fonts.proseScale ?? 1),
-    "--med-heading-scale": String(look.fonts.headingScale ?? 1),
+    "--med-md-size": `${READING.size * (look.fonts.proseScale ?? 1)}px`,
+    "--med-md-leading": String(READING.leading),
+    "--med-md-space": READING.space,
+    "--med-md-small": READING.small,
+    ...Object.fromEntries(
+      (["h1", "h2", "h3"] as const).map((level) => [
+        `--med-md-${level}`,
+        `calc(${READING[level]} * ${look.fonts.headingScale ?? 1})`,
+      ]),
+    ),
     "--med-round": String(look.round),
     "--med-button-round": look.buttons === "pill" ? "999px" : `calc(6px * ${look.round})`,
     "--med-line-from": look.lines.from === "accent" ? palette.accent : palette.text,

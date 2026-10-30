@@ -27,6 +27,7 @@ import { LinkedText } from "../FileRefs";
 import { ZenContext } from "../ZenExit";
 import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
+import { SidePanelCard } from "./SessionSidePanel";
 import { Elapsed, formatDuration } from "./Elapsed";
 import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
 import { SessionMarkdown } from "./SessionMarkdown";
@@ -414,9 +415,10 @@ function Delivery({ message }: { message: SentMessage }) {
       : message.delivery === "pending"
         ? [
             message.queued
-              ? message.agent === "claude"
-                ? `Queued for ${agent}'s next step`
-                : `Queued until ${agent}'s turn ends`
+              ? // Queue, or an agent that takes messages only between turns.
+                message.afterTurn || (message.agent !== "claude" && message.agent !== "codex")
+                ? `Queued until ${agent}'s turn ends`
+                : `Queued for ${agent}'s next step`
               : message.waitsFor
                 ? SESSION_PLACES[message.waitsFor].waiting
                 : `Waiting for ${agent} to take it`,
@@ -453,7 +455,7 @@ function Delivery({ message }: { message: SentMessage }) {
       {message.sendNow && (
         <button
           type="button"
-          title={`Give it to ${agent} now, in the turn that runs`}
+          title={`${agent} takes it at its next step, in the turn that runs`}
           onClick={message.sendNow}
           {...stylex.props(styles.deliveryAction)}
         >
@@ -746,16 +748,20 @@ function subagentsOf(items: SessionItem[], found: ToolItem[] = []) {
  * The session and its subagents as tabs above the thread, so the reader can
  * switch between their threads as in Claude Code. Each subagent's tab shows
  * whether it still works. Arrow keys, Home, and End move between tabs; Escape
- * goes back to the session.
+ * goes back to the session. With `card`, the tabs are a list in a card of the
+ * session's side panel, where a row has room for the subagent's whole state:
+ * a row of tabs over the thread met the panel's first card.
  */
 function AgentTabs({
   agents,
   open,
   onOpen,
+  card = false,
 }: {
   agents: ToolItem[];
   open: string | null;
   onOpen(id: string | null): void;
+  card?: boolean;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const ids = [null, ...agents.map((agent) => agent.id)];
@@ -765,6 +771,7 @@ function AgentTabs({
       ?.querySelectorAll<HTMLElement>('[role="tab"]')
       [at]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [at]);
+  const [forward, back] = card ? ["ArrowDown", "ArrowUp"] : ["ArrowRight", "ArrowLeft"];
   const keydown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape" && open !== null) {
       event.preventDefault();
@@ -773,9 +780,9 @@ function AgentTabs({
       return;
     }
     const next =
-      event.key === "ArrowRight"
+      event.key === forward
         ? Math.min(ids.length - 1, at + 1)
-        : event.key === "ArrowLeft"
+        : event.key === back
           ? Math.max(0, at - 1)
           : event.key === "Home"
             ? 0
@@ -787,15 +794,19 @@ function AgentTabs({
     flushSync(() => onOpen(ids[next]!));
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
   };
-  return (
+  const working = agents.filter(
+    (agent) => agent.call.status === "pending" || agent.call.status === "in_progress",
+  ).length;
+  const tabs = (
     <div
       ref={list}
       role="tablist"
       aria-label="Session and subagents"
+      aria-orientation={card ? "vertical" : "horizontal"}
       // The tabs take focus; the list only hears their keys.
       tabIndex={-1}
       onKeyDown={keydown}
-      {...stylex.props(styles.tabs)}
+      {...stylex.props(card ? styles.tabRows : styles.tabs)}
     >
       <button
         type="button"
@@ -803,13 +814,19 @@ function AgentTabs({
         aria-selected={open === null}
         tabIndex={open === null ? 0 : -1}
         onClick={() => onOpen(null)}
-        {...stylex.props(styles.tab, open === null && styles.tabOpen)}
+        {...stylex.props(styles.tab, card && styles.tabRow, open === null && styles.tabOpen)}
       >
+        {card && (
+          <span aria-hidden="true" {...stylex.props(styles.tabMark)}>
+            <Icon name="sessions" size={12} />
+          </span>
+        )}
         Main
       </button>
       {agents.map((agent) => {
         const live = agent.call.status === "pending" || agent.call.status === "in_progress";
         const failed = agent.call.status === "failed";
+        const state = failed ? "Failed" : live ? "Working" : "Done";
         return (
           <button
             key={agent.id}
@@ -817,9 +834,13 @@ function AgentTabs({
             role="tab"
             aria-selected={open === agent.id}
             tabIndex={open === agent.id ? 0 : -1}
-            title={`${agent.call.title} · ${failed ? "Failed" : live ? "Working" : "Done"}`}
+            title={`${agent.call.title} · ${state}`}
             onClick={() => onOpen(agent.id)}
-            {...stylex.props(styles.tab, open === agent.id && styles.tabOpen)}
+            {...stylex.props(
+              styles.tab,
+              card && styles.tabRow,
+              open === agent.id && styles.tabOpen,
+            )}
           >
             <span
               aria-hidden="true"
@@ -828,10 +849,28 @@ function AgentTabs({
               {live ? <span {...stylex.props(motion.spinner)} /> : <Icon name="agent" size={12} />}
             </span>
             <span {...stylex.props(styles.tabLabel)}>{agent.call.title}</span>
+            {card && (
+              <span
+                aria-hidden="true"
+                {...stylex.props(styles.tabState, failed && styles.agentFailed)}
+              >
+                {state}
+              </span>
+            )}
           </button>
         );
       })}
     </div>
+  );
+  return card ? (
+    <SidePanelCard
+      label="Subagents"
+      figure={working ? `${working} working` : String(agents.length)}
+    >
+      {tabs}
+    </SidePanelCard>
+  ) : (
+    tabs
   );
 }
 
@@ -955,10 +994,14 @@ export function SessionThread({
   endMark,
   onOpenLink,
   backgroundIn,
+  agentsIn,
 }: {
   /** The side panel's place for the Background dock; without it, the dock
    * shows under the thread. */
   backgroundIn?: HTMLElement | null;
+  /** Where the list of subagents goes, such as a slot of the side panel, in
+   * place of the tabs over the thread. */
+  agentsIn?: HTMLElement | null;
   snapshot: SessionSnapshot;
   /** The recap of a turn that ended unseen, at the end of the thread. It
    * takes the place of the plan for that turn. */
@@ -1633,13 +1676,24 @@ export function SessionThread({
     <OpenAgentContext.Provider value={setAgentId}>
       <ScheduleFactsContext.Provider value={scheduleFacts}>
         <div data-pending={!settled || undefined} {...stylex.props(styles.frame)}>
-          {agents.length > 0 && (
-            <AgentTabs
-              agents={agents}
-              open={agent ? agent.id : null}
-              onOpen={(id) => setAgentId(id)}
-            />
-          )}
+          {agents.length > 0 &&
+            (agentsIn ? (
+              createPortal(
+                <AgentTabs
+                  card
+                  agents={agents}
+                  open={agent ? agent.id : null}
+                  onOpen={(id) => setAgentId(id)}
+                />,
+                agentsIn,
+              )
+            ) : (
+              <AgentTabs
+                agents={agents}
+                open={agent ? agent.id : null}
+                onOpen={(id) => setAgentId(id)}
+              />
+            ))}
           <div {...stylex.props(styles.body)}>
             <div inert={!!agent} {...stylex.props(styles.viewport)}>
               <div
@@ -1985,6 +2039,25 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   tabOpen: { backgroundColor: tokens.fill, color: tokens.text, fontWeight: 500 },
+  // The list in the side panel's card: a row for each, as the card's other rows.
+  tabRows: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    maxHeight: 300,
+    marginInline: -6,
+    overflowY: "auto",
+    scrollbarWidth: "thin",
+    outline: "none",
+  },
+  tabRow: { maxWidth: "none", width: "100%", height: 26, paddingInline: 6, gap: 8, fontSize: 12.5 },
+  tabState: {
+    marginInlineStart: "auto",
+    flexShrink: 0,
+    color: tokens.faint,
+    fontSize: 11.5,
+    fontWeight: 400,
+  },
   tabMark: { display: "inline-flex", flexShrink: 0, color: tokens.faint },
   tabLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   agentEmpty: { margin: 0, color: tokens.faint, fontSize: 12.5 },
