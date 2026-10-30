@@ -222,7 +222,7 @@ import type { ThreadLink } from "./components/session/SessionSidePanel";
 import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
-import type { FileRefs } from "./components/FileRefs";
+import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -1354,6 +1354,22 @@ export function App({
   );
   // The reader's pending review on GitHub: replies to its threads, and the
   // comments on a saved version, which Med keeps with that version.
+  // Comments, Med's, the agent's and GitHub's, link the files that they name
+  // as the thread does, and also paths in their text and GitHub links to
+  // the pull request's head.
+  const pullRequestUrl = pullRequest.data?.url;
+  const pullRequestHead = pullRequest.data?.head;
+  const commentFileRefs = useMemo<FileRefs>(() => {
+    const repo =
+      pullRequestUrl && /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\//i.exec(pullRequestUrl)?.[1];
+    return {
+      ...fileRefs,
+      comments: {
+        text: true,
+        ...(repo && pullRequestHead ? { github: { repo, head: pullRequestHead } } : {}),
+      },
+    };
+  }, [fileRefs, pullRequestUrl, pullRequestHead]);
   const pendingReview = useMemo<PendingReviewTarget | null>(() => {
     if (!state.savedReview?.pullRequestUrl) return null;
     const target = state.savedView
@@ -6962,7 +6978,9 @@ export function App({
   );
   return (
     <ZenContext.Provider value={zen}>
-      <PendingReviewContext.Provider value={pendingReview}>{app}</PendingReviewContext.Provider>
+      <PendingReviewContext.Provider value={pendingReview}>
+        <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+      </PendingReviewContext.Provider>
     </ZenContext.Provider>
   );
 }

@@ -211,19 +211,44 @@ export function fileRefOf(element: Element): FileRef | null {
   return { path, ...(line ? { line } : {}), ...(line && endLine ? { endLine } : {}) };
 }
 
+/** A pull request's repository, `owner/name`, and its head commit. */
+export interface PullRequestHead {
+  repo: string;
+  head: string;
+}
+/** How a comment links files, beyond what a reply links. */
+export interface RefOptions {
+  /** Paths in the text itself link too, as in a prompt. */
+  text?: boolean;
+  /** GitHub links to a file of this repository at this head link to the file. */
+  github?: PullRequestHead;
+}
+
+/** A GitHub link to a file of the pull request's repository at its head
+ * commit; a link to another repository or commit is a web link. */
+function headBlob(href: string, github: PullRequestHead) {
+  const link = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/([0-9a-f]{7,40})\//i.exec(href);
+  if (!link || link[1]!.toLowerCase() !== github.repo.toLowerCase()) return null;
+  if (!github.head.toLowerCase().startsWith(link[2]!.toLowerCase())) return null;
+  return parseBriefHref(href);
+}
+
 /**
  * Links in rendered Markdown blocks: inline code and links that name a file
  * of the checkout become links to the file, which show its name and lines.
  * A relative link that names no file loses its link, when the index has
- * every file. Web links, code blocks, and other text stay as they are.
+ * every file. Web links, code blocks, and other text stay as they are; with
+ * `options`, a comment's paths in its text and its GitHub links to the head
+ * link too.
  */
 export function decorateFileRefs<T extends { html: string }>(
   blocks: readonly T[],
   index: FileIndex,
   cwd?: string,
+  options: RefOptions = {},
 ): T[] {
   const templates = blocks.map((block) => {
-    if (!/<code|data-brief-href/.test(block.html)) return null;
+    if (!options.text && !/<code|data-brief-href/.test(block.html)) return null;
     const template = document.createElement("template");
     template.innerHTML = block.html;
     return template;
@@ -241,9 +266,10 @@ export function decorateFileRefs<T extends { html: string }>(
         continue;
       }
       const href = (node as HTMLElement).dataset.briefHref ?? "";
-      // Web links, GitHub's too, stay web links.
-      if (/^https?:/i.test(href)) continue;
-      const target = parseBriefHref(href);
+      // Web links stay web links, GitHub's too unless they name the head's files.
+      const web = /^https?:/i.test(href);
+      if (web && !options.github) continue;
+      const target = web ? headBlob(href, options.github!) : parseBriefHref(href);
       const ref = target && index.resolve(target, cwd);
       if (ref) {
         // A link whose text is its path shows the file's name; other words stay.
@@ -251,15 +277,37 @@ export function decorateFileRefs<T extends { html: string }>(
         const named = parseCodeTarget(text);
         const same = !text || (named && basename(named.path) === basename(ref.path));
         found.push({ node, ref, keepText: !same });
-      } else if (index.complete) dead.push(node);
+      } else if (index.complete && !web) dead.push(node);
     }
   }
-  if (!found.length && !dead.length) return [...blocks];
-  const labels = refLabels(found.map((entry) => entry.ref.path));
-  for (const { node, ref, keepText } of found) {
+  // Paths in the text, outside code and links.
+  const texts: { node: Text; parts: NonNullable<ReturnType<typeof textFileRefs>> }[] = [];
+  if (options.text)
+    for (const template of templates) {
+      if (!template) continue;
+      const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.parentElement?.closest("pre, code, a")) continue;
+        const parts = textFileRefs(node.textContent ?? "", index, cwd);
+        if (parts) texts.push({ node: node as Text, parts });
+      }
+    }
+  if (!found.length && !dead.length && !texts.length) return [...blocks];
+  const labels = refLabels([
+    ...found.map((entry) => entry.ref.path),
+    ...texts.flatMap(({ parts }) =>
+      parts.flatMap((part) => (typeof part === "string" ? [] : [part.ref.path])),
+    ),
+  ]);
+  const linkTo = (ref: FileRef) => {
     const holder = document.createElement("template");
     holder.innerHTML = fileRefHtml(ref, labels.get(ref.path)!);
-    const link = holder.content.firstElementChild!;
+    return holder.content.firstElementChild!;
+  };
+  for (const { node, parts } of texts)
+    node.replaceWith(...parts.map((part) => (typeof part === "string" ? part : linkTo(part.ref))));
+  for (const { node, ref, keepText } of found) {
+    const link = linkTo(ref);
     if (keepText) {
       // The author's words, with the file's lines after them.
       link.querySelector(`.${FILE_REF}-name`)!.replaceChildren(...node.childNodes);

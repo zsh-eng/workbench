@@ -436,6 +436,10 @@ background shells and agents. It follows the session live.
   width that you give it; drag its edge to give the review the room beside
   the column. Markdown files, pull request drafts, and the Guide read at the
   same width.
+- Type: Markdown files and briefs read at 15 pixels. The thread's prompts and
+  replies read at 14.5 (a little smaller in Paper, as its documents are), so
+  a line holds about as many characters as Claude Desktop's. Code and tables
+  in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
@@ -488,6 +492,12 @@ background shells and agents. It follows the session live.
   opens the tab behind the current one. Close the tab to go back to the tab
   that you read before it. Text that names no file of the checkout stays as
   it is.
+- Comments link files the same way: yours, the agent's (Guide comments and
+  replies), and GitHub's (threads on lines, the conversation, review
+  summaries, and pending comments). A comment's paths link also in its text,
+  as in a prompt, and a GitHub link to a file at the pull request's head
+  opens the file in Med. Paths in code blocks, and paths that name no file of
+  the review's checkout, stay text.
 - A web link shows as a pill with its
   site's icon. Med holds the icons of common developer sites, and of servers
   that a company runs itself, such as GitHub or Sourcegraph; other sites show a

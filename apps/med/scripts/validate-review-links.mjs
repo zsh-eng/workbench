@@ -177,7 +177,12 @@ try {
       },
       {
         args: ["api", "repos/example/repo/issues/42/comments?per_page=100"],
-        stdout: lines({ id: 2, ...by, body: "Ready for review.", url: `${prResult.url}#c2` }),
+        stdout: lines({
+          id: 2,
+          ...by,
+          body: "Ready for review. See same.ts:1; gone.ts:2 went away.",
+          url: `${prResult.url}#c2`,
+        }),
       },
       {
         args: ["api", `${pull}/reviews?per_page=100`],
@@ -323,10 +328,18 @@ try {
   const header = page.getByRole("region", { name: "Saved review" });
   await header.getByText("Faster lookups", { exact: true }).waitFor();
   // The host reads the pull request's comments from gh's fixed answers.
-  await header
+  const prComments = header
     .getByRole("button", { name: "3 pull request comments", exact: true })
-    .filter({ visible: true })
-    .waitFor();
+    .filter({ visible: true });
+  await prComments.waitFor();
+  // A path in a GitHub comment that names a file of the review is a link to
+  // it; a path that names none stays text.
+  await prComments.click();
+  const conversation = page.getByRole("dialog").filter({ hasText: "Ready for review." });
+  await conversation.getByRole("link", { name: "Open same.ts at L1", exact: true }).waitFor();
+  assert.equal(await conversation.getByRole("link", { name: /gone/ }).count(), 0);
+  await page.keyboard.press("Escape");
+  await conversation.waitFor({ state: "hidden" });
   assert.equal(await page.getByRole("button", { name: "Push", exact: true }).isEnabled(), false);
   await page.getByRole("button", { name: "Split", exact: true }).click();
   // Select the changed line itself. A hover-only gutter button can disappear

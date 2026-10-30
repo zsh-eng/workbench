@@ -3107,6 +3107,124 @@ describe("review guide comments", () => {
   });
 });
 
+describe("file references in comments", () => {
+  /** A comment's link to src/beta.ts:2 opens the file at that line; the
+   * unknown src/gone.ts:4 stays text. */
+  async function opensBeta(card: ReturnType<typeof page.getByRole>) {
+    const link = card.getByRole("link", { name: "Open src/beta.ts at L2" });
+    await expect.element(link).toHaveTextContent("beta.tsL2");
+    await expect.element(card.getByText(/src\/gone\.ts:4/)).toBeVisible();
+    expect(card.getByRole("link", { name: /gone/ }).query()).toBeNull();
+    await link.click();
+    await expect.element(page.getByRole("tab", { name: "beta.ts", exact: true })).toBeVisible();
+    const editor = page.getByRole("region", { name: "File editor" });
+    await expect
+      .poll(() =>
+        [...editor.element().querySelectorAll(".med-cited-line")].map((line) => line.textContent),
+      )
+      .toEqual(["export const workingContents = true;"]);
+  }
+
+  test("a Med comment links a path in its text", async () => {
+    await mountApp({
+      notes: [
+        {
+          id: "mine",
+          path: "src/alpha.ts",
+          side: "new",
+          line: 1,
+          text: "Compare with src/beta.ts:2; src/gone.ts:4 went away.",
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+          resolution: "active",
+        },
+      ],
+    });
+    const card = page.getByRole("article", { name: "Comment thread at line R1" });
+    await expect.poll(() => card.element().textContent).toMatch(/Compare with beta\.tsL2/);
+    await opensBeta(card);
+  });
+
+  test("the agent's comment links a path in code", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the export.",
+        segments: [
+          {
+            title: "Rename alpha",
+            files: ["src/alpha.ts"],
+            comments: [
+              {
+                file: "src/alpha.ts",
+                line: 1,
+                side: "new",
+                kind: "risk",
+                body: "Callers read `src/beta.ts:2`; `src/gone.ts:4` went away.",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await userEvent.keyboard("j");
+    const card = page.getByRole("article", { name: /comment at .*read-only/ });
+    await expect.poll(() => card.element().textContent).toMatch(/Callers read beta\.tsL2/);
+    await opensBeta(card);
+  });
+
+  test("a GitHub comment links a path, and a link to the head's file, but not one to another commit", async () => {
+    const at = (id: number, body: string) => ({
+      id,
+      author: "mira",
+      body,
+      createdAt: "2026-09-20T00:00:00Z",
+      url: `https://github.com/acme/med/pull/7#discussion_r${id}`,
+    });
+    await mountApp({
+      savedReview: true,
+      pullRequest: {
+        url: "https://github.com/acme/med/pull/7",
+        head: firstCommit,
+        fetchedAt: Date.now(),
+        threads: [
+          {
+            id: 11,
+            path: "src/alpha.ts",
+            side: "new",
+            line: 1,
+            startLine: null,
+            originalLine: 1,
+            comments: [
+              at(
+                11,
+                [
+                  "Mirror src/beta.ts#L2; src/gone.ts:4 went away.",
+                  `Same as https://github.com/acme/med/blob/${firstCommit}/src/beta.ts#L1-L2,`,
+                  `not https://github.com/acme/med/blob/${"b".repeat(40)}/src/beta.ts#L1.`,
+                ].join("\n"),
+              ),
+            ],
+          },
+        ],
+        conversation: [],
+        reviews: [],
+      },
+    });
+    const thread = page.getByRole("article", { name: "GitHub thread by mira at R1" });
+    await expect.element(thread).toBeVisible();
+    await expect
+      .element(thread.getByRole("link", { name: "Open src/beta.ts at L1–2" }))
+      .toHaveTextContent("beta.tsL1–2");
+    // A link to another commit stays a link to GitHub.
+    await expect
+      .element(thread.getByRole("link", { name: /blob\/b{40}\/src\/beta\.ts#L1$/ }))
+      .toHaveAttribute("href", `https://github.com/acme/med/blob/${"b".repeat(40)}/src/beta.ts#L1`);
+    await opensBeta(thread);
+  });
+});
+
 describe("saved reviews", () => {
   test("the agent's pull request draft has its tab, with its image; a comment goes to the agent, and Create opens the pull request", async () => {
     const { prCreates } = await mountApp({

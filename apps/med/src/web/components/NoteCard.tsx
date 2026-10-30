@@ -1,6 +1,7 @@
 import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
+import { CommentRefsContext, FileRefsContext } from "./FileRefs";
 import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import { onGitHub, PendingReviewContext } from "../data/pending-review";
 import { relativeTime } from "../data/relative-time";
@@ -58,7 +59,8 @@ function Timestamp({ note }: { note: Note }) {
   );
 }
 
-/** A comment's text as Markdown; as plain text until the renderer loads. */
+/** A comment's text as Markdown; as plain text until the renderer loads.
+ * Paths that name a file of the review link to it. */
 export function CommentText({
   text,
   onOpenLink,
@@ -66,10 +68,13 @@ export function CommentText({
   text: string;
   onOpenLink?(href: string): void;
 }) {
+  const refs = useContext(CommentRefsContext);
   return (
     <div className="med-comment-prose">
       <Suspense fallback={<p {...stylex.props(styles.content)}>{text}</p>}>
-        <CommentMarkdown text={text} onOpenLink={onOpenLink} />
+        <FileRefsContext.Provider value={refs}>
+          <CommentMarkdown text={text} onOpenLink={onOpenLink} />
+        </FileRefsContext.Provider>
       </Suspense>
     </div>
   );

@@ -7,6 +7,7 @@ import {
   textFileRefs,
   type FileIndex,
   type FileRef,
+  type RefOptions,
 } from "../data/file-refs";
 import type { MarkdownBlock } from "../markdown/model";
 import "./FileRefs.css";
@@ -17,31 +18,37 @@ export interface FileRefs {
   index: FileIndex | null;
   /** The folder that the agent worked in, which relative paths start from. */
   cwd?: string;
+  /** For comments: paths in their text, and GitHub links to the head's files. */
+  comments?: RefOptions;
   /** Opens the file at its lines; `background` keeps the current tab. */
   open(ref: FileRef, background: boolean): void;
 }
 export const FileRefsContext = createContext<FileRefs | null>(null);
 export const useFileRefs = () => useContext(FileRefsContext);
+/** What file references in the review's comments link to (CommentText). */
+export const CommentRefsContext = createContext<FileRefs | null>(null);
 
 // Rendered replies keep their links: a reply that scrolls back into a
 // thread's list does not read its HTML again.
 const decorated = new WeakMap<
   readonly MarkdownBlock[],
-  { index: FileIndex; cwd?: string; blocks: MarkdownBlock[] }
+  { index: FileIndex; cwd?: string; comments?: RefOptions; blocks: MarkdownBlock[] }
 >();
-/** The blocks of a rendered reply, with links to the files that it names. */
+/** The blocks of a rendered reply or comment, with links to the files that it names. */
 export function useFileRefBlocks(blocks: readonly MarkdownBlock[] | undefined) {
   const refs = useFileRefs();
   const index = refs?.index;
   const cwd = refs?.cwd;
+  const comments = refs?.comments;
   return useMemo(() => {
     if (!blocks || !index) return blocks;
     const kept = decorated.get(blocks);
-    if (kept && kept.index === index && kept.cwd === cwd) return kept.blocks;
-    const next = decorateFileRefs(blocks, index, cwd);
-    decorated.set(blocks, { index, cwd, blocks: next });
+    if (kept && kept.index === index && kept.cwd === cwd && kept.comments === comments)
+      return kept.blocks;
+    const next = decorateFileRefs(blocks, index, cwd, comments);
+    decorated.set(blocks, { index, cwd, comments, blocks: next });
     return next;
-  }, [blocks, index, cwd]);
+  }, [blocks, index, cwd, comments]);
 }
 
 /** Plain text, such as a prompt, with the paths that name a file of the
