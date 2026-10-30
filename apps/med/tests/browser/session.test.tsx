@@ -9,11 +9,12 @@ import { finalReplies, units as unitsOf } from "../../src/web/components/session
 import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
 import { createSessionStore } from "../../src/web/data/session-store";
 import "../../src/web/pierre-theme";
-import { initializeTheme } from "../../src/web/themes";
+import { initializeTheme, THEME_STORAGE_KEY } from "../../src/web/themes";
 
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 afterEach(() => {
+  localStorage.removeItem(THEME_STORAGE_KEY);
   root?.unmount();
   mount?.remove();
   root = undefined;
@@ -224,51 +225,70 @@ test("a reply taller than the overscan does not move the range on each scroll", 
   expect(moves).toBeLessThan(12);
 });
 
-test("a reply's table of long paths and commands has the height that the thread estimates for it", async () => {
-  await page.viewport(1280, 900);
-  initializeTheme();
-  const store = longThread(0);
-  const table = [
-    "The checks:",
-    "",
-    "| Check | Where | Result |",
-    "| --- | --- | --- |",
-    "| `./gradlew :telemetry:histogram-core-internal:test` | `src/web/components/session/thread-heights.ts:359` | 18 tests pass across the three JVM targets |",
-    "| `bun run test test/metrics.test.ts` | `registry.timer(bucketName())` | 1 passed |",
-  ].join("\n");
-  store.applyAll([
-    {
-      at: 0,
-      update: {
-        sessionUpdate: "user_message_chunk" as const,
-        content: { type: "text" as const, text: "Run the checks." },
+// The thread's type: Med's own Geist, and Paper Mono with its proseScale.
+test.each(["med-dawn", "paper-light"])(
+  "a reply with a heading, a list, code, and a table of long paths has the height that the thread estimates for it (%s)",
+  async (theme) => {
+    await page.viewport(1280, 900);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    initializeTheme();
+    const store = longThread(0);
+    const table = [
+      "## The checks",
+      "",
+      "- The thread's text is a step under the documents', with `code` at their ratio.",
+      "- Each reply keeps its estimate.",
+      "",
+      "```ts",
+      "export const width = 768;",
+      "export const size = 14.5;",
+      "```",
+      "",
+      "| Check | Where | Result |",
+      "| --- | --- | --- |",
+      "| `./gradlew :telemetry:histogram-core-internal:test` | `src/web/components/session/thread-heights.ts:359` | 18 tests pass across the three JVM targets |",
+      "| `bun run test test/metrics.test.ts` | `registry.timer(bucketName())` | 1 passed |",
+    ].join("\n");
+    store.applyAll([
+      {
+        at: 0,
+        update: {
+          sessionUpdate: "user_message_chunk" as const,
+          content: { type: "text" as const, text: "Run the checks." },
+        },
       },
-    },
-    {
-      at: 500,
-      update: {
-        sessionUpdate: "agent_message_chunk" as const,
-        messageId: "r-table",
-        content: { type: "text" as const, text: table },
+      {
+        at: 500,
+        update: {
+          sessionUpdate: "agent_message_chunk" as const,
+          messageId: "r-table",
+          content: { type: "text" as const, text: table },
+        },
       },
-    },
-  ]);
-  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
-  await expect.poll(() => document.querySelector("[data-unit] table wbr")).not.toBeNull();
-  const element = document.querySelector("[data-unit] table")!.closest<HTMLElement>("[data-unit]")!;
-  const probe = document.querySelector('[data-probe="unit"]')!.parentElement!;
-  const list = unitsOf(store.getSnapshot().items);
-  const unit = list.find((entry) => entry.key === element.dataset.unit)!;
-  const final = "item" in unit && finalReplies(list, false).has(unit.item.id);
-  // The cells break their long words where the renderer lets them.
-  await expect
-    .poll(() =>
-      Math.abs(
-        estimateUnit(unit, readMetrics(probe), { final }) - element.getBoundingClientRect().height,
-      ),
-    )
-    .toBeLessThanOrEqual(1);
-});
+    ]);
+    root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+    await expect.poll(() => document.querySelector("[data-unit] table wbr")).not.toBeNull();
+    const element = document
+      .querySelector("[data-unit] table")!
+      .closest<HTMLElement>("[data-unit]")!;
+    // A step under the documents' 15 pixels, scaled as Paper scales them.
+    const text = Number.parseFloat(getComputedStyle(element.querySelector("p, li")!).fontSize);
+    expect(text).toBeCloseTo(theme === "paper-light" ? (14.5 * 14) / 15 : 14.5, 2);
+    const probe = document.querySelector('[data-probe="unit"]')!.parentElement!;
+    const list = unitsOf(store.getSnapshot().items);
+    const unit = list.find((entry) => entry.key === element.dataset.unit)!;
+    const final = "item" in unit && finalReplies(list, false).has(unit.item.id);
+    // The cells break their long words where the renderer lets them.
+    await expect
+      .poll(() =>
+        Math.abs(
+          estimateUnit(unit, readMetrics(probe), { final }) -
+            element.getBoundingClientRect().height,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+  },
+);
 
 test("a task in the Background dock scrolls a long thread to its call", async () => {
   await page.viewport(1280, 900);

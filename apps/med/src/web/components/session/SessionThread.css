@@ -1,10 +1,12 @@
-/* A reply in a session thread uses the brief's prose rules at a size that
-   fits a side panel: no page padding, smaller headings, tighter blocks. */
+/* A reply in a session thread uses the documents' prose rules at a size that
+   fits a side panel: no page padding, smaller headings, tighter blocks. Its
+   text is a step under the documents' (READING.thread in themes.ts); code and
+   tables keep the documents' ratio to it (`--med-md-small`). */
 .med-md-prose.med-session-prose {
   max-width: none;
   padding: 0;
   margin: 4px 0;
-  font-size: 13.5px;
+  font-size: var(--med-thread-size, 14.5px);
   line-height: 1.6;
   color: var(--med-text);
 }
@@ -38,28 +40,24 @@
   margin: 0.75em 0;
   padding: 10px 12px;
   border-radius: calc(8px * var(--med-round, 1));
-  font-size: 11.5px;
   line-height: 1.6;
 }
 .med-session-prose pre::before {
   content: none;
 }
 .med-session-prose code {
-  font-size: 0.85em;
   padding: 0.1em 0.3em;
 }
 /* Tables in a pane or a guide column keep their cells compact, so more of
    them fit before the table scrolls. Every cell has the same padding, as the
    thread's height estimate expects (thread-heights.ts). */
 .med-md-prose.med-session-prose table {
-  font-size: 13px;
   line-height: 1.6;
 }
 .med-md-prose.med-session-prose :is(th, td) {
   padding: 7px 8px;
 }
 .med-md-prose.med-session-prose th {
-  font-size: 11px;
   font-weight: 550;
 }
 /* Links open a file in Med or a page in a new tab: underlined on hover, with

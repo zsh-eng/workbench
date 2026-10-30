@@ -19,6 +19,19 @@
 .med-guide-prose .med-session-prose :is(strong, b, code) {
   color: var(--med-text);
 }
+/* The Guide keeps its own code and table sizes; the thread's follow its text. */
+.med-guide-prose .med-session-prose pre {
+  font-size: 11.5px;
+}
+.med-guide-prose .med-session-prose :not(pre) > code {
+  font-size: 0.85em;
+}
+.med-guide-prose .med-md-prose.med-session-prose table {
+  font-size: 13px;
+}
+.med-guide-prose .med-md-prose.med-session-prose th {
+  font-size: 11px;
+}
 .med-guide-table {
   max-width: none;
 }

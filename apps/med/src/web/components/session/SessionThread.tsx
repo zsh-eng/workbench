@@ -2164,7 +2164,7 @@ const styles = stylex.create({
   userText: {
     margin: 0,
     fontFamily: "var(--med-font-prose)",
-    fontSize: 13.5,
+    fontSize: "var(--med-thread-size, 14.5px)",
     lineHeight: 1.6,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
@@ -2180,7 +2180,7 @@ const styles = stylex.create({
   },
   userNext: { marginTop: 8 },
   // The text's own size, so a fold's height counts its lines (lh).
-  promptBody: { fontSize: 13.5, lineHeight: 1.6 },
+  promptBody: { fontSize: "var(--med-thread-size, 14.5px)", lineHeight: 1.6 },
   promptFolded: (maxHeight: string) => ({
     maxHeight,
     overflow: "hidden",

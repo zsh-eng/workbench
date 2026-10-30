@@ -1522,6 +1522,15 @@ export function findTheme(id: string | null | undefined): Theme {
  */
 export const READING = {
   size: 15,
+  /**
+   * A session thread's text, a step under the documents' so that a line of
+   * its 768 pixel column holds about as many characters as Claude Desktop's
+   * transcript: 116 in Geist and 115 in the system sans, against 117 there
+   * (14 pixel Anthropic Sans, `.epitaxy-root .epitaxy-transcript-typography`
+   * in its styles of October 2026). Code and tables in the thread keep the
+   * documents' ratio to the text, `small`.
+   */
+  thread: 14.5,
   leading: 1.6,
   /** Between paragraphs and lists. */
   space: "1.07em",
@@ -1543,6 +1552,7 @@ export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<
     "--med-headings-tracking": look.fonts.headingTracking,
     "--med-measure": look.fonts.measure,
     "--med-md-size": `${READING.size * (look.fonts.proseScale ?? 1)}px`,
+    "--med-thread-size": `${READING.thread * (look.fonts.proseScale ?? 1)}px`,
     "--med-md-leading": String(READING.leading),
     "--med-md-space": READING.space,
     "--med-md-small": READING.small,
