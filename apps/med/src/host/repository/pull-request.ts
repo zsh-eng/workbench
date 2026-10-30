@@ -121,28 +121,15 @@ async function load(url: string): Promise<PullRequestComments> {
     ]),
   ]);
   const summaries = lines(reviews, review);
-  // A pending review is the reader's own draft on GitHub. GitHub shows it
-  // only to its author, and lists its comments only under the review.
-  const drafts = await Promise.all(
-    summaries
-      .filter((entry) => entry.state === "PENDING")
-      .map((entry) =>
-        gh(host!, [
-          "--paginate",
-          `${base}/pulls/${number}/reviews/${entry.id}/comments?per_page=100`,
-          "--jq",
-          INLINE,
-        ]),
-      ),
-  );
+  const drafts = summaries.some((entry) => entry.state === "PENDING")
+    ? await pendingComments(host!, { owner: owner!, repo: repo!, number: Number(number) })
+    : [];
   // GitHub points every reply at the thread's first comment, also a draft
   // reply to a thread that others started.
   const threads = new Map<number, PullRequestThread>();
   const entries = [
     ...lines(inline, reviewComment).map((entry) => ({ entry, draft: false })),
-    ...drafts.flatMap((text) =>
-      lines(text, reviewComment).map((entry) => ({ entry, draft: true })),
-    ),
+    ...drafts.map((entry) => ({ entry, draft: true })),
   ];
   for (const { entry, draft } of entries) {
     const added = { ...toComment(entry), ...(draft && { draft }) };
@@ -233,14 +220,16 @@ const PENDING_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
     }
   }
 }`;
+const pageInfo = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() });
 const threadsQuery = z.object({
   repository: z.object({
     pullRequest: z.object({
       reviewThreads: z.object({
-        pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+        pageInfo,
         nodes: z.array(
           z.object({
             id: z.string(),
+            diffSide: z.enum(["LEFT", "RIGHT"]),
             comments: z.object({ nodes: z.array(z.object({ databaseId: z.number().nullable() })) }),
           }),
         ),
@@ -253,7 +242,45 @@ const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $af
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
-        nodes { id comments(first: 1) { nodes { databaseId } } }
+        nodes { id diffSide comments(first: 1) { nodes { databaseId } } }
+      }
+    }
+  }
+}`;
+const pendingComment = z.object({
+  databaseId: z.number(),
+  author: z.object({ login: z.string() }).nullable(),
+  body: z.string(),
+  createdAt: z.string(),
+  url: z.string(),
+  replyTo: z.object({ databaseId: z.number() }).nullable(),
+  path: z.string(),
+  line: z.number().nullable(),
+  startLine: z.number().nullable(),
+  originalLine: z.number().nullable(),
+});
+const pendingCommentsQuery = z.object({
+  repository: z.object({
+    pullRequest: z.object({
+      reviews: z.object({
+        nodes: z.array(
+          z.object({ comments: z.object({ pageInfo, nodes: z.array(pendingComment) }) }),
+        ),
+      }),
+    }),
+  }),
+});
+// GitHub shows a pending review only to its author, who has at most one.
+const PENDING_COMMENTS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(states: PENDING, first: 1) {
+        nodes {
+          comments(first: 100, after: $after) {
+            pageInfo { hasNextPage endCursor }
+            nodes { databaseId author { login } body createdAt url replyTo { databaseId } path line startLine originalLine }
+          }
+        }
       }
     }
   }
@@ -267,19 +294,74 @@ async function graphQl(host: string, query: string, variables: Record<string, st
   return graphQlAnswer.parse(JSON.parse(await gh(host, args))).data;
 }
 
+/** Each node of a GraphQL connection, read a page at a time. */
+async function* connection<T>(
+  read: (after: { after?: string }) => Promise<{ pageInfo: z.infer<typeof pageInfo>; nodes: T[] }>,
+) {
+  let after: { after?: string } = {};
+  for (;;) {
+    const page = await read(after);
+    yield* page.nodes;
+    if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) return;
+    after = { after: page.pageInfo.endCursor };
+  }
+}
+
+const reviewThreads = (host: string, place: Record<string, string | number>) =>
+  connection(
+    async (after) =>
+      threadsQuery.parse(await graphQl(host, THREADS_QUERY, { ...place, ...after })).repository
+        .pullRequest.reviewThreads,
+  );
+
 /** The GraphQL ID of the thread that starts with the comment `root` (a REST ID). */
 async function threadId(host: string, place: Record<string, string | number>, root: number) {
-  let after: string | null = null;
-  for (;;) {
-    const page: z.infer<typeof threadsQuery>["repository"]["pullRequest"]["reviewThreads"] =
-      threadsQuery.parse(
-        await graphQl(host, THREADS_QUERY, { ...place, ...(after ? { after } : {}) }),
-      ).repository.pullRequest.reviewThreads;
-    const found = page.nodes.find((entry) => entry.comments.nodes[0]?.databaseId === root);
-    if (found) return found.id;
-    if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) return undefined;
-    after = page.pageInfo.endCursor;
-  }
+  for await (const thread of reviewThreads(host, place))
+    if (thread.comments.nodes[0]?.databaseId === root) return thread.id;
+  return undefined;
+}
+
+/**
+ * The comments of the reader's pending review. GitHub's REST API gives them
+ * diff positions but no lines or side; GraphQL gives the lines, and the side
+ * is the thread's.
+ */
+async function pendingComments(host: string, place: Record<string, string | number>) {
+  const sides = new Map<number, "LEFT" | "RIGHT">();
+  const comments: z.infer<typeof pendingComment>[] = [];
+  const pages = connection(
+    async (after) =>
+      pendingCommentsQuery.parse(
+        await graphQl(host, PENDING_COMMENTS_QUERY, { ...place, ...after }),
+      ).repository.pullRequest.reviews.nodes[0]?.comments ?? {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: [],
+      },
+  );
+  await Promise.all([
+    (async () => {
+      for await (const thread of reviewThreads(host, place)) {
+        const root = thread.comments.nodes[0]?.databaseId;
+        if (root) sides.set(root, thread.diffSide);
+      }
+    })(),
+    (async () => {
+      for await (const entry of pages) comments.push(entry);
+    })(),
+  ]);
+  return comments.map((entry): z.infer<typeof reviewComment> => ({
+    id: entry.databaseId,
+    author: entry.author?.login ?? "ghost",
+    body: entry.body,
+    createdAt: entry.createdAt,
+    url: entry.url,
+    reply: entry.replyTo?.databaseId ?? null,
+    path: entry.path,
+    line: entry.line,
+    startLine: entry.startLine,
+    originalLine: entry.originalLine,
+    side: sides.get(entry.databaseId) ?? null,
+  }));
 }
 
 /**
