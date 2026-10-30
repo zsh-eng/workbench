@@ -30,6 +30,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 // Living covers load their engine only when Debug mode turns them on.
 const LivingCover = lazy(() =>
@@ -269,13 +270,14 @@ function BookActions({
           <DropdownMenuItem
             render={<Link to={`/reader/${book.id}`} />}
             onFocus={preloadReader}
-            onClick={() =>
+            onClick={() => {
+              enterReadingFullscreen();
               beginReaderTrace({
                 bookId: book.id,
                 bookTitle: book.title,
                 source: "library-menu",
-              })
-            }
+              });
+            }}
           >
             {displayStatus === "reading" ? "Continue reading" : "Open"}
           </DropdownMenuItem>
@@ -338,9 +340,10 @@ function BookLink({
       ref={linkRef}
       to={`/reader/${book.id}`}
       aria-label={`Open ${book.title}`}
-      onClick={() =>
-        beginReaderTrace({ bookId: book.id, bookTitle: book.title, source })
-      }
+      onClick={() => {
+        enterReadingFullscreen();
+        beginReaderTrace({ bookId: book.id, bookTitle: book.title, source });
+      }}
       onFocusCapture={() => {
         preloadReader();
         onPrefetch(book);

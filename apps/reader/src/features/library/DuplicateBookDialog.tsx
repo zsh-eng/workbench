@@ -12,6 +12,7 @@ import type { Book } from "@/lib/db";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 interface DuplicateBookDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function DuplicateBookDialog({
 
   const handleOpenBook = () => {
     onOpenChange(false);
+    enterReadingFullscreen();
     beginReaderTrace({
       bookId: existingBook.id,
       bookTitle: existingBook.title,

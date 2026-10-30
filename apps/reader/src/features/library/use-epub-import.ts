@@ -37,6 +37,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 /** Every import says how it went in this one toast, changed in place. */
 const IMPORT_TOAST = "book-import";
@@ -312,6 +313,7 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
           key: sheetKey,
           arrivalKey: sheetKey,
           onOpenBook: (bookId: string, title: string) => {
+            enterReadingFullscreen();
             beginReaderTrace({
               bookId,
               bookTitle: title,

@@ -45,7 +45,7 @@ export function installPlatform({
   return "other";
 }
 
-function isIos({ userAgent, maxTouchPoints }: BrowserTraits): boolean {
+export function isIos({ userAgent, maxTouchPoints }: BrowserTraits): boolean {
   if (/iPhone|iPod|iPad/.test(userAgent)) return true;
   // iPadOS asks for desktop sites and says Macintosh; only touch tells.
   return /Macintosh/.test(userAgent) && maxTouchPoints > 1;

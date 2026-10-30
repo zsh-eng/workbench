@@ -25,6 +25,8 @@ import { ReaderChromeAccessory } from "./ReaderChromeAccessory";
 import { NotesCapsule } from "./NotesIsland";
 import { usePaginatedReaderLayout } from "./hooks/use-paginated-reader-layout";
 import { PagesRow } from "./PagesRow";
+import { FullscreenRow } from "./FullscreenRow";
+import { leaveReadingFullscreen } from "./reading-fullscreen";
 import { usePagesPreference } from "./pages-preference";
 import { useReaderAnnotations } from "./hooks/use-reader-annotations";
 import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
@@ -88,6 +90,16 @@ export function Reader() {
   const closeNotes = useCallback(
     () => handleNotesActive(false),
     [handleNotesActive],
+  );
+
+  // Full screen lasts while a book is open (reading-fullscreen.ts). Strict
+  // Mode remounts the Reader in place, so leave it only off a book's route.
+  useEffect(
+    () => () => {
+      if (!window.location.pathname.startsWith("/reader/"))
+        leaveReadingFullscreen();
+    },
+    [],
   );
 
   const { state: chromeState, actions: chromeActions } =
@@ -321,9 +333,11 @@ export function Reader() {
           ref={handleStageSlotRef}
           data-reader-stage-slot="measurement"
           aria-hidden="true"
-          className="invisible absolute inset-x-0"
+          className="invisible absolute"
           style={{
             top: "env(safe-area-inset-top)",
+            left: "env(safe-area-inset-left)",
+            right: "env(safe-area-inset-right)",
             bottom: "max(env(safe-area-inset-bottom), 0.625rem)",
           }}
         />
@@ -504,9 +518,12 @@ export function Reader() {
                 }}
                 ref={handleStageSlotRef}
                 data-reader-stage-slot="content"
-                className="absolute inset-x-0 z-10"
+                className="absolute z-10"
                 style={{
+                  // Full screen can put a camera cutout at any edge.
                   top: "env(safe-area-inset-top)",
+                  left: "env(safe-area-inset-left)",
+                  right: "env(safe-area-inset-right)",
                   bottom: "max(env(safe-area-inset-bottom), 0.625rem)",
                   // Both drag axes belong to the Reader; preserve native pinch zoom.
                   // Scroll mode gives the vertical axis back to the browser.
@@ -964,6 +981,7 @@ export function Reader() {
                             />
                             {scrollMode.preferredMode === "pages" &&
                               !isMobile && <PagesRow twoPages={twoPages} />}
+                            <FullscreenRow />
                             {debugEnabled && <PaperRow />}
                             {debugEnabled && <TablesRow />}
                           </>

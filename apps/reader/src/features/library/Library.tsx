@@ -81,6 +81,7 @@ import {
   useOnDeviceFilter,
 } from "@/features/background-activity/LibraryActivity";
 import { useRestoreUnfinished } from "@/features/background-activity/LibraryRestoreIsland";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 // A new filter shows its books at once: the old list goes without a fade, so
 // the switch does not wait for it.
@@ -334,6 +335,7 @@ export function Library() {
   const first = reading[0] ?? shown[0];
   const openFirstMatch = () => {
     if (!terms || !first) return;
+    enterReadingFullscreen();
     beginReaderTrace({
       bookId: first.id,
       bookTitle: first.title,

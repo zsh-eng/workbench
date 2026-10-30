@@ -34,6 +34,7 @@ import { Check, ChevronRight, Copy, SlidersHorizontal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 /**
  * Highlights: everything you kept, in the Library's frame and type. Notes and
@@ -354,6 +355,7 @@ export function Highlights() {
   });
 
   const open = (entry: Entry) => {
+    enterReadingFullscreen();
     beginReaderTrace({
       bookId: entry.book.id,
       bookTitle: entry.book.title,
@@ -365,6 +367,7 @@ export function Highlights() {
     );
   };
   const openBook = (book: Book) => {
+    enterReadingFullscreen();
     beginReaderTrace({
       bookId: book.id,
       bookTitle: book.title,

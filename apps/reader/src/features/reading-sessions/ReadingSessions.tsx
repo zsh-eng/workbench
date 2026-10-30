@@ -30,6 +30,7 @@ import {
   type ReadingSessionScale,
 } from "./session-ranges";
 import { useSessionsSource } from "./sample-sessions";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 /**
  * The Sessions page, in the Library's frame and type: the period as text,
@@ -168,6 +169,7 @@ export function ReadingSessions() {
   );
   const maxBookMs = overview.bookSummaries[0]?.activeMs ?? 0;
   const openBook = (book: Book) => {
+    enterReadingFullscreen();
     beginReaderTrace({
       bookId: book.id,
       bookTitle: book.title,
