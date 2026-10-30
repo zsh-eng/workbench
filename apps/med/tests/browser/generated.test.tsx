@@ -214,8 +214,9 @@ async function mountReview(options: { without?: string[] } = {}) {
       lookups.push(packages.map(({ name, version }) => `${name}@${version}`).sort());
       const answers: Record<string, object> = {
         "pg@8.13.0": { licence: "ISC", publishedAt: Date.now() - 400 * DAY },
-        "pg@8.16.3": { licence: "MIT", publishedAt: Date.now() - 2 * DAY },
-        "react@19.0.0": { licence: "MIT", publishedAt: Date.now() - 300 * DAY },
+        // Ages off a unit's edge: the card read its clock a moment before.
+        "pg@8.16.3": { licence: "MIT", publishedAt: Date.now() - 2.5 * DAY },
+        "react@19.0.0": { licence: "MIT", publishedAt: Date.now() - 305 * DAY },
       };
       return Response.json({
         packages: packages.map((entry) => ({
