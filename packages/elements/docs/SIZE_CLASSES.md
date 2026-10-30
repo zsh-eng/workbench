@@ -41,7 +41,7 @@ sheets. UIKit shows a form sheet full screen in a compact height.
 | `useCompactHeight()`, `isCompactHeight()`                 | keep a second pane off a short window             |
 | `useTabletSheets()`, `tabletSheets()`                     | the sheets' layout (`useSheetForm` in sheet-body) |
 | `isTabletScreen()`                                        | a default for a tablet (Arctic's Magazine)        |
-| `deviceClass()`                                           | phone, tablet or desktop (Reader's reading time)  |
+| `useDeviceClass()`, `deviceClass()`                       | phone, tablet or desktop (Reader's reading time, its book layout) |
 | `COMPACT_QUERY`, `EXPANDED_QUERY`, `COMPACT_HEIGHT_QUERY` | `matchMedia`, tests                               |
 | `MEDIUM_WIDTH`, `EXPANDED_WIDTH`, `MEDIUM_HEIGHT`         | the numbers                                       |
 

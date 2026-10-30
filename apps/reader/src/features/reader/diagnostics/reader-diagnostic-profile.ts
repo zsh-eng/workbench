@@ -53,5 +53,7 @@ export function resolveReaderDiagnosticLayout(
     stageWidth: profile.container.width,
     stageHeight: profile.container.height,
     isMobile: profile.isMobile,
+    isTablet: false,
+    pages: "auto",
   });
 }

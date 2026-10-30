@@ -123,6 +123,11 @@ export function useCompactHeight(): boolean {
   return useSyncExternalStore(subscribe, isCompactHeight, () => false);
 }
 
+/** Phone, tablet or desktop; see `deviceClass`. */
+export function useDeviceClass(): DeviceClass {
+  return useSyncExternalStore(subscribeScreen, deviceClass, () => "desktop");
+}
+
 /** Whether sheets take a tablet's form layout; see `tabletSheets`. */
 export function useTabletSheets(): boolean {
   return useSyncExternalStore(subscribeScreen, tabletSheets, () => false);

@@ -2,6 +2,7 @@ import { useDebugEnabled } from "@/lib/debug-preference";
 import { HighlightToolbarContainer } from "@/features/reader/shared/HighlightToolbarContainer";
 import { useInputBehavior } from "@/features/reader/hooks/use-input-behavior";
 import { useCompactWindow } from "@/hooks/use-compact-window";
+import { useDeviceClass } from "@workbench/elements/size-class";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -23,6 +24,8 @@ import { ReaderHistoryPageIndicator } from "./footer/ReaderHistoryPageIndicator"
 import { ReaderChromeAccessory } from "./ReaderChromeAccessory";
 import { NotesCapsule } from "./NotesIsland";
 import { usePaginatedReaderLayout } from "./hooks/use-paginated-reader-layout";
+import { PagesRow } from "./PagesRow";
+import { usePagesPreference } from "./pages-preference";
 import { useReaderAnnotations } from "./hooks/use-reader-annotations";
 import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
 import { useReaderDisplayReadiness } from "./hooks/use-reader-display-readiness";
@@ -68,6 +71,8 @@ export function Reader() {
   // Set while the curl turns pages, so a tap turns the page the same way.
   const pageTurnerRef = useRef<PageTurner | null>(null);
   const isMobile = useCompactWindow();
+  const isTablet = useDeviceClass() === "tablet";
+  const pagesPreference = usePagesPreference();
   const { toast } = useToast();
   const [noteComposerPresent, setNoteComposerPresent] = useState(false);
   const [noteDraftPresent, setNoteDraftPresent] = useState(false);
@@ -108,10 +113,13 @@ export function Reader() {
     topRailHeight,
     bottomRailHeight,
     columnGapPx,
+    twoPages,
     isMeasured: isStageMeasured,
   } = usePaginatedReaderLayout({
     stageSlotElement,
     isMobile,
+    isTablet,
+    pages: pagesPreference,
   });
   const isReaderStageMeasured =
     isStageMeasured && stageSlotElement?.dataset.readerStageSlot === "content";
@@ -954,6 +962,8 @@ export function Reader() {
                                 scrollMode.setMode(next);
                               }}
                             />
+                            {scrollMode.preferredMode === "pages" &&
+                              !isMobile && <PagesRow twoPages={twoPages} />}
                             {debugEnabled && <PaperRow />}
                             {debugEnabled && <TablesRow />}
                           </>
