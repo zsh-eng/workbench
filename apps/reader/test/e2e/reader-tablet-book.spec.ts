@@ -85,6 +85,35 @@ test("A landscape tablet reads two pages and keeps its place through Pages and a
     .evaluate((element) => Math.round(element.getBoundingClientRect().width));
   expect(pageWidth).toBeGreaterThanOrEqual(400);
 
+  // Each page's first line starts below the header while it shows.
+  const header = page.locator('[data-reader-header="desktop"]');
+  await expect
+    .poll(async () => {
+      if ((await header.getAttribute("aria-hidden")) === "false") return true;
+      // The middle of the spread; its sides turn pages.
+      await page.touchscreen.tap(504, 320);
+      return false;
+    })
+    .toBe(true);
+  await expect(header).toHaveCSS("opacity", "1");
+  const headerBox = (await header.boundingBox())!;
+  const headerBottom = headerBox.y + headerBox.height;
+  const firstLineTops = await page
+    .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
+    .evaluateAll((pages) =>
+      pages.map((content) => {
+        const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+        let text = walker.nextNode();
+        while (text && !text.textContent?.trim()) text = walker.nextNode();
+        const range = document.createRange();
+        range.selectNodeContents(text!);
+        return range.getClientRects()[0].top;
+      }),
+    );
+  expect(firstLineTops).toHaveLength(2);
+  for (const top of firstLineTops)
+    expect(top).toBeGreaterThanOrEqual(headerBottom);
+
   let before = await spreadText(page);
   // A browser tab cannot hide the system bars: no Full screen switch.
   await expect(
