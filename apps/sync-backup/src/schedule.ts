@@ -56,7 +56,7 @@ export function schedule(action: string, origin: string, directory: string) {
   const args = [
     process.execPath,
     cli,
-    "sync",
+    "hourly",
     "--origin",
     origin,
     "--data-dir",

@@ -62,6 +62,8 @@ pbpaste | bun run wb arctic save            # links on stdin, any whitespace
 bun run wb arctic save --no-text <url>      # save only
 bun run wb arctic save --unwall <url>       # paywalled sites through Unwall
 bun run wb arctic text <url>                # text for a link already saved
+bun run wb arctic text --missing --dry-run  # saved links with no text
+bun run wb arctic text --missing --unwall   # fetch them
 ```
 
 `arctic save` reads the account's `arctic` and `arctic-content` records, then
@@ -97,6 +99,13 @@ on the phone's Unwall list, or a page that marks itself not free
 `--unwall` reads such sites through unwall.app, as the phone opens them.
 Reading a page that needs a browser uses Playwright's Chromium:
 `bun run --cwd apps/arctic/Browser browser:install`.
+
+`arctic text --missing` finds saved links with no text itself: newest first, a
+second apart, 25 a run unless `--limit` says otherwise. A link that gives no
+text waits a day, then 2, 4… up to 30 days (`arctic-text.json` in the data
+folder), so a paywall or a PDF isn't read every hour. `wb schedule install`'s
+hourly job runs `wb hourly`: `sync`, then this with `--unwall`. To move an
+existing schedule to it, run `wb schedule uninstall`, then `wb schedule install`.
 
 Each link prints one line as it finishes; `--json` prints an array of results
 (`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`,

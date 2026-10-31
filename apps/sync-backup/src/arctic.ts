@@ -10,7 +10,8 @@
  * `subtitle` from its page (`withPreview`), as Arctic on iPhone fills them.
  * The text and the preview come from Arctic's own extractor
  * (apps/arctic/Browser/scripts/text.ts), which loads only when a command
- * reads a page.
+ * reads a page. `wb arctic text --missing` finds the saved links that have
+ * no text itself (`fetchMissingText`); the hourly job runs it.
  */
 import {
   articleId,
@@ -98,6 +99,8 @@ export function arcticFetch(origin: string, token: string): typeof fetch {
     }
   }) as typeof fetch;
 }
+
+type Namespace = Awaited<ReturnType<typeof openNamespace>>;
 
 /** One namespace's latest records, and pushes that keep them current. */
 async function openNamespace(
@@ -295,9 +298,12 @@ export async function arctic(options: {
   command: "save" | "text";
   origin: string;
   token: string;
-  inputs: string[];
+  /** The links, or a choice of them from the library and its text. */
+  inputs: string[] | ((library: Namespace, content: Namespace) => string[]);
   text: boolean;
   unwall?: boolean;
+  /** The pause between two links. */
+  gapMs?: number;
   read?: Reader;
   onResult?: (result: LinkResult) => void;
 }) {
@@ -310,8 +316,16 @@ export async function arctic(options: {
   });
   let reader = options.read;
   const results: LinkResult[] = [];
+  const inputs =
+    typeof options.inputs === "function"
+      ? options.inputs(library, content)
+      : options.inputs;
+  // Bun can exit, silently and with code 0, while Playwright's browser starts:
+  // its pipes don't count as work. This timer does.
+  const awake = setInterval(() => {}, 1000);
   try {
-    for (const input of options.inputs) {
+    for (const [index, input] of inputs.entries()) {
+      if (index > 0 && options.gapMs) await Bun.sleep(options.gapMs);
       const result: LinkResult = { input, status: "invalid", text: "skipped" };
       try {
         const url = canonicalURL(input);
@@ -438,8 +452,94 @@ export async function arctic(options: {
     }
   } finally {
     await reader?.close();
+    clearInterval(awake);
   }
   return results;
+}
+
+/** Links that `--missing` got no text for, and when to read them again. */
+const TEXT_STATE_FILE = "arctic-text.json";
+/** A link at most this many a run, so the hourly job stays short. */
+export const MISSING_TEXT_LIMIT = 25;
+/** A page without text waits a day, then 2, 4… and at most 30 days. */
+const retryAfterMs = (tries: number) =>
+  Math.min(2 ** (tries - 1), 30) * 24 * 60 * 60 * 1000;
+
+/**
+ * Fetches the text of saved links that have none: newest first, a second
+ * apart, at most `limit` a run. A link that gives no text (a paywall, a PDF,
+ * a dead page) waits in `<directory>/arctic-text.json` before the next try,
+ * so the hourly job doesn't read it every hour. With `dryRun` it reads no
+ * page and lists what it would fetch.
+ */
+export async function fetchMissingText(options: {
+  origin: string;
+  token: string;
+  directory: string;
+  unwall?: boolean;
+  dryRun?: boolean;
+  limit?: number;
+  gapMs?: number;
+  read?: Reader;
+  onResult?: (result: LinkResult) => void;
+}) {
+  const stateFile = join(options.directory, TEXT_STATE_FILE);
+  // One account's links per API origin.
+  const state = (
+    existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, "utf8")) : {}
+  ) as Record<string, Record<string, { tries: number; retryAt: number }>>;
+  const waiting = (state[options.origin] ??= {});
+  const ids = new Map<string, string>();
+  let missing = 0;
+  let links: string[] = [];
+  const results = await arctic({
+    command: "text",
+    origin: options.origin,
+    token: options.token,
+    text: true,
+    unwall: options.unwall,
+    read: options.read,
+    gapMs: options.gapMs ?? PREVIEW_GAP_MS,
+    inputs(library, content) {
+      const found: { id: string; url: string; savedAt: number }[] = [];
+      for (const key of library.keys()) {
+        if (!key.startsWith("article/")) continue;
+        const id = key.slice("article/".length);
+        const article = library.live(key);
+        const saved = library.live(`library/${id}`);
+        if (!article || !saved || content.live(`content/${id}`)) continue;
+        const membership = JSON.parse(saved) as Record<string, unknown>;
+        if (membership.saved !== true) continue;
+        if ((waiting[id]?.retryAt ?? 0) > Date.now()) continue;
+        found.push({
+          id,
+          url: String((JSON.parse(article) as { url?: unknown }).url),
+          savedAt: Number(membership.savedAt) || 0,
+        });
+      }
+      found.sort((a, b) => b.savedAt - a.savedAt);
+      missing = found.length;
+      const chosen = found.slice(0, options.limit ?? MISSING_TEXT_LIMIT);
+      for (const { id, url } of chosen) ids.set(url, id);
+      links = chosen.map(({ url }) => url);
+      return options.dryRun ? [] : links;
+    },
+    onResult(result) {
+      const id = ids.get(result.input)!;
+      if (result.text === "uploaded" || result.text === "kept")
+        delete waiting[id];
+      else {
+        const tries = (waiting[id]?.tries ?? 0) + 1;
+        waiting[id] = { tries, retryAt: Date.now() + retryAfterMs(tries) };
+      }
+      writeFileSync(`${stateFile}.tmp`, JSON.stringify(state, null, 2), {
+        mode: 0o600,
+      });
+      renameSync(`${stateFile}.tmp`, stateFile);
+      options.onResult?.(result);
+    },
+  });
+  return { missing, waiting: Object.keys(waiting).length, links, results };
 }
 
 async function extractor(unwall = false) {

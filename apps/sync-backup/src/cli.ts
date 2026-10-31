@@ -25,6 +25,7 @@ import {
   backfillPreviews,
   describe,
   describePreview,
+  fetchMissingText,
 } from "./arctic";
 const help = `Workbench Backup — sync, local SQLite inspection and Arctic links
 
@@ -39,7 +40,8 @@ Usage: wb <command> [options]
   sync                          Pull all namespaces and all catalogued files
                                 (Arctic has records only)
   status                        Show cursors, coverage, last success and files
-  schedule install              Install hourly macOS sync (also runs at login)
+  schedule install              Install the hourly macOS job (also runs at login):
+                                sync, then the text of new Arctic links
   schedule status               Show the launchd job and log paths
   schedule uninstall            Remove the schedule; retain local data
   db path                       Print the SQLite path
@@ -51,6 +53,8 @@ Usage: wb <command> [options]
   arctic save [URL...]          Save links to Arctic, then fetch their text
                                 (URLs from stdin when none are given)
   arctic text [URL...]          Fetch the text of links already in Arctic
+  arctic text --missing         Find saved links with no text and fetch them,
+                                newest first; a page that gives none waits
   arctic backfill-previews      Fill the image, description and icon of saved
                                 links that have no preview; a dry run unless
                                 --apply (one page a second, resumable)
@@ -65,9 +69,12 @@ Options:
   --no-browser      Print login URL without opening it
   --no-text         arctic save: save the links without fetching text
   --unwall          arctic: read the phone's paywalled sites through Unwall
-  --dry-run         backfill-previews: report what it would fill (default)
+  --missing         arctic text: every saved link that has no text
+  --dry-run         backfill-previews: report what it would fill (default);
+                    arctic text --missing: list what it would fetch
   --apply           backfill-previews: fill them
-  --limit N         backfill-previews: at most N links this run
+  --limit N         backfill-previews, arctic text --missing: at most N links
+                    this run (--missing: 25 when not given)
   -h, --help        Show help
   --version         Print version
 
@@ -87,6 +94,7 @@ const options = {
   "no-browser": { type: "boolean" },
   "no-text": { type: "boolean" },
   unwall: { type: "boolean" },
+  missing: { type: "boolean" },
   "dry-run": { type: "boolean" },
   apply: { type: "boolean" },
   limit: { type: "string" },
@@ -154,7 +162,7 @@ async function main() {
               ? ["create", "list", "verify"].includes(sub)
               : command === "arctic"
                 ? ["save", "text", "backfill-previews"].includes(sub)
-                : ["sync", "status", "tree", "export"].includes(command) &&
+                : ["sync", "status", "tree", "export", "hourly"].includes(command) &&
                   !sub;
   if (!known) throw Error("Unknown command. Run wb --help.");
   if (v.namespace && !["sync", "table", "tree"].includes(command))
@@ -175,9 +183,16 @@ async function main() {
   const backfill = command === "arctic" && sub === "backfill-previews";
   if (v.unwall && (command !== "arctic" || backfill || v["no-text"]))
     throw Error("--unwall is only valid for arctic save and arctic text");
-  if ((v.apply || v["dry-run"] || v.limit !== undefined) && !backfill)
+  const missing = command === "arctic" && sub === "text" && !!v.missing;
+  if (v.missing && !missing)
+    throw Error("--missing is only valid for arctic text");
+  if (missing && p.length > 2)
+    throw Error("--missing takes no links: it finds them");
+  if (v.apply && !backfill)
+    throw Error("--apply is only valid for arctic backfill-previews");
+  if ((v["dry-run"] || v.limit !== undefined) && !backfill && !missing)
     throw Error(
-      "--apply, --dry-run and --limit are only valid for arctic backfill-previews",
+      "--dry-run and --limit are only valid for arctic backfill-previews and arctic text --missing",
     );
   if (v.apply && v["dry-run"])
     throw Error("Choose --apply or --dry-run, not both");
@@ -195,6 +210,31 @@ async function main() {
     throw Error(`Supported namespaces: ${NAMESPACES.join(", ")}`);
   if (command === "schedule") {
     print(schedule(sub, origin, directory), json);
+    return;
+  }
+  // What the scheduled job runs. Each step reports on its own, and a failed
+  // backup doesn't stop the text.
+  if (command === "hourly") {
+    const step = (...args: string[]) =>
+      Bun.spawnSync(
+        [
+          process.execPath,
+          import.meta.path,
+          ...args,
+          "--origin",
+          origin,
+          "--data-dir",
+          directory,
+          "--json",
+        ],
+        // A step that hangs must not hold the job: launchd starts no other.
+        { stdout: "inherit", stderr: "inherit", timeout: 20 * 60 * 1000 },
+      ).exitCode;
+    const codes = [
+      step("sync"),
+      step("arctic", "text", "--missing", "--unwall"),
+    ];
+    process.exitCode = codes.find(Boolean) ?? 0;
     return;
   }
   if (command === "auth") {
@@ -248,6 +288,34 @@ async function main() {
     // A page without a preview is not a failure; a refused write is.
     if (run.results.some((result) => result.status === "refused"))
       process.exitCode = 1;
+    return;
+  }
+  if (missing) {
+    const token = getCredential(origin, directory);
+    if (!token) throw Error("Not signed in. Run wb auth login.");
+    console.error(
+      `Reading your Arctic library at ${origin}…${v["dry-run"] ? " (dry run: nothing is read or written)" : ""}`,
+    );
+    const run = await fetchMissingText({
+      origin,
+      token,
+      directory,
+      unwall: !!v.unwall,
+      dryRun: !!v["dry-run"],
+      limit: v.limit === undefined ? undefined : Number(v.limit),
+      onResult: json ? undefined : (result) => console.log(describe(result)),
+    });
+    if (json) print(run, json);
+    else if (v["dry-run"]) for (const link of run.links) console.log(link);
+    const count = (text: string) =>
+      run.results.filter((result) => result.text === text).length;
+    console.error(
+      `${run.missing} saved links without text; ${run.waiting} waiting to try again. ` +
+        (v["dry-run"]
+          ? `Would fetch ${run.links.length}.`
+          : `Read ${run.results.length}: ${count("uploaded")} uploaded, ${run.results.length - count("uploaded")} without text.`),
+    );
+    // A page without text is expected, and waits for its next try.
     return;
   }
   if (command === "arctic") {
