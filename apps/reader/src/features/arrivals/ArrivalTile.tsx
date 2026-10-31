@@ -12,6 +12,7 @@ import {
   type Arrival,
 } from "./arrival-store";
 import { LazyArrivingCover } from "./LazyArrivingCover";
+import { enterReadingFullscreen } from "@/features/reader/reading-fullscreen";
 
 export type ArrivalGridItem = { book: Book } | { arrivalKey: string };
 
@@ -170,6 +171,7 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
       <li className="relative min-w-0" data-arrival-tile={stage}>
         <Link
           to={`/reader/${arrival.existingBookId}`}
+          onClick={enterReadingFullscreen}
           aria-label={`${title} is already in your library. Open it`}
           className="block rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >

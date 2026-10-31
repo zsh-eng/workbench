@@ -9,10 +9,11 @@ import { useSyncExternalStore } from "react";
 export const FULLSCREEN_STORAGE_KEY = "reader-fullscreen-v1";
 
 /**
- * Full screen while reading, for Reader installed on an Android tablet or
- * phone: opening a book hides the system bars with the Fullscreen API, and
- * the Library shows them again. Only an installed app on a touch screen
- * that allows it; a desktop browser and iOS keep their bars.
+ * Full screen while reading, for Reader installed as an app on a touch
+ * screen (an Android tablet or phone; also a touch Windows PWA): opening a
+ * book hides the system bars with the Fullscreen API, and the Library shows
+ * them again. A browser tab, a desktop without touch and iOS keep their
+ * bars.
  */
 export function readingFullscreenSupported(): boolean {
   return (

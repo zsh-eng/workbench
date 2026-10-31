@@ -260,7 +260,10 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
                   duration: 10000,
                   action: {
                     label: "Open book",
-                    onClick: () => navigate(`/reader/${bookToOpen.id}`),
+                    onClick: () => {
+                      enterReadingFullscreen();
+                      navigate(`/reader/${bookToOpen.id}`);
+                    },
                   },
                 }
               : {}),

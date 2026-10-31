@@ -163,7 +163,8 @@ test.describe("Full screen while reading, installed on Android", () => {
     await expect
       .poll(async () => {
         if (await library.isVisible()) return true;
-        await page.touchscreen.tap(300, 320);
+        // The middle of the spread; its sides turn pages.
+        await page.touchscreen.tap(504, 320);
         return false;
       })
       .toBe(true);
