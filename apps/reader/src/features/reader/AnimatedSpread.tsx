@@ -1,4 +1,5 @@
 import type { PaginationConfig } from "@/lib/pagination-v2";
+import { getBodyLineHeight } from "@/lib/pagination-v2/shared/spacing";
 import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { lazy, Suspense, useState } from "react";
@@ -23,6 +24,13 @@ const PaperInk = lazy(() =>
 );
 
 export type NavDirection = "forward" | "backward" | "instant";
+
+/** The height a page's text fills: whole lines, where text keeps a grid. */
+function getPageTextHeight({ layoutTheme, viewport }: PaginationConfig) {
+  if (!layoutTheme.bookRhythm) return viewport.height;
+  const lineHeight = getBodyLineHeight(layoutTheme);
+  return Math.floor(viewport.height / lineHeight) * lineHeight;
+}
 
 export interface SpreadViewProps {
   spread: ResolvedSpread;
@@ -100,9 +108,9 @@ export function SpreadView({
         columns={spreadConfig.columns}
         columnGapPx={columnSpacingPx}
         paddingTopPx={paddingTopPx}
-        paddingBottomPx={paddingBottomPx}
         paddingLeftPx={paddingLeftPx}
         paddingRightPx={paddingRightPx}
+        textHeightPx={getPageTextHeight(paginationConfig)}
         fontFamily={paginationConfig.fontConfig.bodyFamily}
       />
       {/* Pages clip only vertically. Glyph ink can extend past the text

@@ -297,6 +297,12 @@ export interface LayoutTheme {
   baseFontSizePx: number;
   /** The book's language tag, which chooses justified text's hyphenation. */
   language?: string;
+  /**
+   * Sets text as an open book does, for two pages: paragraphs solid with a
+   * first-line indent, body lines on one grid so baselines match across the
+   * pages, and no widows or orphans.
+   */
+  bookRhythm?: boolean;
 }
 
 export interface PaginationConfig {

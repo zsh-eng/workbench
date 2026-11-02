@@ -80,6 +80,12 @@ interface UseReaderCoreResult {
   resumeBackgroundLoad: () => void;
 }
 
+/**
+ * Two pages make a shorter line than one, which needs less leading. This
+ * scales the reader's Line height rather than replacing it.
+ */
+const BOOK_LEADING_SCALE = 0.95;
+
 export function buildPaginationConfig(
   settings: Pick<
     ReaderSettings,
@@ -92,8 +98,10 @@ export function buildPaginationConfig(
   paragraphSpacingFactor: number,
   viewport: { width: number; height: number },
   language?: string,
+  spreadColumns: 1 | 2 | 3 = 1,
 ): PaginationConfig {
   const readingFont = getReadingFont(settings.fontFamily).stack;
+  const bookRhythm = spreadColumns === 2;
   return {
     fontConfig: {
       bodyFamily: readingFont,
@@ -103,10 +111,13 @@ export function buildPaginationConfig(
     },
     layoutTheme: {
       baseFontSizePx: settings.fontSize,
-      lineHeightFactor: settings.lineHeight,
+      lineHeightFactor: bookRhythm
+        ? settings.lineHeight * BOOK_LEADING_SCALE
+        : settings.lineHeight,
       paragraphSpacingFactor,
       textAlign: settings.textAlign,
       ...(language ? { language } : {}),
+      ...(bookRhythm ? { bookRhythm } : {}),
     },
     publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
     viewport,
@@ -174,6 +185,7 @@ export function useReaderCore(
         paragraphSpacingFactor,
         viewport,
         language,
+        spreadColumns,
       ),
     [
       fontFamily,
@@ -184,6 +196,7 @@ export function useReaderCore(
       paragraphSpacingFactor,
       viewport,
       language,
+      spreadColumns,
     ],
   );
 

@@ -15,6 +15,7 @@ import {
 import {
   getBlockInsetLeft,
   getBlockSpacing,
+  getBodyLineHeight,
   getCollapsedBlockGap,
   getLineHeight,
 } from "./spacing";
@@ -40,6 +41,9 @@ const JUSTIFY_DISABLED_TAGS = new Set([
   "h6",
   "pre",
 ]);
+
+/** A book's paragraph indent, which replaces the gap between paragraphs. */
+const BOOK_PARAGRAPH_INDENT_EM = 1.2;
 
 interface TextLayoutPlan {
   lines: PageLine[];
@@ -233,16 +237,24 @@ function createTextLayoutPlan(
   textBlock: PreparedTextBlock,
   theme: LayoutTheme,
   safeWidth: number,
+  followsParagraph: boolean,
 ): TextLayoutPlan {
   const spacing = getResolvedBlockSpacing(textBlock, theme, safeWidth);
   const insets = getResolvedTextInsets(textBlock, theme, safeWidth);
   const textLayoutWidth = Math.max(1, safeWidth - insets.left - insets.right);
+  const bookIndentPx =
+    theme.bookRhythm &&
+    followsParagraph &&
+    textBlock.tag === "p" &&
+    !textBlock.publisherStyle
+      ? BOOK_PARAGRAPH_INDENT_EM * theme.baseFontSizePx
+      : 0;
   const firstLineIndentPx =
     getPublisherLengthPx(
       textBlock.publisherStyle?.textIndent,
       theme,
       textLayoutWidth,
-    ) ?? 0;
+    ) ?? bookIndentPx;
   const textAlign = resolveTextAlignForBlock(
     theme.textAlign,
     textBlock.tag,
@@ -284,7 +296,12 @@ function getFollowingMinimumHeight(
   if (hasHardPageBreakBefore(nextBlock)) return null;
 
   if (nextBlock.type === "text") {
-    const nextPlan = createTextLayoutPlan(nextBlock, theme, safeWidth);
+    const nextPlan = createTextLayoutPlan(
+      nextBlock,
+      theme,
+      safeWidth,
+      currentBlock.tag === "p",
+    );
     if (nextPlan.lines.length === 0) return 0;
     return (
       getResolvedCollapsedBlockGap(
@@ -332,6 +349,23 @@ function getFollowingMinimumHeight(
   }
 
   return theme.baseFontSizePx * 0.9;
+}
+
+/**
+ * How many of a block's lines to place on a page with room for `fit`, so that
+ * its first line does not end a page alone and its last does not start one.
+ * Zero moves the block to the next page.
+ */
+function getLinesWithoutWidowOrOrphan(
+  fit: number,
+  lineIndex: number,
+  lineCount: number,
+): number {
+  const remaining = lineCount - lineIndex;
+  let count = Math.min(fit, remaining);
+  if (remaining - count === 1) count -= 1;
+  if (lineIndex === 0 && count === 1 && lineCount > 1) count = 0;
+  return Math.max(0, count);
 }
 
 /**
@@ -561,7 +595,13 @@ export function layoutPages(
 
     // Text block
     const textBlock = block as PreparedTextBlock;
-    const textPlan = createTextLayoutPlan(textBlock, theme, safeWidth);
+    const previousBlock = preparedBlocks[blockIndex - 1];
+    const textPlan = createTextLayoutPlan(
+      textBlock,
+      theme,
+      safeWidth,
+      previousBlock?.type === "text" && previousBlock.tag === "p",
+    );
     const { lines, renderMode, lineHeight, spacing, insets, textAlign } =
       textPlan;
     totalLineCount += lines.length;
@@ -581,6 +621,17 @@ export function layoutPages(
             prevMarginBelow,
             safeWidth,
           );
+    // Body text starts on the line grid, whatever came before it, so
+    // baselines match across two pages.
+    if (
+      theme.bookRhythm &&
+      current.slices.length > 0 &&
+      lineHeight === getBodyLineHeight(theme)
+    ) {
+      const top = current.usedHeight + effectiveGap;
+      effectiveGap =
+        Math.ceil(top / lineHeight - 0.001) * lineHeight - current.usedHeight;
+    }
 
     const blockHeight = lines.length * lineHeight;
     const availableBeforeBlock = safeHeight - current.usedHeight;
@@ -597,7 +648,16 @@ export function layoutPages(
             availableBeforeBlock - effectiveGap - blockHeight,
           )
         : null;
+    const leavesOrphan =
+      theme.bookRhythm &&
+      current.slices.length > 0 &&
+      getLinesWithoutWidowOrOrphan(
+        Math.floor((availableBeforeBlock - effectiveGap) / lineHeight),
+        0,
+        lines.length,
+      ) === 0;
     if (
+      leavesOrphan ||
       shouldMoveTextBlockForPageBreakHints({
         hints: textBlock.pageBreakHints,
         currentPageHasContent: current.slices.length > 0,
@@ -636,7 +696,16 @@ export function layoutPages(
         maxLines = 1;
       }
 
-      const take = Math.min(maxLines, lines.length - lineIndex);
+      const fit = Math.min(maxLines, lines.length - lineIndex);
+      const kept = theme.bookRhythm
+        ? getLinesWithoutWidowOrOrphan(fit, lineIndex, lines.length)
+        : fit;
+      if (kept === 0 && current.slices.length > 0) {
+        pushPage();
+        continue;
+      }
+      // An empty page too short to obey takes what it can.
+      const take = kept || fit;
       const sliceLines = lines.slice(lineIndex, lineIndex + take);
 
       current.slices.push({

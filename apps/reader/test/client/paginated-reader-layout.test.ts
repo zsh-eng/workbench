@@ -92,10 +92,10 @@ describe("resolvePaginatedReaderLayout", () => {
   // The OPPO Pad Mini as an installed app: its screen less the status bar.
   const tablet = { isMobile: false, isTablet: true, pages: "auto" } as const;
 
-  it("reads a landscape tablet as a book: two pages, narrow margins", () => {
+  it("reads a landscape tablet as a book: two pages, book margins", () => {
     for (const [width, height, pageWidth] of [
-      [1008, 630, 458],
-      [960, 598, 434],
+      [1008, 630, 440],
+      [960, 598, 416],
     ]) {
       const layout = resolvePaginatedReaderLayout({
         stageWidth: width,
@@ -105,8 +105,8 @@ describe("resolvePaginatedReaderLayout", () => {
 
       expect(layout.resolvedSpreadColumns).toBe(2);
       expect(layout.stageViewport.width).toBe(pageWidth);
-      expect(layout.stagePadding.paddingX).toBe(24);
-      expect(layout.columnGapPx).toBe(44);
+      expect(layout.stagePadding.paddingX).toBe(36);
+      expect(layout.columnGapPx).toBe(56);
     }
   });
 

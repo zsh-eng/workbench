@@ -824,6 +824,16 @@ function chooseLineBreaks(
         : getSpaceRatio(naturalWidth, spaceWidth, availableWidth);
       const isBareLine = ratio === Infinity && pass.allowBareLines;
       if (ratio < -1 || (ratio > pass.maxStretchRatio && !isBareLine)) continue;
+      // Short of the last resort, the tail of a broken word never stands
+      // alone as a paragraph's last line.
+      if (
+        isLastLine &&
+        start.showsHyphen &&
+        end.spaces === start.nextSpaces &&
+        !pass.allowBareLines
+      ) {
+        continue;
+      }
 
       const badness = Math.min(BADNESS_LIMIT, 100 * Math.abs(ratio) ** 3);
       let lineDemerits = (LINE_PENALTY + badness) ** 2;

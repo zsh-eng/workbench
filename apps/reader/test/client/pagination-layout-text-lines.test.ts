@@ -494,6 +494,23 @@ describe("justified text", () => {
     );
   });
 
+  it("never leaves a word's tail alone as the last line", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+
+    for (let width = 280; width < 640; width += 8) {
+      const { lines } = justified(items, width, {
+        hyphenPoints: EVERY_THIRD_LETTER,
+      });
+      const last = lines.at(-1)!;
+      const before = lines.at(-2);
+      const isTail =
+        before &&
+        lineText(before).endsWith("-") &&
+        !lineText(last).includes(" ");
+      expect(isTail, `at ${width}px`).toBeFalsy();
+    }
+  });
+
   it("shows a hyphen on the page and nowhere in the text", () => {
     const items = prepareParagraph([{ text: PROSE }]);
 

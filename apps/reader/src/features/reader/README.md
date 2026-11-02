@@ -58,6 +58,10 @@ The worker's widths come from canvas, which can differ from the page by up to ab
 
 They sit in the margins the layout already leaves for the reader's bars, so they take no room from the text, and belong to the spread, so they turn with the page. The bars cover the same margins: a `:has()` rule in `App.css` fades each row while its bar shows, with no render of the spread. Scroll mode has neither.
 
+## Two pages as an open book
+
+With two pages, `layoutTheme.bookRhythm` sets text as a book does. Paragraphs run solid with a first-line indent in place of the gap, so the lines sit on one grid; body text after a heading, quotation or image snaps back to that grid, so baselines match across the gutter. A paragraph leaves no first line alone at a page's foot and no last line alone at a page's head, so a page may end a line or two short. Leading is 95% of the reader's Line height, because two pages make shorter lines, and a folio sits under the page's last possible line. A book's own styles keep their margins and indents, with Book styles on. One page keeps its paragraph gaps.
+
 ## Paper and the page curl (Debug)
 
 With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. Its code loads only once a curl is chosen (`paper/PaperTurn.tsx`, from `SpreadStage`), and the ink and pigment passes only with grain, so the slide's Reader carries none of it. The study behind the leaf is in `docs/page-turn-study/`.

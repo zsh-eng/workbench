@@ -140,6 +140,45 @@ test("A page's running head and folio turn with it and yield to the bars", async
   await expect(heads).toHaveCSS("opacity", "1");
 });
 
+test("A spread's baselines match across its two pages", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  let compared = 0;
+  for (let turn = 0; turn < 20; turn++) {
+    await nextSpread(page);
+    const offsets = await page
+      .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
+      .evaluateAll((pages) =>
+        pages.map((content) => {
+          const top = content.getBoundingClientRect().top;
+          const body = [
+            ...content.querySelectorAll<HTMLElement>(
+              "p[data-reader-page-slice]",
+            ),
+          ].filter(
+            (block) =>
+              getComputedStyle(block).fontSize ===
+              getComputedStyle(content).fontSize,
+          );
+          return body.map((block) => ({
+            top: block.getBoundingClientRect().top - top,
+            line: Number(block.dataset.readerLineHeight),
+          }));
+        }),
+      );
+    for (const blocks of offsets) {
+      for (const { top, line } of blocks) {
+        const offGrid = Math.abs(top - Math.round(top / line) * line);
+        expect(offGrid).toBeLessThan(0.5);
+        compared += 1;
+      }
+    }
+  }
+  expect(compared).toBeGreaterThan(40);
+});
+
 test("A landscape tablet reads two pages and keeps its place through Pages and a turn", async ({
   page,
   localBook,

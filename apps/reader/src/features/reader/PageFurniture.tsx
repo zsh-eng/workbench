@@ -81,9 +81,10 @@ interface PageFurnitureProps {
   columns: number;
   columnGapPx: number;
   paddingTopPx: number;
-  paddingBottomPx: number;
   paddingLeftPx: number;
   paddingRightPx: number;
+  /** Where the page's text ends, below `paddingTopPx`. */
+  textHeightPx: number;
   fontFamily: string;
 }
 
@@ -98,9 +99,9 @@ export function PageFurniture({
   columns,
   columnGapPx,
   paddingTopPx,
-  paddingBottomPx,
   paddingLeftPx,
   paddingRightPx,
+  textHeightPx,
   fontFamily,
 }: PageFurnitureProps) {
   const content = useContext(PageFurnitureContext);
@@ -145,9 +146,7 @@ export function PageFurniture({
         className={cn(RAIL_CLASS, "reader-folios tabular-nums")}
         style={{
           ...rowStyle,
-          bottom: 0,
-          height: `${paddingBottomPx}px`,
-          paddingTop: `${TEXT_DISTANCE_PX}px`,
+          top: `${paddingTopPx + textHeightPx + TEXT_DISTANCE_PX}px`,
           alignItems: "start",
         }}
       >

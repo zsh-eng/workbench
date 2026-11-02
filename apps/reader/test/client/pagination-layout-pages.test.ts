@@ -6,6 +6,7 @@ import {
   type FontConfig,
   type LayoutTheme,
 } from "@/lib/pagination-v2";
+import type { BlockTag, Page } from "@/lib/pagination-v2/shared/types";
 import { describe, expect, it } from "vitest";
 
 const FONT_CONFIG: FontConfig = {
@@ -363,5 +364,142 @@ describe("layoutPages — blockquote parity", () => {
     for (const slice of quoteSlices) {
       expect(slice.tag).toBe("blockquote");
     }
+  });
+});
+
+describe("layoutPages — a book's rhythm", () => {
+  const BOOK_THEME: LayoutTheme = { ...LAYOUT_THEME, bookRhythm: true };
+  const LINE = 24;
+  const WORDS = "the quick brown fox jumps over the lazy dog and runs ";
+
+  function text(id: string, tag: BlockTag, length: number): Block {
+    return {
+      type: "text",
+      id,
+      tag,
+      runs: [
+        {
+          kind: "text",
+          text: WORDS.repeat(Math.ceil(length / WORDS.length))
+            .slice(0, length)
+            .trim(),
+          bold: false,
+          italic: false,
+          isCode: false,
+        },
+      ],
+    };
+  }
+
+  const prepare = (blocks: Block[]) => prepareBlocks(blocks, FONT_CONFIG);
+
+  /** Each text slice's top on its page, with its height. */
+  function textTops(page: Page) {
+    let top = 0;
+    const tops: { blockId: string; top: number; lines: number }[] = [];
+    for (const slice of page.slices) {
+      if (slice.type === "spacer") top += slice.height;
+      if (slice.type !== "text") continue;
+      tops.push({ blockId: slice.blockId, top, lines: slice.lines.length });
+      top += slice.lines.length * slice.lineHeight;
+    }
+    return tops;
+  }
+
+  it("sets paragraphs solid, and indents all but the first", () => {
+    const { pages } = layoutPages(
+      prepare([
+        text("heading", "h2", 20),
+        text("first", "p", 200),
+        text("second", "p", 200),
+      ]),
+      320,
+      2000,
+      BOOK_THEME,
+    );
+
+    const slices = pages[0]!.slices.filter((slice) => slice.type === "text");
+    expect(slices.map((slice) => slice.blockId)).toEqual([
+      "heading",
+      "first",
+      "second",
+    ]);
+    expect(pages[0]!.slices.filter((s) => s.type === "spacer")).toHaveLength(1);
+    expect(slices[1]!.lines[0]!.indentPx).toBeUndefined();
+    expect(slices[2]!.lines[0]!.indentPx).toBeCloseTo(19.2);
+    expect(slices[2]!.lines[1]!.indentPx).toBeUndefined();
+  });
+
+  it("starts body text on the line grid after a heading or a quotation", () => {
+    const { pages } = layoutPages(
+      prepare([
+        text("heading", "h2", 20),
+        text("body", "p", 120),
+        text("quote", "blockquote", 120),
+        text("after", "p", 120),
+        text("heading-2", "h3", 20),
+        text("end", "p", 120),
+      ]),
+      320,
+      2000,
+      BOOK_THEME,
+    );
+
+    const tops = textTops(pages[0]!).filter(
+      ({ blockId }) => !blockId.startsWith("heading"),
+    );
+    expect(tops).toHaveLength(4);
+    for (const { top } of tops) {
+      expect(top % LINE).toBeCloseTo(0);
+    }
+  });
+
+  it("leaves no first line alone at a page's foot", () => {
+    // Room for the first paragraph and one line of the next.
+    const blocks = [
+      text("before", "p", 280),
+      text("next", "p", 280),
+      text("end", "p", 40),
+    ];
+    const prepared = prepare(blocks);
+    const beforeLines = layoutPages(prepared, 320, 2000, BOOK_THEME).pages[0]!
+      .slices[0]!;
+    if (beforeLines.type !== "text") throw new Error("Expected text");
+
+    const height = (beforeLines.lines.length + 1) * LINE;
+    const { pages } = layoutPages(prepared, 320, height, BOOK_THEME);
+
+    expect(textTops(pages[0]!).map(({ blockId }) => blockId)).toEqual([
+      "before",
+    ]);
+    expect(textTops(pages[1]!)[0]).toMatchObject({ blockId: "next", top: 0 });
+  });
+
+  it("leaves no last line alone at a page's head", () => {
+    const paragraph = text("long", "p", 900);
+    const prepared = prepare([paragraph]);
+    const all = layoutPages(prepared, 320, 10_000, BOOK_THEME).pages[0]!
+      .slices[0]!;
+    if (all.type !== "text") throw new Error("Expected text");
+
+    // One line short of the whole paragraph.
+    const height = (all.lines.length - 1) * LINE;
+    const { pages } = layoutPages(prepared, 320, height, BOOK_THEME);
+
+    expect(pages).toHaveLength(2);
+    expect(textTops(pages[0]!)[0]!.lines).toBe(all.lines.length - 2);
+    expect(textTops(pages[1]!)[0]!.lines).toBe(2);
+  });
+
+  it("gives a line's worth of height to a page too short to obey", () => {
+    const prepared = prepare([text("tall", "p", 600)]);
+    const { pages } = layoutPages(prepared, 320, 120, {
+      ...BOOK_THEME,
+      lineHeightFactor: 4.5,
+    });
+
+    expect(pages.length).toBeGreaterThan(1);
+    const shown = pages.flatMap(textTops);
+    expect(shown.every(({ lines }) => lines >= 1)).toBe(true);
   });
 });

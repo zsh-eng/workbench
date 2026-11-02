@@ -62,9 +62,9 @@ function renderFurniture(
     columns: spread.slots.length,
     columnGapPx: 40,
     paddingTopPx: 56,
-    paddingBottomPx: 56,
     paddingLeftPx: 24,
     paddingRightPx: 24,
+    textHeightPx: 500,
     fontFamily: "serif",
   });
   const { container } = render(
