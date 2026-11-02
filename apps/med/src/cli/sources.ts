@@ -5,16 +5,18 @@ import { getStateDirectory } from "../host/runtime/connection";
 import { SourceCatalogue } from "../host/vault/sources";
 import { VaultIndex } from "../host/vault/index";
 
-export const sourcesHelp = `Usage: med-diff sources add <repo|vault> <directory> [--index]
-       med-diff sources list
-       med-diff sources remove <source-id>
-       med-diff vault index <source-id>
-       med-diff vault backlinks <source-id> <vault-relative-path>
-Options: --state-dir <directory> (or MED_STATE_DIR)
-Registration persists locally. --index builds a vault metadata cache without starting a host.
-The vault commands are CLI-only; the browser vault mode is not implemented yet.
-Backlinks reflect the last index run. Run vault index after external edits.
-Removing a registration keeps its rebuildable cache and never deletes source files.`;
+export const sourcesHelp = `Usage: med sources add <repo|vault> <directory> [--index]
+       med sources list
+       med sources remove <source-id>
+       med vault index <source-id>
+       med vault backlinks <source-id> <vault-relative-path>
+Options: --state-dir <path> (or MED_STATE_DIR)
+
+These older commands work without a server, so they work offline. Stop the
+server first; while it runs, use med add, list, remove, and index.
+--index builds the metadata cache of a vault at once.
+Backlinks come from the last index: run vault index after edits that Med did
+not see. Removing a registration keeps its cache and never deletes files.`;
 
 export async function runSourcesCommand(command: string, args: string[], print = console.log) {
   const { values, positionals: parts } = parseArgs({
@@ -91,7 +93,7 @@ export async function runSourcesCommand(command: string, args: string[], print =
           const indexedAt = index.indexedAt();
           if (!indexedAt)
             throw new Error(
-              "Index this vault before querying backlinks: med-diff vault index <source-id>",
+              "Index this vault before you ask for backlinks: med vault index <source-id>",
             );
           const rows = index.backlinks(second!);
           print(

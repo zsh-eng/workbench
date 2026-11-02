@@ -8,9 +8,13 @@ export function runDocsCommand(args: string[], print: (text: string) => void = c
   // agents: the guide for agents, which the skill installs too; reference: the whole contract.
   const topics: Record<string, string> = { vaults, agents, usage, reference };
   if (!args.length || args[0] === "--help") {
-    print(
-      "Usage: med-diff docs <agents|usage|vaults|reference>\nPrint an embedded guide as Markdown. Works offline.\nagents is the guide for agents; reference is the full agent integration reference.",
-    );
+    print(`Usage: med docs <usage|agents|vaults|reference>
+
+Prints a guide of this version of Med as Markdown. It works offline.
+  usage      How to use Med
+  agents     The guide for agents that hand off changes
+  vaults     Vaults: folders of Markdown notes
+  reference  The full reference for agent integration`);
     return;
   }
   if (args.length !== 1 || !Object.hasOwn(topics, args[0]!))

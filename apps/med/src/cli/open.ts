@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { clientPort, readConnection, getStateDirectory } from "../host/runtime/connection";
 import { localReadSchema } from "../shared/local-file";
+import { UsageError } from "./exit-status";
 import { request } from "./review";
 
 export async function runOpenCommand(args: string[]) {
@@ -18,12 +19,15 @@ export async function runOpenCommand(args: string[]) {
     },
   });
   if (values.help) {
-    console.log(
-      "Usage: med-diff open <file> [--line N] [--column N] [--edit] [--port N] [--state-dir PATH]\nPrint a local file link using the running med host.",
-    );
+    console.log(`Usage: med open <file> [--line <n>] [--column <n>] [--edit]
+
+Prints a Markdown link that opens the file in the running Med, at that line
+and column. --edit opens it for editing.
+Options: --port <port> (or MED_PORT), --state-dir <path> (or MED_STATE_DIR)`);
     return;
   }
-  if (positionals.length !== 1) throw new Error("Use med-diff open <file>.");
+  if (positionals.length !== 1)
+    throw new UsageError("Use med open <file>. med open --help tells more.");
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = await clientPort(stateDir, values.port);
   const connection = await readConnection(stateDir, port);

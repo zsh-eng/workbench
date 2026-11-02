@@ -51,15 +51,31 @@ import {
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
 
-export const reviewHelp = `Usage: med-diff review create --title <title> --repo <path> --base <ref> --head <ref>
-       med-diff review create --title <title> --repo <path> --working --paths <path>...
-       med-diff review create --title <title> --repo <path> --working
-       med-diff review create --manifest <json-path>
-       med-diff review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
-       med-diff review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
-       med-diff review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
-       med-diff review wait --key <key>
-       med-diff review repos [--repo <path>] [--json]
+export const reviewHelp = `Usage: med review create --title <title> --repo <path> --base <ref> --head <ref>
+       med review create --title <title> --repo <path> --working [--paths <path>...]
+       med review create --manifest <json-path>
+       med review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
+       med review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
+       med review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
+       med review wait --key <key>
+       med review repos [--repo <path>] [--json]
+
+create hands off a change: a new review, or a new version of the review with
+the same --key. update changes a review. wait prints the user's next message.
+repos lists the repositories that Med knows.
+
+Examples:
+  # The commits of a branch, with a guide from standard input
+  med review create --key feat/retry --title "Retry failed requests" \\
+    --repo . --base main --head feat/retry --guide - < guide.json
+  # Your own uncommitted files in a checkout that others also change
+  med review create --key fix/login --title "Login copy" --repo . \\
+    --working --paths src/login.tsx
+  # After you apply the comments: the same key adds version 2
+  med review create --key feat/retry --repo . --base main --head feat/retry \\
+    --guide guide.json
+  # Claude Code outside Med: wait for the comments, in the background
+  med review wait --key feat/retry
 
 --key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.

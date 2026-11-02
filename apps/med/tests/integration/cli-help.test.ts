@@ -51,6 +51,24 @@ it("prints help with med help, and a command's own help with med help <command>"
   const help = await med("help");
   expect(help.code).toBe(0);
   expect(help.stdout).toBe((await med("--help")).stdout);
+  // The commands by task, in lines that fit a terminal.
+  expect(help.stdout).toMatch(/^Start:\n {2}web {7}Start the server/m);
+  expect(help.stdout).toMatch(/^Hand off work:\n {2}review {4}/m);
+  for (const line of help.stdout.split("\n")) expect(line.length).toBeLessThanOrEqual(80);
+  // Each command it lists has its own help, which names it.
+  const commands = [...help.stdout.matchAll(/^ {2}([a-z]+) {2,}/gm)].map((match) => match[1]!);
+  expect(commands).toEqual(
+    "web add status stop review pr thread open list remove index skills service agents docs".split(
+      " ",
+    ),
+  );
+  for (const command of [...commands, "serve", "sources"]) {
+    const own = await med("help", command);
+    expect(own.code).toBe(0);
+    expect(own.stdout).toMatch(new RegExp(`^Usage: med ${command}\\b`));
+    expect(own.stdout).not.toContain("med-diff");
+  }
+  expect((await med("help", "review")).stdout).toContain("Examples:\n");
   const docs = await med("help", "docs");
   expect(docs).toMatchObject({ code: 0, stdout: (await med("docs", "--help")).stdout });
   expect(await med("help", "revew")).toMatchObject({

@@ -31,7 +31,13 @@ export async function loginService(args: string[]) {
   });
   if (values.help || !positionals.length) {
     console.log(
-      "Usage: med service install|uninstall [--port N] [--state-dir PATH]\n       med service login on|off|status [--port N] [--state-dir PATH]\nOpt in to a per-user macOS login service. Stop a manually started server before install.\nlogin on opens Med at the next login and leaves the running server as it is.",
+      `Usage: med service install|uninstall
+       med service login on|off|status
+Options: --port <port> (or MED_PORT), --state-dir <path> (or MED_STATE_DIR)
+
+install keeps Med's server running with a macOS login service, and uninstall
+removes it. Stop a server that you started yourself before install.
+login on opens Med at the next login and leaves the running server as it is.`,
     );
     return;
   }

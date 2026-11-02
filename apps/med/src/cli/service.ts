@@ -20,24 +20,76 @@ import { ownCommand } from "../host/thread-agents";
 import { HostError } from "../host/runtime/errors";
 import { ServiceManager } from "../host/service/manager";
 import { selfCommand } from "../host/service/self";
+import { UsageError } from "./exit-status";
 import { serviceLabel } from "./login-service";
 
 const exec = promisify(execFile);
 
-export const serviceHelp = `Usage: med web                         Start the background server and open the browser
-       med add <path> [--type repo|vault] [--wait]
-       med list | status | stop
-       med remove <source-id|path|name>
-       med index [source] [--wait]
-       med serve                       Run the server in the foreground
-       med pr checkout <number|url|branch>  Check out a pull request with gh and review it
-       med thread list | open | close | reopen | delete   Manage the tabs and history
-       med thread find [<words>]       List Claude Code and Codex sessions of any age
-       med agents [stop <session>|--all]  List or stop the agents, which outlive the server
-       med thread adopt <session>      Make a session a Med thread
-       med docs [agents|vaults|usage]
-Options: --port <port>, --state-dir <directory>, --no-open
-Existing review, open, and sources commands remain available.`;
+const OPTIONS = "Options: --port <port> (or MED_PORT), --state-dir <path> (or MED_STATE_DIR)";
+
+/** The help of each server command: med <command> --help. */
+export const serviceHelp: Readonly<Record<string, string>> = {
+  web: `Usage: med web [--no-open]
+
+Starts Med's server in the background, if it does not run, and opens Med in
+the browser. The server keeps running when you close the terminal or the
+browser. --no-open opens no browser and prints the address with its sign-in
+token.
+
+Med's own state folder, ~/.local/state/med, uses port 6330. A server of
+another state folder takes a free port and prints it; --port chooses one.
+${OPTIONS}`,
+  add: `Usage: med add <path> [--type repo|vault] [--wait]
+
+Registers a repository or a vault, and starts the server if it does not run.
+A folder with an .obsidian folder is a vault, and any other is a repository;
+--type chooses. Med then watches the folder. --wait waits until the first
+index of a vault is ready.
+${OPTIONS}`,
+  list: `Usage: med list
+
+Prints the registered sources.
+${OPTIONS}`,
+  remove: `Usage: med remove <source-id|path|name>
+
+Stops watching a source and removes its registration. The folder and its
+cache stay.
+${OPTIONS}`,
+  index: `Usage: med index [<source>] [--wait]
+
+Indexes a vault again now; without <source>, every vault. Med watches its
+vaults, so you need this only after changes that it did not see. --wait waits
+until the index is ready.
+${OPTIONS}`,
+  status: `Usage: med status
+
+Prints whether the server runs, and its sources. It also says when the
+installed agent skill is out of date.
+${OPTIONS}`,
+  stop: `Usage: med stop
+
+Stops the server. Registrations, saved reviews, and indexes stay, and the next
+med web watches the same sources. The agents that Med started keep working:
+med agents stop --all stops them.
+${OPTIONS}`,
+  serve: `Usage: med serve
+
+Runs Med's server in the foreground, for a service manager of your own.
+med web starts the same server in the background.
+${OPTIONS}
+
+Older foreground modes open Med without the background server:
+  med [<folder>...]         Review the changes of these repositories
+  med --registered          Review the changes of every registered repository
+  med --patch <file|->      Review a patch; - reads it from standard input
+  med --files <old> <new>   Compare two files
+  med --editor              Browse and edit files, without a repository
+  med --setup-search        Build the pinned Zoekt search tools once (needs Go)
+They take --port, --state-dir, and --no-open. Another state folder than
+~/.local/state/med takes a free port.
+med sources and med vault change registrations without a server:
+med sources --help.`,
+};
 
 async function rpc(connection: RunningConnection, action: string, body: object = {}) {
   const response = await fetch(`${connection.origin}/api/service/${action}`, {
@@ -248,7 +300,7 @@ export async function runServiceCommand(command: string, args: string[]) {
     },
   });
   if (values.help) {
-    console.log(serviceHelp);
+    console.log(serviceHelp[command]);
     return;
   }
   if (
@@ -256,7 +308,7 @@ export async function runServiceCommand(command: string, args: string[]) {
     (["add", "remove"].includes(command) && positionals.length !== 1) ||
     (command === "index" && positionals.length > 1)
   )
-    throw new Error(serviceHelp);
+    throw new UsageError(serviceHelp[command]!);
   if (values.type && !["repo", "vault"].includes(values.type))
     throw new Error("Use --type repo or --type vault.");
   // status and stop only read; the others start the server when it is down.

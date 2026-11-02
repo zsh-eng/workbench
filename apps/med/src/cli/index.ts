@@ -19,7 +19,7 @@ import {
 import { disableCrashReports } from "../host/runtime/crash-reports";
 import { exitStatus, nearest, UsageError } from "./exit-status";
 import { runOpenCommand } from "./open";
-import { reviewHelp, runReviewCommand } from "./review";
+import { runReviewCommand } from "./review";
 
 import { version } from "../../package.json";
 
@@ -46,16 +46,43 @@ const COMMANDS = [
   "help",
 ] as const;
 
-async function mainHelp() {
-  const { serviceHelp } = await import("./service");
-  return (
-    serviceHelp +
-    "\n\nLegacy foreground modes:\n" +
-    `Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: ${DEFAULT_PORT} (or MED_PORT); another state folder than ~/.local/state/med gets a free port. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n` +
-    reviewHelp +
-    "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs\nTeach Claude Code and Codex to hand off reviews: med skills install"
-  );
-}
+/** med --help: the commands by task. Each command's own help has the detail. */
+const mainHelp = `Med shows Git changes, files, and notes for review in your browser. Its
+server runs on your Mac.
+
+Usage: med <command> [options]
+
+Start:
+  web       Start the server and open Med in the browser
+  add       Register a repository or a vault
+  status    Show the server, its sources, and the agent skill
+  stop      Stop the server. The agents that it started keep working.
+
+Hand off work:
+  review    Hand off a change for review, or wait for the comments
+  pr        Check out a pull request, or draft one for the user
+  thread    List, open, close, find, or adopt agent threads
+  open      Print a link that opens a file in Med
+
+Sources:
+  list      List the registered sources
+  remove    Stop watching a source. Its folder stays.
+  index     Index a vault again now
+
+Set up:
+  skills    Install the Med skill, so that agents hand off their work in Med
+  service   Start Med when you log in (macOS)
+  agents    List or stop the agents that Med started
+  docs      Print a guide: usage, agents, vaults, or reference
+
+Options:
+  --port <port>       Use the server on this port (or MED_PORT)
+  --state-dir <path>  Use this state folder (or MED_STATE_DIR)
+  -v, --version       Print the version
+  -h, --help          Print this help
+
+med help <command>, or med <command> --help, shows the options of a command.
+Foreground server and older modes, such as med <folder>: med serve --help`;
 
 async function isFolder(path: string) {
   return (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
@@ -80,7 +107,7 @@ async function main(args: string[]) {
   if (command === "help") {
     // med help <command> is med <command> --help.
     if (rest.length > 1) throw new UsageError("Usage: med help [command]");
-    if (!rest.length || rest[0] === "help") return console.log(await mainHelp());
+    if (!rest.length || rest[0] === "help") return console.log(mainHelp);
     if (!COMMANDS.includes(rest[0] as never))
       throw new UsageError(notACommand(rest[0]!).replace(" or a folder", ""));
     return main([rest[0]!, "--help"]);
@@ -162,7 +189,7 @@ async function main(args: string[]) {
       if (!(await isFolder(word)))
         throw new UsageError(index ? `med: "${word}" is not a folder.` : notACommand(word));
   if (values.help) {
-    console.log(await mainHelp());
+    console.log(mainHelp);
   } else if (values["setup-search"]) {
     console.log("Setting up pinned Zoekt search tools…");
     const result = await installSearchTools();
