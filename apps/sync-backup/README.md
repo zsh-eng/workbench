@@ -105,9 +105,14 @@ Reading a page that needs a browser uses Playwright's Chromium:
 `arctic text --missing` finds saved links with no text itself: newest first, a
 second apart, 25 a run unless `--limit` says otherwise. A link that gives no
 text waits a day, then 2, 4… up to 30 days (`arctic-text.json` in the data
-folder), so a paywall or a PDF isn't read every hour. `wb schedule install`'s
-hourly job runs `wb hourly`: `sync`, then this with `--unwall`. To move an
-existing schedule to it, run `wb schedule uninstall`, then `wb schedule install`.
+folder), so a paywall or a PDF isn't read every hour. A page that takes over
+2 minutes fails. After 12 minutes, or on SIGTERM or SIGINT, the run stops: it
+closes its browser, and the links it didn't finish are `not tried` and keep
+their place. A signal makes `wb arctic` exit with 143 or 130. `wb schedule
+install`'s hourly job runs `wb hourly`: `sync`, then this with `--unwall`. A
+step gets 20 minutes, then SIGTERM, and 30 seconds later SIGKILL for it and
+every process it started. To move an existing schedule to it, run `wb schedule
+uninstall`, then `wb schedule install`.
 
 Each link prints one line as it finishes; `--json` prints an array of results
 (`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`,
