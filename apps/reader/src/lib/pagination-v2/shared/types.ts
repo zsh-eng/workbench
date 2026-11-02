@@ -336,6 +336,8 @@ export interface PageLine {
   startOffset?: TextCursorOffset;
   endOffset?: TextCursorOffset;
   isLastInBlock: boolean;
+  /** The line's text ends in a hyphen that is not in the book. */
+  addsHyphen?: boolean;
   wordSpacingPx?: number;
   indentPx?: number;
 }

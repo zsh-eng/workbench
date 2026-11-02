@@ -995,21 +995,18 @@ function buildJustifiedLine(
   }
 
   const spaces = end.spaces - start.nextSpaces;
-  const justifies = !options.isLastLine && spaces > 0;
+  const width = measureLineWidth(groups, start, end);
+  const roomLeft = availableWidth - JUSTIFY_EDGE_SLACK_PX - width;
+  // A last line that nearly fills the column is set flush too, because the
+  // page can draw it wider than the canvas measured it.
+  const justifies = spaces > 0 && (!options.isLastLine || roomLeft < 0);
   return {
     fragments,
     startOffset,
     endOffset,
     isLastInBlock: false,
-    ...(justifies
-      ? {
-          wordSpacingPx:
-            (availableWidth -
-              JUSTIFY_EDGE_SLACK_PX -
-              measureLineWidth(groups, start, end)) /
-            spaces,
-        }
-      : {}),
+    ...(end.showsHyphen ? { addsHyphen: true } : {}),
+    ...(justifies ? { wordSpacingPx: roomLeft / spaces } : {}),
     ...(options.indentPx > 0 ? { indentPx: options.indentPx } : {}),
   };
 }

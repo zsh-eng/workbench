@@ -302,15 +302,27 @@ function getFollowingMinimumHeight(
       safeWidth,
       currentBlock.tag === "p",
     );
-    if (nextPlan.lines.length === 0) return 0;
+    const lineCount = nextPlan.lines.length;
+    if (lineCount === 0) return 0;
+    const gap = getResolvedCollapsedBlockGap(
+      currentBlock.tag,
+      nextBlock,
+      theme,
+      currentSpacingBelow,
+      safeWidth,
+    );
+    if (!theme.bookRhythm) return gap + nextPlan.lineHeight;
+    // A paragraph of up to three lines can't split without a widow or an
+    // orphan. A longer one needs room for two.
+    const openingLines = lineCount <= 3 ? lineCount : 2;
     return (
-      getResolvedCollapsedBlockGap(
-        currentBlock.tag,
-        nextBlock,
+      getGapOnLineGrid(
+        safeHeight - remainingAfterBlock,
+        gap,
+        nextPlan.lineHeight,
         theme,
-        currentSpacingBelow,
-        safeWidth,
-      ) + nextPlan.lineHeight
+      ) +
+      openingLines * nextPlan.lineHeight
     );
   }
 
@@ -356,6 +368,21 @@ function getFollowingMinimumHeight(
  * its first line does not end a page alone and its last does not start one.
  * Zero moves the block to the next page.
  */
+/**
+ * Body text starts on the line grid, whatever came before it, so baselines
+ * match across two pages.
+ */
+function getGapOnLineGrid(
+  usedHeight: number,
+  gap: number,
+  lineHeight: number,
+  theme: LayoutTheme,
+): number {
+  if (!theme.bookRhythm || lineHeight !== getBodyLineHeight(theme)) return gap;
+  const top = Math.ceil((usedHeight + gap) / lineHeight - 0.001) * lineHeight;
+  return top - usedHeight;
+}
+
 function getLinesWithoutWidowOrOrphan(
   fit: number,
   lineIndex: number,
@@ -614,24 +641,18 @@ export function layoutPages(
     let effectiveGap =
       current.slices.length === 0
         ? 0
-        : getResolvedCollapsedBlockGap(
-            previousBlockKind,
-            textBlock,
+        : getGapOnLineGrid(
+            current.usedHeight,
+            getResolvedCollapsedBlockGap(
+              previousBlockKind,
+              textBlock,
+              theme,
+              prevMarginBelow,
+              safeWidth,
+            ),
+            lineHeight,
             theme,
-            prevMarginBelow,
-            safeWidth,
           );
-    // Body text starts on the line grid, whatever came before it, so
-    // baselines match across two pages.
-    if (
-      theme.bookRhythm &&
-      current.slices.length > 0 &&
-      lineHeight === getBodyLineHeight(theme)
-    ) {
-      const top = current.usedHeight + effectiveGap;
-      effectiveGap =
-        Math.ceil(top / lineHeight - 0.001) * lineHeight - current.usedHeight;
-    }
 
     const blockHeight = lines.length * lineHeight;
     const availableBeforeBlock = safeHeight - current.usedHeight;

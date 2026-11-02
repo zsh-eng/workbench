@@ -254,10 +254,12 @@ export function ReaderDiagnostics() {
         profile.paragraphSpacingFactor,
         readerLayout.stageViewport,
         profile.language,
+        readerLayout.resolvedSpreadColumns,
       ),
     [
       profile.language,
       profile.paragraphSpacingFactor,
+      readerLayout.resolvedSpreadColumns,
       readerLayout.stageViewport,
       settings,
     ],

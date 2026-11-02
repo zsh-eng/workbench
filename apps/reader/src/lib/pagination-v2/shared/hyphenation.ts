@@ -8,6 +8,9 @@ import { countGraphemes } from "./measure";
  * offline. A book in another language is justified without hyphens.
  */
 
+/** Patterns come with the app for English and over the network otherwise. */
+const HYPHENATION_WAIT_MS = 1500;
+
 const SOFT_HYPHEN = "­";
 /** TeX's \lefthyphenmin and \righthyphenmin, and no word shorter than six. */
 const MIN_WORD_GRAPHEMES = 6;
@@ -180,6 +183,19 @@ function createHyphenPoints(
     }
     return points;
   };
+}
+
+/**
+ * Waits for a language's patterns, but no longer than a reader should wait to
+ * see a book. Lines laid out before they arrive have no hyphens.
+ */
+export function waitForHyphenPoints(
+  language: string | undefined,
+): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, HYPHENATION_WAIT_MS);
+    void ensureHyphenPoints(language).then(resolve);
+  });
 }
 
 /**

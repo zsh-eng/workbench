@@ -5,7 +5,7 @@ import type {
   PaginationWorkerEventMessage,
   PaginationWorkerMessage,
 } from "../protocol";
-import { ensureHyphenPoints } from "../shared/hyphenation";
+import { waitForHyphenPoints } from "../shared/hyphenation";
 import { ensurePublisherFontsReadyFromBlocks } from "../shared/publisher-fonts";
 import type { FontConfig, PaginationConfig } from "../shared/types";
 import { ensureBundledFontsReady } from "./fonts";
@@ -203,7 +203,7 @@ function ensureCommandHyphenation({
   layoutTheme,
 }: PaginationConfig): Promise<void> {
   return layoutTheme.textAlign === "justify-knuth-plass"
-    ? ensureHyphenPoints(layoutTheme.language)
+    ? waitForHyphenPoints(layoutTheme.language)
     : Promise.resolve();
 }
 

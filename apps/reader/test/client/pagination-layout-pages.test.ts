@@ -475,6 +475,25 @@ describe("layoutPages — a book's rhythm", () => {
     expect(textTops(pages[1]!)[0]).toMatchObject({ blockId: "next", top: 0 });
   });
 
+  it("keeps a heading with room for its paragraph's first two lines", () => {
+    const heading = {
+      ...text("heading", "h2", 12),
+      pageBreakHints: { breakAfter: "avoid" },
+    } as Block;
+    const blocks = [text("before", "p", 280), heading, text("next", "p", 280)];
+    const prepared = prepare(blocks);
+    const tall = layoutPages(prepared, 320, 2000, BOOK_THEME).pages[0]!;
+    const next = textTops(tall).find(({ blockId }) => blockId === "next")!;
+
+    // The page ends one line below the heading, where one line could fit.
+    const { pages } = layoutPages(prepared, 320, next.top + LINE, BOOK_THEME);
+
+    expect(textTops(pages[0]!).map(({ blockId }) => blockId)).toEqual([
+      "before",
+    ]);
+    expect(textTops(pages[1]!)[0]).toMatchObject({ blockId: "heading" });
+  });
+
   it("leaves no last line alone at a page's head", () => {
     const paragraph = text("long", "p", 900);
     const prepared = prepare([paragraph]);

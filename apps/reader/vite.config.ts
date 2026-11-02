@@ -29,7 +29,7 @@ const precache = readerPrecache({
   // before a book needs it (src/features/reader/README.md, Reading fonts).
   precacheFonts: /^assets\/(dm-sans|inter|eb-garamond|lora)-latin-\d+-/,
   // English hyphenation. A book in another language downloads its patterns
-  // when it opens, and until then is justified without hyphens.
+  // when it opens, and is justified without hyphens if they take too long.
   precacheHyphenation: /^assets\/hyphen-patterns-en-/,
 });
 

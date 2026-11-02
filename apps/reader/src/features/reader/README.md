@@ -48,7 +48,7 @@ Appearance → Layout → Justify sets text flush to both margins. It starts on 
 
 The text never changes. A hyphen break is a cursor inside a segment, and the hyphen exists only in that line's rendered fragment, so saved places, highlights, copy and search see the book's own text. A saved place stays valid when lines move, as it does when the font changes, and Justify needs no cache bump: laid-out pages are never persisted.
 
-`shared/hyphenation.ts` loads Liang's TeX patterns from the `hyphen` package, for the book's `dc:language`, before layout, so a page never reflows when they arrive. English patterns are precached; another language downloads with its first book into `reader-assets`, and the book is justified without hyphens until then. These chunks are why workers build as ES modules: a classic worker would carry every language in one file.
+`shared/hyphenation.ts` loads Liang's TeX patterns from the `hyphen` package, for the book's `dc:language`, before layout, so a page never reflows when they arrive. English patterns are precached; another language downloads with its first book into `reader-assets`. Layout waits 1.5 s for them, and past that, or offline, the book is justified without hyphens until its next layout. These chunks are why workers build as ES modules: a classic worker would carry every language in one file.
 
 The worker's widths come from canvas, which can differ from the page by up to about 3 px on a line. Each justified line renders as a `nowrap` block with `text-align-last: justify`: the worker's word spacing stops 3 px short, and the browser closes the rest, so a line ends on the margin in every font. `test/e2e/kit/reader-justify-metrics.ts` prints the word-space ratios and edge error of the pages it turns through.
 
@@ -60,7 +60,7 @@ They sit in the margins the layout already leaves for the reader's bars, so they
 
 ## Two pages as an open book
 
-With two pages, `layoutTheme.bookRhythm` sets text as a book does. Paragraphs run solid with a first-line indent in place of the gap, so the lines sit on one grid; body text after a heading, quotation or image snaps back to that grid, so baselines match across the gutter. A paragraph leaves no first line alone at a page's foot and no last line alone at a page's head, so a page may end a line or two short. Leading is 95% of the reader's Line height, because two pages make shorter lines, and a folio sits under the page's last possible line. A book's own styles keep their margins and indents, with Book styles on. One page keeps its paragraph gaps.
+With two pages, `layoutTheme.bookRhythm` sets text as a book does. Paragraphs run solid with a first-line indent in place of the gap, so the lines sit on one grid; body text after a heading, quotation or image snaps back to that grid, so baselines match across the gutter. A paragraph leaves no first line alone at a page's foot and no last line alone at a page's head, so a page may end a line or two short. Leading is 95% of the reader's Line height, because two pages make shorter lines, and a folio sits under the page's last possible line. A book's own styles keep their margins and indents, with Book styles on. One page keeps its paragraph gaps. Scroll mode shares the layout of the pages it replaces, so changing mode never reflows the book.
 
 ## Paper and the page curl (Debug)
 

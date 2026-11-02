@@ -113,10 +113,11 @@ test("a tablet justifies and hyphenates, and every line ends on the margin", asy
   for (let turn = 0; turn < 16; turn++) {
     await nextSpread(page);
     const lines = await readLines(page);
-    for (const line of lines.filter(({ justified }) => justified)) {
+    for (const line of lines) {
+      expect(line.right, line.text).toBeLessThanOrEqual(0.5);
+      if (!line.justified) continue;
       checked += 1;
       expect(line.right, line.text).toBeGreaterThan(-0.5);
-      expect(line.right, line.text).toBeLessThanOrEqual(0.5);
       if (/\p{L}-$/u.test(line.text)) hyphens += 1;
     }
   }

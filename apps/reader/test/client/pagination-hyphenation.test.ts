@@ -2,8 +2,9 @@ import {
   ensureHyphenPoints,
   getHyphenPoints,
   resolveHyphenationPatterns,
+  waitForHyphenPoints,
 } from "@/lib/pagination-v2/shared/hyphenation";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 /** A word with its hyphen points, as `hy-phen-ation`. */
 function marked(word: string, language: string): string {
@@ -77,5 +78,21 @@ describe("hyphen points", () => {
   it("break German's capitalised nouns", () => {
     expect(getHyphenPoints("de")!("Silbentrennung").length).toBeGreaterThan(0);
     expect(getHyphenPoints("de")!("SILBENTRENNUNG")).toEqual([]);
+  });
+});
+
+describe("patterns that are slow to arrive", () => {
+  it("stop holding up layout, and the book justifies without hyphens", async () => {
+    vi.doMock("hyphen/patterns/hu", () => new Promise(() => {}));
+    vi.useFakeTimers();
+    try {
+      const wait = waitForHyphenPoints("hu");
+      await vi.advanceTimersByTimeAsync(2000);
+      await wait;
+      expect(getHyphenPoints("hu")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.doUnmock("hyphen/patterns/hu");
+    }
   });
 });

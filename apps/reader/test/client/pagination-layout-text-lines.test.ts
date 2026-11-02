@@ -511,6 +511,19 @@ describe("justified text", () => {
     }
   });
 
+  it("sets a last line flush when it nearly fills the column", () => {
+    const items = prepareParagraph([{ text: "a short paragraph" }]);
+    const width = measureTextWidth("a short paragraph", items[0]!.font);
+
+    const { lines } = justified(items, width + 1);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.wordSpacingPx).toBeLessThan(0);
+    expect(
+      justified(items, width + 20).lines[0]!.wordSpacingPx,
+    ).toBeUndefined();
+  });
+
   it("shows a hyphen on the page and nowhere in the text", () => {
     const items = prepareParagraph([{ text: PROSE }]);
 
