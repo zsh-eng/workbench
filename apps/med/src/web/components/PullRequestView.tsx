@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LivePullRequest,
   PullRequestCheck,
@@ -11,21 +11,22 @@ import {
   checkTime,
   checkWord,
   descriptionImageUrl,
-  descriptionMarkdown,
   lowBudget,
   mergeLines,
   useLivePullRequest,
 } from "../data/live-pull-request";
-import { parseBriefHref } from "../data/file-refs";
+import { fileRefOf } from "../data/file-refs";
 import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime, useMinuteClock } from "../data/relative-time";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
 import { markdownImageUrl } from "../markdown/images";
 import type { MarkdownResult } from "../markdown/model";
+import { scrollPaneTo } from "../markdown/scroll";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
 import { DiagramBlock } from "./DiagramBlock";
 import { Icon, type IconName } from "./Icon";
+import { CommentRefsContext, FileRefsContext, useFileRefBlocks, useFileRefs } from "./FileRefs";
 import {
   AddToReplyButton,
   CopyButton,
@@ -59,29 +60,42 @@ const OUTCOMES: Record<
   skipped: { icon: "arrowDown", tone: "quiet" },
 };
 
-/** The description in Med's Markdown, as a draft reads. Each block is the
- * renderer's HTML, which never holds raw HTML from the description. */
-const Description = memo(function Description({
+/** The description in Med's Markdown. Each block is the renderer's HTML, which
+ * never holds raw HTML from the description; it links to files as a comment
+ * does. */
+const Description = memo(function Description(props: {
+  body: string;
+  reviewId: string;
+  root?: string;
+}) {
+  const refs = useContext(CommentRefsContext);
+  return (
+    <FileRefsContext.Provider value={refs}>
+      <DescriptionText {...props} />
+    </FileRefsContext.Provider>
+  );
+});
+
+function DescriptionText({
   body,
   reviewId,
   root,
-  onOpenPath,
 }: {
   body: string;
   reviewId: string;
   root?: string;
-  onOpenPath?(path: string, line?: number): void;
 }) {
   const { active: theme } = useTheme();
-  const text = useMemo(() => descriptionMarkdown(body), [body]);
   const [result, setResult] = useState<MarkdownResult | undefined>(() =>
-    renderedBrief(theme.pierreTheme, text),
+    renderedBrief(theme.pierreTheme, body, "description"),
   );
   const [failed, setFailed] = useState(false);
   const host = useRef<HTMLDivElement>(null);
+  const refs = useFileRefs();
+  const blocks = useFileRefBlocks(result?.blocks);
   useEffect(() => {
     let current = true;
-    renderBrief(theme.pierreTheme, text).then(
+    renderBrief(theme.pierreTheme, body, true, { cache: "description" }).then(
       (rendered) => {
         if (!current) return;
         setResult(rendered);
@@ -94,7 +108,7 @@ const Description = memo(function Description({
     return () => {
       current = false;
     };
-  }, [theme.pierreTheme, text]);
+  }, [theme.pierreTheme, body]);
   // A web image comes through the host, as this page loads none from other
   // sites; a relative path starts at the repository root, as in a draft.
   useEffect(() => {
@@ -120,40 +134,40 @@ const Description = memo(function Description({
         image.title = `Image unavailable: ${raw}`;
       };
     }
-  }, [result, reviewId, root]);
-  // A web link opens by itself. A relative one is a file of the checkout, as in
-  // a draft. A heading's link stays in this tab: the address is the app's.
+  }, [blocks, reviewId, root]);
+  // A web link opens by itself, from the worker's HTML. A heading's link stays
+  // in this tab: the address is the app's.
   useEffect(() => {
     const prose = host.current;
     if (!prose) return;
     const follow = (event: MouseEvent) => {
-      const anchor = (event.target as HTMLElement).closest("a");
-      const href = anchor?.getAttribute("href");
-      if (href?.startsWith("#")) {
+      const file = fileRefOf(event.target as Element);
+      if (file) {
         event.preventDefault();
-        let id: string;
-        try {
-          id = decodeURIComponent(href.slice(1));
-        } catch {
-          return;
-        }
-        if (id) prose.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ block: "start" });
+        refs?.open(file, event.metaKey || event.ctrlKey);
         return;
       }
-      const target =
-        !href && anchor?.dataset.briefHref ? parseBriefHref(anchor.dataset.briefHref) : null;
-      if (!target) return;
+      const href = (event.target as Element).closest("a")?.getAttribute("href");
+      if (!href?.startsWith("#")) return;
       event.preventDefault();
-      onOpenPath?.(target.path, target.line);
+      let id: string;
+      try {
+        id = decodeURIComponent(href.slice(1));
+      } catch {
+        return;
+      }
+      const heading = id && prose.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+      const pane = prose.closest<HTMLElement>(".med-md-scroll");
+      if (heading && pane) scrollPaneTo(pane, heading);
     };
     prose.addEventListener("click", follow);
     return () => prose.removeEventListener("click", follow);
-  }, [onOpenPath, result]);
+  }, [refs, result]);
   if (failed && !result)
     return <p {...stylex.props(styles.note)}>Med could not render this description.</p>;
   return (
     <div ref={host} className="med-md-prose med-pull-prose">
-      {result?.blocks.map((block) =>
+      {blocks?.map((block) =>
         block.diagram !== undefined ? (
           <DiagramBlock key={block.start} block={block} />
         ) : (
@@ -168,7 +182,7 @@ const Description = memo(function Description({
       )}
     </div>
   );
-});
+}
 
 /** A failed job's log, as gh gives it: GitHub's ##[…] marks become colour,
  * and the log opens at the last error, not at the clean-up after it. */
@@ -248,6 +262,8 @@ function CheckRow({
   const word = checkWord(check);
   const time = checkTime(check, now);
   const open = log.step !== "closed";
+  const label = check.event ? `${check.name} (${check.event})` : check.name;
+  const source = [check.workflow, check.event].filter(Boolean).join(" · ");
   const show = (next: LogState) =>
     setLog((current) => (current.step === "closed" ? current : next));
   const toggle = () => {
@@ -282,9 +298,9 @@ function CheckRow({
         <span {...stylex.props(ui.truncate, styles.checkName)} title={check.name}>
           {check.name}
         </span>
-        {check.workflow && (
-          <span {...stylex.props(ui.truncate, styles.checkWorkflow)} title={check.workflow}>
-            {check.workflow}
+        {source && (
+          <span {...stylex.props(ui.truncate, styles.checkWorkflow)} title={source}>
+            {source}
           </span>
         )}
         <span {...stylex.props(ui.grow)} />
@@ -297,8 +313,8 @@ function CheckRow({
             href={check.url}
             target="_blank"
             rel="noopener noreferrer"
-            title={`Open ${check.name}`}
-            aria-label={`Open ${check.name}`}
+            title={`Open ${label}`}
+            aria-label={`Open ${label}`}
             {...stylex.props(ui.button, ui.iconButton, styles.tool)}
           >
             <Icon name="external" size={12} />
@@ -309,7 +325,7 @@ function CheckRow({
         <button
           type="button"
           aria-expanded={open}
-          aria-label={`${open ? "Hide" : "Show"} the failed log of ${check.name}`}
+          aria-label={`${open ? "Hide" : "Show"} the failed log of ${label}`}
           {...stylex.props(styles.logToggle)}
           onClick={toggle}
         >
@@ -349,12 +365,7 @@ function Checks({
       {checks.length ? (
         <ul {...stylex.props(styles.list)}>
           {(folded ? urgent : checks).map((check) => (
-            <CheckRow
-              key={`${check.id}/${check.job ?? ""}`}
-              check={check}
-              now={now}
-              loadLog={loadLog}
-            />
+            <CheckRow key={check.id} check={check} now={now} loadLog={loadLog} />
           ))}
         </ul>
       ) : (
@@ -442,7 +453,6 @@ export default function PullRequestView({
   loadLog,
   refreshes,
   onShowThread,
-  onOpenPath,
   onShowDraft,
   left,
   onDismissLeft,
@@ -460,8 +470,6 @@ export default function PullRequestView({
   /** Increases to read GitHub now, as the ⌘K command asks. */
   refreshes: number;
   onShowThread(thread: PullRequestThread): void;
-  /** Opens a file of the checkout, for a relative link in the description. */
-  onOpenPath?(path: string, line?: number): void;
   /** Shows the agent's draft, for a review that has one. */
   onShowDraft?(): void;
   /** The local images that Create left out, for the reader to add on GitHub. */
@@ -585,12 +593,7 @@ export default function PullRequestView({
             {!pull && !error && <p {...stylex.props(styles.note)}>Reading the pull request…</p>}
             {pull &&
               (pull.body.trim() ? (
-                <Description
-                  body={pull.body}
-                  reviewId={reviewId}
-                  root={root}
-                  onOpenPath={onOpenPath}
-                />
+                <Description body={pull.body} reviewId={reviewId} root={root} />
               ) : (
                 <p {...stylex.props(styles.note)}>No description.</p>
               ))}

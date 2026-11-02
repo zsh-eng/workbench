@@ -123,6 +123,7 @@ export const livePullRequestSchema = z.object({
       id: z.string(),
       name: z.string(),
       workflow: z.string().optional(),
+      event: z.string().optional(),
       outcome: z.enum(["failed", "pending", "cancelled", "passed", "skipped"]),
       state: z.string(),
       startedAt: z.string().nullable(),

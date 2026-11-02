@@ -6,12 +6,14 @@ import RenderWorker from "./render.worker?worker";
 // replies of agent sessions. Results are kept by theme and text, so a brief
 // that rendered once, or ahead of time for a hidden workspace or another
 // iteration, shows in the frame it is chosen. Session replies have their own
-// cache, so a long session does not push the briefs out.
-export type RenderCache = "brief" | "session";
-const MAX_RESULTS: Record<RenderCache, number> = { brief: 24, session: 200 };
+// cache, so a long session does not push the briefs out. A pull request's
+// description is GitHub's Markdown, so it renders with its own rules.
+export type RenderCache = "brief" | "session" | "description";
+const MAX_RESULTS: Record<RenderCache, number> = { brief: 24, session: 200, description: 8 };
 const results: Record<RenderCache, Map<string, MarkdownResult>> = {
   brief: new Map(),
   session: new Map(),
+  description: new Map(),
 };
 const waiting = new Map<string, Promise<MarkdownResult>>();
 // Tasks go to the worker in batches, which it renders in order with a reply
@@ -161,7 +163,7 @@ async function send(tasks: Task[]) {
       ),
   );
   // Replies show web links as pills with their site's icon. In replies,
-  // comments, and answers, $HOME and $3 are text: only $$ starts math.
+  // comments, answers, and descriptions, $HOME and $3 are text: only $$ starts math.
   worker.postMessage({
     batch: sent.map(({ task, id, theme }) => {
       const known = workerThemes.has(task.theme);
@@ -172,7 +174,8 @@ async function send(tasks: Task[]) {
         ...(known ? { themeName: theme.name } : { theme }),
         briefLinks: true,
         webLinks: task.cache === "session",
-        plainDollars: task.cache === "session",
+        plainDollars: task.cache !== "brief",
+        htmlImages: task.cache === "description",
       };
     }),
   });

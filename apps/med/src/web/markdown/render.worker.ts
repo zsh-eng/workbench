@@ -1,4 +1,5 @@
 import { wikiLinks } from "./wiki";
+import { htmlImages } from "./html-images";
 import { breakPieces } from "./breaks";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -56,6 +57,8 @@ type Task = {
   webLinks?: boolean;
   /** Only $$ starts math; a single dollar stays text, as in an agent's replies. */
   plainDollars?: boolean;
+  /** A pull request's description: its <img> tags are images. */
+  htmlImages?: boolean;
 };
 // A preview keeps only its latest task. A batch, as of a thread's replies,
 // renders each task in order and replies to each.
@@ -81,6 +84,7 @@ async function drain() {
       const markdownParser = task.plainDollars ? replyParser : parser;
       const markdown = markdownParser.parse(task.text);
       if (task.vault) wikiLinks(markdown, task.text);
+      if (task.htmlImages) htmlImages(markdown);
       let tree = (await markdownParser.run(markdown)) as Root;
       const headings: MarkdownHeading[] = [];
       const slugs = new Map<string, number>();

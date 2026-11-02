@@ -166,19 +166,18 @@ try {
     await words(view, "Blocked: changes requested.");
     await words(view, "3 commits behind main.");
     const checks = view.getByRole("region", { name: "Checks" });
-    await words(checks, "4 failed, 5 passed, 1 skipped");
-    await checks.getByRole("button", { name: "Show 5 passed, 1 skipped" }).click();
-    // Failures first, each check once, and the run that a later one replaced gone.
+    await words(checks, "4 failed, 4 passed, 1 skipped");
+    await checks.getByRole("button", { name: "Show 4 passed, 1 skipped" }).click();
+    // Failures first, and a check on two triggers twice, each with its trigger.
     const names = await checks
       .locator("li")
       .evaluateAll((rows) => rows.map((row) => row.textContent));
-    assert.match(names[0], /build.*Timed out.*1h 00m/s);
-    assert.match(names[1], /e2e.*Failed/s);
-    assert.match(names[2], /test \(ubuntu\).*2m 49s/s);
-    assert.match(names[3], /deploy\/preview/);
-    assert.equal(names.filter((name) => name.includes("types")).length, 1);
-    assert.equal(names.filter((name) => name.includes("flaky")).length, 1);
-    assert.equal(names.length, 10);
+    assert.match(names[0], /deploy\/preview/);
+    assert.match(names[1], /build.*Timed out.*1h 00m/s);
+    assert.match(names[2], /e2e.*CI · push.*Failed/s);
+    assert.match(names[3], /test \(ubuntu\).*2m 49s/s);
+    assert.equal(names.filter((name) => /e2e.*CI · pull_request/s.test(name)).length, 1);
+    assert.equal(names.length, 9);
     // A status's link is a web link or none.
     assert.equal(await checks.getByRole("link", { name: "Open security/scan" }).count(), 0);
     assert.equal(
@@ -320,7 +319,7 @@ try {
   const writes = calls.filter(
     ({ args }) =>
       args.some((arg) => /^(?:--method|-X|--input)$|^query=mutation|^mutation/.test(arg)) ||
-      (args[0] === "pr" && !["view", "list", "create"].includes(args[1])) ||
+      (args[0] === "pr" && !["view", "checks", "list", "create"].includes(args[1])) ||
       (args[0] === "run" && args[1] !== "view"),
   );
   assert.deepEqual(writes, []);
@@ -328,7 +327,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "open with failing CI, draft, merged, and conflicts from a fork, in a real browser on gh's real output shapes; failures first and each check once; a commit status's unsafe link dropped; the pending review marked as the reader's; the failed log only on request, without gh's columns; a thread linking to its line; a draft that keeps its view until Create makes it live; no write to GitHub but that Create",
+        "open with failing CI, draft, merged, and conflicts from a fork, in a real browser on gh's real output shapes; failures first and a check on two triggers twice, with its trigger; a commit status's unsafe link dropped; the pending review marked as the reader's; the failed log only on request, without gh's columns; a thread linking to its line; a draft that keeps its view until Create makes it live; no write to GitHub but that Create",
       ghCalls: calls.length,
       pageErrors,
     }),

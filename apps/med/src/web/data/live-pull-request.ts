@@ -233,49 +233,6 @@ export function checkCounts(checks: readonly PullRequestCheck[]) {
     .join(", ");
 }
 
-const HTML_IMAGE = /<img\b[^>]*>/gi;
-const attribute = (tag: string, name: string) =>
-  new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i")
-    .exec(tag)
-    ?.slice(1)
-    .find((value) => value !== undefined);
-
-/**
- * A description as Med's Markdown reads it. Raw HTML never renders, but
- * GitHub writes an image dropped into a description as an <img> tag, so those
- * become Markdown images. Fenced and inline code keep their text. An image in
- * a line of HTML, as `<p align="center"><img …></p>`, gets its own paragraph:
- * Markdown reads nothing inside an HTML block until a blank line ends it.
- */
-export function descriptionMarkdown(body: string) {
-  let fence: string | undefined;
-  return body
-    .split("\n")
-    .map((line) => {
-      if (fence) {
-        const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
-        if (close && close[0] === fence[0] && close.length >= fence.length) fence = undefined;
-        return line;
-      }
-      fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-      if (fence) return line;
-      return line
-        .split(/(`[^`]*`)/)
-        .map((part, index) =>
-          index % 2
-            ? part
-            : part.replace(HTML_IMAGE, (tag) => {
-                const src = attribute(tag, "src");
-                if (!src) return tag;
-                const image = `![${(attribute(tag, "alt") ?? "").replace(/[[\]]/g, "")}](<${src}>)`;
-                return /^\s*</.test(line) ? `\n\n${image}\n\n` : image;
-              }),
-        )
-        .join("");
-    })
-    .join("\n");
-}
-
 /** The URL of an image of the description, which the host reads from GitHub. */
 export const descriptionImageUrl = (reviewId: string, src: string) =>
   `/api/reviews/${encodeURIComponent(reviewId)}/pull-request-image?src=${encodeURIComponent(src)}`;

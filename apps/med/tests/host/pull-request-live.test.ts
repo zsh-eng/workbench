@@ -78,7 +78,7 @@ afterAll(async () => {
   else process.env.GH_CONFIG_DIR = saved.config;
 });
 
-test("checks read as GitHub means them: failures first, each once, with only web links", async () => {
+test("checks read as GitHub means them: failures first, with only web links", async () => {
   const pull = await live(failingPull);
   expect(pull).toMatchObject({
     number: 52,
@@ -91,35 +91,33 @@ test("checks read as GitHub means them: failures first, each once, with only web
       { name: "queue", color: "0e8a16" },
     ],
   });
-  expect(pull.checks.map(({ id, outcome }) => [id, outcome])).toEqual([
-    ["CI/build", "failed"],
-    // Runs at the same time are two checks: a pass does not hide this failure.
-    ["CI/e2e", "failed"],
-    ["CI/test (ubuntu)", "failed"],
-    ["status/deploy/preview", "failed"],
-    ["CI/e2e#2", "passed"],
-    // Its cancelled run had no times; the run after it counts.
-    ["CI/flaky", "passed"],
-    ["CI/lint", "passed"],
-    // Its failed first run is over: the run after it passed.
-    ["CI/types", "passed"],
-    ["status/security/scan", "passed"],
-    ["Triage/label", "skipped"],
+  expect(pull.checks.map(({ name, event, outcome }) => [name, event, outcome])).toEqual([
+    ["deploy/preview", undefined, "failed"],
+    ["build", undefined, "failed"],
+    // Two triggers are two checks, and the row says which: a pass hides no failure.
+    ["e2e", "push", "failed"],
+    ["test (ubuntu)", undefined, "failed"],
+    ["security/scan", undefined, "passed"],
+    ["e2e", "pull_request", "passed"],
+    ["lint", undefined, "passed"],
+    ["types", undefined, "passed"],
+    ["label", undefined, "skipped"],
   ]);
-  const byId = new Map(pull.checks.map((check) => [check.id, check]));
+  expect(new Set(pull.checks.map((check) => check.id)).size).toBe(pull.checks.length);
+  const byName = new Map(pull.checks.map((check) => [check.name, check]));
   // Only a failed GitHub Actions job has a log to read.
   expect(pull.checks.filter((check) => check.job).map((check) => check.job)).toEqual([
     7002,
     7004,
     FAILED_JOB,
   ]);
-  expect(byId.get("CI/build")).toMatchObject({ state: "TIMED_OUT", workflow: "CI" });
+  expect(byName.get("build")).toMatchObject({ state: "TIMED_OUT", workflow: "CI" });
   // A commit status has no end, and its link is whatever a service set.
-  expect(byId.get("status/deploy/preview")).toMatchObject({
+  expect(byName.get("deploy/preview")).toMatchObject({
     completedAt: null,
     url: "https://ci.example.com/job/1",
   });
-  expect(byId.get("status/security/scan")?.url).toBeUndefined();
+  expect(byName.get("security/scan")?.url).toBeUndefined();
 });
 
 test("a draft keeps its draft state and a running check has no made-up end", async () => {
@@ -278,6 +276,27 @@ test("an answer about the API limit that Med cannot read costs only the limit", 
   fakeGh.answer([...liveRules(mergedPull), ...sharedRules()]);
 });
 
+test("a branch with no checks has none, but a failed read of them is a failed read", async () => {
+  const review = reviews.get(mergedPull.url);
+  fakeGh.answer([
+    {
+      args: ["pr", "checks"],
+      stderr: "no checks reported on the 'name-package' branch\n",
+      exitCode: 1,
+    },
+    ...liveRules(mergedPull),
+    ...sharedRules(),
+  ]);
+  expect((await live(mergedPull)).checks).toEqual([]);
+  fakeGh.answer([
+    { args: ["pr", "checks"], stderr: "HTTP 502: 502 Bad Gateway\n", exitCode: 1 },
+    ...liveRules(mergedPull),
+    ...sharedRules(),
+  ]);
+  expect((await api(`/api/reviews/${review}/pull-request-live?refresh=1`)).status).toBe(502);
+  fakeGh.answer([...liveRules(mergedPull), ...sharedRules()]);
+});
+
 test("a failed read says why, and a later one reads again", async () => {
   fakeGh.answer([
     {
@@ -285,6 +304,7 @@ test("a failed read says why, and a later one reads again", async () => {
       stderr: "HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)\n",
       exitCode: 1,
     },
+    ...liveRules(mergedPull),
     ...sharedRules(),
   ]);
   const review = reviews.get(mergedPull.url);

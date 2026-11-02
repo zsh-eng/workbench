@@ -181,6 +181,8 @@ export interface PullRequestCheck {
   name: string;
   /** The GitHub Actions workflow, for a check that has one. */
   workflow?: string;
+  /** What started it, for a check that runs for two triggers. */
+  event?: string;
   outcome: PullRequestCheckOutcome;
   /** GitHub's word for it, such as IN_PROGRESS or TIMED_OUT. */
   state: string;

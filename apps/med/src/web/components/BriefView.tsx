@@ -43,6 +43,7 @@ import { tokens, ui } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
 import { markdownImageUrl } from "../markdown/images";
+import { scrollPaneTo } from "../markdown/scroll";
 import { DiffStat } from "./DiffStat";
 import type { FileRefs } from "./FileRefs";
 import { Icon } from "./Icon";
@@ -143,8 +144,6 @@ interface Placement {
   ranges: Range[];
 }
 const NO_COMMENTS: readonly BriefComment[] = [];
-
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** One note: the pull request draft, the brief, or a pinned reply. */
 interface NoteSection {
@@ -414,16 +413,8 @@ export default function BriefView({
         .forEach((node) => node.setAttribute("data-linked", ""));
   }, [linked, annotated]);
 
-  const scrollToNode = (node: HTMLElement, offset = 28) => {
-    const scroller = pane.current;
-    if (!scroller) return;
-    // Scroll this pane only: scrollIntoView can move hidden split ancestors.
-    const top =
-      node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTo({
-      top: Math.max(0, top - offset),
-      behavior: reducedMotion() ? "auto" : "smooth",
-    });
+  const scrollToNode = (node: HTMLElement, offset?: number) => {
+    if (pane.current) scrollPaneTo(pane.current, node, offset);
   };
 
   // [ and ] step through the excerpts, like hunks in Changes.

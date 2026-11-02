@@ -586,12 +586,15 @@ for the base branch, or when `gh` is missing or not signed in.
 The Pull request tab shows the agent's draft until the review has a pull
 request, then `src/web/components/PullRequestView.tsx`, for a review that is not
 a stack. `src/host/repository/pull-request-live.ts` reads what the comments read
-leaves out: `GET /api/reviews/:id/pull-request-live` runs `gh pr view --json` and
-a REST compare, with a 30 second cache that pages share, and asks `gh api
-rate_limit`, which costs no API call. It keeps GitHub's words as strings, so a
-new value does not break the tab, and it normalises what gh prints: Go's zero
-time, a run that a later run replaced, and a service's link that is not a web
-link. Only the tab asks for this read. `src/web/data/live-pull-request.ts` paces
+leaves out: `GET /api/reviews/:id/pull-request-live` runs `gh pr view --json`,
+`gh pr checks --json` and a REST compare, with a 30 second cache that pages
+share, and asks `gh api rate_limit`, which costs no API call. The checks come
+from `gh pr checks` and not from `statusCheckRollup`: only it knows each run's
+trigger, so it can leave out a run that a later run replaced and keep a check
+that runs for two triggers. Times cannot tell those apart. It keeps GitHub's
+words as strings, so a new value does not break the tab, and it normalises what
+gh prints: Go's zero time, and a service's link that is not a web link. Only the
+tab asks for this read. `src/web/data/live-pull-request.ts` paces
 it by what can change and by the API limit, and stops while the tab, the
 workspace, or the window is hidden. A failed job's log
 (`GET /api/reviews/:id/pull-request-log`) reads only on a click.

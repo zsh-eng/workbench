@@ -85,12 +85,14 @@ const live = (): LivePullRequest => ({
   author: "mira",
   state: "open",
   body: [
-    "Renames the export. See [the test](src/alpha.test.ts:4) and [the notes](#notes).",
+    "Renames the export for $3 and $5. See [the test](src/alpha.ts:4), [gone](./no/such.ts), and [the notes](#notes).",
     '<img width="300" alt="The chart" src="https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89">',
     '<p align="center"><img alt="Centered" src="https://github.com/user-attachments/assets/aaaaaaaa-b4ac-46c3-8cb8-56fb574b7c89"></p>',
-    "<table><tr><td>",
-    '<img alt="In a table" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">',
-    "</td></tr></table>",
+    '<details>\n<summary>Shots</summary>\n<img alt="Folded" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">\n</details>',
+    '1. Before\n   <img alt="Listed" src="https://github.com/user-attachments/assets/cccccccc-b4ac-46c3-8cb8-56fb574b7c89">\n2. After',
+    '> <p><img alt="Quoted" src="https://github.com/user-attachments/assets/dddddddd-b4ac-46c3-8cb8-56fb574b7c89"></p>',
+    '<!-- Template: <img alt="Hidden" src="https://github.com/user-attachments/assets/eeeeeeee-b4ac-46c3-8cb8-56fb574b7c89"> -->',
+    'Inline `<img src="inline.png">` stays code.',
     '```html\n<img src="kept.png">\n```',
     "## Notes",
   ].join("\n\n"),
@@ -286,7 +288,7 @@ const fetcher: typeof fetch = async (input, init) => {
     case "/api/browse/list":
       return Response.json({
         source: JSON.parse(String(init?.body)).source,
-        entries: [],
+        entries: [{ path: "src/alpha.ts", kind: "file" }],
         truncated: false,
       });
   }
@@ -547,9 +549,16 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
       `/api/reviews/pull/pull-request-image?src=${encodeURIComponent("https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89")}`,
     );
   await expect.element(view.getByText('<img src="kept.png">')).toBeVisible();
-  // So does one that HTML holds, which Markdown alone would drop.
-  await expect.element(view.getByRole("img", { name: "Centered" })).toBeVisible();
-  await expect.element(view.getByRole("img", { name: "In a table" })).toBeVisible();
+  await expect.element(view.getByText('<img src="inline.png">')).toBeVisible();
+  // So does one that HTML holds, which Markdown alone would drop, where it stands.
+  for (const name of ["Centered", "Folded", "Listed", "Quoted"])
+    await expect.element(view.getByRole("img", { name })).toBeVisible();
+  const listed = view.getByRole("img", { name: "Listed" }).element();
+  expect(listed.closest("ol")?.querySelectorAll("li")).toHaveLength(2);
+  expect(view.getByRole("img", { name: "Quoted" }).element().closest("blockquote")).not.toBeNull();
+  // GitHub shows no HTML comment, and a dollar is not math here.
+  expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
+  await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();
   // Reviews and comments in time order, with the threads below them.
   const talk = view.getByRole("region", { name: "Conversation" });
   await expect
@@ -557,17 +566,24 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
     .toMatch(/Please split the write path\..*The flaky test failed again/s);
 });
 
-test("the description's links: a relative one opens the file, and a heading's stays in the tab", async () => {
+test("the description's links: a file opens, a dead one is text, and a heading's stays in the pane", async () => {
   const view = await openPullTab();
   await expect.element(view.getByText("the notes")).toBeVisible();
+  // A file link is a real link: reachable by keyboard, and resolved in the index.
+  const file = view.getByRole("link", { name: "Open src/alpha.ts at L4" });
+  await expect.element(file).toBeVisible();
+  await expect.element(view.getByText(/, gone, and/)).toBeVisible();
+  expect(view.getByRole("link", { name: "gone" }).query()).toBeNull();
   const address = location.href;
-  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  const scroll = vi.spyOn(Element.prototype, "scrollTo");
   await view.getByText("the notes").click();
   expect(location.href).toBe(address);
-  expect(scroll.mock.contexts).toContain(view.getByRole("heading", { name: "Notes" }).element());
+  expect(scroll.mock.contexts).toContain(
+    view.getByRole("heading", { name: "Notes" }).element().closest(".med-md-scroll"),
+  );
   scroll.mockRestore();
-  await view.getByText("the test").click();
-  await expect.element(page.getByRole("tab", { name: /alpha\.test\.ts/ })).toBeVisible();
+  await file.click();
+  await expect.element(page.getByRole("tab", { name: /alpha\.ts/ })).toBeVisible();
 });
 
 test("a failed job's log comes only when asked for, and opens at its error", async () => {

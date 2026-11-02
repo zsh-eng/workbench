@@ -2,12 +2,12 @@
 // shapes come from read-only calls to real pull requests on 2 Nov 2026, with
 // what those calls showed that a tidy fixture hides:
 //
-// - gh prints an empty time as Go's zero time, and a running check's
-//   conclusion as "".
-// - A commit status has `context`, `state`, `targetUrl` and no end time, and
-//   its link can be anything.
-// - A check that a trigger starts again is in the list again for the commit,
-//   and a workflow's push and pull_request runs are both there at once.
+// - gh prints an empty time as Go's zero time.
+// - A commit status has no workflow, trigger, or end time, and its link can be
+//   anything.
+// - `gh pr checks` leaves out a run that a later run of its trigger replaced,
+//   and keeps a check on two triggers twice, also when they ran one after the
+//   other. It fails on a branch with no checks.
 // - A skipped check can end a second before it starts.
 // - GitHub says CLEAN for a draft, and a pull request on main can read CLEAN
 //   while it is commits behind: only compare says so.
@@ -18,32 +18,27 @@
 const ZERO_TIME = "0001-01-01T00:00:00Z";
 const user = (login, id = "U_kgDOAAAAAA") => ({ id, is_bot: false, login, name: "" });
 const label = (name, color) => ({ id: "LA_kwDOAAAAAA", name, description: "", color });
-const run = (name, workflowName, conclusion, startedAt, completedAt, job) => ({
-  __typename: "CheckRun",
+// The fields of `gh pr checks --json`, which leaves out runs that a later run
+// of the same check replaced. A check on two triggers stays twice.
+const run = (name, workflow, state, startedAt, completedAt, job, event = "pull_request") => ({
   completedAt,
-  conclusion,
-  detailsUrl: `https://github.com/acme/queue/actions/runs/9100/job/${job}`,
+  event,
+  link: `https://github.com/acme/queue/actions/runs/${job}00/job/${job}`,
   name,
   startedAt,
-  status: "COMPLETED",
-  workflowName,
+  state,
+  workflow,
 });
-const running = (name, workflowName, status, startedAt, job) => ({
-  __typename: "CheckRun",
+const running = (name, workflow, state, startedAt, job) =>
+  run(name, workflow, state, startedAt, ZERO_TIME, job);
+const status = (name, state, link) => ({
   completedAt: ZERO_TIME,
-  conclusion: "",
-  detailsUrl: `https://github.com/acme/queue/actions/runs/9101/job/${job}`,
+  event: "",
+  link,
   name,
-  startedAt,
-  status,
-  workflowName,
-});
-const status = (context, state, targetUrl) => ({
-  __typename: "StatusContext",
-  context,
   startedAt: "2026-11-01T09:40:00Z",
   state,
-  targetUrl,
+  workflow: "",
 });
 const latestReview = (login, state) => ({
   id: "",
@@ -71,7 +66,6 @@ const view = (fields) => ({
   headRepositoryOwner: { id: "O_kgDOAAAAAA", login: "acme" },
   isCrossRepository: false,
   labels: [],
-  statusCheckRollup: [],
   latestReviews: [],
   reviewRequests: [],
   reviewDecision: "",
@@ -127,12 +121,12 @@ export const draftPull = {
     body: "## Why\n\nA short network blip dropped jobs.\n\n- [x] `bun test src/queue`\n- [ ] Run against a flaky server for an hour",
     labels: [label("enhancement", "a2eeef")],
     mergeStateStatus: "CLEAN",
-    statusCheckRollup: [
-      run("lint", "CI", "SUCCESS", "2026-11-02T01:00:00Z", "2026-11-02T01:00:42Z", 6001),
-      running("test (ubuntu)", "CI", "IN_PROGRESS", "2026-11-02T01:00:10Z", 6002),
-      running("test (macos)", "CI", "QUEUED", ZERO_TIME, 6003),
-    ],
   }),
+  checks: [
+    run("lint", "CI", "SUCCESS", "2026-11-02T01:00:00Z", "2026-11-02T01:00:42Z", 6001),
+    running("test (ubuntu)", "CI", "IN_PROGRESS", "2026-11-02T01:00:10Z", 6002),
+    running("test (macos)", "CI", "QUEUED", ZERO_TIME, 6003),
+  ],
   behindBy: 0,
   inline: [],
   conversation: [],
@@ -151,36 +145,31 @@ export const failingPull = {
     labels: [label("bug", "d73a4a"), label("queue", "0e8a16")],
     mergeStateStatus: "BLOCKED",
     reviewDecision: "CHANGES_REQUESTED",
-    statusCheckRollup: [
-      run("lint", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:40:42Z", 7000),
-      // The first run of this check failed; the run after it passed.
-      run("types", "CI", "FAILURE", "2026-11-01T09:30:00Z", "2026-11-01T09:31:00Z", 6990),
-      run("types", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:41:00Z", 6991),
-      run(
-        "test (ubuntu)",
-        "CI",
-        "FAILURE",
-        "2026-11-01T09:40:00Z",
-        "2026-11-01T09:42:49Z",
-        FAILED_JOB,
-      ),
-      run("build", "CI", "TIMED_OUT", "2026-11-01T09:40:00Z", "2026-11-01T10:40:00Z", 7002),
-      run("label", "Triage", "SKIPPED", "2026-11-01T09:40:02Z", "2026-11-01T09:40:01Z", 7003),
-      // A workflow on push and pull_request: both runs count, also the failed one.
-      run("e2e", "CI", "FAILURE", "2026-11-01T09:40:00Z", "2026-11-01T09:44:00Z", 7004),
-      run("e2e", "CI", "SUCCESS", "2026-11-01T09:40:05Z", "2026-11-01T09:44:05Z", 7005),
-      // Cancelled before it started, so GitHub has no times, then run again.
-      run("flaky", "CI", "CANCELLED", ZERO_TIME, ZERO_TIME, 6980),
-      run("flaky", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:41:00Z", 6981),
-      status("deploy/preview", "FAILURE", "https://ci.example.com/job/1"),
-      status("security/scan", "SUCCESS", "javascript:alert(1)"),
-    ],
     latestReviews: [latestReview("sam", "CHANGES_REQUESTED"), latestReview("lee", "COMMENTED")],
     reviewRequests: [
       { __typename: "User", login: "jordan" },
       { __typename: "Team", name: "Queue", slug: "acme/queue" },
     ],
   }),
+  checks: [
+    run("lint", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:40:42Z", 7000),
+    run("types", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:41:00Z", 6991),
+    run(
+      "test (ubuntu)",
+      "CI",
+      "FAILURE",
+      "2026-11-01T09:40:00Z",
+      "2026-11-01T09:42:49Z",
+      FAILED_JOB,
+    ),
+    run("build", "CI", "TIMED_OUT", "2026-11-01T09:40:00Z", "2026-11-01T10:40:00Z", 7002),
+    run("label", "Triage", "SKIPPED", "2026-11-01T09:40:02Z", "2026-11-01T09:40:01Z", 7003),
+    // One after the other, on two triggers, as hashicorp/terraform#39314 has.
+    run("e2e", "CI", "FAILURE", "2026-11-01T09:36:00Z", "2026-11-01T09:40:00Z", 7004, "push"),
+    run("e2e", "CI", "SUCCESS", "2026-11-01T09:40:05Z", "2026-11-01T09:44:05Z", 7005),
+    status("deploy/preview", "FAILURE", "https://ci.example.com/job/1"),
+    status("security/scan", "SUCCESS", "javascript:alert(1)"),
+  ],
   behindBy: 3,
   inline: [
     inline(101, "sam", "This retries a call that already wrote.", 52, "src/queue.ts", 12),
@@ -227,10 +216,8 @@ export const mergedPull = {
     mergedAt: "2026-10-30T08:00:00Z",
     closedAt: "2026-10-30T08:00:00Z",
     latestReviews: [latestReview("sam", "APPROVED")],
-    statusCheckRollup: [
-      run("test", "CI", "SUCCESS", "2026-10-30T07:00:00Z", "2026-10-30T07:04:05Z", 8001),
-    ],
   }),
+  checks: [run("test", "CI", "SUCCESS", "2026-10-30T07:00:00Z", "2026-10-30T07:04:05Z", 8001)],
   inline: [],
   conversation: [],
   reviews: [{ ...by(501, "sam", 53), body: "", state: "APPROVED" }],
@@ -253,10 +240,8 @@ export const conflictPull = {
     mergeStateStatus: "DIRTY",
     reviewDecision: "REVIEW_REQUIRED",
     reviewRequests: [{ __typename: "User", login: "sam" }],
-    statusCheckRollup: [
-      run("test", "CI", "SUCCESS", "2026-10-29T07:00:00Z", "2026-10-29T07:04:05Z", 9001),
-    ],
   }),
+  checks: [run("test", "CI", "SUCCESS", "2026-10-29T07:00:00Z", "2026-10-29T07:04:05Z", 9001)],
   behindBy: 12,
   inline: [],
   conversation: [],
@@ -275,6 +260,7 @@ export function liveRules(pull) {
   const { view } = pull;
   return [
     { args: ["pr", "view", pull.url], stdout: view },
+    { args: ["pr", "checks", pull.url], stdout: pull.checks },
     {
       args: ["api", place],
       stdout: `${JSON.stringify({

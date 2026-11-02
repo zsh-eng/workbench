@@ -30,7 +30,6 @@ const FIELDS = [
   "headRepositoryOwner",
   "isCrossRepository",
   "labels",
-  "statusCheckRollup",
   "latestReviews",
   "reviewRequests",
   "reviewDecision",
@@ -55,24 +54,6 @@ const view = z.object({
   headRepositoryOwner: person,
   isCrossRepository: z.boolean().nullish(),
   labels: z.array(z.object({ name: z.string(), color: z.string().nullish() })).nullish(),
-  // A check run, or a commit status that another service set.
-  statusCheckRollup: z
-    .array(
-      z.object({
-        __typename: z.string().nullish(),
-        name: z.string().nullish(),
-        workflowName: z.string().nullish(),
-        status: z.string().nullish(),
-        conclusion: z.string().nullish(),
-        startedAt: z.string().nullish(),
-        completedAt: z.string().nullish(),
-        detailsUrl: z.string().nullish(),
-        context: z.string().nullish(),
-        state: z.string().nullish(),
-        targetUrl: z.string().nullish(),
-      }),
-    )
-    .nullish(),
   latestReviews: z.array(z.object({ author: person, state: z.string() })).nullish(),
   reviewRequests: z
     .array(
@@ -91,7 +72,23 @@ const view = z.object({
   mergedAt: z.string().nullish(),
   closedAt: z.string().nullish(),
 });
-type Rollup = NonNullable<z.infer<typeof view>["statusCheckRollup"]>[number];
+
+const CHECK_FIELDS = "name,workflow,event,state,startedAt,completedAt,link";
+// A check run, or a commit status that another service set: gh gives both the
+// same fields, and leaves out what a run of the same check replaced, as
+// GitHub does. A status has no workflow, and no end.
+const checkList = z.array(
+  z.object({
+    name: z.string(),
+    workflow: z.string().nullish(),
+    event: z.string().nullish(),
+    state: z.string(),
+    startedAt: z.string().nullish(),
+    completedAt: z.string().nullish(),
+    link: z.string().nullish(),
+  }),
+);
+type CheckEntry = z.infer<typeof checkList>[number];
 
 /** gh prints a time that GitHub left empty as Go's zero time. */
 const timeOf = (value: string | null | undefined) =>
@@ -123,19 +120,19 @@ function outcomeOf(state: string): PullRequestCheckOutcome {
 
 const ORDER: PullRequestCheckOutcome[] = ["failed", "pending", "cancelled", "passed", "skipped"];
 
-function toCheck(entry: Rollup, jobLink: RegExp): PullRequestCheck {
-  const name = entry.name || entry.context || "Check";
-  const workflow = entry.workflowName || undefined;
-  // A check run ends with a conclusion; a commit status has only its state.
-  const state =
-    entry.state || (entry.status === "COMPLETED" ? entry.conclusion : entry.status) || "PENDING";
+function toCheck(entry: CheckEntry, jobLink: RegExp, twin: boolean): PullRequestCheck {
+  const { name, state } = entry;
+  const workflow = entry.workflow || undefined;
   const outcome = outcomeOf(state);
-  const url = webLink(entry.detailsUrl ?? entry.targetUrl);
+  const url = webLink(entry.link);
   const job = outcome === "failed" ? jobLink.exec(url ?? "")?.[1] : undefined;
   return {
-    id: `${entry.context ? "status" : (workflow ?? "")}/${name}`,
+    // The link tells a check run from a status of the same name, and a new run
+    // of a job from the one before it.
+    id: `${workflow ?? ""}/${name}/${entry.event ?? ""}/${entry.link ?? ""}`,
     name,
     ...(workflow ? { workflow } : {}),
+    ...(twin && entry.event ? { event: entry.event } : {}),
     outcome,
     state,
     startedAt: timeOf(entry.startedAt),
@@ -145,47 +142,29 @@ function toCheck(entry: Rollup, jobLink: RegExp): PullRequestCheck {
   };
 }
 
-/** When a check began. One that waits to start is the last of all. */
-function startOf(check: PullRequestCheck) {
-  if (check.startedAt) return Date.parse(check.startedAt);
-  if (check.completedAt) return Date.parse(check.completedAt);
-  return check.outcome === "pending" ? Number.POSITIVE_INFINITY : 0;
-}
-function endOf(check: PullRequestCheck) {
-  if (check.completedAt) return Date.parse(check.completedAt);
-  return check.outcome === "pending" ? Number.POSITIVE_INFINITY : startOf(check);
-}
-
-/**
- * A workflow that a label or a new trigger starts again adds its checks once
- * more for the same commit, so GitHub's list can hold one check many times.
- * Of runs in a row, the last one counts. Runs at the same time stay: they are
- * a workflow's push and pull_request runs, which GitHub also lists apart, and
- * a pass must not hide a failure. Failures come first, and each group keeps
- * one order from read to read.
- */
-function latestChecks(checks: PullRequestCheck[]) {
-  const oldest = [...checks].sort((a, b) => {
-    const [first, second] = [startOf(a), startOf(b)];
-    return first === second ? 0 : first < second ? -1 : 1;
-  });
-  // Counted from the oldest, so that a new run leaves the IDs it finds.
+/** Failures first, and each group keeps one order from read to read. A check
+ * that runs for two triggers, as a push and a pull request, is two rows, each
+ * with its trigger, so a pass does not hide a failure. */
+function checksOf(entries: CheckEntry[], jobLink: RegExp) {
+  const place = (entry: CheckEntry) => `${entry.workflow ?? ""}/${entry.name}`;
   const counts = new Map<string, number>();
-  return oldest
-    .filter(
-      (check, index) =>
-        !oldest
-          .slice(index + 1)
-          .some((later) => later.id === check.id && endOf(check) <= startOf(later)),
-    )
-    .map((check) => {
-      const count = (counts.get(check.id) ?? 0) + 1;
-      counts.set(check.id, count);
-      return count > 1 ? { ...check, id: `${check.id}#${count}` } : check;
-    })
+  for (const entry of entries) counts.set(place(entry), (counts.get(place(entry)) ?? 0) + 1);
+  return entries
+    .map((entry) => toCheck(entry, jobLink, counts.get(place(entry))! > 1))
     .sort(
       (a, b) => ORDER.indexOf(a.outcome) - ORDER.indexOf(b.outcome) || a.id.localeCompare(b.id),
     );
+}
+
+/** A branch with no checks is an error to gh, and to Med a list with none. */
+async function readChecks(url: string) {
+  const text = await gh(["pr", "checks", url, "--json", CHECK_FIELDS], {
+    timeoutMs: 30_000,
+  }).catch((error: unknown) => {
+    if (error instanceof Error && /no checks reported/.test(error.message)) return "[]";
+    throw error;
+  });
+  return checkList.parse(JSON.parse(text));
 }
 
 /** Whom it asks for a review, then who gave one. A review that it asks for
@@ -243,10 +222,11 @@ async function budgetOf(host: string): Promise<GitHubBudget | undefined> {
 async function load(url: string): Promise<LivePullRequest> {
   const { host, owner, repo } = pullRequestPlace(url);
   const base = `repos/${owner}/${repo}`;
-  const [data, budget] = await Promise.all([
+  const [data, checks, budget] = await Promise.all([
     gh(["pr", "view", url, "--json", FIELDS], { timeoutMs: 30_000 }).then((text) =>
       view.parse(JSON.parse(text)),
     ),
+    readChecks(url),
     budgetOf(host),
   ]);
   const behind = await behindBy(host, base, data);
@@ -272,7 +252,7 @@ async function load(url: string): Promise<LivePullRequest> {
       name,
       ...(color && /^[0-9a-f]{6}$/i.test(color) ? { color } : {}),
     })),
-    checks: latestChecks((data.statusCheckRollup ?? []).map((entry) => toCheck(entry, jobLink))),
+    checks: checksOf(checks, jobLink),
     reviewers: reviewersOf(data),
     merge: {
       mergeable: data.mergeable || "UNKNOWN",
@@ -368,28 +348,27 @@ const descriptionImages = sharedReads(async (url) => {
 const signedLink = (links: Map<string, string>, src: string) =>
   links.get(src) ?? links.get(ASSET.exec(src)?.[0]?.toLowerCase() ?? "");
 
-const onGitHub = (target: URL | undefined, host: string) =>
-  target?.protocol === "https:" &&
-  (target.hostname === host || /(?:^|\.)githubusercontent\.com$/.test(target.hostname));
-
-/** Fetches a link of GitHub's. A link on github.com can redirect, as a raw
- * file does, and each step stays on GitHub. */
-async function fetchImage(
-  link: string,
-  host: string,
-  redirects = 3,
-): Promise<Response | undefined> {
+/** A link as a URL, when it is on GitHub. */
+function githubLink(link: string, host: string) {
   const target = URL.canParse(link) ? new URL(link) : undefined;
-  if (!onGitHub(target, host)) return undefined;
-  const response = await fetch(target!, {
+  return target?.protocol === "https:" &&
+    (target.hostname === host || /(?:^|\.)githubusercontent\.com$/.test(target.hostname))
+    ? target
+    : undefined;
+}
+
+/** A link on github.com can redirect, as a raw file does; each step stays on GitHub. */
+async function fetchImage(target: URL, host: string, redirects = 3): Promise<Response | undefined> {
+  const response = await fetch(target, {
     redirect: "manual",
     signal: AbortSignal.timeout(20_000),
   }).catch(() => undefined);
-  const next = response?.headers.get("location");
-  if (!response || response.status < 300 || response.status >= 400 || !next) return response;
-  return redirects && URL.canParse(next, target)
-    ? fetchImage(new URL(next, target).href, host, redirects - 1)
-    : undefined;
+  const location = response?.headers.get("location");
+  if (!response || response.status < 300 || response.status >= 400 || !location) return response;
+  await response.body?.cancel();
+  const next = URL.canParse(location, target) && new URL(location, target);
+  const allowed = next && githubLink(next.href, host);
+  return redirects && allowed ? fetchImage(allowed, host, redirects - 1) : undefined;
 }
 
 /**
@@ -403,9 +382,9 @@ export async function loadDescriptionImage(url: string, src: string) {
     signedLink(await descriptionImages(url), src) ??
     // The description can have changed since the last read.
     signedLink(await descriptionImages(url, true), src);
-  if (!link || !onGitHub(URL.canParse(link) ? new URL(link) : undefined, host))
-    throw new HostError("invalid-image", "The description has no such image.", 404);
-  const response = await fetchImage(link, host);
+  const target = link ? githubLink(link, host) : undefined;
+  if (!target) throw new HostError("invalid-image", "The description has no such image.", 404);
+  const response = await fetchImage(target, host);
   const mime = response?.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
   if (!response?.ok || !IMAGE_TYPES.test(mime))
     throw new HostError("image-unavailable", "GitHub did not give this image.", 502);
