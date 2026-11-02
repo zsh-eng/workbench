@@ -31,12 +31,12 @@ This writes only to the local API. Checks:
 - The Playwright tests in `tests/` run in parallel against the real app and a
   local API with a fresh database; each test signs up its own account. A test
   acts as the phone through the API and checks the records that the phone
-  receives. `tests/offline.spec.ts` and `tests/releases.spec.ts` run against
-  a production build, because only that registers the service worker.
-  `E2E_PORT`, `E2E_PREVIEW_PORT`, `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move
-  the app, the production build, the API and its inspector, and
-  `E2E_RELEASE_PORT` the releases test's own server, so two worktrees can run
-  the tests at once.
+  receives. `tests/offline.spec.ts`, `tests/opening.spec.ts` and
+  `tests/releases.spec.ts` run against a production build, because only that
+  registers the service worker. `E2E_PORT`, `E2E_PREVIEW_PORT`, `E2E_API_PORT`
+  and `E2E_INSPECTOR_PORT` move the app, the production build, the API and its
+  inspector, and `E2E_RELEASE_PORT` and `E2E_OPENING_PORT` those tests' own
+  servers, so two worktrees can run the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
   `scripts/copies.ts` uses, and `scripts/text.ts`, which reads a page for
   `wb arctic`.
