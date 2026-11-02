@@ -44,7 +44,7 @@ Design ideas → Reading fonts opens the book you read last in each sans font th
 
 Appearance → Layout → Justify sets text flush to both margins. It starts on for a screen whose short side is at least 600 px, a tablet or a desktop, and off for a phone, whose line holds too few words for its spaces to stay even. `textAlign` holds the choice: a saved `left` without `textAlignChosen` is the old default, not a choice. A left-aligned page never hyphenates.
 
-`layout-text-lines.ts` breaks a whole paragraph at once, in the manner of TeX: of all the ways to break it, the one whose word spaces stay closest to natural, tried with no hyphens first. A paragraph it cannot set, such as one with a word wider than the column, stays ragged. It does no measuring of its own, so it costs less than left-aligned text: on a 2,000-page book at iPad width, layout takes 565 ms against 880 ms, and time to full pagination stays 11.1 s.
+`layout-text-lines.ts` breaks a whole paragraph at once, in the manner of TeX: of all the ways to break it, the one whose word spaces stay closest to natural, tried with no hyphens first. A paragraph it cannot set, such as one with a word wider than the column, stays ragged. It does no measuring of its own, so it costs less than left-aligned text: on a 2,000-page book at iPad width, layout takes 625 ms against 905 ms, and full pagination takes 10.4 s against 10.8 s.
 
 The text never changes. A hyphen break is a cursor inside a segment, and the hyphen exists only in that line's rendered fragment, so saved places, highlights, copy and search see the book's own text. A saved place stays valid when lines move, as it does when the font changes, and Justify needs no cache bump: laid-out pages are never persisted.
 
