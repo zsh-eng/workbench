@@ -83,6 +83,20 @@ import XCTest
     workspace.shutDown()
   }
 
+  func testArchivedArticleLeavesDownloadedAndKeepsItsCopy() async throws {
+    let url = try await seed(0)
+    let id = try XCTUnwrap(store.article(for: url)?.id)
+    var article = try XCTUnwrap(store.article(for: url))
+    XCTAssertTrue(MacLibraryFolder.downloaded.contains(article))
+    try store.setArchived(true, ids: [id])
+    article = try XCTUnwrap(store.article(for: url))
+    XCTAssertFalse(MacLibraryFolder.downloaded.contains(article))
+    XCTAssertTrue(MacLibraryFolder.archive.contains(article))
+    XCTAssertNotNil(store.downloadedFile(for: url))
+    try store.setArchived(false, ids: [id])
+    XCTAssertTrue(MacLibraryFolder.downloaded.contains(try XCTUnwrap(store.article(for: url))))
+  }
+
   func testWebKitAcceptsTheSelectedRefreshPreference() throws {
     let preferences = WKPreferences()
     try XCTSkipUnless(

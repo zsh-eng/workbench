@@ -99,8 +99,9 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   onboarding, and modal settings. Backgrounding and memory pressure release
   nearby browsers while retaining the last opened Reader.
   Metadata remains in memory; opening does not query a remote database.
-- **Downloaded** includes saved articles, including archived articles, whose Defuddle
-  Reader view has been written to disk. Cached articles open from their styled local
+- **Downloaded** includes saved articles that are not archived and whose Defuddle
+  Reader view has been written to disk. Archiving keeps the copy, so an archived article still
+  opens offline from Archive; it returns to Downloaded when moved to Saved. Cached articles open from their styled local
   HTML in any folder, without briefly showing the website. New HTML declares UTF-8;
   older cached bytes also load as UTF-8, preserving quotes, accents, and CJK text. Reader and Website
   crossfade and keep separate scroll positions; see the switch rule below. Website loads on demand;

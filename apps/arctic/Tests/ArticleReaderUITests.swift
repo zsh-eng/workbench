@@ -396,6 +396,48 @@ final class ArticleReaderUITests: XCTestCase {
     XCTAssertTrue(app.buttons["Sort and filter"].isHittable)
   }
 
+  @MainActor func testArchivedArticleLeavesDownloadedAndKeepsItsCopy() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance"]
+    app.launch()
+    add("https://fixture.example/story", to: app)
+    let card = app.buttons["article-story"]
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    card.tap()
+    expectation(
+      for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: app.buttons["reader-toggle"])
+    waitForExpectations(timeout: 15)
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    app.buttons["folder-downloaded"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    card.press(forDuration: 1)
+    app.buttons["archive-article"].tap()
+
+    XCTAssertTrue(app.staticTexts["Take a good read with you."].waitForExistence(timeout: 5))
+    XCTAssertFalse(card.exists)
+    capture(app, "42-downloaded-without-archived")
+    app.buttons["folder-archive"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+
+    // The stored copy stays: this fresh process cannot reach any publisher.
+    app.terminate()
+    app.launchArguments = ["-ui-testing", "-articles-offline", "-images-offline"]
+    app.launch()
+    XCTAssertTrue(app.buttons["folder-downloaded"].waitForExistence(timeout: 5))
+    app.buttons["folder-archive"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.tap()
+    XCTAssertTrue(app.webViews.staticTexts["A little room to think"].waitForExistence(timeout: 10))
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+
+    // Moved back, it is downloaded again without another fetch.
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.press(forDuration: 1)
+    app.buttons["archive-article"].tap()
+    app.buttons["folder-downloaded"].tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+  }
+
   @MainActor func testFolderSwipesAndDownloadedReaderSurviveRestart() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance"]
