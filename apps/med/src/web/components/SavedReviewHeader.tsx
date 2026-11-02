@@ -537,10 +537,8 @@ const styles = stylex.create({
   },
   // The first row of the review card: the height of the sidebar's identity
   // row beside it, and the tab row's rule below.
-  // In the tab row beside a thread: no row of its own. Its notice takes the
-  // row's width: this header is only as wide as its menu button.
+  // In the tab row beside a thread: no row of its own.
   inline: {
-    position: "static",
     containerType: "normal",
     height: "auto",
     minHeight: 0,
@@ -639,7 +637,8 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8,
-    minWidth: 0,
+    // Its own width: beside a thread, this header is only as wide as its menu button.
+    width: "max-content",
     maxWidth: "min(420px, calc(100vw - 24px))",
     paddingBlock: 8,
     paddingInline: 12,

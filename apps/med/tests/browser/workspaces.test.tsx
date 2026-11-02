@@ -733,22 +733,26 @@ test("a thread with its session on screen shows its session first, and its diff 
   expect(status()).toBe("ready");
 });
 
-test("the notice after Clear takes the review's row, not the width of its ⋯ button", async () => {
+test("the notice after Clear shows under the ⋯ button, on one line, wider than the button", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   host.setThreads([thread("commented")]);
   await page.getByRole("button", { name: /^Commented review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("commented-target");
-  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  const more = page.getByRole("button", { name: "More actions", exact: true });
+  await more.click();
   await page.getByRole("menuitem", { name: "Clear all comments…" }).click();
   await page.getByRole("button", { name: "Confirm clear" }).click();
   const notice = page.getByRole("status").filter({ hasText: "Comments cleared" });
   await expect.element(notice).toBeVisible();
-  // On one line, at the end of the row.
   const box = notice.element().getBoundingClientRect();
+  const button = more.element().getBoundingClientRect();
   expect(box.height).toBeLessThan(44);
   expect(box.width).toBeGreaterThan(100);
+  // Under the button, in view: not at the page's end.
+  expect(box.top).toBeGreaterThanOrEqual(button.bottom);
+  expect(box.top - button.bottom).toBeLessThan(40);
 });
 
 test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chrome brings back the bars", async () => {
