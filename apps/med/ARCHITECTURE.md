@@ -583,6 +583,26 @@ its refs change, and at most every 5 minutes. It links the first open pull
 request that it finds, and then stops. It does not ask for threads in history,
 for the base branch, or when `gh` is missing or not signed in.
 
+The Pull request tab shows the agent's draft until the review has a pull
+request, then `src/web/components/PullRequestView.tsx`, for a review that is not
+a stack. `src/host/repository/pull-request-live.ts` reads what the comments read
+leaves out: `GET /api/reviews/:id/pull-request-live` runs `gh pr view --json` and
+a REST compare, with a 30 second cache that pages share, and asks `gh api
+rate_limit`, which costs no API call. It keeps GitHub's words as strings, so a
+new value does not break the tab, and it normalises what gh prints: Go's zero
+time, a check that the list repeats, and a service's link that is not a web
+link. Only the tab asks for this read. `src/web/data/live-pull-request.ts` paces
+it by what can change and by the API limit, and stops while the tab, the
+workspace, or the window is hidden. A failed job's log
+(`GET /api/reviews/:id/pull-request-log`) reads only on a click.
+
+The page's `img-src` is `'self'`, and an attachment on GitHub needs a sign-in, so
+a description's image comes through `GET /api/reviews/:id/pull-request-image`.
+GitHub's rendered description (`bodyHTML`) holds a signed link, good for 5
+minutes, for each attachment, and GitHub's own proxy for an image on another
+site. The host keeps that map for 4 minutes and fetches only a link from it, on
+GitHub's hosts, with no sign-in. It takes no address from the page.
+
 A bundle and each version can hold a guide (`src/shared/review-guide.ts`): a
 summary and segments, each with file patterns and the agent's comments on
 lines. The host checks it with the shared schema on create and on

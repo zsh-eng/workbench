@@ -61,6 +61,11 @@ import {
   loadPullRequestComments,
   type PendingReviewChange,
 } from "./repository/pull-request";
+import {
+  loadDescriptionImage,
+  loadLivePullRequest,
+  readCheckLog,
+} from "./repository/pull-request-live";
 import { ReviewService } from "./repository/review";
 import { HostError } from "./runtime/errors";
 import { ProcessFailure } from "./runtime/process";
@@ -2466,7 +2471,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|codex-reviews|since|approval|pr-draft|pr-draft-create))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2558,6 +2563,47 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     url.searchParams.get("refresh") === "1",
                   ),
                 );
+              } else if (
+                action === "pull-request-live" ||
+                action === "pull-request-log" ||
+                action === "pull-request-image"
+              ) {
+                // The Pull request tab: GitHub's pull request as it is now,
+                // a failed job's log, and the description's images.
+                if (!bundle.pullRequestUrl)
+                  throw new HostError("no-pull-request", "This review has no pull request.", 404);
+                if (action === "pull-request-live")
+                  send(
+                    await loadLivePullRequest(
+                      bundle.pullRequestUrl,
+                      url.searchParams.get("refresh") === "1",
+                    ),
+                  );
+                else if (action === "pull-request-log")
+                  send(
+                    await readCheckLog(
+                      bundle.pullRequestUrl,
+                      z.coerce
+                        .number()
+                        .int()
+                        .positive()
+                        .parse(url.searchParams.get("job") ?? ""),
+                    ),
+                  );
+                else {
+                  const image = await loadDescriptionImage(
+                    bundle.pullRequestUrl,
+                    z.string().min(1).max(4096).parse(url.searchParams.get("src")),
+                  );
+                  response.writeHead(200, {
+                    "Content-Type": image.mime,
+                    "Content-Length": image.bytes.length,
+                    "Cache-Control": "private, max-age=3600",
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "default-src 'none'; sandbox",
+                  });
+                  response.end(image.bytes);
+                }
               } else if (action === "codex-reviews") {
                 // Reviews of a head that the review shows, or run since it was saved.
                 const heads = new Set(bundle.targets.map((target) => target.head));

@@ -203,7 +203,7 @@ function Body({ text }: { text: string }) {
   );
 }
 
-function CopyButton({ text, label }: { text: () => string; label: string }) {
+export function CopyButton({ text, label }: { text: () => string; label: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
     if (state === "idle") return;
@@ -238,7 +238,7 @@ export interface AgentReplyTarget {
 }
 export const AgentReplyContext = createContext<AgentReplyTarget | null>(null);
 
-function AddToReplyButton({ label, text }: { label: string; text: () => string }) {
+export function AddToReplyButton({ label, text }: { label: string; text: () => string }) {
   const target = useContext(AgentReplyContext);
   const [added, setAdded] = useState(false);
   useEffect(() => {
@@ -291,7 +291,26 @@ const states: Record<string, Tag> = {
   DISMISSED: { label: "Dismissed", tone: "quiet" },
   COMMENTED: { label: "Reviewed" },
   PENDING: { label: "Pending", tone: "warn" },
+  REQUESTED: { label: "Requested", tone: "ask" },
 };
+/** A review's state, as a small label. */
+export function StateTag({ tag }: { tag: Tag }) {
+  return (
+    <span
+      {...stylex.props(
+        styles.state,
+        tag.tone === "good" && styles.good,
+        tag.tone === "bad" && styles.bad,
+        tag.tone === "quiet" && styles.quiet,
+        tag.tone === "warn" && styles.warn,
+        tag.tone === "ask" && styles.ask,
+      )}
+    >
+      {tag.label}
+    </span>
+  );
+}
+export const reviewTag = (state: string): Tag => states[state] ?? { label: state.toLowerCase() };
 /** A comment of the reader's pending review: GitHub's draft, which only they see. */
 const draftTag: Tag = { label: "Pending", tone: "warn" };
 
@@ -316,9 +335,7 @@ function Entry({
   tools?: ReactNode;
 }) {
   const created = Date.parse(comment.createdAt);
-  const review =
-    tag ??
-    (state ? (states[state] ?? { label: state.toLowerCase() }) : comment.draft ? draftTag : null);
+  const review = tag ?? (state ? reviewTag(state) : comment.draft ? draftTag : null);
   return (
     <div {...stylex.props(styles.entry, stylex.defaultMarker())}>
       <div {...stylex.props(styles.byline)}>
@@ -328,20 +345,7 @@ function Entry({
           </span>
         )}
         <span {...stylex.props(styles.author, ui.truncate)}>{comment.author}</span>
-        {review && (
-          <span
-            {...stylex.props(
-              styles.state,
-              review.tone === "good" && styles.good,
-              review.tone === "bad" && styles.bad,
-              review.tone === "quiet" && styles.quiet,
-              review.tone === "warn" && styles.warn,
-              review.tone === "ask" && styles.ask,
-            )}
-          >
-            {review.label}
-          </span>
-        )}
+        {review && <StateTag tag={review} />}
         {!Number.isNaN(created) && (
           <time
             dateTime={comment.createdAt}
@@ -432,7 +436,7 @@ export function PullRequestThreadCard({
 
 /** The reader's pending review on GitHub: what it holds, and Submit or
  * Discard. GitHub shows it to nobody else until they submit it. */
-function PendingReview({ data }: { data: PullRequestComments }) {
+function PendingReview({ data, children }: { data: PullRequestComments; children?: ReactNode }) {
   const github = useContext(PendingReviewContext);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<PendingReviewInput["action"] | null>(null);
@@ -465,6 +469,7 @@ function PendingReview({ data }: { data: PullRequestComments }) {
           {drafts} {drafts === 1 ? "comment" : "comments"}, only you see them
         </span>
       </div>
+      {children}
       <textarea
         aria-label="Review summary"
         placeholder={summary?.body.trim() ? summary.body : "Summary (optional)"}
@@ -631,14 +636,6 @@ export function PanelContent({
   // The popover mounts its contents when it opens; ages count from then.
   const [openedAt] = useState(Date.now);
   const now = fixedNow ?? openedAt;
-  const timeline = data
-    ? [
-        ...data.reviews.map((review) => ({ comment: review, state: review.state })),
-        ...data.conversation.map((comment) => ({ comment, state: undefined })),
-      ].sort((a, b) => a.comment.createdAt.localeCompare(b.comment.createdAt))
-    : [];
-  const others = data ? data.threads.filter((thread) => !placement.inline.has(thread.id)) : [];
-  const inline = data ? data.threads.length - others.length : 0;
   const writable = !!useContext(PendingReviewContext);
   return (
     <div {...stylex.props(styles.content)}>
@@ -675,71 +672,138 @@ export function PanelContent({
         </p>
       )}
       {!data && !error && <p {...stylex.props(styles.lede)}>Reading comments…</p>}
-      {data && (
-        <>
-          <PendingReview data={data} />
-          <section aria-label="Conversation" {...stylex.props(styles.section)}>
-            <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
-            {timeline.length ? (
-              timeline.map(({ comment, state }) => (
-                <div key={comment.id} {...stylex.props(styles.item)}>
-                  <Entry
-                    comment={comment}
-                    now={now}
-                    state={state}
-                    tools={
-                      <>
-                        {comment.body.trim() && (
-                          <>
-                            <AddToReplyButton
-                              label={`@${comment.author}`}
-                              text={() => commentText(comment)}
-                            />
-                            <CopyButton label="Copy comment" text={() => commentText(comment)} />
-                          </>
-                        )}
-                        <OpenButton url={comment.url} />
-                      </>
-                    }
-                  />
-                </div>
-              ))
-            ) : (
-              <p {...stylex.props(styles.lede)}>No conversation comments.</p>
-            )}
-          </section>
-          <section aria-label="Code comments" {...stylex.props(styles.section)}>
-            <div {...stylex.props(styles.headingRow)}>
-              <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
-              <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
-            </div>
-            {inline > 0 && (
-              <p {...stylex.props(styles.lede)}>
-                {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
-              </p>
-            )}
-            {placement.reason && others.length > 0 && (
-              <p {...stylex.props(styles.lede)}>{placement.reason}</p>
-            )}
-            {others.map((thread) => (
-              <div key={thread.id} {...stylex.props(styles.item)}>
-                <div {...stylex.props(styles.where)}>
-                  <span {...stylex.props(ui.truncate)} title={thread.path}>
-                    {thread.path}
-                  </span>
-                  <span {...stylex.props(styles.line)}>{lineLabel(thread)}</span>
-                </div>
-                {placement.reasons.get(thread.id) && (
-                  <p {...stylex.props(styles.why)}>{placement.reasons.get(thread.id)}</p>
-                )}
-                <PullRequestThreadCard thread={thread} now={now} embedded />
-              </div>
-            ))}
-            {!data.threads.length && <p {...stylex.props(styles.lede)}>No code comments.</p>}
-          </section>
-        </>
-      )}
+      {data && <Discussion data={data} placement={placement} now={now} />}
     </div>
+  );
+}
+
+const hasPending = (thread: PullRequestThread) => thread.comments.some((entry) => entry.draft);
+
+/** A code thread in a list: where it is, and why the diff does not show it. */
+function ThreadItem({
+  thread,
+  why,
+  now,
+  onShow,
+}: {
+  thread: PullRequestThread;
+  why?: string;
+  now: number;
+  onShow?(): void;
+}) {
+  return (
+    <div {...stylex.props(styles.item)}>
+      <div {...stylex.props(styles.where)}>
+        <span {...stylex.props(ui.truncate)} title={thread.path}>
+          {thread.path}
+        </span>
+        <span {...stylex.props(styles.line)}>{lineLabel(thread)}</span>
+        {onShow && (
+          <>
+            <span {...stylex.props(ui.grow)} />
+            <button
+              type="button"
+              aria-label={`Show ${threadLabel(thread)} in the diff`}
+              {...stylex.props(ui.button, ui.pressable, styles.addAll)}
+              onClick={onShow}
+            >
+              Show in diff
+            </button>
+          </>
+        )}
+      </div>
+      {why && <p {...stylex.props(styles.why)}>{why}</p>}
+      <PullRequestThreadCard thread={thread} now={now} embedded />
+    </div>
+  );
+}
+
+/**
+ * The reader's pending review, the conversation in time order, and the code
+ * comments. The panel lists only the threads that the diff cannot show.
+ * With `onShowThread`, as in the Pull request tab, every thread shows, with
+ * the pending ones in the pending review and a link to each that the diff has.
+ */
+export function Discussion({
+  data,
+  placement,
+  now,
+  onShowThread,
+}: {
+  data: PullRequestComments;
+  placement: ThreadPlacement;
+  now: number;
+  onShowThread?(thread: PullRequestThread): void;
+}) {
+  const timeline = [
+    ...data.reviews.map((review) => ({ comment: review, state: review.state })),
+    ...data.conversation.map((comment) => ({ comment, state: undefined })),
+  ].sort((a, b) => a.comment.createdAt.localeCompare(b.comment.createdAt));
+  const others = data.threads.filter((thread) => !placement.inline.has(thread.id));
+  const inline = data.threads.length - others.length;
+  const pending = onShowThread ? data.threads.filter(hasPending) : [];
+  const listed = onShowThread ? data.threads.filter((thread) => !hasPending(thread)) : others;
+  const item = (thread: PullRequestThread) => (
+    <ThreadItem
+      key={thread.id}
+      thread={thread}
+      why={placement.reasons.get(thread.id)}
+      now={now}
+      onShow={
+        onShowThread && placement.inline.has(thread.id) ? () => onShowThread(thread) : undefined
+      }
+    />
+  );
+  return (
+    <>
+      <PendingReview data={data}>{pending.length > 0 && pending.map(item)}</PendingReview>
+      <section aria-label="Conversation" {...stylex.props(styles.section)}>
+        <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
+        {timeline.length ? (
+          timeline.map(({ comment, state }) => (
+            <div key={comment.id} {...stylex.props(styles.item)}>
+              <Entry
+                comment={comment}
+                now={now}
+                state={state}
+                tools={
+                  <>
+                    {comment.body.trim() && (
+                      <>
+                        <AddToReplyButton
+                          label={`@${comment.author}`}
+                          text={() => commentText(comment)}
+                        />
+                        <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                      </>
+                    )}
+                    <OpenButton url={comment.url} />
+                  </>
+                }
+              />
+            </div>
+          ))
+        ) : (
+          <p {...stylex.props(styles.lede)}>No conversation comments.</p>
+        )}
+      </section>
+      <section aria-label="Code comments" {...stylex.props(styles.section)}>
+        <div {...stylex.props(styles.headingRow)}>
+          <h3 {...stylex.props(ui.label, styles.heading)}>Code comments</h3>
+          <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
+        </div>
+        {!onShowThread && inline > 0 && (
+          <p {...stylex.props(styles.lede)}>
+            {inline} {inline === 1 ? "thread shows" : "threads show"} in the diff.
+          </p>
+        )}
+        {placement.reason && others.length > 0 && (
+          <p {...stylex.props(styles.lede)}>{placement.reason}</p>
+        )}
+        {listed.map(item)}
+        {!data.threads.length && <p {...stylex.props(styles.lede)}>No code comments.</p>}
+      </section>
+    </>
   );
 }
 

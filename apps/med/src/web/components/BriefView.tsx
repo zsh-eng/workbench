@@ -121,6 +121,8 @@ export interface BriefViewProps {
   prDraftImage?(href: string): string | undefined;
   /** Opens the pull request on GitHub with gh: what Create does. */
   onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
+  /** Goes back to the pull request as GitHub has it, for a draft that has one. */
+  onShowLive?(): void;
 }
 interface Draft {
   key: string;
@@ -230,6 +232,7 @@ export default function BriefView({
   prDraft,
   prDraftImage,
   onCreatePullRequest,
+  onShowLive,
 }: BriefViewProps) {
   const workspaceShown = useWorkspaceShown();
   const { active: theme } = useTheme();
@@ -792,6 +795,7 @@ export default function BriefView({
                   onCopy={() => onCopy(section.text)}
                   onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : () => onRemove?.()}
                   onCreatePullRequest={section.draft ? onCreatePullRequest : undefined}
+                  onShowLive={section.draft ? onShowLive : undefined}
                 />
               )}
               {blocks.map(({ block, index }) => (
@@ -1402,6 +1406,7 @@ function NoteHead({
   onCopy,
   onRemove,
   onCreatePullRequest,
+  onShowLive,
 }: {
   number: number;
   total: number;
@@ -1410,6 +1415,7 @@ function NoteHead({
   onCopy(): void;
   onRemove(): void;
   onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
+  onShowLive?(): void;
 }) {
   const source = section.pin?.source;
   const { draft } = section;
@@ -1458,6 +1464,11 @@ function NoteHead({
           {noteTime(section.at)}
         </time>
         <span {...stylex.props(styles.grow)} />
+        {onShowLive && (
+          <button type="button" onClick={onShowLive} {...stylex.props(ui.button)}>
+            Live pull request
+          </button>
+        )}
         {draft?.pullRequestUrl ? (
           <a
             href={draft.pullRequestUrl}

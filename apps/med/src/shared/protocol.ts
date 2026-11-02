@@ -172,6 +172,78 @@ export interface PullRequestComments {
   /** Review summaries: approvals, change requests, and review text. */
   reviews: (PullRequestComment & { state: string })[];
 }
+/** How a check ended, or that it has not. Sorts and counts the checks. */
+export type PullRequestCheckOutcome = "failed" | "pending" | "cancelled" | "passed" | "skipped";
+/** One check of a pull request's head commit: its latest run. */
+export interface PullRequestCheck {
+  /** The same in each read: its workflow and its name. */
+  id: string;
+  name: string;
+  /** The GitHub Actions workflow, for a check that has one. */
+  workflow?: string;
+  outcome: PullRequestCheckOutcome;
+  /** GitHub's word for it, such as IN_PROGRESS or TIMED_OUT. */
+  state: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** Its page: an http or https link. */
+  url?: string;
+  /** The GitHub Actions job of a failed check, whose log Med can read. */
+  job?: number;
+}
+/** Someone who reviewed the pull request, or whom it asks for a review. */
+export interface PullRequestReviewer {
+  name: string;
+  team?: boolean;
+  /** REQUESTED, or the state of their latest review, such as APPROVED. */
+  state: string;
+}
+/** What GitHub says of merging a pull request. */
+export interface PullRequestMerge {
+  /** MERGEABLE, CONFLICTING, or UNKNOWN while GitHub works it out. */
+  mergeable: string;
+  /** GitHub's merge state, such as CLEAN, BLOCKED, BEHIND, or DIRTY. */
+  status: string;
+  /** APPROVED, CHANGES_REQUESTED, or REVIEW_REQUIRED; null with no rule. */
+  decision: string | null;
+  /** The base's commits that the head does not have. Only an open pull
+   * request has this, and only while GitHub can compare the two. */
+  behindBy?: number;
+  mergedBy?: string;
+  /** When it merged, or closed without merging. */
+  endedAt?: string;
+}
+/** How much of the sign-in's GitHub API limit is left. */
+export interface GitHubBudget {
+  remaining: number;
+  limit: number;
+  /** When it fills again, in milliseconds since 1970. */
+  resetAt: number;
+}
+/** A pull request as GitHub has it now. Comments come from
+ * PullRequestComments, which every review reads. */
+export interface LivePullRequest extends PullRequestSummary {
+  url: string;
+  /** Markdown, as its author wrote it. */
+  body: string;
+  /** The branch that it merges into. */
+  base: string;
+  /** Its branch, with the owner's name when that is another repository's. */
+  head: string;
+  labels: { name: string; color?: string }[];
+  /** Failures first, then what still runs. */
+  checks: PullRequestCheck[];
+  reviewers: PullRequestReviewer[];
+  merge: PullRequestMerge;
+  budget?: GitHubBudget;
+  fetchedAt: number;
+}
+/** The end of the log of a failed GitHub Actions job. */
+export interface PullRequestCheckLog {
+  text: string;
+  /** How many lines came before `text`. */
+  skipped: number;
+}
 /** Commit message body and size, loaded when a commit card opens. */
 export interface CommitDetails {
   id: string;

@@ -108,6 +108,44 @@ export const pullRequestCommentsSchema = z.object({
   conversation: z.array(pullRequestCommentSchema),
   reviews: z.array(pullRequestCommentSchema.extend({ state: z.string() })),
 });
+export const livePullRequestSchema = z.object({
+  url: z.string(),
+  number: z.number(),
+  title: z.string(),
+  author: z.string(),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  body: z.string(),
+  base: z.string(),
+  head: z.string(),
+  labels: z.array(z.object({ name: z.string(), color: z.string().optional() })),
+  checks: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      workflow: z.string().optional(),
+      outcome: z.enum(["failed", "pending", "cancelled", "passed", "skipped"]),
+      state: z.string(),
+      startedAt: z.string().nullable(),
+      completedAt: z.string().nullable(),
+      url: z.string().optional(),
+      job: z.number().optional(),
+    }),
+  ),
+  reviewers: z.array(
+    z.object({ name: z.string(), team: z.boolean().optional(), state: z.string() }),
+  ),
+  merge: z.object({
+    mergeable: z.string(),
+    status: z.string(),
+    decision: z.string().nullable(),
+    behindBy: z.number().optional(),
+    mergedBy: z.string().optional(),
+    endedAt: z.string().optional(),
+  }),
+  budget: z.object({ remaining: z.number(), limit: z.number(), resetAt: z.number() }).optional(),
+  fetchedAt: z.number(),
+});
+export const pullRequestCheckLogSchema = z.object({ text: z.string(), skipped: z.number() });
 export const reviewSchema = z.object({
   id: z.string(),
   repo: z.string(),

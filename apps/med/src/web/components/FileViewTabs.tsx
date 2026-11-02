@@ -43,7 +43,7 @@ export function FileViewTabs({
   active: string;
   panelId?: string;
   showChanges?: boolean;
-  /** The Notes of a Review's version, after Review and before Changes. */
+  /** The Pull request tab, after Review and before Changes. */
   showBrief?: boolean;
   /** What the agent handed off, with its Guide, comes first. */
   showReview?: boolean;
