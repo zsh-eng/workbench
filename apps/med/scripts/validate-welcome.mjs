@@ -219,7 +219,7 @@ try {
   await page.getByRole("button", { name: "Add 7 sources" }).click();
   await page.getByRole("heading", { name: "You're all set" }).waitFor();
   await page.getByText("6 repositories and 2 vaults are ready to review.").waitFor();
-  const listed = JSON.parse(await run("list"))
+  const listed = JSON.parse(await run("list", "--json"))
     .map((source) => source.path)
     .sort();
   assert.deepEqual(
