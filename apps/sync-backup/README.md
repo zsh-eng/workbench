@@ -296,6 +296,7 @@ are rejected by the fixture.
 `test/arctic.test.ts` runs `wb arctic` against a small fake API and checks
 every request it sends. `apps/arctic/Browser/tests/cli.spec.ts` runs it against
 the local shared API and compares its records with the web's.
+`test/hourly.test.ts` runs `wb hourly`'s two steps with a stub in place of wb.
 
 Review: this guide, `src/cli.ts`, `src/sync.ts`, `src/store.ts`,
 `src/snapshot.ts`, `src/auth.ts`, `src/arctic.ts`, then the sync-server

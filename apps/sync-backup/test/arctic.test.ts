@@ -1,5 +1,11 @@
-import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { expect, setSystemTime, test } from "bun:test";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +29,7 @@ import {
   arctic,
   arcticFetch,
   backfillPreviews,
+  fetchMissingText,
   type LinkResult,
   type PreviewResult,
 } from "../src/arctic";
@@ -630,6 +637,326 @@ test("wb arctic backfill-previews reads saved links without a preview, reports, 
     expect((await stored(urls[3]!)).imageURL).toBe("https://phone.example/4.jpg");
     // Now every saved link has a picture.
     expect((await run(false)).candidates).toBe(0);
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+/** What Arctic's extractor gives for a page (apps/arctic/Browser/scripts/text.ts). */
+type Page = { title: string; html?: string; words?: number; problem?: string };
+
+/** Puts the phone's records for each link in the fake API. */
+async function seedLinks(
+  api: ReturnType<typeof fakeAPI>,
+  links: { url: string; library: Record<string, unknown>; removed?: boolean }[],
+) {
+  let counter = 0;
+  for (const { url, library, removed = false } of links)
+    for (const record of await phoneArticle(url, library))
+      api.put(
+        "arctic",
+        {
+          ...record,
+          isDeleted: removed,
+          schemaVersion: 1,
+          hlc: { wallTimeMs: Date.now() - 60_000, counter: counter++ },
+        },
+        "iphone",
+      );
+}
+
+test("wb arctic text --missing reads the newest saved links without text, up to the limit; a link that gives none doesn't stop the run", async () => {
+  const api = fakeAPI();
+  const origin = api.server.url.origin;
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-missing-"));
+  const now = toSwift(Date.now());
+  const link = (name: string) => `https://example.com/${name}`;
+  // Oldest first, so the order read is the command's own.
+  await seedLinks(api, [
+    { url: link("over-limit"), library: { saved: true, savedAt: now - 6 } },
+    { url: link("unwall"), library: { saved: true, savedAt: now - 5 } },
+    { url: link("x-sign-in"), library: { saved: true, savedAt: now - 4 } },
+    { url: link("bot-check"), library: { saved: true, savedAt: now - 3 } },
+    { url: link("offline"), library: { saved: true, savedAt: now - 2 } },
+    { url: link("article"), library: { saved: true, savedAt: now - 1 } },
+    // Left alone: a link with text, a link in History, a removed link.
+    { url: link("has-text"), library: { saved: true, savedAt: now } },
+    { url: link("history"), library: { saved: false, lastVisitedAt: now } },
+    {
+      url: link("removed"),
+      library: { saved: true, savedAt: now },
+      removed: true,
+    },
+  ]);
+  const content = async (name: string) =>
+    `content/${await articleId(link(name))}`;
+  api.put(
+    "arctic-content",
+    {
+      key: await content("has-text"),
+      value: encodeSorted({ url: link("has-text"), words: 500 }),
+      isDeleted: false,
+      schemaVersion: 1,
+      hlc: { wallTimeMs: Date.now() - 60_000, counter: 0 },
+    },
+    "iphone",
+  );
+  const pages: Record<string, Page> = {
+    [link("article")]: { title: "Article", html: words(300), words: 300 },
+    [link("bot-check")]: { title: "", problem: "browser check" },
+    [link("x-sign-in")]: { title: "", problem: "X asks to sign in" },
+    // Unwall could not open a listed site: the publisher's teaser.
+    [link("unwall")]: { title: "", words: 210, problem: "paywall preview" },
+  };
+  const read: string[] = [];
+  const reader = {
+    read: async (url: string) => {
+      read.push(url);
+      if (!pages[url]) throw Error("Unable to connect");
+      return pages[url];
+    },
+    close: async () => {},
+  };
+  try {
+    const run = await fetchMissingText({
+      origin,
+      token: "fixture",
+      directory,
+      limit: 5,
+      gapMs: 0,
+      read: reader,
+    });
+    const chosen = ["article", "offline", "bot-check", "x-sign-in", "unwall"];
+    expect(read).toEqual(chosen.map(link));
+    expect(run.links).toEqual(chosen.map(link));
+    expect(run.missing).toBe(6);
+    const result = async (name: string, rest: Partial<LinkResult>) => ({
+      input: link(name),
+      url: link(name),
+      id: await articleId(link(name)),
+      status: "already saved",
+      ...rest,
+    });
+    expect(run.results).toEqual([
+      await result("article", { text: "uploaded", words: 300 }),
+      await result("offline", {
+        status: "failed",
+        text: "skipped",
+        error: "Unable to connect",
+      }),
+      await result("bot-check", { text: "none", reason: "browser check" }),
+      await result("x-sign-in", { text: "none", reason: "X asks to sign in" }),
+      await result("unwall", {
+        text: "none",
+        reason: "paywall preview",
+        words: 210,
+      }),
+    ]);
+    // Only the article's text was uploaded, and no link changed.
+    expect(api.files.size).toBe(1);
+    expect([...api.stores.get("arctic-content")!.keys()]).toEqual([
+      await content("has-text"),
+      await content("article"),
+    ]);
+    expect(api.requests).not.toContain("POST /api/apps/arctic/sync/v3/push");
+    // The links that gave no text wait for their next try.
+    expect(run.waiting).toBe(4);
+    const state = JSON.parse(
+      readFileSync(join(directory, "arctic-text.json"), "utf8"),
+    );
+    expect(Object.keys(state)).toEqual([origin]);
+    expect(Object.keys(state[origin]).sort()).toEqual(
+      (await Promise.all(chosen.slice(1).map((name) => articleId(link(name))))).sort(),
+    );
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("wb arctic text --missing: a link without text waits 1, 2, 4… up to 30 days, across runs and per API origin, until it gives text", async () => {
+  const first = fakeAPI();
+  const second = fakeAPI();
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-backoff-"));
+  const url = "https://example.com/paper.pdf";
+  const id = await articleId(url);
+  for (const api of [first, second])
+    await seedLinks(api, [
+      { url, library: { saved: true, savedAt: toSwift(Date.now()) } },
+    ]);
+  let page: Page = { title: "", problem: "PDF" };
+  let reads = 0;
+  const read = { read: async () => (reads++, page), close: async () => {} };
+  // Each run reads arctic-text.json afresh, as a new process does.
+  const run = async (api: ReturnType<typeof fakeAPI>, at: number) => {
+    setSystemTime(at);
+    reads = 0;
+    const { waiting } = await fetchMissingText({
+      origin: api.server.url.origin,
+      token: "fixture",
+      directory,
+      gapMs: 0,
+      read,
+    });
+    return { reads, waiting };
+  };
+  const waiting = (api: ReturnType<typeof fakeAPI>) =>
+    JSON.parse(readFileSync(join(directory, "arctic-text.json"), "utf8"))[
+      api.server.url.origin
+    ]?.[id];
+  try {
+    let at = Date.now();
+    for (const [index, days] of [1, 2, 4, 8, 16, 30, 30].entries()) {
+      expect(await run(first, at)).toEqual({ reads: 1, waiting: 1 });
+      expect(waiting(first)).toEqual({
+        tries: index + 1,
+        retryAt: at + days * DAY,
+      });
+      // Until then, later runs leave it alone.
+      expect(await run(first, at + days * DAY - 1)).toEqual({
+        reads: 0,
+        waiting: 1,
+      });
+      at += days * DAY;
+    }
+    // Another account's links have their own state.
+    expect(await run(second, at - 1)).toEqual({ reads: 1, waiting: 1 });
+    expect(waiting(second)).toEqual({ tries: 1, retryAt: at - 1 + DAY });
+    // Text clears the wait.
+    page = { title: "Paper", html: words(300), words: 300 };
+    expect(await run(first, at)).toEqual({ reads: 1, waiting: 0 });
+    expect(waiting(first)).toBeUndefined();
+    expect(first.files.size).toBe(1);
+    expect(waiting(second)).toEqual({ tries: 1, retryAt: at - 1 + DAY });
+  } finally {
+    setSystemTime();
+    first.server.stop(true);
+    second.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("wb arctic text --missing reads one page a second", async () => {
+  const api = fakeAPI();
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-gap-"));
+  const now = toSwift(Date.now());
+  await seedLinks(
+    api,
+    [1, 2].map((n) => ({
+      url: `https://example.com/${n}`,
+      library: { saved: true, savedAt: now - n },
+    })),
+  );
+  const times: number[] = [];
+  const read = {
+    read: async () => (times.push(performance.now()), { title: "", problem: "PDF" }),
+    close: async () => {},
+  };
+  try {
+    await fetchMissingText({
+      origin: api.server.url.origin,
+      token: "fixture",
+      directory,
+      read,
+    });
+    expect(times).toHaveLength(2);
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(995);
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("wb arctic text --missing keeps the process alive while a page is read, as while Playwright starts its browser", async () => {
+  const api = fakeAPI();
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-awake-"));
+  await seedLinks(api, [
+    {
+      url: "https://example.com/slow",
+      library: { saved: true, savedAt: toSwift(Date.now()) },
+    },
+  ]);
+  // Playwright's pipes don't keep Bun running; nor does an unref'd timer.
+  // A top-level await would keep it running, so the run is a promise, as in
+  // cli.ts.
+  const child = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `import { fetchMissingText } from ${JSON.stringify(join(import.meta.dirname, "../src/arctic.ts"))};
+const read = {
+  read: () => new Promise((resolve) => setTimeout(() => resolve({ title: "", problem: "PDF" }), 200).unref()),
+  close: async () => {},
+};
+fetchMissingText({ origin: process.argv[1], token: "fixture", directory: process.argv[2], read })
+  .then((run) => console.log(run.results.map((result) => result.reason).join()));`,
+      api.server.url.origin,
+      directory,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  try {
+    expect(await new Response(child.stdout).text()).toBe("PDF\n");
+    expect(await child.exited).toBe(0);
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("wb arctic text --missing --dry-run --json lists the 25 links it would read, and reads and writes nothing", async () => {
+  const api = fakeAPI();
+  const origin = api.server.url.origin;
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-dry-"));
+  const now = toSwift(Date.now());
+  const urls = Array.from(
+    { length: 27 },
+    (_, n) => `https://example.com/${n}`,
+  );
+  await seedLinks(
+    api,
+    urls.map((url, n) => ({ url, library: { saved: true, savedAt: now - n } })),
+  );
+  // The newest waits for its next try, from an earlier run.
+  const state = JSON.stringify({
+    [origin]: {
+      [await articleId(urls[0]!)]: { tries: 2, retryAt: Date.now() + DAY },
+    },
+  });
+  writeFileSync(join(directory, "arctic-text.json"), state);
+  try {
+    const child = Bun.spawn(
+      [
+        "bun",
+        join(import.meta.dirname, "../src/cli.ts"),
+        "arctic",
+        "text",
+        "--missing",
+        "--dry-run",
+        "--json",
+        "--origin",
+        origin,
+        "--data-dir",
+        directory,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, WORKBENCH_TOKEN: "fixture" },
+      },
+    );
+    const output = await new Response(child.stdout).text();
+    expect(await child.exited).toBe(0);
+    expect(JSON.parse(output)).toEqual({
+      missing: 26,
+      waiting: 1,
+      links: urls.slice(1, 26),
+      results: [],
+    });
+    expect(api.requests.filter((line) => !line.startsWith("GET "))).toEqual([]);
+    expect(readFileSync(join(directory, "arctic-text.json"), "utf8")).toBe(state);
   } finally {
     api.server.stop(true);
     rmSync(directory, { recursive: true, force: true });
