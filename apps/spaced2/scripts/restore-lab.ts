@@ -75,7 +75,7 @@ const WORDS = (
  * Every record of a synthetic account, in the server's order, as push
  * changes.
  */
-function labChanges(size: LabSize, now = Date.now()) {
+export function labChanges(size: LabSize, now = Date.now()) {
   const profile = LAB_SIZES[size];
   const next = random(profile.cards);
   const pick = <T>(items: readonly T[]) =>

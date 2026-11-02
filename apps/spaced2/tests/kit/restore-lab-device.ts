@@ -19,8 +19,11 @@ export default async function restoreLabDevice({
   baseURL: string;
 }) {
   const size = (process.env.RESTORE_LAB_SIZE ?? "large") as LabSize;
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Security.setIgnoreCertificateErrors", { ignore: true });
+  // WebKit has no CDP: give the kit --insecure instead.
+  if (!process.env.RESTORE_LAB_NO_CDP) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Security.setIgnoreCertificateErrors", { ignore: true });
+  }
   await page.goto(`${baseURL}/profile`);
   const status = await page.evaluate(
     async ({ api, account }) =>

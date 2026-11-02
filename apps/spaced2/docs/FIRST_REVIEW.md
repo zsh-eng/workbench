@@ -44,8 +44,15 @@ RESTORE_LAB_API=https://localhost:5632 LAB_API_UPSTREAM=http://127.0.0.1:5631 \
 bun apps/spaced2/scripts/restore-lab.ts seed large   # small | medium | large
 NODE_TLS_REJECT_UNAUTHORIZED=0 RESTORE_LAB_SIZE=large bun run kit time \
   https://localhost:5633/ --before apps/spaced2/tests/kit/restore-lab-device.ts \
-  --steps apps/spaced2/tests/kit/fresh-restore.ts --runs 1 --warmup 0 --timeout 900
+  --steps apps/spaced2/tests/kit/fresh-restore.ts --runs 1 --warmup 0 --timeout 900 \
+  --disk
 ```
+
+Give `--disk`. Without it the kit's context is off the record, and Chromium
+keeps IndexedDB there in a store that a person's browser does not use. Chrome
+147 is then about 3.5 times slower to `restored` and Chrome 153 and later are
+too fast. The results below are from that context, so their write times are
+not valid (`scripts/idb-lab/`).
 
 `tests/kit/grade-during-restore.ts` instead grades cards while the history
 restores; its reviews reach the server, so give it a second account
@@ -398,15 +405,15 @@ localStorage had dropped the one IndexedDB write the first build made
 between the two pulls (`metadataKv.cardsRestored`). Putting that write
 back restores 53 to 54 s; holding the sync lock without writing does not
 (61.8 to 62.1 s). So one small write to another store changes how fast
-the next 70,000 puts go. Why is not known; it is the best lead on the slow
-puts below.
+the next 70,000 puts go. It does so only in that off-the-record store: on
+disk the write changes nothing.
 
 ## What remains
 
-- **The slow puts.** In the lab, most of the restore is IndexedDB puts of
-  about 3 ms each in long runs. The cause is not known, and a real phone
-  (Safari's IndexedDB) was not measured; a traced restore of the real
-  account on the phone would say how much of this the user sees.
+- **The slow puts** were the lab's. They are LevelDB write delays in an
+  off-the-record context, and a profile on disk has none (see the lab
+  section). A real phone (Safari's IndexedDB) was not measured; a traced
+  restore on the phone would say what the user sees.
 - **The narrower priority** above halves the first review in the lab, at
   the cost of the deck pages waiting for the history. A decision.
 - **The `type` and `timestamp` indexes** on both tables are never queried;
