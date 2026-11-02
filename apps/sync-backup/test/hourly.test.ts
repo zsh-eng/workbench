@@ -16,9 +16,9 @@ test("wb hourly runs sync, then arctic text --missing --unwall; a failing or han
   const plan = join(directory, "plan.json");
   const browserPid = join(directory, "browser.pid");
   // A stand-in for wb: it notes its arguments, then exits with the code that
-  // plan.json gives its command, hangs, or hangs and ignores SIGTERM, as wb
-  // with a browser that won't close. Its "browser" is in its own process
-  // group, as Playwright starts Chromium, and ignores SIGTERM too.
+  // plan.json gives its command, or hangs with a "browser", and with
+  // "ignore" ignores SIGTERM. The browser is in its own process group, as
+  // Playwright starts Chromium, and ignores SIGTERM.
   const stub = join(directory, "wb.ts");
   writeFileSync(
     stub,
@@ -27,13 +27,12 @@ import { spawn } from "node:child_process";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + "\\n");
 const step = JSON.parse(readFileSync(${JSON.stringify(plan)}, "utf8"))[args[0]];
-if (step === "ignore") {
-  process.on("SIGTERM", () => {});
+if (step === "ignore") process.on("SIGTERM", () => {});
+if (step === "hang" || step === "ignore") {
   const browser = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
   writeFileSync(${JSON.stringify(browserPid)}, String(browser.pid));
-}
-if (step === "hang" || step === "ignore") setInterval(() => {}, 1000);
-else process.exitCode = step;
+  setInterval(() => {}, 1000);
+} else process.exitCode = step;
 `,
   );
   const run = async (
@@ -73,6 +72,13 @@ else process.exitCode = step;
       return false;
     }
   };
+  // The browser is gone, once launchd reaps it.
+  const browserGone = async () => {
+    const browser = Number(readFileSync(browserPid, "utf8"));
+    for (let tries = 0; tries < 40 && alive(browser); tries++)
+      await Bun.sleep(50);
+    return !alive(browser);
+  };
   const errors = spyOn(console, "error").mockImplementation(() => {});
   try {
     expect(await run({ sync: 0, arctic: 0 })).toEqual({
@@ -93,7 +99,8 @@ else process.exitCode = step;
     }
     expect(errors).not.toHaveBeenCalled();
     // A step that hangs gets SIGTERM at the cap, the next step runs, and
-    // the job fails with 128 + SIGTERM's number and says why.
+    // the job fails with 128 + SIGTERM's number and says why. The browser
+    // it left is killed.
     let started = performance.now();
     const hung = await run({ sync: "hang", arctic: 0 }, { timeoutMs: 2000 });
     expect(performance.now() - started).toBeGreaterThanOrEqual(2000);
@@ -102,6 +109,7 @@ else process.exitCode = step;
     expect(errors.mock.calls).toEqual([
       ["wb hourly: wb sync ran over 2 s; stopping it"],
     ]);
+    expect(await browserGone()).toBe(true);
     // A step that ignores SIGTERM, and its browser, get SIGKILL after the
     // grace period.
     errors.mockClear();
@@ -122,11 +130,7 @@ else process.exitCode = step;
         "wb hourly: wb sync didn't stop in 0.5 s; killing it and what it started",
       ],
     ]);
-    // Once launchd reaps it.
-    const browser = Number(readFileSync(browserPid, "utf8"));
-    for (let tries = 0; tries < 40 && alive(browser); tries++)
-      await Bun.sleep(50);
-    expect(alive(browser)).toBe(false);
+    expect(await browserGone()).toBe(true);
   } finally {
     errors.mockRestore();
     if (existsSync(browserPid))

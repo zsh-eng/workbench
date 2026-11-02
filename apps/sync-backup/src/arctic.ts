@@ -335,6 +335,16 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal) {
   });
 }
 
+/** Closes a reader, but gives up after 10 s: a browser that won't close, or never started, doesn't hold the run. */
+async function closeReader(reader?: Reader) {
+  const closing = AbortSignal.timeout(10_000);
+  await abortable(reader?.close() ?? Promise.resolve(), closing).catch(
+    (error) => {
+      if (error !== closing.reason) throw error;
+    },
+  );
+}
+
 /**
  * Saves links (`save`) or fetches the text of links in the library (`text`),
  * one at a time, and reports each as it finishes. When `signal` aborts, the
@@ -367,9 +377,12 @@ export async function arctic(options: {
         signal ? AbortSignal.any([signal, timeout]) : timeout,
       );
     } catch (error) {
-      if (error === timeout.reason)
-        throw Error(`the page took over ${readTimeoutMs / 1000} s`);
-      throw error;
+      if (error !== timeout.reason) throw error;
+      // The read may still be running: the next link gets a new reader.
+      const stale = reader;
+      reader = options.read;
+      await closeReader(stale).catch(() => {});
+      throw Error(`the page took over ${readTimeoutMs / 1000} s`);
     }
   };
   const send = arcticFetch(options.origin, options.token);
@@ -522,14 +535,8 @@ export async function arctic(options: {
       }
     }
   } finally {
-    // A browser that won't close, or never started, doesn't hold the run.
-    const closing = AbortSignal.timeout(10_000);
     try {
-      await abortable(reader?.close() ?? Promise.resolve(), closing).catch(
-        (error) => {
-          if (error !== closing.reason) throw error;
-        },
-      );
+      await closeReader(reader);
     } finally {
       clearInterval(awake);
     }

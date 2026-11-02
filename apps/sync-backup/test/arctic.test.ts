@@ -979,6 +979,7 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
     })),
   );
   const read: string[] = [];
+  let closed = 0;
   const reader = {
     read: (url: string) => {
       read.push(url);
@@ -986,7 +987,7 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
         ? Promise.resolve({ title: "", problem: "PDF" })
         : new Promise<never>(() => {});
     },
-    close: async () => {},
+    close: async () => void closed++,
   };
   const outcomes = (results: LinkResult[]) =>
     results.map((result) => [
@@ -1016,6 +1017,8 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
     expect(existsSync(stateFile)).toBe(false);
 
     // A page that hangs fails at the read timeout and waits like any other.
+    // Its reader is closed, as its read may still be running.
+    closed = 0;
     const timedOut = await fetchMissingText({
       origin,
       token: "fixture",
@@ -1030,6 +1033,7 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
       [link("hangs-too"), "failed", "the page took over 0.1 s"],
     ]);
     expect(timedOut.waiting).toBe(3);
+    expect(closed).toBe(3);
   } finally {
     api.server.stop(true);
     rmSync(directory, { recursive: true, force: true });
