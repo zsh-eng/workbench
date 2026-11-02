@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
+import { ByteLru } from "../shared/byte-lru";
 import { attemptRefSchema } from "../shared/attempts";
 import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
@@ -453,7 +454,9 @@ export class SavedReviewStore {
   // record can take megabytes to parse.
   private described = new Map<string, { identity: string; review: SavedReview }>();
   /** Recent comparisons of a target with an earlier version (`delta`). */
-  private deltas = new Map<string, Promise<Delta>>();
+  /** What changed since an earlier version, by target: at most 8, and 32 MiB. */
+  private deltas = new ByteLru<Delta>(32 * 1024 * 1024, 8);
+  private deltaJobs = new Map<string, Promise<Delta>>();
   /** Counts the writes and deletes of this store, so a reader can tell when
    * its list of reviews is old. */
   changes = 0;
@@ -1515,14 +1518,20 @@ export class SavedReviewStore {
    */
   private delta(record: SavedRecord, target: SavedTarget, earlier?: SavedTarget) {
     const key = `${record.saved.id}\0${target.id}\0${earlier?.id ?? ""}`;
-    let found = this.deltas.get(key);
-    if (!found) {
-      found = this.computeDelta(record, target, earlier);
-      found.catch(() => this.deltas.delete(key));
-      this.deltas.set(key, found);
-      while (this.deltas.size > 8) this.deltas.delete(this.deltas.keys().next().value!);
+    const kept = this.deltas.get(key);
+    if (kept) return Promise.resolve(kept);
+    let job = this.deltaJobs.get(key);
+    if (!job) {
+      job = this.computeDelta(record, target, earlier)
+        .then((delta) => {
+          // The texts are most of its size.
+          this.deltas.set(key, delta, Buffer.byteLength(JSON.stringify(delta)));
+          return delta;
+        })
+        .finally(() => this.deltaJobs.delete(key));
+      this.deltaJobs.set(key, job);
     }
-    return found;
+    return job;
   }
 
   private async computeDelta(

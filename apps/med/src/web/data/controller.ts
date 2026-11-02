@@ -578,6 +578,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     if (target) return `${target}/notes${sinceQuery()}`;
     return reviewId ? browsingUrl(reviewId, "notes") : null;
   }
+  /**
+   * Where the shown comments came from. A commit of the Review's range and the
+   * same commit in Changes share a review ID, but the first one also shows the
+   * version's comments, with their own revision: comments from one URL never
+   * stand for the other's.
+   */
+  let notesSource: string | null = null;
+  const notesSourceFor = (reviewId?: string) => savedNoteUrl(reviewId) ?? "/api/notes";
   async function refreshSavedMetadata() {
     const id = snapshot.savedReview?.id;
     // The saved review has its own revision and count. Refresh only after local
@@ -615,6 +623,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   };
 
   async function loadNotes(reviewId: string, generation: number): Promise<void> {
+    const source = notesSourceFor(reviewId);
     try {
       const notes = await api.json(
         savedNoteUrl(reviewId) ?? `/api/notes?${query({ reviewId })}`,
@@ -623,7 +632,12 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           signal: reviewAbort?.signal,
         },
       );
-      if (!isCurrent(generation) || snapshot.review?.id !== reviewId) return;
+      if (
+        !isCurrent(generation) ||
+        snapshot.review?.id !== reviewId ||
+        notesSourceFor(reviewId) !== source
+      )
+        return;
       if (notes.reviewId !== reviewId) throw new Error("Notes belong to a different review.");
       const queue = noteQueues.get(noteQueueKey(reviewId));
       if (queue) {
@@ -631,8 +645,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           queue.authoritative = notes;
         publishNotes(queue);
       } else {
-        if (snapshot.notes?.reviewId === notes.reviewId && snapshot.notes.revision > notes.revision)
+        if (
+          notesSource === source &&
+          snapshot.notes?.reviewId === notes.reviewId &&
+          snapshot.notes.revision > notes.revision
+        )
           return;
+        notesSource = source;
         update({
           notes,
           notesError: noteWriteRecovery,
@@ -694,7 +713,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       visibleFiles,
       selectedFileId,
       semantic: reconciled,
-      notes: sameReview ? snapshot.notes : null,
+      notes:
+        sameReview && notesSource === notesSourceFor(entry.response.id) ? snapshot.notes : null,
       notesError: noteWriteRecovery,
       status: "ready",
       error: null,
@@ -1903,6 +1923,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     )
       return;
     const notes = projectedNotes(queue);
+    notesSource = queue.url;
     update({
       notes,
       notesError: error,
@@ -1969,7 +1990,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
               const notes = await api.json(
                 queue.url === "/api/notes"
                   ? `/api/notes?${query({ reviewId: queue.reviewId })}`
-                  : `${queue.url}/notes`,
+                  : queue.url,
                 notesSchema,
               );
               if (

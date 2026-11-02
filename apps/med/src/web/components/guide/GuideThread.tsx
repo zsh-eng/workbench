@@ -39,7 +39,7 @@ export function GuideThread({
         <NoteCard
           key={reply.id}
           note={reply}
-          replies={[]}
+          replies={notes.filter((item) => item.parentId === reply.id)}
           embedded
           onMutate={onMutate}
           onOpenLink={onOpenLink}

@@ -201,7 +201,10 @@ async function mountApp(
     /** The host's answer to "what changed since your last review". */
     since?: Since;
     /** The host's answer for a commit of the Review's range (SavedReviewStore.lens). */
-    lens?: { notes: Note[]; hidden?: number };
+    lens?: { notes: Note[]; hidden?: number; revision?: number };
+    /** Another writer changes the saved comments just before the reader's first
+     * one, and the host checks each write's expected revision. */
+    noteConflict?: boolean;
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
     /** The agent's pull request draft. */
@@ -263,6 +266,7 @@ async function mountApp(
   const pullRequestReads: string[] = [];
   /** Saved targets' and browsed commits' reads, with their queries. */
   const savedReads: string[] = [];
+  let conflicted = false;
   const pullRequestWrites: unknown[] = [];
   let pullRequest = options.pullRequest;
   let inbox = options.inbox;
@@ -756,17 +760,30 @@ async function mountApp(
           return Response.json({
             lines: (JSON.parse(String(init?.body)).lines as unknown[]).map(() => null),
           });
-        return Response.json({
-          reviewId: decodeURIComponent(browsing[1]!),
-          revision: 0,
-          ...options.lens,
-        });
+        // Without ?target=, the commit has only its own comments: none here.
+        const reviewId = decodeURIComponent(browsing[1]!);
+        return Response.json(
+          url.searchParams.has("target")
+            ? { reviewId, revision: 0, ...options.lens }
+            : { reviewId, revision: 0, notes: [] },
+        );
       }
       if (savedRoute) {
         savedReads.push(`${url.pathname}${url.search}`);
         const target = savedTargets[Number(savedRoute[1])];
         if (savedRoute[2] === "notes" && init?.method === "POST") {
-          const { mutation } = JSON.parse(String(init.body));
+          const { mutation, expectedRevision } = JSON.parse(String(init.body));
+          if (options.noteConflict) {
+            if (!conflicted) {
+              conflicted = true;
+              revision++;
+            }
+            if (expectedRevision !== revision)
+              return Response.json(
+                { error: { code: "revision-conflict", message: "The comments changed." } },
+                { status: 409 },
+              );
+          }
           if (mutation.type === "add")
             savedNotes.push({
               ...mutation.note,
@@ -3208,6 +3225,75 @@ describe("reading a version by commit and since the last review", () => {
     expect(savedReads).toContain(
       `/api/reviews/saved/browsing/${secondCommit}/notes?target=target-0`,
     );
+  });
+
+  test("the same commit in Changes shows only its own comments, not the version's", async () => {
+    await page.viewport(1500, 900);
+    localStorage.setItem("med:changes-rail", "open");
+    const { controller } = await mountApp({
+      savedReview: true,
+      rangeCommits: true,
+      lens: {
+        revision: 4,
+        notes: [
+          {
+            id: "version-note",
+            path: "src/alpha.ts",
+            side: "new",
+            line: 1,
+            text: "From the whole range.",
+            createdAt: "2026-09-20T00:00:00Z",
+            updatedAt: "2026-09-20T00:00:00Z",
+          },
+        ],
+      },
+    });
+    const changesTab = page.getByRole("tab", { name: "Changes", exact: true });
+    const commit = () =>
+      page.getByRole("list", { name: "Commits" }).getByRole("button", {
+        name: /Add the initial renderer/,
+      });
+    // Changes list the Review's commits: there, a commit is only itself.
+    await changesTab.click();
+    await commit().click();
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: secondCommit });
+    // The same commit in the Review's Guide has the version's comments too.
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "Guide" })
+      .getByRole("button", { name: /Add the initial renderer/ })
+      .click();
+    await expect.element(page.getByText("From the whole range.")).toBeVisible();
+    // Changes come back on that commit, with its own comments only.
+    await changesTab.click();
+    await expect.poll(() => controller.getSnapshot().inReview).toBe(false);
+    await expect
+      .poll(() => controller.getSnapshot().comparison)
+      .toEqual({ kind: "commit", commit: secondCommit });
+    await expect.poll(() => controller.getSnapshot().notes?.notes).toEqual([]);
+    await expect.element(page.getByText("From the whole range.")).not.toBeInTheDocument();
+  });
+
+  test("a comment that meets a newer revision reads the comments again, and the next one saves", async () => {
+    const { controller, savedNotes, savedReads } = await mountApp({
+      savedReview: true,
+      noteConflict: true,
+    });
+    await expect.poll(() => controller.getSnapshot().notes?.reviewId).toBe("target-0");
+    await controller
+      .mutateNote({
+        type: "add",
+        note: { path: "src/alpha.ts", side: "new", line: 1, text: "First try." },
+      })
+      .catch(() => {});
+    await controller.mutateNote({
+      type: "add",
+      note: { path: "src/alpha.ts", side: "new", line: 1, text: "Second try." },
+    });
+    await expect.poll(() => savedNotes.map((note) => note.text)).toContain("Second try.");
+    expect(savedReads.filter((read) => read.includes("/notes/notes"))).toEqual([]);
   });
 });
 

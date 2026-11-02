@@ -1940,8 +1940,14 @@ export function App({
         return file ? [viewKey(file)] : [];
       });
       viewed.set(keys, value);
-      // "Since" starts from the last version that the reader read.
-      if (value && state.savedReview && shownIteration !== undefined)
+      // "Since" starts from the last version that the reader read: a file
+      // marked in the Review tab, not in the live Changes tab.
+      if (
+        value &&
+        state.savedReview &&
+        (state.savedView || state.inReview) &&
+        shownIteration !== undefined
+      )
         controller.markRead(shownIteration).catch(() => {});
       // A viewed file folds away, as on GitHub; marking it unviewed opens it again.
       setCollapsed((current) => {
@@ -1953,7 +1959,16 @@ export function App({
         return next;
       });
     },
-    [shownGuideFiles, state.files, viewed, state.savedReview, shownIteration, controller],
+    [
+      shownGuideFiles,
+      state.files,
+      viewed,
+      state.savedReview,
+      state.savedView,
+      state.inReview,
+      shownIteration,
+      controller,
+    ],
   );
   const guideFilesById = useMemo(
     () => new Map(shownGuideFiles.map((file) => [file.id, file])),
