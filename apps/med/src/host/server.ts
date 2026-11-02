@@ -21,6 +21,8 @@ import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
+import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   apiErrorMessage,
   comparisonKey,
@@ -31,6 +33,7 @@ import {
   type ApiError,
   type ChangeEvent,
   type Comparison,
+  type NoteState,
   type Repository,
   type ReviewRequest,
   type ReviewResponse,
@@ -91,7 +94,7 @@ import { AttemptGroups } from "./attempts";
 import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
-import { SavedReviewStore } from "./saved-reviews";
+import { SavedReviewStore, type CommitLens } from "./saved-reviews";
 import { createSchedules } from "./schedules";
 import { createThreadTabs } from "./thread-tabs";
 import { createThreadService } from "./thread-service";
@@ -2345,11 +2348,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ review });
             return;
           }
-          const browsingNotes = /^\/api\/reviews\/([^/]+)\/browsing\/([a-f0-9]{64})\/notes$/.exec(
-            url.pathname,
-          );
+          const browsingNotes =
+            /^\/api\/reviews\/([^/]+)\/browsing\/([a-f0-9]{64})\/(notes|place)$/.exec(url.pathname);
           if (browsingNotes) {
-            const [, id, reviewId] = browsingNotes;
+            const [, id, reviewId, browsingAction] = browsingNotes;
             const bundle = await savedReviews.get(id!);
             const target = bundle.targets.find((item) => item.commentReviewId === reviewId);
             if (target) {
@@ -2372,7 +2374,128 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else {
               await requireReview(reviewId!);
             }
+            // A commit of the Review's range (`?target=`): the target's comments
+            // show on the commit's lines too (SavedReviewStore.lens).
+            const lensTarget = url.searchParams.get("target");
+            const commitLens = (): CommitLens => {
+              const stored = reviews.get(reviewId!).response;
+              let parsed: Map<string, FileDiffMetadata> | undefined;
+              const fileOf = (path: string) => {
+                parsed ??= new Map(
+                  parsePatchFiles(stored.patch, undefined, true)
+                    .flatMap((patch) => patch.files)
+                    .map((file) => {
+                      const named = normalizeDiffMetadataPaths(file);
+                      return [named.name, named] as const;
+                    }),
+                );
+                return parsed.get(path);
+              };
+              return {
+                reviewId: reviewId!,
+                files: stored.files,
+                source: (path) =>
+                  reviews.sources(reviewId!, path, abort.signal).catch(() => undefined),
+                shown: (path, side, line, end) =>
+                  !!fileOf(path)?.hunks.some((hunk) => {
+                    const start = side === "old" ? hunk.deletionStart : hunk.additionStart;
+                    const count = side === "old" ? hunk.deletionCount : hunk.additionCount;
+                    return start <= end && start + count > line;
+                  }),
+              };
+            };
+            const commentCapture = async () => {
+              const review = reviews.get(await requireReview(reviewId!)).response;
+              if (review.comparison.kind === "files" || review.comparison.kind === "patch")
+                throw new HostError(
+                  "git-required",
+                  "Saved comments require a Git comparison.",
+                  422,
+                );
+              const owner = await registry.require(review.repo, abort.signal);
+              const info = await resolveRepository(review.repo, abort.signal);
+              if (review.files.length > 500)
+                throw new HostError(
+                  "saved-review-too-large",
+                  "Narrow this comparison to at most 500 changed files.",
+                  413,
+                );
+              const sources = [];
+              const images = await captureImages(review);
+              let bytes =
+                Buffer.byteLength(review.patch) +
+                images.reduce((sum, image) => sum + Buffer.byteLength(image.data, "base64"), 0);
+              for (const file of review.files) {
+                if (mediaType(file.path)?.kind === "image") continue;
+                if (file.binary || file.tooLarge) continue;
+                let source;
+                try {
+                  source = await reviews.sources(reviewId!, file.path, abort.signal);
+                } catch (error) {
+                  if (
+                    error instanceof HostError &&
+                    ["unsupported-source", "source-unavailable", "binary-source"].includes(
+                      error.code,
+                    )
+                  )
+                    continue;
+                  throw error;
+                }
+                bytes += Buffer.byteLength(source.old) + Buffer.byteLength(source.new);
+                if (bytes > 24 * 1024 * 1024)
+                  throw new HostError(
+                    "saved-review-too-large",
+                    "Comment context exceeds 24 MiB. Narrow this comparison.",
+                    413,
+                  );
+                sources.push(source);
+              }
+              const branch = info.branch === "Detached HEAD" ? null : info.branch;
+              const names = await endpointNames(
+                review.repo,
+                review.comparison,
+                review,
+                branch,
+                abort.signal,
+              );
+              assertRequestAccess();
+              return {
+                repositoryId: owner.repository.id,
+                repo: review.repo,
+                branch,
+                review,
+                sources,
+                images,
+                ...(names ? { names } : {}),
+              };
+            };
+            if (browsingAction === "place") {
+              if (request.method !== "POST" || !lensTarget)
+                throw new HostError("method-not-allowed", "Use POST with a target.", 405);
+              const input = z
+                .object({
+                  lines: z
+                    .array(
+                      z.object({
+                        path: z.string().min(1),
+                        side: z.enum(["old", "new"]),
+                        line: z.number().int().positive(),
+                        endLine: z.number().int().positive().optional(),
+                      }),
+                    )
+                    .max(500),
+                })
+                .parse(await readBody(request));
+              send({
+                lines: await savedReviews.lensPlace(id!, lensTarget, commitLens(), input.lines),
+              });
+              return;
+            }
             if (request.method === "GET") {
+              if (lensTarget) {
+                send(await savedReviews.lensNotes(id!, lensTarget, commitLens()));
+                return;
+              }
               const state = target
                 ? await savedReviews.notes(id!, target.id)
                 : { reviewId: reviewId!, revision: 0, notes: [] };
@@ -2384,82 +2507,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             const input = notesRequestSchema.parse(await readBody(request));
             if (input.reviewId !== reviewId)
               throw new HostError("invalid-note", "The comment comparison does not match.", 409);
+            if (lensTarget) {
+              send(
+                await savedReviews.lensMutate(
+                  id!,
+                  lensTarget,
+                  commitLens(),
+                  input.expectedRevision,
+                  input.mutation,
+                  assertRequestAccess,
+                  commentCapture,
+                ),
+              );
+              inbox.touch(id!);
+              return;
+            }
             const state = await savedReviews.mutate(
               id!,
               target?.id ?? reviewId!,
               input.expectedRevision,
               input.mutation,
               assertRequestAccess,
-              target
-                ? undefined
-                : async () => {
-                    const review = reviews.get(await requireReview(reviewId!)).response;
-                    if (review.comparison.kind === "files" || review.comparison.kind === "patch")
-                      throw new HostError(
-                        "git-required",
-                        "Saved comments require a Git comparison.",
-                        422,
-                      );
-                    const owner = await registry.require(review.repo, abort.signal);
-                    const info = await resolveRepository(review.repo, abort.signal);
-                    if (review.files.length > 500)
-                      throw new HostError(
-                        "saved-review-too-large",
-                        "Narrow this comparison to at most 500 changed files.",
-                        413,
-                      );
-                    const sources = [];
-                    const images = await captureImages(review);
-                    let bytes =
-                      Buffer.byteLength(review.patch) +
-                      images.reduce(
-                        (sum, image) => sum + Buffer.byteLength(image.data, "base64"),
-                        0,
-                      );
-                    for (const file of review.files) {
-                      if (mediaType(file.path)?.kind === "image") continue;
-                      if (file.binary || file.tooLarge) continue;
-                      let source;
-                      try {
-                        source = await reviews.sources(reviewId!, file.path, abort.signal);
-                      } catch (error) {
-                        if (
-                          error instanceof HostError &&
-                          ["unsupported-source", "source-unavailable", "binary-source"].includes(
-                            error.code,
-                          )
-                        )
-                          continue;
-                        throw error;
-                      }
-                      bytes += Buffer.byteLength(source.old) + Buffer.byteLength(source.new);
-                      if (bytes > 24 * 1024 * 1024)
-                        throw new HostError(
-                          "saved-review-too-large",
-                          "Comment context exceeds 24 MiB. Narrow this comparison.",
-                          413,
-                        );
-                      sources.push(source);
-                    }
-                    const branch = info.branch === "Detached HEAD" ? null : info.branch;
-                    const names = await endpointNames(
-                      review.repo,
-                      review.comparison,
-                      review,
-                      branch,
-                      abort.signal,
-                    );
-                    assertRequestAccess();
-                    return {
-                      repositoryId: owner.repository.id,
-                      repo: review.repo,
-                      branch,
-                      review,
-                      sources,
-                      images,
-                      ...(names ? { names } : {}),
-                    };
-                  },
+              target ? undefined : commentCapture,
             );
             send({ ...state, reviewId });
             inbox.touch(id!);
@@ -2471,7 +2540,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|pr-draft|pr-draft-create))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2502,8 +2571,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   409,
                 );
             }
+            // `since`: only what changed since that version (sinceView).
+            const sinceParam = url.searchParams.get("since");
+            const since =
+              sinceParam === null
+                ? undefined
+                : z.coerce.number().int().positive().parse(sinceParam);
+            const sinceView =
+              since && targetId ? () => savedReviews.sinceView(id!, targetId, since) : undefined;
+            // In it, comments are the target's on new lines: old lines are another version's text.
+            const sinceNotes = async (state: NoteState) =>
+              sinceView
+                ? {
+                    ...state,
+                    reviewId: (await sinceView()).review.id,
+                    notes: state.notes.filter((note) => note.side === "new"),
+                  }
+                : state;
             if (request.method === "GET") {
-              if (targetAction === "review") {
+              if (targetAction === "review" && sinceView) send((await sinceView()).review);
+              else if (targetAction === "review") {
                 // A saved target never changes: the browser keeps its diff and
                 // asks again with this tag, as when a thread is read ahead again.
                 const tag = `"${id}.${targetId}"`;
@@ -2522,9 +2609,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   "x-content-type-options": "nosniff",
                 });
                 response.end(body);
+              } else if (targetAction === "source" && sinceView) {
+                const path = url.searchParams.get("path") ?? "";
+                const source = (await sinceView()).sources.find((entry) => entry.path === path);
+                if (!source)
+                  throw new HostError(
+                    "saved-source-unavailable",
+                    "Full text was not captured for this file. The saved patch remains available.",
+                    422,
+                  );
+                send(source);
               } else if (targetAction === "source")
                 send(await savedReviews.source(id!, targetId!, url.searchParams.get("path") ?? ""));
-              else if (targetAction === "notes") send(await savedReviews.notes(id!, targetId!));
+              else if (targetAction === "notes")
+                send(await sinceNotes(await savedReviews.notes(id!, targetId!)));
               else if (targetAction === "drift") {
                 // Whether captured working changes still match their checkout.
                 const target = relevant[0]!;
@@ -2646,17 +2744,33 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   mutation: noteMutationSchema,
                 })
                 .parse(await readBody(request));
+              if (sinceView && input.mutation.type === "add" && input.mutation.note.side === "old")
+                throw new HostError(
+                  "invalid-note",
+                  "Comment on a new line: a removed line here is an earlier version's text.",
+                  422,
+                );
               assertRequestAccess();
               send(
-                await savedReviews.mutate(
-                  id!,
-                  targetId!,
-                  input.expectedRevision,
-                  input.mutation,
-                  assertRequestAccess,
+                await sinceNotes(
+                  await savedReviews.mutate(
+                    id!,
+                    targetId!,
+                    input.expectedRevision,
+                    input.mutation,
+                    assertRequestAccess,
+                  ),
                 ),
               );
               inbox.touch(id!);
+              return;
+            }
+            if (request.method === "POST" && action === "read") {
+              const input = z
+                .object({ version: z.number().int().positive() })
+                .parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.markRead(id!, input.version, assertRequestAccess));
               return;
             }
             if (request.method === "POST" && action === "approval") {

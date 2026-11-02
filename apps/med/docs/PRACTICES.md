@@ -116,9 +116,12 @@ version with none of them opens as today.
    and what the checks miss. Without written proof, the checks that the
    session ran in the turn that made this version (`turn.checks`).
 2. **Since your last review** (version 2 and later): the files that changed
-   since the last version that you approved or commented on, or else the
-   version before, and the files no longer in the change. The host compares
-   the captures' blob IDs.
+   since the last version that you approved, commented on, or marked a file
+   viewed in (`POST /api/reviews/:id/read`), or else the version before, and
+   the files no longer in the change. The host compares the captured texts;
+   where the base moved too, it replays the earlier change on the new base
+   first (`git merge-file`), so a rebase alone changes nothing. **Since
+   version N** in the Guide's rail shows only these changes as a diff.
 3. **Findings**, with a count of the open ones in the Overview's start row.
    Each row opens its line.
 4. **Approve version N**, beside Start reviewing. The host keeps it for each
@@ -173,9 +176,10 @@ exploration.
 - **A default key merges hand-offs.** Two tasks on one branch become versions
   of one review. That matches "one key per task, such as the branch". The key
   is printed, and `--key` still wins. No default on the base branch.
-- **"Since your last review" needs a "last review".** Med has no record of
-  reading, so it uses approvals and comments, then the version before. Viewed
-  marks stay as they are.
+- **"Since your last review" needs a "last review".** Med uses approvals,
+  comments, and the first Viewed mark in a version, then the version before.
+  The marks stay in the browser; the host keeps only the version number. A
+  review submitted on GitHub does not count.
 - **Session edits miss files that commands wrote** (formatters, codegen).
   The shared-checkout warning says "not edited by this session", not "not
   yours", and stays silent without a transcript.

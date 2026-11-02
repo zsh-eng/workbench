@@ -698,8 +698,19 @@ request split into small ones.
   progress; it hides in a narrow window.
 - **Commits.** With two or more commits in the range, each one opens on its own,
   with its message. **Whole range** in the rail goes back to the whole range.
-- **Move.** `j` and `k` step through the segments, or through the commits once
-  one is open.
+  The version's comments, yours and the agent's, show on the commit's lines
+  where the commit shows the same line; the commit's head says how many it
+  cannot show. A comment that you add on a commit belongs to the version when
+  the version still has that line, so the whole range shows it too. On a line
+  that a later commit changed, it stays with that commit.
+- **Since version N.** From version 2, a row under **Overview** shows only
+  what changed since your last review (see
+  [later versions](#proof-findings-and-later-versions)). The diff goes from that
+  version's text to this one's, so your comments keep their lines; a comment on
+  a removed line is not possible there. A dot marks the commits that are new
+  since then.
+- **Move.** `j` and `k` step through the Overview, Since, and the segments, or
+  through the commits once one is open.
 
 A range with several commits and no guide shows its commits in the Guide too.
 Agents pass a guide with [`--guide`](AGENT_INTEGRATION.md#attach-a-guide).
@@ -723,9 +734,17 @@ only when the version has it.
   long paragraph stays in the summary too. Without written proof, the checks
   that the session ran in the turn that made the latest version show, marked
   "from the session's last turn".
-- **Since version N.** From version 2: the files that changed since the last
-  version that you approved or commented on, or else the version before.
-  Click a file to open it in the diff.
+- **Since version N.** From version 2: the files that changed since your last
+  review, the last earlier version that you approved, commented on, or marked
+  a file viewed in, or else the version before. **Show only these changes**,
+  or a file, opens them as **Since version N** in the rail, which the
+  **Pull request** tab offers too. Med compares the text that each version
+  saved, not Git history, so a rebase or a force push does not matter. When
+  the base also moved, as after a rebase, Med replays the earlier change on
+  the new base first: a file that changed only with its base is listed as
+  such and not shown, and where the replay conflicts, the diff says that it
+  can show the base's changes too. Commits that a rebase gave new IDs keep
+  their author time and subject, so they do not count as new.
 - **Findings.** Items tagged Important, Nit, or Pre-existing, with the ones
   closed as Fixed, Intentional, or Won't fix and their reasons. The start row
   counts the open ones. Click a finding to open its line.

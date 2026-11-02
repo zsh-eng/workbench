@@ -27,6 +27,8 @@ export interface GuideRailProps {
   onToggleViewed(fileIds: readonly string[], viewed: boolean): void;
   /** Above the Guide, such as a stack's layers. */
   top?: ReactNode;
+  /** What changed since the reader's last review, from version 2. */
+  since?: { from: number; files: number; commits: ReadonlySet<string> };
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -48,6 +50,7 @@ export const GuideRail = memo(function GuideRail({
   onFile,
   onToggleViewed,
   top,
+  since,
 }: GuideRailProps) {
   const { measure, width, pane } = useColumnWidth("guide", () => 268);
   return (
@@ -81,6 +84,24 @@ export const GuideRail = memo(function GuideRail({
           <Icon name="brief" size={14} />
           <span {...stylex.props(styles.title)}>Overview</span>
         </button>
+        {since && (
+          <button
+            type="button"
+            aria-current={scope.kind === "since" ? "page" : undefined}
+            aria-label={`Since version ${since.from}, ${since.files} ${since.files === 1 ? "file" : "files"} changed`}
+            onClick={() => onScope({ kind: "since" })}
+            {...stylex.props(
+              styles.row,
+              styles.overview,
+              scope.kind === "since" && [styles.on, picked],
+            )}
+          >
+            <Icon name="history" size={14} />
+            <span {...stylex.props(styles.title)}>Since version {since.from}</span>
+            <span {...stylex.props(ui.grow)} />
+            <span {...stylex.props(styles.count)}>{since.files}</span>
+          </button>
+        )}
         {sections.length > 0 && (
           <ol aria-label="Segments" {...stylex.props(styles.list)}>
             {sections.map((section) => {
@@ -189,6 +210,7 @@ export const GuideRail = memo(function GuideRail({
             commits={commits}
             more={moreCommits}
             current={scope.kind === "commit" ? scope.id : null}
+            fresh={since?.commits}
             onCommit={(id) => onScope({ kind: "commit", id })}
           />
         )}
@@ -213,6 +235,7 @@ export function RailCommits({
   commits,
   more,
   current,
+  fresh,
   onCommit,
   whole,
 }: {
@@ -220,6 +243,8 @@ export function RailCommits({
   more?: boolean;
   /** The commit that shows, if one does. */
   current: string | null;
+  /** Commits that are new since the reader's last review. */
+  fresh?: ReadonlySet<string>;
   onCommit(id: string): void;
   /** A row for the whole range, "Whole range" unless `label` names it. */
   whole?: { current: boolean; label?: string; onShow(): void };
@@ -264,6 +289,13 @@ export function RailCommits({
                 <span data-clip="" {...stylex.props(styles.commitSubject)}>
                   {commit.subject}
                 </span>
+                {fresh?.has(commit.id) && (
+                  <span
+                    title="New since your last review"
+                    aria-label="new"
+                    {...stylex.props(styles.fresh)}
+                  />
+                )}
               </button>
             </li>
           );
@@ -504,6 +536,14 @@ const styles = stylex.create({
   },
   // As wide as a short hash, so the subjects line up.
   all: { width: "7ch" },
+  fresh: {
+    flexShrink: 0,
+    width: 6,
+    height: 6,
+    marginLeft: "auto",
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+  },
   commitSubject: {
     minWidth: 0,
     overflow: "hidden",

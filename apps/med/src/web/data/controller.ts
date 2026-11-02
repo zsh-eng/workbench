@@ -79,6 +79,8 @@ export interface ReviewControllerSnapshot {
   savedReview: SavedReview | null;
   savedTargetId: string | null;
   savedView: boolean;
+  /** The saved view shows only what changed since this earlier version. */
+  savedSince: number | null;
   /** The diff belongs to the thread's Review: a saved version, or a commit
    * of a version's range. Otherwise it is the checkout's live Changes. */
   inReview: boolean;
@@ -168,6 +170,15 @@ export interface ReviewController {
   returnToSavedReview(): Promise<void>;
   /** The Review tab: the version shown last, or the current one. */
   showReview(): Promise<void>;
+  /** Shows the Review's version as only what changed since an earlier version. */
+  showSince(from: number): Promise<void>;
+  /** Marks a version read: the reader marked a file of it viewed. */
+  markRead(version: number): Promise<void>;
+  /** Places lines of the Review's version on the commit that shows: each
+   * line there, or null when the commit does not show it. */
+  placeLines(
+    lines: readonly { path: string; side: "old" | "new"; line: number; endLine?: number }[],
+  ): Promise<({ line: number; endLine?: number } | null)[]>;
   /** The Changes tab: the checkout's live comparison that the reader chose
    * last, or by default the branch's changes on a branch other than its
    * base, and the working changes on the base. */
@@ -260,8 +271,8 @@ interface CachedReview {
   files: ParsedReviewFile[];
   document: ReviewDocumentV1;
 }
-const savedKey = (reviewId: string, targetId: string) =>
-  JSON.stringify(["saved", reviewId, targetId]);
+const savedKey = (reviewId: string, targetId: string, since: number | null = null) =>
+  JSON.stringify(["saved", reviewId, targetId, ...(since ? [since] : [])]);
 /** The file that a review selects first: the first that a tool did not write,
  * since generated files fold at the stream's end (docs/GENERATED.md). */
 function firstFile(files: readonly ParsedReviewFile[]): string | null {
@@ -443,6 +454,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     savedReview: null,
     savedTargetId: null,
     savedView: false,
+    savedSince: null,
     inReview: false,
     savedDrift: null,
     session: null,
@@ -547,13 +559,24 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       ? `/api/reviews/${encodeURIComponent(snapshot.savedReview.id)}/targets/${encodeURIComponent(snapshot.savedTargetId)}`
       : null;
   }
+  /** `?since=N` while the saved view shows only what changed since version N. */
+  const sinceQuery = () =>
+    snapshot.savedSince ? `?${query({ since: String(snapshot.savedSince) })}` : "";
+  /** A commit of the Review's range: its comments with the version's (`?target=`). */
+  function browsingUrl(reviewId: string, action: "notes" | "place") {
+    const saved = snapshot.savedReview;
+    if (!saved) return null;
+    const lens =
+      snapshot.inReview && snapshot.savedTargetId && snapshot.comparison.kind === "commit"
+        ? `?${query({ target: snapshot.savedTargetId })}`
+        : "";
+    return `/api/reviews/${encodeURIComponent(saved.id)}/browsing/${encodeURIComponent(reviewId)}/${action}${lens}`;
+  }
+  /** The URL of the shown diff's comments in a saved review. */
   function savedNoteUrl(reviewId = snapshot.review?.id) {
-    return (
-      savedTargetUrl() ??
-      (snapshot.savedReview && reviewId
-        ? `/api/reviews/${encodeURIComponent(snapshot.savedReview.id)}/browsing/${encodeURIComponent(reviewId)}`
-        : null)
-    );
+    const target = savedTargetUrl();
+    if (target) return `${target}/notes${sinceQuery()}`;
+    return reviewId ? browsingUrl(reviewId, "notes") : null;
   }
   async function refreshSavedMetadata() {
     const id = snapshot.savedReview?.id;
@@ -594,9 +617,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   async function loadNotes(reviewId: string, generation: number): Promise<void> {
     try {
       const notes = await api.json(
-        savedNoteUrl(reviewId)
-          ? `${savedNoteUrl(reviewId)}/notes`
-          : `/api/notes?${query({ reviewId })}`,
+        savedNoteUrl(reviewId) ?? `/api/notes?${query({ reviewId })}`,
         notesSchema,
         {
           signal: reviewAbort?.signal,
@@ -713,7 +734,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       !!snapshot.review &&
       comparisonKey(snapshot.comparison) === comparisonKey(comparison);
     if (snapshot.savedView || snapshot.inReview !== reviewSide)
-      update({ savedView: false, inReview: reviewSide });
+      update({ savedView: false, savedSince: null, inReview: reviewSide });
     const generation = ++reviewGeneration;
     reviewAbort?.abort();
     reviewAbort = new AbortController();
@@ -1035,6 +1056,8 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
   // The diff that loads next is the Review's (a version, or a commit of its
   // range), not the checkout's live Changes.
   let reviewSide = false;
+  /** The version that the next saved view shows changes since (showSince). */
+  let sinceChoice: number | null = null;
   // The live comparison that the reader chose last, which Changes shows again,
   // and the one before a commit picked beside them, which All changes shows.
   let liveChoice: Comparison | null = null;
@@ -1413,9 +1436,10 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     signal: AbortSignal,
     /** Background work parses only while it still may. */
     mayParse = () => true,
+    since: number | null = null,
   ) {
     const start = performance.now();
-    const path = `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review`;
+    const path = `/api/reviews/${encodeURIComponent(reviewId)}/targets/${encodeURIComponent(targetId)}/review${since ? `?${query({ since: String(since) })}` : ""}`;
     const response = await readWarm(fetcher, path, () => api.json(path, reviewSchema, { signal }));
     if (!mayParse()) throw new DOMException("A review load needs the parser.", "AbortError");
     const parseStart = performance.now();
@@ -1433,6 +1457,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     reviewId: string,
     target: SavedReviewTarget,
     work: ReturnType<typeof fetchSavedTarget>,
+    since: number | null = null,
   ) {
     const { response, parsed, requestMs, parseMs } = await work;
     if (
@@ -1445,7 +1470,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const { files, document } = projectResponse(response, parsed);
     const entry: CachedReview = { response, files, document };
     // A saved target never changes, so its diff can show again without a read.
-    reviewCache.set(savedKey(reviewId, target.id), entry, estimateRetainedBytes(entry));
+    reviewCache.set(savedKey(reviewId, target.id, since), entry, estimateRetainedBytes(entry));
     return { entry, requestMs, parseMs };
   }
 
@@ -1610,15 +1635,17 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     cancelSources();
     iterationAbort?.abort();
     reviewSide = true;
+    const since = sinceChoice;
     update({
       savedView: true,
+      savedSince: since,
       inReview: true,
       savedTargetId: target.id,
       comparison: target.comparison,
       status: "loading",
       error: null,
     });
-    const cached = reviewCache.get(savedKey(saved.id, target.id));
+    const cached = reviewCache.get(savedKey(saved.id, target.id, since));
     if (cached) {
       publishReview(cached, generation, { requestMs: 0, parseMs: 0, cacheHit: true });
       prefetchIterations();
@@ -1628,10 +1655,13 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       const { entry, requestMs, parseMs } = await fetchSavedEntry(
         saved.id,
         target,
-        fetchSavedTarget(saved.id, target.id, reviewAbort.signal).then(async (work) => {
-          await options.lead?.();
-          return work;
-        }),
+        fetchSavedTarget(saved.id, target.id, reviewAbort.signal, undefined, since).then(
+          async (work) => {
+            await options.lead?.();
+            return work;
+          },
+        ),
+        since,
       );
       if (!isCurrent(generation)) return false;
       publishReview(entry, generation, { requestMs, parseMs, cacheHit: false });
@@ -1755,7 +1785,7 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
     const promise = api
       .json(
         savedTargetUrl()
-          ? `${savedTargetUrl()}/source?${query({ path })}`
+          ? `${savedTargetUrl()}/source?${query({ path, ...(snapshot.savedSince && { since: String(snapshot.savedSince) }) })}`
           : `/api/source?${query({ reviewId: review.id, path })}`,
         sourceSchema,
         {
@@ -1891,19 +1921,15 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
           if (dependency && queue.failedIds.has(dependency))
             throw new Error("The original comment was not saved. Retry that comment first.");
           const beforeIds = new Set(queue.authoritative.notes.map((note) => note.id));
-          const notes = await api.json(
-            queue.url.endsWith("/notes") ? queue.url : `${queue.url}/notes`,
-            notesSchema,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                reviewId: queue.reviewId,
-                expectedRevision: queue.authoritative.revision,
-                mutation,
-              }),
-            },
-          );
+          const notes = await api.json(queue.url, notesSchema, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reviewId: queue.reviewId,
+              expectedRevision: queue.authoritative.revision,
+              mutation,
+            }),
+          });
           if (notes.reviewId !== queue.reviewId)
             throw new Error("Notes belong to a different review.");
           if (write.temporaryId && mutation.type === "add") {
@@ -2141,7 +2167,11 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         });
       }
     },
-    selectSavedTarget,
+    // Another version or comparison shows whole; the Guide asks for Since again.
+    selectSavedTarget: (id) => {
+      sinceChoice = null;
+      return selectSavedTarget(id);
+    },
     returnToSavedReview: () =>
       snapshot.savedTargetId ? selectSavedTarget(snapshot.savedTargetId) : Promise.resolve(),
     showReview() {
@@ -2150,8 +2180,63 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         (saved?.targets.some((target) => target.id === snapshot.savedTargetId)
           ? snapshot.savedTargetId
           : undefined) ?? (saved ? currentTargets(saved)[0]?.id : undefined);
-      if (!id || (snapshot.savedView && snapshot.savedTargetId === id)) return Promise.resolve();
+      sinceChoice = null;
+      if (!id || (snapshot.savedView && !snapshot.savedSince && snapshot.savedTargetId === id))
+        return Promise.resolve();
       return selectSavedTarget(id);
+    },
+    showSince(from) {
+      const saved = snapshot.savedReview;
+      const id =
+        (saved?.targets.some((target) => target.id === snapshot.savedTargetId)
+          ? snapshot.savedTargetId
+          : undefined) ?? (saved ? currentTargets(saved)[0]?.id : undefined);
+      sinceChoice = from;
+      if (
+        !id ||
+        (snapshot.savedView && snapshot.savedSince === from && snapshot.savedTargetId === id)
+      )
+        return Promise.resolve();
+      return selectSavedTarget(id);
+    },
+    async markRead(version) {
+      const saved = snapshot.savedReview;
+      if (!saved || saved.readVersions?.includes(version)) return;
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/read`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version }),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return;
+      update({ savedReview: { ...snapshot.savedReview, readVersions: next.readVersions } });
+    },
+    async placeLines(lines) {
+      const url = snapshot.review && browsingUrl(snapshot.review.id, "place");
+      if (!url || !lines.length || !url.includes("?")) return lines.map(() => null);
+      return (
+        await api.json(
+          url,
+          z.object({
+            lines: z.array(
+              z
+                .object({
+                  line: z.number().int().positive(),
+                  endLine: z.number().int().positive().optional(),
+                })
+                .nullable(),
+            ),
+          }),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lines }),
+          },
+        )
+      ).lines;
     },
     async showChanges() {
       const saved = snapshot.savedReview;

@@ -443,6 +443,7 @@ export default function PullRequestView({
   onShowDraft,
   left,
   onDismissLeft,
+  since,
 }: {
   reviewId: string;
   url: string;
@@ -462,6 +463,8 @@ export default function PullRequestView({
   /** The local images that Create left out, for the reader to add on GitHub. */
   left?: readonly string[];
   onDismissLeft?(): void;
+  /** What changed since the reader's last review, from version 2 of the review. */
+  since?: { from: number; files: number; onShow(): void };
 }) {
   const onScreen = useWorkspaceShown();
   const {
@@ -541,6 +544,18 @@ export default function PullRequestView({
                   </span>
                 ))}
               </div>
+            )}
+            {since && (
+              <p {...stylex.props(styles.since)}>
+                <Icon name="history" size={12} />
+                <span {...stylex.props(ui.grow)}>
+                  {since.files} {since.files === 1 ? "file" : "files"} changed since version{" "}
+                  {since.from}, your last review.
+                </span>
+                <button type="button" {...stylex.props(ui.button)} onClick={since.onShow}>
+                  Show only these changes
+                </button>
+              </p>
             )}
             {error && (
               <p role="alert" {...stylex.props(styles.problem)}>
@@ -679,6 +694,15 @@ const styles = stylex.create({
   dot: { flexShrink: 0, width: 7, height: 7, borderRadius: "50%" },
   problem: { marginBlock: 8, color: tokens.red, fontSize: 12.5, lineHeight: 1.5 },
   note: { marginBlock: 6, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
+  since: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginBlock: 10,
+    color: tokens.muted,
+    fontSize: 12.5,
+    lineHeight: 1.5,
+  },
   notice: {
     display: "flex",
     alignItems: "center",

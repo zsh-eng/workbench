@@ -317,16 +317,24 @@ export type Approval = z.infer<typeof approvalSchema>;
 export const sinceSchema = z.object({
   from: z.number().int().positive(),
   to: z.number().int().positive(),
-  /** Why `from`: the last version approved, or commented on, or else the one before. */
-  basis: z.enum(["approved", "commented", "previous"]),
+  /** Why `from`: the last version approved, commented on, or with a file
+   * marked viewed, or else the one before. */
+  basis: z.enum(["approved", "commented", "viewed", "previous"]),
   files: z.array(
     z.object({
       path: z.string(),
       change: z.enum(["changed", "new", "gone"]),
+      /** The comparison of version `to` that has it (for "gone": of `from`). */
+      target: z.string(),
       /** The repository, when the version has more than one comparison. */
       repo: z.string().optional(),
     }),
   ),
+  /** Files that changed only because their base moved, as after a rebase. */
+  moved: z.array(z.string()).optional(),
+  /** Commits of version `to` that `from` did not have. A rebased commit
+   * keeps its author time and subject, so it does not count. */
+  commits: z.array(z.string()).optional(),
 });
 export type Since = z.infer<typeof sinceSchema>;
 /** Later details for a review, such as the pull request opened after it. */
@@ -374,6 +382,8 @@ export const savedReviewSchema = z.object({
   /** The versions that the reader approved (docs/PRACTICES.md): a record
    * for the reader, not a gate. A review without iterations has version 1. */
   approvals: z.array(approvalSchema).optional(),
+  /** The versions in which the reader marked a file viewed. */
+  readVersions: z.array(z.number().int().positive()).optional(),
   /** Each part's counts in the current version, by part ID. */
   partTotals: z.record(z.string(), partTotalsSchema).optional(),
   totals: z

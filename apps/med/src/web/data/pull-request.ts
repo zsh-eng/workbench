@@ -26,7 +26,12 @@ export function placeThreads(
   data: PullRequestComments | null,
   files: readonly ParsedReviewFile[],
   shown:
-    | { kind: "review"; target: SavedReviewTarget | undefined }
+    | {
+        kind: "review";
+        target: SavedReviewTarget | undefined;
+        /** Only what changed since an earlier version: its old side is that version's text. */
+        since?: boolean;
+      }
     | { kind: "changes"; review: ReviewResponse | null },
 ): { byPath: Map<string, PullRequestThread[]>; placement: ThreadPlacement } {
   const byPath = new Map<string, PullRequestThread[]>();
@@ -74,6 +79,10 @@ export function placeThreads(
     const line = thread.line;
     if (line === null) {
       reasons.set(thread.id, "Outdated on GitHub.");
+      continue;
+    }
+    if (shown.kind === "review" && shown.since && thread.side === "old") {
+      reasons.set(thread.id, "On a line of the base: All files shows it.");
       continue;
     }
     if (uncommitted.has(thread.path)) {

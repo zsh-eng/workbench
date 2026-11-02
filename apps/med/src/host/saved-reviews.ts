@@ -36,6 +36,7 @@ import {
   validateReviewNoteText,
 } from "../shared/hunk/noteValidation";
 import { HostError } from "./runtime/errors";
+import { lineChanges, mapLine, replay, textPatch, type LineChange } from "./repository/text-diff";
 import {
   savedReviewCreateSchema,
   pullRequestUrlSchema,
@@ -192,6 +193,7 @@ const savedSchema = z.object({
     })
     .optional(),
   approvals: z.array(approvalSchema).max(MAX_ITERATIONS).optional(),
+  readVersions: z.array(z.number().int().positive()).max(MAX_ITERATIONS).optional(),
   createdAt: text,
   revision: natural,
   commentCount: natural,
@@ -223,6 +225,62 @@ const recordSchema = z.object({
     .max(128),
 });
 type SavedRecord = z.infer<typeof recordSchema>;
+type SavedTarget = SavedRecord["saved"]["targets"][number];
+type SavedIteration = NonNullable<SavedRecord["saved"]["iterations"]>[number];
+
+/** What a target holds that its counterpart in an earlier version did not. */
+interface Delta {
+  /** The files to read again, with each one's diff and texts. */
+  files: {
+    file: ReviewResponse["files"][number];
+    change: "changed" | "new";
+    section: string;
+    source?: SourceResponse;
+  }[];
+  /** Files of the earlier version that this one no longer changes. */
+  gone: string[];
+  /** Files that changed only because their base moved. */
+  moved: string[];
+  /** Files whose base moved where Med could not take the base's changes out. */
+  mixed: string[];
+  /** Commits that the earlier version did not have. */
+  commits: string[];
+}
+
+/** A commit that the Review shows from a target's range (`lens`). */
+export interface CommitLens {
+  reviewId: string;
+  files: ReviewResponse["files"];
+  /** The commit's texts of a file, when it has them. */
+  source(path: string): Promise<{ old: string; new: string } | undefined>;
+  /** Whether the commit's diff shows any of these lines. */
+  shown(path: string, side: "old" | "new", line: number, endLine: number): boolean;
+}
+
+/** Each file's part of a patch, by its new path. */
+function patchSections(patch: string) {
+  const sections = new Map<string, string>();
+  for (const section of patch.split(/(?=^diff --git )/m)) {
+    if (!section.startsWith("diff --git ")) continue;
+    try {
+      const file = parsePatchFiles(section, undefined, true)[0]?.files[0];
+      if (file) sections.set(normalizeDiffMetadataPaths(file).name, section);
+    } catch {
+      /* A part that does not parse shows nothing. */
+    }
+  }
+  return sections;
+}
+
+/** What a captured file's new side is: its text, else its blob ID, else its counts. */
+function sideKey(capture: SavedRecord["captures"][number], path: string) {
+  const source = capture.sources.find((entry) => entry.path === path);
+  if (source) return createHash("sha1").update(source.new).digest("hex");
+  const file = capture.review.files.find((entry) => entry.path === path);
+  const section = patchSections(capture.review.patch).get(path);
+  const oid = section && /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
+  return oid && !/^0+$/.test(oid) ? oid : `${file?.status}:${file?.additions}:${file?.deletions}`;
+}
 
 /** A guide as the record keeps it: comment sides and kinds filled in. */
 function savedGuide(guide: ReviewGuide, updatedAt = new Date().toISOString()) {
@@ -394,6 +452,8 @@ export class SavedReviewStore {
   // status streams read every review often; a description is small, and a
   // record can take megabytes to parse.
   private described = new Map<string, { identity: string; review: SavedReview }>();
+  /** Recent comparisons of a target with an earlier version (`delta`). */
+  private deltas = new Map<string, Promise<Delta>>();
   /** Counts the writes and deletes of this store, so a reader can tell when
    * its list of reviews is old. */
   changes = 0;
@@ -1386,89 +1446,394 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Record that the reader read a version: they marked a file of it viewed.
+   * "Since" then starts from it, as from an approved version. */
+  markRead(id: string, version: number, beforeCommit?: () => void): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const versions = record.saved.iterations?.map((entry) => entry.number) ?? [1];
+      if (!versions.includes(version))
+        throw new HostError("version-not-found", `This review has no version ${version}.`, 404);
+      const read = record.saved.readVersions ?? [];
+      if (!read.includes(version)) {
+        record.saved.readVersions = [...read, version].sort((a, b) => a - b);
+        await this.write(record, beforeCommit);
+      }
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
+  /** The versions with captures, and the earlier version that the reader
+   * last reviewed before `version`. */
+  private reviewed(record: SavedRecord, version?: number) {
+    const versions = (record.saved.iterations ?? []).filter((entry) => entry.targetIds.length);
+    const to = version ? versions.find((entry) => entry.number === version) : versions.at(-1);
+    if (!to) return undefined;
+    const earlier = versions.filter((entry) => entry.number < to.number);
+    if (!earlier.length) return undefined;
+    const capture = (targetId: string) =>
+      record.captures.find((entry) => entry.targetId === targetId);
+    const approved = new Set((record.saved.approvals ?? []).map((entry) => entry.version));
+    const read = new Set(record.saved.readVersions ?? []);
+    const commented = (entry: (typeof versions)[number]) =>
+      entry.targetIds.some((target) => (capture(target)?.notes.notes.length ?? 0) > 0) ||
+      !!record.saved.briefComments?.some((comment) => comment.iteration === entry.number);
+    const reviewed = earlier.findLast(
+      (entry) => approved.has(entry.number) || commented(entry) || read.has(entry.number),
+    );
+    const from = reviewed ?? earlier.at(-1)!;
+    const basis: Since["basis"] = !reviewed
+      ? "previous"
+      : approved.has(from.number)
+        ? "approved"
+        : commented(from)
+          ? "commented"
+          : "viewed";
+    return { versions, to, from, basis };
+  }
+
+  /** A target's counterpart in another version: the same repository and part. */
+  private counterpart(record: SavedRecord, version: SavedIteration, target: SavedTarget) {
+    const candidates = version.targetIds
+      .map((id) => record.saved.targets.find((entry) => entry.id === id))
+      .filter(
+        (entry): entry is SavedTarget =>
+          !!entry &&
+          !entry.commentReviewId &&
+          entry.repositoryId === target.repositoryId &&
+          entry.part === target.part,
+      );
+    return candidates.find((entry) => entry.repo === target.repo) ?? candidates[0];
+  }
+
+  /**
+   * What a target holds that its counterpart in an earlier version did not,
+   * by the captured text, never by Git ancestry, so a rebase or a force push
+   * does not matter. A file whose base also moved compares with the earlier
+   * change replayed on the new base: a file that changed only with its base
+   * is left out, in `moved`. Kept for a few calls: captures do not change.
+   */
+  private delta(record: SavedRecord, target: SavedTarget, earlier?: SavedTarget) {
+    const key = `${record.saved.id}\0${target.id}\0${earlier?.id ?? ""}`;
+    let found = this.deltas.get(key);
+    if (!found) {
+      found = this.computeDelta(record, target, earlier);
+      found.catch(() => this.deltas.delete(key));
+      this.deltas.set(key, found);
+      while (this.deltas.size > 8) this.deltas.delete(this.deltas.keys().next().value!);
+    }
+    return found;
+  }
+
+  private async computeDelta(
+    record: SavedRecord,
+    target: SavedTarget,
+    earlier?: SavedTarget,
+  ): Promise<Delta> {
+    const now = this.target(record, target.id);
+    const before =
+      earlier && earlier.id !== target.id ? this.target(record, earlier.id) : undefined;
+    const delta: Delta = { files: [], gone: [], moved: [], mixed: [], commits: [] };
+    if (earlier?.id === target.id) return delta;
+    const sections = patchSections(now.review.patch);
+    const oldFiles = new Map(before?.review.files.map((file) => [file.path, file]));
+    const matched = new Set<string>();
+    for (const file of now.review.files) {
+      const path = oldFiles.has(file.path)
+        ? file.path
+        : file.previousPath && oldFiles.has(file.previousPath)
+          ? file.previousPath
+          : undefined;
+      const source = now.sources.find((entry) => entry.path === file.path);
+      const whole = {
+        file,
+        change: "new" as const,
+        section: sections.get(file.path) ?? "",
+        source,
+      };
+      if (!before || !path) {
+        delta.files.push(whole);
+        continue;
+      }
+      matched.add(path);
+      const old = before.sources.find((entry) => entry.path === path);
+      if (!source || !old || file.status === "D") {
+        // No text to compare: the whole change shows, when it is not the same.
+        if (sideKey(before, path) !== sideKey(now, file.path))
+          delta.files.push({ ...whole, change: "changed" });
+        continue;
+      }
+      if (old.new === source.new) continue;
+      let from = old.new;
+      if (old.old !== source.old) {
+        const replayed = await replay(old.new, old.old, source.old);
+        if (replayed === undefined) delta.mixed.push(file.path);
+        else if (replayed === source.new) {
+          delta.moved.push(file.path);
+          continue;
+        } else from = replayed;
+      }
+      // The new side keeps the version's blob, so a viewed mark stays the same.
+      const blob = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(whole.section)?.[1];
+      let section = await textPatch(file.path, from, source.new);
+      if (blob) section = section.replace(/^(index [0-9a-f]+\.\.)[0-9a-f]+/m, `$1${blob}`);
+      let additions = 0;
+      let deletions = 0;
+      for (const line of section.split("\n").slice(4)) {
+        if (line.startsWith("+")) additions++;
+        else if (line.startsWith("-")) deletions++;
+      }
+      delta.files.push({
+        file: { ...file, previousPath: undefined, status: "M", additions, deletions },
+        change: "changed",
+        section,
+        source: { ...source, old: from },
+      });
+    }
+    for (const file of before?.review.files ?? [])
+      if (!matched.has(file.path)) delta.gone.push(file.path);
+    // A rebase gives a commit a new ID; its author time and subject stay.
+    const known = new Set(
+      (earlier?.commits ?? []).flatMap((commit) => [
+        commit.id,
+        `${commit.timestamp}\0${commit.author}\0${commit.subject}`,
+      ]),
+    );
+    delta.commits = (target.commits ?? [])
+      .filter(
+        (commit) =>
+          !known.has(commit.id) &&
+          !known.has(`${commit.timestamp}\0${commit.author}\0${commit.subject}`),
+      )
+      .map((commit) => commit.id);
+    return delta;
+  }
+
   /**
    * The files of a version that changed since the reader's last review: the
-   * last earlier version that they approved or commented on, or else the one
-   * before. Files compare by their new side's blob, so a file that changed
-   * only on the base side counts as unchanged. Undefined before version 2.
+   * last earlier version that they approved, commented on, or marked a file
+   * viewed in, or else the one before. Undefined before version 2.
    */
-  since(id: string, version?: number): Promise<Since | undefined> {
-    return this.serial(async () => {
-      const record = await this.read(id);
-      const versions = (record.saved.iterations ?? []).filter((entry) => entry.targetIds.length);
-      const to = version ? versions.find((entry) => entry.number === version) : versions.at(-1);
-      if (!to) return undefined;
-      const earlier = versions.filter((entry) => entry.number < to.number);
-      if (!earlier.length) return undefined;
-      const capture = (targetId: string) =>
-        record.captures.find((entry) => entry.targetId === targetId);
-      const approved = new Set((record.saved.approvals ?? []).map((entry) => entry.version));
-      const commented = (entry: (typeof versions)[number]) =>
-        entry.targetIds.some((target) => (capture(target)?.notes.notes.length ?? 0) > 0) ||
-        !!record.saved.briefComments?.some((comment) => comment.iteration === entry.number);
-      const reviewed = earlier.findLast((entry) => approved.has(entry.number) || commented(entry));
-      const from = reviewed ?? earlier.at(-1)!;
-      const basis = !reviewed ? "previous" : approved.has(from.number) ? "approved" : "commented";
-      // Each file's new side, by repository and part, for both versions.
-      const sides = (entry: (typeof versions)[number]) => {
-        const files = new Map<string, { repo: string; path: string; side: string }>();
-        for (const targetId of entry.targetIds) {
-          const target = record.saved.targets.find((candidate) => candidate.id === targetId);
-          const captured = capture(targetId);
-          if (!target || !captured) continue;
-          let parsed: FileDiffMetadata[] = [];
-          try {
-            parsed = parsePatchFiles(captured.review.patch, undefined, true)
-              .flatMap((patch) => patch.files)
-              .map(normalizeDiffMetadataPaths);
-          } catch {
-            /* A file without a patch compares by its counts. */
-          }
-          for (const file of captured.review.files) {
-            const meta = parsed.find((candidate) => candidate.name === file.path);
-            // The captured new side, else its blob ID (an untracked file has none), else its counts.
-            const source = captured.sources.find((entry) => entry.path === file.path);
-            const blob = meta?.newObjectId && !/^0+$/.test(meta.newObjectId) && meta.newObjectId;
-            const side =
-              meta?.type === "deleted"
-                ? "deleted"
-                : source
-                  ? createHash("sha1").update(source.new).digest("hex")
-                  : blob || `${file.status}:${file.additions}:${file.deletions}`;
-            files.set(`${target.repositoryId}\0${target.part ?? ""}\0${file.path}`, {
-              repo: target.repo,
-              path: file.path,
-              side,
-            });
-          }
-        }
-        return files;
-      };
-      const before = sides(from);
-      const after = sides(to);
-      const repos = new Set([...after.values(), ...before.values()].map((file) => file.repo));
-      const files: Since["files"] = [];
-      for (const [key, file] of after) {
-        const old = before.get(key);
-        if (!old || old.side !== file.side)
-          files.push({
-            path: file.path,
-            change: old ? "changed" : "new",
-            ...(repos.size > 1 && { repo: file.repo }),
-          });
-      }
-      for (const [key, file] of before)
-        if (!after.has(key))
-          files.push({
-            path: file.path,
-            change: "gone",
-            ...(repos.size > 1 && { repo: file.repo }),
-          });
-      files.sort(
-        (a, b) => (a.repo ?? "").localeCompare(b.repo ?? "") || a.path.localeCompare(b.path),
-      );
-      return { from: from.number, to: to.number, basis, files };
+  async since(id: string, version?: number): Promise<Since | undefined> {
+    const record = await this.serial(() => this.read(id));
+    const found = this.reviewed(record, version);
+    if (!found) return undefined;
+    const { to, from, basis } = found;
+    const targets = (version: SavedIteration) =>
+      version.targetIds
+        .map((targetId) => record.saved.targets.find((entry) => entry.id === targetId))
+        .filter((entry): entry is SavedTarget => !!entry && !entry.commentReviewId);
+    const pairs = targets(to).map((target) => ({
+      target,
+      earlier: this.counterpart(record, from, target),
+    }));
+    // A part or a repository that the later version no longer has: all of its files went.
+    const kept = new Set(pairs.map((pair) => pair.earlier?.id));
+    const dropped = targets(from).filter((entry) => !kept.has(entry.id));
+    const repos = new Set([...targets(to), ...targets(from)].map((entry) => entry.repo));
+    const files: Since["files"] = [];
+    const moved: string[] = [];
+    const commits: string[] = [];
+    const place = (target: SavedTarget) => ({
+      target: target.id,
+      ...(repos.size > 1 && { repo: target.repo }),
     });
+    for (const { target, earlier } of pairs) {
+      const delta = await this.delta(record, target, earlier);
+      for (const entry of delta.files)
+        files.push({ path: entry.file.path, change: entry.change, ...place(target) });
+      for (const path of delta.gone) files.push({ path, change: "gone", ...place(target) });
+      moved.push(...delta.moved);
+      commits.push(...delta.commits);
+    }
+    for (const target of dropped)
+      for (const file of this.target(record, target.id).review.files)
+        files.push({ path: file.path, change: "gone", ...place(target) });
+    files.sort(
+      (a, b) => (a.repo ?? "").localeCompare(b.repo ?? "") || a.path.localeCompare(b.path),
+    );
+    return {
+      from: from.number,
+      to: to.number,
+      basis,
+      files,
+      ...(moved.length && { moved }),
+      ...(commits.length && { commits }),
+    };
+  }
+
+  /**
+   * A target as only what changed since version `from`: each file's diff
+   * from that version's text to this one's. Its new side is the target's, so
+   * comments on new lines keep their lines.
+   */
+  async sinceView(
+    id: string,
+    targetId: string,
+    from: number,
+  ): Promise<{ review: ReviewResponse; sources: SourceResponse[] }> {
+    const record = await this.serial(() => this.read(id));
+    const target = record.saved.targets.find(
+      (entry) => entry.id === targetId && !entry.commentReviewId,
+    );
+    const version = record.saved.iterations?.find((entry) => entry.number === from);
+    if (!target || !version)
+      throw new HostError("version-not-found", `This review has no version ${from}.`, 404);
+    const delta = await this.delta(record, target, this.counterpart(record, version, target));
+    const capture = this.target(record, targetId);
+    const reviewId = `${capture.review.id}:since:${from}`;
+    return {
+      review: {
+        ...capture.review,
+        id: reviewId,
+        label: `Since version ${from}`,
+        files: delta.files.map((entry) => entry.file),
+        patch: delta.files.map((entry) => entry.section).join(""),
+        warnings: delta.mixed.length
+          ? [
+              `The base changed in ${delta.mixed.join(", ")} too, and Med could not take its changes out, so the diff can show them.`,
+            ]
+          : [],
+      },
+      sources: delta.files.flatMap((entry) =>
+        entry.source ? [{ ...entry.source, reviewId, path: entry.file.path }] : [],
+      ),
+    };
+  }
+
+  /**
+   * A commit of a target's range, as the Review shows it: the commit's own
+   * comments, and the target's comments on the lines that the commit shows,
+   * which Git's diff between the two texts places. `place` maps a line of
+   * the target to the commit, or back with `reverse`.
+   */
+  private async lens(record: SavedRecord, targetId: string, view: CommitLens) {
+    if (!record.saved.targets.some((entry) => entry.id === targetId && !entry.commentReviewId))
+      throw new HostError(
+        "saved-target-not-found",
+        "This target does not belong to the review.",
+        404,
+      );
+    const capture = this.target(record, targetId);
+    const own = record.saved.targets.find((entry) => entry.commentReviewId === view.reviewId);
+    const ownCapture = own ? this.target(record, own.id) : undefined;
+    const maps = new Map<string, Promise<LineChange[] | null>>();
+    const changes = (path: string, side: "old" | "new") => {
+      const key = `${side}\0${path}`;
+      let found = maps.get(key);
+      if (!found) {
+        found = (async () => {
+          const ours = capture.sources.find((entry) => entry.path === path);
+          const theirs = view.files.some((file) => file.path === path)
+            ? await view.source(path)
+            : undefined;
+          return ours && theirs ? lineChanges(ours[side], theirs[side]) : null;
+        })();
+        maps.set(key, found);
+      }
+      return found;
+    };
+    const place = async (
+      note: { path: string; side: "old" | "new"; line: number; endLine?: number },
+      reverse = false,
+    ) => {
+      const list = await changes(note.path, note.side);
+      if (!list) return null;
+      const line = mapLine(list, note.line, reverse);
+      const end = mapLine(list, note.endLine ?? note.line, reverse);
+      return line !== null && end !== null && end >= line
+        ? { line, ...(note.endLine ? { endLine: end } : {}) }
+        : null;
+    };
+    return { capture, ownCapture, place };
+  }
+
+  private async lensState(record: SavedRecord, targetId: string, view: CommitLens) {
+    const { capture, ownCapture, place } = await this.lens(record, targetId, view);
+    const placed: Note[] = [];
+    let hidden = 0;
+    for (const note of capture.notes.notes) {
+      const spot = await place(note);
+      if (spot && view.shown(note.path, note.side, spot.line, spot.endLine ?? spot.line))
+        placed.push({ ...note, ...spot });
+      else if (!note.parentId) hidden++;
+    }
+    const shown = new Set(placed.map((note) => note.id));
+    return {
+      reviewId: view.reviewId,
+      // Each part only grows, so their sum tells any change.
+      revision: (ownCapture?.notes.revision ?? 0) + capture.notes.revision,
+      notes: [
+        ...(ownCapture?.notes.notes ?? []),
+        ...placed.filter((note) => !note.parentId || shown.has(note.parentId)),
+      ],
+      ...(hidden && { hidden }),
+    };
+  }
+
+  /** The comments that a commit of a target's range shows. */
+  async lensNotes(id: string, targetId: string, view: CommitLens): Promise<NoteState> {
+    return this.lensState(await this.serial(() => this.read(id)), targetId, view);
+  }
+
+  /**
+   * A change to a comment in a commit of a target's range. A new comment on a
+   * line that the target still has goes to the target, so the whole range
+   * shows it too; one on a line that a later commit changed stays with the
+   * commit, as before.
+   */
+  async lensMutate(
+    id: string,
+    targetId: string,
+    view: CommitLens,
+    expectedRevision: number,
+    input: NoteMutation,
+    beforeCommit?: () => void,
+    commentCapture?: () => Promise<CapturedReviewTarget>,
+  ): Promise<NoteState> {
+    const record = await this.serial(() => this.read(id, true));
+    const { capture, ownCapture, place } = await this.lens(record, targetId, view);
+    const ownRevision = ownCapture?.notes.revision ?? 0;
+    if (ownRevision + capture.notes.revision !== expectedRevision)
+      throw new HostError("stale-notes", "The notes changed. Refresh before retrying.", 409);
+    const mutation = noteMutationSchema.parse(input);
+    const onTarget = (noteId?: string) =>
+      !!noteId && capture.notes.notes.some((note) => note.id === noteId);
+    const spot = mutation.type === "add" ? await place(mutation.note, true) : null;
+    if (
+      mutation.type === "add" &&
+      spot &&
+      (!mutation.note.parentId || onTarget(mutation.note.parentId))
+    )
+      await this.mutate(
+        id,
+        targetId,
+        capture.notes.revision,
+        { type: "add", note: { ...mutation.note, ...spot } },
+        beforeCommit,
+      );
+    else if (mutation.type !== "add" && onTarget(mutation.id))
+      await this.mutate(id, targetId, capture.notes.revision, mutation, beforeCommit);
+    else await this.mutate(id, view.reviewId, ownRevision, mutation, beforeCommit, commentCapture);
+    return this.lensState(await this.serial(() => this.read(id, true)), targetId, view);
+  }
+
+  /** Lines of a target, such as the guide's comments, on a commit of its range. */
+  async lensPlace(
+    id: string,
+    targetId: string,
+    view: CommitLens,
+    lines: readonly { path: string; side: "old" | "new"; line: number; endLine?: number }[],
+  ) {
+    const { place } = await this.lens(await this.serial(() => this.read(id)), targetId, view);
+    return Promise.all(
+      lines.map(async (line) => {
+        const spot = await place(line);
+        return spot && view.shown(line.path, line.side, spot.line, spot.endLine ?? spot.line)
+          ? spot
+          : null;
+      }),
+    );
   }
 
   /** A review's description, read again only when its file changes, with

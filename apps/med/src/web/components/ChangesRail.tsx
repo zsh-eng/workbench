@@ -20,6 +20,8 @@ type CommitProps = {
   wholeLabel: string;
   onCommit(id: string): void;
   onWhole(): void;
+  /** Commits that are new since the reader's last review. */
+  fresh?: ReadonlySet<string>;
 };
 
 /**
@@ -35,6 +37,7 @@ export function ChangesRail({
   wholeLabel,
   onCommit,
   onWhole,
+  fresh,
   top,
   ...files
 }: ComponentProps<typeof FileSidebar> & CommitProps & { top?: ReactNode }) {
@@ -55,6 +58,7 @@ export function ChangesRail({
         wholeLabel={wholeLabel}
         onCommit={onCommit}
         onWhole={onWhole}
+        fresh={fresh}
       />
       <ColumnHandle kind="changes" width={width} pane={pane} label="the file list" />
     </nav>
@@ -71,6 +75,7 @@ export function RangeCommits({
   wholeLabel,
   onCommit,
   onWhole,
+  fresh,
 }: CommitProps) {
   if (commits.length < 2) return null;
   return (
@@ -79,6 +84,7 @@ export function RangeCommits({
         commits={commits}
         more={moreCommits}
         current={commit}
+        fresh={fresh}
         onCommit={onCommit}
         whole={{ current: whole, label: wholeLabel, onShow: onWhole }}
       />

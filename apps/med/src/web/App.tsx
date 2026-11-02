@@ -204,7 +204,12 @@ import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
 import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
 import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
-import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
+import {
+  CommitHeader,
+  GuideFooter,
+  SegmentHeader,
+  SinceHeader,
+} from "./components/guide/GuideHeader";
 import { GuideThread } from "./components/guide/GuideThread";
 import {
   answersGuideNote,
@@ -289,6 +294,7 @@ const EXPLAIN_REQUEST =
 const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
+const NO_GUIDE_NOTES: GuideNote[] = [];
 const NO_PROGRESS: LayerProgress[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
@@ -1405,10 +1411,10 @@ export function App({
         pullRequest.data,
         files,
         state.savedView
-          ? { kind: "review", target: savedTarget }
+          ? { kind: "review", target: savedTarget, since: !!state.savedSince }
           : { kind: "changes", review: state.review },
       ),
-    [pullRequest.data, state.savedView, savedTarget, state.review, files],
+    [pullRequest.data, state.savedView, state.savedSince, savedTarget, state.review, files],
   );
   const codexReviews = useCodexReviews(
     useCallback(() => controller.loadCodexReviews(), [controller]),
@@ -1560,10 +1566,12 @@ export function App({
     setBriefTarget(state.savedTargetId);
     setBriefIteration(null);
   }
+  // A stack's layer that a later version kept is in that version too: the latest one.
   const shownIteration =
     briefIteration ??
-    iterations.find((entry) => state.savedTargetId && entry.targetIds.includes(state.savedTargetId))
-      ?.number ??
+    iterations.findLast(
+      (entry) => state.savedTargetId && entry.targetIds.includes(state.savedTargetId),
+    )?.number ??
     iterations.at(-1)?.number;
   // An iteration without a brief keeps the one before it, unless the reader
   // started its notes anew.
@@ -1672,6 +1680,7 @@ export function App({
   }>({ target: null, files: NO_FILES });
   if (
     state.savedView &&
+    !state.savedSince &&
     state.status === "ready" &&
     state.review &&
     state.savedTargetId &&
@@ -1703,20 +1712,23 @@ export function App({
       : -1;
   const guideCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
   const guideTab = hasGuide && fileState.active === "guide";
-  // A segment shows the saved comparison; a commit shows that commit.
+  // A segment shows the saved comparison; a commit shows that commit; Since
+  // shows the saved comparison as only what changed since an earlier version.
   const guideDiff =
     guideTab &&
-    ((!!guideSection && state.savedView) ||
+    ((!!guideSection && state.savedView && !state.savedSince) ||
+      (guideScope.kind === "since" && state.savedView && !!state.savedSince) ||
       (!!guideCommit &&
         state.comparison.kind === "commit" &&
         state.comparison.commit === guideCommit.id));
   const guideOverview = guideTab && !guideDiff;
   // What changed since the reader's last review: the host compares the
-  // captures, and answers again when an approval or a comment moves the basis.
+  // captures, and answers again when an approval, a comment, or a viewed mark
+  // moves the basis.
   const approvals = state.savedReview?.approvals;
   const sinceKey =
-    guideOverview && laterVersion && state.savedReview
-      ? `${state.savedReview.id} ${shownIteration} ${state.savedReview.revision} ${(approvals ?? []).map((entry) => entry.version).join(",")}`
+    laterVersion && state.savedReview
+      ? `${state.savedReview.id} ${shownIteration} ${state.savedReview.revision} ${(approvals ?? []).map((entry) => entry.version).join(",")} ${(state.savedReview.readVersions ?? []).join(",")}`
       : null;
   const sinceScope = `${state.savedReview?.id} ${shownIteration}`;
   const [since, setSince] = useState<{ scope: string; value: Since | null } | null>(null);
@@ -1733,6 +1745,22 @@ export function App({
   }, [controller, sinceKey, sinceScope, shownIteration]);
   // While a new answer loads, as after an approval, the last one for this version stays.
   const shownSince = sinceKey && since?.scope === sinceScope ? since.value : null;
+  const sinceFrom = shownSince?.from;
+  // The rail's Since row: the shown comparison's files, and the new commits.
+  const sinceRow = useMemo(
+    () =>
+      shownSince && guideTarget
+        ? {
+            from: shownSince.from,
+            files: shownSince.files.filter(
+              (file) => file.target === guideTarget.id && file.change !== "gone",
+            ).length,
+            commits: new Set(shownSince.commits),
+          }
+        : undefined,
+    [shownSince, guideTarget],
+  );
+  if (guideScope.kind === "since" && !laterVersion) setGuideScope({ kind: "overview" });
   // The tab row is Review · Changes · Commit. Review is what the agent handed
   // off: a saved version, with its Guide. Changes are the checkout's live
   // diff. The pane's "changes" view shows either diff, and "guide" is Review's.
@@ -1912,6 +1940,9 @@ export function App({
         return file ? [viewKey(file)] : [];
       });
       viewed.set(keys, value);
+      // "Since" starts from the last version that the reader read.
+      if (value && state.savedReview && shownIteration !== undefined)
+        controller.markRead(shownIteration).catch(() => {});
       // A viewed file folds away, as on GitHub; marking it unviewed opens it again.
       setCollapsed((current) => {
         const next = new Set(current);
@@ -1922,7 +1953,7 @@ export function App({
         return next;
       });
     },
-    [shownGuideFiles, state.files, viewed],
+    [shownGuideFiles, state.files, viewed, state.savedReview, shownIteration, controller],
   );
   const guideFilesById = useMemo(
     () => new Map(shownGuideFiles.map((file) => [file.id, file])),
@@ -1974,7 +2005,11 @@ export function App({
           void controller.selectComparison({ kind: "commit", commit: scope.id }, true);
         return;
       }
-      if (!snapshot.savedView) void controller.showReview();
+      if (scope.kind === "since") {
+        if (sinceFrom) void controller.showSince(sinceFrom);
+        return;
+      }
+      if (!snapshot.savedView || snapshot.savedSince) void controller.showReview();
       // A segment's viewed files start folded.
       const section =
         scope.kind === "segment" ? guideSections.find((entry) => entry.key === scope.key) : null;
@@ -1987,33 +2022,32 @@ export function App({
           return next;
         });
     },
-    [controller, fileWorkspace, guideSections, guideViewedIds],
+    [controller, fileWorkspace, guideSections, guideViewedIds, sinceFrom],
   );
+  // Since follows its basis: a new answer, such as after an approval, or another version.
+  useEffect(() => {
+    if (guideTab && guideScope.kind === "since" && sinceFrom && state.savedSince !== sinceFrom)
+      void controller.showSince(sinceFrom);
+  }, [controller, guideTab, guideScope.kind, sinceFrom, state.savedSince]);
   // j and k step through the segments, or through the commits once one shows.
   const stepGuide = useCallback(
     (delta: number) => {
       const commits = guideScope.kind === "commit" || !guideSections.length;
-      const order: GuideScope[] = commits
-        ? guideCommits.map((commit) => ({ kind: "commit", id: commit.id }))
-        : [
-            { kind: "overview" },
-            ...guideSections.map((section) => ({
-              kind: "segment" as const,
-              key: section.key,
-            })),
-          ];
-      if (commits && guideScope.kind !== "commit" && delta > 0 && order[0]) {
-        openGuide(order[0]);
-        return;
-      }
+      const order: GuideScope[] = [
+        { kind: "overview" },
+        ...(sinceFrom ? [{ kind: "since" as const }] : []),
+        ...(commits
+          ? guideCommits.map((commit) => ({ kind: "commit" as const, id: commit.id }))
+          : guideSections.map((section) => ({ kind: "segment" as const, key: section.key }))),
+      ];
       const index = order.findIndex(
         (scope) => JSON.stringify(scope) === JSON.stringify(guideScope),
       );
       const next = order[Math.max(0, Math.min(order.length - 1, index + delta))];
-      if (next && index + delta >= 0) openGuide(next);
-      else if (commits && delta < 0) openGuide({ kind: "overview" });
+      if (next && index + delta >= 0 && JSON.stringify(next) !== JSON.stringify(guideScope))
+        openGuide(next);
     },
-    [guideScope, guideSections, guideCommits, openGuide],
+    [guideScope, guideSections, guideCommits, openGuide, sinceFrom],
   );
   // v: the file whose header is at the top of the stream, or the first one
   // below the segment's header. Marking it viewed folds it and shows the next.
@@ -2041,7 +2075,10 @@ export function App({
   }, [streamFiles, viewedIds, setFilesViewed]);
   // A file chosen in the rail shows once its segment's stream has mounted.
   useEffect(() => {
-    const id = pendingGuideFile;
+    // `path:` names a file of a diff that has not loaded yet, as in Since.
+    const id = pendingGuideFile?.startsWith("path:")
+      ? streamFiles.find((file) => `path:${file.path}` === pendingGuideFile)?.id
+      : pendingGuideFile;
     if (!id || !guideDiff || !streamFiles.some((file) => file.id === id)) return;
     const frame = requestAnimationFrame(() => {
       setPendingGuideFile(null);
@@ -2295,8 +2332,83 @@ export function App({
     });
   }
   // The guide's comments refer to the saved comparison's lines. One on a line
-  // that no hunk shows goes to its segment's header instead.
-  const guideNotesByFile = state.savedView ? resolvedGuide?.notesByFile : undefined;
+  // that no hunk shows goes to its segment's header instead. Since keeps the
+  // version's new lines; on a commit of the range, the host places them.
+  const guideLineNotes = useMemo(
+    () =>
+      resolvedGuide
+        ? [...resolvedGuide.notesByFile.values()].flat().filter((note) => note.line !== undefined)
+        : NO_GUIDE_NOTES,
+    [resolvedGuide],
+  );
+  const lensReview =
+    guideCommit && state.inReview && !state.savedView && state.status === "ready"
+      ? state.review
+      : null;
+  const [placedGuide, setPlacedGuide] = useState<{
+    review: string;
+    byPath: Map<string, GuideNote[]>;
+  } | null>(null);
+  useEffect(() => {
+    const review = lensReview;
+    const onCommit = review
+      ? guideLineNotes.filter((note) => review.files.some((file) => file.path === note.path))
+      : [];
+    if (!review || !onCommit.length) return;
+    let live = true;
+    controller
+      .placeLines(
+        onCommit.map((note) => ({
+          path: note.path,
+          side: note.side,
+          line: note.line!,
+          ...(note.endLine ? { endLine: note.endLine } : {}),
+        })),
+      )
+      .then(
+        (spots) => {
+          if (!live) return;
+          const byPath = new Map<string, GuideNote[]>();
+          onCommit.forEach((note, index) => {
+            const spot = spots[index];
+            if (spot)
+              byPath.set(note.path, [
+                ...(byPath.get(note.path) ?? []),
+                { ...note, line: spot.line, endLine: spot.endLine },
+              ]);
+          });
+          setPlacedGuide({ review: review.id, byPath });
+        },
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [controller, lensReview, guideLineNotes]);
+  const guideNotesByFile = useMemo(() => {
+    if (state.savedView && !state.savedSince) return resolvedGuide?.notesByFile;
+    let byPath: Map<string, GuideNote[]> | undefined;
+    if (state.savedSince) {
+      byPath = new Map();
+      for (const note of guideLineNotes)
+        if (note.side === "new") byPath.set(note.path, [...(byPath.get(note.path) ?? []), note]);
+    } else if (placedGuide && placedGuide.review === lensReview?.id) byPath = placedGuide.byPath;
+    if (!byPath) return undefined;
+    return new Map(
+      state.files.map((file) => [
+        file.id,
+        (byPath.get(file.path) ?? []).map((note) => ({ ...note, fileId: file.id })),
+      ]),
+    );
+  }, [
+    state.savedView,
+    state.savedSince,
+    state.files,
+    resolvedGuide,
+    guideLineNotes,
+    placedGuide,
+    lensReview?.id,
+  ]);
   const items = useMemo<CodeViewItem<Annotation>[]>(() => {
     return streamFiles.flatMap((file) => {
       if (!file.metadata || mediaType(file.path)?.kind === "image") return [];
@@ -3503,11 +3615,11 @@ export function App({
     ["search-word-back", "Search file backward for word at cursor", "#"],
   ];
   /** Shows the whole diff of the Review's version, not one of its commits. */
-  const showReviewDiff = () => {
+  const showReviewDiff = useCallback(() => {
     pendingSavedChanges.current = state.savedTargetId;
     fileWorkspace.select("changes");
     void controller.showReview();
-  };
+  }, [state.savedTargetId, fileWorkspace, controller]);
   // The commits beside the diff, in the rail or the Changed files pane: the
   // Review's range, and in Changes the same list, or else the branch's own
   // commits. A commit opens in the tab that lists it, and one that showed
@@ -3527,6 +3639,7 @@ export function App({
     onCommit: (commit: string) =>
       void controller.selectComparison({ kind: "commit", commit }, reviewShown),
     onWhole: reviewShown ? showReviewDiff : () => void controller.showAllChanges(),
+    fresh: reviewShown ? sinceRow?.commits : undefined,
   };
   const actionRepo = state.review?.repo ?? state.session?.repository.path;
   const actionBranch = state.savedView
@@ -5188,8 +5301,15 @@ export function App({
   );
   const nextGuidePart = guideSection
     ? guideSections[guideSections.indexOf(guideSection) + 1]
-    : undefined;
-  const nextGuideCommit = commitIndex >= 0 ? guideCommits[commitIndex + 1] : undefined;
+    : guideScope.kind === "since"
+      ? guideSections[0]
+      : undefined;
+  const nextGuideCommit =
+    commitIndex >= 0
+      ? guideCommits[commitIndex + 1]
+      : guideScope.kind === "since" && !guideSections.length
+        ? guideCommits[0]
+        : undefined;
   const nextGuideLabel = nextGuidePart
     ? `${nextGuidePart.automatic ? "" : `${String(nextGuidePart.number).padStart(2, "0")} · `}${nextGuidePart.title}`
     : nextGuideCommit
@@ -5214,12 +5334,27 @@ export function App({
           onOpenLink={openGuideLink}
         />
       );
+    if (guideScope.kind === "since" && shownSince)
+      return (
+        <SinceHeader
+          since={shownSince}
+          totals={{
+            additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
+            deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
+            files: state.files.length,
+          }}
+          warnings={state.review?.warnings ?? []}
+          onWhole={showReviewDiff}
+        />
+      );
     if (guideCommit)
       return (
         <CommitHeader
           commit={guideCommit}
           number={commitIndex + 1}
           count={guideCommits.length}
+          hidden={state.notes?.hidden}
+          onWhole={showReviewDiff}
           totals={
             state.review
               ? {
@@ -5249,8 +5384,12 @@ export function App({
     guideCommits,
     state.review,
     state.files,
+    state.notes?.hidden,
     loadGuideCommit,
     dependencyCard,
+    guideScope.kind,
+    shownSince,
+    showReviewDiff,
   ]);
   const generatedRows = useMemo<GeneratedRow[]>(
     () =>
@@ -6237,6 +6376,7 @@ export function App({
                     }}
                     onToggleViewed={setFilesViewed}
                     top={stackRail}
+                    since={sinceRow}
                   />
                 )}
                 {railShown && (
@@ -6297,6 +6437,12 @@ export function App({
                     }
                     offers={overviewOffers}
                     repo={state.review?.repo}
+                    onSince={(file) => {
+                      // Another comparison of the version shows first; Since follows it.
+                      if (file && file.target !== state.savedTargetId)
+                        void controller.selectSavedTarget(file.target);
+                      openGuide({ kind: "since" }, file && `path:${file.path}`);
+                    }}
                     onScope={openGuide}
                     onWhole={showReviewDiff}
                     onOpenLink={openOverviewLink}
@@ -6645,6 +6791,15 @@ export function App({
                           : undefined
                       }
                       onDismissLeft={() => setPullImagesLeft(null)}
+                      since={
+                        sinceRow && sinceRow.files > 0
+                          ? {
+                              from: sinceRow.from,
+                              files: sinceRow.files,
+                              onShow: () => openGuide({ kind: "since" }),
+                            }
+                          : undefined
+                      }
                     />
                   ) : (
                     <BriefView

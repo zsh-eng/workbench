@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type ReactNode } from "react";
 import type { CommitDetails, Note, NoteMutation } from "../../../shared/protocol";
+import type { Since } from "../../../shared/saved-review";
 import type { SavedCommit } from "../../../shared/review-guide";
 import { AREA_LABELS, type GuideNote, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
@@ -151,13 +152,18 @@ export function CommitHeader({
   number,
   count,
   totals,
+  hidden = 0,
   loadDetails,
+  onWhole,
 }: {
   commit: SavedCommit;
   number: number;
   count: number;
   totals?: { additions: number; deletions: number; files: number };
+  /** The version's comments on lines that this commit does not show. */
+  hidden?: number;
   loadDetails(id: string, signal: AbortSignal): Promise<CommitDetails>;
+  onWhole(): void;
 }) {
   const [details, setDetails] = useState<CommitDetails | null>(null);
   useEffect(() => {
@@ -201,6 +207,84 @@ export function CommitHeader({
       }
     >
       {shown?.body && <p {...stylex.props(styles.body)}>{shown.body}</p>}
+      {hidden > 0 && <Elsewhere count={hidden} where="this commit" onWhole={onWhole} />}
+    </Frame>
+  );
+}
+
+/** Comments of the version that the shown part has no line for. */
+function Elsewhere({ count, where, onWhole }: { count: number; where: string; onWhole(): void }) {
+  return (
+    <p {...stylex.props(styles.unmatched)}>
+      {count} {count === 1 ? "comment is" : "comments are"} on lines that {where} does not show.{" "}
+      <button type="button" onClick={onWhole} {...stylex.props(styles.inlineButton)}>
+        Show all files
+      </button>
+    </p>
+  );
+}
+
+const BASIS: Record<Since["basis"], string> = {
+  approved: "you approved",
+  commented: "you commented on",
+  viewed: "you marked files viewed in",
+  previous: "before this one",
+};
+
+/** The head of "Since version N": only what changed since the reader's last review. */
+export function SinceHeader({
+  since,
+  totals,
+  hidden = 0,
+  warnings,
+  onWhole,
+}: {
+  since: Since;
+  /** The shown comparison's part of it. */
+  totals: { additions: number; deletions: number; files: number };
+  hidden?: number;
+  warnings: readonly string[];
+  onWhole(): void;
+}) {
+  const gone = since.files.filter((file) => file.change === "gone");
+  return (
+    <Frame
+      eyebrow={
+        <span {...stylex.props(styles.kind)}>
+          Since version {since.from} · the version {BASIS[since.basis]}
+        </span>
+      }
+      title={`What changed since version ${since.from}`}
+      meta={
+        <>
+          {totals.additions > 0 && <span {...stylex.props(ui.added)}>+{totals.additions}</span>}
+          {totals.deletions > 0 && <span {...stylex.props(ui.removed)}>−{totals.deletions}</span>}
+          <span>
+            {totals.files} {totals.files === 1 ? "file" : "files"}
+          </span>
+        </>
+      }
+    >
+      <p {...stylex.props(styles.body)}>
+        Each file shows from version {since.from} to version {since.to}. Your comments stay on their
+        lines.
+      </p>
+      {!!since.moved?.length && (
+        <p {...stylex.props(styles.unmatched)}>
+          Changed only with the base, as after a rebase: {since.moved.join(", ")}
+        </p>
+      )}
+      {gone.length > 0 && (
+        <p {...stylex.props(styles.unmatched)}>
+          No longer changed: {gone.map((file) => file.path).join(", ")}
+        </p>
+      )}
+      {warnings.map((warning) => (
+        <p key={warning} {...stylex.props(styles.unmatched)}>
+          {warning}
+        </p>
+      ))}
+      {hidden > 0 && <Elsewhere count={hidden} where="this part" onWhole={onWhole} />}
     </Frame>
   );
 }
@@ -385,6 +469,16 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
   },
   unmatched: { marginTop: 10, marginBottom: 0, color: tokens.faint, fontSize: 11.5 },
+  inlineButton: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: tokens.muted,
+    font: "inherit",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
+    cursor: "pointer",
+  },
   stray: {
     maxWidth: 640,
     marginTop: 16,

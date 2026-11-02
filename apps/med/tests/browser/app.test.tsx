@@ -200,6 +200,8 @@ async function mountApp(
     vault?: boolean;
     /** The host's answer to "what changed since your last review". */
     since?: Since;
+    /** The host's answer for a commit of the Review's range (SavedReviewStore.lens). */
+    lens?: { notes: Note[]; hidden?: number };
     /** The thread's spend and context, as the host reads them from transcripts. */
     usage?: ThreadUsage;
     /** The agent's pull request draft. */
@@ -259,6 +261,8 @@ async function mountApp(
     };
   });
   const pullRequestReads: string[] = [];
+  /** Saved targets' and browsed commits' reads, with their queries. */
+  const savedReads: string[] = [];
   const pullRequestWrites: unknown[] = [];
   let pullRequest = options.pullRequest;
   let inbox = options.inbox;
@@ -743,7 +747,23 @@ async function mountApp(
       const savedRoute = /^\/api\/reviews\/saved\/targets\/target-(\d)\/(review|notes)$/.exec(
         url.pathname,
       );
+      const browsing = /^\/api\/reviews\/saved\/browsing\/([^/]+)\/(notes|place)$/.exec(
+        url.pathname,
+      );
+      if (browsing && options.lens) {
+        savedReads.push(`${url.pathname}${url.search}`);
+        if (browsing[2] === "place")
+          return Response.json({
+            lines: (JSON.parse(String(init?.body)).lines as unknown[]).map(() => null),
+          });
+        return Response.json({
+          reviewId: decodeURIComponent(browsing[1]!),
+          revision: 0,
+          ...options.lens,
+        });
+      }
       if (savedRoute) {
+        savedReads.push(`${url.pathname}${url.search}`);
         const target = savedTargets[Number(savedRoute[1])];
         if (savedRoute[2] === "notes" && init?.method === "POST") {
           const { mutation } = JSON.parse(String(init.body));
@@ -1007,6 +1027,7 @@ async function mountApp(
     vaultWrites,
     pullRequestReads,
     pullRequestWrites,
+    savedReads,
     agentMessages,
     agentAnswers,
     setOwned,
@@ -2758,8 +2779,8 @@ describe("review guide", () => {
         to: 2,
         basis: "previous",
         files: [
-          { path: "src/alpha.ts", change: "changed" },
-          { path: "src/old.ts", change: "gone" },
+          { path: "src/alpha.ts", change: "changed", target: "saved-target" },
+          { path: "src/old.ts", change: "gone", target: "saved-target" },
         ],
       },
     });
@@ -3083,6 +3104,110 @@ describe("review guide", () => {
     await expect
       .element(page.getByRole("button", { name: "Show the guide" }))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("reading a version by commit and since the last review", () => {
+  test("Since version N shows only what changed, from the Overview and the rail, with the version's comments", async () => {
+    await page.viewport(1500, 900);
+    localStorage.setItem("med:changes-rail", "open");
+    const { controller, savedReads } = await mountApp({
+      savedReview: true,
+      iterationBriefs: ["The first round.", "The second round."],
+      since: {
+        from: 1,
+        to: 2,
+        basis: "approved",
+        files: [{ path: "src/alpha.ts", change: "changed", target: "target-1" }],
+        moved: ["src/beta.ts"],
+      },
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    await overview.getByRole("button", { name: "Show only these changes" }).click();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
+    await expect.element(page.getByText("What changed since version 1")).toBeVisible();
+    await expect
+      .element(page.getByText("Changed only with the base, as after a rebase: src/beta.ts"))
+      .toBeVisible();
+    // The same target, as only its changes: the diff, its texts, and its comments.
+    expect(savedReads).toContain("/api/reviews/saved/targets/target-1/review?since=1");
+    expect(savedReads).toContain("/api/reviews/saved/targets/target-1/notes?since=1");
+    const rail = page.getByRole("navigation", { name: "Guide" });
+    const row = rail.getByRole("button", { name: /^Since version 1, 1 file changed/ });
+    await expect.element(row).toHaveAttribute("aria-current", "page");
+    // Another row of the rail shows the whole version again: nothing to switch back.
+    await rail.getByRole("button", { name: "Overview" }).click();
+    await expect.element(overview).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBeNull();
+    await row.click();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
+  });
+
+  test("the Pull request tab says what changed since the last review, and shows it in the Review", async () => {
+    const { controller } = await mountApp({
+      savedReview: true,
+      iterationBriefs: ["The first round.", "The second round."],
+      since: {
+        from: 1,
+        to: 2,
+        basis: "commented",
+        files: [{ path: "src/alpha.ts", change: "changed", target: "target-1" }],
+      },
+      pullRequest: {
+        url: "https://github.com/acme/med/pull/7",
+        head: firstCommit,
+        fetchedAt: Date.now(),
+        threads: [],
+        conversation: [],
+        reviews: [],
+      },
+    });
+    await userEvent.click(page.getByRole("tab", { name: "Pull request" }));
+    const live = page.getByRole("region", { name: "Pull request" });
+    await expect
+      .element(live.getByText("1 file changed since version 1, your last review."))
+      .toBeVisible();
+    await live.getByRole("button", { name: "Show only these changes" }).click();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
+    await expect
+      .element(page.getByRole("tab", { name: "Review", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByText("What changed since version 1")).toBeVisible();
+  });
+
+  test("a commit of the range shows the version's comments on its lines, and says how many it cannot show", async () => {
+    await page.viewport(1500, 900);
+    localStorage.setItem("med:changes-rail", "open");
+    const { savedReads } = await mountApp({
+      savedReview: true,
+      rangeCommits: true,
+      lens: {
+        notes: [
+          {
+            id: "version-note",
+            path: "src/alpha.ts",
+            side: "new",
+            line: 1,
+            text: "From the whole range.",
+            createdAt: "2026-09-20T00:00:00Z",
+            updatedAt: "2026-09-20T00:00:00Z",
+          },
+        ],
+        hidden: 2,
+      },
+    });
+    await page
+      .getByRole("navigation", { name: "Guide" })
+      .getByRole("button", { name: /Add the initial renderer/ })
+      .click();
+    await expect.element(page.getByText("From the whole range.")).toBeVisible();
+    await expect
+      .element(page.getByText(/^2 comments are on lines that this commit does not show\./))
+      .toBeVisible();
+    // The commit's comments come with the version's: the host places them.
+    expect(savedReads).toContain(
+      `/api/reviews/saved/browsing/${secondCommit}/notes?target=target-0`,
+    );
   });
 });
 

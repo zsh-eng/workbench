@@ -200,6 +200,7 @@ export const notesSchema = z.object({
       resolution: z.enum(["active", "stale", "orphaned"]).optional(),
     }),
   ),
+  hidden: z.number().int().nonnegative().optional(),
 });
 export const sourceSchema = z.object({
   reviewId: z.string(),

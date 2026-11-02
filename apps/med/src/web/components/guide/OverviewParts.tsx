@@ -103,6 +103,7 @@ export function ProofPart({ proof }: { proof: OverviewProof }) {
 const BASIS: Record<Since["basis"], string> = {
   approved: "the version that you approved",
   commented: "the version that you commented on",
+  viewed: "the version in which you marked files viewed",
   previous: "the version before",
 };
 const CHANGE: Record<Since["files"][number]["change"], string> = {
@@ -111,7 +112,14 @@ const CHANGE: Record<Since["files"][number]["change"], string> = {
   gone: "Gone",
 };
 
-export function SincePart({ since, onOpen }: { since: Since; onOpen(path: string): void }) {
+export function SincePart({
+  since,
+  onOpen,
+}: {
+  since: Since;
+  /** Shows what changed since then, at a file when one is given. */
+  onOpen(file?: Since["files"][number]): void;
+}) {
   return (
     <section aria-label="Since your last review" {...stylex.props(styles.part)}>
       <h2 {...stylex.props(styles.label)}>
@@ -124,15 +132,23 @@ export function SincePart({ since, onOpen }: { since: Since; onOpen(path: string
         {since.files.length
           ? `What changed since ${BASIS[since.basis]}.`
           : `No file changed since ${BASIS[since.basis]}.`}
+        {since.files.some((file) => file.change !== "gone") && (
+          <>
+            {" "}
+            <button type="button" onClick={() => onOpen()} {...stylex.props(styles.inline)}>
+              Show only these changes
+            </button>
+          </>
+        )}
       </p>
       {since.files.length > 0 && (
         <ul {...stylex.props(styles.list)}>
           {since.files.map((file) => (
-            <li key={`${file.repo ?? ""}\0${file.path}`}>
+            <li key={`${file.repo ?? ""}\0${file.target}\0${file.path}`}>
               <button
                 type="button"
                 disabled={file.change === "gone"}
-                onClick={() => onOpen(file.path)}
+                onClick={() => onOpen(file)}
                 {...stylex.props(styles.row, styles.button)}
               >
                 <span {...stylex.props(styles.change, file.change === "new" && styles.passed)}>
@@ -146,6 +162,11 @@ export function SincePart({ since, onOpen }: { since: Since; onOpen(path: string
             </li>
           ))}
         </ul>
+      )}
+      {!!since.moved?.length && (
+        <p {...stylex.props(styles.quiet, styles.after)}>
+          Changed only with the base, as after a rebase: {since.moved.join(", ")}
+        </p>
       )}
     </section>
   );
@@ -365,6 +386,17 @@ const styles = stylex.create({
   },
   failedCount: { color: tokens.red },
   quiet: { marginTop: 0, marginBottom: 8, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
+  after: { marginTop: 8 },
+  inline: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: tokens.text,
+    font: "inherit",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
+    cursor: "pointer",
+  },
   list: {
     listStyle: "none",
     margin: 0,

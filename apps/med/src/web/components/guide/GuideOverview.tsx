@@ -48,6 +48,7 @@ export function GuideOverview({
   version,
   offers = [],
   repo,
+  onSince,
   onScope,
   onWhole,
   onOpenLink,
@@ -78,6 +79,8 @@ export function GuideOverview({
   offers?: readonly Offer[];
   /** The review's checkout, for the summary's images. */
   repo?: string;
+  /** Shows what changed since the last review, at a file when one is given. */
+  onSince(file?: Since["files"][number]): void;
   onScope(scope: GuideScope): void;
   /** Shows the whole diff of the Review's version. */
   onWhole(): void;
@@ -199,7 +202,7 @@ export function GuideOverview({
               .join(" · ")}
           </span>
         </div>
-        {since && <SincePart since={since} onOpen={onOpenLink} />}
+        {since && <SincePart since={since} onOpen={onSince} />}
         {offerIn("rounds")}
         {hasFindings && <FindingsPart output={findings} open={openFindings} onOpen={onOpenLink} />}
         {sections.length > 0 && (

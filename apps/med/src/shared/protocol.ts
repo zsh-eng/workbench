@@ -348,6 +348,8 @@ export interface NoteState {
   reviewId: string;
   revision: number;
   notes: Note[];
+  /** A commit of a Review's range: the Review's comments on lines that it does not show. */
+  hidden?: number;
 }
 export const noteMutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("add"), note: noteInputSchema }),
