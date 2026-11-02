@@ -1,9 +1,16 @@
-import type { Block, FontConfig, TextCursorOffset } from "@/lib/pagination-v2";
+import type {
+  Block,
+  FontConfig,
+  PageLine,
+  PreparedInlineItem,
+  TextCursorOffset,
+} from "@/lib/pagination-v2";
 import {
   layoutPreWrapLines,
   layoutTextLines,
   prepareBlocks,
 } from "@/lib/pagination-v2";
+import type { HyphenPoints } from "@/lib/pagination-v2/shared/hyphenation";
 import {
   measureCollapsedSpaceWidth,
   measureTextWidth,
@@ -365,6 +372,261 @@ describe("layoutPreWrapLines cursor offsets", () => {
       .map((line) => line.startOffset?.itemIndex ?? -1)
       .filter((itemIndex) => itemIndex >= 0);
     expect(laterOffsets.some((itemIndex) => itemIndex >= 1)).toBe(true);
+  });
+});
+
+type Run = Block extends infer B
+  ? B extends { type: "text"; runs: (infer R)[] }
+    ? Partial<R> & { text: string }
+    : never
+  : never;
+
+function prepareParagraph(runs: Run[]): PreparedInlineItem[] {
+  const [block] = prepareBlocks(
+    [
+      {
+        type: "text",
+        id: "paragraph",
+        tag: "p",
+        runs: runs.map((run) => ({
+          kind: "text" as const,
+          bold: false,
+          italic: false,
+          isCode: false,
+          ...run,
+        })),
+      },
+    ],
+    BASE_FONT_CONFIG,
+  );
+  if (block?.type !== "text") throw new Error("Expected a text block");
+  return block.items;
+}
+
+const lineText = (line: PageLine) =>
+  line.fragments
+    .map((fragment) => (fragment.leadingGap > 0 ? " " : "") + fragment.text)
+    .join("");
+
+/** Any point past the third letter, as a language's patterns might give. */
+const EVERY_THIRD_LETTER: HyphenPoints = (segment) => {
+  const points: number[] = [];
+  for (let point = 3; point <= segment.length - 3; point += 3) {
+    points.push(point);
+  }
+  return points;
+};
+
+/** How wide a line's word spaces are drawn, against natural width 1. */
+function spaceRatio(line: PageLine, spaceWidth: number): number {
+  return (spaceWidth + (line.wordSpacingPx ?? 0)) / spaceWidth;
+}
+
+const PROSE =
+  "Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, and what is the use of a book, thought Alice, without pictures or conversations?";
+
+describe("justified text", () => {
+  const justified = (
+    items: PreparedInlineItem[],
+    width: number,
+    options?: Parameters<typeof layoutTextLines>[2],
+  ) =>
+    layoutTextLines(items, width, {
+      textAlign: "justify-knuth-plass",
+      ...options,
+    });
+
+  it("sets each line but the last to the column, and the last at natural spaces", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+    const width = 400;
+
+    const { lines, renderMode } = justified(items, width);
+
+    expect(renderMode).toBe("manual-justify");
+    expect(lines.length).toBeGreaterThan(3);
+    for (const line of lines.slice(0, -1)) {
+      const text = lineText(line).trimEnd();
+      const spaces = text.split(" ").length - 1;
+      const drawn =
+        measureTextWidth(text, items[0]!.font) +
+        spaces * line.wordSpacingPx! +
+        3; // the browser's justification closes this slack
+      expect(drawn).toBeCloseTo(width, 5);
+    }
+    expect(lines.at(-1)!.wordSpacingPx).toBeUndefined();
+  });
+
+  it("evens a paragraph's spaces where line-at-a-time breaking cannot", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+    const spaceWidth = measureCollapsedSpaceWidth(items[0]!.font);
+    const width = 360;
+
+    const { lines } = justified(items, width);
+    const ratios = lines
+      .slice(0, -1)
+      .map((line) => spaceRatio(line, spaceWidth));
+
+    const greedy = layoutTextLines(items, width).lines.slice(0, -1);
+    const greedyRatios = greedy.map((line) => {
+      const text = lineText(line).trimEnd();
+      const spaces = text.split(" ").length - 1;
+      return (
+        (spaceWidth +
+          (width - measureTextWidth(text, items[0]!.font)) / spaces) /
+        spaceWidth
+      );
+    });
+    expect(Math.max(...ratios)).toBeLessThan(Math.max(...greedyRatios));
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(0.79);
+  });
+
+  it("hyphenates only when a paragraph needs it", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+    // At this width spaces alone set the paragraph.
+    const roomy = justified(items, 640, { hyphenPoints: EVERY_THIRD_LETTER });
+    expect(roomy.lines.some((line) => lineText(line).endsWith("-"))).toBe(
+      false,
+    );
+
+    const narrow = justified(items, 200, { hyphenPoints: EVERY_THIRD_LETTER });
+    expect(narrow.lines.some((line) => lineText(line).endsWith("-"))).toBe(
+      true,
+    );
+  });
+
+  it("never leaves a word's tail alone as the last line", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+
+    for (let width = 280; width < 640; width += 8) {
+      const { lines } = justified(items, width, {
+        hyphenPoints: EVERY_THIRD_LETTER,
+      });
+      const last = lines.at(-1)!;
+      const before = lines.at(-2);
+      const isTail =
+        before &&
+        lineText(before).endsWith("-") &&
+        !lineText(last).includes(" ");
+      expect(isTail, `at ${width}px`).toBeFalsy();
+    }
+  });
+
+  it("sets a last line flush when it nearly fills the column", () => {
+    const items = prepareParagraph([{ text: "a short paragraph" }]);
+    const width = measureTextWidth("a short paragraph", items[0]!.font);
+
+    const { lines } = justified(items, width + 1);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.wordSpacingPx).toBeLessThan(0);
+    expect(
+      justified(items, width + 20).lines[0]!.wordSpacingPx,
+    ).toBeUndefined();
+  });
+
+  it("shows a hyphen on the page and nowhere in the text", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+
+    const { lines } = justified(items, 200, {
+      hyphenPoints: EVERY_THIRD_LETTER,
+    });
+
+    const broken = lines.findIndex((line) => lineText(line).endsWith("-"));
+    expect(broken).toBeGreaterThanOrEqual(0);
+    // The break is a cursor inside a segment, where the next line starts.
+    expect(lines[broken]!.endOffset!.graphemeIndex).toBeGreaterThan(0);
+    expect(lines[broken + 1]!.startOffset).toEqual(lines[broken]!.endOffset);
+
+    const rebuilt = lines
+      .map((line) => {
+        const text = lineText(line);
+        return text.endsWith("-") ? text.slice(0, -1) : text;
+      })
+      .join("");
+    expect(rebuilt).toBe(PROSE);
+
+    lines.forEach((line, index) => {
+      if (index > 0) {
+        expect(line.startOffset).toEqual(lines[index - 1]!.endOffset);
+      }
+    });
+  });
+
+  it("does not add a hyphen where a word already has one", () => {
+    const text =
+      `${"word ".repeat(9)}well-known ${"word ".repeat(9)}`.trimEnd();
+    const items = prepareParagraph([{ text }]);
+    // "well-" ends a line of exactly this width.
+    const width = 8 * ("word ".repeat(9).length + 5);
+
+    const { lines } = justified(items, width);
+
+    expect(lineText(lines[0]!)).toBe(`${"word ".repeat(9)}well-`);
+    expect(lineText(lines[1]!).startsWith("known ")).toBe(true);
+  });
+
+  it("measures an indented first line shorter", () => {
+    const items = prepareParagraph([{ text: PROSE }]);
+    const width = 400;
+
+    const { lines, renderMode } = justified(items, width, {
+      firstLineIndentPx: 40,
+    });
+
+    expect(renderMode).toBe("manual-justify");
+    expect(lines[0]!.indentPx).toBe(40);
+    expect(lines[1]!.indentPx).toBeUndefined();
+    const text = lineText(lines[0]!).trimEnd();
+    const spaces = text.split(" ").length - 1;
+    expect(
+      measureTextWidth(text, items[0]!.font) +
+        spaces * lines[0]!.wordSpacingPx! +
+        3,
+    ).toBeCloseTo(width - 40, 5);
+  });
+
+  it("keeps inline code, with its chrome, whole", () => {
+    const items = prepareParagraph([
+      { text: `${"word ".repeat(12)}` },
+      { text: "two words", isCode: true },
+      { text: ` ${"word ".repeat(12)}`.trimEnd() },
+    ]);
+
+    const { lines, renderMode } = justified(items, 200);
+
+    expect(renderMode).toBe("manual-justify");
+    const code = lines.filter((line) =>
+      line.fragments.some((fragment) => fragment.isCode),
+    );
+    expect(code).toHaveLength(1);
+    expect(code[0]!.fragments.find((f) => f.isCode)!.text).toBe("two words");
+  });
+
+  it("leaves a word wider than the column to ragged text", () => {
+    const items = prepareParagraph([
+      { text: `some text ${"long".repeat(30)} more text` },
+    ]);
+
+    expect(justified(items, 200).renderMode).toBe("native");
+  });
+
+  it("keeps its lines when a highlight splits a word", () => {
+    const hyphenPoints = EVERY_THIRD_LETTER;
+    const whole = prepareParagraph([{ text: PROSE }]);
+    const at = PROSE.indexOf("conversations") + 4;
+    const split = prepareParagraph([
+      { text: PROSE.slice(0, at) },
+      {
+        text: PROSE.slice(at, at + 4),
+        highlightMarks: [{ id: "note", isStart: true, isEnd: true }],
+      },
+      { text: PROSE.slice(at + 4) },
+    ]);
+
+    const before = justified(whole, 200, { hyphenPoints }).lines;
+    const after = justified(split, 200, { hyphenPoints }).lines;
+
+    expect(after.map(lineText)).toEqual(before.map(lineText));
   });
 });
 

@@ -342,6 +342,9 @@ med pr draft --key fix/parser --file pr.md
   branch, which must be on GitHub with all of its commits, and links the pull request to the
   review. GitHub takes images only as links, so a local image stays out of
   the body and the text names it, for the user to add on GitHub.
+- Once the pull request is open, the tab shows it live, with its checks and
+  comments. A later `med pr draft` stays one click away, under **Draft**. Med
+  does not change the pull request's description.
 
 ### Compare with a base branch
 

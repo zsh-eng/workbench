@@ -142,6 +142,8 @@ med pr draft --key <task> --file pr.md    # attach the draft; again for each rev
   `On: the pull request draft`. Revise the file and run `med pr draft` again.
 - Never run `gh pr create`: the user opens the pull request with Create in
   Med, from the checkout's branch once it is pushed.
+- Once it is open, the tab shows the pull request live. A later draft stays
+  one click away; Med does not change the pull request's description.
 
 ## Comments from the user
 

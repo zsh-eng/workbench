@@ -7,6 +7,17 @@ import { expect, nextSpread, openLocalBook, test } from "./helpers/fixtures";
 // the window (packages/elements/docs/SIZE_CLASSES.md).
 test.use({ isMobile: true, hasTouch: true });
 
+// A fast-forward puts the fake clock ahead of the browser's animation
+// timeline, so a page fade started on it would wait for real time to catch up.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "epub-reader-settings",
+      JSON.stringify({ pageAnimationsEnabled: false }),
+    ),
+  );
+});
+
 /** The open session's row for the book, as this device stored it. */
 function openSession(page: Page, bookId: string) {
   return page.evaluate(async (id) => {

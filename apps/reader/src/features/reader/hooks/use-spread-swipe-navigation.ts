@@ -1,3 +1,4 @@
+import { springTransition } from "@workbench/elements/spring";
 import { animate, useMotionValue, useReducedMotion } from "motion/react";
 import {
   useCallback,
@@ -18,12 +19,16 @@ export const SWIPE_DIRECTION_LOCK_PX = 10;
 export const SYSTEM_NAVIGATION_EDGE_PX = 24;
 export const SWIPE_DECELERATION_RATE = 0.99;
 export const SWIPE_COMMIT_DISTANCE_RATIO = 0.25;
-/** The settle spring for page turns; scroll mode's page snap uses it too. */
-export const SWIPE_SETTLE_SPRING = {
-  type: "spring",
-  duration: 0.4,
-  bounce: 0,
-} as const;
+/**
+ * The settle spring for page turns; scroll mode's page snap uses it too.
+ * Critical, so a page lands without a bounce, and quick, as a reader turns
+ * hundreds of them a sitting: 700 px rests in about 0.29 s, sooner when the
+ * finger throws it (docs/MOTION.md, Page turns).
+ */
+export const SWIPE_SETTLE_SPRING = springTransition({
+  response: 0.2,
+  dampingRatio: 1,
+});
 /** A curled page floats a little longer before it lands. */
 export const CURL_SETTLE_SPRING = {
   type: "spring",

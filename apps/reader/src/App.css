@@ -522,6 +522,17 @@ mark {
    paper, and the ink thins where it meets the tooth, in the paper's own
    colour (lighten leaves bare paper as it is). Dark pages keep the grain
    as it was: multiplying light fibres would hide them. */
+/* A page's running heads and folios yield to the reader's own bars, which
+   cover the same margins. They turn with the spread, so this needs no render. */
+[data-reader-root]:has(
+    [data-reader-header][data-reader-bar-shown],
+    [data-reader-top-prompt]
+  )
+  .reader-running-heads,
+[data-reader-root]:has([data-reader-footer]) .reader-folios {
+  opacity: 0;
+}
+
 .reader-paper-tooth {
   display: none;
   position: absolute;

@@ -8,8 +8,10 @@ const TOKENS = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTER
 
 // The stand-in. It finds its folder from its own path, so it works with any
 // environment. It answers a call from answers.json: the first rule whose
-// `args` are all in the call's arguments. It logs each call to calls.jsonl.
-// A call with no rule fails, as a real gh would be the only other answer.
+// `args` are all in the call's arguments, and whose `contains` are each in
+// one of them, for a long argument such as a GraphQL query. It logs each call
+// to calls.jsonl. A call with no rule fails, as a real gh would be the only
+// other answer.
 const FAKE = `#!/usr/bin/env node
 // A stand-in for the GitHub CLI in Med's validations (scripts/fake-gh.mjs).
 const { appendFileSync, readFileSync } = require("node:fs");
@@ -24,7 +26,11 @@ let rules = [];
 try {
   rules = JSON.parse(readFileSync(join(home, "answers.json"), "utf8"));
 } catch {}
-const rule = rules.find((entry) => entry.args.every((arg) => args.includes(arg)));
+const rule = rules.find(
+  (entry) =>
+    entry.args.every((arg) => args.includes(arg)) &&
+    entry.contains.every((part) => args.some((arg) => arg.includes(part))),
+);
 appendFileSync(
   join(home, "calls.jsonl"),
   JSON.stringify({ args, cwd: process.cwd(), answered: Boolean(rule) }) + "\\n",
@@ -34,6 +40,7 @@ if (!rule) {
   process.exit(1);
 }
 process.stdout.write(rule.stdout ?? "");
+process.stderr.write(rule.stderr ?? "");
 process.exit(rule.exitCode ?? 0);
 `;
 
@@ -70,15 +77,20 @@ export function useFakeGh() {
   return {
     /**
      * Sets the fixed answers: the first rule whose `args` are all in a call's
-     * arguments gives `stdout` (text, or a value to print as JSON) and
-     * `exitCode` (0 by default).
+     * arguments, and whose `contains` are each part of one of them, gives
+     * `stdout` (text, or a value to print as JSON), `stderr`, and `exitCode`
+     * (0 by default).
      */
     answer(rules) {
-      const fixed = rules.map(({ args, stdout = "", exitCode = 0 }) => ({
-        args,
-        stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout),
-        exitCode,
-      }));
+      const fixed = rules.map(
+        ({ args = [], contains = [], stdout = "", stderr = "", exitCode = 0 }) => ({
+          args,
+          contains,
+          stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout),
+          stderr,
+          exitCode,
+        }),
+      );
       writeFileSync(join(home, "answers.json"), JSON.stringify(fixed));
     },
     /** Each call so far, as `{ args, cwd, answered }`. */

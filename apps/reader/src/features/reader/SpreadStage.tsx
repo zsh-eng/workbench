@@ -75,6 +75,8 @@ interface SpreadStageProps {
   renderAdjacentSpreads?: boolean;
   swipeEnabled?: boolean;
   onSwipeStart?: () => void;
+  /** The page has landed after a swipe. */
+  onSwipeSettled?: () => void;
   onSwipeNext?: () => void;
   onSwipePrevious?: () => void;
   paddingTopPx: number;
@@ -128,6 +130,7 @@ export function SpreadStage({
   renderAdjacentSpreads = false,
   swipeEnabled = false,
   onSwipeStart,
+  onSwipeSettled,
   onSwipeNext = () => {},
   onSwipePrevious = () => {},
   paddingTopPx,
@@ -187,7 +190,10 @@ export function SpreadStage({
       onSwipeStart?.();
     },
     onRelease: (target, velocity) => feelRef.current?.release(target, velocity),
-    onSettled: () => feelRef.current?.settled(),
+    onSettled: () => {
+      feelRef.current?.settled();
+      onSwipeSettled?.();
+    },
     disableMotion: disableAnimations,
     settleSpring: curl ? CURL_SETTLE_SPRING : SWIPE_SETTLE_SPRING,
   });

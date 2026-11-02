@@ -11,8 +11,8 @@ still the same thing? A movement that answers none of them is left out.
 
 **1. Connect, or stay still.**
 
-- Do: the page slides the way you turn it. A sheet rises from the edge it
-  goes back to. A saved note's words fly into the notice that confirms them.
+- Do: a swiped page follows the finger the way you turn it. A sheet rises
+  from the edge it goes back to. A saved note's words fly into the notice that confirms them.
   The spill tab unrolls from the cut in the selection.
 - Don't: fade a list out and in after a sort, float a decoration on a loop,
   or nudge a button that did not change.
@@ -75,6 +75,8 @@ tab, the history pill, the island):
   waits for an animation to finish before taking a tap.
 - Reduced motion: no movement, no change of shape, no drawing. Things
   cross-fade, and state changes happen at once.
+- Often: the more often a person sees a movement, the less of it there
+  should be. A page turn is the extreme case (see "Page turns").
 
 **6. References.** On iOS: SF Symbols' replace transitions, and the Dynamic
 Island, one surface that changes shape and content for each activity and
@@ -438,6 +440,55 @@ the rAF-driven scroll or the CPU slowdown needs a trace on a device.
 If the opening shows 60 Hz and the drag 120 Hz or more, with the frames
 complete, the rate is Android's choice. If the opening's frames are behind
 or dropped at a high rate, it is the page.
+
+## Page turns
+
+A reader turns a page hundreds of times a sitting, across the whole screen,
+so a page turn is both the largest movement in the app and the most frequent.
+Measured in Reader at the OPPO Pad Mini's size (1008 × 640, seven runs each,
+`test/e2e/kit/reader-turn-motion.ts`, from the finger's lift to rest):
+
+| Turn          | Before                               | Now                              |
+| ------------- | ------------------------------------ | -------------------------------- |
+| Tap           | 474 ms: a slide of 0.35 s and 0.45 s | 174 ms: a 150 ms cross-fade      |
+| Swipe release | 425 ms: a spring of `duration: 0.4`  | 323 ms: response 0.2 s, critical |
+
+Each includes about 40 ms from the lift to the first new frame. The swipe's
+page has 98% of its way behind it about 240 ms after the lift.
+
+- **A tap cross-fades.** Nothing connects a tap at the page's edge to a whole
+  page travelling across the screen, and text in motion cannot be read. The
+  new page fades in over the old one, so only one layer changes and the ink
+  mixes with no dip to the paper colour.
+- **A swipe keeps the page under the finger**, since there the movement is
+  the person's own. It lands on a critically damped spring that takes the
+  finger's speed, so a flick is quicker than a drag.
+- **Reduced motion** keeps the fade, which moves nothing; a swipe still follows
+  the finger and lands at once.
+- The Debug curls keep their own spring (`CURL_SETTLE_SPRING`).
+
+**Why short, for something this big.** Guidance for large movements allows
+more time, up to 400–500 ms, but it does so for travel that a person needs to
+follow, and every source pulls frequent actions the other way:
+
+- [NN/g, Animation duration](https://www.nngroup.com/articles/animation-duration/):
+  100–400 ms in most cases, the top reserved for big movements across large
+  screens; at 500 ms an animation drags. Animations are far more often too
+  long than too short, and the more often one shows, the shorter and subtler
+  it should be.
+- [Apple, HIG Motion](https://developer.apple.com/design/human-interface-guidelines/motion):
+  aim for brevity in feedback, and generally avoid adding motion to
+  interactions that occur frequently.
+- [Apple, HIG Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility):
+  with Reduce Motion, replace transitions in the x, y and z axes with fades.
+- [Emil Kowalski, You don't need animations](https://emilkowal.ski/ui/you-dont-need-animations):
+  stay under 300 ms; animation on repeated actions makes them feel slow; never
+  animate what the keyboard starts. Reader's arrow keys still get the fade,
+  so that a turn reads as a turn. It is the one place this goes against a
+  source, and Page animations off removes it.
+- [Material motion tokens](https://github.com/material-components/material-components-android/blob/master/docs/theming/Motion.md):
+  durations from 50 ms to 1 s, and springs of damping 0.9 at stiffness 1400
+  (fast), 700 and 300. Fast is a response of 0.17 s, close to the 0.2 s here.
 
 ## Sheet behaviour
 

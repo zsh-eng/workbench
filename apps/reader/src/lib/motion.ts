@@ -26,6 +26,8 @@ export const MOTION = {
   chromeFadeOut: { duration: 0.14, ease: "easeIn" },
   /** Desktop chrome fades in place. */
   desktopChromeFade: { duration: 0.16, ease: EASE_OUT },
+  /** A page turned by a tap, a key or a button fades in over the last. */
+  pageFade: { duration: 0.15, ease: "easeOut" },
 } as const;
 
 /** Durations for surfaces that transition with CSS. */

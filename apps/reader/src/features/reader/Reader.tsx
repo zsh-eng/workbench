@@ -26,8 +26,12 @@ import { NotesCapsule } from "./NotesIsland";
 import { usePaginatedReaderLayout } from "./hooks/use-paginated-reader-layout";
 import { PagesRow } from "./PagesRow";
 import { FullscreenRow } from "./FullscreenRow";
-import { leaveReadingFullscreen } from "./reading-fullscreen";
+import {
+  leaveReadingFullscreen,
+  resumeReadingFullscreen,
+} from "./reading-fullscreen";
 import { usePagesPreference } from "./pages-preference";
+import { useResumeFullscreenOnTap } from "./hooks/use-resume-fullscreen-on-tap";
 import { useReaderAnnotations } from "./hooks/use-reader-annotations";
 import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
 import { useReaderDisplayReadiness } from "./hooks/use-reader-display-readiness";
@@ -45,6 +49,7 @@ import { ReaderSearchPanel } from "./search/ReaderSearchPanel";
 import { ReaderSearchStepper } from "./search/ReaderSearchStepper";
 import { useReaderBookSearch } from "./search/use-reader-book-search";
 import type { ReaderLocation } from "./reader-location";
+import { PageFurnitureProvider } from "./PageFurniture";
 import { ReadingLayoutRow } from "./scroll/ReadingLayoutRow";
 import { ScrollStage } from "./scroll/ScrollStage";
 import { TablesRow } from "./TablesRow";
@@ -117,6 +122,7 @@ export function Reader() {
     stageSlotRef.current = node;
     setStageSlotElement(node);
   }, []);
+  useResumeFullscreenOnTap(stageSlotElement);
 
   const {
     resolvedSpreadColumns,
@@ -409,6 +415,7 @@ export function Reader() {
     // makes no scroll container, so bringing a sliding header, a hidden
     // footer or a focused control into view can't shift the page.
     <div
+      data-reader-root=""
       data-search-marks={searchMarks ?? undefined}
       className="relative h-dvh overflow-clip overscroll-none bg-background"
     >
@@ -536,54 +543,66 @@ export function Reader() {
               >
                 <DeferredEpubImageProvider key={bookId} bookId={bookId}>
                   {scrollMode.showSpreadStage && (
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        // Over the column for a scrubber preview or a jump.
-                        zIndex: scrollMode.spreadAboveStage ? 4 : undefined,
-                        // Reopening in scroll mode: no page flash first.
-                        visibility: scrollMode.hideSpreadStage
-                          ? "hidden"
-                          : undefined,
-                      }}
+                    <PageFurnitureProvider
+                      book={book}
+                      // Numbers settle once every chapter is counted.
+                      showFolios={
+                        sessionState.settings.showPageNumbers &&
+                        sessionState.pagination.status === "ready"
+                      }
                     >
-                      <SpreadStage
-                        spread={sessionState.pagination.spread}
-                        previousSpread={
-                          sessionState.pagination.spreadWindow?.previous
-                        }
-                        nextSpread={sessionState.pagination.spreadWindow?.next}
-                        spreadConfig={sessionState.pagination.spreadConfig}
-                        columnSpacingPx={columnGapPx}
-                        paginationConfig={
-                          sessionState.pagination.paginationConfig
-                        }
-                        stageContentRef={stageContentRef}
-                        onLinkActivate={sessionActions.openInternalHref}
-                        disableAnimations={
-                          !sessionState.settings.pageAnimationsEnabled
-                        }
-                        renderAdjacentSpreads={shouldPrepareSwipePages}
-                        swipeEnabled={swipeNavigationEnabled}
-                        onSwipeStart={hideChrome}
-                        onSwipeNext={sessionActions.nextSpread}
-                        onSwipePrevious={sessionActions.prevSpread}
-                        pageTurn={paper.pageTurn}
-                        paper={paper.grain}
-                        ink={paper.ink}
-                        marks={paper.marks}
-                        grip={paper.grip}
-                        bookBlock={paper.bookBlock}
-                        showThrough={paper.showThrough}
-                        haptics={paper.haptics}
-                        sound={paper.sound}
-                        turnRef={pageTurnerRef}
-                        paddingTopPx={stagePadding.paddingTop}
-                        paddingBottomPx={stagePadding.paddingBottom}
-                        paddingLeftPx={stagePadding.paddingX}
-                        paddingRightPx={stagePadding.paddingX}
-                      />
-                    </div>
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          // Over the column for a scrubber preview or a jump.
+                          zIndex: scrollMode.spreadAboveStage ? 4 : undefined,
+                          // Reopening in scroll mode: no page flash first.
+                          visibility: scrollMode.hideSpreadStage
+                            ? "hidden"
+                            : undefined,
+                        }}
+                      >
+                        <SpreadStage
+                          spread={sessionState.pagination.spread}
+                          previousSpread={
+                            sessionState.pagination.spreadWindow?.previous
+                          }
+                          nextSpread={
+                            sessionState.pagination.spreadWindow?.next
+                          }
+                          spreadConfig={sessionState.pagination.spreadConfig}
+                          columnSpacingPx={columnGapPx}
+                          paginationConfig={
+                            sessionState.pagination.paginationConfig
+                          }
+                          stageContentRef={stageContentRef}
+                          onLinkActivate={sessionActions.openInternalHref}
+                          disableAnimations={
+                            !sessionState.settings.pageAnimationsEnabled
+                          }
+                          renderAdjacentSpreads={shouldPrepareSwipePages}
+                          swipeEnabled={swipeNavigationEnabled}
+                          onSwipeStart={hideChrome}
+                          onSwipeSettled={resumeReadingFullscreen}
+                          onSwipeNext={sessionActions.nextSpread}
+                          onSwipePrevious={sessionActions.prevSpread}
+                          pageTurn={paper.pageTurn}
+                          paper={paper.grain}
+                          ink={paper.ink}
+                          marks={paper.marks}
+                          grip={paper.grip}
+                          bookBlock={paper.bookBlock}
+                          showThrough={paper.showThrough}
+                          haptics={paper.haptics}
+                          sound={paper.sound}
+                          turnRef={pageTurnerRef}
+                          paddingTopPx={stagePadding.paddingTop}
+                          paddingBottomPx={stagePadding.paddingBottom}
+                          paddingLeftPx={stagePadding.paddingX}
+                          paddingRightPx={stagePadding.paddingX}
+                        />
+                      </div>
+                    </PageFurnitureProvider>
                   )}
                   {scrollMode.stage && (
                     <ScrollStage

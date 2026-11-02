@@ -699,6 +699,22 @@ async function mountApp(
         else briefComments = briefComments.filter((comment) => comment.id !== mutation.remove);
         return Response.json(savedBundle());
       }
+      if (url.pathname === "/api/reviews/saved/pull-request-live")
+        return Response.json({
+          url: "https://github.com/example/repo/pull/7",
+          number: 7,
+          title: prDraft?.title ?? "Pull request",
+          author: "reader",
+          state: "draft",
+          body: "Calls failed once and gave up.",
+          base: "main",
+          head: "feat/retry",
+          labels: [],
+          checks: [],
+          reviewers: [],
+          merge: { mergeable: "UNKNOWN", status: "UNKNOWN", decision: null },
+          fetchedAt: Date.now(),
+        });
       if (url.pathname === "/api/reviews/saved/pr-draft-create" && prDraft) {
         prCreates.push(JSON.parse(String(init?.body)));
         prDraft = { ...prDraft, pullRequestUrl: "https://github.com/example/repo/pull/7" };
@@ -3288,6 +3304,14 @@ describe("saved reviews", () => {
     await expect
       .element(page.getByRole("link", { name: "Open on GitHub" }))
       .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
+    // The draft has become the live pull request, and it stays one click away.
+    const live = page.getByRole("region", { name: "Pull request", exact: true });
+    await expect.element(live.getByText("Pull request #7")).toBeVisible();
+    expect(page.getByText("Pull request draft · revision 2").query()).toBeNull();
+    await live.getByRole("button", { name: "Draft", exact: true }).click();
+    await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
+    await page.getByRole("button", { name: "Live pull request" }).click();
+    await expect.element(live.getByText("Pull request #7")).toBeVisible();
   });
 
   test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {

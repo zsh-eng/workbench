@@ -113,8 +113,12 @@ test("Highlight takes a selection that keys grew after the toolbar opened, by cl
       const highlights: { color: string; selectedText: string }[] = await (
         await import(path)
       ).getBookHighlights(bookId);
+      // A highlight keeps the book's text, line ends in its source included.
       return highlights
-        .map(({ color, selectedText }) => `${color}: ${selectedText}`)
+        .map(
+          ({ color, selectedText }) =>
+            `${color}: ${selectedText.replace(/\s+/g, " ")}`,
+        )
         .sort();
     }, localBook.id);
   // Keys change a selection without the pointer release the Reader reads.

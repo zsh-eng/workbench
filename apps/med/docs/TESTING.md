@@ -20,17 +20,18 @@ types. The push tests use temporary local bare remotes.
 
 ## Test boundaries
 
-| Behavior                                                                | Test path                                           | What remains real                                                                       |
-| ----------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Review links, cross-tab comments, copy, clear, push, and base selection | `scripts/validate-review-links.mjs`                 | Built CLI, browser, controller, HTTP host, Git, saved files, and local remote           |
-| Repository and worktree navigation                                      | `scripts/validate-multi-repo.mjs`                   | Built app, repository discovery, and file/search requests                               |
-| First-run welcome, discovery, CLI adds, and login item                  | `scripts/validate-welcome.mjs`                      | Built CLI, browser, WebGL shader, fixture home folder, Git, and the service registry    |
-| View settings after the browser closes and the server restarts          | `scripts/validate-view-settings.mjs`                | Built CLI and server, a browser profile on disk, the same port, and a fixture session   |
-| Comment races and failed writes                                         | `tests/integration/saved-review-controller.test.ts` | Controller, parser, HTTP host, Git, and disk; delay only the external response boundary |
-| CLI discovery, authentication, and saved capture                        | `tests/integration/review-cli.test.ts`              | CLI command implementation, HTTP peers, and local state files                           |
-| Git authorization, merge bases, hooks, and push rejection               | `tests/host/git-actions.test.ts`                    | HTTP routes, Git commands, hooks, and temporary repositories                            |
-| Vim selection and copy                                                  | `tests/browser/full-file.test.tsx`                  | File renderer, key handlers, selection, and clipboard                                   |
-| Commit time and hover display                                           | `tests/browser/history.test.tsx`                    | Rendered history and Base UI; advance the clock instead of calling timer callbacks      |
+| Behavior                                                                | Test path                                           | What remains real                                                                         |
+| ----------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Review links, cross-tab comments, copy, clear, push, and base selection | `scripts/validate-review-links.mjs`                 | Built CLI, browser, controller, HTTP host, Git, saved files, and local remote             |
+| Repository and worktree navigation                                      | `scripts/validate-multi-repo.mjs`                   | Built app, repository discovery, and file/search requests                                 |
+| The Pull request tab in each state of a pull request, and Create        | `scripts/validate-pull-request-live.mjs`            | Built CLI, browser, HTTP host, Git, and a local remote, on gh's output as GitHub gives it |
+| First-run welcome, discovery, CLI adds, and login item                  | `scripts/validate-welcome.mjs`                      | Built CLI, browser, WebGL shader, fixture home folder, Git, and the service registry      |
+| View settings after the browser closes and the server restarts          | `scripts/validate-view-settings.mjs`                | Built CLI and server, a browser profile on disk, the same port, and a fixture session     |
+| Comment races and failed writes                                         | `tests/integration/saved-review-controller.test.ts` | Controller, parser, HTTP host, Git, and disk; delay only the external response boundary   |
+| CLI discovery, authentication, and saved capture                        | `tests/integration/review-cli.test.ts`              | CLI command implementation, HTTP peers, and local state files                             |
+| Git authorization, merge bases, hooks, and push rejection               | `tests/host/git-actions.test.ts`                    | HTTP routes, Git commands, hooks, and temporary repositories                              |
+| Vim selection and copy                                                  | `tests/browser/full-file.test.tsx`                  | File renderer, key handlers, selection, and clipboard                                     |
+| Commit time and hover display                                           | `tests/browser/history.test.tsx`                    | Rendered history and Base UI; advance the clock instead of calling timer callbacks        |
 
 Browser tests may supply file bytes or a response outside the tested path. They
 must not replace the selection, tooltip, copy, or other mechanism they test.
@@ -45,6 +46,11 @@ comes first on PATH, with a scratch `GH_CONFIG_DIR` and no GitHub token, for
 answers that a script sets, such as the pull request and its comments in
 `validate-review-links.mjs`. At the end, `fakeGh.check()` fails the run when a
 call had no fixed answer.
+
+A fixture of what gh prints must match real GitHub, as a tidy fixture hid a real
+bug: GitHub leaves lines null for pending comments. Check its shape with
+read-only `gh` calls first. `tests/fixtures/gh/live-pull-requests.mjs` keeps the
+shapes that those calls showed, and says which ones a tidy fixture would hide.
 
 ## Focused exceptions
 

@@ -357,7 +357,7 @@ export interface LineTextPosition {
 function lineTextLength(
   line: Extract<PageSlice, { type: "text" }>["lines"][number],
 ): number {
-  let length = 0;
+  let length = line.addsHyphen ? -1 : 0;
   for (const fragment of line.fragments) length += fragment.text.length;
   return length;
 }

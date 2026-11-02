@@ -116,3 +116,13 @@ export function connectPreviewScroll(pane: HTMLElement, model: MarkdownModel) {
     },
   };
 }
+
+/** Scrolls a pane to a node in it. Only this pane moves: scrollIntoView can
+ * move hidden split ancestors. */
+export function scrollPaneTo(pane: HTMLElement, node: HTMLElement, offset = 28) {
+  const top = node.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+  pane.scrollTo({
+    top: Math.max(0, top - offset),
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
+}

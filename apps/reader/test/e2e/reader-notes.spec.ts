@@ -227,12 +227,14 @@ async function openSelectionNote(
         ? spread.querySelector("[data-reader-page-content]")!
         : spread;
     const usable = (node: Node) => {
+      if (!node.parentElement!.closest("[data-reader-page-content]"))
+        return false;
       const length = node.textContent?.trim().length ?? 0;
       if (start === "line") return length >= 30;
       if (start === "page-start") return length > 0;
-      // Above the lowest top that the margin column can take.
+      // Prose, above the lowest top that the margin column can take.
       const top = node.parentElement!.getBoundingClientRect().top;
-      return length > 0 && top > innerHeight / 2 && top < innerHeight - 260;
+      return length >= 30 && top > innerHeight / 2 && top < innerHeight - 260;
     };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
@@ -624,7 +626,7 @@ test.describe("Highlight note capture", () => {
     for (let index = 0; index < 8; index++) await nextSpread(page);
     await page.evaluate(() => {
       const root = document.querySelector(
-        '[data-reader-spread-layer="current"]',
+        '[data-reader-spread-layer="current"] [data-reader-page-content]',
       )!;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node = walker.nextNode();

@@ -146,10 +146,9 @@ test.describe("Reader settings on a phone", () => {
     await page.getByRole("tab", { name: "Layout" }).click();
     // The sheet grows to fit the tab on its spring; tap once it rests.
     await waitForSheetToRest(settings);
-    await page.getByRole("button", { name: "Center", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Center", pressed: true }),
-    ).toBeVisible();
+    const justify = page.getByRole("switch", { name: "Justify", exact: true });
+    await justify.click();
+    await expect(justify).toBeChecked();
     await page.getByRole("tab", { name: "Theme" }).click();
     await waitForSheetToRest(settings);
     await page.getByRole("button", { name: "Night", exact: true }).click();

@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, List, PanelRight } from "lucide-react";
 import { motion } from "motion/react";
+import { FullscreenButton } from "./FullscreenRow";
 import { ReaderDesktopToolbar } from "./ReaderDesktopToolbar";
 import { MOTION } from "@/lib/motion";
 import { AppearanceGlyph, type ReaderHeaderProps } from "./ReaderHeader";
@@ -32,6 +33,7 @@ export function ReaderDesktopHeader({
   return (
     <motion.header
       data-reader-header="desktop"
+      data-reader-bar-shown={visible ? "" : undefined}
       className="absolute inset-x-0 top-0 z-20 bg-background/88 backdrop-blur-xl"
       initial={false}
       animate={{ opacity: visible ? 1 : 0 }}
@@ -61,6 +63,7 @@ export function ReaderDesktopHeader({
         actions={
           split ? (
             <>
+              <FullscreenButton className={CHROME_BUTTON_CLASS_NAME} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -88,18 +91,21 @@ export function ReaderDesktopHeader({
               </Button>
             </>
           ) : (
-            <Button
-              ref={toolsTriggerRef}
-              variant="ghost"
-              size="icon"
-              onClick={onOpenMenu}
-              aria-label="Open reader tools"
-              aria-expanded={isMenuOpen}
-              aria-pressed={isMenuOpen}
-              className={CHROME_BUTTON_CLASS_NAME}
-            >
-              <PanelRight className="size-[1.15rem]" />
-            </Button>
+            <>
+              <FullscreenButton className={CHROME_BUTTON_CLASS_NAME} />
+              <Button
+                ref={toolsTriggerRef}
+                variant="ghost"
+                size="icon"
+                onClick={onOpenMenu}
+                aria-label="Open reader tools"
+                aria-expanded={isMenuOpen}
+                aria-pressed={isMenuOpen}
+                className={CHROME_BUTTON_CLASS_NAME}
+              >
+                <PanelRight className="size-[1.15rem]" />
+              </Button>
+            </>
           )
         }
       />

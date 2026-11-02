@@ -124,7 +124,7 @@ describe("AnimatedSpread swipe handoff layering", () => {
     container.remove();
   });
 
-  it("keeps the outgoing B above incoming A for an animated tap transition", () => {
+  it("fades incoming A in over the outgoing B on an animated tap transition", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -143,8 +143,8 @@ describe("AnimatedSpread swipe handoff layering", () => {
 
     const incomingA = getAnimatedLayer(container, 1);
     const outgoingB = getAnimatedLayer(container, 2);
-    expect(Number(outgoingB.style.zIndex)).toBeGreaterThan(
-      Number(incomingA.style.zIndex),
+    expect(Number(incomingA.style.zIndex)).toBeGreaterThan(
+      Number(outgoingB.style.zIndex),
     );
 
     act(() => root.unmount());
