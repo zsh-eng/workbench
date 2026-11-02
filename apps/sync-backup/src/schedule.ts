@@ -102,12 +102,19 @@ export function hourly(
   directory: string,
   timeoutMs = 20 * 60 * 1000,
 ) {
-  const step = (...args: string[]) =>
-    Bun.spawnSync(
+  const step = (...args: string[]) => {
+    const run = Bun.spawnSync(
       [...cli, ...args, "--origin", origin, "--data-dir", directory, "--json"],
       // A step that hangs must not hold the job: launchd starts no other.
       { stdout: "inherit", stderr: "inherit", timeout: timeoutMs },
-    ).exitCode;
+    );
+    if (run.exitedDueToTimeout)
+      console.error(
+        `wb hourly: wb ${args.join(" ")} ran over ${timeoutMs / 1000} s and was stopped`,
+      );
+    // A step stopped by a signal, the cap's included, has no exit code.
+    return run.exitCode ?? 1;
+  };
   const codes = [step("sync"), step("arctic", "text", "--missing", "--unwall")];
   return codes.find(Boolean) ?? 0;
 }
