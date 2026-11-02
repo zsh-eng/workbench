@@ -47,6 +47,7 @@ export function GuideOverview({
   since,
   version,
   offers = [],
+  repo,
   onScope,
   onWhole,
   onOpenLink,
@@ -75,6 +76,8 @@ export function GuideOverview({
   version?: { number: number; approved: boolean; onApprove(approved: boolean): void };
   /** Practices that would help here, most useful first; one shows at a time. */
   offers?: readonly Offer[];
+  /** The review's checkout, for the summary's images. */
+  repo?: string;
   onScope(scope: GuideScope): void;
   /** Shows the whole diff of the Review's version. */
   onWhole(): void;
@@ -119,7 +122,7 @@ export function GuideOverview({
         {proof ? <ProofPart proof={proof} /> : offerIn("proof")}
         {summary ? (
           <div {...stylex.props(styles.summary)}>
-            <GuideMarkdown text={summary} size="lead" onOpenLink={onOpenLink} />
+            <GuideMarkdown text={summary} size="lead" repo={repo} onOpenLink={onOpenLink} />
           </div>
         ) : offer?.slot === "explainer" ? (
           offerIn("explainer")

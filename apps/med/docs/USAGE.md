@@ -685,6 +685,8 @@ request split into small ones.
   comment count, and the range's commits. **Needs care** marks a segment that
   the agent flagged as risky. **Start reviewing** opens the first segment that
   you have not finished, and **All files** shows the version's whole diff.
+  A summary is Markdown: `mermaid` diagrams show, and images load from the
+  review's checkout, with paths from the repository root.
 - **A segment.** Its title, summary, and only its files, with the agent's
   comments on their lines. Comments on whole files, and on lines the diff does
   not show, follow the summary. **Reply** on a comment on lines adds your note

@@ -213,6 +213,12 @@ and your comments.
   but group by the final change, not by commit: fixup commits often mix
   concerns.
 - Summaries say why over what, in 1–3 sentences. Titles have at most 4 words.
+- A picture often explains faster than words. When the reader must follow a
+  flow, a state change, a shape of data, or a change on screen, consider a
+  `mermaid` fence or an image in a summary. An image path starts at the
+  repository root, and the file must be in the checkout
+  (`![Retry states](docs/retry-states.png)`). Keep it small, say what it
+  shows, and leave it out when a sentence is enough.
 - Comment only where it saves the reader time: non-obvious logic, a subtle
   change in behavior, a risk. Do not explain the obvious; most files need no
   comment. Use `risk` for what needs extra care (security, data loss, hard to

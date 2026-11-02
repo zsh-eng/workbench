@@ -42,7 +42,7 @@ import { useTheme } from "../themes";
 import { tokens, ui } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
-import { markdownImageUrl } from "../markdown/images";
+import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import { scrollPaneTo } from "../markdown/scroll";
 import { DiffStat } from "./DiffStat";
 import type { FileRefs } from "./FileRefs";
@@ -623,24 +623,13 @@ export default function BriefView({
     const source = root
       ? { kind: "worktree" as const, repo: root }
       : { kind: "drop" as const, id: "brief" };
-    for (const image of host.querySelectorAll<HTMLImageElement>("img[data-image-source]")) {
-      if (image.src) continue;
-      const raw = image.dataset.imageSource ?? "";
-      let url: string | undefined;
-      try {
+    loadMarkdownImages(
+      host,
+      (raw, image) =>
         // The draft's local images are Med's copies.
-        url =
-          (image.closest('[data-note-section="pr"]') ? prDraftImage?.(raw) : undefined) ??
-          markdownImageUrl(raw, source, "BRIEF.md");
-      } catch {
-        /* Display the alt text. */
-      }
-      if (url) image.src = url;
-      else image.title = "This image URL is not supported.";
-      image.onerror = () => {
-        image.title = `Image unavailable: ${raw}`;
-      };
-    }
+        (image.closest('[data-note-section="pr"]') ? prDraftImage?.(raw) : undefined) ??
+        markdownImageUrl(raw, source, "BRIEF.md"),
+    );
   }, [annotated, root, prDraftImage]);
 
   // A pinned reply opens at its note.

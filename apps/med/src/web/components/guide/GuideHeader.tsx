@@ -29,6 +29,7 @@ export function SegmentHeader({
   agent,
   stray,
   notes,
+  repo,
   onMarkAll,
   onMutate,
   onOpenLink,
@@ -42,6 +43,8 @@ export function SegmentHeader({
   stray: readonly GuideNote[];
   /** The notes that can answer them. */
   notes: readonly Note[];
+  /** The review's checkout, for the summary's images. */
+  repo?: string;
   onMarkAll(viewed: boolean): void;
   onMutate(mutation: NoteMutation): Promise<void>;
   onOpenLink(href: string): void;
@@ -101,7 +104,9 @@ export function SegmentHeader({
         </>
       }
     >
-      {section.summary && <GuideMarkdown text={section.summary} onOpenLink={onOpenLink} />}
+      {section.summary && (
+        <GuideMarkdown text={section.summary} repo={repo} onOpenLink={onOpenLink} />
+      )}
       {section.unmatched.length > 0 && (
         <p {...stylex.props(styles.unmatched)}>
           Not in this comparison: {section.unmatched.join(", ")}

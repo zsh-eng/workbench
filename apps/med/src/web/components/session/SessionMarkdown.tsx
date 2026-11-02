@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
+import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
 import { useTheme } from "../../themes";
 import { fileRefOf } from "../../data/file-refs";
@@ -16,10 +17,13 @@ import "../MarkdownPreview.css";
 export const SessionMarkdown = memo(function SessionMarkdown({
   text,
   streaming,
+  imageRepo,
   onOpenLink,
 }: {
   text: string;
   streaming: boolean;
+  /** The checkout that an image's relative path starts from. A thread loads no images. */
+  imageRepo?: string;
   /** A link to a file in the repository, such as src/summary.ts:5. */
   onOpenLink?(href: string): void;
 }) {
@@ -91,6 +95,12 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     node.addEventListener("click", follow);
     return () => node.removeEventListener("click", follow);
   }, []);
+
+  useEffect(() => {
+    if (!imageRepo || !host.current) return;
+    const source = { kind: "worktree" as const, repo: imageRepo };
+    loadMarkdownImages(host.current, (raw) => markdownImageUrl(raw, source, "BRIEF.md"));
+  }, [blocks, imageRepo]);
 
   return (
     <div ref={host} className="med-md-prose med-session-prose">

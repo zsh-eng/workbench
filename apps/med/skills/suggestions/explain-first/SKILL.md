@@ -20,7 +20,8 @@ Risk: callers now wait up to 7 s before an error.
 - Why before what. Name the problem in the user's words.
 - Name the one place to read first, with `path:line`.
 - Say what changed in behaviour, and what did not.
-- Add a diagram only when the change moves data between parts.
+- When a flow, a state change, or a screen is hard to say in words, show it:
+  a `mermaid` diagram, or an image that is in the checkout.
 - In Med, put it in the guide's `summary`, or write it to a file and pass
   `--brief <file>` with `--guide -`: only one option can read standard
   input.

@@ -19,7 +19,7 @@ import { fileRefOf } from "../data/file-refs";
 import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime, useMinuteClock } from "../data/relative-time";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
-import { markdownImageUrl } from "../markdown/images";
+import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import type { MarkdownResult } from "../markdown/model";
 import { scrollPaneTo } from "../markdown/scroll";
 import { tokens, ui } from "../theme.stylex";
@@ -115,25 +115,12 @@ function DescriptionText({
     const source = root
       ? { kind: "worktree" as const, repo: root }
       : { kind: "drop" as const, id: "brief" };
-    for (const image of host.current?.querySelectorAll<HTMLImageElement>(
-      "img[data-image-source]",
-    ) ?? []) {
-      if (image.getAttribute("src")) continue;
-      const raw = image.dataset.imageSource ?? "";
-      let url: string | undefined;
-      try {
-        url = /^https?:\/\//i.test(raw)
-          ? descriptionImageUrl(reviewId, raw)
-          : markdownImageUrl(raw, source, "BRIEF.md");
-      } catch {
-        /* Display the alt text. */
-      }
-      if (url) image.src = url;
-      else image.title = "This image URL is not supported.";
-      image.onerror = () => {
-        image.title = `Image unavailable: ${raw}`;
-      };
-    }
+    if (!host.current) return;
+    loadMarkdownImages(host.current, (raw) =>
+      /^https?:\/\//i.test(raw)
+        ? descriptionImageUrl(reviewId, raw)
+        : markdownImageUrl(raw, source, "BRIEF.md"),
+    );
   }, [blocks, reviewId, root]);
   // A web link opens by itself, from the worker's HTML. A heading's link stays
   // in this tab: the address is the app's.

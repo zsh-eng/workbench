@@ -27,3 +27,25 @@ export function markdownImageUrl(
     return `/api/vault/image?${new URLSearchParams({ document: path, href: raw, syntax: "markdown" })}`;
   return `/api/markdown/image?${new URLSearchParams({ source: JSON.stringify(source), document: path, href: raw })}`;
 }
+
+/** Load the Markdown images in a node: the worker's HTML leaves their sources unset. */
+export function loadMarkdownImages(
+  host: ParentNode,
+  urlOf: (raw: string, image: HTMLImageElement) => string | undefined,
+) {
+  for (const image of host.querySelectorAll<HTMLImageElement>("img[data-image-source]")) {
+    if (image.getAttribute("src")) continue;
+    const raw = image.dataset.imageSource ?? "";
+    let url: string | undefined;
+    try {
+      url = urlOf(raw, image);
+    } catch {
+      /* Display the alt text. */
+    }
+    if (url) image.src = url;
+    else image.title = "This image URL is not supported.";
+    image.onerror = () => {
+      image.title = `Image unavailable: ${raw}`;
+    };
+  }
+}

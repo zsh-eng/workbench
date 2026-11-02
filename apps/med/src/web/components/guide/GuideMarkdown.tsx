@@ -11,11 +11,14 @@ const SessionMarkdown = lazy(() =>
 export function GuideMarkdown({
   text,
   size = "body",
+  repo,
   onOpenLink,
 }: {
   text: string;
   /** "table": a table of the Overview, as wide as its column. */
   size?: "body" | "lead" | "table";
+  /** The review's checkout: an image's path starts at its root, as in a brief. */
+  repo?: string;
   onOpenLink?(href: string): void;
 }) {
   return (
@@ -27,7 +30,7 @@ export function GuideMarkdown({
           </div>
         }
       >
-        <SessionMarkdown text={text} streaming={false} onOpenLink={onOpenLink} />
+        <SessionMarkdown text={text} streaming={false} imageRepo={repo} onOpenLink={onOpenLink} />
       </Suspense>
     </div>
   );

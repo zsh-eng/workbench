@@ -5208,6 +5208,7 @@ export function App({
           agent={guideAgent}
           stray={guideStray}
           notes={notes}
+          repo={state.review?.repo}
           onMarkAll={(value) => setFilesViewed(guideSection.fileIds, value)}
           onMutate={(mutation) => controller.mutateNote(mutation)}
           onOpenLink={openGuideLink}
@@ -6295,6 +6296,7 @@ export function App({
                         : undefined
                     }
                     offers={overviewOffers}
+                    repo={state.review?.repo}
                     onScope={openGuide}
                     onWhole={showReviewDiff}
                     onOpenLink={openOverviewLink}

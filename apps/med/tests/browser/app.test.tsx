@@ -3106,6 +3106,36 @@ describe("review guide comments", () => {
     ],
   };
 
+  test("a summary shows a diagram and loads an image from the checkout, in the Overview and in a segment", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: ["Retries back off.", "", "```mermaid", "graph LR", "  A-->B", "```"].join("\n"),
+        segments: [
+          {
+            title: "Rename alpha",
+            summary: "The new states:\n\n![Retry states](shots/states.png)",
+            files: ["src/alpha.ts"],
+          },
+        ],
+      },
+    });
+    const overview = page.getByRole("region", { name: "Guide overview" });
+    await expect.element(overview.getByText("Retries back off.")).toBeVisible();
+    await expect
+      .poll(() => overview.element().querySelector(".med-md-diagram svg"), { timeout: 5000 })
+      .not.toBeNull();
+    await userEvent.keyboard("j");
+    const image = page.getByRole("img", { name: "Retry states" });
+    await expect.element(image).toBeInTheDocument();
+    await expect.element(image).toHaveAttribute("src");
+    const url = new URL((image.element() as HTMLImageElement).src);
+    expect(url.pathname).toBe("/api/markdown/image");
+    expect(url.searchParams.get("href")).toBe("shots/states.png");
+    expect(JSON.parse(url.searchParams.get("source")!)).toMatchObject({ kind: "worktree" });
+  });
+
   test("Reply opens a box under the agent's comment, and Cancel closes it", async () => {
     await page.viewport(1280, 800);
     await mountApp({ savedReview: true, guide });

@@ -76,6 +76,12 @@ A guide splits the change into segments that the user reads one at a time.
 - Put every changed file in exactly one segment. `files` takes paths,
   folders ending in `/`, and globs.
 - Titles: at most 4 words. Summaries: why over what, 1–3 sentences.
+- A picture often explains faster than words. When the reader must follow a
+  flow, a state change, a shape of data, or a change on screen, consider a
+  `mermaid` fence or an image in the `summary` of the guide or of a segment.
+  An image path starts at the repository root and the file must be in the
+  checkout (`![Retry states](docs/retry-states.png)`). Keep it small and name
+  what it shows. Leave it out when a sentence is enough.
 - Comment only where it saves the reader time. `kind` is `note`,
   `suggestion`, `risk` or `question`; a comment without `line` is about the
   whole file; `side: "old"` points at removed lines. `"critical": true`
