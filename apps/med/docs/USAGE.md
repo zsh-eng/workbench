@@ -4,6 +4,25 @@ Med shows Git changes, files, and notes in your browser, from a server on your
 Mac. This guide covers the app. To hand off reviews from coding agents, see
 [agent reviews](AGENT_INTEGRATION.md).
 
+## Concepts
+
+These words name the parts of Med.
+
+- A **source** is a repository, or a vault of Markdown notes, that you
+  registered with `med add`. Med watches it for changes.
+- A **workspace** is a set of tiled panes around one review or source: the
+  review, **Changes**, **Session**, and **Files**. Each keeps its own layout.
+- A **thread** is one task: an agent's work and its changes. The threads that
+  you have open are tabs in the sidebar. The others are history.
+- A **review** is the saved record of a change: its diffs, the agent's guide,
+  and your comments. It stays on your Mac.
+- A **version** is one hand-off in a review. Each `med review create` with the
+  same key adds one, and you can compare it with an earlier one.
+- A **key** names the task, usually by its branch. An agent gives the same key
+  for each round.
+- A **guide** is the agent's reading order for a version: a summary, then
+  segments that you check one at a time.
+
 ## Run Med
 
 `med web` starts one background server and opens Med in your browser. The
@@ -15,8 +34,10 @@ thread's tab closes, once its turn ends. `med agents` lists the agents, and
 `med agents stop --all` stops them.
 
 Med serves port **6330** and keeps its state in `~/.local/state/med`. For a
-second profile, give every command the same `--port` and `--state-dir`. Med
-does not choose another port for you; a port in use is an error.
+second profile, give every command the same `--state-dir`: its server takes a
+free port and says which, and later commands with that folder find it. Add
+`--port` for an address that stays the same after a restart; a port that you
+give must be free.
 
 When Med is out of date, an open page says so. **Restart** replaces a server
 that runs older code, and **Reload** loads a newer page. Med first checks that
