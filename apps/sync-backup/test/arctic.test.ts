@@ -883,7 +883,7 @@ test("wb arctic text --missing keeps the process alive while a page is read, as 
   // cli.ts.
   const child = Bun.spawn(
     [
-      "bun",
+      process.execPath,
       "-e",
       `import { fetchMissingText } from ${JSON.stringify(join(import.meta.dirname, "../src/arctic.ts"))};
 const read = {
@@ -901,6 +901,7 @@ fetchMissingText({ origin: process.argv[1], token: "fixture", directory: process
     expect(await new Response(child.stdout).text()).toBe("PDF\n");
     expect(await child.exited).toBe(0);
   } finally {
+    child.kill();
     api.server.stop(true);
     rmSync(directory, { recursive: true, force: true });
   }
@@ -926,27 +927,27 @@ test("wb arctic text --missing --dry-run --json lists the 25 links it would read
     },
   });
   writeFileSync(join(directory, "arctic-text.json"), state);
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      join(import.meta.dirname, "../src/cli.ts"),
+      "arctic",
+      "text",
+      "--missing",
+      "--dry-run",
+      "--json",
+      "--origin",
+      origin,
+      "--data-dir",
+      directory,
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, WORKBENCH_TOKEN: "fixture" },
+    },
+  );
   try {
-    const child = Bun.spawn(
-      [
-        "bun",
-        join(import.meta.dirname, "../src/cli.ts"),
-        "arctic",
-        "text",
-        "--missing",
-        "--dry-run",
-        "--json",
-        "--origin",
-        origin,
-        "--data-dir",
-        directory,
-      ],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env, WORKBENCH_TOKEN: "fixture" },
-      },
-    );
     const output = await new Response(child.stdout).text();
     expect(await child.exited).toBe(0);
     expect(JSON.parse(output)).toEqual({
@@ -958,6 +959,7 @@ test("wb arctic text --missing --dry-run --json lists the 25 links it would read
     expect(api.requests.filter((line) => !line.startsWith("GET "))).toEqual([]);
     expect(readFileSync(join(directory, "arctic-text.json"), "utf8")).toBe(state);
   } finally {
+    child.kill();
     api.server.stop(true);
     rmSync(directory, { recursive: true, force: true });
   }
