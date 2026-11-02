@@ -40,6 +40,28 @@ A bundled family (`@fontsource`) is imported twice with the same subsets and wei
 
 Design ideas → Reading fonts opens the book you read last in each sans font through the Debug-only `?font=<id>` parameter, which lays the book out without saving the font.
 
+## Justified text
+
+Appearance → Layout → Justify sets text flush to both margins. It starts on for a screen whose short side is at least 600 px, a tablet or a desktop, and off for a phone, whose line holds too few words for its spaces to stay even. `textAlign` holds the choice: a saved `left` without `textAlignChosen` is the old default, not a choice. A left-aligned page never hyphenates.
+
+`layout-text-lines.ts` breaks a whole paragraph at once, in the manner of TeX: of all the ways to break it, the one whose word spaces stay closest to natural, tried with no hyphens first. A paragraph it cannot set, such as one with a word wider than the column, stays ragged. It does no measuring of its own, so it costs less than left-aligned text: on a 2,000-page book at iPad width, layout takes 625 ms against 905 ms, and full pagination takes 10.4 s against 10.8 s.
+
+The text never changes. A hyphen break is a cursor inside a segment, and the hyphen exists only in that line's rendered fragment, so saved places, highlights, copy and search see the book's own text. A saved place stays valid when lines move, as it does when the font changes, and Justify needs no cache bump: laid-out pages are never persisted.
+
+`shared/hyphenation.ts` loads Liang's TeX patterns from the `hyphen` package, for the book's `dc:language`, before layout, so a page never reflows when they arrive. English patterns are precached; another language downloads with its first book into `reader-assets`. Layout waits 1.5 s for them, and past that, or offline, the book is justified without hyphens until its next layout. These chunks are why workers build as ES modules: a classic worker would carry every language in one file.
+
+The worker's widths come from canvas, which can differ from the page by up to about 3 px on a line. Each justified line renders as a `nowrap` block with `text-align-last: justify`: the worker's word spacing stops 3 px short, and the browser closes the rest, so a line ends on the margin in every font. `test/e2e/kit/reader-justify-metrics.ts` prints the word-space ratios and edge error of the pages it turns through.
+
+## Running heads and folios
+
+`PageFurniture` puts a quiet running head and page number in each page's margins, as a printed book has: the book's title over a left-hand page, the chapter's over a right-hand or single page, and nothing over a chapter's opening. A cover or full-page plate stays bare. The chapter title is only ever the contents' label, so a file the contents does not list takes the book's title rather than an invented one. Numbers follow Appearance → Page numbers and wait for pagination to finish, because they change until then.
+
+They sit in the margins the layout already leaves for the reader's bars, so they take no room from the text, and belong to the spread, so they turn with the page. The bars cover the same margins: a `:has()` rule in `App.css` fades each row while its bar shows, with no render of the spread. Scroll mode has neither.
+
+## Two pages as an open book
+
+With two pages, `layoutTheme.bookRhythm` sets text as a book does. Paragraphs run solid with a first-line indent in place of the gap, so the lines sit on one grid; body text after a heading, quotation or image snaps back to that grid, so baselines match across the gutter. A paragraph leaves no first line alone at a page's foot and no last line alone at a page's head, so a page may end a line or two short. Leading is 95% of the reader's Line height, because two pages make shorter lines, and a folio sits under the page's last possible line. A book's own styles keep their margins and indents, with Book styles on. One page keeps its paragraph gaps. Scroll mode shares the layout of the pages it replaces, so changing mode never reflows the book.
+
 ## Paper and the page curl (Debug)
 
 With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. Its code loads only once a curl is chosen (`paper/PaperTurn.tsx`, from `SpreadStage`), and the ink and pigment passes only with grain, so the slide's Reader carries none of it. The study behind the leaf is in `docs/page-turn-study/`.
@@ -59,6 +81,10 @@ The first curl (`curl-v1`) is kept to compare: `curl-geometry.ts` bends the page
 - `PaperMarks.tsx` and `pigment-renderer.ts` draw highlights as pigment while the paper has grain. Each highlighted line is one stroke, drawn in WebGL and multiplied into the sheet under the text (screened on dark themes): dye that deepens where it pools, soft uneven edges that soak into the page's own grain, streaks along a marker's stroke and a chisel slant at its ends, and a faint tide line. The marks stay in the page with a clear fill, so selection, hit-testing, the highlight tools and stored offsets are unchanged; without WebGL they keep their fill. The page raster copies the strokes, so the leaf carries them, and the back shows them through.
 - `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css. With ink `in` the paper, App.css lays the grain over the text, multiplied on light themes, and thins the ink on the tooth with a `lighten` layer in the paper's colour. With ink `gl`, `PaperInk.tsx` rasters each page's text alone and `ink-renderer.ts` soaks it into the grain with WebGL; the live text turns clear under it and keeps selection, links and search.
 - `use-page-feel.ts` adds a haptic tick when a turned page lets go (Android's vibration, or iOS 18's native switch) and an optional rustle from shaped noise in Web Audio.
+
+## Full screen while reading
+
+On an installed Android app, opening a book hides the system bars with the Fullscreen API (`reading-fullscreen.ts`). Chrome leaves full screen when the app stops, and only a gesture can ask again, so the next tap on the page goes back, and a swipe does when its page lands. The tap still does its usual work. Android's back gesture leaves on purpose: `fullscreenchange` with no hidden page around it. Taps then leave the bars alone, and the header's button, the Appearance switch or opening a book asks again. A hidden page draws no frames and `fullscreenchange` waits for a frame, so Android's exit can report after the app is back; the code tells the two apart from `visibilitychange`, in either order.
 
 ## Scroll mode
 

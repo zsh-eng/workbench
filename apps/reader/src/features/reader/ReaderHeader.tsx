@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type { ReaderChromeSurfaceProps } from "./chrome";
 import type { ReaderSheetId } from "./types";
 import { MOTION } from "@/lib/motion";
+import { FullscreenButton } from "./FullscreenRow";
 import { ReaderDesktopHeader } from "./ReaderDesktopHeader";
 
 // A 32 px control with a 44 px touch target. The target is placed from the
@@ -81,6 +82,7 @@ export function ReaderHeader({
     <>
       <motion.header
         data-reader-header="mobile"
+        data-reader-bar-shown={chromeVisible ? "" : undefined}
         className="absolute inset-x-0 top-0 z-20 bg-background/88 backdrop-blur-xl"
         animate={{ y: chromeVisible ? "0px" : "-100%" }}
         transition={{
@@ -121,6 +123,7 @@ export function ReaderHeader({
 
           {/* Zone 3 — Right: mobile launcher or desktop sidebar trigger. */}
           <div className="flex items-center justify-end gap-2.5">
+            <FullscreenButton className={CHROME_BUTTON_CLASS_NAME} />
             {split && (
               <Button
                 variant="ghost"

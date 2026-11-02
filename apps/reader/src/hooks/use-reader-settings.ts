@@ -43,6 +43,28 @@ const DEFAULT_SETTINGS = {
 } satisfies ReaderSettings;
 
 const THEME_TRANSITION_DURATION_MS = 0;
+const TABLET_MIN_SHORT_SIDE_PX = 600;
+
+/**
+ * Justified text reads like a book on a tablet or a desktop. A phone's line
+ * holds too few words for its spaces to stay even, so it stays left-aligned.
+ */
+function getDeviceTextAlign(): ReaderSettings["textAlign"] {
+  const { width, height } = window.screen;
+  return Math.min(width, height) >= TABLET_MIN_SHORT_SIDE_PX
+    ? "justify-knuth-plass"
+    : "left";
+}
+
+/**
+ * Left was every device's default, and saved settings store it, so a saved
+ * left only counts as the reader's choice once they have made one.
+ */
+function readDefaultTextAlign(settings: ReaderSettings): ReaderSettings {
+  return settings.textAlign === "left" && !settings.textAlignChosen
+    ? { ...settings, textAlign: getDeviceTextAlign() }
+    : settings;
+}
 
 function clampFontSizePx(value: number): number {
   return Math.min(
@@ -141,13 +163,15 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
     try {
       const item = getRuntimeStorage().getItem(STORAGE_KEY);
       if (!item) {
-        return DEFAULT_SETTINGS;
+        return readDefaultTextAlign(DEFAULT_SETTINGS);
       }
 
-      return normalizeReaderSettings({
-        ...DEFAULT_SETTINGS,
-        ...JSON.parse(item),
-      });
+      return readDefaultTextAlign(
+        normalizeReaderSettings({
+          ...DEFAULT_SETTINGS,
+          ...JSON.parse(item),
+        }),
+      );
     } catch (error) {
       settingsReadFailed.current = true;
       console.warn("Error reading settings from localStorage:", error);
@@ -262,7 +286,13 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSettings = useCallback((newSettings: Partial<ReaderSettings>) => {
     settingsChanged.current = true;
-    setSettings((prev) => normalizeReaderSettings({ ...prev, ...newSettings }));
+    setSettings((prev) =>
+      normalizeReaderSettings({
+        ...prev,
+        ...newSettings,
+        ...(newSettings.textAlign ? { textAlignChosen: true } : {}),
+      }),
+    );
 
     if (newSettings.theme) {
       appearanceChanged.current = true;
@@ -290,7 +320,7 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
   const resetSettings = useCallback(() => {
     settingsChanged.current = true;
     appearanceChanged.current = true;
-    setSettings(DEFAULT_SETTINGS);
+    setSettings(readDefaultTextAlign(DEFAULT_SETTINGS));
     setAppearanceModeState("light");
   }, []);
 

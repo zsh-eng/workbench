@@ -20,11 +20,16 @@ test.use({
 
 const CURRENT_SPREAD = '[data-reader-spread-layer="current"]';
 
+/** The text on the pages, without their running heads and folios. */
 const spreadText = (page: Page) =>
   page
-    .locator(CURRENT_SPREAD)
-    .evaluate((element) =>
-      (element.textContent ?? "").replace(/\s+/g, " ").trim(),
+    .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
+    .evaluateAll((pages) =>
+      pages
+        .map((element) => element.textContent ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim(),
     );
 
 /**
@@ -71,6 +76,110 @@ async function choosePages(page: Page, pages: "Auto" | "One" | "Two") {
   await expect(row).toHaveAttribute("data-pages-row", pages.toLowerCase());
   return row;
 }
+
+test("A page's running head and folio turn with it and yield to the bars", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let turn = 0; turn < 6; turn++) await nextSpread(page);
+  await expect.poll(() => currentPages(page)).toHaveLength(2);
+  // The prompt keeps the header up on a book with no status.
+  await page
+    .getByRole("button", { name: "Mark as reading", exact: true })
+    .tap();
+  const header = page.locator("[data-reader-header][data-reader-bar-shown]");
+  await expect(page.getByTestId("chrome-accessory")).toHaveCount(0);
+
+  const { width, height } = page.viewportSize()!;
+  const toggleChrome = () => page.touchscreen.tap(width / 2, height / 2);
+  if (await header.count()) await toggleChrome();
+  await expect(header).toHaveCount(0);
+
+  const heads = page.locator(`${CURRENT_SPREAD} .reader-running-heads`);
+  const folios = page.locator(`${CURRENT_SPREAD} .reader-folios`);
+  await expect(heads).toHaveCSS("opacity", "1");
+  await expect(folios).toHaveCSS("opacity", "1");
+  await expect(heads.locator("p").first()).toContainText(/Alice/i);
+  await expect(heads.locator("p").last()).toContainText(/Chapter/i);
+  await expect
+    .poll(async () =>
+      (await folios.locator("p").allTextContents()).map((text) => text.trim()),
+    )
+    .toEqual(await currentPages(page));
+
+  // Above the text's first line and below its last, so nothing overlaps.
+  const boxes = await page
+    .locator(`${CURRENT_SPREAD} [data-reader-page-slot="0"]`)
+    .evaluate((slot) => {
+      const lines = [
+        ...slot.querySelectorAll("p[data-reader-page-slice] > span"),
+      ];
+      const spread = slot.closest("[data-reader-spread-layer]")!;
+      return {
+        top: lines[0]!.getBoundingClientRect().top,
+        bottom: lines.at(-1)!.parentElement!.getBoundingClientRect().bottom,
+        head: spread
+          .querySelector(".reader-running-heads p")!
+          .getBoundingClientRect().bottom,
+        folio: spread.querySelector(".reader-folios p")!.getBoundingClientRect()
+          .top,
+      };
+    });
+  expect(boxes.head).toBeLessThanOrEqual(boxes.top);
+  expect(boxes.folio).toBeGreaterThanOrEqual(boxes.bottom);
+
+  // The bars cover these margins: both rows hide, and the text stays put.
+  const textBefore = await spreadText(page);
+  await toggleChrome();
+  await expect(header).toHaveCount(1);
+  await expect(heads).toHaveCSS("opacity", "0");
+  await expect(folios).toHaveCSS("opacity", "0");
+  expect(await spreadText(page)).toBe(textBefore);
+
+  await toggleChrome();
+  await expect(header).toHaveCount(0);
+  await expect(heads).toHaveCSS("opacity", "1");
+});
+
+test("A spread's baselines match across its two pages", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  let compared = 0;
+  for (let turn = 0; turn < 20; turn++) {
+    await nextSpread(page);
+    const offsets = await page
+      .locator(`${CURRENT_SPREAD} [data-reader-page-content]`)
+      .evaluateAll((pages) =>
+        pages.map((content) => {
+          const top = content.getBoundingClientRect().top;
+          const body = [
+            ...content.querySelectorAll<HTMLElement>(
+              "p[data-reader-page-slice]",
+            ),
+          ].filter(
+            (block) =>
+              getComputedStyle(block).fontSize ===
+              getComputedStyle(content).fontSize,
+          );
+          return body.map((block) => ({
+            top: block.getBoundingClientRect().top - top,
+            line: Number(block.dataset.readerLineHeight),
+          }));
+        }),
+      );
+    for (const blocks of offsets) {
+      for (const { top, line } of blocks) {
+        const offGrid = Math.abs(top - Math.round(top / line) * line);
+        expect(offGrid).toBeLessThan(0.5);
+        compared += 1;
+      }
+    }
+  }
+  expect(compared).toBeGreaterThan(40);
+});
 
 test("A landscape tablet reads two pages and keeps its place through Pages and a turn", async ({
   page,
@@ -164,7 +273,10 @@ test.describe("Full screen while reading, installed on Android", () => {
     localBook,
   }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: /^Open / }).first().click();
+    await page
+      .getByRole("link", { name: /^Open / })
+      .first()
+      .click();
     await expect(page).toHaveURL(new RegExp(`/reader/${localBook.id}`));
     await waitForReaderReady(page);
     await expect.poll(() => isFullscreen(page)).toBe(true);
@@ -202,6 +314,107 @@ test.describe("Full screen while reading, installed on Android", () => {
     await expect.poll(() => isFullscreen(page)).toBe(false);
   });
 
+  /** Android stops the app: the page hides, and the exit reports either side. */
+  const leaveTheApp = (page: Page, exitReportsFirst: boolean) =>
+    page.evaluate(async (exitFirst) => {
+      const setHidden = (hidden: boolean) => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          get: () => hidden,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      };
+      const exited = new Promise((resolve) =>
+        document.addEventListener("fullscreenchange", resolve, { once: true }),
+      );
+      if (!exitFirst) setHidden(true);
+      await document.exitFullscreen();
+      await exited;
+      if (exitFirst) setHidden(true);
+      setHidden(false);
+    }, exitReportsFirst);
+
+  const openBookInFullscreen = async (page: Page, id: string) => {
+    await page.goto("/");
+    await page
+      .getByRole("link", { name: /^Open / })
+      .first()
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/reader/${id}`));
+    await waitForReaderReady(page);
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+  };
+
+  for (const exitReportsFirst of [false, true]) {
+    test(`Full screen comes back on the next tap after leaving the app (the exit reports ${exitReportsFirst ? "first" : "last"})`, async ({
+      page,
+      localBook,
+    }) => {
+      await openBookInFullscreen(page, localBook.id);
+      await leaveTheApp(page, exitReportsFirst);
+      expect(await isFullscreen(page)).toBe(false);
+
+      // A tap on the side of the page: it goes back and still turns the page.
+      const before = await currentPages(page);
+      await page.touchscreen.tap(900, 320);
+      await expect.poll(() => isFullscreen(page)).toBe(true);
+      await expect.poll(() => currentPages(page)).not.toEqual(before);
+    });
+  }
+
+  test("A swipe goes back to full screen when its page lands", async ({
+    page,
+    localBook,
+  }) => {
+    await openBookInFullscreen(page, localBook.id);
+    await leaveTheApp(page, false);
+    const before = await currentPages(page);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: 800, y: 320 }],
+    });
+    for (const x of [760, 700, 620, 520, 420])
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y: 320 }],
+      });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await cdp.detach();
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+  });
+
+  test("Leaving on purpose keeps the bars until the header's button", async ({
+    page,
+    localBook,
+  }) => {
+    await openBookInFullscreen(page, localBook.id);
+    await page.evaluate(() => document.exitFullscreen());
+    await expect.poll(() => isFullscreen(page)).toBe(false);
+
+    // The middle of the spread shows the chrome; a tap does not go back.
+    const enter = page.getByRole("button", {
+      name: "Enter full screen",
+      exact: true,
+    });
+    await expect
+      .poll(async () => {
+        if (await enter.isVisible()) return true;
+        await page.touchscreen.tap(504, 320);
+        return false;
+      })
+      .toBe(true);
+    expect(await isFullscreen(page)).toBe(false);
+
+    await enter.tap();
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+    await expect(enter).toHaveCount(0);
+  });
+
   test("A refused request opens the book with the bars", async ({
     page,
     localBook,
@@ -213,7 +426,10 @@ test.describe("Full screen while reading, installed on Android", () => {
     const errors: Error[] = [];
     page.on("pageerror", (error) => errors.push(error));
     await page.goto("/");
-    await page.getByRole("link", { name: /^Open / }).first().click();
+    await page
+      .getByRole("link", { name: /^Open / })
+      .first()
+      .click();
     await expect(page).toHaveURL(new RegExp(`/reader/${localBook.id}`));
     await waitForReaderReady(page);
     expect(await isFullscreen(page)).toBe(false);

@@ -28,6 +28,9 @@ const precache = readerPrecache({
   // painted, when the pagination worker warms with it, so it is offline
   // before a book needs it (src/features/reader/README.md, Reading fonts).
   precacheFonts: /^assets\/(dm-sans|inter|eb-garamond|lora)-latin-\d+-/,
+  // English hyphenation. A book in another language downloads its patterns
+  // when it opens, and is justified without hyphens if they take too long.
+  precacheHyphenation: /^assets\/hyphen-patterns-en-/,
 });
 
 // https://vite.dev/config/
@@ -41,6 +44,19 @@ export default defineConfig(({ command, mode }) => ({
     // scan does not follow. Found later, it rebuilds the dependency cache and
     // fails the module requests already in flight on a cold start.
     include: ["workbox-window"],
+  },
+  // ES workers can split out what they load on demand. A classic worker
+  // would carry every language's hyphenation patterns in its one file.
+  worker: {
+    format: "es",
+    rollupOptions: {
+      output: {
+        chunkFileNames: ({ facadeModuleId }) =>
+          facadeModuleId?.includes("/hyphen/patterns/")
+            ? "assets/hyphen-patterns-[name]-[hash].js"
+            : "assets/[name]-[hash].js",
+      },
+    },
   },
   plugins: [
     react({

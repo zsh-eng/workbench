@@ -20,6 +20,8 @@ export interface ReaderPrecacheOptions {
   onDemandPages: readonly RegExp[];
   /** The font files to precache. The others load when text first uses them. */
   precacheFonts: RegExp;
+  /** The hyphenation patterns to precache. The others load with their book. */
+  precacheHyphenation: RegExp;
 }
 
 /**
@@ -28,9 +30,9 @@ export interface ReaderPrecacheOptions {
  * page counts these entries in Cache Storage to show the update's progress.
  *
  * Everything the build emits is precached, so a fresh install reads offline,
- * except code that only on-demand pages load and fonts outside
- * `precacheFonts`. Those download on first use, into the runtime cache that
- * `vite.config.ts` gives `/assets/`.
+ * except code that only on-demand pages load, fonts outside `precacheFonts`
+ * and hyphenation patterns outside `precacheHyphenation`. Those download on
+ * first use, into the runtime cache that `vite.config.ts` gives `/assets/`.
  *
  * vite-plugin-pwa adds the web manifest to the worker itself, after this
  * transform. It is listed in `sw-precache.json` and left out of the return,
@@ -71,6 +73,8 @@ export function readerPrecache(options: ReaderPrecacheOptions): {
         if (onDemand.has(entry.url)) return false;
         if (entry.url.endsWith(".woff2"))
           return options.precacheFonts.test(entry.url);
+        if (entry.url.startsWith("assets/hyphen-patterns-"))
+          return options.precacheHyphenation.test(entry.url);
         return true;
       });
       if (outDir) {

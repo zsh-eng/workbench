@@ -35,12 +35,16 @@ export default async function freshRestore({
 }) {
   // A new device: nothing of the app's is stored, but the session cookie is.
   await page.goto("about:blank");
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Storage.clearDataForOrigin", {
-    origin: baseURL,
-    storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
-  });
-  await cdp.detach();
+  // RESTORE_LAB_NO_CDP is for WebKit, which has no CDP. The kit gives it a new
+  // profile for each process, so use --runs 1 and there is nothing to clear.
+  if (!process.env.RESTORE_LAB_NO_CDP) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Storage.clearDataForOrigin", {
+      origin: baseURL,
+      storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
+    });
+    await cdp.detach();
+  }
 
   const requests: {
     path: string;
@@ -69,18 +73,23 @@ export default async function freshRestore({
   page.on("requestfinished", finished);
   page.on("requestfailed", failed);
   const trace = process.env.RESTORE_LAB_TRACE;
-  if (trace)
-    await context.browser()!.startTracing(page, {
-      path: trace,
-      screenshots: false,
-      categories: process.env.RESTORE_LAB_TRACE_CATEGORIES?.split(",") ?? [
-        "devtools.timeline",
-        "disabled-by-default-devtools.timeline",
-        "disabled-by-default-v8.cpu_profiler",
-        "v8.execute",
-        "blink.user_timing",
-        "IndexedDB",
-      ],
+  const tracer = trace ? await context.newCDPSession(page) : undefined;
+  if (tracer)
+    await tracer.send("Tracing.start", {
+      transferMode: "ReturnAsStream",
+      traceConfig: {
+        includedCategories: process.env.RESTORE_LAB_TRACE_CATEGORIES?.split(
+          ",",
+        ) ?? [
+          "devtools.timeline",
+          "disabled-by-default-devtools.timeline",
+          "disabled-by-default-v8.cpu_profiler",
+          "v8.execute",
+          "blink.user_timing",
+          "IndexedDB",
+        ],
+        excludedCategories: ["*"],
+      },
     });
 
   const profile = process.env.RESTORE_LAB_PROFILE;
@@ -92,11 +101,25 @@ export default async function freshRestore({
   }
   await page.goto(`${baseURL}/`);
   const seconds = process.env.RESTORE_LAB_SECONDS;
-  if (trace) {
+  if (tracer) {
     await page.waitForTimeout(
       Number(process.env.RESTORE_LAB_TRACE_MS ?? 30_000),
     );
-    await context.browser()!.stopTracing();
+    const complete = new Promise<string>((done) =>
+      tracer.once("Tracing.tracingComplete", ({ stream }) => done(stream!)),
+    );
+    await tracer.send("Tracing.end");
+    const handle = await complete;
+    writeFileSync(trace!, "");
+    for (;;) {
+      const { data, eof } = await tracer.send("IO.read", {
+        handle,
+        size: 1 << 24,
+      });
+      appendFileSync(trace!, data);
+      if (eof) break;
+    }
+    await tracer.detach();
   }
   if (seconds) await page.waitForTimeout(Number(seconds) * 1000);
   else

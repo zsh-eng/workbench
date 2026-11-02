@@ -295,6 +295,14 @@ export interface LayoutTheme {
   paragraphSpacingFactor: number;
   textAlign: "left" | "center" | "right" | "justify" | "justify-knuth-plass";
   baseFontSizePx: number;
+  /** The book's language tag, which chooses justified text's hyphenation. */
+  language?: string;
+  /**
+   * Sets text as an open book does, for two pages: paragraphs solid with a
+   * first-line indent, body lines on one grid so baselines match across the
+   * pages, and no widows or orphans.
+   */
+  bookRhythm?: boolean;
 }
 
 export interface PaginationConfig {
@@ -305,7 +313,7 @@ export interface PaginationConfig {
 }
 
 export interface PageFragment {
-  kind: "text" | "space";
+  kind: "text";
   text: string;
   font: string;
   leadingGap: number;
@@ -313,7 +321,6 @@ export interface PageFragment {
   link?: LinkRef;
   isCode: boolean;
   highlightMarks?: HighlightMark[];
-  marginRightPx?: number;
   anchorStart?: TextCursorOffset;
   anchorEnd?: TextCursorOffset;
 }
@@ -329,6 +336,8 @@ export interface PageLine {
   startOffset?: TextCursorOffset;
   endOffset?: TextCursorOffset;
   isLastInBlock: boolean;
+  /** The line's text ends in a hyphen that is not in the book. */
+  addsHyphen?: boolean;
   wordSpacingPx?: number;
   indentPx?: number;
 }

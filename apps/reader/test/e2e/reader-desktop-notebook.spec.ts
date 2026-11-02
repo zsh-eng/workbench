@@ -232,7 +232,7 @@ test("a notebook highlight has the note menu: copy, delete, and Undo", async ({
   for (let i = 0; i < 8; i++) await nextSpread(page);
   const selected = await page.evaluate(() => {
     const root = document.querySelector(
-      '[data-reader-spread-layer="current"]',
+      '[data-reader-spread-layer="current"] [data-reader-page-content]',
     )!;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
@@ -270,9 +270,9 @@ test("a notebook highlight has the note menu: copy, delete, and Undo", async ({
   await entry.locator("article").click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Edit" })).toHaveCount(0);
   await page.getByRole("menuitem", { name: "Copy text", exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    selected,
-  );
+  // A highlight keeps the book's text, line ends in its source included.
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied.replace(/\s+/g, " ")).toBe(selected);
   await entry.locator("article").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(entry).toHaveCount(0);

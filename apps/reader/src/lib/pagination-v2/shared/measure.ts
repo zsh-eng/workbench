@@ -42,6 +42,35 @@ export function measureTextWidth(text: string, font: string): number {
   return width;
 }
 
+const graphemeSegmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+export function countGraphemes(text: string): number {
+  if (!graphemeSegmenter) return Array.from(text).length;
+  let count = 0;
+  for (const _ of graphemeSegmenter.segment(text)) count++;
+  return count;
+}
+
+/** The first `graphemeCount` graphemes of `text`, in UTF-16 code units. */
+export function graphemePrefixLength(
+  text: string,
+  graphemeCount: number,
+): number {
+  if (graphemeCount <= 0) return 0;
+  if (!graphemeSegmenter) {
+    return Array.from(text).slice(0, graphemeCount).join("").length;
+  }
+  let count = 0;
+  for (const { index } of graphemeSegmenter.segment(text)) {
+    if (count === graphemeCount) return index;
+    count++;
+  }
+  return text.length;
+}
+
 export function clearMeasureCache(): void {
   collapsedSpaceWidthCache.clear();
   measuredTextWidthCache.clear();

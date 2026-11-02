@@ -21,9 +21,9 @@ const MIN_CHOSEN_SPREAD_PAGE_HEIGHT_PX = 320;
 
 /**
  * Margins and the size a page needs before Auto shows two. A desktop
- * window keeps wide margins and a tall page. A tablet reads like a book:
- * narrow outer margins and gutter, and two pages in a landscape tablet's
- * height.
+ * window keeps wide margins and a tall page. A tablet reads like a book: a
+ * gutter of two inner margins, wider outer margins, and two pages in a
+ * landscape tablet's height.
  */
 interface PageMetrics {
   outerMargin: number;
@@ -40,8 +40,8 @@ const DESKTOP_METRICS: PageMetrics = {
 };
 
 const TABLET_METRICS: PageMetrics = {
-  outerMargin: MIN_OUTER_MARGIN_PX,
-  gutter: 44,
+  outerMargin: 36,
+  gutter: 56,
   minAutoSpreadPageWidth: 400,
   minAutoSpreadPageHeight: 400,
 };
@@ -83,8 +83,7 @@ interface PaginatedReaderLayoutInputs {
   pages: PagesPreference;
 }
 
-interface ResolvePaginatedReaderLayoutOptions
-  extends PaginatedReaderLayoutInputs {
+interface ResolvePaginatedReaderLayoutOptions extends PaginatedReaderLayoutInputs {
   stageWidth: number;
   stageHeight: number;
 }

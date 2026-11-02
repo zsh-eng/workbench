@@ -63,6 +63,10 @@ const { values: options, positionals } = parseArgs({
     screen: { type: "string" },
     scale: { type: "string" },
     browser: { type: "string", default: "chromium" },
+    disk: { type: "boolean" },
+    executable: { type: "string" },
+    arg: { type: "string", multiple: true, default: [] },
+    insecure: { type: "boolean" },
     trace: { type: "string" },
     full: { type: "boolean" },
     throttle: { type: "string", default: "1" },
@@ -121,6 +125,7 @@ if (engine === webkit && (throttle > 1 || options.trace)) {
   console.error("kit: --throttle and --trace need Chromium");
   process.exit(64);
 }
+const profileDir = join(tmpdir(), "agent-kit", `profile-${process.pid}`);
 const origin = target.startsWith("/")
   ? `http://127.0.0.1:${options.port ?? process.env.E2E_PORT ?? 5190}`
   : new URL(target).origin;
@@ -130,6 +135,7 @@ await run().catch((error: Error) => {
   // Playwright's errors carry a long call log; the first lines say enough.
   const message = String(error?.message ?? error).split("\n");
   console.error(`kit ${command} failed: ${message.slice(0, 4).join("\n")}`);
+  rmSync(profileDir, { recursive: true, force: true });
   process.exit(1);
 });
 process.exit(0);
@@ -150,19 +156,26 @@ async function run() {
     colorScheme: options.dark ? "dark" : "light",
     reducedMotion: options["reduced-motion"] ? "reduce" : "no-preference",
     serviceWorkers: "block",
+    ignoreHTTPSErrors: options.insecure,
     recordVideo:
       command === "clip" ? { dir: videoDir, size: viewport } : undefined,
   } as const;
   // WebKit keeps no Blob in IndexedDB for a context without a profile, and
   // Reader keeps its books there. WebKit gets a new profile for each run.
-  const profile =
-    engine === webkit
-      ? join(tmpdir(), "agent-kit", `profile-${process.pid}`)
-      : undefined;
-  const browser = profile ? undefined : await engine.launch();
+  // `--disk` does the same for Chromium: a new context is off the record, so
+  // its IndexedDB is in memory, not what a person's browser does.
+  const profile = engine === webkit || options.disk ? profileDir : undefined;
+  const launch = {
+    args: options.arg,
+    ...(options.executable ? { executablePath: options.executable } : {}),
+  };
+  const browser = profile ? undefined : await engine.launch(launch);
   const context = browser
     ? await browser.newContext(contextOptions)
-    : await engine.launchPersistentContext(profile!, contextOptions);
+    : await engine.launchPersistentContext(profile!, {
+        ...contextOptions,
+        ...launch,
+      });
   const storage = options.storage.map((entry) => {
     const at = entry.indexOf("=");
     return [entry.slice(0, at), entry.slice(at + 1)];

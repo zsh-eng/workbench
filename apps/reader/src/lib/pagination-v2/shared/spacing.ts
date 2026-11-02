@@ -85,7 +85,7 @@ function getHeadingTypography(tag: string): HeadingTypographySpec | null {
   }
 }
 
-function getBodyLineHeight(theme: LayoutTheme): number {
+export function getBodyLineHeight(theme: LayoutTheme): number {
   return Math.round(theme.baseFontSizePx * theme.lineHeightFactor);
 }
 
@@ -210,6 +210,14 @@ export function getCollapsedBlockGap(
   previousMarginBelow: number,
 ): number {
   if (!previousKind) {
+    return 0;
+  }
+
+  if (
+    theme.bookRhythm &&
+    previousKind === currentKind &&
+    (currentKind === "p" || currentKind === "li")
+  ) {
     return 0;
   }
 
