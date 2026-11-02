@@ -88,7 +88,7 @@ const live = (): LivePullRequest => ({
     "Renames the export for $3 and $5. See [the test](src/alpha.ts:4), [gone](./no/such.ts), and [the notes](#notes).",
     '<img width="300" alt="The chart" src="https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89">',
     '<p align="center"><img alt="Centered" src="https://github.com/user-attachments/assets/aaaaaaaa-b4ac-46c3-8cb8-56fb574b7c89"></p>',
-    '<details>\n<summary>Shots</summary>\n<img alt="Folded" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">\n</details>',
+    '<details>\n<summary>Shots</summary>\n<img alt="Folded" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">\nA caption under it.\n</details>',
     '1. Before\n   <img alt="Listed" src="https://github.com/user-attachments/assets/cccccccc-b4ac-46c3-8cb8-56fb574b7c89">\n2. After',
     '> <p><img alt="Quoted" src="https://github.com/user-attachments/assets/dddddddd-b4ac-46c3-8cb8-56fb574b7c89"></p>',
     '<!-- Template: <img alt="Hidden" src="https://github.com/user-attachments/assets/eeeeeeee-b4ac-46c3-8cb8-56fb574b7c89"> -->',
@@ -556,6 +556,8 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   const listed = view.getByRole("img", { name: "Listed" }).element();
   expect(listed.closest("ol")?.querySelectorAll("li")).toHaveLength(2);
   expect(view.getByRole("img", { name: "Quoted" }).element().closest("blockquote")).not.toBeNull();
+  // The words beside an image stay.
+  await expect.element(view.getByText("A caption under it.")).toBeVisible();
   // GitHub shows no HTML comment, and a dollar is not math here.
   expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
   await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();

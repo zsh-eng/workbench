@@ -796,15 +796,16 @@ each layer has its own pull request, and the band links to it.
   a branch rule.
 - **Checks** lists each check of the head commit, failures first, with its
   state, its time, and a link. Passed and skipped checks fold behind one line
-  when there are more than five. A check that ran again shows its last run.
-  A check that runs for two triggers, such as a push and a pull request, shows
+  when there are more than five. A check that ran again shows its last run to
+  start, as `gh pr checks` does, so a new run shows once it leaves the queue. A
+  check that runs for two triggers, such as a push and a pull request, shows
   twice, with its trigger.
   **Show failed log** reads the end of a failed GitHub Actions job's log with
   `gh run view --log-failed`, only when you ask. The log opens at its last
   error. Copy it, or add it to the message for the agent.
 - **Reviewers** lists who the pull request asks and what each one said.
 - The description shows in Med's Markdown, with its images, also the ones that
-  GitHub writes as HTML. Other raw HTML stays out. Med reads each image through
+  GitHub writes as HTML, and the words beside them. Other raw HTML stays out. Med reads each image through
   its own server, as the page loads none from other sites. Paths and links to
   files of the checkout open the file, as in a comment. Images in comments stay
   links.
@@ -815,7 +816,8 @@ each layer has its own pull request, and the band links to it.
 
 Med reads while the tab is on screen: every 30 seconds while a check runs or
 GitHub works out a merge, every 2 minutes otherwise, and every 5 minutes after
-it merges or closes. Each read uses several of your sign-in's GitHub API calls,
+it merges or closes. The tab needs a gh whose `pr checks` takes `--json`. Each
+read uses several of your sign-in's GitHub API calls,
 so a hidden window or another tab makes no read, and the first look back reads
 if the wait is over. Med waits twice as long after each failed read, and keeps
 what it read last. When under a tenth of your API limit is left, Med reads

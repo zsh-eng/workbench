@@ -288,6 +288,15 @@ test("a branch with no checks has none, but a failed read of them is a failed re
     ...sharedRules(),
   ]);
   expect((await live(mergedPull)).checks).toEqual([]);
+  // A service can post a status and a check of one name; each row is its own.
+  const posted = { name: "Vercel", workflow: "", event: "", state: "SUCCESS", link: "" };
+  fakeGh.answer([
+    { args: ["pr", "checks"], stdout: [posted, posted] },
+    ...liveRules(mergedPull),
+    ...sharedRules(),
+  ]);
+  const [first, second] = (await live(mergedPull)).checks;
+  expect(first!.id).not.toBe(second!.id);
   fakeGh.answer([
     { args: ["pr", "checks"], stderr: "HTTP 502: 502 Bad Gateway\n", exitCode: 1 },
     ...liveRules(mergedPull),

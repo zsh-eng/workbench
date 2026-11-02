@@ -149,11 +149,16 @@ function checksOf(entries: CheckEntry[], jobLink: RegExp) {
   const place = (entry: CheckEntry) => `${entry.workflow ?? ""}/${entry.name}`;
   const counts = new Map<string, number>();
   for (const entry of entries) counts.set(place(entry), (counts.get(place(entry)) ?? 0) + 1);
+  // A service can post a status and a check of one name, with one link or none.
+  const ids = new Map<string, number>();
   return entries
     .map((entry) => toCheck(entry, jobLink, counts.get(place(entry))! > 1))
-    .sort(
-      (a, b) => ORDER.indexOf(a.outcome) - ORDER.indexOf(b.outcome) || a.id.localeCompare(b.id),
-    );
+    .sort((a, b) => ORDER.indexOf(a.outcome) - ORDER.indexOf(b.outcome) || a.id.localeCompare(b.id))
+    .map((check) => {
+      const seen = (ids.get(check.id) ?? 0) + 1;
+      ids.set(check.id, seen);
+      return seen > 1 ? { ...check, id: `${check.id}#${seen}` } : check;
+    });
 }
 
 /** A branch with no checks is an error to gh, and to Med a list with none. */
