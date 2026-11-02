@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { existsSync, realpathSync } from "node:fs";
 import { writerLock } from "./lock";
-import { schedule } from "./schedule";
+import { hourly, schedule } from "./schedule";
 import { join, resolve } from "node:path";
 import { Store, NAMESPACES, FILE_NAMESPACES } from "./store";
 import {
@@ -212,29 +212,12 @@ async function main() {
     print(schedule(sub, origin, directory), json);
     return;
   }
-  // What the scheduled job runs. Each step reports on its own, and a failed
-  // backup doesn't stop the text.
   if (command === "hourly") {
-    const step = (...args: string[]) =>
-      Bun.spawnSync(
-        [
-          process.execPath,
-          import.meta.path,
-          ...args,
-          "--origin",
-          origin,
-          "--data-dir",
-          directory,
-          "--json",
-        ],
-        // A step that hangs must not hold the job: launchd starts no other.
-        { stdout: "inherit", stderr: "inherit", timeout: 20 * 60 * 1000 },
-      ).exitCode;
-    const codes = [
-      step("sync"),
-      step("arctic", "text", "--missing", "--unwall"),
-    ];
-    process.exitCode = codes.find(Boolean) ?? 0;
+    process.exitCode = hourly(
+      [process.execPath, import.meta.path],
+      origin,
+      directory,
+    );
     return;
   }
   if (command === "auth") {

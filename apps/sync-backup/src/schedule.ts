@@ -90,3 +90,24 @@ export function schedule(action: string, origin: string, directory: string) {
     );
   return { installed: true, intervalSeconds: 3600, plist, stdout, stderr };
 }
+
+/**
+ * What the scheduled job runs: `sync`, then the text of saved links that have
+ * none. Each step reports on its own, a failed backup doesn't stop the text,
+ * and the job exits with the first failing step's code. `cli` runs wb.
+ */
+export function hourly(
+  cli: string[],
+  origin: string,
+  directory: string,
+  timeoutMs = 20 * 60 * 1000,
+) {
+  const step = (...args: string[]) =>
+    Bun.spawnSync(
+      [...cli, ...args, "--origin", origin, "--data-dir", directory, "--json"],
+      // A step that hangs must not hold the job: launchd starts no other.
+      { stdout: "inherit", stderr: "inherit", timeout: timeoutMs },
+    ).exitCode;
+  const codes = [step("sync"), step("arctic", "text", "--missing", "--unwall")];
+  return codes.find(Boolean) ?? 0;
+}
