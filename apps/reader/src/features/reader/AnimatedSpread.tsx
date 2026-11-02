@@ -8,6 +8,7 @@ import type {
   PaperInk as PaperInkPlace,
   PaperMarks as PaperMarksStyle,
 } from "./paper/paper-preference";
+import { MOTION } from "@/lib/motion";
 import { getPageContentKey } from "./spread-identity";
 
 // The ink and pigment passes (Debug paper) load only with grain on.
@@ -43,13 +44,6 @@ export interface SpreadViewProps {
 interface AnimatedSpreadProps extends SpreadViewProps {
   disableAnimations?: boolean;
 }
-
-const EASE_OUT_QUAD = [0.25, 0.46, 0.45, 0.94] as [
-  number,
-  number,
-  number,
-  number,
-];
 
 /** Padding added around the text area so text doesn't sit at the edge of the page. */
 export const PAGE_PADDING_X = 32;
@@ -162,21 +156,21 @@ export function SpreadView({
   );
 }
 
+/**
+ * A tap, a key or a button turns the page with a cross-fade: the new page
+ * fades in over the old one, which waits under it and leaves unseen. Only one
+ * layer changes, on the compositor, and the two pages' ink mixes with no dip
+ * to the paper colour. A swipe moves the page itself (`useSpreadSwipeNavigation`).
+ * Reduced motion keeps the fade, which moves nothing.
+ */
 const pageVariants = {
-  initial: (dir: NavDirection) => ({
-    x: dir === "forward" ? "100%" : dir === "backward" ? "-33%" : 0,
-  }),
-  animate: {
-    x: 0,
-    transition: { type: "tween" as const, ease: EASE_OUT_QUAD, duration: 0.35 },
-  },
+  initial: (dir: NavDirection) => ({ opacity: dir === "instant" ? 1 : 0 }),
+  animate: { opacity: 1, transition: MOTION.pageFade },
   exit: (dir: NavDirection) => ({
-    x: dir === "forward" ? "-33%" : dir === "backward" ? "100%" : 0,
+    opacity: 0,
     transition: {
-      type: "tween" as const,
-      ease: EASE_OUT_QUAD,
-      // Parallax drift is slower to sell the depth illusion
-      duration: dir === "forward" ? 0.45 : 0.35,
+      duration: 0,
+      delay: dir === "instant" ? 0 : MOTION.pageFade.duration,
     },
   }),
 };
@@ -201,15 +195,13 @@ export function AnimatedSpread({
   const isPresent = useIsPresent();
 
   // Freeze the direction the moment a component starts exiting so that rapid
-  // navigation (which changes AnimatePresence's `custom` prop) cannot redirect
-  // a mid-flight exit animation or flip its z-index.
+  // navigation (which changes AnimatePresence's `custom` prop) cannot change
+  // how a page that is already leaving goes.
   //
   // Why this is needed: PresenceChild's useMemo depends on `onExitComplete`,
   // which AnimatePresence recreates on every render. This means usePresenceData()
   // is effectively live — all components (including ones already exiting) see the
-  // latest `custom` value after any parent re-render. Without freezing, pressing
-  // prev while page 1 is still exiting forward causes it to redirect rightward
-  // and pop to z=1, appearing incorrectly on top of the incoming page.
+  // latest `custom` value after any parent re-render.
   const [presenceSnapshot, setPresenceSnapshot] = useState(() => ({
     direction: rawDirection,
     isPresent,
@@ -229,27 +221,10 @@ export function AnimatedSpread({
     setPresenceSnapshot({ direction: rawDirection, isPresent });
   }
 
-  // While the swipe stage owns movement, AnimatePresence can retain the old
-  // spread for one commit even though its exit animation is disabled. Keep that
-  // retained spread below the new current spread so it cannot flash over the
-  // adjacent page that the swipe already revealed.
-  //
-  // Tap-navigation z-index rules:
-  //   backward exit  → 1 (slides away on top, revealing the incoming page beneath)
-  //   forward enter  → 2 (slides in on top; must beat any stale backward-exit at 1)
-  //   everything else → 0
-  // The forward-enter value is intentionally higher than backward-exit so that an
-  // interrupted prev→next sequence doesn't leave a stale exiting page above the
-  // new incoming page.
-  const zIndex = disableAnimations
-    ? isPresent
-      ? 1
-      : 0
-    : isPresent && direction === "forward"
-      ? 2
-      : !isPresent && direction === "backward"
-        ? 1
-        : 0;
+  // The current spread stays on top: the new page of a cross-fade fades in over
+  // the old, and while the swipe stage owns movement, a retained spread cannot
+  // flash over the adjacent page that the swipe already revealed.
+  const zIndex = isPresent ? 1 : 0;
 
   return (
     <motion.div

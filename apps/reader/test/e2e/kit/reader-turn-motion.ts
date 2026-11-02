@@ -4,7 +4,7 @@ import { waitForReaderReady } from "../helpers/fixtures";
 declare global {
   interface Window {
     __turnMotion?: {
-      frames: { at: number; state: string }[];
+      frames: { at: number; state: string; values: number[] }[];
       releasedAt: number | null;
       stop: boolean;
     };
@@ -15,9 +15,9 @@ declare global {
  * agent-kit `time` steps: one page turn on a touch screen, and how long the
  * page moves after the finger lifts. `KIT_TURN` is `tap` (the default) or
  * `swipe`, a 300 px flick. Each frame reads every spread layer's offset and
- * opacity, so the result is the time from the finger's lift to the last
- * frame that differs from rest, with no fixed wait. Logs the first and last
- * moving frames to `KIT_RECORD`'s console line.
+ * opacity, so the result is the time from the finger's lift to the first
+ * frame that looks at rest: every layer within half a pixel of where it ends
+ * and 1% of its final opacity. Logs the first change and the rest.
  */
 export default async function turnMotion({ page }: { page: Page }) {
   await waitForReaderReady(page);
@@ -33,20 +33,26 @@ export default async function turnMotion({ page }: { page: Page }) {
       },
       { capture: true, once: true },
     );
-    const state = () =>
+    const read = () =>
       [
         ...document.querySelectorAll<HTMLElement>(
           "[data-reader-spread-layer], [data-reader-spread-layer] > div",
         ),
-      ]
-        .map((element) => {
-          const style = getComputedStyle(element);
-          const x = new DOMMatrix(style.transform).m41;
-          return `${element.dataset.readerSpreadLayer ?? "spread"}:${x.toFixed(1)}:${Number(style.opacity).toFixed(3)}`;
-        })
-        .join(" ");
+      ].map((element) => {
+        const style = getComputedStyle(element);
+        return {
+          name: element.dataset.readerSpreadLayer ?? "spread",
+          x: new DOMMatrix(style.transform).m41,
+          opacity: Number(style.opacity),
+        };
+      });
     const loop = () => {
-      motion.frames.push({ at: performance.now(), state: state() });
+      const layers = read();
+      motion.frames.push({
+        at: performance.now(),
+        state: layers.map((layer) => layer.name).join(" "),
+        values: layers.flatMap((layer) => [layer.x, layer.opacity * 50]),
+      });
       if (!motion.stop) requestAnimationFrame(loop);
     };
     loop();
@@ -84,17 +90,26 @@ export default async function turnMotion({ page }: { page: Page }) {
     motion.stop = true;
     return { frames: motion.frames, releasedAt: motion.releasedAt };
   });
-  const rest = frames.at(-1)!.state;
-  const lastMoving = frames.findLastIndex((frame) => frame.state !== rest);
-  const firstMoving = frames.findIndex(
+  const rest = frames.at(-1)!;
+  const atRest = (frame: (typeof frames)[number]) =>
+    frame.state === rest.state &&
+    frame.values.every(
+      (value, index) => Math.abs(value - rest.values[index]!) <= 0.5,
+    );
+  const lastMoving = frames.findLastIndex((frame) => !atRest(frame));
+  const released = releasedAt ?? frames[0]!.at;
+  const firstMoving = frames.find(
     (frame, index) =>
       index > 0 &&
-      frame.at >= (releasedAt ?? 0) &&
-      frame.state !== frames[index - 1]!.state,
-  );
-  const elapsed = frames[lastMoving + 1]!.at - (releasedAt ?? frames[0]!.at);
+      frame.at >= released &&
+      (frame.state !== frames[index - 1]!.state ||
+        frame.values.some(
+          (value, at) => value !== frames[index - 1]!.values[at],
+        )),
+  )!;
+  const elapsed = frames[lastMoving + 1]!.at - released;
   console.log(
-    `first change +${Math.round(frames[firstMoving]!.at - releasedAt!)} ms, rest +${Math.round(elapsed)} ms`,
+    `first change +${Math.round(firstMoving.at - released)} ms, rest +${Math.round(elapsed)} ms`,
   );
   return elapsed;
 }
