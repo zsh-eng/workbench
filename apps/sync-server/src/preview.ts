@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import {
   canonicalURL,
+  ARCTIC_USER_AGENT,
   readPreview,
   type LinkPreview,
 } from "@workbench/arctic-links";
@@ -49,9 +50,6 @@ export const network = {
 };
 
 /** The phone's user agent (ArticleMetadata.fetch), so sites serve the same page. */
-const USER_AGENT =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1";
-
 /** Every IPv4 and IPv6 address of a host name, from Cloudflare's DNS over HTTPS. */
 async function resolve(host: string, signal: AbortSignal) {
   const ask = async (type: "A" | "AAAA") => {
@@ -253,7 +251,7 @@ export async function fetchPreview(
           redirect: "manual",
           signal,
           headers: {
-            "User-Agent": USER_AGENT,
+            "User-Agent": ARCTIC_USER_AGENT,
             Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
           },
         }),

@@ -574,6 +574,13 @@ the sharing sheet opens in UI test mode. The focused story UI test checks all
 twelve selections, exact text preservation across pages, whole-quote mode,
 format changes, image eligibility and native sharing. No proof export runs in Release.
 
+A saved X Article takes its title, description and cover from what X serves without a sign-in
+(`ArticleMetadata.parse`): the title of `x.com/<user>/status/<id>` reads `Name on X: "Title" / X`.
+X sends some links, such as `x.com/i/article/<id>`, to its sign-in page: the preview fails, the card
+keeps its link, and nothing from that page is kept. A plain post keeps the title that X gives it.
+Long-press refresh gives an older saved Article its title. All network metadata requests name themselves
+as `ArcticReader/1.0`.
+
 X/Twitter links stay HTTPS. Reader uses Defuddle's existing rich X renderer with
 one bounded response from its documented public source,
 [FxTwitter](https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx).

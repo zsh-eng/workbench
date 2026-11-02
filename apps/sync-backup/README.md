@@ -96,7 +96,9 @@ it replaces a copy only when it is 30% longer. A link that already has text is
 not read again; `arctic text` reads it again and applies the 30% rule. A site
 on the phone's Unwall list, or a page that marks itself not free
 (`isAccessibleForFree`), needs 400 words: less is its paywall preview.
-`--unwall` reads such sites through unwall.app, as the phone opens them.
+`--unwall` reads such sites through unwall.app, as the phone opens them. A
+browser check or X's sign-in page gives no text; the link says why and stays
+on the list.
 Reading a page that needs a browser uses Playwright's Chromium:
 `bun run --cwd apps/arctic/Browser browser:install`.
 

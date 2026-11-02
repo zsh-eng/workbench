@@ -14,20 +14,23 @@ this one copy:
 - The shared API reads a page's preview for the web (`src/preview.ts`) and
   checks wb's writes (`src/cli-links.ts`), both in `apps/sync-server`.
 
-| Export                    | What it is                                                    |
-| ------------------------- | ------------------------------------------------------------- |
-| `canonicalURL`            | The phone's canonical URL of a pasted link, or null           |
-| `articleId`               | SHA-256 of the canonical URL: the records' `<id>`             |
-| `localID`                 | The phone's UUID for an id, which names its offline copy      |
-| `newLinkRecords`          | `article/<id>`, `library/<id>` and `tags/<id>` for a new link |
-| `savedLibrary`            | A known link saved again: a field edit of `library/<id>`      |
-| `linkTitle`               | A page's title as a new link's title: one line, well-formed   |
-| `readPreview`             | A page's title, description, image and icon, by phone rules   |
-| `previewPatch`            | The preview fields an `article/<id>` record lacks             |
-| `withPreview`             | That record with only those fields filled                     |
-| `cleanPreview`            | The valid fields of a preview from elsewhere                  |
-| `linkChangesProblem`      | Why a push does more than these three writes, or nothing      |
-| `encodeSorted`, `toSwift` | Sorted-key JSON and Swift reference dates                     |
+| Export                     | What it is                                                    |
+| -------------------------- | ------------------------------------------------------------- |
+| `canonicalURL`             | The phone's canonical URL of a pasted link, or null           |
+| `articleId`                | SHA-256 of the canonical URL: the records' `<id>`             |
+| `localID`                  | The phone's UUID for an id, which names its offline copy      |
+| `newLinkRecords`           | `article/<id>`, `library/<id>` and `tags/<id>` for a new link |
+| `savedLibrary`             | A known link saved again: a field edit of `library/<id>`      |
+| `linkTitle`                | A page's title as a new link's title: one line, well-formed   |
+| `readPreview`              | A page's title, description, image and icon, by phone rules   |
+| `previewPatch`             | The preview fields an `article/<id>` record lacks             |
+| `withPreview`              | That record with only those fields filled                     |
+| `cleanPreview`             | The valid fields of a preview from elsewhere                  |
+| `ARCTIC_USER_AGENT`        | How Arctic's fetches name themselves to a publisher           |
+| `isChallengePage`          | Whether a page is a bot check; `isChallengeText` for its text |
+| `isXSignIn`, `xArticleURL` | X's sign-in page, and the Article page of a post              |
+| `linkChangesProblem`       | Why a push does more than these three writes, or nothing      |
+| `encodeSorted`, `toSwift`  | Sorted-key JSON and Swift reference dates                     |
 
 The phone validates every `arctic` record and stops a pull at one it cannot
 read. `canonicalURL` therefore refuses two kinds of address that the WHATWG

@@ -236,6 +236,15 @@ error, or a paywall preview, which is under 400 words on a site from the Unwall
 list or on a page marked `isAccessibleForFree: false`. With `--unwall`, they
 read listed sites through Unwall, as `--unwall` above does.
 
+The extractor names itself as `ArcticReader/1.0` (`ARCTIC_USER_AGENT` in
+`packages/arctic-links`). A page that claims to be a browser and is not one
+gets a browser check from sites that compare the two: WordPress.com's hashcash
+gate answers 403 "Checking your browser". Arctic never tries to pass a check.
+It stops at the page, reports "browser check", and keeps no text from it. An X
+post that carries an Article is read from `x.com/<user>/article/<id>`, which X
+serves without a sign-in and without the replies. A link that X sends to its
+sign-in page reports "X asks to sign in".
+
 ## Design
 
 One system with the phone app: the platform sans-serif for interface and

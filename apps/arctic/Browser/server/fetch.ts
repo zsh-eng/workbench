@@ -1,3 +1,4 @@
+import { ARCTIC_USER_AGENT } from "@workbench/arctic-links";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -34,6 +35,10 @@ const publicAddress = (address: string, family: number) =>
 export const MAX_BYTES = 4 * 1024 * 1024;
 /** A PDF is not an article that Defuddle can read, at any size. */
 export const PDF = "This link is a PDF, not an HTML article.";
+/** A site's bot check, not its article. Arctic stops there. */
+export const CHALLENGE = "The site showed a browser check instead of the article.";
+/** X wants a sign-in, and Arctic never uses one. */
+export const X_SIGN_IN = "X asks to sign in before it shows this link.";
 export class DownloadError extends Error {
   constructor(
     message: string,
@@ -97,8 +102,7 @@ export async function fetchPage(
           },
           headers: {
             Host: url.host,
-            "User-Agent":
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+            "User-Agent": ARCTIC_USER_AGENT,
             Accept:
               "text/html,application/xhtml+xml,application/json;q=0.8,*/*;q=0.5",
             "Accept-Encoding": "identity",

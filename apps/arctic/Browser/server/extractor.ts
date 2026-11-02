@@ -1,14 +1,24 @@
 import { DefuddleClass, type DefuddleResponse } from "defuddle/node";
-import { readPreview, type LinkPreview } from "@workbench/arctic-links";
+import {
+  isChallengePage,
+  isChallengeText,
+  isNotATitle,
+  isXSignIn,
+  readPreview,
+  xArticleURL,
+  type LinkPreview,
+} from "@workbench/arctic-links";
 import { parseHTML } from "linkedom";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import {
+  CHALLENGE,
   DownloadError,
   fetchPage,
   MAX_BYTES,
   PDF,
+  X_SIGN_IN,
   type PageResponse,
 } from "./fetch";
 
@@ -29,19 +39,16 @@ const bundle = readFile(
   createRequire(import.meta.url).resolve("defuddle"),
   "utf8",
 );
-function textLength(content: string) {
+function textOf(content: string) {
   return (
-    parseHTML(
-      `<html><body>${content}</body></html>`,
-    ).document.body.textContent?.trim().length ?? 0
+    parseHTML(`<html><body>${content}</body></html>`).document.body
+      .textContent ?? ""
   );
 }
 function usable(result: DefuddleResponse) {
+  const text = textOf(result.content).trim();
   return (
-    textLength(result.content) >= 200 &&
-    !/^(just a moment|access denied|attention required|sign in|log in|verify you are human)/i.test(
-      result.title.trim(),
-    )
+    text.length >= 200 && !isNotATitle(result.title) && !isChallengeText(text)
   );
 }
 /** Paywalled news sites mark their articles `isAccessibleForFree: false` in JSON-LD. */
@@ -92,6 +99,11 @@ function article(
   };
 }
 
+const isHTML = (response: PageResponse) =>
+  /text\/html|application\/xhtml\+xml/i.test(
+    response.headers["content-type"] ?? "",
+  );
+
 /** A fetched page's HTML, in the charset its header names (UTF-8 otherwise). */
 function pageText(response: PageResponse) {
   const charset =
@@ -110,18 +122,36 @@ export class Extractor {
   private idle?: ReturnType<typeof setTimeout>;
   private tail: Promise<void> = Promise.resolve();
   private closed = false;
-  constructor(private testOrigin?: string) {}
+  /** `testOrigin` may be a local address; `fetcher` replaces the network. */
+  constructor(
+    private testOrigin?: string,
+    private fetcher = fetchPage,
+  ) {}
+  /**
+   * The publisher's page for a link, as far as a direct request goes. It
+   * stops at a bot check, which is not passed, and at X's sign-in. A post
+   * that carries an X Article gives way to the Article's own page.
+   */
+  private async publisherPage(url: string): Promise<PageResponse> {
+    const response = await this.fetcher(
+      url,
+      AbortSignal.timeout(8000),
+      this.testOrigin,
+    );
+    if (isXSignIn(response.url)) throw new DownloadError(X_SIGN_IN);
+    if (!isHTML(response)) return response;
+    const html = pageText(response);
+    if (isChallengePage(html)) throw new DownloadError(CHALLENGE);
+    const article = xArticleURL(html, response.url);
+    return article ? this.publisherPage(article) : response;
+  }
   /**
    * The link's preview (`readPreview`: title, description, image and icon)
    * from its HTML alone: no extraction and no browser. Rejects a page that
    * is not HTML or does not answer 2xx.
    */
   async preview(url: string): Promise<LinkPreview> {
-    const response = await fetchPage(
-      url,
-      AbortSignal.timeout(8000),
-      this.testOrigin,
-    );
+    const response = await this.publisherPage(url);
     if (response.status < 200 || response.status >= 300)
       throw new DownloadError(`The publisher returned HTTP ${response.status}.`);
     const type = response.headers["content-type"] ?? "";
@@ -140,18 +170,14 @@ export class Extractor {
   ): Promise<ExtractedArticle> {
     let response: PageResponse | undefined;
     try {
-      response = await fetchPage(
-        url,
-        AbortSignal.timeout(8000),
-        this.testOrigin,
-      );
+      response = await this.publisherPage(url);
     } catch (error) {
       if (error instanceof DownloadError) throw error;
     }
     if (response && response.status >= 200 && response.status < 300) {
       const type = response.headers["content-type"] ?? "";
       if (/application\/pdf/i.test(type)) throw new DownloadError(PDF);
-      if (!/text\/html|application\/xhtml\+xml/i.test(type))
+      if (!isHTML(response))
         throw new DownloadError("This link does not contain an HTML article.");
       const html = pageText(response);
       onPage?.({ html, url: response.url });
@@ -232,7 +258,7 @@ export class Extractor {
             const response =
               initial && request.isNavigationRequest() && request.url() === url
                 ? initial
-                : await fetchPage(
+                : await this.fetcher(
                     request.url(),
                     controller.signal,
                     this.testOrigin,

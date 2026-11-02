@@ -24,6 +24,38 @@ import Foundation
     precondition(metadata.taggingText == summary + "\n\nArticle excerpt: " + introduction)
     precondition(metadata.imageURL?.absoluteString == "https://example.com/ice.jpg")
 
+    let xPost = URL(string: "https://x.com/iceberg/status/20001")!
+    let xArticle = try ArticleMetadata.parse(
+      """
+      <html><head><meta property="og:title" content="Sea Reader on X: &quot;Reading the ice&quot; / X">
+      <meta property="og:description" content="Reading the ice">
+      <meta property="og:image" content="https://pbs.twimg.com/media/cover.jpg"></head></html>
+      """, baseURL: xPost)
+    precondition(xArticle.title == "Reading the ice")
+    precondition(xArticle.description.isEmpty)
+    precondition(xArticle.imageURL?.host == "pbs.twimg.com")
+    let plainPost = try ArticleMetadata.parse(
+      "<meta property='og:title' content='Sea Reader (@iceberg) on X'>", baseURL: xPost)
+    precondition(plainPost.title == "Sea Reader (@iceberg) on X")
+    let elsewhere = try ArticleMetadata.parse(
+      "<meta property='og:title' content='Sea Reader on X: &quot;Reading the ice&quot; / X'>",
+      baseURL: url)
+    precondition(elsewhere.title.hasPrefix("Sea Reader on X"))
+    func refused(_ html: String, at page: URL) -> ArticleMetadata.PageError? {
+      do {
+        _ = try ArticleMetadata.parse(html, baseURL: page)
+        return nil
+      } catch { return error as? ArticleMetadata.PageError }
+    }
+    let signIn = URL(string: "https://x.com/i/jf/onboarding/web?next=x")!
+    precondition(refused("<title>X - The Everything App</title>", at: signIn) == .xSignIn)
+    precondition(refused("<title>Checking your browser...</title>", at: url) == .browserCheck)
+    precondition(
+      refused("<title>A page</title><script src='/__challenge/x.js'></script>", at: url)
+        == .browserCheck)
+    precondition(
+      refused("<title>Browser checks</title><p>\(introduction)</p>", at: url) == nil)
+
     let longProse = (1...300).map { "word\($0)" }.joined(separator: " ")
     let bounded = try ArticleMetadata.parse("<main><p>\(longProse)</p></main>", baseURL: url)
     let excerpt = bounded.taggingText.replacingOccurrences(of: "Article excerpt: ", with: "")

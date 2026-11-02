@@ -28,6 +28,32 @@ test('preserves the lead image in the body without adding an OG hero', async () 
   await page.close();
 });
 
+test('a bot check is never read as the article', async () => {
+  const check = (title: string, body: string) => `<!doctype html><html><head><title>${title}</title></head><body>${body}</body></html>`;
+  const prose = '<p>Sea ice forms, drifts and thins with the seasons, and the people who read it keep careful notes about where it goes.</p>'.repeat(3);
+  const pages = [
+    check('Checking your browser...', `<script>var HASHCASH_CONFIG = {};</script><main>${prose}</main>`),
+    check('A quiet page', `<main><h1>Checking your browser</h1>${prose}</main>`),
+  ];
+  for (const body of pages) {
+    const page = await browser.newPage();
+    await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body }));
+    await page.goto('https://fixture.example/gated');
+    await page.evaluate(script);
+    const failure = await page.evaluate(() => {
+      try { (globalThis as any).extractArticle(); return ''; } catch (error) { return (error as Error).message; }
+    });
+    expect(failure).toContain('browser check');
+    await page.close();
+  }
+  const page = await browser.newPage();
+  await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body: check('On browser checks', `<main><h1>On browser checks</h1>${prose}<p>Checking your browser is what these pages say.</p></main>`) }));
+  await page.goto('https://fixture.example/about-checks');
+  await page.evaluate(script);
+  expect((await page.evaluate(() => (globalThis as any).extractArticle())).content).toContain('Sea ice forms');
+  await page.close();
+});
+
 test('missing author, subtitle, and images remain absent', async () => {
   const page = await browser.newPage();
   await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body: readFileSync(resolve(import.meta.dir, '../Resources/Fixtures/next.html'), 'utf8') }));

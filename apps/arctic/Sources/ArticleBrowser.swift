@@ -10,10 +10,12 @@ enum ArticleRouting {
     return Set(domains)
   }()
 
-  static func isX(_ url: URL) -> Bool {
-    ["x.com", "www.x.com", "mobile.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"]
-      .contains(url.host?.lowercased() ?? "")
+  /// A publisher that holds a website open gives up here and offers Retry.
+  static func request(_ url: URL) -> URLRequest {
+    URLRequest(url: url, timeoutInterval: 25)
   }
+
+  static func isX(_ url: URL) -> Bool { ArticleMetadata.isX(url) }
 
   static func webDestination(_ url: URL) -> URL {
     guard isX(url), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
