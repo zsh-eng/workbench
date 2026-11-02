@@ -38,7 +38,7 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   await mkdir(join(home, ".claude"));
   const first = await med("install");
   expect(first).toMatch(
-    /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med \(SKILL\.md, guide\.md\)\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
+    /^Installed the Med skill for Claude Code: ~\/\.claude\/skills\/med\n\nAdd these lines to ~\/\.claude\/CLAUDE\.md/,
   );
   expect(
     first.endsWith(
@@ -48,18 +48,27 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   expect(await med("instructions")).toBe(instructions);
   // The setup guide shows the same lines.
   expect(await readFile(resolve("docs/USAGE.md"), "utf8")).toContain(instructions);
-  // The skill points at its guide, which med docs agents prints too.
-  expect(await readFile(claude, "utf8")).toBe(skill);
-  expect(await readFile(join(home, ".claude", "skills", "med", "guide.md"), "utf8")).toBe(guide);
+  // The installed skill is a stub with the skill's description. It runs
+  // med skills show, which prints the checklist of the Med that runs; med
+  // docs agents prints the guide.
+  const stub = await readFile(claude, "utf8");
+  expect(stub).toContain(
+    `---\nname: med\n${/^description: .+$/m.exec(skill)![0]}\nmetadata:\n  med-stub: "1"\n---\n`,
+  );
+  expect(stub).toContain("Run `med skills show` and do what it prints.");
+  expect(await readdir(join(home, ".claude", "skills", "med"))).toEqual(["SKILL.md"]);
+  expect(await med("show")).toBe(`${skill}\n`);
   expect(
     (await exec("bun", [cli, "docs", "agents"], { env: { ...process.env, HOME: home } })).stdout,
   ).toBe(`${guide.trimEnd()}\n`);
   await expect(readFile(codex)).rejects.toThrow("ENOENT");
   expect(await med("install")).toContain("is up to date");
-  // A skill from an earlier version, without its guide, is brought up to date.
-  await rm(join(home, ".claude", "skills", "med", "guide.md"));
+  // A full copy from an earlier version becomes the stub, and its guide goes.
+  await writeFile(claude, skill);
+  await writeFile(join(home, ".claude", "skills", "med", "guide.md"), guide);
   expect(await med("install")).toContain("Updated the Med skill for Claude Code");
-  expect(await readFile(join(home, ".claude", "skills", "med", "guide.md"), "utf8")).toBe(guide);
+  expect(await readFile(claude, "utf8")).toBe(stub);
+  expect(await readdir(join(home, ".claude", "skills", "med"))).toEqual(["SKILL.md"]);
 
   // Codex reads ~/.agents/skills. A different skill named med stays unless forced.
   await mkdir(join(home, ".codex"));
@@ -70,7 +79,7 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   });
   expect(await readFile(codex, "utf8")).toContain("Someone else's skill");
   expect(await med("install", "--codex", "--force")).toContain("Updated the Med skill for Codex");
-  expect(await readFile(codex, "utf8")).toBe(skill);
+  expect(await readFile(codex, "utf8")).toBe(stub);
 
   // A link to a working copy is replaced only on request, and its target stays.
   const copy = join(home, "copy");
@@ -81,6 +90,9 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   await expect(med("install", "--claude")).rejects.toMatchObject({
     stderr: expect.stringContaining("holds another skill or a link"),
   });
+  expect(await med("status")).toBe(
+    "Claude Code  a link, which Med leaves  ~/.claude/skills/med\nCodex        up to date                ~/.agents/skills/med\n",
+  );
   expect(await med("uninstall", "--codex")).toBe(
     "Removed the Med skill for Codex: ~/.agents/skills/med\n",
   );
@@ -97,23 +109,38 @@ it("says when an installed skill is out of date, and refreshes only the installe
   const env = { ...process.env, HOME: home, MED_STATE_DIR: join(home, "state"), MED_PORT: "" };
   const med = (...args: string[]) => exec("bun", [cli, ...args], { env });
   const skill = await readFile(resolve("skills/med/SKILL.md"), "utf8");
+  const guide = await readFile(resolve("skills/med/guide.md"), "utf8");
   const version: string = JSON.parse(await readFile("package.json", "utf8")).version;
   const claude = join(home, ".claude", "skills", "med", "SKILL.md");
 
-  // Both agents are set up; only Claude Code has the skill, from an older Med.
+  // Neither agent has the skill.
   await mkdir(join(home, ".codex"));
+  expect((await med("skills", "status")).stdout).toBe(
+    "Claude Code  not installed  ~/.claude/skills/med\nCodex        not installed  ~/.agents/skills/med\n\nInstall it: med skills install\n",
+  );
+  // Only Claude Code has the skill: a full copy from an older Med.
   await mkdir(join(home, ".claude", "skills", "med"), { recursive: true });
   await writeFile(claude, skill.replace("# Hand off changes in Med", "# Hand off changes"));
+  await writeFile(join(home, ".claude", "skills", "med", "guide.md"), guide);
   const status = await med("status");
   expect(status.stdout).toBe('{"running":false}\n');
   expect(status.stderr).toBe(
     `The Med skill in ~/.claude/skills/med differs from the one that Med ${version} installs. Refresh it: med skills update\n`,
   );
+  expect((await med("skills", "status")).stdout).toBe(
+    "Claude Code  out of date    ~/.claude/skills/med\nCodex        not installed  ~/.agents/skills/med\n\nRefresh them: med skills update\n",
+  );
   // update refreshes it, and installs no skill for Codex.
   expect((await med("skills", "update")).stdout).toBe(
-    "Updated the Med skill for Claude Code: ~/.claude/skills/med (SKILL.md, guide.md)\n",
+    "Updated the Med skill for Claude Code: ~/.claude/skills/med\n",
   );
-  expect(await readFile(claude, "utf8")).toBe(skill);
+  expect(await readFile(claude, "utf8")).toContain("med-stub");
+  await expect(readFile(join(home, ".claude", "skills", "med", "guide.md"))).rejects.toThrow(
+    "ENOENT",
+  );
+  expect((await med("skills", "status")).stdout).toBe(
+    "Claude Code  up to date     ~/.claude/skills/med\nCodex        not installed  ~/.agents/skills/med\n",
+  );
   await expect(readFile(join(home, ".agents", "skills", "med", "SKILL.md"))).rejects.toThrow(
     "ENOENT",
   );

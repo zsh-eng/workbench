@@ -67,8 +67,9 @@ always-loaded thread line already cover it.
 - `skills/med/SKILL.md` (about 70 lines): the critical steps first: one key,
   a guide, a new version for each fix round, wait or not, ask before
   `med add`, the link. Comparisons and guide rules follow.
-- `skills/med/guide.md`: the 150-line guide. `med skills install` writes both
-  files; `med docs agents` prints the guide.
+- `skills/med/guide.md`: the 150-line guide. `med docs agents` prints it,
+  and `med skills show` prints the checklist. `med skills install` writes only
+  a stub that runs `med skills show`, so an agent never reads an old copy.
 - `skills/thread-instructions.md`: the condensed CLAUDE.md lines.
 - Text that the CLI checks now carry goes (repository root, limits). UI,
   setup and limits move to USAGE.md. `AGENT_INTEGRATION.md` stays the long

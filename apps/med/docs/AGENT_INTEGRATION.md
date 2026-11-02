@@ -6,9 +6,10 @@ several repositories, and it stays on your machine.
 
 ## Set up
 
-`med skills install` gives Claude Code and Codex the Med skill: a short
-hand-off checklist (`SKILL.md`) and this guide's agent part (`guide.md`,
-which `med docs agents` prints). Threads that Med starts need a few lines in
+`med skills install` gives Claude Code and Codex the Med skill. It is a short
+`SKILL.md` that runs `med skills show`, which prints the hand-off checklist of
+the installed Med; `med docs agents` prints this guide's agent part.
+`med skills status` says if an agent's skill is out of date. Threads that Med starts need a few lines in
 CLAUDE.md or AGENTS.md; see [set up agents](USAGE.md#set-up-agents). This page
 is the full reference (`med docs reference`).
 

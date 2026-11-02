@@ -4,8 +4,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { version } from "../../package.json";
+import { UsageError } from "./exit-status";
 import skill from "../../skills/med/SKILL.md" with { type: "text" };
-import guide from "../../skills/med/guide.md" with { type: "text" };
 import instructions from "../../skills/thread-instructions.md" with { type: "text" };
 import adversarialReview from "../../skills/suggestions/adversarial-review/SKILL.md" with { type: "text" };
 import explainFirst from "../../skills/suggestions/explain-first/SKILL.md" with { type: "text" };
@@ -14,8 +14,31 @@ import reviewMd from "../../skills/suggestions/review-md/SKILL.md" with { type: 
 import riskLevels from "../../skills/suggestions/risk-levels/SKILL.md" with { type: "text" };
 import roundLimit from "../../skills/suggestions/round-limit/SKILL.md" with { type: "text" };
 
-/** The files of the Med skill: the checklist, and the guide it points to. */
-const SKILL_FILES: Readonly<Record<string, string>> = { "SKILL.md": skill, "guide.md": guide };
+const describe = (text: string) => /^description: (.+)$/m.exec(text)?.[1] ?? "";
+
+/**
+ * The skill that install writes: a stub that runs `med skills show`, so an
+ * agent reads the checklist of the Med that runs, not of the Med that
+ * installed the skill. Change STUB_VERSION when the stub's text changes.
+ */
+const STUB_VERSION = "1";
+const STUB = `---
+name: med
+description: ${describe(skill)}
+metadata:
+  med-stub: "${STUB_VERSION}"
+---
+<!-- med skills install wrote this file. med skills uninstall removes it. -->
+
+Run \`med skills show\` and do what it prints. The installed Med prints it, so
+it always agrees with your \`med\` commands. \`med docs agents\` prints the
+full guide.
+
+If the shell cannot find \`med\`, tell the user: you cannot hand off a review
+here.
+`;
+/** Files that earlier versions installed beside SKILL.md; update removes them. */
+const OLD_FILES = ["guide.md"];
 
 /**
  * Review practices to copy into the user's own skills (docs/PRACTICES.md).
@@ -29,9 +52,9 @@ const SUGGESTIONS: Readonly<Record<string, string>> = {
   "risk-levels": riskLevels,
   "review-md": reviewMd,
 };
-const describe = (text: string) => /^description: (.+)$/m.exec(text)?.[1] ?? "";
 
 export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--force]
+       med skills status
        med skills update
        med skills uninstall [--claude] [--codex] [--force]
        med skills show
@@ -40,12 +63,17 @@ export const skillsHelp = `Usage: med skills install [--claude] [--codex] [--for
 
 install writes the Med skill, which tells an agent when and how to hand off
 changes in Med, for Claude Code (~/.claude/skills/med) and Codex
-(~/.agents/skills/med): SKILL.md, and guide.md, which med docs agents prints. Without --claude or --codex, it writes the skill for
-each agent that has a configuration directory (~/.claude or ~/.codex). --force
-replaces another skill or link with the same name.
-update refreshes the Med skill where it is installed, after you update Med,
-and installs it nowhere new. med status and med web say when it is out of date.
-uninstall removes the Med skill from those places. show prints the skill.
+(~/.agents/skills/med). The skill is a short SKILL.md that tells the agent
+to run med skills show, so the agent reads the checklist of the Med that you
+have now. Without --claude or --codex, it writes the skill for each agent that
+has a configuration directory (~/.claude or ~/.codex). --force replaces
+another skill or link with the same name.
+status tells, for each agent, if the Med skill is installed and up to date.
+update refreshes the Med skill where it is installed, and installs it nowhere
+new. It replaces a full copy from an earlier Med with the short skill.
+med status and med web say when it is out of date.
+uninstall removes the Med skill from those places. show prints the checklist
+that the skill runs; med docs agents prints the full guide.
 instructions prints the lines to add to CLAUDE.md or AGENTS.md, so that an agent
 that Med starts in a thread hands off its work there. Edit them as you like.
 suggest lists review practices written as small skills, such as proof-first;
@@ -60,9 +88,10 @@ Edit them as you like; med skills instructions prints them again.
 
 ${instructions}`;
 
-/** A skill that this command wrote, from this or an earlier version. */
+/** A skill that this command wrote, from this or an earlier version: a stub or a full copy. */
 const isMedSkill = (text: string) =>
-  /^---\nname: med\n/.test(text) && text.includes("med review create");
+  /^---\nname: med\n/.test(text) &&
+  (/^ {2}med-stub: /m.test(text) || text.includes("med review create"));
 
 /** Where each agent reads skills, and the folder that says it is set up. */
 const AGENTS = [
@@ -72,27 +101,69 @@ const AGENTS = [
 const shownPath = (path: string, home: string) =>
   path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 
+/** What is in an agent's med skill folder. */
+type Found =
+  | { state: "missing" }
+  | { state: "other"; link: boolean }
+  | { state: "med"; stale: boolean };
+
+/**
+ * The skill in a folder. `stale`: it differs from the stub of this version,
+ * or it is a full copy from an earlier Med. Comparing the text means that an
+ * update that leaves the stub as it was does not ask for a refresh.
+ */
+async function skillIn(directory: string): Promise<Found> {
+  const entry = await lstat(directory).catch(() => undefined);
+  if (!entry) return { state: "missing" };
+  if (!entry.isDirectory()) return { state: "other", link: entry.isSymbolicLink() };
+  const text = await readFile(join(directory, "SKILL.md"), "utf8").catch(() => undefined);
+  if (text === undefined) return { state: "missing" };
+  if (!isMedSkill(text)) return { state: "other", link: false };
+  const old = OLD_FILES.some((name) => existsSync(join(directory, name)));
+  return { state: "med", stale: text !== STUB || old };
+}
+
 /**
  * The agents that have the Med skill installed: a skill that this command
- * wrote, in a folder of its own (not a link to a working copy). `stale`: its
- * files differ from this version's. Comparing the files means that an update
- * that leaves the skill as it was does not ask for a refresh.
+ * wrote, in a folder of its own (not a link to a working copy).
  */
 async function installedSkills(home: string) {
   const found: { id: (typeof AGENTS)[number]["id"]; directory: string; stale: boolean }[] = [];
   for (const agent of AGENTS) {
     const directory = join(home, ...agent.skills, "med");
-    if (!(await lstat(directory).catch(() => undefined))?.isDirectory()) continue;
-    const files = await Promise.all(
-      Object.keys(SKILL_FILES).map((name) =>
-        readFile(join(directory, name), "utf8").catch(() => undefined),
-      ),
-    );
-    if (!files[0] || !isMedSkill(files[0])) continue;
-    const stale = Object.values(SKILL_FILES).some((text, index) => files[index] !== text);
-    found.push({ id: agent.id, directory, stale });
+    const skill = await skillIn(directory);
+    if (skill.state === "med") found.push({ id: agent.id, directory, stale: skill.stale });
   }
   return found;
+}
+
+/** One line for each agent: the state of its Med skill, and what to run next. */
+async function status(home: string) {
+  const rows = await Promise.all(
+    AGENTS.map(async (agent) => {
+      const directory = join(home, ...agent.skills, "med");
+      return { agent, directory, found: await skillIn(directory) };
+    }),
+  );
+  const said = rows.map(({ found }) =>
+    found.state === "missing"
+      ? "not installed"
+      : found.state === "other"
+        ? `${found.link ? "a link" : "another skill"}, which Med leaves`
+        : found.stale
+          ? "out of date"
+          : "up to date",
+  );
+  const width = Math.max(...said.map((text) => text.length));
+  const lines = rows.map(
+    ({ agent, directory }, index) =>
+      `${agent.name.padEnd(12)} ${said[index]!.padEnd(width)}  ${shownPath(directory, home)}`,
+  );
+  if (rows.some(({ found }) => found.state === "med" && found.stale))
+    lines.push("", "Refresh them: med skills update");
+  else if (!rows.some(({ found }) => found.state === "med"))
+    lines.push("", "Install it: med skills install");
+  return lines.join("\n");
 }
 
 /** One line that suggests a refresh, when an installed Med skill is out of date. */
@@ -124,15 +195,19 @@ export async function runSkillsCommand(
   if (action === "suggest") return suggest(positionals.slice(1), values, print);
   if (
     positionals.length !== 1 ||
-    !["install", "update", "uninstall", "show", "instructions"].includes(action)
+    !["install", "status", "update", "uninstall", "show", "instructions"].includes(action)
   )
-    throw new Error(skillsHelp);
-  if (action === "update" && (values.claude || values.codex || values.force))
-    throw new Error("Use med skills update without options; it refreshes each installed skill.");
+    throw new UsageError(skillsHelp);
+  if (
+    (action === "update" || action === "status") &&
+    (values.claude || values.codex || values.force)
+  )
+    throw new UsageError(`Use med skills ${action} without options; it reads each agent's skill.`);
   if (action === "show") return print(skill);
   if (action === "instructions") return print(instructions.trimEnd());
 
   const home = homedir();
+  if (action === "status") return print(await status(home));
   // update: only where a Med skill is installed, so it installs nothing new.
   const present = action === "update" ? await installedSkills(home) : [];
   const chosen = AGENTS.filter((agent) =>
@@ -171,24 +246,19 @@ export async function runSkillsCommand(
       removed++;
       continue;
     }
-    const written = await Promise.all(
-      Object.keys(SKILL_FILES).map((name) =>
-        entry?.isDirectory()
-          ? readFile(join(directory, name), "utf8").catch(() => undefined)
-          : undefined,
-      ),
-    );
-    const names = Object.keys(SKILL_FILES);
-    if (names.every((name, index) => written[index] === SKILL_FILES[name])) {
+    const found = await skillIn(directory);
+    if (found.state === "med" && !found.stale) {
       print(`The Med skill for ${agent.name} is up to date: ${shown(directory)}`);
       continue;
     }
     if (entry && !entry.isDirectory()) await rm(directory, { force: true });
     else if (!ours) await rm(directory, { recursive: true, force: true });
     await mkdir(directory, { recursive: true });
-    for (const name of names) await writeFile(join(directory, name), SKILL_FILES[name]!);
+    await writeFile(file, STUB);
+    // A full copy from an earlier Med also had the guide; med docs agents prints it now.
+    if (ours) for (const name of OLD_FILES) await rm(join(directory, name), { force: true });
     print(
-      `${current ? "Updated" : "Installed"} the Med skill for ${agent.name}: ${shown(directory)} (${names.join(", ")})`,
+      `${current ? "Updated" : "Installed"} the Med skill for ${agent.name}: ${shown(directory)}`,
     );
     if (!current) installed++;
   }

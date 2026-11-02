@@ -377,12 +377,16 @@ med skills install
 ```
 
 This writes the Med skill for Claude Code (`~/.claude/skills/med`) and Codex
-(`~/.agents/skills/med`): `SKILL.md`, a short checklist that an agent reads
-when it hands off changes, and `guide.md`, the guide that `med docs agents`
-prints. `med skills show` prints the skill, and `med skills uninstall` removes
-it. After an update, `med status` and `med web` say when an installed skill
-differs from the new version's; `med skills update` refreshes it where it is
-installed and installs it nowhere new. The install script runs it for you.
+(`~/.agents/skills/med`). The skill is a short `SKILL.md` that tells the agent
+to run `med skills show`, which prints the hand-off checklist of the Med that
+you have now; `med docs agents` prints the full guide. So when you update Med,
+agents read the new rules at once. `med skills uninstall` removes the skill.
+
+`med skills status` tells, for each agent, if the skill is installed and up to
+date. A full copy from an earlier Med (`SKILL.md` and `guide.md`) is out of
+date, and `med status` and `med web` say so too. `med skills update` replaces
+it with the short skill where it is installed and installs it nowhere new. The
+install script runs it for you.
 `med skills suggest` lists review
 practices that you can copy into your own skills; see
 [review practices](PRACTICES.md). For agents without skills, see
