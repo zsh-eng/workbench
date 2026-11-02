@@ -8,6 +8,7 @@ export interface ReaderDiagnosticProfile {
   isMobile: boolean;
   settings: ReaderSettings;
   paragraphSpacingFactor: number;
+  language?: string;
 }
 
 export const DEFAULT_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
@@ -37,13 +38,25 @@ export const IPAD_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
   isMobile: false,
 };
 
-/** `?profile=ipad` picks the iPad profile; anything else the phone. */
+/**
+ * `?profile=ipad` picks the iPad profile; anything else the phone.
+ * `?justify=<language>` justifies the text and hyphenates it in that language.
+ */
 export function resolveReaderDiagnosticProfile(
   search: string,
 ): ReaderDiagnosticProfile {
-  return new URLSearchParams(search).get("profile") === "ipad"
-    ? IPAD_READER_DIAGNOSTIC_PROFILE
-    : DEFAULT_READER_DIAGNOSTIC_PROFILE;
+  const params = new URLSearchParams(search);
+  const profile =
+    params.get("profile") === "ipad"
+      ? IPAD_READER_DIAGNOSTIC_PROFILE
+      : DEFAULT_READER_DIAGNOSTIC_PROFILE;
+  const language = params.get("justify");
+  if (!language) return profile;
+  return {
+    ...profile,
+    settings: { ...profile.settings, textAlign: "justify-knuth-plass" },
+    language,
+  };
 }
 
 export function resolveReaderDiagnosticLayout(

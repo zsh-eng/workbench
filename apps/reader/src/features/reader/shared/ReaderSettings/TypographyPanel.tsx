@@ -7,11 +7,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { READING_FONTS } from "@/lib/reading-fonts";
-import type {
-  ContentWidth,
-  ReaderSettings,
-  TextAlign,
-} from "@/types/reader.types";
+import type { ContentWidth, ReaderSettings } from "@/types/reader.types";
 import {
   isJustifiedTextAlign,
   READER_FONT_SIZE_MAX_PX,
@@ -19,10 +15,6 @@ import {
 } from "@/types/reader.types";
 import {
   Check,
-  AlignCenter,
-  AlignJustify,
-  AlignLeft,
-  AlignRight,
   Minus,
   MoveHorizontal,
   MoveVertical,
@@ -43,9 +35,6 @@ export function TypographyPanel({
   section,
   showContentWidthControl = true,
 }: TypographyPanelProps) {
-  const alignmentValue = isJustifiedTextAlign(settings.textAlign)
-    ? "justify"
-    : settings.textAlign;
   const sectionLabelClassName =
     "text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground";
   const segmentedGroupClassName = "w-full rounded-full bg-secondary/40 p-1";
@@ -63,6 +52,7 @@ export function TypographyPanel({
   const publisherBodySizeSwitchId = useId();
   const pageAnimationsSwitchId = useId();
   const pageNumbersSwitchId = useId();
+  const justifySwitchId = useId();
 
   return (
     <div className="space-y-6 pb-2">
@@ -96,6 +86,23 @@ export function TypographyPanel({
               checked={settings.showPageNumbers}
               onCheckedChange={(showPageNumbers) =>
                 onUpdateSettings({ showPageNumbers })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <label
+              htmlFor={justifySwitchId}
+              className="cursor-pointer text-sm font-medium text-foreground"
+            >
+              Justify
+            </label>
+            <Switch
+              id={justifySwitchId}
+              checked={isJustifiedTextAlign(settings.textAlign)}
+              onCheckedChange={(justify) =>
+                onUpdateSettings({
+                  textAlign: justify ? "justify-knuth-plass" : "left",
+                })
               }
             />
           </div>
@@ -204,58 +211,6 @@ export function TypographyPanel({
               ))}
             </SegmentedToggleGroup>
           </div>
-        </div>
-      )}
-
-      {section === "layout" && (
-        <div className="space-y-2">
-          <h4 className={sectionLabelClassName}>Alignment</h4>
-          <SegmentedToggleGroup
-            value={alignmentValue}
-            onValueChange={(value) =>
-              value &&
-              onUpdateSettings({
-                textAlign:
-                  value === "justify"
-                    ? "justify-knuth-plass"
-                    : (value as Exclude<TextAlign, "justify-knuth-plass">),
-              })
-            }
-            className={segmentedGroupClassName}
-          >
-            <SegmentedToggleGroupItem
-              aria-label="Left"
-              value="left"
-              className={cn("flex-1 gap-1 text-[10px]", segmentedItemClassName)}
-            >
-              <AlignLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">Left</span>
-            </SegmentedToggleGroupItem>
-            <SegmentedToggleGroupItem
-              aria-label="Center"
-              value="center"
-              className={cn("flex-1 gap-1 text-[10px]", segmentedItemClassName)}
-            >
-              <AlignCenter className="h-4 w-4" />
-              <span className="hidden sm:inline">Center</span>
-            </SegmentedToggleGroupItem>
-            <SegmentedToggleGroupItem
-              aria-label="Right"
-              value="right"
-              className={cn("flex-1 gap-1 text-[10px]", segmentedItemClassName)}
-            >
-              <AlignRight className="h-4 w-4" />
-              <span className="hidden sm:inline">Right</span>
-            </SegmentedToggleGroupItem>
-            <SegmentedToggleGroupItem
-              aria-label="Justify"
-              value="justify"
-              className={cn("flex-1 gap-1 text-[10px]", segmentedItemClassName)}
-            >
-              <AlignJustify className="h-4 w-4" />
-              <span className="hidden sm:inline">Justify</span>
-            </SegmentedToggleGroupItem>
-          </SegmentedToggleGroup>
         </div>
       )}
 

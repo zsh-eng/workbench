@@ -40,6 +40,18 @@ A bundled family (`@fontsource`) is imported twice with the same subsets and wei
 
 Design ideas → Reading fonts opens the book you read last in each sans font through the Debug-only `?font=<id>` parameter, which lays the book out without saving the font.
 
+## Justified text
+
+Appearance → Layout → Justify sets text flush to both margins. It starts on for a screen whose short side is at least 600 px, a tablet or a desktop, and off for a phone, whose line holds too few words for its spaces to stay even. `textAlign` holds the choice: a saved `left` without `textAlignChosen` is the old default, not a choice. A left-aligned page never hyphenates.
+
+`layout-text-lines.ts` breaks a whole paragraph at once, in the manner of TeX: of all the ways to break it, the one whose word spaces stay closest to natural, tried with no hyphens first. A paragraph it cannot set, such as one with a word wider than the column, stays ragged. It does no measuring of its own, so it costs less than left-aligned text: on a 2,000-page book at iPad width, layout takes 565 ms against 880 ms, and time to full pagination stays 11.1 s.
+
+The text never changes. A hyphen break is a cursor inside a segment, and the hyphen exists only in that line's rendered fragment, so saved places, highlights, copy and search see the book's own text. A saved place stays valid when lines move, as it does when the font changes, and Justify needs no cache bump: laid-out pages are never persisted.
+
+`shared/hyphenation.ts` loads Liang's TeX patterns from the `hyphen` package, for the book's `dc:language`, before layout, so a page never reflows when they arrive. English patterns are precached; another language downloads with its first book into `reader-assets`, and the book is justified without hyphens until then. These chunks are why workers build as ES modules: a classic worker would carry every language in one file.
+
+The worker's widths come from canvas, which can differ from the page by up to about 3 px on a line. Each justified line renders as a `nowrap` block with `text-align-last: justify`: the worker's word spacing stops 3 px short, and the browser closes the rest, so a line ends on the margin in every font. `test/e2e/kit/reader-justify-metrics.ts` prints the word-space ratios and edge error of the pages it turns through.
+
 ## Paper and the page curl (Debug)
 
 With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. Its code loads only once a curl is chosen (`paper/PaperTurn.tsx`, from `SpreadStage`), and the ink and pigment passes only with grain, so the slide's Reader carries none of it. The study behind the leaf is in `docs/page-turn-study/`.

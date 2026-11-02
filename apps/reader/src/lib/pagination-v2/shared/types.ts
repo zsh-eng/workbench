@@ -295,6 +295,8 @@ export interface LayoutTheme {
   paragraphSpacingFactor: number;
   textAlign: "left" | "center" | "right" | "justify" | "justify-knuth-plass";
   baseFontSizePx: number;
+  /** The book's language tag, which chooses justified text's hyphenation. */
+  language?: string;
 }
 
 export interface PaginationConfig {
@@ -305,7 +307,7 @@ export interface PaginationConfig {
 }
 
 export interface PageFragment {
-  kind: "text" | "space";
+  kind: "text";
   text: string;
   font: string;
   leadingGap: number;
@@ -313,7 +315,6 @@ export interface PageFragment {
   link?: LinkRef;
   isCode: boolean;
   highlightMarks?: HighlightMark[];
-  marginRightPx?: number;
   anchorStart?: TextCursorOffset;
   anchorEnd?: TextCursorOffset;
 }

@@ -3,6 +3,7 @@ import {
   type EnginePaginationEvent,
 } from "@/lib/pagination-v2/engine";
 import {
+  layoutPages,
   parseChapterHtmlWithCanonicalText,
   prepareBlocks,
 } from "@/lib/pagination-v2";
@@ -11,6 +12,7 @@ import {
   createCanonicalOffsetLocator,
 } from "@/lib/pagination-v2/engine/highlight-selection";
 import type { PaginationCommand } from "@/lib/pagination-v2/protocol";
+import { ensureHyphenPoints } from "@/lib/pagination-v2/shared/hyphenation";
 import type {
   PaginationConfig,
   ResolvedSpread,
@@ -164,6 +166,69 @@ describe("canonical text offsets", () => {
     expect(jump && "spread" in jump && shownText(jump.spread)).toContain(
       "café",
     );
+  });
+
+  it("keeps a reading place inside a word that a hyphen breaks across pages", async () => {
+    await ensureHyphenPoints("en");
+    const config: PaginationConfig = {
+      ...CONFIG,
+      layoutTheme: {
+        ...CONFIG.layoutTheme,
+        textAlign: "justify-knuth-plass",
+        language: "en",
+      },
+      viewport: { width: 240, height: 200 },
+    };
+    const chapter = parseChapterHtmlWithCanonicalText(
+      `<body><p>${"The extraordinary conversation continued uninterrupted throughout the afternoon, notwithstanding considerable interruptions. ".repeat(40)}</p></body>`,
+    );
+    const { pages } = layoutPages(
+      prepareBlocks(chapter.blocks, config.fontConfig),
+      config.viewport.width,
+      config.viewport.height,
+      config.layoutTheme,
+    );
+    const firstLine = (page: (typeof pages)[number]) => {
+      const [slice] = page.slices;
+      return slice?.type === "text"
+        ? { blockId: slice.blockId, line: slice.lines[0]! }
+        : null;
+    };
+    const page = pages.find(
+      (candidate) =>
+        (firstLine(candidate)?.line.startOffset?.graphemeIndex ?? 0) > 0,
+    );
+    const start = page && firstLine(page);
+    if (!start) throw new Error("Expected a page that starts inside a word");
+    const initialAnchor = {
+      type: "text" as const,
+      chapterIndex: 0,
+      blockId: start.blockId,
+      offset: start.line.startOffset!,
+    };
+
+    const events: EnginePaginationEvent[] = [];
+    const engine = new PaginationEngine((event) => events.push(event));
+    run(engine, {
+      type: "init",
+      totalChapters: 1,
+      paginationConfig: config,
+      spreadConfig: { columns: 1, chapterFlow: "continuous" },
+      initialChapterIndex: 0,
+      initialAnchor,
+      firstChapterBlocks: chapter.blocks,
+    });
+    const shown = lastSpread(events)!;
+    expect(shownText(shown).startsWith(start.line.fragments[0]!.text)).toBe(
+      true,
+    );
+
+    // The same place holds when the reader turns Justify off and back on.
+    run(engine, { type: "updatePaginationConfig", paginationConfig: CONFIG });
+    const wholeWord = start.line.fragments[0]!.text.split(" ")[0]!;
+    expect(shownText(lastSpread(events)!)).toContain(wholeWord);
+    run(engine, { type: "updatePaginationConfig", paginationConfig: config });
+    expect(lastSpread(events)!.currentPage).toBe(shown.currentPage);
   });
 
   it("locates every offset as the single-offset path does", () => {

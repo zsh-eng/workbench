@@ -1,3 +1,4 @@
+import { getHyphenPoints } from "./hyphenation";
 import { layoutPreWrapLines, layoutTextLines } from "./layout-text-lines";
 import {
   collectTableCells,
@@ -54,8 +55,14 @@ function resolveTextAlignForBlock(
   tag: PreparedTextBlock["tag"],
   publisherStyle: PublisherTextStyle | undefined,
 ): LayoutTheme["textAlign"] {
-  if (publisherStyle?.textAlign) {
-    return publisherStyle.textAlign;
+  // Justify on follows the reader over a book that sets its body text left or
+  // justified, which is most books; centred and right-aligned text is meant.
+  const publisherAlign = publisherStyle?.textAlign;
+  const followsReader =
+    textAlign === "justify-knuth-plass" &&
+    (publisherAlign === "left" || publisherAlign === "justify");
+  if (publisherAlign && !followsReader) {
+    return publisherAlign;
   }
 
   if (
@@ -249,6 +256,7 @@ function createTextLayoutPlan(
     : layoutTextLines(textBlock.items, textLayoutWidth, {
         textAlign,
         firstLineIndentPx,
+        hyphenPoints: getHyphenPoints(theme.language),
       });
 
   return {

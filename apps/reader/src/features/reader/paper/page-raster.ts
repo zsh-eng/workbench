@@ -419,7 +419,8 @@ function paintPage(
     }
     range.selectNodeContents(node);
     const rects = range.getClientRects();
-    const spaced = px(style.wordSpacing) !== 0;
+    const spaced =
+      px(style.wordSpacing) !== 0 || style.textAlignLast === "justify";
     if (rects.length === 1 && !spaced) {
       drawRun(text, rects[0]!, fontMetrics, style);
       return;

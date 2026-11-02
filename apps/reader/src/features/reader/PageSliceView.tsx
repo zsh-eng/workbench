@@ -397,83 +397,43 @@ function renderInlineFragment(
   );
 }
 
-/** A text slice's lines: each a `nowrap` span, so the page keeps the worker's breaks. */
+/**
+ * A text slice's lines: each a `nowrap` span, so the page keeps the worker's
+ * breaks. The worker's word spacing sets a justified line just short of the
+ * edge, and the browser's own justification closes what canvas measurement
+ * cannot see, so every line ends on the margin in every font.
+ */
 function renderSliceLines(slice: TextSlice, key: string): ReactNode {
-  return (slice.renderMode === "manual-justify"
-        ? slice.lines.map((line, lineIndex) => {
-            const trailingBoundaryFragment =
-              line.fragments[line.fragments.length - 1]?.kind === "space"
-                ? line.fragments[line.fragments.length - 1]
-                : null;
-            const contentFragments = trailingBoundaryFragment
-              ? line.fragments.slice(0, -1)
-              : line.fragments;
-
-            return (
-              <Fragment key={`${key}-line-${lineIndex}`}>
-                <span
-                  style={{
-                    marginLeft:
-                      line.indentPx !== undefined
-                        ? `${line.indentPx}px`
-                        : undefined,
-                    whiteSpace: "nowrap",
-                    wordSpacing:
-                      line.wordSpacingPx !== undefined &&
-                      Math.abs(line.wordSpacingPx) > 0.01
-                        ? `${line.wordSpacingPx}px`
-                        : undefined,
-                  }}
-                >
-                  {renderFragmentSequence(
-                    contentFragments,
-                    `${key}-line-${lineIndex}`,
-                    (fragment) => ({
-                      ...getFragmentTypographyStyle(fragment.font),
-                      marginRight:
-                        fragment.marginRightPx !== undefined &&
-                        Math.abs(fragment.marginRightPx) > 0.01
-                          ? `${fragment.marginRightPx}px`
-                          : undefined,
-                    }),
-                  )}
-                </span>
-                {trailingBoundaryFragment
-                  ? renderInlineFragment(
-                      trailingBoundaryFragment,
-                      `${key}-line-${lineIndex}-trailing`,
-                      {
-                        ...getFragmentTypographyStyle(
-                          trailingBoundaryFragment.font,
-                        ),
-                      },
-                    )
-                  : null}
-              </Fragment>
-            );
-          })
-        : slice.lines.map((line, lineIndex) => (
-            <Fragment key={`${key}-line-${lineIndex}`}>
-              <span
-                style={{
-                  marginLeft:
-                    line.indentPx !== undefined
-                      ? `${line.indentPx}px`
-                      : undefined,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {renderFragmentSequence(
-                  line.fragments,
-                  `${key}-line-${lineIndex}`,
-                  (fragment) => ({
-                    ...getFragmentTypographyStyle(fragment.font),
-                  }),
-                )}
-              </span>
-              {lineIndex < slice.lines.length - 1 ? <br /> : null}
-            </Fragment>
-          )));
+  return slice.lines.map((line, lineIndex) => {
+    const isJustified = line.wordSpacingPx !== undefined;
+    return (
+      <Fragment key={`${key}-line-${lineIndex}`}>
+        <span
+          style={{
+            marginLeft:
+              line.indentPx !== undefined ? `${line.indentPx}px` : undefined,
+            whiteSpace: "nowrap",
+            ...(isJustified
+              ? {
+                  display: "block",
+                  textAlignLast: "justify",
+                  wordSpacing: `${line.wordSpacingPx}px`,
+                }
+              : {}),
+          }}
+        >
+          {renderFragmentSequence(
+            line.fragments,
+            `${key}-line-${lineIndex}`,
+            (fragment) => ({
+              ...getFragmentTypographyStyle(fragment.font),
+            }),
+          )}
+        </span>
+        {!isJustified && lineIndex < slice.lines.length - 1 ? <br /> : null}
+      </Fragment>
+    );
+  });
 }
 
 /** A repeated header's text belongs to an earlier page: no anchors. */

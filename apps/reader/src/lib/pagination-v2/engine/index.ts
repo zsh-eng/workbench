@@ -1157,6 +1157,7 @@ export class PaginationEngine {
         b.layoutTheme.paragraphSpacingFactor &&
       a.layoutTheme.textAlign === b.layoutTheme.textAlign &&
       a.layoutTheme.baseFontSizePx === b.layoutTheme.baseFontSizePx &&
+      a.layoutTheme.language === b.layoutTheme.language &&
       (a.publisherBookStylingEnabled ?? false) ===
         (b.publisherBookStylingEnabled ?? false) &&
       a.viewport.width === b.viewport.width &&

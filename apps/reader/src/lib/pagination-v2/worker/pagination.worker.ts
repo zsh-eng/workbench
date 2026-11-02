@@ -5,8 +5,9 @@ import type {
   PaginationWorkerEventMessage,
   PaginationWorkerMessage,
 } from "../protocol";
+import { ensureHyphenPoints } from "../shared/hyphenation";
 import { ensurePublisherFontsReadyFromBlocks } from "../shared/publisher-fonts";
-import type { FontConfig } from "../shared/types";
+import type { FontConfig, PaginationConfig } from "../shared/types";
 import { ensureBundledFontsReady } from "./fonts";
 import {
   PaginationJobScheduler,
@@ -198,10 +199,19 @@ function readingFontFamilies(fontConfig: FontConfig): string[] {
   ];
 }
 
+function ensureCommandHyphenation({
+  layoutTheme,
+}: PaginationConfig): Promise<void> {
+  return layoutTheme.textAlign === "justify-knuth-plass"
+    ? ensureHyphenPoints(layoutTheme.language)
+    : Promise.resolve();
+}
+
 /**
  * The fonts a command lays text out in: the reading font for a new layout and
  * embedded publisher fonts for new chapters. Layout waits for them, so no
- * text is measured in a fallback face.
+ * text is measured in a fallback face, and for justified text's hyphenation
+ * patterns, so no page changes when they arrive.
  */
 function waitForCommandFonts(command: PaginationCommand): Promise<void> {
   const loadCommandFonts = async (): Promise<void> => {
@@ -212,12 +222,16 @@ function waitForCommandFonts(command: PaginationCommand): Promise<void> {
             readingFontFamilies(command.paginationConfig.fontConfig),
           ),
           ensurePublisherFontsReadyFromBlocks(command.firstChapterBlocks),
+          ensureCommandHyphenation(command.paginationConfig),
         ]);
         return;
       case "updatePaginationConfig":
-        await ensureBundledFontsReady(
-          readingFontFamilies(command.paginationConfig.fontConfig),
-        );
+        await Promise.all([
+          ensureBundledFontsReady(
+            readingFontFamilies(command.paginationConfig.fontConfig),
+          ),
+          ensureCommandHyphenation(command.paginationConfig),
+        ]);
         return;
       case "addChapter":
       case "updateChapter":

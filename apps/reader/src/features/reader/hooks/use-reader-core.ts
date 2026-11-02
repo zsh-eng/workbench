@@ -91,6 +91,7 @@ export function buildPaginationConfig(
   >,
   paragraphSpacingFactor: number,
   viewport: { width: number; height: number },
+  language?: string,
 ): PaginationConfig {
   const readingFont = getReadingFont(settings.fontFamily).stack;
   return {
@@ -105,6 +106,7 @@ export function buildPaginationConfig(
       lineHeightFactor: settings.lineHeight,
       paragraphSpacingFactor,
       textAlign: settings.textAlign,
+      ...(language ? { language } : {}),
     },
     publisherBookStylingEnabled: settings.publisherBookStylingEnabled,
     viewport,
@@ -155,6 +157,8 @@ export function useReaderCore(
     textAlign,
     publisherBookStylingEnabled,
   } = settings;
+  const bookLanguage = book?.metadata?.language;
+  const language = typeof bookLanguage === "string" ? bookLanguage : undefined;
   // Only layout settings can invalidate pagination. Appearance controls must
   // not hide a ready spread or move its saved reading anchor.
   const paginationConfig = useMemo(
@@ -169,6 +173,7 @@ export function useReaderCore(
         },
         paragraphSpacingFactor,
         viewport,
+        language,
       ),
     [
       fontFamily,
@@ -178,6 +183,7 @@ export function useReaderCore(
       publisherBookStylingEnabled,
       paragraphSpacingFactor,
       viewport,
+      language,
     ],
   );
 

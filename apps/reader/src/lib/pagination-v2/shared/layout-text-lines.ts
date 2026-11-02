@@ -6,7 +6,14 @@ import {
   prepareRichInline,
   type RichInlineCursor,
 } from "@chenglou/pretext/rich-inline";
-import { LINE_START_CURSOR, cursorsMatch, measureTextWidth } from "./measure";
+import type { HyphenPoints } from "./hyphenation";
+import {
+  LINE_START_CURSOR,
+  countGraphemes,
+  cursorsMatch,
+  graphemePrefixLength,
+  measureTextWidth,
+} from "./measure";
 import type {
   HighlightMark,
   LayoutTheme,
@@ -17,12 +24,8 @@ import type {
   TextRenderMode,
 } from "./types";
 
-const HUGE_BADNESS = 1e8;
 const SOFT_HYPHEN = "\u00AD";
 const ZERO_WIDTH_BREAK = "\u200B";
-const RIVER_THRESHOLD = 1.5;
-const INFEASIBLE_SPACE_RATIO = 0.4;
-const TIGHT_SPACE_RATIO = 0.65;
 const NATIVE_INLINE_WRAP_SAFETY_PX = 2;
 const NATIVE_INLINE_ZERO_WIDTH_BREAK_SAFETY_PX = 8;
 
@@ -34,35 +37,8 @@ type TextLineLayoutResult = {
 type TextLineLayoutOptions = {
   textAlign?: LayoutTheme["textAlign"];
   firstLineIndentPx?: number;
-};
-
-type InlineLayoutToken = {
-  kind: "text" | "space" | "soft-hyphen";
-  text: string;
-  width: number;
-  font: string;
-  inlineRole?: PageFragment["inlineRole"];
-  link?: PageFragment["link"];
-  isCode: boolean;
-  highlightMarks?: PageFragment["highlightMarks"];
-  startOffset: TextCursorOffset;
-  endOffset: TextCursorOffset;
-};
-
-type BreakCandidateKind = "start" | "space" | "soft-hyphen" | "end";
-
-type BreakCandidate = {
-  tokenIndex: number;
-  kind: BreakCandidateKind;
-  offset: TextCursorOffset;
-};
-
-type LineStats = {
-  wordWidth: number;
-  naturalWidth: number;
-  spaceCount: number;
-  normalSpaceWidth: number;
-  trailingMarker: "none" | "soft-hyphen";
+  /** Where words may take a hyphen in justified text. */
+  hyphenPoints?: HyphenPoints | null;
 };
 
 function createOffset(
@@ -107,11 +83,16 @@ export function layoutTextLines(
   const safeWidth = Math.max(1, maxWidth);
   const firstLineIndentPx = Math.max(0, options?.firstLineIndentPx ?? 0);
 
-  if (options?.textAlign === "justify-knuth-plass" && firstLineIndentPx <= 0) {
-    const knuthPlassLines = layoutTextLinesKnuthPlass(items, safeWidth);
-    if (knuthPlassLines !== null) {
+  if (options?.textAlign === "justify-knuth-plass") {
+    const justifiedLines = layoutTextLinesJustified(
+      items,
+      safeWidth,
+      firstLineIndentPx,
+      options.hyphenPoints ?? null,
+    );
+    if (justifiedLines !== null) {
       return {
-        lines: knuthPlassLines,
+        lines: justifiedLines,
         renderMode: "manual-justify",
       };
     }
@@ -211,32 +192,6 @@ interface ItemGroup {
   itemIndices: number[];
   /** Where each item's text starts in `item.rawText`. */
   textStarts: number[];
-}
-
-const graphemeSegmenter =
-  typeof Intl !== "undefined" && "Segmenter" in Intl
-    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-    : null;
-
-function countGraphemes(text: string): number {
-  if (!graphemeSegmenter) return Array.from(text).length;
-  let count = 0;
-  for (const _ of graphemeSegmenter.segment(text)) count++;
-  return count;
-}
-
-/** The first `graphemeCount` graphemes of `text`, in UTF-16 code units. */
-function graphemePrefixLength(text: string, graphemeCount: number): number {
-  if (graphemeCount <= 0) return 0;
-  if (!graphemeSegmenter) {
-    return Array.from(text).slice(0, graphemeCount).join("").length;
-  }
-  let count = 0;
-  for (const { index } of graphemeSegmenter.segment(text)) {
-    if (count === graphemeCount) return index;
-    count++;
-  }
-  return text.length;
 }
 
 const segmentsSpellTextCache = new WeakMap<PreparedTextWithSegments, boolean>();
@@ -633,433 +588,462 @@ function layoutTextLinesPreWrap(
   return lines;
 }
 
-function canUseKnuthPlassJustification(items: PreparedInlineItem[]): boolean {
-  return (
-    items.length > 0 &&
-    items.every((item) => item.chromeWidth === 0 && !itemHasForcedBreak(item))
-  );
-}
-
 // ---------------------------------------------------------------------------
-// Knuth-Plass justification
+// Justified text
 // ---------------------------------------------------------------------------
 
-function layoutTextLinesKnuthPlass(
-  items: PreparedInlineItem[],
-  maxWidth: number,
-): PageLine[] | null {
-  if (!canUseKnuthPlassJustification(items)) return null;
+/**
+ * Justified text breaks a whole paragraph at once, in the manner of Knuth and
+ * Plass's TeX: of all the ways to break it, the one whose word spaces stay
+ * closest to natural. A line that breaks only when it must leaves the wide
+ * spaces that line up into rivers. Text is never changed: a hyphen break is a
+ * cursor inside a segment, so anchors, highlights and search see the book's
+ * own text, and the hyphen lives only in the line's rendered fragment.
+ */
 
-  const tokens = flattenInlineTokens(items);
-  if (tokens.length === 0) return [];
+/** As TeX's fonts do: spaces stretch by half and shrink by a third. */
+const SPACE_STRETCH = 0.5;
+const SPACE_SHRINK = 1 / 3;
 
-  const firstOffset = tokens[0]?.startOffset;
-  const lastOffset = tokens[tokens.length - 1]?.endOffset;
-  if (!firstOffset || !lastOffset) return null;
+/**
+ * Each paragraph takes the first pass that can set it. Hyphens wait until a
+ * paragraph needs them, and the last pass is for a measure too narrow to set
+ * well, where wide spaces still look better than one ragged paragraph.
+ */
+const JUSTIFY_PASSES = [
+  { hyphenate: false, maxStretchRatio: 1, allowBareLines: false },
+  { hyphenate: true, maxStretchRatio: 1.5, allowBareLines: false },
+  { hyphenate: true, maxStretchRatio: 4, allowBareLines: true },
+];
 
-  const breakCandidates: BreakCandidate[] = [
-    {
-      tokenIndex: 0,
-      kind: "start",
-      offset: firstOffset,
-    },
-  ];
+const BADNESS_LIMIT = 10_000;
+const LINE_PENALTY = 10;
+const HYPHEN_DEMERITS = 2_500;
+const ADJACENT_HYPHENS_DEMERITS = 10_000;
+const FINAL_HYPHEN_DEMERITS = 5_000;
+const FITNESS_JUMP_DEMERITS = 10_000;
+const SHORT_LAST_LINE_DEMERITS = 10_000;
+const SHORT_LAST_LINE_SHARE = 0.1;
 
-  for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
-    const token = tokens[tokenIndex];
-    if (!token) continue;
+/** Tight, decent, loose and very loose lines. */
+const FITNESS_CLASSES = 4;
+const DECENT_FITNESS = 1;
 
-    if (
-      token.kind === "space" &&
-      tokenIndex + 1 < tokens.length &&
-      tokens[tokenIndex + 1]
-    ) {
-      breakCandidates.push({
-        tokenIndex: tokenIndex + 1,
-        kind: "space",
-        offset: tokens[tokenIndex + 1]!.startOffset,
-      });
-      continue;
-    }
+const ENDS_IN_DASH = /[-‐‒-―]$/;
 
-    if (token.kind === "soft-hyphen" && tokenIndex + 1 < tokens.length) {
-      breakCandidates.push({
-        tokenIndex: tokenIndex + 1,
-        kind: "soft-hyphen",
-        offset: token.endOffset,
-      });
-    }
-  }
+/**
+ * Canvas widths run up to about 3px from what the page draws, as they miss
+ * kerning against spaces. Word spacing stops this short of the edge, for the
+ * browser's own justification to close. It cannot close a line that overruns.
+ */
+const JUSTIFY_EDGE_SLACK_PX = 3;
 
-  breakCandidates.push({
-    tokenIndex: tokens.length,
-    kind: "end",
-    offset: lastOffset,
-  });
-
-  const dp: number[] = new Array(breakCandidates.length).fill(Infinity);
-  const previous: number[] = new Array(breakCandidates.length).fill(-1);
-  dp[0] = 0;
-
-  for (
-    let toCandidate = 1;
-    toCandidate < breakCandidates.length;
-    toCandidate++
-  ) {
-    const candidate = breakCandidates[toCandidate];
-    if (!candidate) continue;
-
-    const isLastLine = candidate.kind === "end";
-
-    for (
-      let fromCandidate = toCandidate - 1;
-      fromCandidate >= 0;
-      fromCandidate--
-    ) {
-      if (dp[fromCandidate] === Infinity) continue;
-
-      const lineStats = getLineStats(
-        tokens,
-        breakCandidates,
-        fromCandidate,
-        toCandidate,
-      );
-      if (lineStats === null) continue;
-
-      if (lineStats.naturalWidth > maxWidth * 2) break;
-
-      const totalBadness =
-        dp[fromCandidate]! + lineBadness(lineStats, maxWidth, isLastLine);
-
-      if (totalBadness < dp[toCandidate]!) {
-        dp[toCandidate] = totalBadness;
-        previous[toCandidate] = fromCandidate;
-      }
-    }
-  }
-
-  if (previous[breakCandidates.length - 1] === -1) {
-    return null;
-  }
-
-  const chosenBreaks: number[] = [];
-  let current = breakCandidates.length - 1;
-  while (current > 0) {
-    const prev = previous[current];
-    if (prev === -1) return null;
-    chosenBreaks.push(current);
-    current = prev;
-  }
-  chosenBreaks.reverse();
-
-  const lines: PageLine[] = [];
-  let fromCandidate = 0;
-  for (const toCandidate of chosenBreaks) {
-    const line = buildKnuthPlassLine(
-      tokens,
-      breakCandidates,
-      fromCandidate,
-      toCandidate,
-      maxWidth,
-    );
-    if (line === null) return null;
-    lines.push(line);
-    fromCandidate = toCandidate;
-  }
-
-  return lines;
+/** A place a line can end, with totals from the start of the paragraph. */
+interface LineBreak {
+  groupIndex: number;
+  /** Where the next line starts, in that group. */
+  cursor: LayoutCursor;
+  showsHyphen: boolean;
+  hyphenWidth: number;
+  /** Width of a segment's first part, for a break inside it. An estimate. */
+  prefixWidth: number;
+  /** Totals for the line that ends here, whose last space does not show. */
+  width: number;
+  spaces: number;
+  spaceWidth: number;
+  /** Totals where the next line starts. */
+  nextWidth: number;
+  nextSpaces: number;
+  nextSpaceWidth: number;
 }
 
-function flattenInlineTokens(items: PreparedInlineItem[]): InlineLayoutToken[] {
-  const tokens: InlineLayoutToken[] = [];
+type JustifyPass = (typeof JUSTIFY_PASSES)[number];
 
-  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-    const item = items[itemIndex];
-    if (!item) continue;
+function collectLineBreaks(
+  groups: ItemGroup[],
+  hyphenPoints: HyphenPoints | null,
+): LineBreak[] {
+  const breaks: LineBreak[] = [];
+  let width = 0;
+  let spaces = 0;
+  let spaceWidth = 0;
 
-    const itemTokens: InlineLayoutToken[] = [];
+  const pushBreak = (
+    groupIndex: number,
+    cursor: LayoutCursor,
+    spaceAfter = 0,
+  ) => {
+    breaks.push({
+      groupIndex,
+      cursor,
+      showsHyphen: false,
+      hyphenWidth: 0,
+      prefixWidth: 0,
+      width,
+      spaces,
+      spaceWidth,
+      nextWidth: width + spaceAfter,
+      nextSpaces: spaces + (spaceAfter > 0 ? 1 : 0),
+      nextSpaceWidth: spaceWidth + spaceAfter,
+    });
+  };
+  const addSpace = (spaceAdvance: number) => {
+    width += spaceAdvance;
+    spaces += 1;
+    spaceWidth += spaceAdvance;
+  };
 
-    if (tokens.length > 0 && item.leadingGap > 0) {
-      const itemStartOffset = createOffset(itemIndex, LINE_START_CURSOR);
-      itemTokens.push({
-        kind: "space",
-        text: " ",
-        width: item.leadingGap,
-        font: item.font,
-        inlineRole: item.inlineRole,
-        link: item.link,
-        isCode: item.isCode,
-        highlightMarks: item.highlightMarks,
-        startOffset: itemStartOffset,
-        endOffset: itemStartOffset,
-      });
+  pushBreak(0, LINE_START_CURSOR);
+
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const { item } = groups[groupIndex]!;
+    if (groupIndex > 0 && item.leadingGap > 0) {
+      pushBreak(groupIndex, LINE_START_CURSOR, item.leadingGap);
+      addSpace(item.leadingGap);
     }
+    width += item.chromeWidth;
 
-    for (
-      let segIndex = 0;
-      segIndex < item.prepared.segments.length;
-      segIndex++
-    ) {
-      const text = item.prepared.segments[segIndex];
-      const width = item.prepared.widths[segIndex];
-      if (text === undefined || width === undefined) continue;
+    // The chrome of inline code surrounds one piece on one line.
+    const canBreak = item.chromeWidth === 0;
+    const { segments, kinds, widths, breakableFitAdvances } = item.prepared;
+    const { discretionaryHyphenWidth } = item.prepared;
 
-      const startOffset = createOffset(itemIndex, {
-        segmentIndex: segIndex,
-        graphemeIndex: 0,
-      });
-      const endOffset = createOffset(itemIndex, {
-        segmentIndex: segIndex + 1,
-        graphemeIndex: 0,
-      });
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+      const segment = segments[segmentIndex]!;
+      const kind = kinds[segmentIndex]!;
+      const segmentWidth = widths[segmentIndex]!;
+      const next = { segmentIndex: segmentIndex + 1, graphemeIndex: 0 };
 
-      if (text === SOFT_HYPHEN) {
-        itemTokens.push({
-          kind: "soft-hyphen",
-          text,
-          width: 0,
-          font: item.font,
-          link: item.link,
-          isCode: item.isCode,
-          highlightMarks: item.highlightMarks,
-          startOffset,
-          endOffset,
-        });
+      if (kind === "space") {
+        if (canBreak) pushBreak(groupIndex, next, segmentWidth);
+        addSpace(segmentWidth);
         continue;
       }
 
-      itemTokens.push({
-        kind: isSpaceText(text) ? "space" : "text",
-        text,
-        width,
-        font: item.font,
-        inlineRole: item.inlineRole,
-        link: item.link,
-        isCode: item.isCode,
-        highlightMarks: item.highlightMarks,
-        startOffset,
-        endOffset,
-      });
-    }
-
-    const lastTokenIndex = itemTokens.length - 1;
-    for (let tokenIndex = 0; tokenIndex < itemTokens.length; tokenIndex++) {
-      const token = itemTokens[tokenIndex];
-      if (!token) continue;
-
-      tokens.push({
-        ...token,
-        highlightMarks: projectHighlightMarks(item.highlightMarks, {
-          preserveStart: tokenIndex === 0,
-          preserveEnd: tokenIndex === lastTokenIndex,
-        }),
-      });
-    }
-  }
-
-  return tokens;
-}
-
-function getLineStats(
-  tokens: readonly InlineLayoutToken[],
-  breakCandidates: readonly BreakCandidate[],
-  fromCandidate: number,
-  toCandidate: number,
-): LineStats | null {
-  const from = breakCandidates[fromCandidate]?.tokenIndex;
-  const to = breakCandidates[toCandidate]?.tokenIndex;
-  const breakKind = breakCandidates[toCandidate]?.kind;
-  if (from === undefined || to === undefined || breakKind === undefined) {
-    return null;
-  }
-
-  let wordWidth = 0;
-  let naturalWidth = 0;
-  let spaceCount = 0;
-
-  for (let tokenIndex = from; tokenIndex < to; tokenIndex++) {
-    const token = tokens[tokenIndex];
-    if (!token || token.kind === "soft-hyphen") continue;
-
-    naturalWidth += token.width;
-    if (token.kind === "space") {
-      spaceCount += 1;
-      continue;
-    }
-
-    wordWidth += token.width;
-  }
-
-  const trailingToken = to > from ? tokens[to - 1] : null;
-  if (trailingToken?.kind === "space") {
-    naturalWidth -= trailingToken.width;
-    spaceCount -= 1;
-  }
-
-  const hyphenWidth =
-    breakKind === "soft-hyphen"
-      ? measureTextWidth("-", tokens[to - 1]?.font ?? "")
-      : 0;
-  const normalSpaceWidth =
-    spaceCount > 0 ? (naturalWidth - wordWidth) / spaceCount : 0;
-
-  return {
-    wordWidth: wordWidth + hyphenWidth,
-    naturalWidth: naturalWidth + hyphenWidth,
-    spaceCount: Math.max(0, spaceCount),
-    normalSpaceWidth: Math.max(0, normalSpaceWidth),
-    trailingMarker: breakKind === "soft-hyphen" ? "soft-hyphen" : "none",
-  };
-}
-
-function lineBadness(
-  lineStats: LineStats,
-  maxWidth: number,
-  isLastLine: boolean,
-): number {
-  if (isLastLine) {
-    // The last line is not justified. It keeps its natural spaces, so the
-    // spaces must fit as well as the words.
-    if (lineStats.naturalWidth > maxWidth) return HUGE_BADNESS;
-    return 0;
-  }
-
-  if (lineStats.spaceCount <= 0) {
-    const slack = maxWidth - lineStats.wordWidth;
-    if (slack < 0) return HUGE_BADNESS;
-    return slack * slack * 10;
-  }
-
-  const justifiedSpace =
-    (maxWidth - lineStats.wordWidth) / lineStats.spaceCount;
-  if (justifiedSpace < 0) return HUGE_BADNESS;
-  const normalSpaceWidth = lineStats.normalSpaceWidth || justifiedSpace;
-  if (normalSpaceWidth <= 0) return HUGE_BADNESS;
-
-  if (justifiedSpace < normalSpaceWidth * INFEASIBLE_SPACE_RATIO) {
-    return HUGE_BADNESS;
-  }
-
-  const ratio = (justifiedSpace - normalSpaceWidth) / normalSpaceWidth;
-  const absRatio = Math.abs(ratio);
-  const badness = absRatio * absRatio * absRatio * 1000;
-
-  const riverExcess = justifiedSpace / normalSpaceWidth - RIVER_THRESHOLD;
-  const riverPenalty =
-    riverExcess > 0 ? 5000 + riverExcess * riverExcess * 10000 : 0;
-
-  const tightThreshold = normalSpaceWidth * TIGHT_SPACE_RATIO;
-  const tightPenalty =
-    justifiedSpace < tightThreshold
-      ? 3000 + (tightThreshold - justifiedSpace) ** 2 * 10000
-      : 0;
-
-  const hyphenPenalty = lineStats.trailingMarker === "soft-hyphen" ? 50 : 0;
-  return badness + riverPenalty + tightPenalty + hyphenPenalty;
-}
-
-function buildKnuthPlassLine(
-  tokens: readonly InlineLayoutToken[],
-  breakCandidates: readonly BreakCandidate[],
-  fromCandidate: number,
-  toCandidate: number,
-  maxWidth: number,
-): PageLine | null {
-  const from = breakCandidates[fromCandidate]?.tokenIndex;
-  const to = breakCandidates[toCandidate]?.tokenIndex;
-  const breakKind = breakCandidates[toCandidate]?.kind;
-  const startOffset = breakCandidates[fromCandidate]?.offset;
-  const endOffset = breakCandidates[toCandidate]?.offset;
-  if (
-    from === undefined ||
-    to === undefined ||
-    breakKind === undefined ||
-    !startOffset ||
-    !endOffset
-  ) {
-    return null;
-  }
-
-  const lineStats = getLineStats(
-    tokens,
-    breakCandidates,
-    fromCandidate,
-    toCandidate,
-  );
-  if (lineStats === null) return null;
-
-  const fragments: PageFragment[] = [];
-  const isLastLine = breakKind === "end";
-  const targetSpaceWidth =
-    !isLastLine && lineStats.spaceCount > 0
-      ? (maxWidth - lineStats.wordWidth) / lineStats.spaceCount
-      : null;
-  const wordSpacingPx =
-    targetSpaceWidth !== null
-      ? targetSpaceWidth - lineStats.normalSpaceWidth
-      : undefined;
-  const trailingFillPx =
-    !isLastLine && lineStats.spaceCount <= 0
-      ? Math.max(0, maxWidth - lineStats.wordWidth)
-      : 0;
-
-  let lastRenderableFragment: PageFragment | null = null;
-  for (let tokenIndex = from; tokenIndex < to; tokenIndex++) {
-    const token = tokens[tokenIndex];
-    if (!token || token.kind === "soft-hyphen") continue;
-
-    const fragment: PageFragment = {
-      kind: token.kind === "space" ? "space" : "text",
-      text: token.kind === "space" ? " " : token.text,
-      font: token.font,
-      leadingGap: 0,
-      inlineRole: token.inlineRole,
-      link: token.link,
-      isCode: token.isCode,
-      highlightMarks: token.highlightMarks,
-      anchorStart: token.startOffset,
-      anchorEnd: token.endOffset,
-    };
-
-    fragments.push(fragment);
-    lastRenderableFragment = fragment;
-  }
-
-  if (breakKind === "soft-hyphen") {
-    const softHyphenToken = tokens[to - 1];
-    fragments.push({
-      kind: "text",
-      text: "-",
-      font: softHyphenToken?.font ?? "",
-      leadingGap: 0,
-      ...(softHyphenToken?.inlineRole
-        ? { inlineRole: softHyphenToken.inlineRole }
-        : {}),
-      ...(softHyphenToken?.link ? { link: softHyphenToken.link } : {}),
-      isCode: softHyphenToken?.isCode ?? false,
-      highlightMarks: softHyphenToken?.highlightMarks,
-      ...(softHyphenToken
-        ? {
-            anchorStart: softHyphenToken.startOffset,
-            anchorEnd: softHyphenToken.endOffset,
+      if (kind === "soft-hyphen" || kind === "zero-width-break") {
+        width += segmentWidth;
+        if (canBreak) {
+          pushBreak(groupIndex, next);
+          if (kind === "soft-hyphen") {
+            const softHyphen = breaks[breaks.length - 1]!;
+            softHyphen.showsHyphen = true;
+            softHyphen.hyphenWidth = discretionaryHyphenWidth;
           }
-        : {}),
-    });
-    lastRenderableFragment =
-      fragments[fragments.length - 1] ?? lastRenderableFragment;
+        }
+        continue;
+      }
+
+      const advances = breakableFitAdvances[segmentIndex];
+      if (canBreak && hyphenPoints && !item.isCode && advances) {
+        let prefixWidth = 0;
+        let graphemeIndex = 0;
+        for (const point of hyphenPoints(segment)) {
+          while (graphemeIndex < point) {
+            prefixWidth += advances[graphemeIndex++] ?? 0;
+          }
+          width += prefixWidth;
+          pushBreak(groupIndex, { segmentIndex, graphemeIndex: point });
+          width -= prefixWidth;
+          const hyphenBreak = breaks[breaks.length - 1]!;
+          hyphenBreak.showsHyphen = true;
+          hyphenBreak.hyphenWidth = discretionaryHyphenWidth;
+          hyphenBreak.prefixWidth = prefixWidth;
+        }
+      }
+
+      width += segmentWidth;
+
+      if (
+        canBreak &&
+        kinds[segmentIndex + 1] === "text" &&
+        ENDS_IN_DASH.test(segment)
+      ) {
+        pushBreak(groupIndex, next);
+      }
+    }
   }
 
-  if (trailingFillPx > 0 && lastRenderableFragment) {
-    lastRenderableFragment.marginRightPx = trailingFillPx;
+  const lastGroupIndex = groups.length - 1;
+  pushBreak(lastGroupIndex, groups[lastGroupIndex]!.item.endCursor);
+  return breaks;
+}
+
+/** How far a line's spaces move, as a share of how far they may: 1 is full. */
+function getSpaceRatio(
+  naturalWidth: number,
+  spaceWidth: number,
+  availableWidth: number,
+): number {
+  const slack = availableWidth - naturalWidth;
+  if (Math.abs(slack) < 0.01) return 0;
+  if (spaceWidth <= 0) return slack > 0 ? Infinity : -Infinity;
+  return slack / (spaceWidth * (slack > 0 ? SPACE_STRETCH : SPACE_SHRINK));
+}
+
+function getFitnessClass(ratio: number): number {
+  if (ratio < -0.5) return 0;
+  if (ratio <= 0.5) return DECENT_FITNESS;
+  return ratio <= 1 ? 2 : 3;
+}
+
+/** The breaks of the best way to set the paragraph, in order; null if none. */
+function chooseLineBreaks(
+  breaks: LineBreak[],
+  maxWidth: number,
+  firstLineWidth: number,
+  pass: JustifyPass,
+): number[] | null {
+  // One state for each break and the fitness of the line that ends there.
+  const stateCount = breaks.length * FITNESS_CLASSES;
+  const demerits = new Float64Array(stateCount).fill(Infinity);
+  const previous = new Int32Array(stateCount).fill(-1);
+  demerits[DECENT_FITNESS] = 0;
+
+  const lastBreak = breaks.length - 1;
+  for (let to = 1; to <= lastBreak; to++) {
+    const end = breaks[to]!;
+    const isLastLine = to === lastBreak;
+
+    for (let from = to - 1; from >= 0; from--) {
+      const start = breaks[from]!;
+      const availableWidth = from === 0 ? firstLineWidth : maxWidth;
+      const wordsWidth = end.width - start.nextWidth;
+      const spaceWidth = end.spaceWidth - start.nextSpaceWidth;
+      // Starting earlier only makes this line longer.
+      if (wordsWidth - spaceWidth * SPACE_SHRINK > availableWidth) break;
+
+      const naturalWidth = wordsWidth + end.hyphenWidth;
+      const ratio = isLastLine
+        ? naturalWidth <= availableWidth + 0.01
+          ? 0
+          : -Infinity
+        : getSpaceRatio(naturalWidth, spaceWidth, availableWidth);
+      const isBareLine = ratio === Infinity && pass.allowBareLines;
+      if (ratio < -1 || (ratio > pass.maxStretchRatio && !isBareLine)) continue;
+
+      const badness = Math.min(BADNESS_LIMIT, 100 * Math.abs(ratio) ** 3);
+      let lineDemerits = (LINE_PENALTY + badness) ** 2;
+      if (end.showsHyphen) lineDemerits += HYPHEN_DEMERITS;
+      if (start.showsHyphen && end.showsHyphen) {
+        lineDemerits += ADJACENT_HYPHENS_DEMERITS;
+      }
+      if (isLastLine) {
+        if (start.showsHyphen) lineDemerits += FINAL_HYPHEN_DEMERITS;
+        if (naturalWidth < availableWidth * SHORT_LAST_LINE_SHARE) {
+          lineDemerits += SHORT_LAST_LINE_DEMERITS;
+        }
+      }
+
+      const fitness = getFitnessClass(ratio);
+      const state = to * FITNESS_CLASSES + fitness;
+      for (
+        let priorFitness = 0;
+        priorFitness < FITNESS_CLASSES;
+        priorFitness++
+      ) {
+        const priorState = from * FITNESS_CLASSES + priorFitness;
+        const prior = demerits[priorState]!;
+        if (prior === Infinity) continue;
+        const total =
+          prior +
+          lineDemerits +
+          (Math.abs(fitness - priorFitness) > 1 ? FITNESS_JUMP_DEMERITS : 0);
+        if (total < demerits[state]!) {
+          demerits[state] = total;
+          previous[state] = priorState;
+        }
+      }
+    }
   }
 
+  let bestState = -1;
+  let bestDemerits = Infinity;
+  for (let fitness = 0; fitness < FITNESS_CLASSES; fitness++) {
+    const state = lastBreak * FITNESS_CLASSES + fitness;
+    if (demerits[state]! < bestDemerits) {
+      bestDemerits = demerits[state]!;
+      bestState = state;
+    }
+  }
+  if (bestState < 0) return null;
+
+  const chosen: number[] = [];
+  for (let state = bestState; state >= 0; state = previous[state]!) {
+    chosen.push(Math.floor(state / FITNESS_CLASSES));
+  }
+  return chosen.reverse();
+}
+
+/** The text between two cursors, without soft hyphens. */
+function getPreparedTextBetween(
+  prepared: PreparedTextWithSegments,
+  start: LayoutCursor,
+  end: LayoutCursor,
+): string {
+  let text = "";
+  for (
+    let segmentIndex = start.segmentIndex;
+    segmentIndex <= end.segmentIndex;
+    segmentIndex++
+  ) {
+    const segment = prepared.segments[segmentIndex];
+    if (segment === undefined || prepared.kinds[segmentIndex] === "soft-hyphen")
+      continue;
+    const from =
+      segmentIndex === start.segmentIndex
+        ? graphemePrefixLength(segment, start.graphemeIndex)
+        : 0;
+    const to =
+      segmentIndex === end.segmentIndex
+        ? graphemePrefixLength(segment, end.graphemeIndex)
+        : segment.length;
+    text += segment.slice(from, to);
+  }
+  return text;
+}
+
+/**
+ * A line's natural width as it will render. Breaks choose with the widths
+ * of a word's letters; a line that starts or ends inside a word uses that
+ * word's pieces as drawn, with their kerning.
+ */
+function measureLineWidth(
+  groups: ItemGroup[],
+  start: LineBreak,
+  end: LineBreak,
+): number {
+  let width = end.width + end.hyphenWidth - start.nextWidth;
+  const sameSegment =
+    start.groupIndex === end.groupIndex &&
+    start.cursor.segmentIndex === end.cursor.segmentIndex;
+  if (sameSegment) return width;
+
+  if (end.cursor.graphemeIndex > 0) {
+    const { item } = groups[end.groupIndex]!;
+    const segment = item.prepared.segments[end.cursor.segmentIndex]!;
+    const prefix = segment.slice(
+      0,
+      graphemePrefixLength(segment, end.cursor.graphemeIndex),
+    );
+    width +=
+      measureTextWidth(`${prefix}-`, item.font) -
+      end.prefixWidth -
+      end.hyphenWidth;
+  }
+  if (start.cursor.graphemeIndex > 0) {
+    const { item } = groups[start.groupIndex]!;
+    const { segmentIndex, graphemeIndex } = start.cursor;
+    const segment = item.prepared.segments[segmentIndex]!;
+    const suffix = segment.slice(graphemePrefixLength(segment, graphemeIndex));
+    width +=
+      measureTextWidth(suffix, item.font) -
+      (item.prepared.widths[segmentIndex]! - start.prefixWidth);
+  }
+  return width;
+}
+
+function buildJustifiedLine(
+  items: PreparedInlineItem[],
+  groups: ItemGroup[],
+  start: LineBreak,
+  end: LineBreak,
+  availableWidth: number,
+  options: { indentPx: number; isLastLine: boolean },
+): PageLine {
+  const fragments: PageFragment[] = [];
+  let startOffset: TextCursorOffset | undefined;
+  let endOffset: TextCursorOffset | undefined;
+
+  for (
+    let groupIndex = start.groupIndex;
+    groupIndex <= end.groupIndex;
+    groupIndex++
+  ) {
+    const group = groups[groupIndex]!;
+    const from =
+      groupIndex === start.groupIndex ? start.cursor : LINE_START_CURSOR;
+    const to =
+      groupIndex === end.groupIndex ? end.cursor : group.item.endCursor;
+    if (cursorsMatch(from, to)) continue;
+
+    const text = getPreparedTextBetween(group.item.prepared, from, to);
+    const showsHyphen = end.showsHyphen && groupIndex === end.groupIndex;
+    fragments.push(
+      ...splitGroupFragment(items, group, {
+        text: showsHyphen ? `${text}-` : text,
+        gapBefore: fragments.length === 0 ? 0 : group.item.leadingGap,
+        start: from,
+        end: to,
+      }),
+    );
+    startOffset ??= groupCursorToItemOffset(items, group, from, "start");
+    endOffset = groupCursorToItemOffset(items, group, to, "end");
+  }
+
+  const spaces = end.spaces - start.nextSpaces;
+  const justifies = !options.isLastLine && spaces > 0;
   return {
     fragments,
     startOffset,
     endOffset,
     isLastInBlock: false,
-    wordSpacingPx,
+    ...(justifies
+      ? {
+          wordSpacingPx:
+            (availableWidth -
+              JUSTIFY_EDGE_SLACK_PX -
+              measureLineWidth(groups, start, end)) /
+            spaces,
+        }
+      : {}),
+    ...(options.indentPx > 0 ? { indentPx: options.indentPx } : {}),
   };
+}
+
+/** Null when a paragraph cannot be justified, so it sets as ragged text. */
+function layoutTextLinesJustified(
+  items: PreparedInlineItem[],
+  maxWidth: number,
+  firstLineIndentPx: number,
+  hyphenPoints: HyphenPoints | null,
+): PageLine[] | null {
+  if (items.length === 0 || !items.every(isPreparedAsNormalText)) return null;
+
+  const indentPx = Math.min(firstLineIndentPx, maxWidth - 1);
+  const firstLineWidth = maxWidth - indentPx;
+  const groups = groupItemsIntoWords(items);
+  const breaksByHyphenation = new Map<boolean, LineBreak[]>();
+
+  for (const pass of JUSTIFY_PASSES) {
+    let breaks = breaksByHyphenation.get(pass.hyphenate);
+    if (!breaks) {
+      breaks = collectLineBreaks(groups, pass.hyphenate ? hyphenPoints : null);
+      breaksByHyphenation.set(pass.hyphenate, breaks);
+    }
+
+    const chosen = chooseLineBreaks(breaks, maxWidth, firstLineWidth, pass);
+    if (!chosen) continue;
+
+    const lastLine = chosen.length - 2;
+    const lineBreaks = breaks;
+    return chosen
+      .slice(1)
+      .map((breakIndex, lineIndex) =>
+        buildJustifiedLine(
+          items,
+          groups,
+          lineBreaks[chosen[lineIndex]!]!,
+          lineBreaks[breakIndex]!,
+          lineIndex === 0 ? firstLineWidth : maxWidth,
+          {
+            indentPx: lineIndex === 0 ? indentPx : 0,
+            isLastLine: lineIndex === lastLine,
+          },
+        ),
+      );
+  }
+
+  return null;
 }
 
 export function layoutPreWrapLines(
@@ -1067,8 +1051,4 @@ export function layoutPreWrapLines(
   maxWidth: number,
 ): PageLine[] {
   return layoutTextLinesPreWrap(items, Math.max(1, maxWidth));
-}
-
-function isSpaceText(text: string): boolean {
-  return text.trim().length === 0;
 }

@@ -253,8 +253,14 @@ export function ReaderDiagnostics() {
         settings,
         profile.paragraphSpacingFactor,
         readerLayout.stageViewport,
+        profile.language,
       ),
-    [profile.paragraphSpacingFactor, readerLayout.stageViewport, settings],
+    [
+      profile.language,
+      profile.paragraphSpacingFactor,
+      readerLayout.stageViewport,
+      settings,
+    ],
   );
   const spreadConfig = useMemo(
     () => buildSpreadConfig(readerLayout.resolvedSpreadColumns),

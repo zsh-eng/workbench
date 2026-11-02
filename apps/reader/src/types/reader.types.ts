@@ -96,6 +96,8 @@ export interface ReaderSettings {
   fontFamily: FontFamily;
   theme: ReaderTheme;
   textAlign: TextAlign;
+  /** The reader chose this alignment; otherwise left is the device's default. */
+  textAlignChosen?: boolean;
   contentWidth: ContentWidth; // width of the reading area in scroll layouts
   publisherBookStylingEnabled: boolean;
   matchPublisherBodyTextSize: boolean;

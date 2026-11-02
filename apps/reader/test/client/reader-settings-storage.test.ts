@@ -5,7 +5,7 @@ import {
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { toast } from "sonner";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
@@ -31,6 +31,57 @@ afterEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   document.documentElement.className = "";
+});
+
+describe("Justify's default", () => {
+  function TextAlignProbe() {
+    const { settings, updateSettings } = useReaderSettings();
+    return createElement(
+      "button",
+      { onClick: () => updateSettings({ textAlign: "left" }) },
+      settings.textAlign,
+    );
+  }
+
+  function mountOnScreen(width: number, height: number) {
+    vi.spyOn(window.screen, "width", "get").mockReturnValue(width);
+    vi.spyOn(window.screen, "height", "get").mockReturnValue(height);
+    return render(
+      createElement(
+        ReaderSettingsProvider,
+        null,
+        createElement(TextAlignProbe),
+      ),
+    );
+  }
+
+  const shown = () => screen.getByRole("button").textContent;
+
+  it("is on for a tablet or a desktop, and off for a phone", () => {
+    mountOnScreen(1008, 640);
+    expect(shown()).toBe("justify-knuth-plass");
+    cleanup();
+    mountOnScreen(390, 844);
+    expect(shown()).toBe("left");
+  });
+
+  it("replaces the left every device saved, until the reader chooses", () => {
+    localStorage.setItem("epub-reader-settings", '{"textAlign":"left"}');
+    mountOnScreen(1008, 640);
+    expect(shown()).toBe("justify-knuth-plass");
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(shown()).toBe("left");
+    cleanup();
+    mountOnScreen(1008, 640);
+    expect(shown()).toBe("left");
+  });
+
+  it("keeps an alignment the reader saved", () => {
+    localStorage.setItem("epub-reader-settings", '{"textAlign":"center"}');
+    mountOnScreen(1008, 640);
+    expect(shown()).toBe("center");
+  });
 });
 
 it("falls back when storage access is denied without replacing saved preferences", () => {
