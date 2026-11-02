@@ -30,6 +30,10 @@ If the server answers `/__e2e`, the kit refuses a server from another checkout.
 | `--screen <w>x<h>`    | The screen behind the window (`screen`), e.g. a tablet's.       |
 | `--scale <n>`         | Device pixels per CSS pixel (2), e.g. Android's density `2.5`.  |
 | `--browser webkit`    | WebKit instead of Chromium (no `--throttle` or `--trace`).      |
+| `--disk`              | A new profile on disk. Without it, Chromium is off the record.  |
+| `--executable <path>` | Another browser build.                                          |
+| `--arg <flag>`        | A browser flag; repeat it for more.                             |
+| `--insecure`          | Accepts a lab's self-signed certificate.                        |
 | `--trace <file>`      | Records a Chrome trace of the steps, for `kit frames`.          |
 | `--throttle <rate>`   | Makes the CPU that many times slower, after the page loads.     |
 | `--seconds <n>`       | `clip` without steps: how long to record (3).                   |

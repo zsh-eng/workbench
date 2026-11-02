@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { existsSync, realpathSync } from "node:fs";
 import { writerLock } from "./lock";
-import { schedule } from "./schedule";
+import { hourly, schedule } from "./schedule";
 import { join, resolve } from "node:path";
 import { Store, NAMESPACES, FILE_NAMESPACES } from "./store";
 import {
@@ -26,6 +26,7 @@ import {
   describe,
   describePreview,
   fetchMissingText,
+  stopOnSignal,
 } from "./arctic";
 const help = `Workbench Backup — sync, local SQLite inspection and Arctic links
 
@@ -212,29 +213,12 @@ async function main() {
     print(schedule(sub, origin, directory), json);
     return;
   }
-  // What the scheduled job runs. Each step reports on its own, and a failed
-  // backup doesn't stop the text.
   if (command === "hourly") {
-    const step = (...args: string[]) =>
-      Bun.spawnSync(
-        [
-          process.execPath,
-          import.meta.path,
-          ...args,
-          "--origin",
-          origin,
-          "--data-dir",
-          directory,
-          "--json",
-        ],
-        // A step that hangs must not hold the job: launchd starts no other.
-        { stdout: "inherit", stderr: "inherit", timeout: 20 * 60 * 1000 },
-      ).exitCode;
-    const codes = [
-      step("sync"),
-      step("arctic", "text", "--missing", "--unwall"),
-    ];
-    process.exitCode = codes.find(Boolean) ?? 0;
+    process.exitCode = await hourly(
+      [process.execPath, import.meta.path],
+      origin,
+      directory,
+    );
     return;
   }
   if (command === "auth") {
@@ -296,10 +280,12 @@ async function main() {
     console.error(
       `Reading your Arctic library at ${origin}…${v["dry-run"] ? " (dry run: nothing is read or written)" : ""}`,
     );
+    const stop = stopOnSignal();
     const run = await fetchMissingText({
       origin,
       token,
       directory,
+      signal: stop.signal,
       unwall: !!v.unwall,
       dryRun: !!v["dry-run"],
       limit: v.limit === undefined ? undefined : Number(v.limit),
@@ -307,14 +293,21 @@ async function main() {
     });
     if (json) print(run, json);
     else if (v["dry-run"]) for (const link of run.links) console.log(link);
-    const count = (text: string) =>
-      run.results.filter((result) => result.text === text).length;
+    const notTried = run.results.filter(
+      (result) => result.status === "not tried",
+    ).length;
+    const read = run.results.length - notTried;
+    const uploaded = run.results.filter(
+      (result) => result.text === "uploaded",
+    ).length;
     console.error(
       `${run.missing} saved links without text; ${run.waiting} waiting to try again. ` +
         (v["dry-run"]
           ? `Would fetch ${run.links.length}.`
-          : `Read ${run.results.length}: ${count("uploaded")} uploaded, ${run.results.length - count("uploaded")} without text.`),
+          : `Read ${read}: ${uploaded} uploaded, ${read - uploaded} without text` +
+            (notTried ? `; ${notTried} not tried: the run stopped.` : ".")),
     );
+    stop.exitIfStopped();
     // A page without text is expected, and waits for its next try.
     return;
   }
@@ -332,16 +325,19 @@ async function main() {
     }
     if (!inputs.length) throw Error("No links given");
     console.error(`Reading your Arctic library at ${origin}…`);
+    const stop = stopOnSignal();
     const results = await arctic({
       command: sub as "save" | "text",
       origin,
       token,
+      signal: stop.signal,
       inputs,
       text: !v["no-text"],
       unwall: !!v.unwall,
       onResult: json ? undefined : (result) => console.log(describe(result)),
     });
     if (json) print(results, json);
+    stop.exitIfStopped();
     if (results.some((result) => result.error)) process.exitCode = 1;
     return;
   }

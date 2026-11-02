@@ -13,6 +13,20 @@ struct ArticleMetadata: Sendable {
   static let maximumHTMLBytes = 2 * 1024 * 1024
   static let excerptWordLimit = 180
   static let taggingCharacterLimit = 2500
+  /// `ARCTIC_USER_AGENT` in packages/arctic-links. A claim to be a browser costs
+  /// pages: a site that compares it with the connection answers with a bot check.
+  static let userAgent = "ArcticReader/1.0 (+https://arctic.zsheng.app)"
+
+  /// The page that came back is not the link's: there is nothing in it to keep.
+  enum PageError: LocalizedError {
+    case browserCheck, xSignIn
+    var errorDescription: String? {
+      switch self {
+      case .browserCheck: "The site showed a browser check instead of the article."
+      case .xSignIn: "X asks to sign in before it shows this link."
+      }
+    }
+  }
 
   // Each process reuses connections across previews. Separate pools preserve
   // Share's shorter resource deadline without per-request session creation.
@@ -28,9 +42,7 @@ struct ArticleMetadata: Sendable {
 
   static func fetch(_ url: URL, timeout: TimeInterval = 8) async throws -> Self {
     var request = URLRequest(url: url, timeoutInterval: timeout)
-    request.setValue(
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
-      forHTTPHeaderField: "User-Agent")
+    request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
     let session = timeout <= 8 ? shareSession : appSession
     let (bytes, response) = try await session.bytes(for: request)
     // Breaking AsyncBytes iteration alone does not cancel the network task.
@@ -71,6 +83,7 @@ struct ArticleMetadata: Sendable {
   }
 
   static func parse(_ html: String, baseURL: URL) throws -> Self {
+    if isXSignIn(baseURL) { throw PageError.xSignIn }
     let document = try SwiftSoup.parse(html)
     func meta(_ names: [String]) throws -> String {
       for name in names {
@@ -90,11 +103,18 @@ struct ArticleMetadata: Sendable {
     }
     let headline = try meta(["og:title", "twitter:title"])
     let fallbackTitle = clean(try document.title())
+    if try isChallenge(html, title: fallbackTitle, document: document) {
+      throw PageError.browserCheck
+    }
+    let xTitle = xArticleTitle(headline, baseURL)
     let title =
-      headline.isEmpty
-      ? (fallbackTitle.isEmpty ? (baseURL.host ?? baseURL.absoluteString) : fallbackTitle)
-      : headline
-    let description = try meta(["og:description", "description", "twitter:description"])
+      xTitle
+      ?? (headline.isEmpty
+        ? (fallbackTitle.isEmpty ? (baseURL.host ?? baseURL.absoluteString) : fallbackTitle)
+        : headline)
+    var description = try meta(["og:description", "description", "twitter:description"])
+    // The post of an X Article has only the Article's title to describe it.
+    if description == xTitle { description = "" }
     let imageURL = resourceURL(try meta(["og:image", "twitter:image"]))
     let iconElement = try document.select("link[rel][href]").first { element in
       let roles = try element.attr("rel").lowercased().split(whereSeparator: \.isWhitespace)
@@ -152,6 +172,40 @@ struct ArticleMetadata: Sendable {
     let context =
       summary.isEmpty ? "Article excerpt: " + excerpt : summary + "\n\nArticle excerpt: " + excerpt
     return String(context.prefix(taggingCharacterLimit))
+  }
+
+  static func isX(_ url: URL) -> Bool {
+    ["x.com", "www.x.com", "mobile.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"]
+      .contains(url.host?.lowercased() ?? "")
+  }
+
+  /// X sends a link it will not show to a visitor to its sign-in page.
+  private static func isXSignIn(_ url: URL) -> Bool {
+    isX(url)
+      && url.path.range(
+        of: "^/(i/jf/onboarding|i/flow/login|login)(/|$)", options: .regularExpression) != nil
+  }
+
+  /// `Name on X: "Title" / X`, the title X gives a post that carries an Article.
+  private static func xArticleTitle(_ title: String, _ url: URL) -> String? {
+    guard isX(url), let match = title.wholeMatch(of: #/.+ on X: [“"](.+)[”"] \/ X/#) else {
+      return nil
+    }
+    return String(match.1)
+  }
+
+  /// `isChallengePage` in packages/arctic-links: a check's title or markup, and
+  /// little to read. An article that quotes one says more.
+  private static func isChallenge(_ html: String, title: String, document: Document) throws -> Bool
+  {
+    let named =
+      title.range(
+        of: "^(just a moment|access denied|attention required"
+          + "|checking your browser|verify you are human)[\\s.!…]*(\\|.*)?$",
+        options: [.regularExpression, .caseInsensitive]) != nil
+      || html.range(
+        of: "/__challenge/|HASHCASH_CONFIG|_cf_chl_opt", options: .regularExpression) != nil
+    return try named && (document.body()?.text().count ?? 0) < 1200
   }
 
   private static func clean(_ text: String) -> String {

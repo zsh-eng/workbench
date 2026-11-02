@@ -27,7 +27,7 @@ enum ArticleFolder: Hashable {
     case .favourites: article.saved && article.favourite
     case .history: article.lastVisitedAt != nil
     case .archive: article.saved && article.isArchived == true
-    case .downloaded: article.saved && article.downloadedAt != nil
+    case .downloaded: article.saved && article.isArchived != true && article.downloadedAt != nil
     case .tag(let name):
       article.saved && article.tagNames.contains(name)
         && (favouritesOnly ? article.favourite : article.isArchived != true)

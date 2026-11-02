@@ -24,7 +24,8 @@ development build, not a notarized distribution.
   notes content enters with a 180 ms fade and 6 pt translation inside its final
   bounds; Reduce Motion removes both.
 - **⌘K** finds a library article or opens a URL. Opening does not save it.
-  Saved, Favourites, Downloaded, History and Archive keep the iPhone rules.
+  Saved, Favourites, Downloaded, History and Archive keep the iPhone rules, and
+  the [opening policy](../OPENING.md) applies.
 - **⇧⌘[ / ⇧⌘]** switch articles; **⌘W** closes an article;
   **⇧⌘T** reopens the last closed article. Open tabs restore on next launch,
   without starting their publisher requests.

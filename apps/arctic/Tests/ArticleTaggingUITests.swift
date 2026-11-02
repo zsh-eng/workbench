@@ -127,6 +127,45 @@ final class ArticleTaggingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["folder-tag-Engineering"].exists)
   }
 
+  /// Five links shared quickly: one at a time, oldest first, with the last one
+  /// shared last, and at the top of Saved.
+  @MainActor func testSharedLinksAreProcessedInTheOrderTheyWereShared() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-ui-testing", "-reset-store", "-test-tagging", "-test-share-queue"]
+    app.launch()
+    waitForOrder("queue-1 queue-2 queue-3 queue-4 queue-5", in: app)
+    XCTAssertLessThan(
+      app.buttons["article-queue-5"].frame.minY, app.buttons["article-queue-4"].frame.minY)
+    capture(app, "share-order-newest-on-top")
+  }
+
+  /// Offline, the first link fails and the queue waits. A relaunch takes it up
+  /// where it stopped, in the same order.
+  @MainActor func testShareOrderSurvivesAFailureAndARelaunch() {
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-test-tagging", "-test-tagging-failure",
+      "-test-share-queue",
+    ]
+    app.launch()
+    waitForOrder("queue-1", in: app)
+    waitForQueue("idle", in: app)
+    app.terminate()
+    app.launchArguments = ["-ui-testing", "-test-tagging"]
+    app.launch()
+    waitForOrder("queue-1 queue-2 queue-3 queue-4 queue-5", in: app)
+  }
+
+  @MainActor func testUnreadableSharedLinkDoesNotHoldUpTheLinksAfterIt() {
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-test-tagging", "-test-share-queue",
+      "-test-share-unreadable",
+    ]
+    app.launch()
+    waitForOrder("queue-1 queue-2 queue-3 queue-4 queue-5", in: app)
+  }
+
   @MainActor func testPastePreparesTagsBeforeSaveAndReusesOneRequest() {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-test-clipboard", "-test-tagging"]
@@ -229,6 +268,22 @@ final class ArticleTaggingUITests: XCTestCase {
     app.launch()
     XCTAssertTrue(app.buttons["open-copied-link"].waitForExistence(timeout: 10))
     return app
+  }
+
+  @MainActor private func waitForOrder(_ order: String, in app: XCUIApplication) {
+    let label = app.staticTexts["tagging-order"]
+    XCTAssertTrue(label.waitForExistence(timeout: 10))
+    let reached = expectation(
+      for: NSPredicate(format: "label.length >= %d", order.count), evaluatedWith: label)
+    wait(for: [reached], timeout: 20)
+    XCTAssertEqual(label.label, order)
+  }
+
+  @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   @MainActor private func releaseResponse(in app: XCUIApplication) {

@@ -3,8 +3,11 @@ import {
   canonicalURL,
   cleanPreview,
   encodeSorted,
+  isChallengePage,
+  isChallengeText,
   readPreview,
   withPreview,
+  xArticleURL,
 } from "./index";
 
 const page = "https://news.example/2026/10/sea-ice?ref=feed";
@@ -160,4 +163,95 @@ test("an answer from elsewhere keeps only fields in the form readPreview writes"
     }),
   ).toEqual({ subtitle: "One line", faviconURL: "https://example.com/i.png" });
   expect(cleanPreview("nothing")).toEqual({});
+});
+
+const xPost = (title: string, description: string) =>
+  `<head><title>${title}</title><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:image" content="https://pbs.twimg.com/media/ICE?format=webp&amp;name=large"></head>`;
+const articlePost = xPost(
+  "Ada Reader on X: &quot;How sea ice keeps time&quot; / X",
+  "How sea ice keeps time",
+);
+
+test("an X post that carries an Article takes the Article's title and points to its page", () => {
+  const url = "https://x.com/ice_notes/status/1234567890";
+  expect(readPreview(articlePost, url)).toMatchObject({
+    title: "How sea ice keeps time",
+    imageURL: "https://pbs.twimg.com/media/ICE?format=webp&name=large",
+  });
+  expect(readPreview(articlePost, url).subtitle).toBeUndefined();
+  expect(xArticleURL(articlePost, url)).toBe(
+    "https://x.com/ice_notes/article/1234567890",
+  );
+});
+
+test("other X pages, and that title on another site, stay as they are", () => {
+  const post = xPost("Ada Reader (@ice_notes) on X", "A short post.");
+  const url = "https://x.com/ice_notes/status/1234567890";
+  expect(readPreview(post, url)).toMatchObject({
+    title: "Ada Reader (@ice_notes) on X",
+    subtitle: "A short post.",
+  });
+  expect(xArticleURL(post, url)).toBeUndefined();
+  expect(xArticleURL(articlePost, "https://x.com/ice_notes")).toBeUndefined();
+  expect(xArticleURL(articlePost, page)).toBeUndefined();
+  expect(readPreview(articlePost, page).title).toBe(
+    'Ada Reader on X: "How sea ice keeps time" / X',
+  );
+});
+
+test("X's sign-in page and a bot check give no preview", () => {
+  expect(
+    readPreview(
+      xPost("X - The Everything App", "Sign up."),
+      "https://x.com/i/jf/onboarding/web?mode=login",
+    ),
+  ).toEqual({});
+  const check =
+    '<!doctype html><title>Checking your browser...</title><script src="/__challenge/check.js"></script>';
+  expect(isChallengePage(check)).toBe(true);
+  expect(readPreview(check, page)).toEqual({});
+  expect(isChallengePage(`<title>Just a moment...</title>`)).toBe(true);
+  expect(
+    isChallengePage(
+      "<title>Attention Required! | Cloudflare</title><p>Sorry.</p>",
+    ),
+  ).toBe(true);
+});
+
+test("a link to a post with no user name stays on the post", () => {
+  expect(
+    xArticleURL(articlePost, "https://x.com/i/status/123"),
+  ).toBeUndefined();
+});
+
+test("an article about bot checks is an article", () => {
+  const essay = `<head><title>Checks in the age of agents</title></head><body><p>${"Sites test their readers. ".repeat(4000)} One wrote window._cf_chl_opt in its markup.</p></body>`;
+  expect(isChallengePage(essay)).toBe(false);
+  expect(
+    isChallengeText(
+      "Sea ice keeps time. Much later, this essay quotes a page that says: checking your browser.".padStart(
+        300,
+        " Long opening.",
+      ),
+    ),
+  ).toBe(false);
+  expect(isChallengeText("  Checking your browser before you continue.")).toBe(
+    true,
+  );
+});
+
+test("a title or an opening that a bot check could use does not refuse an article", () => {
+  const words = "Sea ice keeps time for those who read it. ".repeat(60);
+  const article = `<p>${words}</p>`;
+  for (const title of [
+    "Access Denied: how ports close",
+    "Just a moment of silence",
+    "Access denied",
+  ])
+    expect(isChallengePage(`<title>${title}</title>${article}`)).toBe(false);
+  // A short post, with a check's markup in a code sample.
+  expect(isChallengePage(`<pre>HASHCASH_CONFIG</pre>${article}`)).toBe(false);
+  expect(
+    isChallengeText(`Fake "verify you are human" pages spread. ${words}`),
+  ).toBe(false);
 });

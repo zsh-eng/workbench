@@ -68,37 +68,147 @@ export function previewURL(value: string, pageURL: string) {
     : undefined;
 }
 
+/**
+ * How Arctic's fetches name themselves to a publisher. Claiming to be a
+ * browser is untrue, and it costs pages: a site that compares that claim
+ * with the connection answers with a browser check.
+ */
+export const ARCTIC_USER_AGENT =
+  "ArcticReader/1.0 (+https://arctic.zsheng.app)";
+
+const CHALLENGE_WORDS =
+  "just a moment|access denied|attention required|checking your browser|verify you are human";
+/** A bot check's whole title: `Just a moment...`, `Attention Required! | Cloudflare`. */
+const CHALLENGE_TITLE = new RegExp(
+  `^(${CHALLENGE_WORDS})[\\s.!…]*(\\|.*)?$`,
+  "i",
+);
 // A challenge or sign-in page names itself, not the article.
-const NOT_A_TITLE =
-  /^(just a moment|access denied|attention required|sign in|log in|verify you are human)/i;
+const NOT_A_TITLE = new RegExp(`^(${CHALLENGE_WORDS}|sign in|log in)`, "i");
+/** Words that only a bot check's own page opens with. */
+const CHALLENGE_TEXT =
+  /checking your browser|verify you are human|enable javascript and cookies to continue|needs to review the security of your connection|why have i been blocked/i;
+/** What a bot check's page names in its markup. */
+const CHALLENGE_MARKUP = /\/__challenge\/|HASHCASH_CONFIG|_cf_chl_opt/;
+/**
+ * A bot check says little. An article that quotes one says more than this,
+ * in characters, which keeps the words above from refusing it.
+ */
+const CHALLENGE_TEXT_LENGTH = 1200;
+
+/** Whether a title is one that a challenge or sign-in page shows. */
+export const isNotATitle = (title: string) => NOT_A_TITLE.test(title.trim());
+
+const pageText = (html: string) =>
+  html
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .trim();
+
+/**
+ * Whether a page is a bot check, which shows instead of the article. Arctic
+ * does not try to pass one: it says so, and keeps nothing from the page.
+ */
+export function isChallengePage(html: string) {
+  return (
+    (CHALLENGE_TITLE.test((scanHead(html).title ?? "").trim()) ||
+      CHALLENGE_MARKUP.test(html)) &&
+    pageText(html).length < CHALLENGE_TEXT_LENGTH
+  );
+}
+
+/** Whether extracted text is a bot check's page: its words, and little else. */
+export function isChallengeText(text: string) {
+  const trimmed = text.trim();
+  return (
+    trimmed.length < CHALLENGE_TEXT_LENGTH &&
+    CHALLENGE_TEXT.test(trimmed.slice(0, 200))
+  );
+}
+
+const X_HOSTS = new Set([
+  "x.com",
+  "www.x.com",
+  "mobile.x.com",
+  "twitter.com",
+  "www.twitter.com",
+  "mobile.twitter.com",
+]);
+/** `Name on X: "Title" / X`: the title X gives a post that carries an Article. */
+const X_ARTICLE_TITLE = /^.+ on X: [“"](.+)[”"] \/ X$/;
+
+function xPage(pageURL: string) {
+  try {
+    const url = new URL(pageURL);
+    return X_HOSTS.has(url.hostname.toLowerCase()) ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether X sent a link to its sign-in page, as it does for `/i/article/<id>`. */
+export function isXSignIn(pageURL: string) {
+  return /^\/(i\/jf\/onboarding|i\/flow\/login|login)(\/|$)/.test(
+    xPage(pageURL)?.pathname ?? "",
+  );
+}
+
+/**
+ * The address of the X Article that a post's page shows, or undefined for
+ * any other page. X serves that page without a sign-in, with the Article's
+ * title, description, cover and text alone, without the replies.
+ */
+export function xArticleURL(html: string, pageURL: string) {
+  const url = xPage(pageURL);
+  // `/i/status/<id>` names no user, and `/i/article/<id>` asks for a sign-in.
+  const post = /^\/(?!i\/)([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/.exec(
+    url?.pathname ?? "",
+  );
+  if (!post || !X_ARTICLE_TITLE.test(pageTitle(scanHead(html))))
+    return undefined;
+  return `https://x.com/${post[1]}/article/${post[2]}`;
+}
+
+/** Reads the first of these <meta> tags, by name or property, that has a value. */
+const headMeta = (head: ReturnType<typeof scanHead>) => (names: string[]) => {
+  for (const name of names) {
+    const tag = head.metas.find(
+      (attributes) =>
+        attributes.get("property")?.toLowerCase() === name ||
+        attributes.get("name")?.toLowerCase() === name,
+    );
+    const value = clean(decodeEntities(tag?.get("content") ?? ""));
+    if (value) return value;
+  }
+  return "";
+};
+
+/** The page's title: og:title, twitter:title, then <title>. */
+const pageTitle = (head: ReturnType<typeof scanHead>) =>
+  linkTitle(
+    headMeta(head)(["og:title", "twitter:title"]) ||
+      decodeEntities(head.title ?? ""),
+  );
 
 /**
  * The preview of a page: its title, description, image and icon, from the
- * tags in its head, by the phone's rules. A field the page lacks is absent.
+ * tags in its head, by the phone's rules. A field the page lacks is absent,
+ * and a bot check or X's sign-in page has none: its tags describe itself.
  */
 export function readPreview(html: string, pageURL: string): LinkPreview {
-  const head = scanHead(html);
-  const meta = (names: string[]) => {
-    for (const name of names) {
-      const tag = head.metas.find(
-        (attributes) =>
-          attributes.get("property")?.toLowerCase() === name ||
-          attributes.get("name")?.toLowerCase() === name,
-      );
-      const value = clean(decodeEntities(tag?.get("content") ?? ""));
-      if (value) return value;
-    }
-    return "";
-  };
   const preview: LinkPreview = {};
-  const title = linkTitle(
-    meta(["og:title", "twitter:title"]) || decodeEntities(head.title ?? ""),
-  );
+  if (isXSignIn(pageURL) || isChallengePage(html)) return preview;
+  const head = scanHead(html);
+  const meta = headMeta(head);
+  let title = pageTitle(head);
+  const xTitle = xPage(pageURL) && X_ARTICLE_TITLE.exec(title)?.[1];
+  if (xTitle) title = xTitle;
   if (title && !NOT_A_TITLE.test(title)) preview.title = title;
   const subtitle = linkDescription(
     meta(["og:description", "description", "twitter:description"]),
   );
-  if (subtitle) preview.subtitle = subtitle;
+  // The post of an X Article has only the Article's title to describe it.
+  if (subtitle && subtitle !== xTitle) preview.subtitle = subtitle;
   const image = meta(["og:image", "twitter:image"]);
   const imageURL = image ? previewURL(image, pageURL) : undefined;
   if (imageURL) preview.imageURL = imageURL;

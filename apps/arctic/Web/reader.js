@@ -1,6 +1,7 @@
 import Defuddle from "defuddle";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
+import { isChallengePage, isChallengeText } from "@workbench/arctic-links";
 
 // Unwall renders the article in a child document. Extract that document, not
 // the surrounding controls. Normal sites use their top-level document.
@@ -40,6 +41,9 @@ function cleanArticle(source, result, isX = false) {
     FORBID_ATTR: ["style", "srcset"],
   });
   const parsed = new DOMParser().parseFromString(content, "text/html");
+  if (!isX && (isChallengePage(source.documentElement.outerHTML) || isChallengeText(parsed.body.textContent))) {
+    throw new Error("The site showed a browser check instead of the article. Try opening the original page.");
+  }
   if (parsed.body.textContent.trim().length < (isX ? 1 : 80)) {
     throw new Error("There is not enough article text on this page. Try opening the original page.");
   }

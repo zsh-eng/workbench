@@ -99,8 +99,9 @@ enable `group.com.zsheng.ArticleReader` in App Groups for both targets. Both use
   onboarding, and modal settings. Backgrounding and memory pressure release
   nearby browsers while retaining the last opened Reader.
   Metadata remains in memory; opening does not query a remote database.
-- **Downloaded** includes saved articles, including archived articles, whose Defuddle
-  Reader view has been written to disk. Cached articles open from their styled local
+- **Downloaded** includes saved articles that are not archived and whose Defuddle
+  Reader view has been written to disk. Archiving keeps the copy, so an archived article still
+  opens offline from Archive; it returns to Downloaded when moved to Saved. Cached articles open from their styled local
   HTML in any folder, without briefly showing the website. New HTML declares UTF-8;
   older cached bytes also load as UTF-8, preserving quotes, accents, and CJK text. Reader and Website
   crossfade and keep separate scroll positions; see the switch rule below. Website loads on demand;
@@ -257,7 +258,8 @@ Each library is a profile with one SQLite file: the local profile, and one for
 each account scope (server, user, namespace and epoch). An edit shows at once;
 `LibraryJournal` commits edits in order, off the main actor. Arctic syncs when it
 opens, when it becomes active, and three seconds after an edit. Offline edits wait
-in the outbox. Sign-out keeps both profiles on the device.
+in the outbox. Sign-out keeps both profiles on the device. Nothing that is stored
+waits on the network; [OPENING.md](OPENING.md) is the policy for every surface.
 
 Highlights and notes (`arctic-annotations`) and reading sessions
 (`arctic-reading`) sync as whole records, after the library, each with its own
@@ -290,7 +292,12 @@ For example: `articles://open?url=https%3A%2F%2Fstephango.com%2Fsaw`.
 A Shortcut can URL-encode its input, append it to this prefix, and Open URLs.
 This opens a reading page and records History without saving it to the inbox. Invalid schemes
 and non-web targets are ignored. It does not intercept ordinary HTTPS links.
-The native Share extension saves links through an App Group inbox; default-browser support needs Apple's
+The native Share extension saves links through an App Group inbox. The app takes them oldest first, by
+the time each file was written, so the last link shared is processed last: previews start in that order,
+and tags run one at a time in that order. A link that cannot be read waits alone. The newest link still shows
+on top of the library. Only the iPhone has this queue: the Mac app has no inbox and the web app has no
+share target.
+Default-browser support needs Apple's
 entitlement and must render the original destination by default (our automatic
 Unwall routing would need to change). Universal Links require the domain owner's
 associated-domain file.
@@ -567,6 +574,13 @@ For repeatable design review, the debug-only `-test-story-gallery` flag writes
 the sharing sheet opens in UI test mode. The focused story UI test checks all
 twelve selections, exact text preservation across pages, whole-quote mode,
 format changes, image eligibility and native sharing. No proof export runs in Release.
+
+A saved X Article takes its title, description and cover from what X serves without a sign-in
+(`ArticleMetadata.parse`): the title of `x.com/<user>/status/<id>` reads `Name on X: "Title" / X`.
+X sends some links, such as `x.com/i/article/<id>`, to its sign-in page: the preview fails, the card
+keeps its link, and nothing from that page is kept. A plain post keeps the title that X gives it.
+Long-press refresh gives an older saved Article its title. All network metadata requests name themselves
+as `ArcticReader/1.0`.
 
 X/Twitter links stay HTTPS. Reader uses Defuddle's existing rich X renderer with
 one bounded response from its documented public source,

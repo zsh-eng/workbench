@@ -113,6 +113,30 @@ final class ReaderPerformanceUITests: XCTestCase {
     capture(app, "followed-link-returned-to-loaded-page")
   }
 
+  /// A connection that opens and never answers: the page gives up within its
+  /// deadline and offers Retry.
+  @MainActor func testHeldPublisherGivesUpAndOffersRetry() throws {
+    let ready = expectation(description: "Local publisher replay is listening")
+    let replay = try PublisherReplay(ready: ready, holding: true)
+    defer { replay.stop() }
+    wait(for: [ready], timeout: 5)
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-reset-appearance", "-disable-preloading",
+    ]
+    app.launchEnvironment["TEST_PUBLISHER_ORIGIN"] = replay.origin
+    app.launch()
+    let shortcut = app.buttons["publisher-www.ft.com"]
+    revealPublishersIfNeeded(app, shortcut: shortcut)
+    shortcut.tap()
+    let started = Date()
+    XCTAssertTrue(app.buttons["reader-retry"].waitForExistence(timeout: 90), app.debugDescription)
+    let waited = Date().timeIntervalSince(started)
+    print("Held publisher gave up after \(waited) s")
+    XCTContext.runActivity(named: "gave up after \(Int(waited)) s") { _ in }
+    XCTAssertLessThan(waited, 35)
+  }
+
   @MainActor private func revealPublishersIfNeeded(_ app: XCUIApplication, shortcut: XCUIElement) {
     let header = app.buttons["toggle-news"]
     XCTAssertTrue(header.waitForExistence(timeout: 10))
@@ -489,16 +513,22 @@ private final class PublisherReplay {
   private let listener: NWListener
   private let queue = DispatchQueue(label: "arctic.publisher-replay")
   private var homepageCount = 0
+  private var held: [NWConnection] = []
   var origin: String { "http://127.0.0.1:\(listener.port!.rawValue)" }
   var homepageRequests: Int { queue.sync { homepageCount } }
 
-  init(ready: XCTestExpectation) throws {
+  /// `holding` accepts each connection and never answers.
+  init(ready: XCTestExpectation, holding: Bool = false) throws {
     listener = try NWListener(using: .tcp, on: .any)
     listener.stateUpdateHandler = { state in
       if case .ready = state { ready.fulfill() }
     }
     listener.newConnectionHandler = { [queue, unowned self] connection in
       connection.start(queue: queue)
+      if holding {
+        self.held.append(connection)
+        return
+      }
       connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
         guard let data else {
           connection.cancel()

@@ -1,3 +1,4 @@
+import { isChallengeText } from "@workbench/arctic-links";
 import { cleanArticle, cleanByline, countWords } from "./content";
 import type { Article, Copy } from "./articles";
 import { encodeSorted } from "./sync/swift";
@@ -9,6 +10,10 @@ export const MIN_WORDS = 120;
 export const MAX_COPY_BYTES = 2 * 1024 * 1024;
 
 export type Source = "file" | "browser" | "arctic" | "extractor";
+
+/** Whether cleaned HTML is a bot check's words. */
+const isBrowserCheck = (html: string) =>
+  isChallengeText(html.replace(/<[^>]*>/g, " "));
 
 /**
  * The record `content/<id>` that names a copy's file, as every writer of
@@ -53,6 +58,8 @@ export async function saveCopy(
   const words = countWords(html);
   if (words < MIN_WORDS)
     throw new Error(`Only ${words} words: this looks like a preview.`);
+  if (isBrowserCheck(html))
+    throw new Error("This page is a browser check, not the article.");
   const file = await session.uploadFile(html);
   await session.copies.write([
     copyRecord(article, {
@@ -84,6 +91,7 @@ export function copyProblem(
   words: number,
 ) {
   if (words < MIN_WORDS) return `under ${MIN_WORDS} words`;
+  if (isBrowserCheck(html)) return "a browser check, not the article";
   if (!better(article, words)) return "has a longer copy";
   if (new TextEncoder().encode(html).byteLength > MAX_COPY_BYTES)
     return "larger than 2 MiB";

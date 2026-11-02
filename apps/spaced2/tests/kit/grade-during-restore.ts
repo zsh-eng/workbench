@@ -22,12 +22,15 @@ export default async function gradeDuringRestore({
   baseURL: string;
 }) {
   await page.goto("about:blank");
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Storage.clearDataForOrigin", {
-    origin: baseURL,
-    storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
-  });
-  await cdp.detach();
+  // WebKit: see fresh-restore.ts.
+  if (!process.env.RESTORE_LAB_NO_CDP) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Storage.clearDataForOrigin", {
+      origin: baseURL,
+      storageTypes: "indexeddb,local_storage,cache_storage,service_workers",
+    });
+    await cdp.detach();
+  }
   await page.goto(`${baseURL}/`);
   await page.waitForFunction(
     () =>

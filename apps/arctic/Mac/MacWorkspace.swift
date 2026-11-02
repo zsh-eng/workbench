@@ -35,7 +35,7 @@ enum MacLibraryFolder: Hashable {
     switch self {
     case .saved: article.saved && article.isArchived != true
     case .favourites: article.saved && article.favourite
-    case .downloaded: article.saved && article.downloadedAt != nil
+    case .downloaded: article.saved && article.isArchived != true && article.downloadedAt != nil
     case .history: article.lastVisitedAt != nil
     case .archive: article.saved && article.isArchived == true
     case .tag(let tag):

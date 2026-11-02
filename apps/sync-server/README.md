@@ -133,7 +133,9 @@ Google's external login UI and native device handoff still require a device test
 
 `POST /api/arctic/preview` with `{"url": "<link>"}` answers a page's title,
 description (`subtitle`), `imageURL` and `faviconURL`, any of which may be
-missing (`src/preview.ts`, with `readPreview` from `packages/arctic-links`).
+missing (`src/preview.ts`, with `readPreview` from `packages/arctic-links`). It
+fetches the page as `ARCTIC_USER_AGENT`, and a bot check or X's sign-in page
+gives no fields.
 Arctic for the web cannot fetch another site, so it asks here after it saves a
 link, and writes the fields into its own `article/<id>` record. Nothing is
 stored here.

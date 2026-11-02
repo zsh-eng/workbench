@@ -156,7 +156,11 @@ export function App() {
     );
   }, [session]);
   // Opening reads IndexedDB only; a blank frame is shorter than a message.
-  if (opened === undefined) return null;
+  // Only the account check of a browser with no account can take longer.
+  if (opened === undefined)
+    return rememberedAccount() ? null : (
+      <div className="quiet-page">Connecting…</div>
+    );
   if (opened instanceof Error)
     return (
       <div className="quiet-page">Arctic could not open: {opened.message}</div>

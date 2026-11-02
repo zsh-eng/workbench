@@ -123,10 +123,27 @@ test("the app's cache keeps two versions across releases", async ({ page }) => {
   await page.goto(origin);
   await page.evaluate(() => navigator.serviceWorker.ready);
   const first = await cached(page);
+  // Defuddle loads only when a copy is saved. A kept version may do that
+  // after a release has taken the file from the host.
+  const kept = await page.evaluate(async () =>
+    (await (await caches.open("arctic-shell-v2")).keys()).map(
+      (request) => new URL(request.url).pathname,
+    ),
+  );
+  expect(kept.some((path) => path.startsWith("/assets/dist-"))).toBe(true);
   const sizes = [first];
   for (let version = 2; version <= 6; version++) {
     release(version);
+    // The kept version opens; the new one is ready for the next open.
     await page.goto(origin);
+    const opened = await page.evaluate(
+      () => document.documentElement.outerHTML,
+    );
+    expect(opened).not.toContain(`-r${version}.`);
+    await page.waitForFunction(async (name) => {
+      const kept = await (await caches.match("/"))?.text();
+      return kept?.includes(name);
+    }, `-r${version}.`);
     sizes.push(await cached(page));
   }
   console.log(

@@ -31,12 +31,12 @@ This writes only to the local API. Checks:
 - The Playwright tests in `tests/` run in parallel against the real app and a
   local API with a fresh database; each test signs up its own account. A test
   acts as the phone through the API and checks the records that the phone
-  receives. `tests/offline.spec.ts` and `tests/releases.spec.ts` run against
-  a production build, because only that registers the service worker.
-  `E2E_PORT`, `E2E_PREVIEW_PORT`, `E2E_API_PORT` and `E2E_INSPECTOR_PORT` move
-  the app, the production build, the API and its inspector, and
-  `E2E_RELEASE_PORT` the releases test's own server, so two worktrees can run
-  the tests at once.
+  receives. `tests/offline.spec.ts`, `tests/opening.spec.ts` and
+  `tests/releases.spec.ts` run against a production build, because only that
+  registers the service worker. `E2E_PORT`, `E2E_PREVIEW_PORT`, `E2E_API_PORT`
+  and `E2E_INSPECTOR_PORT` move the app, the production build, the API and its
+  inspector, and `E2E_RELEASE_PORT` and `E2E_OPENING_PORT` those tests' own
+  servers, so two worktrees can run the tests at once.
 - `bun run --cwd apps/arctic/Browser test:service` checks the extractor that
   `scripts/copies.ts` uses, and `scripts/text.ts`, which reads a page for
   `wb arctic`.
@@ -112,8 +112,11 @@ Text copies are cleaned HTML files in `arctic-content`: no scripts, at most
 2 MiB, named by XXH64 (`src/sync/xxh64.ts`; the server checks every hash). The
 reader cleans a copy again with DOMPurify before it shows it. A copy under 120
 words is refused as a preview or sign-in page; a new copy replaces one only
-when it is 30% longer. Opened copies stay in IndexedDB, and a service worker
-keeps the app shell, so the library and opened articles work offline.
+when it is 30% longer, and a browser check's page is never one (`isChallengePage`
+in `packages/arctic-links`). Opened copies stay in IndexedDB, and a service worker
+keeps the app shell, so the library and opened articles work offline. The worker
+answers a page from its kept copy and refreshes that copy behind the page, so a
+new release shows at the second open ([opening policy](../OPENING.md)).
 **Settings → Offline** downloads the text of every saved article into this
 browser (`src/offline.ts`, and asks the browser to keep the storage), and can
 download new text after each sync. It asks for up to 32 texts in one request,
@@ -235,6 +238,15 @@ and the same rules. They report why a page gave no text: a PDF, an HTTP
 error, or a paywall preview, which is under 400 words on a site from the Unwall
 list or on a page marked `isAccessibleForFree: false`. With `--unwall`, they
 read listed sites through Unwall, as `--unwall` above does.
+
+The extractor names itself as `ArcticReader/1.0` (`ARCTIC_USER_AGENT` in
+`packages/arctic-links`). A page that claims to be a browser and is not one
+gets a browser check from sites that compare the two: WordPress.com's hashcash
+gate answers 403 "Checking your browser". Arctic never tries to pass a check.
+It stops at the page, reports "browser check", and keeps no text from it. An X
+post that carries an Article is read from `x.com/<user>/article/<id>`, which X
+serves without a sign-in and without the replies. A link that X sends to its
+sign-in page reports "X asks to sign in".
 
 ## Design
 

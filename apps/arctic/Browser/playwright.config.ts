@@ -18,6 +18,9 @@ const inspector = process.env.E2E_INSPECTOR_PORT
   ? `SHARED_INSPECTOR_PORT=${process.env.E2E_INSPECTOR_PORT} `
   : "";
 const preview = `http://localhost:${previewPort}`;
+// tests/opening.spec.ts serves the production build itself, so it can hold
+// requests open; it signs in, so the API trusts it.
+const opening = `http://localhost:${process.env.E2E_OPENING_PORT ?? "5189"}`;
 
 export default defineConfig({
   testDir: "./tests",
@@ -33,11 +36,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "dev", testIgnore: /(offline|releases)\.spec\.ts$/ },
+    { name: "dev", testIgnore: /(offline|opening|releases)\.spec\.ts$/ },
     // Only a production build registers the service worker.
     {
       name: "production",
-      testMatch: /(offline|releases)\.spec\.ts$/,
+      testMatch: /(offline|opening|releases)\.spec\.ts$/,
       use: { baseURL: preview },
     },
   ],
@@ -45,7 +48,7 @@ export default defineConfig({
   // production build needs it.
   webServer: [
     {
-      command: `SHARED_APPS=arctic/Browser SHARED_PERSIST_TO=${state} SHARED_APP_PORT=${port} SHARED_API_PORT=${apiPort} SHARED_EXTRA_ORIGINS=${preview} ${inspector}bun ../../../scripts/dev-shared.ts`,
+      command: `SHARED_APPS=arctic/Browser SHARED_PERSIST_TO=${state} SHARED_APP_PORT=${port} SHARED_API_PORT=${apiPort} SHARED_EXTRA_ORIGINS=${preview},${opening} ${inspector}bun ../../../scripts/dev-shared.ts`,
       url: `http://localhost:${port}`,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,

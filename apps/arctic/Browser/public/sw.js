@@ -1,14 +1,17 @@
-// Opens Arctic without a network: the app shell from cache, the library and
-// saved text from IndexedDB. Hashed assets never change; pages try the network first.
+// Opens Arctic from what is stored (../../OPENING.md): the app shell from this
+// cache, the library and saved text from IndexedDB. Nothing here waits on the
+// network once the shell is kept. Hashed assets never change. The page opens
+// from the cache, and a refresh behind it keeps the newest page for next time.
 //
 // The cache keeps the files of two versions: the one the last page loaded,
-// and the one before, which a tab opened earlier may still be running. A page
-// of a new version caches its files, then becomes the offline page, and the
-// files of older versions leave. A file that loads on demand (Defuddle) is
-// cached when first used and leaves with its version.
+// and the one before, which a tab opened earlier may still be running. A new
+// version's page caches its files, then becomes the page that opens, and the
+// files of older versions leave.
 const CACHE = "arctic-shell-v2";
 /** The version kept last: `{ page, files }`, the assets its page names and all it keeps. */
 const VERSION = "/__version.json";
+/** How long a refresh may run behind an open page. */
+const REFRESH_MS = 30_000;
 
 async function addMissing(cache, paths) {
   const missing = [];
@@ -19,9 +22,9 @@ async function addMissing(cache, paths) {
 
 /**
  * Keeps a page for offline use with the hashed scripts and styles it names,
- * and the sheets' code. The sheets' code and style load after the first
- * page, so the page does not name them; the app's script does. Defuddle,
- * which only extracts a page, stays out.
+ * and the code that loads later (the sheets, Defuddle), which only the app's
+ * scripts name. A kept version must run whole: the page opens from here after
+ * a release has taken these files from the host.
  */
 async function keepPage(page) {
   const cache = await caches.open(CACHE);
@@ -41,12 +44,10 @@ async function keepPage(page) {
       .filter((asset) => asset.endsWith(".js"))
       .map(async (asset) => (await cache.match(asset))?.text() ?? ""),
   );
-  const sheets = scripts.flatMap(
-    (script) => script.match(/assets\/sheet-[\w-]+\.(?:js|css)/g) ?? [],
+  const later = scripts.flatMap(
+    (script) => script.match(/assets\/[\w-]+\.(?:js|css)/g) ?? [],
   );
-  const files = [
-    ...new Set([...assets, ...sheets.map((sheet) => `/${sheet}`)]),
-  ];
+  const files = [...new Set([...assets, ...later.map((file) => `/${file}`)])];
   await addMissing(cache, files);
   await cache.put("/", page);
   // This version's files and the last one's stay; older ones leave.
@@ -64,10 +65,22 @@ async function keepPage(page) {
   );
 }
 
+/** Keeps the newest page and its files for the next open. */
+async function refreshPage() {
+  const response = await fetch("/", {
+    cache: "no-cache",
+    signal: AbortSignal.timeout(REFRESH_MS),
+  });
+  if (response.ok) await keepPage(response);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      await keepPage(await fetch("/", { cache: "no-cache" }));
+      const page = await fetch("/", { cache: "no-cache" });
+      // An error page must not become the page that every open shows.
+      if (!page.ok) throw new Error(`The app answered ${page.status}.`);
+      await keepPage(page);
       const cache = await caches.open(CACHE);
       await cache.addAll(["/appearance.js", "/icon-64.png", "/favicon.png"]);
     })(),
@@ -94,14 +107,20 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== location.origin) return;
   if (request.mode === "navigate") {
+    // Every page of the app is one document; a path with a file name is not.
+    if (/\.\w+$/.test(url.pathname)) return;
     event.respondWith(
-      fetch(request)
-        .then((response) => {
+      caches.match("/").then((kept) => {
+        if (kept) {
+          event.waitUntil(refreshPage().catch(() => {}));
+          return kept;
+        }
+        return fetch(request).then((response) => {
           if (response.ok)
             event.waitUntil(keepPage(response.clone()).catch(() => {}));
           return response;
-        })
-        .catch(() => caches.match("/")),
+        });
+      }),
     );
     return;
   }
@@ -123,7 +142,8 @@ self.addEventListener("fetch", (event) => {
   }
   if (
     url.pathname.startsWith("/assets/") ||
-    url.pathname.startsWith("/icon-")
+    url.pathname.startsWith("/icon-") ||
+    url.pathname === "/favicon.png"
   ) {
     // Hashed files never change. A module script asks with an Origin header
     // that the installed copy lacks, so a Vary header must not hide it. A

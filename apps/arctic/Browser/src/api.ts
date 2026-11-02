@@ -15,6 +15,8 @@ export type Account = {
 };
 
 const ACCOUNT_KEY = "arctic:account";
+/** With nothing remembered, the sign-in page shows after this at the latest. */
+const ACCOUNT_CHECK_MS = 8_000;
 
 /** The last account lets the library open offline, from this browser's copy. */
 export function rememberedAccount(): Account | null {
@@ -47,7 +49,7 @@ export async function checkAccount(): Promise<{
 } | null> {
   const response = await fetch(`${API_ORIGIN}/api/apps/arctic/me`, {
     credentials: "include",
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(ACCOUNT_CHECK_MS),
   });
   if (response.status === 401) return null;
   if (!response.ok)

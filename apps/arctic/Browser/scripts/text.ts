@@ -16,7 +16,7 @@ import {
   type LinkPreview,
 } from "@workbench/arctic-links";
 import { Extractor, fromHTML } from "../server/extractor";
-import { PDF } from "../server/fetch";
+import { CHALLENGE, PDF, X_SIGN_IN } from "../server/fetch";
 import { cleanByline, tidyArticle } from "../src/content";
 
 /** Unwall shows the publisher's teaser when it cannot open a page: 200–250 words. */
@@ -108,6 +108,8 @@ function clean(content: string, url: string) {
 function reason(error: unknown, listed: boolean) {
   const message = error instanceof Error ? error.message : String(error);
   if (message === PDF) return "PDF";
+  if (message === CHALLENGE) return "browser check";
+  if (message === X_SIGN_IN) return "X asks to sign in";
   const status = /returned HTTP (\d+)/.exec(message)?.[1];
   if (status) return listed ? `paywall (HTTP ${status})` : `HTTP ${status}`;
   if (/No readable article text/.test(message))

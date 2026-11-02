@@ -296,6 +296,7 @@ struct LibraryView: View {
             Text(String(store.taggingRequestCount)).accessibilityIdentifier("tagging-request-count")
             Text(String(store.preparedTaggingCount)).accessibilityIdentifier(
               "tagging-prepared-count")
+            Text(store.taggingOrder.joined(separator: " ")).accessibilityIdentifier("tagging-order")
             if ProcessInfo.processInfo.arguments.contains("-test-tagging-held") {
               Button("Finish tagging") { store.finishFixtureTagging() }
               .disabled(!store.isFixtureTaggingHeld)

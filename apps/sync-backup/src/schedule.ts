@@ -90,3 +90,83 @@ export function schedule(action: string, origin: string, directory: string) {
     );
   return { installed: true, intervalSeconds: 3600, plist, stdout, stderr };
 }
+
+/** `pid` and every process under it, whatever its process group. */
+function processTree(pid: number) {
+  const children = new Map<number, number[]>();
+  const ps = Bun.spawnSync(["ps", "-axo", "pid=,ppid="]).stdout.toString();
+  for (const line of ps.trim().split("\n")) {
+    const [child, parent] = line.trim().split(/\s+/).map(Number) as [
+      number,
+      number,
+    ];
+    children.set(parent, [...(children.get(parent) ?? []), child]);
+  }
+  const tree = (id: number): number[] => [
+    id,
+    ...(children.get(id) ?? []).flatMap(tree),
+  ];
+  return tree(pid);
+}
+
+const killAll = (pids: number[]) => {
+  for (const pid of pids)
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* It has exited meanwhile. */
+    }
+};
+
+/**
+ * What the scheduled job runs: `sync`, then the text of saved links that have
+ * none. Each step reports on its own, a failed backup doesn't stop the text,
+ * and the job exits with the first failing step's code: 128 + the signal's
+ * number for a step a signal ended. `cli` runs wb.
+ *
+ * A step that hangs must not hold the job, as launchd starts no other: at
+ * `timeoutMs` it gets SIGTERM, and `graceMs` later it and every process it
+ * started get SIGKILL; what it started is killed when it exits in any case.
+ * Playwright starts Chromium in its own process group, so the kill follows
+ * the process tree, not the group.
+ */
+export async function hourly(
+  cli: string[],
+  origin: string,
+  directory: string,
+  { timeoutMs = 20 * 60 * 1000, graceMs = 30 * 1000 } = {},
+) {
+  const step = async (...args: string[]) => {
+    const name = `wb ${args.join(" ")}`;
+    const child = Bun.spawn(
+      [...cli, ...args, "--origin", origin, "--data-dir", directory, "--json"],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    let kill: ReturnType<typeof setTimeout> | undefined;
+    let started: number[] = [];
+    const cap = setTimeout(() => {
+      console.error(
+        `wb hourly: ${name} ran over ${timeoutMs / 1000} s; stopping it`,
+      );
+      // Its children move to launchd when it exits: note them now.
+      started = processTree(child.pid).slice(1);
+      child.kill("SIGTERM");
+      kill = setTimeout(() => {
+        console.error(
+          `wb hourly: ${name} didn't stop in ${graceMs / 1000} s; killing it and what it started`,
+        );
+        killAll(processTree(child.pid));
+      }, graceMs);
+    }, timeoutMs);
+    const code = await child.exited;
+    clearTimeout(cap);
+    clearTimeout(kill);
+    killAll(started);
+    return code;
+  };
+  const codes = [
+    await step("sync"),
+    await step("arctic", "text", "--missing", "--unwall"),
+  ];
+  return codes.find(Boolean) ?? 0;
+}

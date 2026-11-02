@@ -78,6 +78,19 @@ enum SharedInbox {
     try JSONEncoder().encode(result).write(to: file, options: .atomic)
   }
 
+  /// A queue's files, oldest first. The names are UUIDs and a directory listing
+  /// has no order, so each file's creation is the record of when it was shared.
+  static func pending(in directory: URL) throws -> [(file: URL, sharedAt: Date)] {
+    try FileManager.default.contentsOfDirectory(
+      at: directory, includingPropertiesForKeys: [.creationDateKey]
+    )
+    .filter { $0.pathExtension == "json" }
+    .map { file in
+      (file, try file.resourceValues(forKeys: [.creationDateKey]).creationDate ?? .distantPast)
+    }
+    .sorted { $0.sharedAt < $1.sharedAt }
+  }
+
   /// Accept old URL-only inbox entries that were queued before this version.
   static func decodeTransfer(from data: Data, fileID: UUID = UUID()) throws -> SharedArticleTransfer
   {

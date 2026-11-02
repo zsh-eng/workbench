@@ -156,6 +156,8 @@ struct TaggingNotice: Identifiable {
   #if DEBUG
     private(set) var taggingRequestCount = 0
     private(set) var preparedTaggingCount = 0
+    /// The articles the tagging queue has taken, in order, for share order tests.
+    private(set) var taggingOrder: [String] = []
   #endif
   var isTagging: Bool { taggingTask != nil || speculativeRequests > 0 }
   var isFixtureTaggingHeld: Bool { !fixtureTaggingContinuations.isEmpty }
@@ -300,6 +302,13 @@ struct TaggingNotice: Identifiable {
                 inputFingerprint: ArticleTagCatalog.identity(
                   title: "A title from Safari", description: ""),
                 categoryVersion: ArticleTagCatalog.version, feedbackPresented: true))
+          }
+        }
+        if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-reset-store"),
+          ProcessInfo.processInfo.arguments.contains("-test-share-queue")
+        {
+          for index in 1...5 {
+            try SharedInbox.save(URL(string: "https://fixture.example/queue-\(index)")!)
           }
         }
         if TestMode.enabled && ProcessInfo.processInfo.arguments.contains("-stage-import") {
@@ -579,9 +588,7 @@ struct TaggingNotice: Identifiable {
   /// link the user removed or unsaved in the meantime.
   func importSharedLinks() {
     do {
-      let files = try FileManager.default.contentsOfDirectory(
-        at: SharedInbox.directory(), includingPropertiesForKeys: nil)
-      for file in files where file.pathExtension == "json" {
+      for (file, sharedAt) in try SharedInbox.pending(in: SharedInbox.directory()) {
         let transfer = try SharedInbox.decodeTransfer(
           from: Data(contentsOf: file),
           fileID: UUID(uuidString: file.deletingPathExtension().lastPathComponent) ?? UUID())
@@ -597,7 +604,7 @@ struct TaggingNotice: Identifiable {
         }
         updated[index].isSaved = true
         updated[index].isArchived = false
-        updated[index].savedAt = Date()
+        updated[index].savedAt = sharedAt
         updated[index].sharedTransferID = transfer.id
         if let title = transfer.title, updated[index].title == transfer.url.host {
           updated[index].title = title
@@ -613,9 +620,7 @@ struct TaggingNotice: Identifiable {
         Task { await refreshPreview(article) }
         try FileManager.default.removeItem(at: file)
       }
-      let results = try FileManager.default.contentsOfDirectory(
-        at: SharedInbox.taggingResultsDirectory(), includingPropertiesForKeys: nil)
-      for file in results where file.pathExtension == "json" {
+      for (file, _) in try SharedInbox.pending(in: SharedInbox.taggingResultsDirectory()) {
         let result = try JSONDecoder().decode(
           SharedTaggingResult.self, from: Data(contentsOf: file))
         if TestMode.enabled && result.url.host != "fixture.example" { continue }
@@ -922,10 +927,20 @@ struct TaggingNotice: Identifiable {
       do { try commit(updated) } catch { errorMessage = error.localizedDescription }
     }
     enqueuePreviews(
-      articles.filter {
-        $0.saved && ($0.needsPreview || $0.taggingText == nil)
-          && !retaggingContextNeeded.contains($0.id)
-      }.sorted { ($0.savedAt ?? .distantPast) > ($1.savedAt ?? .distantPast) }.map(\.url))
+      sharedFirst(
+        articles.filter {
+          $0.saved && ($0.needsPreview || $0.taggingText == nil)
+            && !retaggingContextNeeded.contains($0.id)
+        }.sorted { ($0.savedAt ?? .distantPast) > ($1.savedAt ?? .distantPast) }
+      ).map(\.url))
+  }
+
+  /// Shared links come first, in the order they were shared: the last one shared
+  /// is processed last. The library still shows it on top.
+  private func sharedFirst(_ articles: [SavedArticle]) -> [SavedArticle] {
+    articles.filter { $0.sharedTransferID != nil }
+      .sorted { ($0.savedAt ?? .distantPast) < ($1.savedAt ?? .distantPast) }
+      + articles.filter { $0.sharedTransferID == nil }
   }
 
   func retagSavedArticles() {
@@ -1050,7 +1065,13 @@ struct TaggingNotice: Identifiable {
     taggingTask = Task { [weak self] in
       guard let self else { return }
       defer { self.taggingTask = nil }
+      var unreadable = 0
       while self.taggingAllowed, !self.libraryScrolling, var article = self.nextTaggingArticle() {
+        #if DEBUG
+          if self.taggingOrder.last != article.url.lastPathComponent {
+            self.taggingOrder.append(article.url.lastPathComponent)
+          }
+        #endif
         let credentialRevision = TestMode.enabled ? "" : TaggingPreferences.credentialRevision
         do {
           // Even an imported title is not enough context. A Save that beats the
@@ -1059,8 +1080,18 @@ struct TaggingNotice: Identifiable {
             let cachedContext = await self.cachedReaderContext(for: article)
             let preview: ArticlePreview?
             if cachedContext == nil {
-              preview = try await ArticlePreviewCache.shared.load(
-                article.url, reload: self.retaggingContextNeeded.contains(article.id))
+              do {
+                preview = try await ArticlePreviewCache.shared.load(
+                  article.url, reload: self.retaggingContextNeeded.contains(article.id))
+                unreadable = 0
+              } catch {
+                // One unreadable link must not hold up the links after it. Three in
+                // a row is the network, which the catch below stops for.
+                unreadable += 1
+                if unreadable == 3 { throw error }
+                self.taggingDeferred.insert(article.id)
+                continue
+              }
             } else {
               preview = nil
             }
@@ -1136,7 +1167,7 @@ struct TaggingNotice: Identifiable {
   }
 
   private func nextTaggingArticle() -> SavedArticle? {
-    articles.first { article in
+    sharedFirst(articles).first { article in
       guard article.saved, !taggingDeferred.contains(article.id),
         article.importBatchID == nil || article.taggingText != nil
           || retaggingContextNeeded.contains(article.id)
@@ -1506,6 +1537,11 @@ struct ArticlePreview: Sendable {
         if ProcessInfo.processInfo.arguments.contains("-test-import-replay") {
           let index = Int(url.lastPathComponent.replacingOccurrences(of: "import-", with: "")) ?? 0
           try await Task.sleep(for: .milliseconds(90 + (index % 5) * 10))
+        }
+        if ProcessInfo.processInfo.arguments.contains("-test-share-unreadable"),
+          url.lastPathComponent == "queue-2"
+        {
+          throw URLError(.cannotFindHost)
         }
       #endif
       let html = try String(contentsOf: fixture, encoding: .utf8)

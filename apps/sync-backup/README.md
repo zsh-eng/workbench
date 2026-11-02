@@ -96,16 +96,23 @@ it replaces a copy only when it is 30% longer. A link that already has text is
 not read again; `arctic text` reads it again and applies the 30% rule. A site
 on the phone's Unwall list, or a page that marks itself not free
 (`isAccessibleForFree`), needs 400 words: less is its paywall preview.
-`--unwall` reads such sites through unwall.app, as the phone opens them.
+`--unwall` reads such sites through unwall.app, as the phone opens them. A
+browser check or X's sign-in page gives no text; the link says why and stays
+on the list.
 Reading a page that needs a browser uses Playwright's Chromium:
 `bun run --cwd apps/arctic/Browser browser:install`.
 
 `arctic text --missing` finds saved links with no text itself: newest first, a
 second apart, 25 a run unless `--limit` says otherwise. A link that gives no
 text waits a day, then 2, 4… up to 30 days (`arctic-text.json` in the data
-folder), so a paywall or a PDF isn't read every hour. `wb schedule install`'s
-hourly job runs `wb hourly`: `sync`, then this with `--unwall`. To move an
-existing schedule to it, run `wb schedule uninstall`, then `wb schedule install`.
+folder), so a paywall or a PDF isn't read every hour. A page that takes over
+2 minutes fails. After 12 minutes, or on SIGTERM or SIGINT, the run stops: it
+closes its browser, and the links it didn't finish are `not tried` and keep
+their place. A signal makes `wb arctic` exit with 143 or 130. `wb schedule
+install`'s hourly job runs `wb hourly`: `sync`, then this with `--unwall`. A
+step gets 20 minutes, then SIGTERM, and 30 seconds later SIGKILL for it and
+every process it started. To move an existing schedule to it, run `wb schedule
+uninstall`, then `wb schedule install`.
 
 Each link prints one line as it finishes; `--json` prints an array of results
 (`input`, `status`, `url`, `id`, `title`, `text`, `words`, `reason`,
@@ -294,6 +301,7 @@ are rejected by the fixture.
 `test/arctic.test.ts` runs `wb arctic` against a small fake API and checks
 every request it sends. `apps/arctic/Browser/tests/cli.spec.ts` runs it against
 the local shared API and compares its records with the web's.
+`test/hourly.test.ts` runs `wb hourly`'s two steps with a stub in place of wb.
 
 Review: this guide, `src/cli.ts`, `src/sync.ts`, `src/store.ts`,
 `src/snapshot.ts`, `src/auth.ts`, `src/arctic.ts`, then the sync-server
