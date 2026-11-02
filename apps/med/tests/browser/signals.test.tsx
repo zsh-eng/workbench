@@ -514,6 +514,7 @@ test("New thread lists the newest threads' repositories first, one click each, a
   await expect.element(filter).not.toBeInTheDocument();
   await expect.element(dialog).toBeVisible();
   await more.click();
+  await expect.element(filter).toHaveFocus();
   await userEvent.keyboard("archive-9");
   const options = () =>
     [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
