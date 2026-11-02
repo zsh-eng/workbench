@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { join } from "node:path";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { startHost } from "../host/server";
 import { ownCommand } from "../host/thread-agents";
@@ -17,75 +17,131 @@ import {
   givenPort,
 } from "../host/runtime/connection";
 import { disableCrashReports } from "../host/runtime/crash-reports";
+import { exitStatus, nearest, UsageError } from "./exit-status";
 import { runOpenCommand } from "./open";
 import { reviewHelp, runReviewCommand } from "./review";
 
 import { version } from "../../package.json";
 
-async function main() {
+/** The commands that `med` runs. A first word that is none of these must be a folder. */
+const COMMANDS = [
+  "web",
+  "add",
+  "status",
+  "stop",
+  "review",
+  "pr",
+  "thread",
+  "open",
+  "list",
+  "remove",
+  "index",
+  "sources",
+  "vault",
+  "skills",
+  "service",
+  "agents",
+  "docs",
+  "serve",
+  "help",
+] as const;
+
+async function mainHelp() {
+  const { serviceHelp } = await import("./service");
+  return (
+    serviceHelp +
+    "\n\nLegacy foreground modes:\n" +
+    `Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: ${DEFAULT_PORT} (or MED_PORT); another state folder than ~/.local/state/med gets a free port. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n` +
+    reviewHelp +
+    "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs\nTeach Claude Code and Codex to hand off reviews: med skills install"
+  );
+}
+
+async function isFolder(path: string) {
+  return (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
+}
+
+function notACommand(word: string) {
+  const near = nearest(word, COMMANDS);
+  return (
+    `med: "${word}" is not a command or a folder.` +
+    (near ? ` Did you mean "${near}"?` : "") +
+    "\nRun med --help to see the commands."
+  );
+}
+
+async function main(args: string[]) {
   await disableCrashReports();
-  if (process.argv.length === 3 && ["--version", "-v"].includes(process.argv[2]!)) {
+  const [command, ...rest] = args;
+  if (args.length === 1 && ["--version", "-v"].includes(command!)) {
     console.log(`med ${version}`);
     return;
   }
-  if (process.argv[2] === "service") {
+  if (command === "help") {
+    // med help <command> is med <command> --help.
+    if (rest.length > 1) throw new UsageError("Usage: med help [command]");
+    if (!rest.length || rest[0] === "help") return console.log(await mainHelp());
+    if (!COMMANDS.includes(rest[0] as never))
+      throw new UsageError(notACommand(rest[0]!).replace(" or a folder", ""));
+    return main([rest[0]!, "--help"]);
+  }
+  if (command === "service") {
     const { loginService } = await import("./login-service");
-    await loginService(process.argv.slice(3));
+    await loginService(rest);
     return;
   }
-  if (process.argv[2] === "__index-worker") {
+  if (command === "__index-worker") {
     const { runSourcesCommand } = await import("./sources");
-    await runSourcesCommand("vault", ["index", ...process.argv.slice(3)]);
+    await runSourcesCommand("vault", ["index", ...rest]);
     return;
   }
   if (
-    ["web", "add", "list", "remove", "index", "status", "stop", "serve"].includes(
-      process.argv[2] ?? "",
-    )
+    ["web", "add", "list", "remove", "index", "status", "stop", "serve"].includes(command ?? "")
   ) {
     const { runServiceCommand } = await import("./service");
-    await runServiceCommand(process.argv[2]!, process.argv.slice(3));
+    await runServiceCommand(command!, rest);
     return;
   }
-  if (process.argv[2] === "docs") {
+  if (command === "docs") {
     const { runDocsCommand } = await import("./docs");
-    runDocsCommand(process.argv.slice(3));
+    runDocsCommand(rest);
     return;
   }
-  if (process.argv[2] === "skills") {
+  if (command === "skills") {
     const { runSkillsCommand } = await import("./skills");
-    await runSkillsCommand(process.argv.slice(3));
+    await runSkillsCommand(rest);
     return;
   }
-  if (process.argv[2] === "sources" || process.argv[2] === "vault") {
+  if (command === "sources" || command === "vault") {
     const { runSourcesCommand } = await import("./sources");
-    await runSourcesCommand(process.argv[2], process.argv.slice(3));
+    await runSourcesCommand(command, rest);
     return;
   }
-  if (process.argv[2] === "open") {
-    await runOpenCommand(process.argv.slice(3));
+  if (command === "open") {
+    await runOpenCommand(rest);
     return;
   }
-  if (process.argv[2] === "pr") {
+  if (command === "pr") {
     const { runPullRequestCommand } = await import("./pr");
-    await runPullRequestCommand(process.argv.slice(3));
+    await runPullRequestCommand(rest);
     return;
   }
-  if (process.argv[2] === "review") {
-    await runReviewCommand(process.argv.slice(3));
+  if (command === "review") {
+    await runReviewCommand(rest);
     return;
   }
-  if (process.argv[2] === "agents") {
+  if (command === "agents") {
     const { runAgentsCommand } = await import("./agents");
-    await runAgentsCommand(process.argv.slice(3));
+    await runAgentsCommand(rest);
     return;
   }
-  if (process.argv[2] === "thread") {
+  if (command === "thread") {
     const { runThreadCommand } = await import("./thread");
-    await runThreadCommand(process.argv.slice(3));
+    await runThreadCommand(rest);
     return;
   }
   const { values, positionals } = parseArgs({
+    args,
     allowPositionals: true,
     allowNegative: true,
     options: {
@@ -100,14 +156,13 @@ async function main() {
       "setup-search": { type: "boolean" },
     },
   });
+  // The older foreground mode opens folders: any other word is a typo.
+  if (!values.patch && !values.files)
+    for (const [index, word] of positionals.entries())
+      if (!(await isFolder(word)))
+        throw new UsageError(index ? `med: "${word}" is not a folder.` : notACommand(word));
   if (values.help) {
-    const { serviceHelp } = await import("./service");
-    console.log(serviceHelp + "\n\nLegacy foreground modes:");
-    console.log(
-      `Usage: med-diff [repository ...] [--port <port>] [--no-open]\n       med-diff --patch <path|-> [--no-open]\n       med-diff --files <old> <new> [--no-open]\n       med-diff --editor [--no-open]\n       med-diff open <file> [--line N] [--edit]\n       med-diff --setup-search\n\nOpen a local, read-only review. Use --patch - to read a patch from stdin.\nSetup search builds pinned Zoekt binaries once; it requires Go during setup only.\nDefault port: ${DEFAULT_PORT} (or MED_PORT); another state folder than ~/.local/state/med gets a free port. Use --state-dir <path> or MED_STATE_DIR to select saved review state.\n\n` +
-        reviewHelp +
-        "\n\nRegister folders: med-diff sources --help\nOpen saved repositories: med-diff --registered\nOffline guides: med-diff docs\nTeach Claude Code and Codex to hand off reviews: med skills install",
-    );
+    console.log(await mainHelp());
   } else if (values["setup-search"]) {
     console.log("Setting up pinned Zoekt search tools…");
     const result = await installSearchTools();
@@ -218,7 +273,7 @@ async function main() {
   }
 }
 
-await main().catch((error: unknown) => {
+await main(process.argv.slice(2)).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : "Med could not complete the command.");
-  process.exitCode = 1;
+  process.exitCode = exitStatus(error);
 });

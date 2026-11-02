@@ -1,0 +1,61 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterAll, beforeAll, expect, it } from "vitest";
+
+// The real CLI, as a person types it: help, typos, and exit statuses. None of
+// these commands needs a server.
+
+let root: string;
+beforeAll(async () => {
+  root = await realpath(await mkdtemp(join(tmpdir(), "med-cli-help-")));
+});
+afterAll(() => rm(root, { recursive: true, force: true }));
+
+function med(...args: string[]) {
+  const env = {
+    ...process.env,
+    HOME: root,
+    MED_HOME_DIR: root,
+    MED_STATE_DIR: join(root, "state"),
+  };
+  return new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
+    execFile(
+      "bun",
+      [resolve("src/cli/index.ts"), ...args],
+      { env, cwd: root, timeout: 30_000 },
+      (error, stdout, stderr) => done({ code: error ? Number(error.code) : 0, stdout, stderr }),
+    );
+  });
+}
+
+it("refuses a word that is neither a command nor a folder, and names the command it is near", async () => {
+  const typo = await med("revew");
+  expect(typo).toMatchObject({ code: 2, stdout: "" });
+  expect(typo.stderr).toBe(
+    'med: "revew" is not a command or a folder. Did you mean "review"?\nRun med --help to see the commands.\n',
+  );
+  const far = await med("xyzzy");
+  expect(far.code).toBe(2);
+  expect(far.stderr).not.toContain("Did you mean");
+  // A later word of the foreground mode must be a folder too.
+  expect(await med(".", "missing")).toMatchObject({
+    code: 2,
+    stderr: 'med: "missing" is not a folder.\n',
+  });
+  expect((await med("--frobnicate")).code).toBe(2);
+});
+
+it("prints help with med help, and a command's own help with med help <command>", async () => {
+  const help = await med("help");
+  expect(help.code).toBe(0);
+  expect(help.stdout).toBe((await med("--help")).stdout);
+  const docs = await med("help", "docs");
+  expect(docs).toMatchObject({ code: 0, stdout: (await med("docs", "--help")).stdout });
+  expect(await med("help", "revew")).toMatchObject({
+    code: 2,
+    stderr:
+      'med: "revew" is not a command. Did you mean "review"?\nRun med --help to see the commands.\n',
+  });
+});
