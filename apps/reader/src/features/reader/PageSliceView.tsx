@@ -89,7 +89,7 @@ function renderFragmentSequence(
   const nodes: ReactNode[] = [];
   const flushEdges = getFlushHighlightEdges(fragments);
 
-  for (let index = 0; index < fragments.length;) {
+  for (let index = 0; index < fragments.length; ) {
     const fragment = fragments[index];
     if (!fragment) break;
 

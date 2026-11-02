@@ -448,10 +448,10 @@ so a page turn is both the largest movement in the app and the most frequent.
 Measured in Reader at the OPPO Pad Mini's size (1008 × 640, seven runs each,
 `test/e2e/kit/reader-turn-motion.ts`, from the finger's lift to rest):
 
-| Turn          | Before                                  | Now                              |
-| ------------- | --------------------------------------- | -------------------------------- |
-| Tap           | 474 ms: a slide of 0.35 s and 0.45 s    | 174 ms: a 150 ms cross-fade      |
-| Swipe release | 425 ms: a spring of `duration: 0.4`     | 323 ms: response 0.2 s, critical |
+| Turn          | Before                               | Now                              |
+| ------------- | ------------------------------------ | -------------------------------- |
+| Tap           | 474 ms: a slide of 0.35 s and 0.45 s | 174 ms: a 150 ms cross-fade      |
+| Swipe release | 425 ms: a spring of `duration: 0.4`  | 323 ms: response 0.2 s, critical |
 
 Each includes about 40 ms from the lift to the first new frame. The swipe's
 page has 98% of its way behind it about 240 ms after the lift.

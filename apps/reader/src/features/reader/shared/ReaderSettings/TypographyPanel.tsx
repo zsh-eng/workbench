@@ -13,13 +13,7 @@ import {
   READER_FONT_SIZE_MAX_PX,
   READER_FONT_SIZE_MIN_PX,
 } from "@/types/reader.types";
-import {
-  Check,
-  Minus,
-  MoveHorizontal,
-  MoveVertical,
-  Plus,
-} from "lucide-react";
+import { Check, Minus, MoveHorizontal, MoveVertical, Plus } from "lucide-react";
 import { useId } from "react";
 
 interface TypographyPanelProps {

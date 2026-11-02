@@ -60,9 +60,7 @@ async function touch(cdp: CDPSession, type: string, x?: number) {
 const nextLayerX = (page: Page) =>
   page
     .locator('[data-reader-spread-layer="next"]')
-    .evaluate(
-      (layer) => new DOMMatrix(getComputedStyle(layer).transform).m41,
-    );
+    .evaluate((layer) => new DOMMatrix(getComputedStyle(layer).transform).m41);
 
 test.beforeEach(async ({ page, localBook }) => {
   await openLocalBook(page, localBook.id);
