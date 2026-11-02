@@ -211,6 +211,17 @@ test("X's sign-in page and a bot check give no preview", () => {
   expect(isChallengePage(check)).toBe(true);
   expect(readPreview(check, page)).toEqual({});
   expect(isChallengePage(`<title>Just a moment...</title>`)).toBe(true);
+  expect(
+    isChallengePage(
+      "<title>Attention Required! | Cloudflare</title><p>Sorry.</p>",
+    ),
+  ).toBe(true);
+});
+
+test("a link to a post with no user name stays on the post", () => {
+  expect(
+    xArticleURL(articlePost, "https://x.com/i/status/123"),
+  ).toBeUndefined();
 });
 
 test("an article about bot checks is an article", () => {
@@ -227,4 +238,20 @@ test("an article about bot checks is an article", () => {
   expect(isChallengeText("  Checking your browser before you continue.")).toBe(
     true,
   );
+});
+
+test("a title or an opening that a bot check could use does not refuse an article", () => {
+  const words = "Sea ice keeps time for those who read it. ".repeat(60);
+  const article = `<p>${words}</p>`;
+  for (const title of [
+    "Access Denied: how ports close",
+    "Just a moment of silence",
+    "Access denied",
+  ])
+    expect(isChallengePage(`<title>${title}</title>${article}`)).toBe(false);
+  // A short post, with a check's markup in a code sample.
+  expect(isChallengePage(`<pre>HASHCASH_CONFIG</pre>${article}`)).toBe(false);
+  expect(
+    isChallengeText(`Fake "verify you are human" pages spread. ${words}`),
+  ).toBe(false);
 });

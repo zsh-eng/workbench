@@ -11,9 +11,9 @@ export const MAX_COPY_BYTES = 2 * 1024 * 1024;
 
 export type Source = "file" | "browser" | "arctic" | "extractor";
 
-/** Whether cleaned HTML opens with a bot check's own words. */
+/** Whether cleaned HTML is a bot check's words. */
 const isBrowserCheck = (html: string) =>
-  isChallengeText(html.slice(0, 2000).replace(/<[^>]*>/g, " "));
+  isChallengeText(html.replace(/<[^>]*>/g, " "));
 
 /**
  * The record `content/<id>` that names a copy's file, as every writer of

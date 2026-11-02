@@ -130,7 +130,8 @@ export class Extractor {
   /**
    * The publisher's page for a link, as far as a direct request goes. It
    * stops at a bot check, which is not passed, and at X's sign-in. A post
-   * that carries an X Article gives way to the Article's own page.
+   * that carries an X Article gives way to the Article's own page, when
+   * that page opens.
    */
   private async publisherPage(url: string): Promise<PageResponse> {
     const response = await this.fetcher(
@@ -143,7 +144,9 @@ export class Extractor {
     const html = pageText(response);
     if (isChallengePage(html)) throw new DownloadError(CHALLENGE);
     const article = xArticleURL(html, response.url);
-    return article ? this.publisherPage(article) : response;
+    if (!article) return response;
+    const page = await this.publisherPage(article).catch(() => undefined);
+    return page && page.status >= 200 && page.status < 300 ? page : response;
   }
   /**
    * The link's preview (`readPreview`: title, description, image and icon)

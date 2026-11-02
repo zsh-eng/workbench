@@ -76,22 +76,34 @@ export function previewURL(value: string, pageURL: string) {
 export const ARCTIC_USER_AGENT =
   "ArcticReader/1.0 (+https://arctic.zsheng.app)";
 
-const CHALLENGE_TITLE =
-  /^(just a moment|access denied|attention required|checking your browser|verify you are human)/i;
-// A challenge or sign-in page names itself, not the article.
-const NOT_A_TITLE = new RegExp(
-  `${CHALLENGE_TITLE.source}|^(sign in|log in)`,
+const CHALLENGE_WORDS =
+  "just a moment|access denied|attention required|checking your browser|verify you are human";
+/** A bot check's whole title: `Just a moment...`, `Attention Required! | Cloudflare`. */
+const CHALLENGE_TITLE = new RegExp(
+  `^(${CHALLENGE_WORDS})[\\s.!…]*(\\|.*)?$`,
   "i",
 );
+// A challenge or sign-in page names itself, not the article.
+const NOT_A_TITLE = new RegExp(`^(${CHALLENGE_WORDS}|sign in|log in)`, "i");
 /** Words that only a bot check's own page opens with. */
 const CHALLENGE_TEXT =
   /checking your browser|verify you are human|enable javascript and cookies to continue|needs to review the security of your connection|why have i been blocked/i;
-/** What a bot check's page names in its markup. An article is much longer. */
-const CHALLENGE_MARKUP = /\/__challenge\/|HASHCASH_CONFIG|_cf_chl_opt|cf-chl-/;
-const CHALLENGE_PAGE_LENGTH = 64 * 1024;
+/** What a bot check's page names in its markup. */
+const CHALLENGE_MARKUP = /\/__challenge\/|HASHCASH_CONFIG|_cf_chl_opt/;
+/**
+ * A bot check says little. An article that quotes one says more than this,
+ * in characters, which keeps the words above from refusing it.
+ */
+const CHALLENGE_TEXT_LENGTH = 1200;
 
 /** Whether a title is one that a challenge or sign-in page shows. */
 export const isNotATitle = (title: string) => NOT_A_TITLE.test(title.trim());
+
+const pageText = (html: string) =>
+  html
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .trim();
 
 /**
  * Whether a page is a bot check, which shows instead of the article. Arctic
@@ -99,17 +111,20 @@ export const isNotATitle = (title: string) => NOT_A_TITLE.test(title.trim());
  */
 export function isChallengePage(html: string) {
   return (
-    CHALLENGE_TITLE.test((scanHead(html).title ?? "").trim()) ||
-    (html.length < CHALLENGE_PAGE_LENGTH && CHALLENGE_MARKUP.test(html))
+    (CHALLENGE_TITLE.test((scanHead(html).title ?? "").trim()) ||
+      CHALLENGE_MARKUP.test(html)) &&
+    pageText(html).length < CHALLENGE_TEXT_LENGTH
   );
 }
 
-/**
- * Whether extracted text is a bot check's page: the check's own words at
- * its very start. An article about such checks opens with its own words.
- */
-export const isChallengeText = (text: string) =>
-  CHALLENGE_TEXT.test(text.trimStart().slice(0, 200));
+/** Whether extracted text is a bot check's page: its words, and little else. */
+export function isChallengeText(text: string) {
+  const trimmed = text.trim();
+  return (
+    trimmed.length < CHALLENGE_TEXT_LENGTH &&
+    CHALLENGE_TEXT.test(trimmed.slice(0, 200))
+  );
+}
 
 const X_HOSTS = new Set([
   "x.com",
@@ -145,7 +160,8 @@ export function isXSignIn(pageURL: string) {
  */
 export function xArticleURL(html: string, pageURL: string) {
   const url = xPage(pageURL);
-  const post = /^\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/.exec(
+  // `/i/status/<id>` names no user, and `/i/article/<id>` asks for a sign-in.
+  const post = /^\/(?!i\/)([A-Za-z0-9_]{1,15})\/status\/(\d{1,25})\/?$/.exec(
     url?.pathname ?? "",
   );
   if (!post || !X_ARTICLE_TITLE.test(pageTitle(scanHead(html))))

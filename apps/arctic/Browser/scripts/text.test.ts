@@ -144,6 +144,13 @@ const xPages: Record<string, { url?: string; status?: number; html: string }> = 
   "https://x.com/ice_notes/article/1234567890": {
     html: `<!doctype html><html>${xHead("How sea ice keeps time", "Ice records the seasons.", "https://pbs.twimg.com/media/ICE.png")}<body><article><h1>How sea ice keeps time</h1>${`<p>${prose}</p>`.repeat(12)}</article></body></html>`,
   },
+  "https://x.com/ice_notes/status/777": {
+    html: `<!doctype html><html>${xHead("Ada Reader on X: &quot;Reading the floe&quot; / X", "Reading the floe", "https://pbs.twimg.com/media/ICE.png")}<body><article>${`<p>${prose}</p>`.repeat(12)}</article></body></html>`,
+  },
+  "https://x.com/ice_notes/article/777": {
+    status: 404,
+    html: "<!doctype html><html><body></body></html>",
+  },
   "https://x.com/i/article/999": {
     url: "https://x.com/i/jf/onboarding/web?redirect_after_login=%2Fi%2Farticle%2F999&mode=login",
     html: `<!doctype html><html>${xHead("X - The Everything App", "Sign up.", "https://abs.twimg.com/og/default.jpg")}<body><p>Sign in to X.</p></body></html>`,
@@ -176,6 +183,11 @@ test("an X Article has its own title, image and text; a link X will not show fai
     });
     expect(article.words).toBeGreaterThan(300);
     expect(article.html).not.toContain("not the article");
+
+    // The post answered: a failed Article page does not lose what it showed.
+    const post = await x.read("https://x.com/ice_notes/status/777");
+    expect(post.preview?.title).toBe("Reading the floe");
+    expect(post.words).toBeGreaterThan(300);
 
     expect(await x.read("https://x.com/i/article/999")).toEqual({
       title: "",

@@ -49,7 +49,6 @@ export const network = {
   fetch: (request: Request) => fetch(request),
 };
 
-/** The phone's user agent (ArticleMetadata.fetch), so sites serve the same page. */
 /** Every IPv4 and IPv6 address of a host name, from Cloudflare's DNS over HTTPS. */
 async function resolve(host: string, signal: AbortSignal) {
   const ask = async (type: "A" | "AAAA") => {

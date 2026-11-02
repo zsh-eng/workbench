@@ -47,7 +47,7 @@ test('a bot check is never read as the article', async () => {
     await page.close();
   }
   const page = await browser.newPage();
-  await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body: check('On browser checks', `<main><h1>On browser checks</h1>${prose}<p>Checking your browser is what these pages say.</p></main>`) }));
+  await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body: check('Access denied: a history', `<main><h1>Access denied: a history</h1><p>Fake "verify you are human" pages spread.</p>${prose.repeat(5)}</main>`) }));
   await page.goto('https://fixture.example/about-checks');
   await page.evaluate(script);
   expect((await page.evaluate(() => (globalThis as any).extractArticle())).content).toContain('Sea ice forms');

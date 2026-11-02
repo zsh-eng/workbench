@@ -1065,6 +1065,7 @@ struct TaggingNotice: Identifiable {
     taggingTask = Task { [weak self] in
       guard let self else { return }
       defer { self.taggingTask = nil }
+      var unreadable = 0
       while self.taggingAllowed, !self.libraryScrolling, var article = self.nextTaggingArticle() {
         #if DEBUG
           if self.taggingOrder.last != article.url.lastPathComponent {
@@ -1082,9 +1083,12 @@ struct TaggingNotice: Identifiable {
               do {
                 preview = try await ArticlePreviewCache.shared.load(
                   article.url, reload: self.retaggingContextNeeded.contains(article.id))
+                unreadable = 0
               } catch {
-                // One unreadable link must not hold up the links after it.
-                guard !Task.isCancelled else { return }
+                // One unreadable link must not hold up the links after it. Three in
+                // a row is the network, which the catch below stops for.
+                unreadable += 1
+                if unreadable == 3 { throw error }
                 self.taggingDeferred.insert(article.id)
                 continue
               }

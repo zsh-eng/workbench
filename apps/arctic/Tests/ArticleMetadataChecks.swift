@@ -24,6 +24,7 @@ import Foundation
     precondition(metadata.taggingText == summary + "\n\nArticle excerpt: " + introduction)
     precondition(metadata.imageURL?.absoluteString == "https://example.com/ice.jpg")
 
+    let longProse = (1...300).map { "word\($0)" }.joined(separator: " ")
     let xPost = URL(string: "https://x.com/iceberg/status/20001")!
     let xArticle = try ArticleMetadata.parse(
       """
@@ -53,10 +54,11 @@ import Foundation
     precondition(
       refused("<title>A page</title><script src='/__challenge/x.js'></script>", at: url)
         == .browserCheck)
-    precondition(
-      refused("<title>Browser checks</title><p>\(introduction)</p>", at: url) == nil)
+    let longEssay = "<p>\(longProse)</p>"
+    precondition(refused("<title>Access denied: a history</title><p>A page</p>", at: url) == nil)
+    precondition(refused("<title>Access denied</title>\(longEssay)", at: url) == nil)
+    precondition(refused("<p>On HASHCASH_CONFIG and its kind.</p>\(longEssay)", at: url) == nil)
 
-    let longProse = (1...300).map { "word\($0)" }.joined(separator: " ")
     let bounded = try ArticleMetadata.parse("<main><p>\(longProse)</p></main>", baseURL: url)
     let excerpt = bounded.taggingText.replacingOccurrences(of: "Article excerpt: ", with: "")
     precondition(excerpt.split(separator: " ").count == 180)

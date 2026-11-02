@@ -6,8 +6,7 @@
 // The cache keeps the files of two versions: the one the last page loaded,
 // and the one before, which a tab opened earlier may still be running. A new
 // version's page caches its files, then becomes the page that opens, and the
-// files of older versions leave. A file that loads on demand (Defuddle) is
-// cached when first used and leaves with its version.
+// files of older versions leave.
 const CACHE = "arctic-shell-v2";
 /** The version kept last: `{ page, files }`, the assets its page names and all it keeps. */
 const VERSION = "/__version.json";
@@ -23,9 +22,9 @@ async function addMissing(cache, paths) {
 
 /**
  * Keeps a page for offline use with the hashed scripts and styles it names,
- * and the sheets' code. The sheets' code and style load after the first
- * page, so the page does not name them; the app's script does. Defuddle,
- * which only extracts a page, stays out.
+ * and the code that loads later (the sheets, Defuddle), which only the app's
+ * scripts name. A kept version must run whole: the page opens from here after
+ * a release has taken these files from the host.
  */
 async function keepPage(page) {
   const cache = await caches.open(CACHE);
@@ -45,12 +44,10 @@ async function keepPage(page) {
       .filter((asset) => asset.endsWith(".js"))
       .map(async (asset) => (await cache.match(asset))?.text() ?? ""),
   );
-  const sheets = scripts.flatMap(
-    (script) => script.match(/assets\/sheet-[\w-]+\.(?:js|css)/g) ?? [],
+  const later = scripts.flatMap(
+    (script) => script.match(/assets\/[\w-]+\.(?:js|css)/g) ?? [],
   );
-  const files = [
-    ...new Set([...assets, ...sheets.map((sheet) => `/${sheet}`)]),
-  ];
+  const files = [...new Set([...assets, ...later.map((file) => `/${file}`)])];
   await addMissing(cache, files);
   await cache.put("/", page);
   // This version's files and the last one's stay; older ones leave.
@@ -80,7 +77,10 @@ async function refreshPage() {
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      await keepPage(await fetch("/", { cache: "no-cache" }));
+      const page = await fetch("/", { cache: "no-cache" });
+      // An error page must not become the page that every open shows.
+      if (!page.ok) throw new Error(`The app answered ${page.status}.`);
+      await keepPage(page);
       const cache = await caches.open(CACHE);
       await cache.addAll(["/appearance.js", "/icon-64.png", "/favicon.png"]);
     })(),

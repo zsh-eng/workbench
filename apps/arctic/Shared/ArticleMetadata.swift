@@ -103,7 +103,7 @@ struct ArticleMetadata: Sendable {
     }
     let headline = try meta(["og:title", "twitter:title"])
     let fallbackTitle = clean(try document.title())
-    if isChallenge(html, title: headline.isEmpty ? fallbackTitle : headline) {
+    if try isChallenge(html, title: fallbackTitle, document: document) {
       throw PageError.browserCheck
     }
     let xTitle = xArticleTitle(headline, baseURL)
@@ -194,17 +194,18 @@ struct ArticleMetadata: Sendable {
     return String(match.1)
   }
 
-  /// `isChallengePage` in packages/arctic-links: a check's title, or its markup in
-  /// a short page. An article that talks about such checks is much longer.
-  private static func isChallenge(_ html: String, title: String) -> Bool {
-    title.range(
-      of: "^(just a moment|access denied|attention required"
-        + "|checking your browser|verify you are human)",
-      options: [.regularExpression, .caseInsensitive]) != nil
-      || (html.utf8.count < 64 * 1024
-        && html.range(
-          of: "/__challenge/|HASHCASH_CONFIG|_cf_chl_opt|cf-chl-", options: .regularExpression)
-          != nil)
+  /// `isChallengePage` in packages/arctic-links: a check's title or markup, and
+  /// little to read. An article that quotes one says more.
+  private static func isChallenge(_ html: String, title: String, document: Document) throws -> Bool
+  {
+    let named =
+      title.range(
+        of: "^(just a moment|access denied|attention required"
+          + "|checking your browser|verify you are human)[\\s.!…]*(\\|.*)?$",
+        options: [.regularExpression, .caseInsensitive]) != nil
+      || html.range(
+        of: "/__challenge/|HASHCASH_CONFIG|_cf_chl_opt", options: .regularExpression) != nil
+    return try named && (document.body()?.text().count ?? 0) < 1200
   }
 
   private static func clean(_ text: String) -> String {
