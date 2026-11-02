@@ -2,6 +2,7 @@ import type { PaginationConfig } from "@/lib/pagination-v2";
 import type { ResolvedSpread, SpreadConfig } from "@/lib/pagination-v2/types";
 import { motion, useIsPresent, usePresenceData } from "motion/react";
 import { lazy, Suspense, useState } from "react";
+import { PageFurniture } from "./PageFurniture";
 import { PageSliceView } from "./PageSliceView";
 import type { PaperGrain } from "./paper/paper-grain";
 import type {
@@ -94,6 +95,16 @@ export function SpreadView({
           <PaperInk grain={paper} content={spread} />
         </Suspense>
       )}
+      <PageFurniture
+        spread={spread}
+        columns={spreadConfig.columns}
+        columnGapPx={columnSpacingPx}
+        paddingTopPx={paddingTopPx}
+        paddingBottomPx={paddingBottomPx}
+        paddingLeftPx={paddingLeftPx}
+        paddingRightPx={paddingRightPx}
+        fontFamily={paginationConfig.fontConfig.bodyFamily}
+      />
       {/* Pages clip only vertically. Glyph ink can extend past the text
           column, such as a line-initial "j" or a line-final italic "f", and
           the page margin must show it. The spread still clips at the stage

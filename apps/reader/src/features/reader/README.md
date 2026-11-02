@@ -52,6 +52,12 @@ The text never changes. A hyphen break is a cursor inside a segment, and the hyp
 
 The worker's widths come from canvas, which can differ from the page by up to about 3 px on a line. Each justified line renders as a `nowrap` block with `text-align-last: justify`: the worker's word spacing stops 3 px short, and the browser closes the rest, so a line ends on the margin in every font. `test/e2e/kit/reader-justify-metrics.ts` prints the word-space ratios and edge error of the pages it turns through.
 
+## Running heads and folios
+
+`PageFurniture` puts a quiet running head and page number in each page's margins, as a printed book has: the book's title over a left-hand page, the chapter's over a right-hand or single page, and nothing over a chapter's opening. A cover or full-page plate stays bare. The chapter title is only ever the contents' label, so a file the contents does not list takes the book's title rather than an invented one. Numbers follow Appearance → Page numbers and wait for pagination to finish, because they change until then.
+
+They sit in the margins the layout already leaves for the reader's bars, so they take no room from the text, and belong to the spread, so they turn with the page. The bars cover the same margins: a `:has()` rule in `App.css` fades each row while its bar shows, with no render of the spread. Scroll mode has neither.
+
 ## Paper and the page curl (Debug)
 
 With Debug mode on, Appearance → Layout → Page turn chooses Slide, Curl (the leaf) or First curl, Paper chooses Plain, Fine or Laid grain, Ink chooses where the text sits in that grain, and Highlights chooses Flat or Marker while the paper has grain (`paper/`). With the leaf, Hold chooses Anywhere or At the edge, and Book edges shows the book around the page. Design ideas → Paper opens the book you read last in each through `?turn=`, `?paper=`, `?ink=`, `?marks=`, `?grip=`, `?block=` and `?showThrough=`, without saving them. A curl runs only on a touch screen, one page at a time, with page animations on and reduced motion off; otherwise the slide stays. Its code loads only once a curl is chosen (`paper/PaperTurn.tsx`, from `SpreadStage`), and the ink and pigment passes only with grain, so the slide's Reader carries none of it. The study behind the leaf is in `docs/page-turn-study/`.

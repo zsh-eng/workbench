@@ -68,6 +68,17 @@ function getChapterTitleFromHref(href: string): string {
  * Gets the chapter title from the TOC based on the current spine index.
  * Falls back to a filename-derived title when the TOC has no matching entry.
  */
+/** The contents' label for a spine item; none for a file it does not list. */
+export function getContentsLabelFromSpine(
+  book: Book,
+  spineIndex: number,
+): string | undefined {
+  const spineItem = book.spine[spineIndex];
+  const manifestItem =
+    spineItem && book.manifest.find((item) => item.id === spineItem.idref);
+  return manifestItem && findTOCItemByHref(book.toc, manifestItem.href)?.label;
+}
+
 export function getChapterTitleFromSpine(
   book: Book,
   spineIndex: number,

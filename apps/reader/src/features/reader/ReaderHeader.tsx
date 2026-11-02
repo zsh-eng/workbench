@@ -82,6 +82,7 @@ export function ReaderHeader({
     <>
       <motion.header
         data-reader-header="mobile"
+        data-reader-bar-shown={chromeVisible ? "" : undefined}
         className="absolute inset-x-0 top-0 z-20 bg-background/88 backdrop-blur-xl"
         animate={{ y: chromeVisible ? "0px" : "-100%" }}
         transition={{

@@ -33,6 +33,7 @@ export function ReaderDesktopHeader({
   return (
     <motion.header
       data-reader-header="desktop"
+      data-reader-bar-shown={visible ? "" : undefined}
       className="absolute inset-x-0 top-0 z-20 bg-background/88 backdrop-blur-xl"
       initial={false}
       animate={{ opacity: visible ? 1 : 0 }}
