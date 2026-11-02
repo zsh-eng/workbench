@@ -112,11 +112,13 @@ test("A page's running head and folio turn with it and yield to the bars", async
   const boxes = await page
     .locator(`${CURRENT_SPREAD} [data-reader-page-slot="0"]`)
     .evaluate((slot) => {
-      const lines = slot.querySelectorAll("p[data-reader-page-slice] > span");
+      const lines = [
+        ...slot.querySelectorAll("p[data-reader-page-slice] > span"),
+      ];
       const spread = slot.closest("[data-reader-spread-layer]")!;
       return {
         top: lines[0]!.getBoundingClientRect().top,
-        bottom: slot.getBoundingClientRect().bottom,
+        bottom: lines.at(-1)!.parentElement!.getBoundingClientRect().bottom,
         head: spread
           .querySelector(".reader-running-heads p")!
           .getBoundingClientRect().bottom,

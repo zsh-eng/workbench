@@ -55,7 +55,7 @@ async function turnToHyphenatedWord(page: Page) {
     );
     if (index >= 0) {
       const before = lines[index]!.text.split(" ").at(-1)!.slice(0, -1);
-      const after = lines[index + 1]!.text.split(" ")[0]!;
+      const after = lines[index + 1]!.text.match(/^\p{L}+/u)![0];
       return {
         index,
         word: `${before}${after}`.replace(/[^\p{L}]/gu, ""),
@@ -133,6 +133,13 @@ test("a hyphenated word stays one word to copy, search and reopen", async ({
   await openLocalBook(page, localBook.id);
   const { index, word, head, tail } = await turnToHyphenatedWord(page);
 
+  const pages = await currentPages(page);
+  await page.reload();
+  await waitForReaderReady(page);
+  expect(await currentPages(page)).toEqual(pages);
+  const lines = await readLines(page);
+  expect(lines[index]!.text.endsWith(`${head}-`)).toBe(true);
+
   await selectAcrossLines(page, index, head.length, tail.length);
   await expect
     .poll(() =>
@@ -159,13 +166,6 @@ test("a hyphenated word stays one word to copy, search and reopen", async ({
     )
     .toContain(word);
   await page.keyboard.press("Escape");
-
-  const pages = await currentPages(page);
-  await page.reload();
-  await waitForReaderReady(page);
-  expect(await currentPages(page)).toEqual(pages);
-  const lines = await readLines(page);
-  expect(lines[index]!.text.endsWith(`${head}-`)).toBe(true);
 });
 
 test("Justify in Appearance sets the text left and back, at the same place", async ({
