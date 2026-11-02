@@ -477,7 +477,7 @@ describe("justified text", () => {
       );
     });
     expect(Math.max(...ratios)).toBeLessThan(Math.max(...greedyRatios));
-    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(2 / 3 - 0.01);
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(0.79);
   });
 
   it("hyphenates only when a paragraph needs it", () => {

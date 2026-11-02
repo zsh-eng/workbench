@@ -601,9 +601,13 @@ function layoutTextLinesPreWrap(
  * own text, and the hyphen lives only in the line's rendered fragment.
  */
 
-/** As TeX's fonts do: spaces stretch by half and shrink by a third. */
+/**
+ * Spaces stretch by half, as TeX's fonts do, and shrink only to 80%, as
+ * InDesign's defaults do. TeX's third is cramped in a font with Lora's narrow
+ * space, and a tight line beside a loose one reads worse than two loose ones.
+ */
 const SPACE_STRETCH = 0.5;
-const SPACE_SHRINK = 1 / 3;
+const SPACE_SHRINK = 0.2;
 
 /**
  * Each paragraph takes the first pass that can set it. Hyphens wait until a
@@ -1026,21 +1030,19 @@ function layoutTextLinesJustified(
 
     const lastLine = chosen.length - 2;
     const lineBreaks = breaks;
-    return chosen
-      .slice(1)
-      .map((breakIndex, lineIndex) =>
-        buildJustifiedLine(
-          items,
-          groups,
-          lineBreaks[chosen[lineIndex]!]!,
-          lineBreaks[breakIndex]!,
-          lineIndex === 0 ? firstLineWidth : maxWidth,
-          {
-            indentPx: lineIndex === 0 ? indentPx : 0,
-            isLastLine: lineIndex === lastLine,
-          },
-        ),
-      );
+    return chosen.slice(1).map((breakIndex, lineIndex) =>
+      buildJustifiedLine(
+        items,
+        groups,
+        lineBreaks[chosen[lineIndex]!]!,
+        lineBreaks[breakIndex]!,
+        lineIndex === 0 ? firstLineWidth : maxWidth,
+        {
+          indentPx: lineIndex === 0 ? indentPx : 0,
+          isLastLine: lineIndex === lastLine,
+        },
+      ),
+    );
   }
 
   return null;
