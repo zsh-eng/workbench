@@ -1035,3 +1035,60 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("wb arctic text --missing stops on SIGTERM while a page hangs: it closes the reader and exits 143", async () => {
+  const api = fakeAPI();
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-sigterm-"));
+  const now = toSwift(Date.now());
+  await seedLinks(
+    api,
+    ["hangs", "later"].map((name, n) => ({
+      url: `https://example.com/${name}`,
+      library: { saved: true, savedAt: now - n },
+    })),
+  );
+  // As in cli.ts. The empty SIGTERM listener stands in for Playwright's,
+  // which closes the browser but doesn't exit.
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `import { fetchMissingText, stopOnSignal } from ${JSON.stringify(join(import.meta.dirname, "../src/arctic.ts"))};
+process.on("SIGTERM", () => {});
+const stop = stopOnSignal();
+const read = {
+  read: () => (console.log("reading"), new Promise(() => {})),
+  close: async () => console.log("closed"),
+};
+fetchMissingText({ origin: process.argv[1], token: "fixture", directory: process.argv[2], gapMs: 0, read, signal: stop.signal })
+  .then((run) => {
+    console.log(run.results.map((result) => result.status).join());
+    stop.exitIfStopped();
+  });`,
+      api.server.url.origin,
+      directory,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const stdout = child.stdout.getReader();
+  let output = "";
+  const more = async () => {
+    const { value, done } = await stdout.read();
+    if (!done) output += new TextDecoder().decode(value);
+    return !done;
+  };
+  try {
+    while (!output.includes("reading") && (await more()));
+    const started = performance.now();
+    child.kill("SIGTERM");
+    expect(await child.exited).toBe(143);
+    expect(performance.now() - started).toBeLessThan(3000);
+    while (await more());
+    expect(output).toBe("reading\nclosed\nnot tried,not tried\n");
+    expect(existsSync(join(directory, "arctic-text.json"))).toBe(false);
+  } finally {
+    child.kill("SIGKILL");
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

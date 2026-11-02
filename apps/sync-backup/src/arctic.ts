@@ -294,6 +294,34 @@ async function refusal(error: unknown): Promise<string> {
 /** A page that takes longer to read fails; Unwall's own waits take about a minute. */
 export const READ_TIMEOUT_MS = 2 * 60 * 1000;
 
+/**
+ * Stops an Arctic run on SIGTERM or SIGINT, as the hourly job's cap sends.
+ * Playwright's own handler closes the browser but doesn't exit, and the run's
+ * awake timer would then hold wb forever. Here `signal` aborts, so the run
+ * stops reading and closes its reader, and `exitIfStopped` ends wb with 128
+ * plus the signal's number. A run that can't stop in 15 s is ended anyway.
+ */
+export function stopOnSignal() {
+  const controller = new AbortController();
+  let code: number | undefined;
+  for (const [name, exit] of [
+    ["SIGTERM", 143],
+    ["SIGINT", 130],
+  ] as const)
+    process.once(name, () => {
+      console.error(`wb: stopping on ${name}`);
+      code = process.exitCode = exit;
+      controller.abort(Error(`stopped by ${name}`));
+      setTimeout(() => process.exit(exit), 15_000).unref();
+    });
+  return {
+    signal: controller.signal,
+    exitIfStopped() {
+      if (code !== undefined) process.exit(code);
+    },
+  };
+}
+
 /** `promise`, or `signal`'s reason if it aborts first. */
 function abortable<T>(promise: Promise<T>, signal?: AbortSignal) {
   if (!signal) return promise;

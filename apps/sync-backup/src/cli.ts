@@ -26,6 +26,7 @@ import {
   describe,
   describePreview,
   fetchMissingText,
+  stopOnSignal,
 } from "./arctic";
 const help = `Workbench Backup — sync, local SQLite inspection and Arctic links
 
@@ -279,10 +280,12 @@ async function main() {
     console.error(
       `Reading your Arctic library at ${origin}…${v["dry-run"] ? " (dry run: nothing is read or written)" : ""}`,
     );
+    const stop = stopOnSignal();
     const run = await fetchMissingText({
       origin,
       token,
       directory,
+      signal: stop.signal,
       unwall: !!v.unwall,
       dryRun: !!v["dry-run"],
       limit: v.limit === undefined ? undefined : Number(v.limit),
@@ -304,6 +307,7 @@ async function main() {
           : `Read ${read}: ${uploaded} uploaded, ${read - uploaded} without text` +
             (notTried ? `; ${notTried} not tried: the run stopped.` : ".")),
     );
+    stop.exitIfStopped();
     // A page without text is expected, and waits for its next try.
     return;
   }
@@ -321,16 +325,19 @@ async function main() {
     }
     if (!inputs.length) throw Error("No links given");
     console.error(`Reading your Arctic library at ${origin}…`);
+    const stop = stopOnSignal();
     const results = await arctic({
       command: sub as "save" | "text",
       origin,
       token,
+      signal: stop.signal,
       inputs,
       text: !v["no-text"],
       unwall: !!v.unwall,
       onResult: json ? undefined : (result) => console.log(describe(result)),
     });
     if (json) print(results, json);
+    stop.exitIfStopped();
     if (results.some((result) => result.error)) process.exitCode = 1;
     return;
   }
