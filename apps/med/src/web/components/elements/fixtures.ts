@@ -1,6 +1,12 @@
 import type { BrowseRead } from "../../../shared/browse";
 import type { CodexReviewRun } from "../../../shared/codex-review";
-import type { Commit, CommitDetails, Note, PullRequestComments } from "../../../shared/protocol";
+import type {
+  LivePullRequest,
+  Commit,
+  CommitDetails,
+  Note,
+  PullRequestComments,
+} from "../../../shared/protocol";
 
 // Sample data for the elements page. It uses Med's own vocabulary so each
 // specimen reads like the product, not like placeholder text.
@@ -155,6 +161,103 @@ const at = (ago: number) => new Date(loaded - ago).toISOString();
 
 /** GitHub comments on the same change: an inline thread with a suggestion, an
  * outdated thread, review summaries, and conversation. */
+const finished = (name: string, seconds: number) => ({
+  id: `CI/${name}`,
+  name,
+  workflow: "CI",
+  outcome: "passed" as const,
+  state: "SUCCESS",
+  startedAt: new Date(loaded - seconds * 1000).toISOString(),
+  completedAt: new Date(loaded).toISOString(),
+  url: `${pr}/checks`,
+});
+const livePull: LivePullRequest = {
+  url: pr,
+  number: 333,
+  title: "Retry failed calls in the queue worker",
+  author: "maya",
+  state: "open",
+  body: "## Why\n\nThe worker gave up after one failed fetch.\n\n- [x] `bun test src/queue`\n- [ ] Run it against a flaky server",
+  base: "main",
+  head: "feat/retry",
+  labels: [
+    { name: "bug", color: "d73a4a" },
+    { name: "queue", color: "0e8a16" },
+  ],
+  checks: [finished("lint", 42), finished("types", 61), finished("build", 188)],
+  reviewers: [
+    { name: "sam", state: "APPROVED" },
+    { name: "acme/queue", state: "REQUESTED", team: true },
+  ],
+  merge: { mergeable: "MERGEABLE", status: "CLEAN", decision: "APPROVED", behindBy: 0 },
+  budget: { remaining: 4800, limit: 5000, resetAt: loaded + 3_600_000 },
+  fetchedAt: loaded,
+};
+/** The Pull request tab's pull request, in each state that it reads differently. */
+export const livePulls: Record<string, LivePullRequest> = {
+  Ready: livePull,
+  "Failing CI": {
+    ...livePull,
+    checks: [
+      {
+        id: "CI/test",
+        name: "test (ubuntu)",
+        workflow: "CI",
+        outcome: "failed",
+        state: "FAILURE",
+        startedAt: new Date(loaded - 169_000).toISOString(),
+        completedAt: new Date(loaded).toISOString(),
+        url: `${pr}/checks`,
+        job: 7001,
+      },
+      {
+        id: "CI/e2e",
+        name: "e2e",
+        workflow: "CI",
+        outcome: "pending",
+        state: "IN_PROGRESS",
+        startedAt: new Date(loaded - 95_000).toISOString(),
+        completedAt: null,
+      },
+      ...livePull.checks,
+    ],
+    reviewers: [{ name: "sam", state: "CHANGES_REQUESTED" }],
+    merge: {
+      mergeable: "MERGEABLE",
+      status: "BLOCKED",
+      decision: "CHANGES_REQUESTED",
+      behindBy: 3,
+    },
+  },
+  Draft: {
+    ...livePull,
+    state: "draft",
+    labels: [],
+    reviewers: [],
+    merge: { mergeable: "MERGEABLE", status: "CLEAN", decision: null, behindBy: 0 },
+  },
+  Conflicts: {
+    ...livePull,
+    head: "rae:drain",
+    merge: { mergeable: "CONFLICTING", status: "DIRTY", decision: "REVIEW_REQUIRED", behindBy: 12 },
+  },
+  Merged: {
+    ...livePull,
+    state: "merged",
+    merge: {
+      mergeable: "UNKNOWN",
+      status: "UNKNOWN",
+      decision: "APPROVED",
+      mergedBy: "sam",
+      endedAt: new Date(loaded - 7_200_000).toISOString(),
+    },
+  },
+};
+export const failedLogSample = {
+  skipped: 0,
+  text: "##[group]Run bun test\nbun test src/queue\n##[endgroup]\nexpected 3 attempts, got 1\n##[error]Process completed with exit code 1.\nCleaning up orphan processes",
+};
+
 export const pullRequest: PullRequestComments = {
   url: pr,
   head: id("c4f81e2"),

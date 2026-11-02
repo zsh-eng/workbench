@@ -71,6 +71,8 @@ const saved = (): SavedReview => ({
   createdAt: "2026-10-26T00:00:00Z",
   revision: 0,
   commentCount: 0,
+  // The host links a stack's first pull request to the review, as the review's.
+  pullRequestUrl: "https://github.com/acme/tide/pull/101",
   targets,
   iterations: [
     { number: 1, createdAt: "2026-10-26T00:00:00Z", targetIds: targets.map((t) => t.id) },
@@ -228,6 +230,8 @@ const diffPaths = () =>
 test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓ go between them", async () => {
   await mountStack();
   await expect.element(rail()).toBeVisible();
+  // The review's one link is only the first layer's pull request: no live tab.
+  expect(page.getByRole("tab", { name: "Pull request" }).query()).toBeNull();
   // Top to bottom, as git draws a stack, with the base branch under it.
   const numbers = [...document.querySelectorAll("[data-stack-rail] [data-layer]")].map((row) =>
     row.getAttribute("data-layer"),

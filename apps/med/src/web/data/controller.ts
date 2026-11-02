@@ -31,6 +31,8 @@ import type {
   Comparison,
   NoteMutation,
   NoteState,
+  LivePullRequest,
+  PullRequestCheckLog,
   PullRequestComments,
   RegisteredRepository,
   ReviewResponse,
@@ -56,6 +58,8 @@ import {
   eventSchema,
   commitDetailsSchema,
   pullRequestCommentsSchema,
+  livePullRequestSchema,
+  pullRequestCheckLogSchema,
   revealSchema,
   HttpError,
   unanswered,
@@ -185,6 +189,10 @@ export interface ReviewController {
   /** The saved review's GitHub pull request comments, read-only. `refresh`
    * skips the host's 30-second cache. */
   loadPullRequestComments(refresh?: boolean): Promise<PullRequestComments>;
+  /** The review's pull request as GitHub has it now. */
+  loadLivePullRequest(refresh?: boolean): Promise<LivePullRequest>;
+  /** The end of a failed GitHub Actions job's log. */
+  loadCheckLog(job: number): Promise<PullRequestCheckLog>;
   /** Changes the reader's pending review on GitHub, then reads the comments again. */
   changePullRequestReview(input: PendingReviewInput): Promise<PullRequestComments>;
   /** Reads the saved review's details again, such as a pull request that
@@ -2544,6 +2552,22 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
       return api.json(
         `/api/reviews/${encodeURIComponent(saved.id)}/pull-request${refresh ? "?refresh=1" : ""}`,
         pullRequestCommentsSchema,
+      );
+    },
+    async loadLivePullRequest(refresh = false) {
+      const saved = snapshot.savedReview;
+      if (!saved?.pullRequestUrl) throw new Error("This review has no pull request.");
+      return api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pull-request-live${refresh ? "?refresh=1" : ""}`,
+        livePullRequestSchema,
+      );
+    },
+    async loadCheckLog(job) {
+      const saved = snapshot.savedReview;
+      if (!saved?.pullRequestUrl) throw new Error("This review has no pull request.");
+      return api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/pull-request-log?job=${job}`,
+        pullRequestCheckLogSchema,
       );
     },
     async changePullRequestReview(input) {

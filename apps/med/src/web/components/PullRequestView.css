@@ -1,0 +1,75 @@
+/* The Pull request tab, live. Its column is a draft's, so a draft that opens
+   as a pull request keeps its place. The status sits above the description
+   in a narrow pane; beside it when the pane has room for both. */
+.med-pull {
+  --med-pull-gutter: clamp(20px, 4cqw, 48px);
+  --med-pull-side: 300px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "side" "main";
+  gap: 22px;
+  width: 100%;
+  max-width: calc(var(--med-measure, 51em) + 2 * var(--med-pull-gutter));
+  margin: 0 auto;
+  padding: 22px var(--med-pull-gutter) 48px;
+  font-size: var(--med-md-size, 15px);
+}
+.med-pull-head {
+  grid-area: head;
+  min-width: 0;
+}
+.med-pull-side {
+  grid-area: side;
+  min-width: 0;
+  font-size: 13px;
+}
+.med-pull-main {
+  grid-area: main;
+  min-width: 0;
+  font-size: 13px;
+}
+.med-pull-title {
+  margin: 14px 0 10px;
+  font-family: var(--med-font-headings);
+  font-size: clamp(1.5em, 3.4cqw, 2em);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: var(--med-headings-tracking, -0.035em);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+/* The description is the page's prose, without a page's own margins. */
+.med-pull-prose.med-md-prose {
+  max-width: none;
+  margin: 0 0 26px;
+  padding: 0;
+  font-size: var(--med-md-size, 15px);
+}
+/* It starts level with the status beside it, however its text starts. */
+.med-pull-prose .med-md-block:first-child > :first-child {
+  margin-top: 0;
+}
+.med-pull-prose img {
+  max-width: 100%;
+  height: auto;
+}
+@container (min-width: 900px) {
+  .med-pull {
+    grid-template-columns: minmax(0, 1fr) var(--med-pull-side);
+    grid-template-areas: "head head" "main side";
+    column-gap: 44px;
+    align-items: start;
+    max-width: calc(
+      var(--med-measure, 51em) + var(--med-pull-side) + 44px + 2 * var(--med-pull-gutter)
+    );
+  }
+  .med-pull-side {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100cqh - 32px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}

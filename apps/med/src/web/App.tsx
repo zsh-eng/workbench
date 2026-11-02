@@ -226,6 +226,7 @@ import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
+const PullRequestView = lazy(() => import("./components/PullRequestView"));
 // Memoized: the tab stays mounted once shown, and the review around it
 // renders again for unrelated state, such as an open palette.
 const CommitView = preloadable<ComponentProps<typeof import("./components/CommitView").default>>(
@@ -1577,10 +1578,26 @@ export function App({
       prDraft && draftReviewId ? prDraftImageUrl(draftReviewId, prDraft, href) : undefined,
     [prDraft, draftReviewId],
   );
-  // The Notes tab is gone (docs/USAGE.md#removed-notes): its tab shows only
-  // an agent's pull request draft, as Pull request. Med keeps the briefs and
-  // pins, which feed the review's checks.
-  const hasNotes = !!prDraft;
+  // The Notes tab is gone (docs/USAGE.md#removed-notes): its tab is Pull
+  // request, for an agent's draft or a real pull request. Med keeps the briefs
+  // and pins, which feed the review's checks. A stack's layers each have a
+  // pull request, which the review's one link does not stand for.
+  const livePullUrl = state.savedReview?.parts ? undefined : state.savedReview?.pullRequestUrl;
+  const hasPullTab = !!prDraft || !!livePullUrl;
+  // A draft revised after its pull request opened stays one click away.
+  const [draftShownFor, setDraftShownFor] = useState<string | null>(null);
+  const showLivePull = !!livePullUrl && !(prDraft && draftShownFor === state.savedReview?.id);
+  /** Increases to make the live view read GitHub now. */
+  const [pullRefreshes, setPullRefreshes] = useState(0);
+  /** The images that Create left out, for the live view to name. */
+  const [pullImagesLeft, setPullImagesLeft] = useState<{ id: string; names: string[] } | null>(
+    null,
+  );
+  const loadLivePull = useCallback(
+    (refresh: boolean) => controller.loadLivePullRequest(refresh),
+    [controller],
+  );
+  const loadCheckLog = useCallback((job: number) => controller.loadCheckLog(job), [controller]);
   // Comments on passages of the shown brief and pins.
   const allBriefComments = state.savedReview?.briefComments;
   const briefComments = useMemo(
@@ -2053,17 +2070,17 @@ export function App({
         id === "guide"
           ? hasGuide
           : id === "brief"
-            ? hasNotes
+            ? hasPullTab
             : id === "commit"
               ? !!commitApi
               : true,
       ),
-    [fileWorkspace, hasGuide, hasNotes, commitApi],
+    [fileWorkspace, hasGuide, hasPullTab, commitApi],
   );
   // The tab row in order, for Alt+number and ⌘⇧[ / ⌘⇧]; empty when the row is hidden.
   // Keys read the store at event time, so a quick second key sees the first one's tab.
   const tabRow = useCallback(() => {
-    if (!browseSource && !hasNotes && !reviewAvailable)
+    if (!browseSource && !hasPullTab && !reviewAvailable)
       return { order: [] as string[], active: "" };
     const { tabs, active, search } = fileWorkspace.getSnapshot();
     const inReview =
@@ -2072,7 +2089,7 @@ export function App({
     return {
       order: [
         ...(reviewAvailable ? ["review"] : []),
-        ...(hasNotes ? ["brief"] : []),
+        ...(hasPullTab ? ["brief"] : []),
         "changes",
         ...(commitApi ? ["commit"] : []),
         ...(search !== undefined ? ["search"] : []),
@@ -2080,7 +2097,7 @@ export function App({
       ],
       active: inReview ? "review" : active === "guide" ? "changes" : active,
     };
-  }, [browseSource, hasNotes, reviewAvailable, commitApi, fileWorkspace, controller]);
+  }, [browseSource, hasPullTab, reviewAvailable, commitApi, fileWorkspace, controller]);
   /** Shows a tab of the row: Review (its Guide, or its saved diff), Changes
    * (the checkout's live diff), Notes, Commit, or a file. */
   const selectTab = useCallback(
@@ -2135,8 +2152,8 @@ export function App({
     [controller, showToast],
   );
   useEffect(() => {
-    if (!hasNotes && fileState.active === "brief") fileWorkspace.select("changes");
-  }, [hasNotes, fileState.active, fileWorkspace]);
+    if (!hasPullTab && fileState.active === "brief") fileWorkspace.select("changes");
+  }, [hasPullTab, fileState.active, fileWorkspace]);
   useEffect(() => {
     if (!hasGuide && fileState.active === "guide") fileWorkspace.select("changes");
   }, [hasGuide, fileState.active, fileWorkspace]);
@@ -2222,6 +2239,20 @@ export function App({
       );
     },
     [controller, reveal, revealLine],
+  );
+  /** Shows a GitHub thread at its line, from the Pull request tab. */
+  const showPullThread = useCallback(
+    (thread: PullRequestThread) => {
+      const file = files.find((entry) => entry.path === thread.path);
+      if (file && thread.line !== null)
+        openBriefLocation({
+          fileId: file.id,
+          side: thread.side,
+          start: thread.line,
+          end: thread.line,
+        });
+    },
+    [files, openBriefLocation],
   );
   useEffect(() => {
     if (!state.selectedFileId || lineJump.current?.id === state.selectedFileId) return;
@@ -4089,12 +4120,24 @@ export function App({
             : []),
         ]
       : []),
-    ...(hasNotes
+    ...(hasPullTab
       ? [
           {
             id: "brief",
-            label: "Open the pull request draft",
+            label: showLivePull ? "Open the pull request" : "Open the pull request draft",
             run: () => fileWorkspace.select("brief"),
+          },
+        ]
+      : []),
+    ...(showLivePull
+      ? [
+          {
+            id: "pull-request-refresh",
+            label: "Read the pull request again from GitHub",
+            run: () => {
+              fileWorkspace.select("brief");
+              setPullRefreshes((count) => count + 1);
+            },
           },
         ]
       : []),
@@ -5737,7 +5780,7 @@ export function App({
     );
   // The tabs stay while a workspace loads, so the branch switch in them does
   // not mount again; only a review without Git has a plain header.
-  const plainHeader = state.session?.repository.git === false && !hasNotes && !hasGuide;
+  const plainHeader = state.session?.repository.git === false && !hasPullTab && !hasGuide;
   // Quiet chrome's row, after the tabs: what the diff compares and the few
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
   const quietTrailing = quiet && (
@@ -5794,7 +5837,7 @@ export function App({
             </>
           )
         }
-        showBrief={hasNotes}
+        showBrief={hasPullTab}
         showReview={reviewAvailable}
         showCommit={!!commitApi}
         search={fileState.searchLabel}
@@ -6571,7 +6614,7 @@ export function App({
                 </div>
               </div>
             </div>
-            {hasNotes && briefMounted && state.savedReview && (
+            {hasPullTab && briefMounted && state.savedReview && (
               <div
                 {...stylex.props(
                   styles.reviewSurface,
@@ -6580,25 +6623,59 @@ export function App({
                 aria-hidden={fileState.active !== "brief"}
               >
                 <Suspense fallback={null}>
-                  <BriefView
-                    key={state.savedReview.id}
-                    files={state.files}
-                    root={state.review?.repo}
-                    active={fileState.active === "brief"}
-                    loadSource={controller.loadSources}
-                    onOpen={openBriefLocation}
-                    onOpenPath={(path, line) => fileWorkspace.open(path, line)}
-                    fileRefs={fileRefs}
-                    readFile={readCheckoutFile}
-                    onCopy={copyNotes}
-                    notes={notes}
-                    onMutateNote={(mutation) => controller.mutateNote(mutation)}
-                    comments={briefComments}
-                    onCommentBrief={(mutation) => controller.commentBrief(mutation)}
-                    prDraft={prDraft}
-                    prDraftImage={prDraftImage}
-                    onCreatePullRequest={(asDraft) => controller.createPullRequest(asDraft)}
-                  />
+                  {showLivePull ? (
+                    <PullRequestView
+                      key={`${state.savedReview.id} ${livePullUrl}`}
+                      reviewId={state.savedReview.id}
+                      url={livePullUrl!}
+                      title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+                      active={fileState.active === "brief"}
+                      comments={pullRequest}
+                      placement={pullRequestThreads.placement}
+                      root={state.review?.repo}
+                      load={loadLivePull}
+                      loadLog={loadCheckLog}
+                      refreshes={pullRefreshes}
+                      onShowThread={showPullThread}
+                      onShowDraft={
+                        prDraft ? () => setDraftShownFor(state.savedReview!.id) : undefined
+                      }
+                      left={
+                        pullImagesLeft?.id === state.savedReview.id
+                          ? pullImagesLeft.names
+                          : undefined
+                      }
+                      onDismissLeft={() => setPullImagesLeft(null)}
+                    />
+                  ) : (
+                    <BriefView
+                      key={state.savedReview.id}
+                      files={state.files}
+                      root={state.review?.repo}
+                      active={fileState.active === "brief"}
+                      loadSource={controller.loadSources}
+                      onOpen={openBriefLocation}
+                      onOpenPath={(path, line) => fileWorkspace.open(path, line)}
+                      fileRefs={fileRefs}
+                      readFile={readCheckoutFile}
+                      onCopy={copyNotes}
+                      notes={notes}
+                      onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                      comments={briefComments}
+                      onCommentBrief={(mutation) => controller.commentBrief(mutation)}
+                      prDraft={prDraft}
+                      prDraftImage={prDraftImage}
+                      onCreatePullRequest={(asDraft) => {
+                        const id = state.savedReview!.id;
+                        return controller.createPullRequest(asDraft).then((created) => {
+                          setDraftShownFor(null);
+                          setPullImagesLeft({ id, names: created.left });
+                          return created;
+                        });
+                      }}
+                      onShowLive={livePullUrl ? () => setDraftShownFor(null) : undefined}
+                    />
+                  )}
                 </Suspense>
               </div>
             )}

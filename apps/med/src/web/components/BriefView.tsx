@@ -43,6 +43,7 @@ import { tokens, ui } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
 import { markdownImageUrl } from "../markdown/images";
+import { scrollPaneTo } from "../markdown/scroll";
 import { DiffStat } from "./DiffStat";
 import type { FileRefs } from "./FileRefs";
 import { Icon } from "./Icon";
@@ -121,6 +122,8 @@ export interface BriefViewProps {
   prDraftImage?(href: string): string | undefined;
   /** Opens the pull request on GitHub with gh: what Create does. */
   onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
+  /** Goes back to the pull request as GitHub has it, for a draft that has one. */
+  onShowLive?(): void;
 }
 interface Draft {
   key: string;
@@ -141,8 +144,6 @@ interface Placement {
   ranges: Range[];
 }
 const NO_COMMENTS: readonly BriefComment[] = [];
-
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** One note: the pull request draft, the brief, or a pinned reply. */
 interface NoteSection {
@@ -230,6 +231,7 @@ export default function BriefView({
   prDraft,
   prDraftImage,
   onCreatePullRequest,
+  onShowLive,
 }: BriefViewProps) {
   const workspaceShown = useWorkspaceShown();
   const { active: theme } = useTheme();
@@ -411,16 +413,8 @@ export default function BriefView({
         .forEach((node) => node.setAttribute("data-linked", ""));
   }, [linked, annotated]);
 
-  const scrollToNode = (node: HTMLElement, offset = 28) => {
-    const scroller = pane.current;
-    if (!scroller) return;
-    // Scroll this pane only: scrollIntoView can move hidden split ancestors.
-    const top =
-      node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTo({
-      top: Math.max(0, top - offset),
-      behavior: reducedMotion() ? "auto" : "smooth",
-    });
+  const scrollToNode = (node: HTMLElement, offset?: number) => {
+    if (pane.current) scrollPaneTo(pane.current, node, offset);
   };
 
   // [ and ] step through the excerpts, like hunks in Changes.
@@ -792,6 +786,7 @@ export default function BriefView({
                   onCopy={() => onCopy(section.text)}
                   onRemove={section.pin ? () => onUnpin?.(section.pin!.id) : () => onRemove?.()}
                   onCreatePullRequest={section.draft ? onCreatePullRequest : undefined}
+                  onShowLive={section.draft ? onShowLive : undefined}
                 />
               )}
               {blocks.map(({ block, index }) => (
@@ -1402,6 +1397,7 @@ function NoteHead({
   onCopy,
   onRemove,
   onCreatePullRequest,
+  onShowLive,
 }: {
   number: number;
   total: number;
@@ -1410,6 +1406,7 @@ function NoteHead({
   onCopy(): void;
   onRemove(): void;
   onCreatePullRequest?(asDraft: boolean): Promise<{ url: string; left: string[] }>;
+  onShowLive?(): void;
 }) {
   const source = section.pin?.source;
   const { draft } = section;
@@ -1458,6 +1455,11 @@ function NoteHead({
           {noteTime(section.at)}
         </time>
         <span {...stylex.props(styles.grow)} />
+        {onShowLive && (
+          <button type="button" onClick={onShowLive} {...stylex.props(ui.button)}>
+            Live pull request
+          </button>
+        )}
         {draft?.pullRequestUrl ? (
           <a
             href={draft.pullRequestUrl}

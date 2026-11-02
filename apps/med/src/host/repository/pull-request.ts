@@ -15,7 +15,32 @@ import { ProcessFailure, runProcess } from "../runtime/process";
 
 const PULL_REQUEST = /^https:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#]|$)/;
 const FRESH_MS = 30_000;
-const cache = new Map<string, { at: number; value: Promise<PullRequestComments> }>();
+
+/** The host, the owner, the repository, and the number of a pull request's URL. */
+export function pullRequestPlace(url: string) {
+  const match = PULL_REQUEST.exec(url);
+  if (!match) throw new HostError("invalid-pull-request", "This is not a pull request URL.", 400);
+  const [, host, owner, repo, number] = match;
+  return { host: host!, owner: owner!, repo: repo!, number: number! };
+}
+
+/**
+ * A read of GitHub for each URL, read again after `freshMs` or on request.
+ * Pages share one read, so it is not tied to the request that started it.
+ */
+export function sharedReads<T>(load: (url: string) => Promise<T>, freshMs = FRESH_MS) {
+  const cache = new Map<string, { at: number; value: Promise<T> }>();
+  return (url: string, refresh = false) => {
+    const cached = cache.get(url);
+    if (cached && !refresh && Date.now() - cached.at < freshMs) return cached.value;
+    const value = load(url);
+    cache.set(url, { at: Date.now(), value });
+    value.catch(() => {
+      if (cache.get(url)?.value === value) cache.delete(url);
+    });
+    return value;
+  };
+}
 
 const comment = z.object({
   id: z.number(),
@@ -56,12 +81,14 @@ const summary = ({ number, title, author, state, draft, merged }: z.infer<typeof
   }) satisfies PullRequestSummary;
 const INLINE = `.[] | {id, ${AUTHOR}, body, createdAt: .created_at, url: .html_url, reply: .in_reply_to_id, path, line, startLine: .start_line, originalLine: .original_line, side}`;
 
-async function gh(host: string, args: string[]) {
+/** Runs gh for a read, away from any checkout; a URL says what to read. */
+export async function gh(args: string[], { timeoutMs = 20_000, maxBytes = 8 * 1024 * 1024 } = {}) {
   try {
-    const { stdout } = await runProcess("gh", ["api", "--hostname", host, ...args], {
+    const { stdout } = await runProcess("gh", args, {
       cwd: tmpdir(),
-      timeoutMs: 20_000,
-      maxBytes: 8 * 1024 * 1024,
+      timeoutMs,
+      maxBytes,
+      env: { GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
     });
     return stdout.toString("utf8");
   } catch (error) {
@@ -82,6 +109,9 @@ async function gh(host: string, args: string[]) {
   }
 }
 
+/** A REST or GraphQL read of `host` with gh api. */
+export const ghApi = (host: string, args: string[]) => gh(["api", "--hostname", host, ...args]);
+
 function lines<T>(text: string, schema: z.ZodType<T>): T[] {
   return text
     .split("\n")
@@ -98,22 +128,20 @@ const toComment = (entry: z.infer<typeof comment>): PullRequestComment => ({
 });
 
 async function load(url: string): Promise<PullRequestComments> {
-  const match = PULL_REQUEST.exec(url);
-  if (!match) throw new HostError("invalid-pull-request", "This is not a pull request URL.", 400);
-  const [, host, owner, repo, number] = match;
+  const { host, owner, repo, number } = pullRequestPlace(url);
   const base = `repos/${owner}/${repo}`;
   const [head, inline, conversation, reviews] = await Promise.all([
-    gh(host!, [`${base}/pulls/${number}`, "--jq", PULL]).then((text) =>
+    ghApi(host, [`${base}/pulls/${number}`, "--jq", PULL]).then((text) =>
       pull.parse(JSON.parse(text)),
     ),
-    gh(host!, ["--paginate", `${base}/pulls/${number}/comments?per_page=100`, "--jq", INLINE]),
-    gh(host!, [
+    ghApi(host, ["--paginate", `${base}/pulls/${number}/comments?per_page=100`, "--jq", INLINE]),
+    ghApi(host, [
       "--paginate",
       `${base}/issues/${number}/comments?per_page=100`,
       "--jq",
       `.[] | {id, ${AUTHOR}, body, createdAt: .created_at, url: .html_url}`,
     ]),
-    gh(host!, [
+    ghApi(host, [
       "--paginate",
       `${base}/pulls/${number}/reviews?per_page=100`,
       "--jq",
@@ -122,7 +150,7 @@ async function load(url: string): Promise<PullRequestComments> {
   ]);
   const summaries = lines(reviews, review);
   const drafts = summaries.some((entry) => entry.state === "PENDING")
-    ? await pendingComments(host!, { owner: owner!, repo: repo!, number: Number(number) })
+    ? await pendingComments(host, { owner, repo, number: Number(number) })
     : [];
   // GitHub points every reply at the thread's first comment, also a draft
   // reply to a thread that others started.
@@ -169,18 +197,8 @@ async function load(url: string): Promise<PullRequestComments> {
   };
 }
 
-/** A pull request's comments, read again after 30 seconds or on request. Pages
- * share one read, so it is not tied to the request that started it. */
-export function loadPullRequestComments(url: string, refresh = false) {
-  const cached = cache.get(url);
-  if (cached && !refresh && Date.now() - cached.at < FRESH_MS) return cached.value;
-  const value = load(url);
-  cache.set(url, { at: Date.now(), value });
-  value.catch(() => {
-    if (cache.get(url)?.value === value) cache.delete(url);
-  });
-  return value;
-}
+/** A pull request's comments, read again after 30 seconds or on request. */
+export const loadPullRequestComments = sharedReads(load);
 
 /** A change to the reader's pending review on GitHub. */
 export type PendingReviewChange =
@@ -287,11 +305,15 @@ const PENDING_COMMENTS_QUERY = `query($owner: String!, $repo: String!, $number: 
 }`;
 
 /** Runs a GraphQL query or mutation with gh; strings go as -f, numbers as -F. */
-async function graphQl(host: string, query: string, variables: Record<string, string | number>) {
+export async function graphQl(
+  host: string,
+  query: string,
+  variables: Record<string, string | number>,
+) {
   const args = ["graphql", "-f", `query=${query}`];
   for (const [name, value] of Object.entries(variables))
     args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
-  return graphQlAnswer.parse(JSON.parse(await gh(host, args))).data;
+  return graphQlAnswer.parse(JSON.parse(await ghApi(host, args))).data;
 }
 
 /** Each node of a GraphQL connection, read a page at a time. */
@@ -372,25 +394,22 @@ async function pendingComments(host: string, place: Record<string, string | numb
  * to its author until they submit it.
  */
 export async function changePendingReview(url: string, change: PendingReviewChange) {
-  const match = PULL_REQUEST.exec(url);
-  if (!match) throw new HostError("invalid-pull-request", "This is not a pull request URL.", 400);
-  const [, host, owner, repo, number] = match;
-  const place = { owner: owner!, repo: repo!, number: Number(number) };
-  const pull = pendingQuery.parse(await graphQl(host!, PENDING_QUERY, place)).repository
-    .pullRequest;
+  const { host, owner, repo, number } = pullRequestPlace(url);
+  const place = { owner, repo, number: Number(number) };
+  const pull = pendingQuery.parse(await graphQl(host, PENDING_QUERY, place)).repository.pullRequest;
   let review = pull.reviews.nodes.find((entry) => entry.viewerDidAuthor)?.id;
   if (change.kind === "submit" || change.kind === "discard") {
     if (!review)
       throw new HostError("no-pending-review", "You have no pending review on GitHub.", 409);
     if (change.kind === "discard")
       await graphQl(
-        host!,
+        host,
         "mutation($review: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $review}) { pullRequestReview { id } } }",
         { review },
       );
     else
       await graphQl(
-        host!,
+        host,
         "mutation($review: ID!, $event: PullRequestReviewEvent!, $body: String) { submitPullRequestReview(input: {pullRequestReviewId: $review, event: $event, body: $body}) { pullRequestReview { id } } }",
         {
           review,
@@ -399,8 +418,7 @@ export async function changePendingReview(url: string, change: PendingReviewChan
         },
       );
   } else {
-    const thread =
-      change.kind === "reply" ? await threadId(host!, place, change.thread) : undefined;
+    const thread = change.kind === "reply" ? await threadId(host, place, change.thread) : undefined;
     if (change.kind === "reply" && !thread)
       throw new HostError(
         "thread-not-found",
@@ -429,7 +447,7 @@ export async function changePendingReview(url: string, change: PendingReviewChan
         })
         .parse(
           await graphQl(
-            host!,
+            host,
             "mutation($pull: ID!, $commit: GitObjectID!) { addPullRequestReview(input: {pullRequestId: $pull, commitOID: $commit}) { pullRequestReview { id } } }",
             { pull: pull.id, commit: pull.headRefOid },
           ),
@@ -440,7 +458,7 @@ export async function changePendingReview(url: string, change: PendingReviewChan
     try {
       if (change.kind === "reply")
         await graphQl(
-          host!,
+          host,
           "mutation($review: ID!, $thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewId: $review, pullRequestReviewThreadId: $thread, body: $body}) { comment { id } } }",
           { review, thread: thread!, body: change.body },
         );
@@ -449,7 +467,7 @@ export async function changePendingReview(url: string, change: PendingReviewChan
         const start =
           change.startLine && change.startLine < change.line ? change.startLine : undefined;
         await graphQl(
-          host!,
+          host,
           "mutation($review: ID!, $path: String!, $line: Int!, $side: DiffSide!, $startLine: Int, $startSide: DiffSide, $body: String!) { addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: $side, startLine: $startLine, startSide: $startSide, body: $body}) { thread { id } } }",
           {
             review,
@@ -464,7 +482,7 @@ export async function changePendingReview(url: string, change: PendingReviewChan
     } catch (error) {
       if (started)
         await graphQl(
-          host!,
+          host,
           "mutation($review: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $review}) { pullRequestReview { id } } }",
           { review },
         ).catch(() => {});

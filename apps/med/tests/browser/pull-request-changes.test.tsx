@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
 import { setChromeMode } from "../../src/web/data/chrome";
-import type { Comparison, PullRequestComments } from "../../src/shared/protocol";
+import type { Comparison, LivePullRequest, PullRequestComments } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
 import "../../src/web/components/TitleRow.css";
@@ -72,6 +72,74 @@ let pullHead = tip;
 let firstBody = "Rename `after` to `next`.";
 /** GitHub's title of the pull request; a test makes it long. */
 let pullTitle = "Rename the export";
+/** The general comments; a test adds some. */
+let conversation: PullRequestComments["conversation"] = [];
+let reviews: PullRequestComments["reviews"] = [];
+/** What the Pull request tab asks the host, each path with its query. */
+let asked: string[] = [];
+let liveFails = "";
+const live = (): LivePullRequest => ({
+  url: pullUrl,
+  number: 7,
+  title: pullTitle,
+  author: "mira",
+  state: "open",
+  body: [
+    "Renames the export for $3 and $5. See [the test](src/alpha.ts:4), [gone](./no/such.ts), and [the notes](#notes).",
+    '<img width="300" alt="The chart" src="https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89">',
+    '<p align="center"><img alt="Centered" src="https://github.com/user-attachments/assets/aaaaaaaa-b4ac-46c3-8cb8-56fb574b7c89"></p>',
+    '<details>\n<summary>Shots</summary>\n<img alt="Folded" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">\nA caption under it.\n</details>',
+    '1. Before\n   <img alt="Listed" src="https://github.com/user-attachments/assets/cccccccc-b4ac-46c3-8cb8-56fb574b7c89">\n2. After',
+    '> <p><img alt="Quoted" src="https://github.com/user-attachments/assets/dddddddd-b4ac-46c3-8cb8-56fb574b7c89"></p>',
+    '<!-- Template: <img alt="Hidden" src="https://github.com/user-attachments/assets/eeeeeeee-b4ac-46c3-8cb8-56fb574b7c89"> -->',
+    'Inline `<img src="inline.png">` stays code.',
+    '```html\n<img src="kept.png">\n```',
+    "## Notes",
+  ].join("\n\n"),
+  base: "main",
+  head: "feature",
+  labels: [{ name: "bug", color: "d73a4a" }],
+  checks: [
+    {
+      id: "CI/test",
+      name: "test",
+      workflow: "CI",
+      outcome: "failed",
+      state: "FAILURE",
+      startedAt: "2026-11-01T09:40:00Z",
+      completedAt: "2026-11-01T09:42:49Z",
+      url: "https://github.com/acme/app/actions/runs/1/job/5",
+      job: 5,
+    },
+    {
+      id: "/deploy",
+      name: "deploy",
+      outcome: "failed",
+      state: "ERROR",
+      startedAt: "2026-11-01T09:40:00Z",
+      completedAt: null,
+    },
+    ...["a", "b", "c", "d", "e", "f"].map((name) => ({
+      id: `CI/${name}`,
+      name,
+      workflow: "CI",
+      outcome: "passed" as const,
+      state: "SUCCESS",
+      startedAt: "2026-11-01T09:40:00Z",
+      completedAt: "2026-11-01T09:40:42Z",
+    })),
+  ],
+  reviewers: [
+    { name: "sam", state: "CHANGES_REQUESTED" },
+    { name: "jordan", state: "REQUESTED" },
+  ],
+  merge: { mergeable: "MERGEABLE", status: "BLOCKED", decision: "CHANGES_REQUESTED", behindBy: 3 },
+  fetchedAt: Date.now(),
+});
+const failedLog = {
+  skipped: 40,
+  text: "##[group]Run tests\nbun test\n##[endgroup]\nexpected 3, got 1\n##[error]Process completed with exit code 1.\nCleaning up orphan processes",
+};
 const pullRequest = (): PullRequestComments => ({
   url: pullUrl,
   head: pullHead,
@@ -111,8 +179,8 @@ const pullRequest = (): PullRequestComments => ({
       comments: [comment(31, "jordan", "Was this off by one?")],
     },
   ],
-  conversation: [],
-  reviews: [],
+  conversation,
+  reviews,
 });
 const savedReview = {
   id: "pull",
@@ -167,11 +235,19 @@ const stream = (init: RequestInit | undefined, first?: string) =>
 const fetcher: typeof fetch = async (input, init) => {
   const url = new URL(String(input), "http://localhost");
   const repo = url.searchParams.get("repo") || "/test/repo";
+  if (url.pathname.startsWith("/api/reviews/pull/pull-request"))
+    asked.push(url.pathname.replace("/api/reviews/pull/", "") + url.search);
   switch (url.pathname) {
     case "/api/reviews/pull":
       return Response.json(savedReview);
     case "/api/reviews/pull/pull-request":
       return Response.json(pullRequest());
+    case "/api/reviews/pull/pull-request-live":
+      return liveFails
+        ? Response.json({ error: { code: "gh-failed", message: liveFails } }, { status: 502 })
+        : Response.json(live());
+    case "/api/reviews/pull/pull-request-log":
+      return Response.json(failedLog);
     case "/api/reviews/pull/targets/pull-target/review":
       return Response.json({
         ...reviewFor({ kind: "commit", commit: tip }, "/test/feature"),
@@ -212,7 +288,7 @@ const fetcher: typeof fetch = async (input, init) => {
     case "/api/browse/list":
       return Response.json({
         source: JSON.parse(String(init?.body)).source,
-        entries: [],
+        entries: [{ path: "src/alpha.ts", kind: "file" }],
         truncated: false,
       });
   }
@@ -228,6 +304,10 @@ beforeEach(async () => {
   pullHead = tip;
   firstBody = "Rename `after` to `next`.";
   pullTitle = "Rename the export";
+  conversation = [];
+  reviews = [];
+  asked = [];
+  liveFails = "";
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
   setChromeMode("quiet", false);
@@ -409,4 +489,186 @@ test("a pull request is the thread's title in the window's band, before its chec
   const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
   expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
   expect(files.textContent).not.toContain("Rename the export");
+});
+
+/** The thread's Pull request tab, once its review shows. */
+async function openPullTab() {
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
+  await page.getByRole("button", { name: /^Rename the export/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
+  await page.getByRole("tab", { name: "Pull request" }).click();
+  return page.getByRole("region", { name: "Pull request" });
+}
+
+test("the Pull request tab shows the pull request as GitHub has it", async () => {
+  conversation = [comment(2, "lee", "The flaky test failed again on main.")];
+  reviews = [
+    {
+      ...comment(3, "sam", "Please split the write path."),
+      createdAt: "2026-09-30T00:00:00Z",
+      state: "CHANGES_REQUESTED",
+    },
+  ];
+  // Nothing reads the live pull request until the reader opens the tab.
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  expect(asked.filter((path) => path.startsWith("pull-request-live"))).toEqual([]);
+  root?.unmount();
+  mount?.remove();
+
+  const view = await openPullTab();
+  await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
+  await expect.element(view.getByText("Pull request #7")).toBeVisible();
+  await expect.element(view.getByText("main ← feature")).toBeVisible();
+  await expect.element(view.getByText("bug", { exact: true })).toBeVisible();
+  await expect
+    .element(view.getByRole("link", { name: "Open on GitHub" }).first())
+    .toHaveAttribute("href", pullUrl);
+  // What stops the merge, and how far behind, in words.
+  const merge = view.getByRole("region", { name: "Merge" });
+  await expect.element(merge.getByText("Blocked: changes requested.")).toBeVisible();
+  await expect.element(merge.getByText("3 commits behind main.")).toBeVisible();
+  // Failures show; the six that passed fold behind one line, and open.
+  const checks = view.getByRole("region", { name: "Checks" });
+  await expect.element(checks.getByText("2 failed, 6 passed")).toBeVisible();
+  await expect.element(checks.getByText("2m 49s")).toBeVisible();
+  await expect.element(checks.getByRole("img", { name: "Error" })).toBeVisible();
+  expect(checks.getByText("a", { exact: true }).query()).toBeNull();
+  await checks.getByRole("button", { name: "Show 6 passed" }).click();
+  await expect.element(checks.getByText("a", { exact: true })).toBeVisible();
+  await expect
+    .element(view.getByRole("region", { name: "Reviewers" }).getByText("Changes requested"))
+    .toBeVisible();
+  // GitHub's <img> tag shows through the host; in code, it stays text.
+  await expect
+    .poll(() => view.getByRole("img", { name: "The chart" }).element().getAttribute("src"))
+    .toBe(
+      `/api/reviews/pull/pull-request-image?src=${encodeURIComponent("https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89")}`,
+    );
+  await expect.element(view.getByText('<img src="kept.png">')).toBeVisible();
+  await expect.element(view.getByText('<img src="inline.png">')).toBeVisible();
+  // So does one that HTML holds, which Markdown alone would drop, where it stands.
+  for (const name of ["Centered", "Folded", "Listed", "Quoted"])
+    await expect.element(view.getByRole("img", { name })).toBeVisible();
+  const listed = view.getByRole("img", { name: "Listed" }).element();
+  expect(listed.closest("ol")?.querySelectorAll("li")).toHaveLength(2);
+  expect(view.getByRole("img", { name: "Quoted" }).element().closest("blockquote")).not.toBeNull();
+  // The words beside an image stay.
+  await expect.element(view.getByText(/A caption under it\./)).toBeVisible();
+  // GitHub shows no HTML comment, and a dollar is not math here.
+  expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
+  await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();
+  // Reviews and comments in time order, with the threads below them.
+  const talk = view.getByRole("region", { name: "Conversation" });
+  await expect
+    .poll(() => talk.element().textContent)
+    .toMatch(/Please split the write path\..*The flaky test failed again/s);
+});
+
+test("the description's links: a file opens, a dead one is text, and a heading's stays in the pane", async () => {
+  const view = await openPullTab();
+  await expect.element(view.getByText("the notes")).toBeVisible();
+  // A file link is a real link: reachable by keyboard, and resolved in the index.
+  const file = view.getByRole("link", { name: "Open src/alpha.ts at L4" });
+  await expect.element(file).toBeVisible();
+  await expect.element(view.getByText(/, gone, and/)).toBeVisible();
+  expect(view.getByRole("link", { name: "gone" }).query()).toBeNull();
+  const address = location.href;
+  const scroll = vi.spyOn(Element.prototype, "scrollTo");
+  await view.getByText("the notes").click();
+  expect(location.href).toBe(address);
+  expect(scroll.mock.contexts).toContain(
+    view.getByRole("heading", { name: "Notes" }).element().closest(".med-md-scroll"),
+  );
+  scroll.mockRestore();
+  await file.click();
+  await expect.element(page.getByRole("tab", { name: /alpha\.ts/ })).toBeVisible();
+});
+
+test("a failed job's log comes only when asked for, and opens at its error", async () => {
+  const view = await openPullTab();
+  await expect.element(view.getByRole("region", { name: "Checks" })).toBeVisible();
+  expect(asked.filter((path) => path.startsWith("pull-request-log"))).toEqual([]);
+  await view.getByRole("button", { name: "Show the failed log of test" }).click();
+  const log = view.getByLabelText("Failed log of test");
+  await expect.element(log).toBeVisible();
+  await expect.element(view.getByText("The last 5 lines of 45")).toBeVisible();
+  expect(asked).toContain("pull-request-log?job=5");
+  // GitHub's marks are gone, and an error stands out.
+  expect(log.element().textContent).toContain("Run tests");
+  expect(log.element().textContent).not.toContain("##[");
+  expect(log.element().querySelector("[data-log-error]")?.textContent).toBe(
+    "Process completed with exit code 1.",
+  );
+  // Closing and opening it again does not ask GitHub again.
+  await view.getByRole("button", { name: "Hide the failed log of test" }).click();
+  await view.getByRole("button", { name: "Show the failed log of test" }).click();
+  await expect.element(log).toBeVisible();
+  expect(asked.filter((path) => path.startsWith("pull-request-log"))).toHaveLength(1);
+  // A check with no GitHub Actions job has no log to ask for.
+  expect(view.getByRole("button", { name: "Show the failed log of deploy" }).query()).toBeNull();
+});
+
+test("Refresh and the ⌘K command read GitHub past the host's cache", async () => {
+  const view = await openPullTab();
+  await expect.element(view.getByRole("region", { name: "Checks" })).toBeVisible();
+  await expect.poll(() => view.element().textContent).toContain("Read just now");
+  asked = [];
+  await view.getByRole("button", { name: "Read the pull request again" }).click();
+  await expect
+    .poll(() => asked)
+    .toEqual(expect.arrayContaining(["pull-request?refresh=1", "pull-request-live?refresh=1"]));
+  await expect.poll(() => view.element().textContent).toContain("Read just now");
+  asked = [];
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await userEvent.keyboard("Read the pull request again");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .poll(() => asked)
+    .toEqual(expect.arrayContaining(["pull-request?refresh=1", "pull-request-live?refresh=1"]));
+});
+
+test("a thread in the tab links to its line in the diff, and says why when it cannot", async () => {
+  const view = await openPullTab();
+  await expect.element(view.getByRole("region", { name: "Code comments" })).toBeVisible();
+  // The reader's own comment is in their pending review, which only they see.
+  const pending = view.getByRole("region", { name: "Your pending review" });
+  await expect.element(pending.getByText("1 comment, only you see them")).toBeVisible();
+  await expect.poll(() => pending.element().textContent).toContain("And in the docs.");
+  const code = view.getByRole("region", { name: "Code comments" });
+  await expect.poll(() => code.element().textContent).toContain("Outdated on GitHub.");
+  expect(code.getByRole("button", { name: "Show gamma.ts:R4 in the diff" }).query()).toBeNull();
+  await pending.getByRole("button", { name: "Show alpha.ts:R1 in the diff" }).click();
+  // The tab gives way to the diff, with the thread on screen at its line.
+  await expect.poll(() => view.query()).toBeNull();
+  await expect
+    .poll(() =>
+      [...shown()!.querySelectorAll<HTMLElement>('[data-pull-request-thread="11"]')].some(
+        (card) => {
+          const { top, bottom } = card.getBoundingClientRect();
+          return card.checkVisibility() && top >= 0 && bottom <= innerHeight;
+        },
+      ),
+    )
+    .toBe(true);
+});
+
+test("a failed read says why and leaves the way to GitHub open", async () => {
+  liveFails = "HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)";
+  const view = await openPullTab();
+  await expect
+    .poll(() => view.getByRole("alert").query()?.textContent)
+    .toContain("502 Bad Gateway");
+  await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
+  await expect
+    .element(view.getByRole("link", { name: "Open on GitHub" }).first())
+    .toHaveAttribute("href", pullUrl);
+  // Refresh tries again, and the page fills in.
+  liveFails = "";
+  await view.getByRole("button", { name: "Read the pull request again" }).click();
+  await expect.element(view.getByRole("region", { name: "Checks" })).toBeVisible();
+  expect(view.getByRole("alert").query()).toBeNull();
 });

@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
-import { tokens } from "../../theme.stylex";
+import { useCallback, useState } from "react";
+import { tokens, ui } from "../../theme.stylex";
 import { ChangeTotals } from "../ChangeTotals";
 import { CommitCard } from "../CommitCard";
 import { DiffStat } from "../DiffStat";
@@ -11,6 +11,7 @@ import {
   PanelContent,
   PullRequestThreadCard,
 } from "../PullRequestComments";
+import PullRequestView from "../PullRequestView";
 import type { CodexFinding } from "../../../shared/codex-review";
 import type { Note, PullRequestThread } from "../../../shared/protocol";
 import { Diff } from "./CodeSection";
@@ -19,11 +20,65 @@ import {
   codexReview,
   commitDetails,
   commits,
+  failedLogSample,
+  livePulls,
   notes,
   pullRequest,
   relativeTimePatch,
 } from "./fixtures";
 import { Section, Specimen } from "./Specimen";
+
+const samplePlacement = {
+  inline: new Set([pullRequest.threads[0]!.id]),
+  reasons: new Map([[pullRequest.threads[1]!.id, "Outdated on GitHub."]]),
+};
+const sampleComments = {
+  data: pullRequest,
+  error: null,
+  loading: false,
+  threadsRevision: 0,
+  refresh() {},
+  async write() {},
+};
+const sampleLog = async () => failedLogSample;
+
+/** The real tab on sample data, in each state of a pull request. */
+function LivePull() {
+  const [state, setState] = useState("Failing CI");
+  const load = useCallback(async () => livePulls[state]!, [state]);
+  return (
+    <>
+      <div role="group" aria-label="Pull request state" {...stylex.props(styles.states)}>
+        {Object.keys(livePulls).map((name) => (
+          <button
+            key={name}
+            type="button"
+            aria-pressed={state === name}
+            {...stylex.props(ui.button, state === name && styles.chosen)}
+            onClick={() => setState(name)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <div {...stylex.props(styles.liveStage)}>
+        <PullRequestView
+          key={state}
+          reviewId="sample"
+          url={livePulls[state]!.url}
+          title={livePulls[state]!.title}
+          active
+          comments={sampleComments}
+          placement={samplePlacement}
+          load={load}
+          loadLog={sampleLog}
+          refreshes={0}
+          onShowThread={() => {}}
+        />
+      </div>
+    </>
+  );
+}
 
 export function ReviewSection() {
   const [now] = useState(Date.now);
@@ -121,6 +176,13 @@ export function ReviewSection() {
         </div>
       </Specimen>
       <Specimen
+        title="Pull request tab"
+        note="A real pull request, as GitHub has it: state, merge, checks with a failed job's log on request, reviewers, then the description and the discussion. Narrow the page to move the status above the description."
+        padded={false}
+      >
+        <LivePull />
+      </Specimen>
+      <Specimen
         title="Codex finding"
         note="From codex review or /review in the review's checkout. Read-only, with its priority."
         span="half"
@@ -170,6 +232,9 @@ export function ReviewSection() {
 }
 
 const styles = stylex.create({
+  states: { display: "flex", flexWrap: "wrap", gap: 4, padding: 8 },
+  chosen: { backgroundColor: tokens.fill },
+  liveStage: { display: "flex", height: 640, minWidth: 0 },
   row: { display: "flex", alignItems: "center", gap: 16 },
   panel: { width: "min(460px, 100%)" },
   cards: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16 },
