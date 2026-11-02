@@ -337,7 +337,7 @@ async function mountApp(
       { headers: { "content-type": "text/event-stream" } },
     );
   };
-  const savedNotes: Note[] = [];
+  const savedNotes: Note[] = options.savedReview ? [...(options.notes ?? [])] : [];
   // As the host: the saved review's comments that no message sent are drafts too.
   const sentNotes = new Set<string>();
   const inboxState = (): AgentInboxState => ({
@@ -3087,39 +3087,104 @@ describe("review guide", () => {
 });
 
 describe("review guide comments", () => {
-  test("Cancel closes the box that Reply opens on the agent's comment, also after a second Reply", async () => {
-    await page.viewport(1280, 800);
-    await mountApp({
-      savedReview: true,
-      guide: {
-        summary: "Renames the export.",
-        segments: [
+  const guide = {
+    summary: "Renames the export.",
+    segments: [
+      {
+        title: "Rename alpha",
+        files: ["src/alpha.ts"],
+        comments: [
           {
-            title: "Rename alpha",
-            files: ["src/alpha.ts"],
-            comments: [
-              {
-                file: "src/alpha.ts",
-                line: 1,
-                side: "new",
-                kind: "risk",
-                body: "Callers still import the old name.",
-              },
-            ],
+            file: "src/alpha.ts",
+            line: 1,
+            side: "new" as const,
+            kind: "risk" as const,
+            body: "Callers still import the old name.",
           },
         ],
       },
-    });
+    ],
+  };
+
+  test("Reply opens a box under the agent's comment, and Cancel closes it", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({ savedReview: true, guide });
     await userEvent.keyboard("j");
     await expect.element(page.getByText("Callers still import the old name.")).toBeVisible();
-    const reply = page.getByRole("button", { name: "Reply with a note" });
-    const box = page.getByPlaceholder("Add a comment…");
-    await userEvent.click(reply);
+    const card = page.getByRole("article", { name: /comment at R1, read-only/ });
+    await userEvent.click(card.getByRole("button", { name: "Reply" }));
+    const box = card.getByPlaceholder("Reply…");
     await expect.element(box).toBeVisible();
-    await userEvent.click(reply);
-    expect(box.elements()).toHaveLength(1);
-    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(card.getByRole("button", { name: "Cancel" }));
     await expect.element(box).not.toBeInTheDocument();
+  });
+
+  test("a reply shows under the agent's comment, in its card, and keeps what it answers", async () => {
+    await page.viewport(1280, 800);
+    const { savedNotes } = await mountApp({ savedReview: true, guide });
+    await userEvent.keyboard("j");
+    const card = page.getByRole("article", { name: /comment at R1, read-only/ });
+    await userEvent.click(card.getByRole("button", { name: "Reply" }));
+    await card.getByPlaceholder("Reply…").fill("The callers moved in this change.");
+    await userEvent.click(card.getByRole("button", { name: "Reply", exact: true }).last());
+    const reply = card.getByRole("article", { name: /^Your reply to/ });
+    await expect.element(reply.getByText("The callers moved in this change.")).toBeVisible();
+    // The agent's words first, then the reply, in one card.
+    const words = card.element().textContent!;
+    expect(words.indexOf("Callers still import")).toBeLessThan(words.indexOf("The callers moved"));
+    expect(document.querySelectorAll("[data-comment-card]")).toHaveLength(2);
+    expect(savedNotes).toMatchObject([
+      { line: 1, guideComment: { id: "s1-1", text: "Callers still import the old name." } },
+    ]);
+  });
+
+  test("a note on the agent's lines follows the agent's comment", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide,
+      notes: [
+        {
+          id: "older",
+          path: "src/alpha.ts",
+          side: "new",
+          line: 1,
+          text: "A note that names no comment.",
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+          resolution: "active",
+        },
+      ],
+    });
+    await userEvent.keyboard("j");
+    await expect.element(page.getByText("A note that names no comment.")).toBeVisible();
+    const cards = [...document.querySelectorAll("[data-comment-card]")];
+    expect(cards[0]!.textContent).toContain("Callers still import");
+    expect(cards[1]!.textContent).toContain("A note that names no comment.");
+  });
+
+  test("a reply to a comment that a later guide replaced says what it answers", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      guide,
+      notes: [
+        {
+          id: "reply",
+          path: "src/alpha.ts",
+          side: "new",
+          line: 1,
+          text: "That was fixed.",
+          guideComment: { id: "s1-1", author: "Claude", text: "An earlier comment." },
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+          resolution: "active",
+        },
+      ],
+    });
+    await userEvent.keyboard("j");
+    const card = page.getByRole("article", { name: "Comment thread at line R1" });
+    await expect.element(card.getByText("Claude: An earlier comment.")).toBeVisible();
   });
 });
 

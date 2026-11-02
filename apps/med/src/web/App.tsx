@@ -65,7 +65,7 @@ import {
   useManifestChanges,
 } from "./data/dependencies";
 import { GENERATED_LABELS } from "../shared/generated";
-import { NoteCard, NoteComposer, sameTarget, type NoteTarget } from "./components/NoteCard";
+import { NoteCard, NoteComposer, type NoteTarget } from "./components/NoteCard";
 import { Icon, type IconName } from "./components/Icon";
 import "./pierre-theme";
 import { hydratePartialDiff } from "@pierre/diffs";
@@ -127,7 +127,6 @@ import {
   PullRequestThreadCard,
   AgentReplyContext,
   CodexFindingCard,
-  GuideNoteCard,
   PullRequestPanel,
   type AgentReplyTarget,
   type FindingPlacement,
@@ -206,7 +205,14 @@ import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-
 import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import { CommitHeader, GuideFooter, SegmentHeader } from "./components/guide/GuideHeader";
-import { resolveGuide, type GuideNote, type GuideScope, type GuideSection } from "./data/guide";
+import { GuideThread } from "./components/guide/GuideThread";
+import {
+  answersGuideNote,
+  resolveGuide,
+  type GuideNote,
+  type GuideScope,
+  type GuideSection,
+} from "./data/guide";
 import { useViewed, viewKey } from "./data/viewed";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
@@ -1954,20 +1960,6 @@ export function App({
     }),
     [replyAgent, leadIcon, guideAt],
   );
-  // Reply to an agent's comment with your own note on the same lines.
-  const replyToGuideNote = useCallback((note: GuideNote) => {
-    if (!onLines(note)) return;
-    setShowNotes(true);
-    setSelection(null);
-    const target: NoteTarget = {
-      path: note.path,
-      side: note.side,
-      line: note.line,
-      ...(note.endLine ? { endLine: note.endLine } : {}),
-    };
-    // A box that is open on these lines stays as it is.
-    setDraft((current) => (sameTarget(current, target) ? current : target));
-  }, []);
   // A file to show once its segment's stream mounts.
   const [pendingGuideFile, setPendingGuideFile] = useState<string | null>(null);
   const openGuide = useCallback(
@@ -2308,6 +2300,9 @@ export function App({
   const items = useMemo<CodeViewItem<Annotation>[]>(() => {
     return streamFiles.flatMap((file) => {
       if (!file.metadata || mediaType(file.path)?.kind === "image") return [];
+      const guideNotes = (guideNotesByFile?.get(file.id) ?? [])
+        .filter(onLines)
+        .filter((note) => shownLine(file.metadata, note));
       // GitHub threads come first: they are the review so far.
       const annotations: DiffLineAnnotation<Annotation>[] = showNotes
         ? [
@@ -2325,26 +2320,26 @@ export function App({
                 metadata: { finding },
               }),
             ),
+            // The agent's comments come before the reader's: a note can answer
+            // one, and then shows in its card (GuideThread).
+            ...guideNotes.map((note): DiffLineAnnotation<Annotation> => ({
+              side: note.side === "old" ? "deletions" : "additions",
+              lineNumber: noteLine(file.metadata, note),
+              metadata: { guide: note },
+            })),
             ...notes
               .filter(
                 (note) =>
                   note.path === file.path &&
                   !note.parentId &&
                   note.resolution !== "orphaned" &&
-                  note.resolution !== "stale",
+                  note.resolution !== "stale" &&
+                  !guideNotes.some((guide) => answersGuideNote(note, guide)),
               )
               .map((note): DiffLineAnnotation<Annotation> => ({
                 side: note.side === "old" ? "deletions" : "additions",
                 lineNumber: noteLine(file.metadata, note),
                 metadata: { note },
-              })),
-            ...(guideNotesByFile?.get(file.id) ?? [])
-              .filter(onLines)
-              .filter((note) => shownLine(file.metadata, note))
-              .map((note): DiffLineAnnotation<Annotation> => ({
-                side: note.side === "old" ? "deletions" : "additions",
-                lineNumber: noteLine(file.metadata, note),
-                metadata: { guide: note },
               })),
           ]
         : [];
@@ -5002,12 +4997,12 @@ export function App({
           run={annotation.metadata.finding.run}
         />
       ) : annotation.metadata?.guide ? (
-        <GuideNoteCard
+        <GuideThread
           note={annotation.metadata.guide}
-          author={guideAgent.name}
-          mark={guideAgent.mark}
-          createdAt={guideAgent.at}
-          onReply={() => replyToGuideNote(annotation.metadata!.guide!)}
+          agent={guideAgent}
+          notes={notes}
+          onMutate={(mutation) => controller.mutateNote(mutation)}
+          onOpenLink={openCommentLink}
         />
       ) : annotation.metadata?.note ? (
         <NoteCard
@@ -5017,7 +5012,7 @@ export function App({
           onOpenLink={openCommentLink}
         />
       ) : null,
-    [pendingDraft, reviewId, notes, controller, guideAgent, replyToGuideNote, openCommentLink],
+    [pendingDraft, reviewId, notes, controller, guideAgent, openCommentLink],
   );
   // The Guide's segment or commit heads the stream and ends it with the next part.
   const guideStray = useMemo(() => {
@@ -5212,8 +5207,9 @@ export function App({
           viewed={guideSection.fileIds.filter((id) => viewedIds.has(id)).length}
           agent={guideAgent}
           stray={guideStray}
+          notes={notes}
           onMarkAll={(value) => setFilesViewed(guideSection.fileIds, value)}
-          onReply={replyToGuideNote}
+          onMutate={(mutation) => controller.mutateNote(mutation)}
           onOpenLink={openGuideLink}
         />
       );
@@ -5243,8 +5239,9 @@ export function App({
     viewedIds,
     guideAgent,
     guideStray,
+    notes,
     setFilesViewed,
-    replyToGuideNote,
+    controller,
     openGuideLink,
     guideCommit,
     commitIndex,

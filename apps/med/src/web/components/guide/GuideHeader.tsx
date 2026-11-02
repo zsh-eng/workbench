@@ -1,13 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type ReactNode } from "react";
-import type { CommitDetails } from "../../../shared/protocol";
+import type { CommitDetails, Note, NoteMutation } from "../../../shared/protocol";
 import type { SavedCommit } from "../../../shared/review-guide";
 import { AREA_LABELS, type GuideNote, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { GuideNoteCard } from "../PullRequestComments";
 import { GuideMarkdown } from "./GuideMarkdown";
+import { GuideThread } from "./GuideThread";
 import { Progress } from "./Progress";
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -28,8 +28,9 @@ export function SegmentHeader({
   viewed,
   agent,
   stray,
+  notes,
   onMarkAll,
-  onReply,
+  onMutate,
   onOpenLink,
 }: {
   section: GuideSection;
@@ -39,8 +40,10 @@ export function SegmentHeader({
   agent: Agent;
   /** The segment's comments on lines that the diff does not show. */
   stray: readonly GuideNote[];
+  /** The notes that can answer them. */
+  notes: readonly Note[];
   onMarkAll(viewed: boolean): void;
-  onReply(note: GuideNote): void;
+  onMutate(mutation: NoteMutation): Promise<void>;
   onOpenLink(href: string): void;
 }) {
   const files = section.fileIds.length;
@@ -121,13 +124,13 @@ export function SegmentHeader({
                   : `${note.path.split("/").at(-1)}:${note.line}`}
                 {note.endLine ? `–${note.endLine}` : ""}
               </span>
-              <GuideNoteCard
+              <GuideThread
                 note={note}
-                author={agent.name}
-                mark={agent.mark}
-                createdAt={agent.at}
+                agent={agent}
+                notes={notes}
                 embedded
-                onReply={note.line === undefined ? undefined : () => onReply(note)}
+                onMutate={onMutate}
+                onOpenLink={onOpenLink}
               />
             </div>
           ))}

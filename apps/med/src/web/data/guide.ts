@@ -1,4 +1,5 @@
 import { matchGuidePaths, namesOneFile } from "../../shared/guide-paths";
+import type { Note } from "../../shared/protocol";
 import type { ParsedReviewFile } from "../../shared/review";
 import type { GuideArea, GuideCommentKind, SavedGuide } from "../../shared/review-guide";
 
@@ -46,6 +47,13 @@ export interface ResolvedGuide {
   /** Comments on files that are not in this comparison. */
   unplaced: number;
 }
+
+/** Whether a note answers this comment. A later guide can give its ID to
+ * another comment, so the words must match too. */
+export const answersGuideNote = (note: Note, guide: GuideNote) =>
+  note.path === guide.path &&
+  note.guideComment?.id === guide.id &&
+  note.guideComment.text === guide.body;
 
 /** What the Guide tab shows: the Overview, one segment, or one commit. */
 export type GuideScope =

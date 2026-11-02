@@ -319,6 +319,15 @@ export function apiErrorMessage(body: unknown): string | undefined {
   const parsed = apiErrorSchema.safeParse(body);
   return parsed.success ? parsed.data.error.message : undefined;
 }
+/** The agent's comment in the review's guide that a note answers. The note
+ * keeps its words: a later guide can replace the comment, and the agent reads
+ * them with the reply. */
+export const guideCommentRefSchema = z.object({
+  id: z.string().min(1).max(32),
+  author: z.string().min(1).max(120),
+  text: z.string().min(1).max(4000),
+});
+export type GuideCommentRef = z.infer<typeof guideCommentRefSchema>;
 export const noteInputSchema = z.object({
   path: z.string().min(1),
   side: z.enum(["old", "new"]),
@@ -326,6 +335,7 @@ export const noteInputSchema = z.object({
   endLine: z.number().int().positive().optional(),
   text: z.string().min(1).max(16384),
   parentId: z.string().optional(),
+  guideComment: guideCommentRefSchema.optional(),
 });
 export type NoteInput = z.infer<typeof noteInputSchema>;
 export interface Note extends NoteInput {

@@ -687,8 +687,9 @@ request split into small ones.
   you have not finished, and **All files** shows the version's whole diff.
 - **A segment.** Its title, summary, and only its files, with the agent's
   comments on their lines. Comments on whole files, and on lines the diff does
-  not show, follow the summary. Reply to a comment on lines with your own note
-  from its **Reply** button.
+  not show, follow the summary. **Reply** on a comment on lines adds your note
+  under it, in its card, on a line down the card's side. The agent gets your
+  reply with the words that it answers.
 - **Viewed.** Check **Viewed** in a file's header, or press `v` for the file at
   the top. A viewed file folds and stays viewed until it changes. `⇧V` marks
   the segment viewed and opens the next one. The rail at the left shows your

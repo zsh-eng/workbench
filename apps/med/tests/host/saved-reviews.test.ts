@@ -119,6 +119,23 @@ describe("saved review storage boundaries", () => {
     expect((await store.get(saved.id)).commentCount).toBe(3);
   });
 
+  it("a reply to the agent's comment keeps its words, on disk and for the agent", async () => {
+    const store = new SavedReviewStore(directory);
+    const saved = await store.create(input, async (target) => capture(target.repo));
+    await store.mutate(saved.id, saved.targets[0].id, 0, {
+      ...note(),
+      note: {
+        ...note("The callers moved.").note,
+        guideComment: { id: "s1-1", author: "Claude", text: "Check the callers.\nAll of them." },
+      },
+    });
+    const feedback = await new SavedReviewStore(directory).feedback(saved.id);
+    expect(feedback.count).toBe(1);
+    expect(feedback.text).toContain(
+      "Reply to: Claude's comment in the guide\n> Check the callers.\n> All of them.",
+    );
+  });
+
   it("exports captured renamed diff hunks with both sides and exact selected ranges", async () => {
     const store = new SavedReviewStore(directory);
     const saved = await store.create(input, async () => {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { generatedMarkSchema } from "../../shared/generated";
-import { apiErrorMessage, comparisonSchema } from "../../shared/protocol";
+import { apiErrorMessage, comparisonSchema, guideCommentRefSchema } from "../../shared/protocol";
 import { savedCommitSchema } from "../../shared/review-guide";
 import type { RouteContract } from "../../shared/routes";
 import { browserFetch, liveStream } from "./live";
@@ -194,6 +194,7 @@ export const notesSchema = z.object({
       endLine: z.number().int().positive().optional(),
       text: z.string(),
       parentId: z.string().optional(),
+      guideComment: guideCommentRefSchema.optional(),
       createdAt: z.string(),
       updatedAt: z.string(),
       resolution: z.enum(["active", "stale", "orphaned"]).optional(),

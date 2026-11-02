@@ -2264,6 +2264,11 @@ export class SavedReviewStore {
             `Comment ID: ${note.id}`,
           );
           if (parentNumber) appendText(`Reply to: User Comment ${parentNumber}`);
+          if (note.guideComment)
+            appendText(
+              `Reply to: ${note.guideComment.author}'s comment in the guide`,
+              ...note.guideComment.text.split("\n").map((line) => `> ${line}`),
+            );
           if (file.previousPath) appendText(`Rename: ${file.previousPath} → ${file.path}`);
           const diff = parsed.find((item) => item.name === note.path);
           const covered = diff && patchCoversSelection(diff, note);

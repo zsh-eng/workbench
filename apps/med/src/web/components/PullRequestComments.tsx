@@ -980,7 +980,7 @@ export const guideNoteText = (note: GuideNote, author: string) =>
   }:\n\n${note.body}`;
 
 /** An agent's comment from the review's guide. It is read-only; Reply starts
- * your own note on the same lines. */
+ * your own note on the same lines, which shows under it (GuideThread). */
 export function GuideNoteCard({
   note,
   author,
@@ -989,6 +989,7 @@ export function GuideNoteCard({
   now: fixedNow,
   embedded = false,
   onReply,
+  children,
 }: {
   note: GuideNote;
   author: string;
@@ -997,6 +998,8 @@ export function GuideNoteCard({
   now?: number;
   embedded?: boolean;
   onReply?(): void;
+  /** The replies, in this card. */
+  children?: ReactNode;
 }) {
   const [now] = useState(() => fixedNow ?? Date.now());
   return (
@@ -1016,12 +1019,12 @@ export function GuideNoteCard({
             {onReply && (
               <button
                 type="button"
-                title="Reply with a note"
-                aria-label="Reply with a note"
+                title="Reply"
+                aria-label="Reply"
                 {...stylex.props(ui.button, ui.iconButton, styles.tool)}
                 onClick={onReply}
               >
-                <Icon name="note" size={13} />
+                <Icon name="reply" size={14} />
               </button>
             )}
             <AddToReplyButton
@@ -1032,6 +1035,7 @@ export function GuideNoteCard({
           </>
         }
       />
+      {children}
     </article>
   );
 }

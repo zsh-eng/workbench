@@ -1,8 +1,8 @@
 import { ShortcutKeys } from "./ShortcutKeys";
 import * as stylex from "@stylexjs/stylex";
-import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CommentRefsContext, FileRefsContext } from "./FileRefs";
-import type { Note, NoteInput, NoteMutation } from "../../shared/protocol";
+import type { GuideCommentRef, Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import { onGitHub, PendingReviewContext } from "../data/pending-review";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
@@ -16,19 +16,6 @@ export interface NoteTarget {
   side: "old" | "new";
   line: number;
   endLine?: number;
-}
-
-/** Two targets on the same lines. A reply opens a new target object for the
- * same lines, so targets compare by place, not by object. */
-export function sameTarget(a: NoteTarget | null | undefined, b: NoteTarget | null | undefined) {
-  return (
-    !!a &&
-    !!b &&
-    a.path === b.path &&
-    a.side === b.side &&
-    a.line === b.line &&
-    (a.endLine ?? a.line) === (b.endLine ?? b.line)
-  );
 }
 
 function lineLabel(target: NoteTarget) {
@@ -195,6 +182,7 @@ export function CommentEditor({
 export function NoteComposer({
   target,
   parentId,
+  guideComment,
   initialText,
   initialError,
   closeOnSave,
@@ -203,26 +191,82 @@ export function NoteComposer({
 }: {
   target: NoteTarget;
   parentId?: string;
+  /** The agent's comment that this answers. */
+  guideComment?: GuideCommentRef;
   initialText?: string;
   initialError?: string;
   closeOnSave?: boolean;
   onSave(note: NoteInput): Promise<void>;
   onCancel(): void;
 }) {
+  const reply = !!parentId || !!guideComment;
   return (
-    <div data-comment-card {...stylex.props(styles.card, !!parentId && styles.embedded)}>
+    <div data-comment-card {...stylex.props(styles.card, reply && styles.embedded)}>
       <CommentEditor
-        label={parentId ? "Reply text" : "Review note text"}
-        formLabel={parentId ? "Reply" : `Local comment on ${lineLabel(target)}`}
-        submitLabel={parentId ? "Reply" : "Save note"}
+        label={reply ? "Reply text" : "Review note text"}
+        formLabel={reply ? "Reply" : `Local comment on ${lineLabel(target)}`}
+        submitLabel={reply ? "Reply" : "Save note"}
         initialText={initialText}
         initialError={initialError}
         closeOnSave={closeOnSave}
-        onSave={(text) => onSave({ ...target, text, ...(parentId ? { parentId } : {}) })}
+        onSave={(text) =>
+          onSave({
+            ...target,
+            text,
+            ...(parentId ? { parentId } : {}),
+            ...(guideComment ? { guideComment } : {}),
+          })
+        }
         onCancel={onCancel}
       />
     </div>
   );
+}
+
+/** Marks what sits under it as a reply: a line down its side. */
+export function ReplyRail({ children }: { children: ReactNode }) {
+  return <div {...stylex.props(styles.reply)}>{children}</div>;
+}
+
+/** A reply box. A save that fails brings the text back, unless the reader has
+ * opened or closed the box since. */
+export function useReplyBox(onMutate: (mutation: NoteMutation) => Promise<void>) {
+  const [replying, setReplying] = useState(false);
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const session = useRef(0);
+  return {
+    replying,
+    open() {
+      session.current++;
+      setText("");
+      setError("");
+      setReplying(true);
+    },
+    composer: {
+      initialText: text,
+      initialError: error,
+      closeOnSave: false,
+      async onSave(reply: NoteInput) {
+        const current = session.current;
+        setReplying(false);
+        try {
+          await onMutate({ type: "add", note: reply });
+        } catch (cause) {
+          if (session.current === current) {
+            setText(reply.text);
+            setError(cause instanceof Error ? cause.message : "Could not save reply");
+            setReplying(true);
+          }
+          throw cause;
+        }
+      },
+      onCancel() {
+        session.current++;
+        setReplying(false);
+      },
+    },
+  };
 }
 
 /** A comment on a passage of prose, such as the Notes. */
@@ -415,6 +459,7 @@ export function NoteCard({
   note,
   replies,
   label,
+  embedded = false,
   onMutate,
   onOpenLink,
 }: {
@@ -422,35 +467,47 @@ export function NoteCard({
   replies: Note[];
   /** The thread's name, with no replies: a comment on a passage of prose. */
   label?: string;
+  /** Under the agent's comment that it answers, in that comment's card. */
+  embedded?: boolean;
   onMutate(mutation: NoteMutation): Promise<void>;
   /** A link to a file in a comment's Markdown, such as src/summary.ts:5. */
   onOpenLink?(href: string): void;
 }) {
-  const [replying, setReplying] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [replyError, setReplyError] = useState("");
-  const replySession = useRef(0);
+  const box = useReplyBox(onMutate);
+  const answered = note.guideComment;
   return (
     <article
       data-comment-card
-      aria-label={label ?? `Comment thread at ${lineLabel(note)}`}
-      {...stylex.props(styles.card)}
+      aria-label={
+        label ??
+        (embedded
+          ? `Your reply to ${answered?.author ?? "the agent"}`
+          : `Comment thread at ${lineLabel(note)}`)
+      }
+      {...stylex.props(embedded ? styles.reply : styles.card)}
     >
+      {embedded ? (
+        <p {...stylex.props(styles.replier)}>
+          <Icon name="reply" size={12} />
+          You
+        </p>
+      ) : (
+        answered && (
+          // The agent's comment does not show here, as under a later guide.
+          <blockquote title={answered.text} {...stylex.props(styles.quote)}>
+            <Icon name="reply" size={12} />
+            <span {...stylex.props(styles.quoteText)}>
+              {answered.author}: {answered.text}
+            </span>
+          </blockquote>
+        )
+      )}
       <ThreadMessage
         key={note.id}
         note={note}
         onMutate={onMutate}
         onOpenLink={onOpenLink}
-        onReply={
-          replying || label
-            ? undefined
-            : () => {
-                replySession.current++;
-                setReplyText("");
-                setReplyError("");
-                setReplying(true);
-              }
-        }
+        onReply={box.replying || label || embedded ? undefined : box.open}
       />
       {replies.map((reply) => (
         <ThreadMessage
@@ -461,32 +518,10 @@ export function NoteCard({
           onOpenLink={onOpenLink}
         />
       ))}
-      {replying && (
-        <NoteComposer
-          target={note}
-          parentId={note.id}
-          initialText={replyText}
-          initialError={replyError}
-          closeOnSave={false}
-          onSave={async (reply) => {
-            const session = replySession.current;
-            setReplying(false);
-            try {
-              await onMutate({ type: "add", note: reply });
-            } catch (error) {
-              if (replySession.current === session) {
-                setReplyText(reply.text);
-                setReplyError(error instanceof Error ? error.message : "Could not save reply");
-                setReplying(true);
-              }
-              throw error;
-            }
-          }}
-          onCancel={() => {
-            replySession.current++;
-            setReplying(false);
-          }}
-        />
+      {box.replying && (
+        <ReplyRail>
+          <NoteComposer target={note} parentId={note.id} {...box.composer} />
+        </ReplyRail>
       )}
     </article>
   );
@@ -514,13 +549,9 @@ const styles = stylex.create({
   },
   embedded: {
     borderWidth: 0,
-    borderTopWidth: 1,
     borderRadius: 0,
     margin: 0,
-    marginTop: 6,
-    paddingInline: 0,
-    paddingTop: 10,
-    paddingBottom: 0,
+    padding: 0,
     backgroundColor: "transparent",
   },
   // Use identical text geometry for drafts, edits, and saved comments.
@@ -582,12 +613,41 @@ const styles = stylex.create({
     backgroundColor: tokens.text,
     opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
   },
+  // A reply hangs from what it answers, on a line down its side.
   reply: {
-    marginTop: 6,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    marginTop: 8,
+    marginBottom: 4,
+    marginInlineStart: 6,
+    paddingInlineStart: 12,
+    borderInlineStartWidth: 2,
+    borderInlineStartStyle: "solid",
+    borderInlineStartColor: tokens.lineStrong,
+  },
+  replier: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    marginBlock: 0,
+    marginBottom: 2,
+    color: tokens.muted,
+    fontSize: 12,
+    fontWeight: 550,
+  },
+  quote: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    marginBlock: 0,
+    marginBottom: 6,
+    color: tokens.muted,
+    fontSize: 12,
+  },
+  quoteText: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   stale: { color: tokens.warning, fontSize: 11, lineHeight: 1.6, marginTop: 0, marginBottom: 6 },
   error: { color: tokens.red, fontSize: 11, marginBlock: 5 },
