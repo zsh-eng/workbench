@@ -2,7 +2,8 @@
 
 `med web` starts one background server and opens Med in your browser. The
 server keeps running when you close the terminal or the browser. `med status`
-shows it, `med stop` stops it, and `med serve` runs it in the foreground.
+shows it and its sources (`--json` for scripts), `med stop` stops it, and
+`med serve` runs it in the foreground.
 The agents that Med starts keep working while the server stops or restarts,
 and the next server takes them up. An agent stops a minute after its
 thread's tab closes, once its turn ends. `med agents` lists the agents, and

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { getStateDirectory } from "../host/runtime/connection";
 import { SourceCatalogue } from "../host/vault/sources";
 import { VaultIndex } from "../host/vault/index";
+import { UsageError } from "./exit-status";
 
 export const sourcesHelp = `Usage: med sources add <repo|vault> <directory> [--index]
        med sources list
@@ -41,7 +42,7 @@ export async function runSourcesCommand(command: string, args: string[], print =
       : (action === "index" && parts.length === 2) ||
         (action === "backlinks" && parts.length === 3);
   if (!valid || (values.index && !(command === "sources" && action === "add" && first === "vault")))
-    throw new Error(sourcesHelp);
+    throw new UsageError(sourcesHelp);
   const stateDir = getStateDirectory(values["state-dir"]);
   if (process.argv[2] !== "__index-worker") {
     let owner: number | undefined;

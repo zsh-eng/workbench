@@ -86,3 +86,15 @@ it("prints the user guide's index and then each of its pages, in the index's ord
   const usage = await med("docs", "usage");
   expect(usage.stdout).toBe(`${[index, ...texts].map((text) => text.trimEnd()).join("\n\n")}\n`);
 });
+
+it("says that no server runs: status exits 0, and a command that needs the server exits 4", async () => {
+  const status = await med("status");
+  expect(status).toMatchObject({
+    code: 0,
+    stdout: expect.stringMatching(/^Med is not running\. Start it: med web/),
+  });
+  expect(await med("status", "--json")).toMatchObject({ code: 0, stdout: '{"running":false}\n' });
+  const repos = await med("review", "repos");
+  expect(repos.code).toBe(4);
+  expect(repos.stderr).toContain("No valid med connection was found");
+});

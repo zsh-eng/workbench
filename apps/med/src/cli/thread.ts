@@ -11,6 +11,7 @@ import {
 } from "../shared/threads";
 import { request } from "./review";
 import { runThreadSessionsCommand } from "./thread-sessions";
+import { UsageError } from "./exit-status";
 
 export const threadHelp = `Usage: med thread list [--history] [--json]
        med thread open <id> | --key <key>
@@ -81,7 +82,7 @@ export async function parseThreadCommand(
   const [action, id, ...rest] = positionals;
   if (values.help || !action) return { kind: "help", port, stateDir };
   if (!actions.includes(action as (typeof actions)[number]) || rest.length)
-    throw new Error(threadHelp);
+    throw new UsageError(threadHelp);
   const kind = action as (typeof actions)[number];
   const command: ThreadCommand = { kind, port, stateDir };
   if (kind === "list") {

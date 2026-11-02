@@ -130,7 +130,12 @@ async function stopServer() {
   await run(binary, ["service", "uninstall"], home).catch(() => {});
   await run(binary, ["stop"], home).catch(() => {});
   for (let attempt = 0; attempt < 50; attempt++) {
-    const status = JSON.parse(await run(binary, ["status"], home).catch(() => "{}"));
+    const status = JSON.parse(
+      await run(binary, ["status", "--json"], home)
+        // A Med from before status --json prints JSON without the option.
+        .catch(() => run(binary, ["status"], home))
+        .catch(() => "{}"),
+    );
     if (status.running === false) return;
     await Bun.sleep(200);
   }

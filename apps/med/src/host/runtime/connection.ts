@@ -3,6 +3,7 @@ import { chmod, link, mkdir, readdir, readFile, rename, rm, writeFile } from "no
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { HostError } from "./errors";
 import { shellWord } from "./shell-word";
 
 /** "med" on a phone keypad. Vite's preview server takes 4173, Med's old default. */
@@ -215,10 +216,12 @@ export async function readConnection(
       if ((error as NodeJS.ErrnoException).code === "ESRCH") throw error;
     }
   } catch {
-    throw new Error(
+    throw new HostError(
+      "no-server",
       own(stateDir)
-        ? `No valid med connection was found on port ${port}. Start med-diff with your repositories, or select the same --port and --state-dir as the running host.`
-        : `No valid med connection was found on port ${port} in ${stateDir}. Start that Med with med web --state-dir ${shellWord(stateDir)}, or select the same --port and --state-dir as the running host.`,
+        ? `No valid med connection was found on port ${port}. Start Med with med web, or select the same --port and --state-dir as the running server.`
+        : `No valid med connection was found on port ${port} in ${stateDir}. Start that Med with med web --state-dir ${shellWord(stateDir)}, or select the same --port and --state-dir as the running server.`,
+      503,
     );
   }
   return connection;

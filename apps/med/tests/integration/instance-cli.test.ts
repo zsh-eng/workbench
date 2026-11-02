@@ -76,7 +76,19 @@ it("gives another state folder its own port, and names it in the advice it print
   await writeFile(join(repo, "a.txt"), "a\n");
   await med("add", repo);
   expect(await readdir(join(state, "connections"))).toEqual([`${port}.json`]);
-  expect(JSON.parse((await med("status")).stdout)).toMatchObject({ service: "med" });
+  // status prints a summary, and --json the server's state, for scripts.
+  const json = JSON.parse((await med("status", "--json")).stdout);
+  expect(json).toMatchObject({ service: "med", sources: [{ kind: "repo", name: "app" }] });
+  expect((await med("status")).stdout).toBe(
+    `Med is running at http://127.0.0.1:${port} (process ${json.pid}).\nState folder: ${state}\nSources: 1 repository and 0 vaults.\n`,
+  );
+  expect((await med("list")).stdout).toBe(`${json.sources[0].id}  app  ${repo}\n`);
+  expect(JSON.parse((await med("list", "--json")).stdout)).toEqual(json.sources);
+  // A source or a review that does not exist exits with status 3.
+  await expect(med("remove", "nothing-here")).rejects.toMatchObject({ code: 3 });
+  await expect(
+    med("review", "update", "--key", "no-such-task", "--title", "Other words"),
+  ).rejects.toMatchObject({ code: 3 });
 
   // The advice of a hand-off reaches this server when run as printed.
   const created = await med(
@@ -97,6 +109,31 @@ it("gives another state folder its own port, and names it in the advice it print
   expect(created.stderr).toContain(
     `Hand off each later round of this task with the same key: med review create --key feat/isolated ${flags} …`,
   );
+  // --json gives the review, its version, its link, and the advice in one object.
+  const second = await med(
+    "review",
+    "create",
+    "--json",
+    "--key",
+    "json/task",
+    "--title",
+    "Isolated JSON",
+    "--repo",
+    repo,
+    "--working",
+    "--no-pr",
+  );
+  const handed = JSON.parse(second.stdout);
+  expect(handed).toEqual({
+    id: expect.stringMatching(/^r_[a-z0-9]+$/),
+    key: "json/task",
+    version: 1,
+    url: `http://127.0.0.1:${port}/review/${handed.id}`,
+    title: "Isolated JSON",
+    notes: [],
+    advice: [],
+  });
+  expect(second.stderr).toBe("");
   await expect(med("review", "repos", "--repo", root)).rejects.toMatchObject({
     stderr: expect.stringContaining(`run: med add ${flags} ${root}`),
   });

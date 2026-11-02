@@ -75,6 +75,16 @@ The command prints a link to paste into the final message:
 [Review changes here](http://127.0.0.1:6330/review/r_example)
 ```
 
+With `--json`, the command prints one JSON object instead: the review's `id`,
+`key`, `version`, `url`, and `title`; `layer` when it joined a stack; `wait`,
+the command to run when Med expects `med review wait`; `notes`, the lines that
+it prints after the link; and `advice`, the lines that it otherwise writes to
+standard error. The `url` has no access token.
+
+A failed command exits with 2 for wrong usage, 3 when the review, thread, or
+source that it names does not exist, and 4 when no Med server runs for it.
+Other failures exit with 1.
+
 Open Med windows add the review to their workspace lists, marked new. `--open`
 also shows it in the window that the user used last, or opens the link in the
 browser when no window is open. Use `--open` when the user asked to see the

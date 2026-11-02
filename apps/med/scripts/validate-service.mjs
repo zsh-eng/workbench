@@ -86,10 +86,10 @@ try {
   ]);
   const added = JSON.parse(addedText).source;
   assert.match(url, /\/sources#token=/);
-  const initial = JSON.parse(await run("status"));
+  const initial = JSON.parse(await run("status", "--json"));
   assert.equal(initial.sources.length, 1);
   await run("add", repo);
-  assert.equal(JSON.parse(await run("status")).pid, initial.pid);
+  assert.equal(JSON.parse(await run("status", "--json")).pid, initial.pid);
   const conn = JSON.parse(await readFile(join(state, "connections", `${port}.json`), "utf8"));
   const api = async (action, body = {}) => {
     const r = await fetch(`${conn.origin}/api/service/${action}`, {
@@ -289,9 +289,9 @@ try {
   await browser.close();
   browser = undefined;
   await run("stop");
-  assert.equal(JSON.parse(await run("status")).running, false);
+  assert.equal(JSON.parse(await run("status", "--json")).running, false);
   await run("web", "--no-open");
-  assert.equal(JSON.parse(await run("status")).sources.length, 1);
+  assert.equal(JSON.parse(await run("status", "--json")).sources.length, 1);
   await run("stop");
   assert.deepEqual(errors, []);
   // No gh call went past the stand-in.

@@ -33,7 +33,7 @@ const run = async (...args) =>
       timeout: 30000,
     })
   ).stdout.trim();
-const status = async () => JSON.parse(await run(join(app, "dist/cli.js"), "status"));
+const status = async () => JSON.parse(await run(join(app, "dist/cli.js"), "status", "--json"));
 const until = async (condition, label) => {
   for (let i = 0; i < 150; i++) {
     if (await condition()) return;

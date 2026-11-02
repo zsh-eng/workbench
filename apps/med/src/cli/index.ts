@@ -82,7 +82,8 @@ Options:
   -h, --help          Print this help
 
 med help <command>, or med <command> --help, shows the options of a command.
-Foreground server and older modes, such as med <folder>: med serve --help`;
+Foreground server and older modes, such as med <folder>: med serve --help
+Exit status: 0 done, 1 failed, 2 wrong usage, 3 not found, 4 no server.`;
 
 async function isFolder(path: string) {
   return (await stat(path).catch(() => undefined))?.isDirectory() ?? false;

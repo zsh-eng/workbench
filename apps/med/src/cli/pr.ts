@@ -19,6 +19,7 @@ import {
 } from "../shared/saved-review";
 import { openBrowser, readStandardInput, request, showReview } from "./review";
 import { remoteFor } from "./review-parts";
+import { UsageError } from "./exit-status";
 
 const exec = promisify(execFile);
 
@@ -77,7 +78,7 @@ export function parsePullRequestCommand(args: string[]): PullRequestCommand {
     open,
   });
   if (!action || ["help", "-h", "--help"].includes(action)) return help();
-  if (action !== "checkout") throw new Error(pullRequestHelp);
+  if (action !== "checkout") throw new UsageError(pullRequestHelp);
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index]!;
     const [name, inline] = arg.startsWith("--") ? arg.split(/=(.*)/s, 2) : [arg];

@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { listHolders, stopHolder } from "../host/held-agent";
 import { getStateDirectory } from "../host/runtime/connection";
+import { UsageError } from "./exit-status";
 
 export const agentsHelp = `Usage: med agents                      List the agents that keep working without the server
        med agents stop <session> | --all  Stop one agent, or all of them
@@ -53,7 +54,7 @@ export async function runAgentsCommand(args: string[]) {
     );
     return;
   }
-  if (positionals.length) throw new Error(agentsHelp);
+  if (positionals.length) throw new UsageError(agentsHelp);
   if (values.json) {
     console.log(JSON.stringify(holders, null, 2));
     return;

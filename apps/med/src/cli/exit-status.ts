@@ -1,3 +1,5 @@
+import { HostError } from "../host/runtime/errors";
+
 /** A command that Med cannot run as written: it exits with status 2. */
 export class UsageError extends Error {
   constructor(message: string) {
@@ -6,12 +8,25 @@ export class UsageError extends Error {
   }
 }
 
-/** The exit status for a failed command: 2 for wrong usage, else 1. */
+/** A review, thread, or source that the command names does not exist: status 3. */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+/**
+ * The exit status of a failed command: 2 for wrong usage, 3 for something
+ * that does not exist, 4 when no Med server runs for the command, else 1.
+ */
 export function exitStatus(error: unknown) {
   if (error instanceof UsageError) return 2;
   // parseArgs rejects an unknown option or a missing value with these codes.
   const code = (error as { code?: unknown } | undefined)?.code;
   if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS_")) return 2;
+  if (error instanceof NotFoundError) return 3;
+  if (error instanceof HostError && error.code === "no-server") return 4;
   return 1;
 }
 

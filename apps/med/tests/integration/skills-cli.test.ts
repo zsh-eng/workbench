@@ -122,7 +122,7 @@ it("says when an installed skill is out of date, and refreshes only the installe
   await mkdir(join(home, ".claude", "skills", "med"), { recursive: true });
   await writeFile(claude, skill.replace("# Hand off changes in Med", "# Hand off changes"));
   await writeFile(join(home, ".claude", "skills", "med", "guide.md"), guide);
-  const status = await med("status");
+  const status = await med("status", "--json");
   expect(status.stdout).toBe('{"running":false}\n');
   expect(status.stderr).toBe(
     `The Med skill in ~/.claude/skills/med differs from the one that Med ${version} installs. Refresh it: med skills update\n`,

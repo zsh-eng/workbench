@@ -319,8 +319,10 @@ export class ServiceManager {
       .list()
       .filter((s) => s.id === input || s.path === resolve(input) || basename(s.path) === input);
     if (matches.length !== 1)
-      throw new Error(
+      throw new HostError(
+        matches.length ? "source-ambiguous" : "source-not-found",
         `Choose an unambiguous source ID or path from ${medCommand({ port: this.port, stateDir: this.stateDir }, "list")}.`,
+        matches.length ? 409 : 404,
       );
     return matches[0]!;
   }

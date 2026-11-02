@@ -47,6 +47,8 @@ import {
   titleProblem,
   usualBase,
 } from "./review-checks";
+import { NotFoundError, UsageError } from "./exit-status";
+import { HostError } from "../host/runtime/errors";
 
 export const reviewManifestSchema = savedReviewCreateSchema.strict();
 export type ReviewManifest = z.infer<typeof reviewManifestSchema>;
@@ -106,7 +108,8 @@ The create command prints a Markdown review link without an access token.`;
  */
 export function takePaths(args: readonly string[]) {
   const { args: rest, words: paths } = takeWords(args, "--paths");
-  if (paths && !paths.length) throw new Error("Name one or more files or folders after --paths.");
+  if (paths && !paths.length)
+    throw new UsageError("Name one or more files or folders after --paths.");
   return { args: rest, paths };
 }
 
@@ -210,6 +213,8 @@ export interface ReviewCommand {
   titleGiven?: boolean;
   /** Med started this session in a thread, and sends it the user's messages. */
   owned?: boolean;
+  /** create --json: print one JSON object with the review and the advice. */
+  json?: boolean;
   /** The Claude Code session that runs the command, when Med recorded it
    * (`detected`), or why Med did not (`note`). */
   caller?: { detected?: string; note?: string; left?: "subagent" | "unknown" };
@@ -291,8 +296,8 @@ export async function parseReviewCommand(
   const { args, paths } = takePaths(declared.args);
   const generated = declared.words;
   if (generated && !generated.length)
-    throw new Error("Name one or more files, folders, or globs after --generated.");
-  if (stacked.words && set.words) throw new Error("Use --stack or --set, not both.");
+    throw new UsageError("Name one or more files, folders, or globs after --generated.");
+  if (stacked.words && set.words) throw new UsageError("Use --stack or --set, not both.");
   const partItems = stacked.words ?? set.words;
   const shape: PartShape = stacked.words ? "stack" : "set";
   const { values, positionals } = parseArgs({
@@ -343,18 +348,20 @@ export async function parseReviewCommand(
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = await clientPort(stateDir, values.port, environment);
-  const common = { port, stateDir, caller };
+  const common = { port, stateDir, caller, ...(values.json && { json: true }) };
   if (values.help) return { ...common, kind: "help" };
   if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
-    throw new Error(reviewHelp);
+    throw new UsageError(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
-    throw new Error("Use --paths with create or update.");
-  if (values.json && positionals[0] !== "repos") throw new Error("Use --json with repos.");
+    throw new UsageError("Use --paths with create or update.");
+  if (values.json && positionals[0] !== "repos" && positionals[0] !== "create")
+    throw new UsageError("Use --json with create or repos.");
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
-    throw new Error("Use --generated with create, or with update --paths.");
+    throw new UsageError("Use --generated with create, or with update --paths.");
   if (positionals[0] === "wait") {
     if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
-    if (!values.key) throw new Error("Use wait with --key, the key the review was created with.");
+    if (!values.key)
+      throw new UsageError("Use wait with --key, the key the review was created with.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const session = (await sessions())[0];
@@ -376,7 +383,8 @@ export async function parseReviewCommand(
     return { ...common, kind: "wait", wait: { key: key.data, session } };
   }
   if (positionals[0] === "update") {
-    if (!values.key) throw new Error("Use update with --key, the key the review was created with.");
+    if (!values.key)
+      throw new UsageError("Use update with --key, the key the review was created with.");
     if (
       !values.pr &&
       !values.title &&
@@ -384,7 +392,7 @@ export async function parseReviewCommand(
       values.guide === undefined &&
       !paths
     )
-      throw new Error("Supply --pr, --title, --guide, --session, or --paths.");
+      throw new UsageError("Supply --pr, --title, --guide, --session, or --paths.");
     const key = reviewKeySchema.safeParse(values.key);
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     const guide = values.guide === undefined ? undefined : await readGuide(values.guide);
@@ -426,7 +434,9 @@ export async function parseReviewCommand(
       values.key !== undefined ||
       targetOptions.some((value) => value !== undefined && value !== values.repo)
     )
-      throw new Error("The repos command accepts only --repo, --json, --port, and --state-dir.");
+      throw new UsageError(
+        "The repos command accepts only --repo, --json, --port, and --state-dir.",
+      );
     return {
       ...common,
       kind: "repos",
@@ -437,7 +447,7 @@ export async function parseReviewCommand(
     };
   }
   if (partItems) {
-    if (positionals[0] !== "create") throw new Error(`Use --${shape} with create.`);
+    if (positionals[0] !== "create") throw new UsageError(`Use --${shape} with create.`);
     if (
       values.manifest !== undefined ||
       values.head !== undefined ||
@@ -452,7 +462,7 @@ export async function parseReviewCommand(
         `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, --group, or --paths.`,
       );
     if (partItems.length < 2)
-      throw new Error(`Name two or more pull requests or branches after --${shape}.`);
+      throw new UsageError(`Name two or more pull requests or branches after --${shape}.`);
     const repo = await repositoryRoot(
       values.repo ??
         (environment.MED_THREAD_REPO || undefined) ??
@@ -462,7 +472,7 @@ export async function parseReviewCommand(
     let guides: (ReviewGuide | null)[] | undefined;
     if (values.guide !== undefined) {
       if (values.guide === "-" && values.brief === "-")
-        throw new Error("Only one of --brief and --guide can read standard input.");
+        throw new UsageError("Only one of --brief and --guide can read standard input.");
       guides = await readGuides(values.guide, partItems.length);
     }
     let brief: string | undefined;
@@ -496,7 +506,7 @@ export async function parseReviewCommand(
   }
   let input: unknown;
   if (values["merge-base"] && values["no-merge-base"])
-    throw new Error("Use --merge-base or --no-merge-base, not both.");
+    throw new UsageError("Use --merge-base or --no-merge-base, not both.");
   if (values.manifest !== undefined) {
     if (targetOptions.some((value) => value !== undefined) || paths || values["no-merge-base"])
       throw new Error(
@@ -519,10 +529,10 @@ export async function parseReviewCommand(
     }
   } else {
     values.repo ??= environment.MED_THREAD_REPO || undefined;
-    if (!values.repo) throw new Error("Use --repo, or supply --manifest.");
+    if (!values.repo) throw new UsageError("Use --repo, or supply --manifest.");
     // A folder inside the repository names the repository.
     values.repo = await repositoryRoot(values.repo);
-    if (values.pr && values["no-pr"]) throw new Error("Use --pr without --no-pr.");
+    if (values.pr && values["no-pr"]) throw new UsageError("Use --pr without --no-pr.");
     if (
       values.working &&
       (values.base !== undefined ||
@@ -530,7 +540,7 @@ export async function parseReviewCommand(
         values["merge-base"] ||
         values["no-merge-base"])
     )
-      throw new Error("Use --working without --base, --head, or --merge-base.");
+      throw new UsageError("Use --working without --base, --head, or --merge-base.");
     if (!values.working && (!values.base || !values.head))
       throw new Error(
         "Supply both --base and --head, or use --working to capture current changes.",
@@ -566,12 +576,14 @@ export async function parseReviewCommand(
     input = { ...(input as object), brief: await readBrief(values.brief) };
   if (values.guide !== undefined) {
     if (values.guide === "-" && values.brief === "-")
-      throw new Error("Only one of --brief and --guide can read standard input.");
+      throw new UsageError("Only one of --brief and --guide can read standard input.");
     input = { ...(input as object), guide: await readGuide(values.guide) };
   }
   if (values.key !== undefined) input = { ...(input as object), key: values.key };
   if ((values.group === undefined) !== (values.attempt === undefined))
-    throw new Error("Use --group and --attempt together, such as --group week-view --attempt 2.");
+    throw new UsageError(
+      "Use --group and --attempt together, such as --group week-view --attempt 2.",
+    );
   if (values.group !== undefined)
     input = {
       ...(input as object),
@@ -647,8 +659,10 @@ export async function request(
       redirect: "error",
     });
   } catch {
-    throw new Error(
-      `Could not connect to med at ${connection.origin}. Start med-diff with your repositories and retry.`,
+    throw new HostError(
+      "no-server",
+      `Could not connect to med at ${connection.origin}. Start Med with med web and retry.`,
+      503,
     );
   }
   const data: unknown = await response.json().catch(() => null);
@@ -657,7 +671,8 @@ export async function request(
     const detail = message
       ? message.replaceAll(connection.token, "[credential]")
       : `HTTP ${response.status}`;
-    throw new Error(`Med request failed: ${detail}`);
+    const text = `Med request failed: ${detail}`;
+    throw response.status === 404 ? new NotFoundError(text) : new Error(text);
   }
   return data;
 }
@@ -746,6 +761,11 @@ export async function runReviewCommand(
     repositories,
     instance,
   );
+  // --json: one JSON object on standard output, which holds the lines that
+  // Med prints (notes) and the advice that it writes to standard error.
+  const report = command.json ? { notes: [] as string[], advice: [] as string[] } : undefined;
+  const say = report ? (text: string) => void report.notes.push(text) : print;
+  const tell = report ? (text: string) => void report.advice.push(text) : warn;
   const notes: string[] = [];
   let defaultKey: string | undefined;
   if (command.manifest) {
@@ -798,14 +818,15 @@ export async function runReviewCommand(
     options.openUrl,
     iteration > 1 || !!joined,
   );
-  print(`[Review changes here](${connection.origin}/review/${parsed.data.id})`);
+  const url = `${connection.origin}/review/${parsed.data.id}`;
+  if (!report) print(`[Review changes here](${url})`);
   if (joined)
-    print(
+    say(
       `Added layer ${joined.layer} of ${joined.of} to the stack "${parsed.data.title ?? ""}": its base is the head of the layer below. Ungroup it in Med to make it a thread of its own.`,
     );
-  else if (iteration > 1) print(`Added iteration ${iteration} to the review with this key.`);
+  else if (iteration > 1) say(`Added iteration ${iteration} to the review with this key.`);
   if (manifest.parts)
-    print(
+    say(
       `${manifest.parts.items.length} ${manifest.parts.shape === "stack" ? "layers, bottom first" : "parts"}: ${manifest.parts.items.map((part) => part.title).join(" · ")}`,
     );
   if (manifest.guide)
@@ -815,15 +836,15 @@ export async function runReviewCommand(
       manifest.guide,
       manifest.key,
       fetcher,
-      print,
+      say,
       instance,
     );
   const key = manifest.key;
   const update = (option: string) =>
     medCommand(instance, `review update --key ${shellWord(key ?? parsed.data.id)}`, option);
-  for (const note of notes) warn(note);
+  for (const note of notes) tell(note);
   if (defaultKey)
-    warn(
+    tell(
       `Key: ${defaultKey}, from the branch. Hand off each later round of this task with the same key: ${medCommand(instance, `review create --key ${shellWord(defaultKey)}`, "…")}`,
     );
   if (!manifest.parts) {
@@ -834,20 +855,42 @@ export async function runReviewCommand(
         ? undefined
         : "is not set";
     if (problem)
-      warn(
+      tell(
         `Title check: the title ${problem}. Use 2–4 words that name what the task builds, without the repository's name or words such as "review" and "changes": ${update('--title "<2-4 words>"')}`,
       );
     const scope = await sharedCheckout(connection, parsed.data.id, manifest, fetcher, options.home);
     if (scope)
-      warn(
+      tell(
         `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
       );
   }
   // A Claude Code session outside a Med thread gets the user's comments by
   // waiting. A subagent has no Session pane to send them from.
-  if (key && !command.owned && command.caller?.detected)
-    warn(
-      `To get the user's comments, run this as a background command: ${medCommand(instance, `review wait --key ${shellWord(key)}`)}. Its output is the user's message.`,
+  const wait =
+    key && !command.owned && command.caller?.detected
+      ? medCommand(instance, `review wait --key ${shellWord(key)}`)
+      : undefined;
+  if (wait)
+    tell(
+      `To get the user's comments, run this as a background command: ${wait}. Its output is the user's message.`,
+    );
+  if (report)
+    print(
+      JSON.stringify(
+        {
+          id: parsed.data.id,
+          ...(key && { key }),
+          version: iteration,
+          url,
+          title: parsed.data.title ?? manifest.title,
+          ...(joined && { layer: joined }),
+          ...(wait && { wait }),
+          notes: report.notes,
+          advice: report.advice,
+        },
+        null,
+        2,
+      ),
     );
 }
 
@@ -1340,10 +1383,7 @@ async function waitForMessage(
         return;
       }
     } catch (error) {
-      const lost =
-        error instanceof Error &&
-        (error.message.startsWith("Could not connect") ||
-          error.message.startsWith("No valid med connection"));
+      const lost = error instanceof HostError && error.code === "no-server";
       if (!lost || ++failures > Math.ceil(300_000 / retryDelay)) throw error;
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
       connection = await readConnection(command.stateDir, command.port).catch(() => undefined);

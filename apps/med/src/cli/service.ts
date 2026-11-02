@@ -20,7 +20,7 @@ import { ownCommand } from "../host/thread-agents";
 import { HostError } from "../host/runtime/errors";
 import { ServiceManager } from "../host/service/manager";
 import { selfCommand } from "../host/service/self";
-import { UsageError } from "./exit-status";
+import { NotFoundError, UsageError } from "./exit-status";
 import { serviceLabel } from "./login-service";
 
 const exec = promisify(execFile);
@@ -46,9 +46,10 @@ A folder with an .obsidian folder is a vault, and any other is a repository;
 --type chooses. Med then watches the folder. --wait waits until the first
 index of a vault is ready.
 ${OPTIONS}`,
-  list: `Usage: med list
+  list: `Usage: med list [--json]
 
-Prints the registered sources.
+Prints the registered sources: each one's ID, name, and folder, and a vault's
+index. --json prints them as JSON.
 ${OPTIONS}`,
   remove: `Usage: med remove <source-id|path|name>
 
@@ -61,10 +62,11 @@ Indexes a vault again now; without <source>, every vault. Med watches its
 vaults, so you need this only after changes that it did not see. --wait waits
 until the index is ready.
 ${OPTIONS}`,
-  status: `Usage: med status
+  status: `Usage: med status [--json]
 
-Prints whether the server runs, and its sources. It also says when the
-installed agent skill is out of date.
+Prints whether the server runs, where, and its sources. It also says when the
+installed agent skill is out of date. --json prints the server's state as
+JSON, or {"running":false}.
 ${OPTIONS}`,
   stop: `Usage: med stop
 
@@ -91,6 +93,68 @@ med sources and med vault change registrations without a server:
 med sources --help.`,
 };
 
+/** A source as the server's status lists it. */
+interface ListedSource {
+  id: string;
+  kind: "repo" | "vault";
+  name: string;
+  path: string;
+  index?: { state: string; error?: string; result?: { files?: number } };
+  watching?: boolean;
+}
+
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** A vault's index, in words: "ready, 6,707 files", "indexing", or the error. */
+function indexText(index: ListedSource["index"]) {
+  if (!index) return "not indexed yet";
+  if (index.state === "error") return `index failed: ${index.error ?? "no reason given"}`;
+  const files = index.result?.files;
+  return index.state === "ready" && files !== undefined
+    ? `ready, ${files.toLocaleString("en")} ${files === 1 ? "file" : "files"}`
+    : index.state;
+}
+
+/** med status: where the server runs, and its sources. */
+function statusText(
+  connection: RunningConnection,
+  status: { pid?: number; sources?: ListedSource[] },
+  stateDir: string,
+) {
+  const sources = status.sources ?? [];
+  const repos = sources.filter((source) => source.kind === "repo").length;
+  const vaults = sources.filter((source) => source.kind === "vault");
+  return [
+    `Med is running at ${connection.origin}${status.pid ? ` (process ${status.pid})` : ""}.`,
+    ...(resolve(stateDir) === defaultStateDirectory() ? [] : [`State folder: ${stateDir}`]),
+    `Sources: ${count(repos, "repository", "repositories")} and ${count(vaults.length, "vault", "vaults")}.`,
+    ...vaults.map(
+      (vault) =>
+        `  ${vault.name}: ${indexText(vault.index)}${vault.watching === false ? "; not watched, so Med checks it every 60 s" : ""}`,
+    ),
+  ].join("\n");
+}
+
+/** med list: one line per source, with the ID that remove and index take. */
+function sourcesText(sources: ListedSource[], instance: { port: number; stateDir: string }) {
+  if (!sources.length)
+    return `No sources are registered. Register one: ${medCommand(instance, "add", "<path>")}`;
+  const width = (pick: (source: ListedSource) => string) =>
+    Math.max(...sources.map((source) => pick(source).length));
+  const id = width((source) => source.id);
+  const name = width((source) => source.name);
+  return sources
+    .map((source) =>
+      [
+        source.id.padEnd(id),
+        source.name.padEnd(name),
+        source.path,
+        ...(source.kind === "vault" ? [`(${indexText(source.index)})`] : []),
+      ].join("  "),
+    )
+    .join("\n");
+}
+
 async function rpc(connection: RunningConnection, action: string, body: object = {}) {
   const response = await fetch(`${connection.origin}/api/service/${action}`, {
     method: "POST",
@@ -99,10 +163,11 @@ async function rpc(connection: RunningConnection, action: string, body: object =
     signal: AbortSignal.timeout(10_000),
   });
   const data = (await response.json()) as any;
-  if (!response.ok)
-    throw new Error(
-      data.error?.message ?? data.message ?? `Server request failed (${response.status}).`,
-    );
+  if (!response.ok) {
+    const message =
+      data.error?.message ?? data.message ?? `Server request failed (${response.status}).`;
+    throw response.status === 404 ? new NotFoundError(message) : new Error(message);
+  }
   return data;
 }
 async function connected(stateDir: string, port: number) {
@@ -296,6 +361,7 @@ export async function runServiceCommand(command: string, args: string[]) {
       type: { type: "string" },
       wait: { type: "boolean" },
       open: { type: "boolean", default: true },
+      json: { type: "boolean" },
       help: { type: "boolean" },
     },
   });
@@ -338,12 +404,21 @@ export async function runServiceCommand(command: string, args: string[]) {
   };
   if (command === "status" || command === "stop") {
     const connection = await connected(stateDir, port);
+    // status prints a summary; --json, and stop, print JSON as before.
+    const readable = command === "status" && !values.json;
     if (!connection) {
-      console.log(JSON.stringify({ running: false }));
+      console.log(
+        readable
+          ? `Med is not running. Start it: ${medCommand(instance, "web")}`
+          : JSON.stringify({ running: false }),
+      );
       if (command === "status") await skillNotice();
       return;
     }
-    console.log(JSON.stringify(await rpc(connection, command), null, 2));
+    const result = await rpc(connection, command);
+    console.log(
+      readable ? statusText(connection, result, stateDir) : JSON.stringify(result, null, 2),
+    );
     if (command === "status") await skillNotice();
     if (command === "stop") {
       for (let i = 0; i < 100; i++) {
@@ -382,7 +457,8 @@ export async function runServiceCommand(command: string, args: string[]) {
     return;
   }
   if (command === "list") {
-    console.log(JSON.stringify((await rpc(connection, "status")).sources, null, 2));
+    const { sources } = await rpc(connection, "status");
+    console.log(values.json ? JSON.stringify(sources, null, 2) : sourcesText(sources, instance));
     return;
   }
   const result = await rpc(

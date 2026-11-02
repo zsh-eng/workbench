@@ -31,6 +31,7 @@ import {
   takeWords,
   type ReviewManifest,
 } from "./review";
+import { UsageError } from "./exit-status";
 
 // `med thread find` and `med thread adopt`: an agent finds a Claude Code or
 // Codex session of any age and makes it a Med thread. The thread list finds
@@ -299,7 +300,7 @@ export async function runThreadSessionsCommand(
   const [action, ...rest] = positionals;
   if (values.help || !action) return print(threadSessionsHelp);
   if (action !== "find" && action !== "adopt" && action !== "show")
-    throw new Error(threadSessionsHelp);
+    throw new UsageError(threadSessionsHelp);
   const showOptions = [
     taken.paths,
     declared.words,
