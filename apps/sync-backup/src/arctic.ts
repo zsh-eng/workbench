@@ -208,7 +208,9 @@ export type LinkResult = {
     | "in history"
     | "not in library"
     | "invalid"
-    | "failed";
+    | "failed"
+    /** The run stopped first: its deadline, or a signal. */
+    | "not tried";
   /** The new link's title: the page's own, or its host, as the phone's own add writes. */
   title?: string;
   /** What happened to its text. */
@@ -289,9 +291,26 @@ async function refusal(error: unknown): Promise<string> {
   return body.error ?? error.message;
 }
 
+/** A page that takes longer to read fails; Unwall's own waits take about a minute. */
+export const READ_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** `promise`, or `signal`'s reason if it aborts first. */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal) {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 /**
  * Saves links (`save`) or fetches the text of links in the library (`text`),
- * one at a time, and reports each as it finishes. `read` replaces Arctic's
+ * one at a time, and reports each as it finishes. When `signal` aborts, the
+ * link being read and the rest are "not tried". `read` replaces Arctic's
  * extractor in tests.
  */
 export async function arctic(options: {
@@ -304,9 +323,27 @@ export async function arctic(options: {
   unwall?: boolean;
   /** The pause between two links. */
   gapMs?: number;
+  readTimeoutMs?: number;
+  signal?: AbortSignal;
   read?: Reader;
   onResult?: (result: LinkResult) => void;
 }) {
+  const { signal } = options;
+  const readTimeoutMs = options.readTimeoutMs ?? READ_TIMEOUT_MS;
+  const readPage = async (url: string) => {
+    reader ??= await extractor(options.unwall);
+    const timeout = AbortSignal.timeout(readTimeoutMs);
+    try {
+      return await abortable(
+        reader.read(url),
+        signal ? AbortSignal.any([signal, timeout]) : timeout,
+      );
+    } catch (error) {
+      if (error === timeout.reason)
+        throw Error(`the page took over ${readTimeoutMs / 1000} s`);
+      throw error;
+    }
+  };
   const send = arcticFetch(options.origin, options.token);
   const [library, content] = await Promise.all([
     openNamespace(options.origin, send, "arctic"),
@@ -325,9 +362,11 @@ export async function arctic(options: {
   const awake = setInterval(() => {}, 1000);
   try {
     for (const [index, input] of inputs.entries()) {
-      if (index > 0 && options.gapMs) await Bun.sleep(options.gapMs);
       const result: LinkResult = { input, status: "invalid", text: "skipped" };
       try {
+        if (index > 0 && options.gapMs)
+          await abortable(Bun.sleep(options.gapMs), signal);
+        signal?.throwIfAborted();
         const url = canonicalURL(input);
         if (!url) {
           result.error = "not a web address";
@@ -352,7 +391,7 @@ export async function arctic(options: {
         const read =
           options.text &&
           (options.command === "text" || copyWords === undefined)
-            ? await (reader ??= await extractor(options.unwall)).read(url)
+            ? await readPage(url)
             : undefined;
         if (options.command === "text")
           result.status = saved ? "already saved" : "in history";
@@ -443,16 +482,29 @@ export async function arctic(options: {
           Object.assign(result, { text: "uploaded", words: read.words });
         }
       } catch (error) {
-        result.error = await refusal(error);
-        if (result.status === "invalid") result.status = "failed";
+        if (signal?.aborted && error === signal.reason)
+          result.status = "not tried";
+        else {
+          result.error = await refusal(error);
+          if (result.status === "invalid") result.status = "failed";
+        }
       } finally {
         results.push(result);
         options.onResult?.(result);
       }
     }
   } finally {
-    await reader?.close();
-    clearInterval(awake);
+    // A browser that won't close, or never started, doesn't hold the run.
+    const closing = AbortSignal.timeout(10_000);
+    try {
+      await abortable(reader?.close() ?? Promise.resolve(), closing).catch(
+        (error) => {
+          if (error !== closing.reason) throw error;
+        },
+      );
+    } finally {
+      clearInterval(awake);
+    }
   }
   return results;
 }
@@ -461,6 +513,8 @@ export async function arctic(options: {
 const TEXT_STATE_FILE = "arctic-text.json";
 /** A link at most this many a run, so the hourly job stays short. */
 export const MISSING_TEXT_LIMIT = 25;
+/** A run stops reading after this, well within the hourly job's 20-minute cap. */
+export const MISSING_TEXT_DEADLINE_MS = 12 * 60 * 1000;
 /** A page without text waits a day, then 2, 4… and at most 30 days. */
 const retryAfterMs = (tries: number) =>
   Math.min(2 ** (tries - 1), 30) * 24 * 60 * 60 * 1000;
@@ -469,8 +523,10 @@ const retryAfterMs = (tries: number) =>
  * Fetches the text of saved links that have none: newest first, a second
  * apart, at most `limit` a run. A link that gives no text (a paywall, a PDF,
  * a dead page) waits in `<directory>/arctic-text.json` before the next try,
- * so the hourly job doesn't read it every hour. With `dryRun` it reads no
- * page and lists what it would fetch.
+ * so the hourly job doesn't read it every hour. After `deadlineMs`, or when
+ * `signal` aborts, it stops: the links it didn't finish are "not tried" and
+ * keep their place. With `dryRun` it reads no page and lists what it would
+ * fetch.
  */
 export async function fetchMissingText(options: {
   origin: string;
@@ -480,9 +536,15 @@ export async function fetchMissingText(options: {
   dryRun?: boolean;
   limit?: number;
   gapMs?: number;
+  deadlineMs?: number;
+  readTimeoutMs?: number;
+  signal?: AbortSignal;
   read?: Reader;
   onResult?: (result: LinkResult) => void;
 }) {
+  const deadline = AbortSignal.timeout(
+    options.deadlineMs ?? MISSING_TEXT_DEADLINE_MS,
+  );
   const stateFile = join(options.directory, TEXT_STATE_FILE);
   // One account's links per API origin.
   const state = (
@@ -500,6 +562,10 @@ export async function fetchMissingText(options: {
     unwall: options.unwall,
     read: options.read,
     gapMs: options.gapMs ?? PREVIEW_GAP_MS,
+    readTimeoutMs: options.readTimeoutMs,
+    signal: options.signal
+      ? AbortSignal.any([options.signal, deadline])
+      : deadline,
     inputs(library, content) {
       const found: { id: string; url: string; savedAt: number }[] = [];
       for (const key of library.keys()) {
@@ -526,6 +592,7 @@ export async function fetchMissingText(options: {
     },
     onResult(result) {
       const id = ids.get(result.input)!;
+      if (result.status === "not tried") return options.onResult?.(result);
       if (result.text === "uploaded" || result.text === "kept")
         delete waiting[id];
       else {

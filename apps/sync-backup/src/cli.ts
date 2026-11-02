@@ -290,13 +290,19 @@ async function main() {
     });
     if (json) print(run, json);
     else if (v["dry-run"]) for (const link of run.links) console.log(link);
-    const count = (text: string) =>
-      run.results.filter((result) => result.text === text).length;
+    const notTried = run.results.filter(
+      (result) => result.status === "not tried",
+    ).length;
+    const read = run.results.length - notTried;
+    const uploaded = run.results.filter(
+      (result) => result.text === "uploaded",
+    ).length;
     console.error(
       `${run.missing} saved links without text; ${run.waiting} waiting to try again. ` +
         (v["dry-run"]
           ? `Would fetch ${run.links.length}.`
-          : `Read ${run.results.length}: ${count("uploaded")} uploaded, ${run.results.length - count("uploaded")} without text.`),
+          : `Read ${read}: ${uploaded} uploaded, ${read - uploaded} without text` +
+            (notTried ? `; ${notTried} not tried: the run stopped.` : ".")),
     );
     // A page without text is expected, and waits for its next try.
     return;

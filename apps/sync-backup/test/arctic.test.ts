@@ -964,3 +964,74 @@ test("wb arctic text --missing --dry-run --json lists the 25 links it would read
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("wb arctic text --missing: the run's deadline stops a page that hangs and leaves the rest not tried; the read timeout fails it", async () => {
+  const api = fakeAPI();
+  const origin = api.server.url.origin;
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-deadline-"));
+  const now = toSwift(Date.now());
+  const link = (name: string) => `https://example.com/${name}`;
+  await seedLinks(
+    api,
+    ["hangs", "pdf", "hangs-too"].map((name, n) => ({
+      url: link(name),
+      library: { saved: true, savedAt: now - n },
+    })),
+  );
+  const read: string[] = [];
+  const reader = {
+    read: (url: string) => {
+      read.push(url);
+      return url === link("pdf")
+        ? Promise.resolve({ title: "", problem: "PDF" })
+        : new Promise<never>(() => {});
+    },
+    close: async () => {},
+  };
+  const outcomes = (results: LinkResult[]) =>
+    results.map((result) => [
+      result.input,
+      result.status,
+      result.error ?? result.reason ?? null,
+    ]);
+  const stateFile = join(directory, "arctic-text.json");
+  try {
+    // The deadline stops the page being read; no link is marked to wait.
+    const started = performance.now();
+    const stopped = await fetchMissingText({
+      origin,
+      token: "fixture",
+      directory,
+      gapMs: 0,
+      deadlineMs: 300,
+      read: reader,
+    });
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(read).toEqual([link("hangs")]);
+    expect(outcomes(stopped.results)).toEqual([
+      [link("hangs"), "not tried", null],
+      [link("pdf"), "not tried", null],
+      [link("hangs-too"), "not tried", null],
+    ]);
+    expect(existsSync(stateFile)).toBe(false);
+
+    // A page that hangs fails at the read timeout and waits like any other.
+    const timedOut = await fetchMissingText({
+      origin,
+      token: "fixture",
+      directory,
+      gapMs: 0,
+      readTimeoutMs: 100,
+      read: reader,
+    });
+    expect(outcomes(timedOut.results)).toEqual([
+      [link("hangs"), "failed", "the page took over 0.1 s"],
+      [link("pdf"), "already saved", "PDF"],
+      [link("hangs-too"), "failed", "the page took over 0.1 s"],
+    ]);
+    expect(timedOut.waiting).toBe(3);
+  } finally {
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
