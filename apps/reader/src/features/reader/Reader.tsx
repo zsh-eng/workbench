@@ -26,8 +26,12 @@ import { NotesCapsule } from "./NotesIsland";
 import { usePaginatedReaderLayout } from "./hooks/use-paginated-reader-layout";
 import { PagesRow } from "./PagesRow";
 import { FullscreenRow } from "./FullscreenRow";
-import { leaveReadingFullscreen } from "./reading-fullscreen";
+import {
+  leaveReadingFullscreen,
+  resumeReadingFullscreen,
+} from "./reading-fullscreen";
 import { usePagesPreference } from "./pages-preference";
+import { useResumeFullscreenOnTap } from "./hooks/use-resume-fullscreen-on-tap";
 import { useReaderAnnotations } from "./hooks/use-reader-annotations";
 import { useReaderChromeState } from "./hooks/use-reader-chrome-state";
 import { useReaderDisplayReadiness } from "./hooks/use-reader-display-readiness";
@@ -117,6 +121,7 @@ export function Reader() {
     stageSlotRef.current = node;
     setStageSlotElement(node);
   }, []);
+  useResumeFullscreenOnTap(stageSlotElement);
 
   const {
     resolvedSpreadColumns,
@@ -566,6 +571,7 @@ export function Reader() {
                         renderAdjacentSpreads={shouldPrepareSwipePages}
                         swipeEnabled={swipeNavigationEnabled}
                         onSwipeStart={hideChrome}
+                        onSwipeSettled={resumeReadingFullscreen}
                         onSwipeNext={sessionActions.nextSpread}
                         onSwipePrevious={sessionActions.prevSpread}
                         pageTurn={paper.pageTurn}

@@ -202,6 +202,104 @@ test.describe("Full screen while reading, installed on Android", () => {
     await expect.poll(() => isFullscreen(page)).toBe(false);
   });
 
+  /** Android stops the app: the page hides, and the exit reports either side. */
+  const leaveTheApp = (page: Page, exitReportsFirst: boolean) =>
+    page.evaluate(async (exitFirst) => {
+      const setHidden = (hidden: boolean) => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          get: () => hidden,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      };
+      const exited = new Promise((resolve) =>
+        document.addEventListener("fullscreenchange", resolve, { once: true }),
+      );
+      if (!exitFirst) setHidden(true);
+      await document.exitFullscreen();
+      await exited;
+      if (exitFirst) setHidden(true);
+      setHidden(false);
+    }, exitReportsFirst);
+
+  const openBookInFullscreen = async (page: Page, id: string) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: /^Open / }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/reader/${id}`));
+    await waitForReaderReady(page);
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+  };
+
+  for (const exitReportsFirst of [false, true]) {
+    test(`Full screen comes back on the next tap after leaving the app (the exit reports ${exitReportsFirst ? "first" : "last"})`, async ({
+      page,
+      localBook,
+    }) => {
+      await openBookInFullscreen(page, localBook.id);
+      await leaveTheApp(page, exitReportsFirst);
+      expect(await isFullscreen(page)).toBe(false);
+
+      // A tap on the side of the page: it goes back and still turns the page.
+      const before = await currentPages(page);
+      await page.touchscreen.tap(900, 320);
+      await expect.poll(() => isFullscreen(page)).toBe(true);
+      await expect.poll(() => currentPages(page)).not.toEqual(before);
+    });
+  }
+
+  test("A swipe goes back to full screen when its page lands", async ({
+    page,
+    localBook,
+  }) => {
+    await openBookInFullscreen(page, localBook.id);
+    await leaveTheApp(page, false);
+    const before = await currentPages(page);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: 800, y: 320 }],
+    });
+    for (const x of [760, 700, 620, 520, 420])
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y: 320 }],
+      });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await cdp.detach();
+    await expect.poll(() => currentPages(page)).not.toEqual(before);
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+  });
+
+  test("Leaving on purpose keeps the bars until the header's button", async ({
+    page,
+    localBook,
+  }) => {
+    await openBookInFullscreen(page, localBook.id);
+    await page.evaluate(() => document.exitFullscreen());
+    await expect.poll(() => isFullscreen(page)).toBe(false);
+
+    // The middle of the spread shows the chrome; a tap does not go back.
+    const enter = page.getByRole("button", {
+      name: "Enter full screen",
+      exact: true,
+    });
+    await expect
+      .poll(async () => {
+        if (await enter.isVisible()) return true;
+        await page.touchscreen.tap(504, 320);
+        return false;
+      })
+      .toBe(true);
+    expect(await isFullscreen(page)).toBe(false);
+
+    await enter.tap();
+    await expect.poll(() => isFullscreen(page)).toBe(true);
+    await expect(enter).toHaveCount(0);
+  });
+
   test("A refused request opens the book with the bars", async ({
     page,
     localBook,

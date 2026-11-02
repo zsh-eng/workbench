@@ -60,6 +60,10 @@ The first curl (`curl-v1`) is kept to compare: `curl-geometry.ts` bends the page
 - `paper-grain.ts` builds each grain as an SVG `feTurbulence` tile, used as a CSS mask over a theme colour from App.css. With ink `in` the paper, App.css lays the grain over the text, multiplied on light themes, and thins the ink on the tooth with a `lighten` layer in the paper's colour. With ink `gl`, `PaperInk.tsx` rasters each page's text alone and `ink-renderer.ts` soaks it into the grain with WebGL; the live text turns clear under it and keeps selection, links and search.
 - `use-page-feel.ts` adds a haptic tick when a turned page lets go (Android's vibration, or iOS 18's native switch) and an optional rustle from shaped noise in Web Audio.
 
+## Full screen while reading
+
+On an installed Android app, opening a book hides the system bars with the Fullscreen API (`reading-fullscreen.ts`). Chrome leaves full screen when the app stops, and only a gesture can ask again, so the next tap on the page goes back, and a swipe does when its page lands. The tap still does its usual work. Android's back gesture leaves on purpose: `fullscreenchange` with no hidden page around it. Taps then leave the bars alone, and the header's button, the Appearance switch or opening a book asks again. A hidden page draws no frames and `fullscreenchange` waits for a frame, so Android's exit can report after the app is back; the code tells the two apart from `visibilitychange`, in either order.
+
 ## Scroll mode
 
 Appearance → Layout → Reading view chooses Pages or Scroll, for every book on the device; a book read in scroll mode reopens there, at the same line. Scroll mode shows one chapter as a vertical column (`scroll/`). The pull from pages into scroll mode is still Debug mode only.
