@@ -291,7 +291,12 @@ For example: `articles://open?url=https%3A%2F%2Fstephango.com%2Fsaw`.
 A Shortcut can URL-encode its input, append it to this prefix, and Open URLs.
 This opens a reading page and records History without saving it to the inbox. Invalid schemes
 and non-web targets are ignored. It does not intercept ordinary HTTPS links.
-The native Share extension saves links through an App Group inbox; default-browser support needs Apple's
+The native Share extension saves links through an App Group inbox. The app takes them oldest first, by
+the time each file was written, so the last link shared is processed last: previews start in that order,
+and tags run one at a time in that order. A link that cannot be read waits alone. The newest link still shows
+on top of the library. Only the iPhone has this queue: the Mac app has no inbox and the web app has no
+share target.
+Default-browser support needs Apple's
 entitlement and must render the original destination by default (our automatic
 Unwall routing would need to change). Universal Links require the domain owner's
 associated-domain file.
