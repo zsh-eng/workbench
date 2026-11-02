@@ -16,6 +16,7 @@ import {
   mergeLines,
   useLivePullRequest,
 } from "../data/live-pull-request";
+import { parseBriefHref } from "../data/file-refs";
 import type { ThreadPlacement } from "../data/pull-request";
 import { relativeTime, useMinuteClock } from "../data/relative-time";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
@@ -64,10 +65,12 @@ const Description = memo(function Description({
   body,
   reviewId,
   root,
+  onOpenPath,
 }: {
   body: string;
   reviewId: string;
   root?: string;
+  onOpenPath?(path: string, line?: number): void;
 }) {
   const { active: theme } = useTheme();
   const text = useMemo(() => descriptionMarkdown(body), [body]);
@@ -118,6 +121,34 @@ const Description = memo(function Description({
       };
     }
   }, [result, reviewId, root]);
+  // A web link opens by itself. A relative one is a file of the checkout, as in
+  // a draft. A heading's link stays in this tab: the address is the app's.
+  useEffect(() => {
+    const prose = host.current;
+    if (!prose) return;
+    const follow = (event: MouseEvent) => {
+      const anchor = (event.target as HTMLElement).closest("a");
+      const href = anchor?.getAttribute("href");
+      if (href?.startsWith("#")) {
+        event.preventDefault();
+        let id: string;
+        try {
+          id = decodeURIComponent(href.slice(1));
+        } catch {
+          return;
+        }
+        if (id) prose.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ block: "start" });
+        return;
+      }
+      const target =
+        !href && anchor?.dataset.briefHref ? parseBriefHref(anchor.dataset.briefHref) : null;
+      if (!target) return;
+      event.preventDefault();
+      onOpenPath?.(target.path, target.line);
+    };
+    prose.addEventListener("click", follow);
+    return () => prose.removeEventListener("click", follow);
+  }, [onOpenPath, result]);
   if (failed && !result)
     return <p {...stylex.props(styles.note)}>Med could not render this description.</p>;
   return (
@@ -210,31 +241,32 @@ function CheckRow({
   loadLog(job: number): Promise<PullRequestCheckLog>;
 }) {
   const [log, setLog] = useState<LogState>({ step: "closed" });
-  // The result stays, so closing and opening the log asks GitHub only once.
-  const kept = useRef<PullRequestCheckLog | null>(null);
+  // One read for the row: opening the log again never asks GitHub again,
+  // also while gh still reads. Only a failed read goes again.
+  const read = useRef<Promise<PullRequestCheckLog> | null>(null);
   const { icon, tone } = OUTCOMES[check.outcome];
   const word = checkWord(check);
   const time = checkTime(check, now);
   const open = log.step !== "closed";
+  const show = (next: LogState) =>
+    setLog((current) => (current.step === "closed" ? current : next));
   const toggle = () => {
-    if (open) setLog({ step: "closed" });
-    else if (kept.current) setLog({ step: "shown", log: kept.current });
-    else {
-      setLog({ step: "reading" });
-      loadLog(check.job!).then(
-        (result) => {
-          kept.current = result;
-          setLog((current) =>
-            current.step === "closed" ? current : { step: "shown", log: result },
-          );
-        },
-        (error: unknown) =>
-          setLog({
-            step: "failed",
-            message: error instanceof Error ? error.message : "Could not read the log.",
-          }),
-      );
+    if (open) {
+      setLog({ step: "closed" });
+      return;
     }
+    setLog({ step: "reading" });
+    read.current ??= loadLog(check.job!);
+    read.current.then(
+      (result) => show({ step: "shown", log: result }),
+      (error: unknown) => {
+        read.current = null;
+        show({
+          step: "failed",
+          message: error instanceof Error ? error.message : "Could not read the log.",
+        });
+      },
+    );
   };
   return (
     <li {...stylex.props(styles.check)}>
@@ -410,6 +442,7 @@ export default function PullRequestView({
   loadLog,
   refreshes,
   onShowThread,
+  onOpenPath,
   onShowDraft,
   left,
   onDismissLeft,
@@ -427,6 +460,8 @@ export default function PullRequestView({
   /** Increases to read GitHub now, as the ⌘K command asks. */
   refreshes: number;
   onShowThread(thread: PullRequestThread): void;
+  /** Opens a file of the checkout, for a relative link in the description. */
+  onOpenPath?(path: string, line?: number): void;
   /** Shows the agent's draft, for a review that has one. */
   onShowDraft?(): void;
   /** The local images that Create left out, for the reader to add on GitHub. */
@@ -441,7 +476,7 @@ export default function PullRequestView({
     refresh,
   } = useLivePullRequest(load, active, onScreen, comments.refresh);
   const now = useMinuteClock(active);
-  const asked = useRef(0);
+  const asked = useRef(refreshes);
   useEffect(() => {
     if (refreshes === asked.current) return;
     asked.current = refreshes;
@@ -550,7 +585,12 @@ export default function PullRequestView({
             {!pull && !error && <p {...stylex.props(styles.note)}>Reading the pull request…</p>}
             {pull &&
               (pull.body.trim() ? (
-                <Description body={pull.body} reviewId={reviewId} root={root} />
+                <Description
+                  body={pull.body}
+                  reviewId={reviewId}
+                  root={root}
+                  onOpenPath={onOpenPath}
+                />
               ) : (
                 <p {...stylex.props(styles.note)}>No description.</p>
               ))}

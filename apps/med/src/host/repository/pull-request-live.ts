@@ -133,7 +133,7 @@ function toCheck(entry: Rollup, jobLink: RegExp): PullRequestCheck {
   const url = webLink(entry.detailsUrl ?? entry.targetUrl);
   const job = outcome === "failed" ? jobLink.exec(url ?? "")?.[1] : undefined;
   return {
-    id: `${workflow ?? ""}/${name}`,
+    id: `${entry.context ? "status" : (workflow ?? "")}/${name}`,
     name,
     ...(workflow ? { workflow } : {}),
     outcome,
@@ -145,23 +145,47 @@ function toCheck(entry: Rollup, jobLink: RegExp): PullRequestCheck {
   };
 }
 
+/** When a check began. One that waits to start is the last of all. */
+function startOf(check: PullRequestCheck) {
+  if (check.startedAt) return Date.parse(check.startedAt);
+  if (check.completedAt) return Date.parse(check.completedAt);
+  return check.outcome === "pending" ? Number.POSITIVE_INFINITY : 0;
+}
+function endOf(check: PullRequestCheck) {
+  if (check.completedAt) return Date.parse(check.completedAt);
+  return check.outcome === "pending" ? Number.POSITIVE_INFINITY : startOf(check);
+}
+
 /**
  * A workflow that a label or a new trigger starts again adds its checks once
  * more for the same commit, so GitHub's list can hold one check many times.
- * The last run is the one that counts; a run that has not started is the last.
- * Failures come first, and each group keeps one order from read to read.
+ * Of runs in a row, the last one counts. Runs at the same time stay: they are
+ * a workflow's push and pull_request runs, which GitHub also lists apart, and
+ * a pass must not hide a failure. Failures come first, and each group keeps
+ * one order from read to read.
  */
 function latestChecks(checks: PullRequestCheck[]) {
-  const started = (check: PullRequestCheck) =>
-    check.startedAt ? Date.parse(check.startedAt) : Number.POSITIVE_INFINITY;
-  const latest = new Map<string, PullRequestCheck>();
-  for (const check of checks) {
-    const kept = latest.get(check.id);
-    if (!kept || started(check) >= started(kept)) latest.set(check.id, check);
-  }
-  return [...latest.values()].sort(
-    (a, b) => ORDER.indexOf(a.outcome) - ORDER.indexOf(b.outcome) || a.id.localeCompare(b.id),
-  );
+  const oldest = [...checks].sort((a, b) => {
+    const [first, second] = [startOf(a), startOf(b)];
+    return first === second ? 0 : first < second ? -1 : 1;
+  });
+  // Counted from the oldest, so that a new run leaves the IDs it finds.
+  const counts = new Map<string, number>();
+  return oldest
+    .filter(
+      (check, index) =>
+        !oldest
+          .slice(index + 1)
+          .some((later) => later.id === check.id && endOf(check) <= startOf(later)),
+    )
+    .map((check) => {
+      const count = (counts.get(check.id) ?? 0) + 1;
+      counts.set(check.id, count);
+      return count > 1 ? { ...check, id: `${check.id}#${count}` } : check;
+    })
+    .sort(
+      (a, b) => ORDER.indexOf(a.outcome) - ORDER.indexOf(b.outcome) || a.id.localeCompare(b.id),
+    );
 }
 
 /** Whom it asks for a review, then who gave one. A review that it asks for
@@ -203,14 +227,16 @@ const rateLimit = z.object({
 
 /** What the sign-in has left of GitHub's limits. Asking uses none of them. */
 async function budgetOf(host: string): Promise<GitHubBudget | undefined> {
-  return ghApi(host, ["rate_limit", "--jq", ".resources | {core, graphql}"]).then(
-    (text) => {
-      const { core, graphql } = rateLimit.parse(JSON.parse(text));
-      const low = core.remaining / core.limit <= graphql.remaining / graphql.limit ? core : graphql;
-      return { remaining: low.remaining, limit: low.limit, resetAt: low.reset * 1000 };
-    },
-    // A GitHub Enterprise server can have no limits.
-    () => undefined,
+  return (
+    ghApi(host, ["rate_limit", "--jq", ".resources | {core, graphql}"])
+      .then((text) => {
+        const { core, graphql } = rateLimit.parse(JSON.parse(text));
+        const low =
+          core.remaining / core.limit <= graphql.remaining / graphql.limit ? core : graphql;
+        return { remaining: low.remaining, limit: low.limit, resetAt: low.reset * 1000 };
+      })
+      // A GitHub Enterprise server can have no limits, or other ones.
+      .catch(() => undefined)
   );
 }
 
@@ -342,6 +368,30 @@ const descriptionImages = sharedReads(async (url) => {
 const signedLink = (links: Map<string, string>, src: string) =>
   links.get(src) ?? links.get(ASSET.exec(src)?.[0]?.toLowerCase() ?? "");
 
+const onGitHub = (target: URL | undefined, host: string) =>
+  target?.protocol === "https:" &&
+  (target.hostname === host || /(?:^|\.)githubusercontent\.com$/.test(target.hostname));
+
+/** Fetches a link of GitHub's. A link on github.com can redirect, as a raw
+ * file does, and each step stays on GitHub. */
+async function fetchImage(
+  link: string,
+  host: string,
+  redirects = 3,
+): Promise<Response | undefined> {
+  const target = URL.canParse(link) ? new URL(link) : undefined;
+  if (!onGitHub(target, host)) return undefined;
+  const response = await fetch(target!, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => undefined);
+  const next = response?.headers.get("location");
+  if (!response || response.status < 300 || response.status >= 400 || !next) return response;
+  return redirects && URL.canParse(next, target)
+    ? fetchImage(new URL(next, target).href, host, redirects - 1)
+    : undefined;
+}
+
 /**
  * An image that the pull request's description shows, by the URL in its
  * Markdown. Med fetches only what GitHub rendered, and only from GitHub, so
@@ -353,16 +403,9 @@ export async function loadDescriptionImage(url: string, src: string) {
     signedLink(await descriptionImages(url), src) ??
     // The description can have changed since the last read.
     signedLink(await descriptionImages(url, true), src);
-  const target = link && URL.canParse(link) ? new URL(link) : undefined;
-  if (
-    target?.protocol !== "https:" ||
-    !(target.hostname === host || /(?:^|\.)githubusercontent\.com$/.test(target.hostname))
-  )
+  if (!link || !onGitHub(URL.canParse(link) ? new URL(link) : undefined, host))
     throw new HostError("invalid-image", "The description has no such image.", 404);
-  const response = await fetch(target, {
-    redirect: "error",
-    signal: AbortSignal.timeout(20_000),
-  }).catch(() => undefined);
+  const response = await fetchImage(link, host);
   const mime = response?.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
   if (!response?.ok || !IMAGE_TYPES.test(mime))
     throw new HostError("image-unavailable", "GitHub did not give this image.", 502);

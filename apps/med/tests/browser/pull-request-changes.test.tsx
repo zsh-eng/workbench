@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
@@ -84,7 +84,16 @@ const live = (): LivePullRequest => ({
   title: pullTitle,
   author: "mira",
   state: "open",
-  body: 'Renames the export.\n\n<img width="300" alt="The chart" src="https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89">\n\n```html\n<img src="kept.png">\n```',
+  body: [
+    "Renames the export. See [the test](src/alpha.test.ts:4) and [the notes](#notes).",
+    '<img width="300" alt="The chart" src="https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89">',
+    '<p align="center"><img alt="Centered" src="https://github.com/user-attachments/assets/aaaaaaaa-b4ac-46c3-8cb8-56fb574b7c89"></p>',
+    "<table><tr><td>",
+    '<img alt="In a table" src="https://github.com/user-attachments/assets/bbbbbbbb-b4ac-46c3-8cb8-56fb574b7c89">',
+    "</td></tr></table>",
+    '```html\n<img src="kept.png">\n```',
+    "## Notes",
+  ].join("\n\n"),
   base: "main",
   head: "feature",
   labels: [{ name: "bug", color: "d73a4a" }],
@@ -538,11 +547,27 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
       `/api/reviews/pull/pull-request-image?src=${encodeURIComponent("https://github.com/user-attachments/assets/36b555b6-b4ac-46c3-8cb8-56fb574b7c89")}`,
     );
   await expect.element(view.getByText('<img src="kept.png">')).toBeVisible();
+  // So does one that HTML holds, which Markdown alone would drop.
+  await expect.element(view.getByRole("img", { name: "Centered" })).toBeVisible();
+  await expect.element(view.getByRole("img", { name: "In a table" })).toBeVisible();
   // Reviews and comments in time order, with the threads below them.
   const talk = view.getByRole("region", { name: "Conversation" });
   await expect
     .poll(() => talk.element().textContent)
     .toMatch(/Please split the write path\..*The flaky test failed again/s);
+});
+
+test("the description's links: a relative one opens the file, and a heading's stays in the tab", async () => {
+  const view = await openPullTab();
+  await expect.element(view.getByText("the notes")).toBeVisible();
+  const address = location.href;
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  await view.getByText("the notes").click();
+  expect(location.href).toBe(address);
+  expect(scroll.mock.contexts).toContain(view.getByRole("heading", { name: "Notes" }).element());
+  scroll.mockRestore();
+  await view.getByText("the test").click();
+  await expect.element(page.getByRole("tab", { name: /alpha\.test\.ts/ })).toBeVisible();
 });
 
 test("a failed job's log comes only when asked for, and opens at its error", async () => {

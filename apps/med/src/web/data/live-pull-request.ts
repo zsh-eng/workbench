@@ -235,7 +235,7 @@ export function checkCounts(checks: readonly PullRequestCheck[]) {
 
 const HTML_IMAGE = /<img\b[^>]*>/gi;
 const attribute = (tag: string, name: string) =>
-  new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i")
+  new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i")
     .exec(tag)
     ?.slice(1)
     .find((value) => value !== undefined);
@@ -243,7 +243,9 @@ const attribute = (tag: string, name: string) =>
 /**
  * A description as Med's Markdown reads it. Raw HTML never renders, but
  * GitHub writes an image dropped into a description as an <img> tag, so those
- * become Markdown images. Code keeps its text.
+ * become Markdown images. Fenced and inline code keep their text. An image in
+ * a line of HTML, as `<p align="center"><img …></p>`, gets its own paragraph:
+ * Markdown reads nothing inside an HTML block until a blank line ends it.
  */
 export function descriptionMarkdown(body: string) {
   let fence: string | undefined;
@@ -264,9 +266,9 @@ export function descriptionMarkdown(body: string) {
             ? part
             : part.replace(HTML_IMAGE, (tag) => {
                 const src = attribute(tag, "src");
-                return src
-                  ? `![${(attribute(tag, "alt") ?? "").replace(/[[\]]/g, "")}](<${src}>)`
-                  : tag;
+                if (!src) return tag;
+                const image = `![${(attribute(tag, "alt") ?? "").replace(/[[\]]/g, "")}](<${src}>)`;
+                return /^\s*</.test(line) ? `\n\n${image}\n\n` : image;
               }),
         )
         .join("");

@@ -796,7 +796,8 @@ each layer has its own pull request, and the band links to it.
   a branch rule.
 - **Checks** lists each check of the head commit, failures first, with its
   state, its time, and a link. Passed and skipped checks fold behind one line
-  when there are more than five. A check that ran again shows its last run.
+  when there are more than five. A check that ran again shows its last run;
+  runs at the same time, such as for a push and a pull request, both show.
   **Show failed log** reads the end of a failed GitHub Actions job's log with
   `gh run view --log-failed`, only when you ask. The log opens at its last
   error. Copy it, or add it to the message for the agent.

@@ -6637,6 +6637,7 @@ export function App({
                       loadLog={loadCheckLog}
                       refreshes={pullRefreshes}
                       onShowThread={showPullThread}
+                      onOpenPath={openFromPane}
                       onShowDraft={
                         prDraft ? () => setDraftShownFor(state.savedReview!.id) : undefined
                       }

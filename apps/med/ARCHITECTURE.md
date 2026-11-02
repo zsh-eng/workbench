@@ -590,7 +590,7 @@ leaves out: `GET /api/reviews/:id/pull-request-live` runs `gh pr view --json` an
 a REST compare, with a 30 second cache that pages share, and asks `gh api
 rate_limit`, which costs no API call. It keeps GitHub's words as strings, so a
 new value does not break the tab, and it normalises what gh prints: Go's zero
-time, a check that the list repeats, and a service's link that is not a web
+time, a run that a later run replaced, and a service's link that is not a web
 link. Only the tab asks for this read. `src/web/data/live-pull-request.ts` paces
 it by what can change and by the API limit, and stops while the tab, the
 workspace, or the window is hidden. A failed job's log

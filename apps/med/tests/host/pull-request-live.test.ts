@@ -92,28 +92,34 @@ test("checks read as GitHub means them: failures first, each once, with only web
     ],
   });
   expect(pull.checks.map(({ id, outcome }) => [id, outcome])).toEqual([
-    ["/deploy/preview", "failed"],
     ["CI/build", "failed"],
+    // Runs at the same time are two checks: a pass does not hide this failure.
+    ["CI/e2e", "failed"],
     ["CI/test (ubuntu)", "failed"],
-    ["/security/scan", "passed"],
+    ["status/deploy/preview", "failed"],
+    ["CI/e2e#2", "passed"],
+    // Its cancelled run had no times; the run after it counts.
+    ["CI/flaky", "passed"],
     ["CI/lint", "passed"],
     // Its failed first run is over: the run after it passed.
     ["CI/types", "passed"],
+    ["status/security/scan", "passed"],
     ["Triage/label", "skipped"],
   ]);
   const byId = new Map(pull.checks.map((check) => [check.id, check]));
   // Only a failed GitHub Actions job has a log to read.
   expect(pull.checks.filter((check) => check.job).map((check) => check.job)).toEqual([
     7002,
+    7004,
     FAILED_JOB,
   ]);
   expect(byId.get("CI/build")).toMatchObject({ state: "TIMED_OUT", workflow: "CI" });
   // A commit status has no end, and its link is whatever a service set.
-  expect(byId.get("/deploy/preview")).toMatchObject({
+  expect(byId.get("status/deploy/preview")).toMatchObject({
     completedAt: null,
     url: "https://ci.example.com/job/1",
   });
-  expect(byId.get("/security/scan")?.url).toBeUndefined();
+  expect(byId.get("status/security/scan")?.url).toBeUndefined();
 });
 
 test("a draft keeps its draft state and a running check has no made-up end", async () => {
@@ -260,6 +266,18 @@ test.each([
   fakeGh.answer([...liveRules(failingPull), ...sharedRules()]);
 });
 
+test("an answer about the API limit that Med cannot read costs only the limit", async () => {
+  fakeGh.answer([
+    { args: ["api", "rate_limit"], stdout: "not json\n" },
+    ...liveRules(mergedPull),
+    ...sharedRules(),
+  ]);
+  const pull = await live(mergedPull);
+  expect(pull.state).toBe("merged");
+  expect(pull.budget).toBeUndefined();
+  fakeGh.answer([...liveRules(mergedPull), ...sharedRules()]);
+});
+
 test("a failed read says why, and a later one reads again", async () => {
   fakeGh.answer([
     {
@@ -285,6 +303,8 @@ test("images come from GitHub's rendered description, and from nowhere else", as
   const elsewhere = "https://example.com/chart.png";
   const proxied = "https://camo.githubusercontent.com/abc/def";
   const offsite = "https://evil.example/stolen.png";
+  const raw = "https://github.com/acme/queue/raw/main/shot.png";
+  const stray = "https://github.com/acme/queue/raw/main/stray.png";
   fakeGh.answer([
     {
       contains: ["bodyHTML"],
@@ -292,7 +312,7 @@ test("images come from GitHub's rendered description, and from nowhere else", as
         data: {
           repository: {
             pullRequest: {
-              bodyHTML: `<p><a href="${signed}"><img src="${signed}" alt="Before" style="max-width: 100%;"></a><img src="${proxied}" data-canonical-src="${elsewhere}"><img src="${offsite}"></p>`,
+              bodyHTML: `<p><a href="${signed}"><img src="${signed}" alt="Before" style="max-width: 100%;"></a><img src="${proxied}" data-canonical-src="${elsewhere}"><img src="${offsite}"><img src="${raw}"><img src="${stray}"></p>`,
             },
           },
         },
@@ -306,7 +326,15 @@ test("images come from GitHub's rendered description, and from nowhere else", as
     const target = String(input);
     if (target.startsWith("http://127.0.0.1")) return real(target, init);
     fetched.push(target);
-    return target.startsWith("https://private-user-images")
+    // A raw file on github.com redirects, to GitHub or, here, off it.
+    if (target === raw)
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://raw.githubusercontent.com/acme/queue/main/shot.png" },
+      });
+    if (target === stray)
+      return new Response(null, { status: 302, headers: { location: offsite } });
+    return /^https:\/\/(?:private-user-images|raw)\./.test(target)
       ? new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } })
       : new Response("<html></html>", { headers: { "content-type": "text/html" } });
   });
@@ -330,5 +358,10 @@ test("images come from GitHub's rendered description, and from nowhere else", as
   // Nor is one that the description has, on a host that is not GitHub's.
   expect((await image(offsite)).status).toBe(404);
   expect(fetched.length).toBe(calls);
+  // A redirect stays on GitHub's hosts, or Med stops.
+  expect((await image(raw)).status).toBe(200);
+  expect(fetched.at(-1)).toBe("https://raw.githubusercontent.com/acme/queue/main/shot.png");
+  expect((await image(stray)).status).toBe(502);
+  expect(fetched).not.toContain(offsite);
   fakeGh.answer([...liveRules(failingPull), ...sharedRules()]);
 });

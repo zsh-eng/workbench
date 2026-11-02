@@ -166,16 +166,19 @@ try {
     await words(view, "Blocked: changes requested.");
     await words(view, "3 commits behind main.");
     const checks = view.getByRole("region", { name: "Checks" });
-    await words(checks, "3 failed, 3 passed, 1 skipped");
+    await words(checks, "4 failed, 5 passed, 1 skipped");
+    await checks.getByRole("button", { name: "Show 5 passed, 1 skipped" }).click();
     // Failures first, each check once, and the run that a later one replaced gone.
     const names = await checks
       .locator("li")
       .evaluateAll((rows) => rows.map((row) => row.textContent));
-    assert.match(names[0], /deploy\/preview/);
-    assert.match(names[1], /build.*Timed out.*1h 00m/s);
+    assert.match(names[0], /build.*Timed out.*1h 00m/s);
+    assert.match(names[1], /e2e.*Failed/s);
     assert.match(names[2], /test \(ubuntu\).*2m 49s/s);
+    assert.match(names[3], /deploy\/preview/);
     assert.equal(names.filter((name) => name.includes("types")).length, 1);
-    assert.equal(names.length, 7);
+    assert.equal(names.filter((name) => name.includes("flaky")).length, 1);
+    assert.equal(names.length, 10);
     // A status's link is a web link or none.
     assert.equal(await checks.getByRole("link", { name: "Open security/scan" }).count(), 0);
     assert.equal(

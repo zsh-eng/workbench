@@ -6,7 +6,8 @@
 //   conclusion as "".
 // - A commit status has `context`, `state`, `targetUrl` and no end time, and
 //   its link can be anything.
-// - A check that a trigger starts again is in the list again for the commit.
+// - A check that a trigger starts again is in the list again for the commit,
+//   and a workflow's push and pull_request runs are both there at once.
 // - A skipped check can end a second before it starts.
 // - GitHub says CLEAN for a draft, and a pull request on main can read CLEAN
 //   while it is commits behind: only compare says so.
@@ -165,6 +166,12 @@ export const failingPull = {
       ),
       run("build", "CI", "TIMED_OUT", "2026-11-01T09:40:00Z", "2026-11-01T10:40:00Z", 7002),
       run("label", "Triage", "SKIPPED", "2026-11-01T09:40:02Z", "2026-11-01T09:40:01Z", 7003),
+      // A workflow on push and pull_request: both runs count, also the failed one.
+      run("e2e", "CI", "FAILURE", "2026-11-01T09:40:00Z", "2026-11-01T09:44:00Z", 7004),
+      run("e2e", "CI", "SUCCESS", "2026-11-01T09:40:05Z", "2026-11-01T09:44:05Z", 7005),
+      // Cancelled before it started, so GitHub has no times, then run again.
+      run("flaky", "CI", "CANCELLED", ZERO_TIME, ZERO_TIME, 6980),
+      run("flaky", "CI", "SUCCESS", "2026-11-01T09:40:00Z", "2026-11-01T09:41:00Z", 6981),
       status("deploy/preview", "FAILURE", "https://ci.example.com/job/1"),
       status("security/scan", "SUCCESS", "javascript:alert(1)"),
     ],
