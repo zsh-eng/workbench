@@ -326,14 +326,23 @@ each comment's `path:line`, the quoted lines, and your remark. A sent comment
 shows **Maybe addressed** when the agent changes its lines. GitHub comments
 appear with a badge; **Add to reply** and **Add all open** copy them into the
 draft. Med writes to GitHub only into your pending review, which you submit
-yourself ([pull requests](USAGE.md#pull-requests)).
+yourself ([pull requests](usage/pull-requests.md)).
 
 ## Notes (removed)
 
-Med no longer shows a review's brief and pinned replies, and replies have no
-**Pin to review**: they read in the session's thread. Med keeps what was saved,
-and `POST /api/reviews/:id/pins` still stores a pin
-([Removed: Notes](USAGE.md#removed-notes)).
+Med had a **Notes** tab: the agent's brief (a Markdown explanation of the
+change, from `--brief` or pasted with `⌘V`) and the replies that you pinned
+from its session with **Pin to review**, with excerpts of the lines that they
+cited and comments on their words. Agent replies already read in the session's
+thread, so the tab, **Pin to review**, and the brief's paste went. Med still
+keeps what was saved: briefs and pins stay in each review and its versions,
+`--brief` and `POST /api/reviews/:id/pins` still store them, and the review's
+checks still read a brief's Proof section. Nothing saved is lost.
+
+If they return, they would fold into **Review** as a **From the agent**
+section at the top of the Overview: the brief, then the pinned replies, with
+comments on their words. `BriefView` still renders a brief and pins, so that
+section can reuse it.
 
 The right column holds **Session**, **Files**, and **Preview** panes, at most
 two stacked, with one shared, resizable width. **Show side panes as tabs**

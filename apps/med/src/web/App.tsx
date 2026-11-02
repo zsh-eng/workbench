@@ -1592,7 +1592,7 @@ export function App({
       prDraft && draftReviewId ? prDraftImageUrl(draftReviewId, prDraft, href) : undefined,
     [prDraft, draftReviewId],
   );
-  // The Notes tab is gone (docs/USAGE.md#removed-notes): its tab is Pull
+  // The Notes tab is gone (docs/AGENT_WORKSPACES.md#notes-removed): its tab is Pull
   // request, for an agent's draft or a real pull request. Med keeps the briefs
   // and pins, which feed the review's checks. A stack's layers each have a
   // pull request, which the review's one link does not stand for.

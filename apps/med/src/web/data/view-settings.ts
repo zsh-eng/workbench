@@ -15,7 +15,7 @@ import { useMemo, useSyncExternalStore, type SetStateAction } from "react";
  * `useViewSetting` shares a setting with every workspace and window that
  * shows it: a change in another window arrives as a storage event. A setting
  * that each window keeps for itself, such as the sidebar or zen mode, reads
- * `get` once and writes with `set`. docs/USAGE.md lists the settings and
+ * `get` once and writes with `set`. docs/usage/layout.md lists the settings and
  * where the others, such as pane layouts, are kept.
  */
 export interface ViewSetting<T extends string> {

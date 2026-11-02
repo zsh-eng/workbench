@@ -25,7 +25,7 @@ import type { createCheckoutChanges } from "./checkout-changes";
 
 // The threads of the host: the tabs, which the thread list polls, and history,
 // which a picker reads when it opens. See thread-tabs.ts for the store, and
-// docs/USAGE.md#threads for the rules.
+// docs/usage/threads.md for the rules.
 
 const DAY = 24 * 60 * 60 * 1000;
 /** The first start with tabs opens the threads that changed in this time, the

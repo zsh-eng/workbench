@@ -446,7 +446,7 @@ in `localStorage` under a `med:` key. `data/view-settings.ts` reads and
 writes them: a missing or unknown word is the default, and a change reaches
 the other workspaces and windows through the store and storage events. The
 keys that earlier versions wrote stay the same, so stored choices carry over.
-[View settings](docs/USAGE.md#view-settings) lists them.
+[View settings](docs/usage/layout.md#view-settings) lists them.
 
 A theme is a whole look (`Aesthetic` in `themes.ts`): fonts, corners,
 hairlines, selection, buttons, label case, and shadows, as `--med-*` variables.

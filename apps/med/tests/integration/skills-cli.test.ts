@@ -47,7 +47,7 @@ it("installs the Med skill for each agent present, keeps other skills, and remov
   ).toBe(true);
   expect(await med("instructions")).toBe(instructions);
   // The setup guide shows the same lines.
-  expect(await readFile(resolve("docs/USAGE.md"), "utf8")).toContain(instructions);
+  expect(await readFile(resolve("docs/usage/saved-reviews.md"), "utf8")).toContain(instructions);
   // The installed skill is a stub with the skill's description. It runs
   // med skills show, which prints the checklist of the Med that runs; med
   // docs agents prints the guide.

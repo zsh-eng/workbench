@@ -35,7 +35,7 @@ with unsaved changes does not close until you save or discard them.
   show each linking note with its line number.
 - A note opens rendered, with its image embeds. **Edit source** (`⌘⇧V`) shows
   it in the Vim editor, with explicit saves and the unsaved dot; see
-  [Read and edit Markdown](USAGE.md#read-and-edit-markdown).
+  [Read and edit Markdown](usage/markdown.md).
 
 To read a note from a repository or a thread, open **Find file** (`⌘⇧K`) and
 type part of its name: matching notes show at the top, marked **Note** with

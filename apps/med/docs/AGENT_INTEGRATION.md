@@ -11,7 +11,7 @@ defines the words that Med uses, such as key, version, and guide.
 `SKILL.md` that runs `med skills show`, which prints the hand-off checklist of
 the installed Med; `med docs agents` prints this guide's agent part.
 `med skills status` says if an agent's skill is out of date. Threads that Med starts need a few lines in
-CLAUDE.md or AGENTS.md; see [set up agents](USAGE.md#set-up-agents). This page
+CLAUDE.md or AGENTS.md; see [set up agents](usage/saved-reviews.md#set-up-agents). This page
 is the full reference (`med docs reference`).
 
 ### A Med of your own
@@ -265,14 +265,14 @@ To replace the guide of the current version, run
 code again: after you change code, hand off a new version with
 `med review create` and the same key. When the checkout moved past the
 capture, `update --guide` says so and prints that command. A later version
-without a guide keeps the one before it. [The Guide](USAGE.md#the-guide) says
+without a guide keeps the one before it. [The Guide](usage/guide.md) says
 what the reader sees.
 
 ### Attach a brief
 
 A brief is Markdown that Med keeps with the version. The Overview shows its
 Proof, Findings, and Explainer sections (below); Med keeps the rest of its text
-but no longer shows it ([Removed: Notes](USAGE.md#removed-notes)). Cite code
+but no longer shows it ([Notes (removed)](AGENT_WORKSPACES.md#notes-removed)). Cite code
 with repository-relative links that end in line numbers:
 
 ```markdown
@@ -295,7 +295,7 @@ against the open target. A brief holds up to 100,000 characters.
 
 Med reads these sections of a brief, a pinned reply, or the guide's summary,
 and shows them on the Overview
-([proof, findings, and later versions](USAGE.md#proof-findings-and-later-versions)):
+([proof, findings, and later versions](usage/guide.md#proof-findings-and-later-versions)):
 
 ```markdown
 ## Proof
@@ -596,14 +596,14 @@ The server checks the file, and the command prints a Markdown link. The link
 opens live content from disk; writable files open in the Vim editor. Opening
 the link does not change the file or register its folder. A dropped preview has
 no path on disk, so it cannot have a link. See
-[standalone files](USAGE.md#standalone-files-and-dropped-previews).
+[standalone files](usage/edit-files.md#standalone-files-and-dropped-previews).
 
 Markdown files open rendered, and the rendered view shows drafts before they
 are saved. Med renders GFM, `mermaid` fences, `$…$` and `$$` math,
 and colored code. A blank line starts a paragraph. Relative images resolve
 from the document, within its folder or repository; keep secrets and unrelated
 paths out of image references. See
-[Read and edit Markdown](USAGE.md#read-and-edit-markdown) and the
+[Read and edit Markdown](usage/markdown.md) and the
 [sample note](examples/reading-queue.md).
 
 ## Checks

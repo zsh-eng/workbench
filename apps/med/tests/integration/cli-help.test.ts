@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -76,4 +76,13 @@ it("prints help with med help, and a command's own help with med help <command>"
     stderr:
       'med: "revew" is not a command. Did you mean "review"?\nRun med --help to see the commands.\n',
   });
+});
+
+it("prints the user guide's index and then each of its pages, in the index's order", async () => {
+  const index = await readFile(resolve("docs/USAGE.md"), "utf8");
+  const pages = [...index.matchAll(/^- \[[^\]]+\]\((usage\/[a-z-]+\.md)\)/gm)].map((m) => m[1]!);
+  expect(pages.length).toBe(12);
+  const texts = await Promise.all(pages.map((page) => readFile(resolve("docs", page), "utf8")));
+  const usage = await med("docs", "usage");
+  expect(usage.stdout).toBe(`${[index, ...texts].map((text) => text.trimEnd()).join("\n\n")}\n`);
 });

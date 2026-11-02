@@ -1,6 +1,6 @@
 // The view settings outlast a restart: the built Med and a browser with its
 // own profile, closed and opened again with the server stopped and started on
-// the same port (docs/USAGE.md, "View settings"). The first window has no
+// the same port (docs/usage/layout.md, "View settings"). The first window has no
 // stored settings, so it shows the defaults; each later one shows what the
 // one before it chose. Set MED_VIEW_SETTINGS_SHOTS to a folder for screenshots.
 import assert from "node:assert/strict";

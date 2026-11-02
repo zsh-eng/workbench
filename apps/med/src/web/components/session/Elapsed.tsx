@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 // How long work took or runs. A time shows only the digits that change as
 // often as it updates: whole seconds, then whole minutes from 10 minutes on,
-// so no digit changes faster than the screen shows it (docs/USAGE.md,
+// so no digit changes faster than the screen shows it (docs/usage/threads.md,
 // "Agent sessions").
 
 const SECOND = 1000;

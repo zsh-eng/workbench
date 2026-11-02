@@ -657,7 +657,7 @@ export default function BriefView({
       <div className="med-md-scroll med-brief-scroll" ref={pane}>
         <article ref={article} className="med-md-prose med-brief-prose">
           {/* Med shows no brief or pins since the Notes tab went
-              (docs/USAGE.md#removed-notes); this header returns with them. */}
+              (docs/AGENT_WORKSPACES.md#notes-removed); this header returns with them. */}
           {notesShown && (
             <header {...stylex.props(styles.meta)}>
               <span {...stylex.props(styles.label)}>

@@ -250,8 +250,17 @@ test("the docs render Med's guides and link between them", async ({
     page.getByRole("heading", { level: 1, name: "Install Med" }),
   ).toBeVisible();
 
-  // A link to another guide's section opens that page at the section.
+  // The user guide's index links its pages, and a link to another guide's
+  // section opens that page at the section.
   await docs.getByRole("link", { name: "Using Med" }).click();
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Saved reviews" })
+    .click();
+  await expect(page).toHaveURL(/\/docs\/usage\/saved-reviews$/);
+  await expect(
+    docs.getByRole("link", { name: "Saved reviews" }),
+  ).toHaveAttribute("aria-current", "page");
   await page
     .getByRole("main")
     .getByRole("link", { name: "titles and pull requests" })
@@ -275,7 +284,7 @@ test("the docs render Med's guides and link between them", async ({
 test("the docs' prototypes run a commit and a comment's trip to the agent", async ({
   page,
 }) => {
-  await page.goto("/docs/usage");
+  await page.goto("/docs/usage/edit-files");
   const commit = page.getByRole("figure", { name: "Try it: Commit tab" });
   const said = commit.getByRole("status");
   await commit.locator(".try-stage").focus();
@@ -292,6 +301,7 @@ test("the docs' prototypes run a commit and a comment's trip to the agent", asyn
   await page.keyboard.press("Enter");
   await expect(said).toHaveText("Pushed 1 commit to origin/search-filters.");
 
+  await page.goto("/docs/usage/review-changes");
   const review = page.getByRole("figure", { name: "Try it: Comment and send" });
   await review.getByRole("button", { name: "Line 7" }).click();
   await review

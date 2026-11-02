@@ -28,13 +28,13 @@ _Bun · Vitesse Dark_
 
 Open an agent's review link, leave line comments, then copy comments from all its repositories back to the agent. Comments appear immediately and stay attached to the captured code.
 
-The agent can split its change into a [Guide](docs/USAGE.md#the-guide): a summary, then segments that you read one at a time, each with only its files and the agent's comments. Mark files viewed as you go, or read a range one commit at a time.
+The agent can split its change into a [Guide](docs/usage/guide.md): a summary, then segments that you read one at a time, each with only its files and the agent's comments. Mark files viewed as you go, or read a range one commit at a time.
 
 ![Saved med review with a multiline comment and Copy comments controls in Rosé Pine Dawn](docs/screenshots/med-comments-rose-pine-dawn.png)
 
 _Example saved review in med · Rosé Pine Dawn_
 
-med runs in your browser with a local server. Working files can be edited in Vim mode, with an unsaved dot and conflict-checked saves. Commit snapshots and saved reviews remain read-only. The [Commit tab](docs/USAGE.md#commit-and-push) (`q`) stages files, commits them, and pushes the branch; a commit runs the repository's Git hooks. Otherwise med does not switch branches or run code from the repository. See [editing](docs/USAGE.md#edit-working-files). Normal review notes stay on the local host for the session. Saved agent reviews keep captured source and comments across restarts.
+med runs in your browser with a local server. Working files can be edited in Vim mode, with an unsaved dot and conflict-checked saves. Commit snapshots and saved reviews remain read-only. The [Commit tab](docs/usage/edit-files.md#commit-and-push) (`q`) stages files, commits them, and pushes the branch; a commit runs the repository's Git hooks. Otherwise med does not switch branches or run code from the repository. See [editing](docs/usage/edit-files.md). Normal review notes stay on the local host for the session. Saved agent reviews keep captured source and comments across restarts.
 
 ## Get started
 
@@ -173,12 +173,12 @@ To check the packaged launch path, run `npm pack`, then
 `bunx --package ./med-diff-0.1.0.tgz med-diff /path/to/repository`. The legacy
 JavaScript CLI uses Node, also through `bunx`.
 
-See the [architecture](ARCHITECTURE.md), [test design and commands](docs/TESTING.md), and [limits and validation reports](docs/USAGE.md#limits-and-evidence).
+See the [architecture](ARCHITECTURE.md), [test design and commands](docs/TESTING.md), and [limits and validation reports](docs/usage/limits.md).
 
 Open files outside Git with `med open /absolute/path/file --line 42`, or use
 **Open standalone file** in the command palette. Drop text files for read-only
 previews. Full-file views show added, deleted, and working changes in the gutter.
-See [file workspace usage](docs/USAGE.md#standalone-files-and-dropped-previews).
+See [file workspace usage](docs/usage/edit-files.md#standalone-files-and-dropped-previews).
 
 ### Read and edit Markdown
 

@@ -1,7 +1,7 @@
 # Generated files and dependency summaries
 
 Status: built, October 2026, except the items in [Not built](#not-built).
-[Usage](USAGE.md#generated-files-and-dependencies) tells the reader what to do;
+[Usage](usage/review-changes.md#generated-files-and-dependencies) tells the reader what to do;
 this file records the rules and why.
 
 **A generated file is a result, not a decision.** The reader reviews the

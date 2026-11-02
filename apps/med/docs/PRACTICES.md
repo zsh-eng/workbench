@@ -105,7 +105,7 @@ Codex review, or a GitHub review reads the same. It recognises, where present:
   `create`.
 
 Med keeps the whole text; since the Notes tab went, only these parts show
-([Removed: Notes](USAGE.md#removed-notes)).
+([Notes (removed)](AGENT_WORKSPACES.md#notes-removed)).
 
 ## C. Views
 

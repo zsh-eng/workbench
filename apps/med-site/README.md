@@ -39,11 +39,12 @@ bun run paint      # paints the picture behind the product window
 ## Docs
 
 `/docs` and its pages render Med's user guides from `apps/med/docs` at build
-time: `INSTALL.md` at `/docs`, then `USAGE.md`, `AGENT_INTEGRATION.md`, and
-`VAULTS.md` at `/docs/usage`, `/docs/agents`, and `/docs/vaults`. These are the
-guides that `med docs` prints, so the website and the app agree; edit the
-Markdown in `apps/med/docs`, not here. `scripts/docs.ts` lists the pages and
-their sidebar labels.
+time: `INSTALL.md` at `/docs`; `USAGE.md`, the user guide's index, at
+`/docs/usage`, and its pages in `usage/` at `/docs/usage/<page>`; then
+`AGENT_INTEGRATION.md` and `VAULTS.md` at `/docs/agents` and `/docs/vaults`.
+These are the guides that `med docs` prints, so the website and the app agree;
+edit the Markdown in `apps/med/docs`, not here. `scripts/docs.ts` lists the
+pages and their sidebar labels.
 
 The build uses Med's Markdown packages (unified, remark, and rehype, at Med's
 versions); the pages ship HTML only. Headings get GitHub's anchors, so links
@@ -56,8 +57,8 @@ sections at the right on screens 1200 px or wider. Narrow screens show the
 pages as a row above the guide. There is no search. The pages use the site's
 `styles.css` and `main.js` (for the copy buttons on code), with `docs.css`.
 
-Some sections have a prototype to try: Notes and the Commit tab in Using Med,
-and a comment's trip to the agent in Agent reviews. They are Med's parts at
+Some sections have a prototype to try: the Commit tab in Edit working files,
+and a comment's trip to the agent in Review changes. They are Med's parts at
 low fidelity, drawn by `src/try.js` in Med's colours, with scripted data and a
 scripted agent. Keys work while a prototype has focus, and each key is also a
 button for touch screens. `scripts/docs.ts` places each one after the first

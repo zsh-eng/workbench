@@ -9,7 +9,7 @@
 // repository goes to GitHub. The build fails when a link between the guides
 // names a missing section.
 import { readFileSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import rehypeStringify from "rehype-stringify";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -43,10 +43,32 @@ const highlighter = await createHighlighter({
   langs: languages,
 });
 
+/** The pages of the user guide, in its index's order (USAGE.md). */
+const usage = [
+  ["run-med", "Run Med"],
+  ["threads", "Threads"],
+  ["review-changes", "Review changes"],
+  ["saved-reviews", "Saved reviews"],
+  ["guide", "The Guide"],
+  ["pull-requests", "Pull requests"],
+  ["find", "Find files and code"],
+  ["edit-files", "Edit working files"],
+  ["markdown", "Read and edit Markdown"],
+  ["layout", "Layout"],
+  ["keyboard", "Keyboard shortcuts"],
+  ["limits", "Limits and evidence"],
+].map(([name, label]) => ({
+  slug: `usage/${name}`,
+  file: `usage/${name}.md`,
+  label: label!,
+  group: "Using Med",
+}));
+
 /** The pages in the sidebar's order. The first one is /docs. */
 export const pages = [
   { slug: "", file: "INSTALL.md", label: "Install", group: "Start" },
-  { slug: "usage", file: "USAGE.md", label: "Using Med", group: "Guides" },
+  { slug: "usage", file: "USAGE.md", label: "Using Med", group: "Using Med" },
+  ...usage,
   {
     slug: "agents",
     file: "AGENT_INTEGRATION.md",
@@ -65,11 +87,8 @@ export const pages = [
  * section: a page's slug, then a section's anchor and the prototype. They are
  * on the website only; `med docs` prints the guides without them. */
 const prototypes: Record<string, Record<string, string>> = {
-  usage: {
-    "review-in-med": "comment",
-    "notes-and-briefs": "notes",
-    "commit-and-push": "commit",
-  },
+  "usage/review-changes": { "review-in-med": "comment" },
+  "usage/edit-files": { "commit-and-push": "commit" },
 };
 
 export interface DocPage {
@@ -146,15 +165,18 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
     // absolute links. Links inside code are text and stay as they are.
     const urls: { start: number; end: number; url: string }[] = [];
 
+    // A link names a file from the guide's own folder.
+    const folder = dirname(page.file);
     const link = (url: string) => {
       if (/^[a-z][a-z+.-]*:/i.test(url) || url.startsWith("/")) return url;
       const [path = "", anchor = ""] = url.split("#");
-      const target = path ? pages.find((other) => other.file === path) : page;
+      const file = path && normalize(join(folder, path));
+      const target = file ? pages.find((other) => other.file === file) : page;
       if (target) {
         if (anchor) links.push({ from: page.file, page: target.slug, anchor });
         return `${href(target.slug)}${anchor ? `#${anchor}` : ""}`;
       }
-      return `${repository}/blob/main/${normalize(join("apps/med/docs", path))}${anchor ? `#${anchor}` : ""}`;
+      return `${repository}/blob/main/${join("apps/med/docs", file)}${anchor ? `#${anchor}` : ""}`;
     };
 
     const visit = (node: Node, parent?: Node) => {
@@ -173,7 +195,7 @@ export function renderDocs(asset: (file: string) => string): DocPage[] {
       if (tag === "a" && typeof node.properties?.href === "string")
         node.properties.href = link(node.properties.href);
       if (tag === "img" && typeof node.properties?.src === "string") {
-        const file = join(guides, node.properties.src);
+        const file = join(guides, folder, node.properties.src);
         node.properties = {
           ...node.properties,
           src: asset(file),

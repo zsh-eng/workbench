@@ -14,7 +14,7 @@ stacked pull requests makes one thread with four parts, not four workspaces.
 | Attempts | Alternatives; keep one                  | Each attempt's worktree against the shared commit |
 
 Attempts stay as they are: a group of threads (`group` on each saved review,
-[Attempts](USAGE.md#attempts)). An attempt is a live agent with its own session,
+[Attempts](usage/threads.md#attempts)). An attempt is a live agent with its own session,
 worktree, and live Changes; Med's thread is one lead session and one checkout,
 and the sidebar state, recap, message box, and auto-close are per thread. A
 stack's or a set's parts are frozen hand-offs of one session. Folding attempts
