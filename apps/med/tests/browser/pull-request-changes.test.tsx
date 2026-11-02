@@ -557,7 +557,7 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   expect(listed.closest("ol")?.querySelectorAll("li")).toHaveLength(2);
   expect(view.getByRole("img", { name: "Quoted" }).element().closest("blockquote")).not.toBeNull();
   // The words beside an image stay.
-  await expect.element(view.getByText("A caption under it.")).toBeVisible();
+  await expect.element(view.getByText(/A caption under it\./)).toBeVisible();
   // GitHub shows no HTML comment, and a dollar is not math here.
   expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
   await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();

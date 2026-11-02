@@ -167,7 +167,6 @@ try {
     await words(view, "3 commits behind main.");
     const checks = view.getByRole("region", { name: "Checks" });
     await words(checks, "4 failed, 4 passed, 1 skipped");
-    await checks.getByRole("button", { name: "Show 4 passed, 1 skipped" }).click();
     // Failures first, and a check on two triggers twice, each with its trigger.
     const names = await checks
       .locator("li")
