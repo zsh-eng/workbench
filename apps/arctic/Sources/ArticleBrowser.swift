@@ -563,7 +563,7 @@ enum ArticleRouting {
       {
         target.path = url.path.isEmpty ? "/" : url.path
         target.query = url.query
-        webView.load(URLRequest(url: target.url!))
+        webView.load(ArticleRouting.request(target.url!))
         return
       }
     #endif
@@ -571,7 +571,7 @@ enum ArticleRouting {
       #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-test-website-recovery") {
           let recovery = URL(string: "arctic-recovery://fixture.example" + url.path)!
-          webView.load(URLRequest(url: recovery))
+          webView.load(ArticleRouting.request(recovery))
           return
         }
         if ProcessInfo.processInfo.arguments.contains("-hold-publisher-image"),
@@ -589,7 +589,7 @@ enum ArticleRouting {
       #endif
       webView.loadFileURL(fixture, allowingReadAccessTo: fixture.deletingLastPathComponent())
     } else {
-      webView.load(URLRequest(url: bypassRouting ? url : ArticleRouting.automatic(url)))
+      webView.load(ArticleRouting.request(bypassRouting ? url : ArticleRouting.automatic(url)))
     }
   }
 
@@ -794,13 +794,13 @@ enum ArticleRouting {
   func openOriginal() {
     selectWebsite()
     bypassRouting = true
-    webView.load(URLRequest(url: sourceURL))
+    webView.load(ArticleRouting.request(sourceURL))
   }
 
   func openUnwall() {
     selectWebsite()
     bypassRouting = false
-    webView.load(URLRequest(url: ArticleRouting.unwall(sourceURL)))
+    webView.load(ArticleRouting.request(ArticleRouting.unwall(sourceURL)))
   }
 
   func toggleReader() {
@@ -1370,7 +1370,7 @@ enum ArticleRouting {
         // Retry once as a desktop browser; never weaken transport security.
         retriedXRedirect = true
         self.webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
-        self.webView.load(URLRequest(url: ArticleRouting.webDestination(sourceURL)))
+        self.webView.load(ArticleRouting.request(ArticleRouting.webDestination(sourceURL)))
         return
       }
       failWebsite(error)

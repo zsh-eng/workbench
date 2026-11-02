@@ -183,7 +183,7 @@ export const paragraphs = (count: number) =>
       `<p>Paragraph ${index + 1}. Sea ice forms, drifts and thins with the seasons, and the people who read it keep careful notes about where it goes.</p>`,
   ).join("");
 
-/** Adds a text copy to the account, as Arctic for the web saves one. */
+/** Adds a text copy to the account, as Arctic for the web saves one: its file. */
 export async function addText(
   request: APIRequestContext,
   item: { id: string; url: string },
@@ -222,4 +222,5 @@ export async function addText(
       }),
     },
   ]);
+  return file;
 }

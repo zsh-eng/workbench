@@ -1,7 +1,8 @@
 # Arctic agent guidelines
 
 Read `README.md` and `PERFORMANCE.md` before changing the native app. Read
-`../../docs/ARCHITECTURE.md` before data, cache, or sync changes.
+`../../docs/ARCHITECTURE.md` before data, cache, or sync changes. Read
+`OPENING.md` before you add a request to anything that runs when Arctic opens.
 
 - Keep UIKit/SwiftUI UI, share extension, and local persistence in this app.
 - Keep WebView JavaScript in `Web/`; build it with `bun run build:arctic-web`

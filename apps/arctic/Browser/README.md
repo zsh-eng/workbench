@@ -112,8 +112,11 @@ Text copies are cleaned HTML files in `arctic-content`: no scripts, at most
 2 MiB, named by XXH64 (`src/sync/xxh64.ts`; the server checks every hash). The
 reader cleans a copy again with DOMPurify before it shows it. A copy under 120
 words is refused as a preview or sign-in page; a new copy replaces one only
-when it is 30% longer. Opened copies stay in IndexedDB, and a service worker
-keeps the app shell, so the library and opened articles work offline.
+when it is 30% longer, and a browser check's page is never one (`isChallengePage`
+in `packages/arctic-links`). Opened copies stay in IndexedDB, and a service worker
+keeps the app shell, so the library and opened articles work offline. The worker
+answers a page from its kept copy and refreshes that copy behind the page, so a
+new release shows at the second open ([opening policy](../OPENING.md)).
 **Settings → Offline** downloads the text of every saved article into this
 browser (`src/offline.ts`, and asks the browser to keep the storage), and can
 download new text after each sync. It asks for up to 32 texts in one request,

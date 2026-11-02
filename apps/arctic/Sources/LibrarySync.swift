@@ -764,6 +764,10 @@ extension HTTPRemote: AccountRecordRemote {}
     }
 
     func pull(deviceID: String, cursor: Int64, head: Int64?) async throws -> SyncPull {
+      // A connection that stays open with no answer, for the opening tests.
+      if ProcessInfo.processInfo.arguments.contains("-test-sync-held") {
+        try await Task.sleep(for: .seconds(3600))
+      }
       // A relaunched test app keeps its cursor; this account restarts in memory.
       let end = max(head ?? sequence, cursor)
       let rows = records.values.filter { $0.serverSeq > cursor && $0.serverSeq <= end }

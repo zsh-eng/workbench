@@ -128,6 +128,60 @@ final class ArticleReaderUITests: XCTestCase {
     capture(app, "65-search-title-variants")
   }
 
+  /// OPENING.md: the account's server holds every request open, as a dead
+  /// network does. What is stored must open and work as if it were not there.
+  @MainActor func testStoredLibraryOpensWhileTheAccountHoldsEveryRequest() throws {
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "-ui-testing", "-reset-store", "-reset-appearance", "-seed-preload-fixtures", "-test-sync",
+    ]
+    app.launch()
+    let card = app.descendants(matching: .any).matching(identifier: "article-cached-0").firstMatch
+    let fromMac = app.descendants(matching: .any).matching(identifier: "article-from-your-mac")
+      .firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 10), app.debugDescription)
+    app.buttons["Sort and filter"].tap()
+    app.buttons["library-sync"].tap()
+    app.buttons["sync-sign-in"].tap()
+    let add = app.buttons["sync-add-articles"]
+    XCTAssertTrue(add.waitForExistence(timeout: 10), app.debugDescription)
+    add.tap()
+    let status = app.descendants(matching: .any).matching(identifier: "sync-status").firstMatch
+    expectation(
+      for: NSPredicate(format: "label BEGINSWITH %@", "Up to date"), evaluatedWith: status)
+    waitForExpectations(timeout: 10)
+    app.buttons["sync-done"].tap()
+    XCTAssertTrue(fromMac.waitForExistence(timeout: 10), app.debugDescription)
+
+    app.terminate()
+    app.launchArguments = [
+      "-ui-testing", "-test-sync", "-test-sync-held", "-articles-offline", "-images-offline",
+    ]
+    let started = Date()
+    app.launch()
+    XCTAssertTrue(card.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertTrue(fromMac.exists)
+    let opened = Date().timeIntervalSince(started)
+    print("Library opened \(opened) s after launch with every request held")
+    XCTContext.runActivity(named: "library opened after \(opened) s") { _ in }
+    capture(app, "90-opens-with-requests-held")
+
+    card.tap()
+    XCTAssertTrue(app.webViews.staticTexts["Cached story 00"].waitForExistence(timeout: 5))
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    card.press(forDuration: 1)
+    app.buttons["archive-article"].tap()
+    XCTAssertTrue(fromMac.waitForExistence(timeout: 5))
+    expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: card)
+    waitForExpectations(timeout: 5)
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(fromMac.waitForExistence(timeout: 5), app.debugDescription)
+    XCTAssertFalse(card.exists)
+  }
+
   @MainActor func testReaderBookmarkAndArchiveAtEnd() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-ui-testing", "-reset-store", "-reset-appearance", "-test-clipboard"]

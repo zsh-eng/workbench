@@ -35,6 +35,8 @@ type Channels = Record<keyof typeof NAMESPACES, Channel>;
 const UNNAMED_COPY_GRACE_MS = 24 * 60 * 60_000;
 /** Sync on open, on reconnect, on return to the tab, and every five minutes. */
 const SYNC_INTERVAL_MS = 5 * 60_000;
+/** A text that this browser lacks, for an open article: then the reader says so. */
+const TEXT_WAIT_MS = 15_000;
 
 const stateKey = (userId: string, ns: string) => `arctic:${userId}:${ns}:sync`;
 /** The account's last sync time and whether its session ended (see local-sync). */
@@ -408,12 +410,22 @@ export class Session {
   }
 
   private async download(id: string) {
-    const response = await this.channels.content.request(
-      `/files/${id}`,
-      {},
-      false,
-    );
-    const html = await response.text();
+    const signal = AbortSignal.timeout(TEXT_WAIT_MS);
+    const read = async () => {
+      const response = await this.channels.content.request(
+        `/files/${id}`,
+        { signal },
+        false,
+      );
+      return response.text();
+    };
+    // The request may wait for the account's scope first, out of the signal's reach.
+    const html = await Promise.race([
+      read(),
+      new Promise<never>((_, reject) =>
+        signal.addEventListener("abort", () => reject(signal.reason)),
+      ),
+    ]);
     await this.storeFile(id, html);
     return html;
   }

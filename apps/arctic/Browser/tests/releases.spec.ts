@@ -126,7 +126,14 @@ test("the app's cache keeps two versions across releases", async ({ page }) => {
   const sizes = [first];
   for (let version = 2; version <= 6; version++) {
     release(version);
+    // The kept version opens; the new one is ready for the next open.
     await page.goto(origin);
+    const opened = await page.evaluate(() => document.documentElement.outerHTML);
+    expect(opened).not.toContain(`-r${version}.`);
+    await page.waitForFunction(async (name) => {
+      const kept = await (await caches.match("/"))?.text();
+      return kept?.includes(name);
+    }, `-r${version}.`);
     sizes.push(await cached(page));
   }
   console.log(

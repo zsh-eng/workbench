@@ -258,7 +258,8 @@ Each library is a profile with one SQLite file: the local profile, and one for
 each account scope (server, user, namespace and epoch). An edit shows at once;
 `LibraryJournal` commits edits in order, off the main actor. Arctic syncs when it
 opens, when it becomes active, and three seconds after an edit. Offline edits wait
-in the outbox. Sign-out keeps both profiles on the device.
+in the outbox. Sign-out keeps both profiles on the device. Nothing that is stored
+waits on the network; [OPENING.md](OPENING.md) is the policy for every surface.
 
 Highlights and notes (`arctic-annotations`) and reading sessions
 (`arctic-reading`) sync as whole records, after the library, each with its own

@@ -97,6 +97,8 @@ function Page({
     () => !!body && "html" in body && opensWith(body.html, article.subtitle),
   );
 
+  // Try again asks for a text that could not load, once more.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!file) return;
     let current = true;
@@ -106,7 +108,7 @@ function Page({
     return () => {
       current = false;
     };
-  }, [file, session, article]);
+  }, [file, session, article, attempt]);
 
   const text = body?.file === file ? body : undefined;
   useLayoutEffect(() => {
@@ -233,6 +235,18 @@ function Page({
         ) : !text ? null : "error" in text ? (
           <div className="missing">
             <p>{text.error}</p>
+            <div className="actions">
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  setBody(undefined);
+                  setAttempt((count) => count + 1);
+                }}
+              >
+                Try again
+              </button>
+            </div>
           </div>
         ) : (
           <div
