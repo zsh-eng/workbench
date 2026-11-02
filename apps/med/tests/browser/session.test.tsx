@@ -1078,6 +1078,46 @@ test("the units in view keep their place as earlier work loads above them", asyn
   expect(scroller.scrollTop).toBeGreaterThan(2000);
 });
 
+test("a new width keeps the units in view still as heights above them change", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(0);
+  // Long replies above the view take a new height; the short ones in it do not wrap.
+  store.applyAll(
+    turnEvents(0, 200).map((event, index) =>
+      index >= 300 && event.update.sessionUpdate === "agent_message_chunk"
+        ? { ...event, update: { ...event.update, content: { type: "text" as const, text: "Ok." } } }
+        : event,
+    ),
+  );
+  root!.render(<SessionThread snapshot={store.getSnapshot()} />);
+  await expect.poll(() => units().at(-1)?.dataset.unit).toBe("r199");
+  const scroller = threadScroller();
+  await expect
+    .poll(() => document.querySelector("[data-unit] .med-session-plain"), { timeout: 5000 })
+    .toBeNull();
+  scroller.scrollTop -= 900;
+  const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+  // Where the frame painted: after its paint, not before its resize callbacks.
+  const painted = () =>
+    new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      requestAnimationFrame(() => channel.port2.postMessage(0));
+    });
+  for (let at = 0; at < 30; at++) await frame();
+  const key = firstInView().key;
+  const link = document.querySelector(`[data-unit="${key}"]`)!;
+  const positions = new Set<number>();
+  mount!.style.width = "500px";
+  for (let at = 0; at < 40; at++) {
+    await painted();
+    positions.add(Number(topOf(key).toFixed(3)));
+  }
+  expect(link.isConnected).toBe(true);
+  expect([...positions]).toHaveLength(1);
+});
+
 test("an update that renders during the reader's scroll does not pull the view back", async () => {
   await page.viewport(1280, 900);
   initializeTheme();

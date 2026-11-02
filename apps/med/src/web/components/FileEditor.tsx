@@ -132,6 +132,37 @@ function reveal(editor: EditorView, line: number, endLine?: number) {
     ],
   });
 }
+/** The gap that `zt` and `zb` leave: four lines, or half a short view. */
+function edgeGap(editor: EditorView) {
+  return Math.min(
+    4 * editor.defaultLineHeight,
+    Math.max(0, (editor.scrollDOM.clientHeight - editor.defaultLineHeight) / 2),
+  );
+}
+/** Puts a line at the top or the bottom of the view, with the edge gap. */
+function placeLine(editor: EditorView, pos: number, y: "start" | "end") {
+  // CodeMirror scrolls the caret's text box, which sits inside the line box by
+  // half the leading (3 px in Paper Mono), so count from the box.
+  const caret = editor.coordsAtPos(pos, y === "start" ? 1 : -1);
+  const block = editor.lineBlockAt(pos);
+  const top = editor.documentTop + block.top;
+  const inset = caret
+    ? Math.max(0, y === "start" ? caret.top - top : top + block.height - caret.bottom)
+    : 0;
+  editor.dispatch({
+    effects: EditorView.scrollIntoView(pos, { y, yMargin: edgeGap(editor) + inset }),
+  });
+}
+/** Like Vim's `scrolloff`: a line stays where it is, unless that is within the
+ * edge gap or out of view. A symbol then keeps lines around it. */
+function keepOffEdges(editor: EditorView, pos: number) {
+  const scroller = editor.scrollDOM;
+  const block = editor.lineBlockAt(pos);
+  const top = editor.documentTop + block.top - scroller.getBoundingClientRect().top;
+  const gap = edgeGap(editor);
+  if (top < gap) placeLine(editor, pos, "start");
+  else if (top + block.height > scroller.clientHeight - gap) placeLine(editor, pos, "end");
+}
 const setColors = StateEffect.define<DecorationSet>();
 const colors = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -381,10 +412,8 @@ export default function FileEditor({
             Math.max(1, Math.min(number, editor.state.doc.lines)),
           );
           const pos = Math.min(target.to, target.from + Math.max(0, (column ?? 1) - 1));
-          editor.dispatch({
-            selection: { anchor: pos },
-            effects: EditorView.scrollIntoView(pos, { y: "nearest" }),
-          });
+          editor.dispatch({ selection: { anchor: pos } });
+          keepOffEdges(editor, pos);
         },
         finish(accept) {
           if (!accept) {
@@ -639,22 +668,7 @@ export default function FileEditor({
     actions.set(cm, {
       scroll: (y) => {
         const line = editor.state.doc.lineAt(editor.state.selection.main.head);
-        const pos = y === "start" ? line.from : line.to;
-        const margin = Math.min(
-          4 * editor.defaultLineHeight,
-          Math.max(0, (editor.scrollDOM.clientHeight - editor.defaultLineHeight) / 2),
-        );
-        // CodeMirror scrolls the caret's text box, which sits inside the line
-        // box by half the leading (3 px in Paper Mono), so count from the box.
-        const caret = editor.coordsAtPos(pos, y === "start" ? 1 : -1);
-        const block = editor.lineBlockAt(pos);
-        const top = editor.documentTop + block.top;
-        const inset = caret
-          ? Math.max(0, y === "start" ? caret.top - top : top + block.height - caret.bottom)
-          : 0;
-        editor.dispatch({
-          effects: EditorView.scrollIntoView(pos, { y, yMargin: margin + inset }),
-        });
+        placeLine(editor, y === "start" ? line.from : line.to, y);
       },
       definition: () => {
         const word = editor.state.wordAt(editor.state.selection.main.head);

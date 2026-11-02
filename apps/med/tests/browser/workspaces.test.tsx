@@ -95,6 +95,7 @@ const reviewFor = (repo: string, comparison: Comparison, id = `review-${repo}`) 
 /** Saved reviews that an agent can announce, each of the main worktree. */
 const savedTitles: Record<string, string> = {
   agent: "Agent review",
+  commented: "Commented review",
   second: "Second review",
   talk: "Talk review",
   third: "Third review",
@@ -110,7 +111,7 @@ const savedReview = (id: string) => ({
   ...(id === "talk" ? { sessions: [talkSession] } : {}),
   createdAt: "2026-10-01T00:00:00Z",
   revision: 0,
-  commentCount: 0,
+  commentCount: id === "commented" ? 1 : 0,
   targets: [
     {
       id: `${id}-target`,
@@ -366,6 +367,8 @@ function createHost() {
     if (saved?.[2] === "notes")
       return Response.json({ reviewId: `${saved[1]}-target`, revision: 0, notes: [] });
     if (saved) return Response.json(savedReview(saved[1]!));
+    if (url.pathname === "/api/reviews/commented/clear")
+      return Response.json({ ...savedReview("commented"), revision: 1, commentCount: 0 });
     switch (url.pathname) {
       case "/api/service/status":
         return Response.json({
@@ -728,6 +731,24 @@ test("a thread with its session on screen shows its session first, and its diff 
   await expect.element(thread_.getByText("Rename the export.")).toBeVisible();
   await expect.element(thread_.getByText("alpha", { exact: true })).toBeVisible();
   expect(status()).toBe("ready");
+});
+
+test("the notice after Clear takes the review's row, not the width of its ⋯ button", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  host.setThreads([thread("commented")]);
+  await page.getByRole("button", { name: /^Commented review/ }).click();
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("commented-target");
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Clear all comments…" }).click();
+  await page.getByRole("button", { name: "Confirm clear" }).click();
+  const notice = page.getByRole("status").filter({ hasText: "Comments cleared" });
+  await expect.element(notice).toBeVisible();
+  // On one line, at the end of the row.
+  const box = notice.element().getBoundingClientRect();
+  expect(box.height).toBeLessThan(44);
+  expect(box.width).toBeGreaterThan(100);
 });
 
 test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chrome brings back the bars", async () => {

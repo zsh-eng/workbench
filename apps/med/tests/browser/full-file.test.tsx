@@ -8,7 +8,8 @@ import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
 import type { BrowseRead } from "../../src/shared/browse";
 import type { BrowseBlame } from "../../src/shared/inspect";
 import type { BlameLoader, CommitLoader } from "../../src/web/data/blame";
-import { FullFileView } from "../../src/web/components/FullFileView";
+import { FullFileView, type BeginFileSymbolPreview } from "../../src/web/components/FullFileView";
+import { createEditorDrafts } from "../../src/web/data/editor-drafts";
 import { FileViewTabs } from "../../src/web/components/FileViewTabs";
 import { initializeTheme } from "../../src/web/themes";
 
@@ -61,6 +62,55 @@ test("binary, missing and too-large responses never mount a code renderer", asyn
   root!.render(<FullFileView {...props} file={{ ...base, kind: "too-large", size: 90_000_000 }} />);
   await expect.element(page.getByText("This file exceeds the preview size limit.")).toBeVisible();
   expect(document.querySelector("diffs-container")).toBeNull();
+});
+
+test("a symbol in the editor keeps four lines between it and the view's edges, as zt and zb do", async () => {
+  const text = Array.from({ length: 400 }, (_, at) => `const line${at + 1} = ${at};`).join("\n");
+  let begin: BeginFileSymbolPreview | null = null;
+  render(
+    <FullFileView
+      {...props}
+      file={{ ...base, text, size: text.length, identity: "long:1" }}
+      editor={{
+        drafts: createEditorDrafts(),
+        key: "long",
+        autoEdit: true,
+        write: async () => ({ ...base, identity: "long:2" }),
+      }}
+      onSymbolPreviewReady={(value) => {
+        begin = value;
+      }}
+    />,
+  );
+  await expect.poll(() => document.querySelector(".cm-activeLine")).not.toBeNull();
+  await expect.poll(() => begin).not.toBeNull();
+  const scroller = document.querySelector<HTMLElement>(".cm-scroller")!;
+  const gap = (edge: "top" | "bottom") => {
+    const row = document.querySelector(".cm-activeLine")?.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    return row ? (edge === "top" ? row.top - view.top : view.bottom - row.bottom) : -1;
+  };
+  const preview = begin!();
+  const lines = () => document.querySelector(".cm-activeLine")!.getBoundingClientRect().height;
+  const clear = async (edge: "top" | "bottom") =>
+    await expect.poll(() => gap(edge) / lines()).toBeGreaterThanOrEqual(3.5);
+  // A symbol below the view lands above its bottom edge, and one above it
+  // lands below its top edge.
+  preview.preview(200, 7, "line200");
+  await clear("bottom");
+  preview.preview(100, 7, "line100");
+  await clear("top");
+  // So does a line in view that is too near an edge.
+  const top = scroller.scrollTop;
+  preview.preview(98, 7, "line98");
+  await clear("top");
+  expect(scroller.scrollTop).toBeLessThan(top);
+  // A line well inside the view moves nothing.
+  const inside = scroller.scrollTop;
+  preview.preview(106, 7, "line106");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(scroller.scrollTop).toBe(inside);
+  preview.finish(true);
 });
 
 test("large plain files remain virtualized and never enter worker syntax highlighting", async () => {

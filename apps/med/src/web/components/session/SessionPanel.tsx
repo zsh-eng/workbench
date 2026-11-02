@@ -601,6 +601,14 @@ export function SessionPanel({
   }, [running, store]);
 
   // The agent writes paths from its own folder.
+  // Stable, as each reply is a memo: a new function would render every reply again.
+  const openLink = useCallback(
+    (href: string) => {
+      const link = sessionLink(href, root);
+      if (link) onOpenPath(link.path, link.line);
+    },
+    [root, onOpenPath],
+  );
   const sessionFileRefs = useMemo(
     () => (fileRefs ? { ...fileRefs, cwd: session.cwd || undefined } : null),
     [fileRefs, session.cwd],
@@ -966,10 +974,7 @@ export function SessionPanel({
                         </p>
                       ) : undefined
                     }
-                    onOpenLink={(href) => {
-                      const link = sessionLink(href, root);
-                      if (link) onOpenPath(link.path, link.line);
-                    }}
+                    onOpenLink={openLink}
                   />
                 </FileRefsContext.Provider>
               </ReplyActionsContext.Provider>

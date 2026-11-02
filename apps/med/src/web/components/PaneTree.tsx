@@ -270,8 +270,14 @@ export function usePaneTree({
     [],
   );
 
+  // Stable across layouts: a link's reveal holds it, and each reply reads that link.
+  const openNow = useRef(open);
+  useLayoutEffect(() => {
+    openNow.current = open;
+  });
   const show = useCallback(
     (id: string, place: { near?: string; side?: Side; share?: number; quiet?: boolean } = {}) => {
+      const open = openNow.current;
       update(({ root, zoom }) => {
         if (has(root, id)) return { zoom: zoom && zoom !== id ? null : zoom };
         // A quiet show, such as a pane that follows the main view, takes only free room.
@@ -281,7 +287,7 @@ export function usePaneTree({
       if (!open.includes(id) && !(place.quiet && open.length >= 3)) view.set({ entering: id });
       if (!place.quiet) view.set({ focused: id });
     },
-    [update, open, view],
+    [update, view],
   );
   const close = useCallback(
     (id: string) => {

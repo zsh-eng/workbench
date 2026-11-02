@@ -1175,6 +1175,14 @@ export function SessionThread({
     end = range.tail ? count : Math.min(count, range.end + shift);
   } else if (metrics && count)
     start = indexAt(model.offsets, model.offsets[count]! - globalThis.innerHeight * FIRST_SCREENS);
+  // The spacers are whole pixels. Heights are fractions, and a new estimate for
+  // a unit out of view would move the units in view by a fraction that the
+  // scroll position cannot take back. A link's pill and the text beside it snap
+  // to device pixels apart, so that fraction moved the pills alone.
+  const above = metrics ? Math.round(model.offsets[start]!) : 0;
+  const below = metrics ? Math.round(model.offsets[count]! - model.offsets[end]!) : 0;
+  // Where the list stands from its offsets: the spacer's rounding.
+  const shift = metrics ? above - model.offsets[start]! : 0;
 
   // Units that come at the end of the thread rise in once. Units that were
   // there when it opened, earlier pages, and units that scroll back in do not.
@@ -1195,9 +1203,9 @@ export function SessionThread({
   const [sized, setSized] = useState(false);
 
   // The latest values for the scroll and resize handlers.
-  const latest = useRef({ model, metrics, range: { start, end }, earlier });
+  const latest = useRef({ model, metrics, range: { start, end }, earlier, shift });
   useLayoutEffect(() => {
-    latest.current = { model, metrics, range: { start, end }, earlier };
+    latest.current = { model, metrics, range: { start, end }, earlier, shift };
   });
 
   // The first unit that starts in view, and how far the view is below its
@@ -1310,6 +1318,11 @@ export function SessionThread({
     let pressed = false;
     const atEnd = () => node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     const listTop = () => head.current?.offsetTop ?? 0;
+    // The view's place in the list's offsets.
+    const viewTop = () => node.scrollTop - listTop() - latest.current.shift;
+    // Half a device pixel: the scroll position moves in device pixels.
+    const moved = (from: number, to: number) =>
+      Math.abs(from - to) >= 0.5 / globalThis.devicePixelRatio;
     const check = () => {
       if (atEnd()) stuck.current = true;
       else if (node.scrollTop + 1 < top && (pressed || performance.now() - input < 500))
@@ -1322,7 +1335,7 @@ export function SessionThread({
       recorded = node.scrollTop;
       const { all, offsets } = latest.current.model;
       if (!all.length || !latest.current.metrics) return;
-      const y = node.scrollTop - listTop();
+      const y = viewTop();
       let at = indexAt(offsets, y);
       // As in the browser's own anchoring, the first unit that starts in
       // view: a unit cut at the top can still change, as when its Markdown
@@ -1336,7 +1349,7 @@ export function SessionThread({
       if (!node.clientHeight) return;
       // The view moved since its anchor: a reader's scroll whose event has
       // not come yet, or the browser's clamp. The new place is the anchor.
-      if (Math.abs(node.scrollTop - recorded) > 1) {
+      if (moved(node.scrollTop, recorded)) {
         check();
         if (!stuck.current) {
           record();
@@ -1353,8 +1366,8 @@ export function SessionThread({
       const { offsets, index } = latest.current.model;
       const at = index.get(saved.key) ?? index.get(`explore-${saved.key}`);
       if (at === undefined) return;
-      const target = listTop() + offsets[at]! + saved.delta;
-      if (Math.abs(node.scrollTop - target) > 1) node.scrollTop = target;
+      const target = listTop() + latest.current.shift + offsets[at]! + saved.delta;
+      if (moved(node.scrollTop, target)) node.scrollTop = target;
       recorded = node.scrollTop;
     };
     const place = (sync: boolean) => {
@@ -1423,7 +1436,7 @@ export function SessionThread({
       const at = index.get(key);
       if (at === undefined) return;
       stuck.current = false;
-      anchor.current = { key, delta: node.scrollTop - listTop() - offsets[at]! };
+      anchor.current = { key, delta: viewTop() - offsets[at]! };
       recorded = node.scrollTop;
     };
     list.current = { record, restore, place, loadEarlier, go, hold };
@@ -1663,14 +1676,11 @@ export function SessionThread({
     0,
     turn.startedAt !== undefined ? (snapshot.updatedAt ?? 0) - turn.startedAt : 0,
   );
-  const offsets = model.offsets;
   const scrollerProps = stylex.props(styles.scroller);
   // Schedule cards read the session's cancels and fires (ScheduleCard.tsx);
   // the clock moves their expiry, so a minute is fine enough.
   const minute = useMinuteClock(now === undefined);
   const scheduleFacts = useScheduleFacts(snapshot.items, now ?? minute);
-  const above = metrics ? offsets[start]! : 0;
-  const below = metrics ? offsets[count]! - offsets[end]! : 0;
 
   return (
     <OpenAgentContext.Provider value={setAgentId}>
