@@ -91,30 +91,73 @@ export function schedule(action: string, origin: string, directory: string) {
   return { installed: true, intervalSeconds: 3600, plist, stdout, stderr };
 }
 
+/** `pid` and every process under it, whatever its process group. */
+function processTree(pid: number) {
+  const children = new Map<number, number[]>();
+  const ps = Bun.spawnSync(["ps", "-axo", "pid=,ppid="]).stdout.toString();
+  for (const line of ps.trim().split("\n")) {
+    const [child, parent] = line.trim().split(/\s+/).map(Number) as [
+      number,
+      number,
+    ];
+    children.set(parent, [...(children.get(parent) ?? []), child]);
+  }
+  const tree = (id: number): number[] => [
+    id,
+    ...(children.get(id) ?? []).flatMap(tree),
+  ];
+  return tree(pid);
+}
+
 /**
  * What the scheduled job runs: `sync`, then the text of saved links that have
  * none. Each step reports on its own, a failed backup doesn't stop the text,
- * and the job exits with the first failing step's code. `cli` runs wb.
+ * and the job exits with the first failing step's code: 128 + the signal's
+ * number for a step a signal ended. `cli` runs wb.
+ *
+ * A step that hangs must not hold the job, as launchd starts no other: at
+ * `timeoutMs` it gets SIGTERM, and `graceMs` later it and every process it
+ * started get SIGKILL. Playwright starts Chromium in its own process group,
+ * so the kill follows the process tree, not the group.
  */
-export function hourly(
+export async function hourly(
   cli: string[],
   origin: string,
   directory: string,
-  timeoutMs = 20 * 60 * 1000,
+  { timeoutMs = 20 * 60 * 1000, graceMs = 30 * 1000 } = {},
 ) {
-  const step = (...args: string[]) => {
-    const run = Bun.spawnSync(
+  const step = async (...args: string[]) => {
+    const name = `wb ${args.join(" ")}`;
+    const child = Bun.spawn(
       [...cli, ...args, "--origin", origin, "--data-dir", directory, "--json"],
-      // A step that hangs must not hold the job: launchd starts no other.
-      { stdout: "inherit", stderr: "inherit", timeout: timeoutMs },
+      { stdout: "inherit", stderr: "inherit" },
     );
-    if (run.exitedDueToTimeout)
+    let kill: ReturnType<typeof setTimeout> | undefined;
+    const cap = setTimeout(() => {
       console.error(
-        `wb hourly: wb ${args.join(" ")} ran over ${timeoutMs / 1000} s and was stopped`,
+        `wb hourly: ${name} ran over ${timeoutMs / 1000} s; stopping it`,
       );
-    // A step stopped by a signal, the cap's included, has no exit code.
-    return run.exitCode ?? 1;
+      child.kill("SIGTERM");
+      kill = setTimeout(() => {
+        console.error(
+          `wb hourly: ${name} didn't stop in ${graceMs / 1000} s; killing it and what it started`,
+        );
+        for (const pid of processTree(child.pid))
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            /* It has exited meanwhile. */
+          }
+      }, graceMs);
+    }, timeoutMs);
+    const code = await child.exited;
+    clearTimeout(cap);
+    clearTimeout(kill);
+    return code;
   };
-  const codes = [step("sync"), step("arctic", "text", "--missing", "--unwall")];
+  const codes = [
+    await step("sync"),
+    await step("arctic", "text", "--missing", "--unwall"),
+  ];
   return codes.find(Boolean) ?? 0;
 }

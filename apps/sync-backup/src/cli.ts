@@ -214,7 +214,7 @@ async function main() {
     return;
   }
   if (command === "hourly") {
-    process.exitCode = hourly(
+    process.exitCode = await hourly(
       [process.execPath, import.meta.path],
       origin,
       directory,
