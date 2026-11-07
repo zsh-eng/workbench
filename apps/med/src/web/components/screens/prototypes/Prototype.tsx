@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { themeController } from "../../../themes";
 import { AskInSession, AskInWorkspace } from "./AskPrototype";
+import { FindEverywhere } from "./FindPrototype";
 
 /** The prototypes, by the last part of their path: /screens/prototype/<id>. */
 export const prototypes = {
   "ask-in-session": AskInSession,
   "ask-in-workspace": AskInWorkspace,
+  "find-bar": FindEverywhere,
 } as const;
 
 /**

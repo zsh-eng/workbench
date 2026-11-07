@@ -84,6 +84,14 @@ export const screens: readonly Screen[] = [
     prototype: "ask-in-workspace",
   },
   {
+    id: "find-bar",
+    label: "Prototype: one find bar",
+    note: "⌘F in the diff, ⌘F in a file, and Vim's / and ? open the same bar: Match case, Whole word, and Regular expression, the count, and Previous and Next. In a file it is CodeMirror's search panel, so n and N go on from its query.",
+    scene: "",
+    recording: "",
+    prototype: "find-bar",
+  },
+  {
     id: "notes",
     label: "Notes vault",
     note: "A folder of notes beside the code, read as Markdown.",

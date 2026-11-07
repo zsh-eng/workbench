@@ -39,6 +39,21 @@ function capitalize(value: string): string {
 }
 `;
 
+/** filters.ts before the change: no labels for the search bar yet. */
+export const FILTERS_TS_BEFORE = `import type { Trail } from "./trails";
+import type { TrailFilters } from "./query";
+
+export function matchesFilters(trail: Trail, filters: TrailFilters): boolean {
+  if (filters.difficulty && trail.difficulty !== filters.difficulty) {
+    return false;
+  }
+  if (filters.maxDistanceKm && trail.distanceKm >= filters.maxDistanceKm) {
+    return false;
+  }
+  return true;
+}
+`;
+
 const NOW = Date.now();
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
 
