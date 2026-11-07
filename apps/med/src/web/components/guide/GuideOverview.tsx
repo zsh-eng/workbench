@@ -178,12 +178,6 @@ export function GuideOverview({
                           {section.area && (
                             <span {...stylex.props(styles.kind)}>{AREA_LABELS[section.area]}</span>
                           )}
-                          {section.additions > 0 && (
-                            <span {...stylex.props(ui.added)}>+{section.additions}</span>
-                          )}
-                          {section.deletions > 0 && (
-                            <span {...stylex.props(ui.removed)}>−{section.deletions}</span>
-                          )}
                           <span>
                             {section.fileIds.length}{" "}
                             {section.fileIds.length === 1 ? "file" : "files"}

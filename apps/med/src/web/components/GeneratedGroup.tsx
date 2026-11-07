@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { GENERATED_LABELS, type GeneratedKind } from "../../shared/generated";
-import { tokens, ui } from "../theme.stylex";
-import { DiffStat } from "./DiffStat";
+import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
 
 /** One generated file of the group (docs/GENERATED.md). */
@@ -40,8 +39,6 @@ export function GeneratedGroup({
   onToggle(): void;
   onReveal(id: string): void;
 }) {
-  const additions = rows.reduce((sum, row) => sum + row.additions, 0);
-  const deletions = rows.reduce((sum, row) => sum + row.deletions, 0);
   const warnings = rows.filter((row) => row.warning).length;
   return (
     <section aria-label="Generated files" data-generated-group={open ? "open" : "folded"}>
@@ -66,12 +63,6 @@ export function GeneratedGroup({
             {warnings} to check
           </span>
         )}
-        <span {...stylex.props(ui.grow)} />
-        <span {...stylex.props(styles.stats)}>
-          <span {...stylex.props(ui.added)}>+{additions.toLocaleString()}</span>
-          <span {...stylex.props(ui.removed)}>−{deletions.toLocaleString()}</span>
-          <DiffStat additions={additions} deletions={deletions} />
-        </span>
       </div>
       {!open && (
         <ul {...stylex.props(styles.list)}>
@@ -115,10 +106,6 @@ export function GeneratedGroup({
                       {row.warning}
                     </span>
                   )}
-                </span>
-                <span {...stylex.props(styles.rowStats)}>
-                  <span {...stylex.props(ui.added)}>+{row.additions.toLocaleString()}</span>
-                  <span {...stylex.props(ui.removed)}>−{row.deletions.toLocaleString()}</span>
                 </span>
               </li>
             );
@@ -180,15 +167,6 @@ const styles = stylex.create({
     gap: 4,
     color: tokens.warning,
     fontSize: 11.5,
-  },
-  stats: {
-    position: "relative",
-    pointerEvents: "none",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    fontFamily: tokens.code,
-    fontSize: 11,
   },
   list: {
     margin: 0,
@@ -257,12 +235,5 @@ const styles = stylex.create({
     textUnderlineOffset: 3,
   },
   warning: { display: "inline-flex", alignItems: "center", gap: 4, color: tokens.warning },
-  rowStats: {
-    display: "inline-flex",
-    gap: 6,
-    marginInlineStart: "auto",
-    fontFamily: tokens.code,
-    fontSize: 11,
-  },
   more: { paddingBlock: 6, paddingInlineStart: 30, color: tokens.faint },
 });

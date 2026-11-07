@@ -106,7 +106,7 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 - **Sidebar.** A stack or a set is one session row, like any other.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom, the
   base branch (`main`) at the bottom, each with its number, title, state, and
-  +/−. Shift-click picks a range. **This layer** and **Whole stack** sit above.
+  comment count. Shift-click picks a range. **This layer** and **Whole stack** sit above.
   A narrow pane, where the rail hides, has a layer menu in the review's row.
 - **Keys.** `⌥↑` and `⌥↓` go up and down the stack.
 - **Top bar.** The current layer's pull request, through `PullRequestTitle`.

@@ -65,8 +65,6 @@ export function SegmentHeader({
       title={section.title}
       meta={
         <>
-          {section.additions > 0 && <span {...stylex.props(ui.added)}>+{section.additions}</span>}
-          {section.deletions > 0 && <span {...stylex.props(ui.removed)}>−{section.deletions}</span>}
           <span>
             {section.fileIds.length} {section.fileIds.length === 1 ? "file" : "files"}
           </span>
@@ -168,15 +166,9 @@ export function CommitHeader({
           <span>{commit.author}</span>
           <span>{relativeTime(commit.timestamp, now)}</span>
           {totals && (
-            <>
-              {totals.additions > 0 && <span {...stylex.props(ui.added)}>+{totals.additions}</span>}
-              {totals.deletions > 0 && (
-                <span {...stylex.props(ui.removed)}>−{totals.deletions}</span>
-              )}
-              <span>
-                {totals.files} {totals.files === 1 ? "file" : "files"}
-              </span>
-            </>
+            <span>
+              {totals.files} {totals.files === 1 ? "file" : "files"}
+            </span>
           )}
         </>
       }
@@ -229,8 +221,6 @@ export function SinceHeader({
       title={`What changed since ${BASIS[since.basis]}`}
       meta={
         <>
-          {totals.additions > 0 && <span {...stylex.props(ui.added)}>+{totals.additions}</span>}
-          {totals.deletions > 0 && <span {...stylex.props(ui.removed)}>−{totals.deletions}</span>}
           <span>
             {totals.files} {totals.files === 1 ? "file" : "files"}
           </span>

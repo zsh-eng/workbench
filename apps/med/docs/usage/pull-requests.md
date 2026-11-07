@@ -160,7 +160,7 @@ next layer.
 - **Sidebar.** The thread is one session row, like any other.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom,
   the base branch (such as `main`) under the bottom one, each with its number,
-  title, pull request state, and `+`/`−`. A pull request that GitHub moved to
+  title, pull request state, and comment count. A pull request that GitHub moved to
   another base says "on main". **This layer** shows the layer's own diff;
   **Whole stack** shows the base to the top layer's head; Shift-click a layer
   for the layers from the shown one to it. In a narrow pane the layers are a

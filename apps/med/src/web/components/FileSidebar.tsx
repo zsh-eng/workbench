@@ -84,8 +84,6 @@ export const FileSidebar = memo(function FileSidebar({
     setFoldedAt(generatedOpen ? selected : null);
   };
   const tree = { selected, onSelect, onOpen, onPrefetch, repo, pathActions };
-  const additions = groups.generated.reduce((sum, file) => sum + file.info.additions, 0);
-  const deletions = groups.generated.reduce((sum, file) => sum + file.info.deletions, 0);
   return (
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
       <div {...stylex.props(styles.heading)}>
@@ -134,11 +132,6 @@ export const FileSidebar = memo(function FileSidebar({
             </span>
             <span>Generated</span>
             <span {...stylex.props(styles.generatedCount)}>{groups.generated.length}</span>
-            <span {...stylex.props(ui.grow)} />
-            <span {...stylex.props(styles.generatedStats)}>
-              <span {...stylex.props(ui.added)}>+{additions.toLocaleString()}</span>
-              <span {...stylex.props(ui.removed)}>−{deletions.toLocaleString()}</span>
-            </span>
           </button>
           {generatedOpen && <ChangedTree files={groups.generated} {...tree} />}
         </div>
@@ -422,5 +415,4 @@ const styles = stylex.create({
     fontSize: 10.5,
     fontVariantNumeric: "tabular-nums",
   },
-  generatedStats: { display: "inline-flex", gap: 6, fontFamily: tokens.code, fontSize: 10.5 },
 });

@@ -143,9 +143,6 @@ function RailCommits({
               whole.current && [commitStyles.on, picked],
             )}
           >
-            <span aria-hidden="true" {...stylex.props(commitStyles.sha, commitStyles.all)}>
-              all
-            </span>
             <span {...stylex.props(commitStyles.commitSubject)}>{whole.label}</span>
           </button>
         </li>
@@ -164,7 +161,6 @@ function RailCommits({
                   open && [commitStyles.on, picked],
                 )}
               >
-                <span {...stylex.props(commitStyles.sha)}>{commit.id.slice(0, 7)}</span>
                 <span data-clip="" {...stylex.props(commitStyles.commitSubject)}>
                   {commit.subject}
                 </span>
@@ -251,14 +247,6 @@ const commitStyles = stylex.create({
     color: tokens.selectedText,
   },
   commit: { minHeight: 30, paddingInline: 8, gap: 9 },
-  sha: {
-    flexShrink: 0,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-  },
-  // As wide as a short hash, so the subjects line up.
-  all: { width: "7ch" },
   fresh: {
     flexShrink: 0,
     width: 6,

@@ -115,12 +115,6 @@ export const GuideRail = memo(function GuideRail({
                             <Icon name="alert" size={11} />
                           </span>
                         )}
-                        {section.additions > 0 && (
-                          <span {...stylex.props(ui.added)}>+{section.additions}</span>
-                        )}
-                        {section.deletions > 0 && (
-                          <span {...stylex.props(ui.removed)}>−{section.deletions}</span>
-                        )}
                         <span>
                           {section.fileIds.length} {section.fileIds.length === 1 ? "file" : "files"}
                         </span>
@@ -147,15 +141,6 @@ export const GuideRail = memo(function GuideRail({
                               {...stylex.props(styles.file)}
                             >
                               <PathLabel path={file.path} folder={false} />
-                              <span {...stylex.props(ui.grow)} />
-                              <span {...stylex.props(styles.fileStat)}>
-                                {file.info.additions > 0 && (
-                                  <span {...stylex.props(ui.added)}>+{file.info.additions}</span>
-                                )}
-                                {file.info.deletions > 0 && (
-                                  <span {...stylex.props(ui.removed)}>−{file.info.deletions}</span>
-                                )}
-                              </span>
                             </button>
                           </li>
                         );
@@ -324,12 +309,5 @@ const styles = stylex.create({
       ":focus-visible": `2px solid ${tokens.accentLine}`,
     },
     outlineOffset: -2,
-  },
-  fileStat: {
-    display: "flex",
-    gap: 5,
-    flexShrink: 0,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
   },
 });

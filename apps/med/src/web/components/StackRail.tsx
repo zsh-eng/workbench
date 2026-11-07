@@ -144,12 +144,6 @@ export const StackRail = memo(function StackRail({
                         </span>
                       )}
                       {base && <span title={`Its diff starts from ${base}`}>on {base}</span>}
-                      {layer.additions !== undefined && (
-                        <span {...stylex.props(ui.added)}>+{layer.additions}</span>
-                      )}
-                      {layer.deletions !== undefined && (
-                        <span {...stylex.props(ui.removed)}>−{layer.deletions}</span>
-                      )}
                       {layer.comments > 0 && (
                         <span {...stylex.props(styles.notes)}>
                           <Icon name="note" size={10} />

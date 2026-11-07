@@ -3609,7 +3609,8 @@ describe("saved reviews", () => {
       requests
         .filter((comparison) => comparison.kind === "commit")
         .map((c) => "commit" in c && c.commit);
-    await expect.poll(commitReads).toEqual([firstCommit, secondCommit]);
+    // They wait for idle time, after the open records the hand-off read.
+    await expect.poll(commitReads, { timeout: 5_000 }).toEqual([firstCommit, secondCommit]);
     // A commit picked in the sidebar narrows the Review's diff to it, with no request.
     await list.getByRole("button", { name: /Add the initial renderer/ }).click();
     await expect
