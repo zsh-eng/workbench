@@ -26,7 +26,7 @@ These words name the parts of Med.
 ## Pages
 
 - [Run Med](usage/run-med.md): start the server, start it at login, install the app, and register sources.
-- [Threads](usage/threads.md): tabs and history, an agent's session, attempts, and scheduled tasks.
+- [Threads](usage/threads.md): tabs and history, an agent's session, and scheduled tasks.
 - [Review changes](usage/review-changes.md): read a diff, comment, ask about lines, and send comments to the agent.
 - [Saved reviews](usage/saved-reviews.md): what a saved review keeps, and how to set up agents to hand off work.
 - [The Guide](usage/guide.md): read an agent's change as a summary, segments, commits, and what changed since your last review.

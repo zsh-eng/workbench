@@ -18,7 +18,6 @@ import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
 import { ByteLru } from "../shared/byte-lru";
-import { attemptRefSchema } from "../shared/attempts";
 import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
@@ -206,7 +205,6 @@ const savedSchema = z.object({
   targets: z.array(targetSchema).max(128),
   checkout: savedCheckoutSchema.optional(),
   archivedAt: text.optional(),
-  group: attemptRefSchema.optional(),
 });
 const recordSchema = z.object({
   version: z.literal(1),
@@ -816,7 +814,6 @@ export class SavedReviewStore {
       if (
         joinable &&
         !input.parts &&
-        !input.group &&
         results.length === 1 &&
         results[0]!.review.comparison.kind === "range"
       ) {
@@ -837,7 +834,6 @@ export class SavedReviewStore {
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
           ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
-          ...(input.group ? { group: input.group } : {}),
           ...(checkout ? { checkout } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
@@ -987,7 +983,7 @@ export class SavedReviewStore {
     const sessions = new Set((input.sessions ?? []).map((entry) => `${entry.agent}:${entry.id}`));
     const candidates: { id: string; at: "top" | "bottom"; time: number }[] = [];
     for (const summary of await this.listUnlocked()) {
-      if (!joinable(summary.id) || summary.group) continue;
+      if (!joinable(summary.id)) continue;
       const shared = (summary.sessions ?? []).some((entry) =>
         sessions.has(`${entry.agent}:${entry.id}`),
       );
@@ -2085,8 +2081,6 @@ export class SavedReviewStore {
       if (sourceId === ontoId)
         throw new HostError("parts-unsupported", "Choose another thread to group with.", 400);
       const [source, onto] = [await this.read(sourceId, true), await this.read(ontoId, true)];
-      if (source.saved.group || onto.saved.group)
-        throw new HostError("parts-unsupported", "Attempts cannot join a stack.", 409);
       const layers = currentLayers(source.saved);
       if (!layers.length)
         throw new HostError("saved-review-empty", "That thread has no Review to add.", 409);

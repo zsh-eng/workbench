@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { agentStatusSchema, sessionHaltSchema, threadTurnSchema } from "./agent-status";
-import { attemptRefSchema } from "./attempts";
 import { agentChoicesSchema } from "./owned-session";
 import {
   agentSessionSchema,
@@ -99,8 +98,6 @@ export const threadSchema = z.object({
       uncommitted: z.boolean(),
     })
     .optional(),
-  /** One attempt at a task that several agents do; the sidebar shows a group together. */
-  group: attemptRefSchema.optional(),
   /** Other work can be in the checkout: it is a repository's main checkout,
    * or more than one thread works in it. Changes then offer "Only this
    * session's files". */
@@ -227,8 +224,6 @@ export const threadStartSchema = z.object({
   worktree: z.boolean().default(true),
   title: z.string().trim().min(1).max(120).optional(),
   choices: agentChoicesSchema.optional(),
-  /** One attempt of several at this task: its branch ends in the attempt's letter. */
-  group: attemptRefSchema.optional(),
 });
 export type ThreadStart = z.infer<typeof threadStartSchema>;
 

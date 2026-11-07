@@ -1,12 +1,10 @@
 import type { SessionEvent, ToolCallContent } from "../shared/agent-session";
 import type { TurnCheck } from "../shared/agent-status";
-import type { AttemptCheck } from "../shared/attempts";
 
 // Checks are the shell commands that test, type-check, lint, or build the
 // work, such as `bun test` or `cd app && cargo test`. Med finds them in a
-// session's tool calls. Attempts (attempts.ts) compare the checks of each
-// attempt; the thread list (thread-turns.ts) tells the checks of each
-// thread's last turn, which the turn recap and `med thread list --json` show.
+// session's tool calls. The thread list (thread-turns.ts) tells the checks of
+// each thread's last turn, which the turn recap and `med thread list --json` show.
 
 /** Programs that check work: tests, type checks, linters, and builds. */
 const CHECK_PROGRAM =
@@ -59,16 +57,6 @@ function checkCounts(output: string) {
   };
 }
 
-/** Counts from a check's output, such as "5 pass · 1 fail", or its exit code. */
-function checkSummary(output: string, failed: boolean) {
-  const { pass, fail, exit } = checkCounts(output);
-  if (pass !== undefined || fail !== undefined)
-    return [pass !== undefined ? `${pass} pass` : "", fail ? `${fail} fail` : ""]
-      .filter(Boolean)
-      .join(" · ");
-  return failed && exit ? `Exit ${exit}` : undefined;
-}
-
 const contentText = (content: ToolCallContent[] | undefined) =>
   (content ?? [])
     .map((part) =>
@@ -106,28 +94,6 @@ function checkCalls(events: readonly SessionEvent[]) {
     }
   }
   return [...calls.values()];
-}
-
-/** The checks in a session's updates, the latest last; at most `limit`. */
-export function sessionChecks(
-  events: readonly SessionEvent[],
-  working: boolean,
-  limit: number,
-): AttemptCheck[] {
-  return checkCalls(events)
-    .slice(-limit)
-    .map((call) => {
-      const status =
-        call.status === "completed"
-          ? "passed"
-          : call.status === "failed"
-            ? "failed"
-            : working
-              ? "running"
-              : "unknown";
-      const summary = checkSummary(call.output, status === "failed");
-      return { command: call.command, status, ...(summary ? { summary } : {}), at: call.at };
-    });
 }
 
 /** A turn tells at most this many checks. */

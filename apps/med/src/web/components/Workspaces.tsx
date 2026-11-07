@@ -77,8 +77,6 @@ import { SEARCH_OPEN_EVENT, type SearchOpen } from "./SearchView";
 import { requestFileOpen, requestSearchOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
 import { onInput, QUIET_MS, whenFree, whenIdle } from "../data/idle";
-import { AttemptsHost } from "./attempts/AttemptsHost";
-import { attemptsGroupOf, useAttemptsAddress } from "../data/attempts";
 import {
   chooseNotify,
   needsCount,
@@ -1060,7 +1058,6 @@ export function WorkspaceHost({
 
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
-  const attemptsPage = useAttemptsAddress();
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
@@ -1070,8 +1067,7 @@ export function WorkspaceHost({
   const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
-  const currentThread =
-    newThread || attemptsPage || overlayAddress(pathname) ? null : (activeThread ?? null);
+  const currentThread = newThread || overlayAddress(pathname) ? null : (activeThread ?? null);
   const read = useReadState(tabs, currentThread);
   const currentRef = useRef(currentThread);
   // When each tab was last on screen, or first listed in this window.
@@ -1702,21 +1698,12 @@ export function WorkspaceHost({
                           }
                         />
                         <div {...stylex.props(styles.shellViews)}>
-                          <div
-                            inert={newThread || !!attemptsGroupOf(pathname) || undefined}
-                            {...stylex.props(styles.shellLayer)}
-                          >
+                          <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
                             <Band value={band.value}>
                               <Warm value={warm}>{children}</Warm>
                             </Band>
                           </div>
                           {!showsSidebar && noticeBar}
-                          <AttemptsHost
-                            threads={tabs}
-                            fetcher={fetcher}
-                            actions={actions}
-                            onLeave={() => show(store.getSnapshot().active, true)}
-                          />
                           {newThread && (
                             <NewThread
                               list={threadList}

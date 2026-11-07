@@ -2,6 +2,9 @@
 
 Experiment 7. Scene: `scripts/explorations/scenes/07-attempts.mjs`.
 
+> Removed in the 2026 redesign: New thread starts one agent, and Med has no
+> Attempts page. This page records the experiment.
+
 ![Two attempts at one task, side by side](img/attempts-compare.png)
 
 ## The problem

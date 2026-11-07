@@ -101,7 +101,6 @@ Open Med windows add each new review to their workspaces, marked unread. --open 
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
 --stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
---group <name> --attempt <1-3> marks the review as one attempt at a task that several agents do, each in its own worktree. Med shows a group's attempts together and compares them.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}. --manifest - reads it from standard input.
 The create command prints a Markdown review link without an access token.`;
 
@@ -327,8 +326,6 @@ export async function parseReviewCommand(
       guide: { type: "string" },
       open: { type: "boolean" },
       key: { type: "string" },
-      group: { type: "string" },
-      attempt: { type: "string" },
       session: { type: "string", multiple: true },
       "no-session": { type: "boolean" },
       json: { type: "boolean" },
@@ -484,11 +481,10 @@ export async function parseReviewCommand(
       values["merge-base"] ||
       values["no-merge-base"] ||
       values.pr !== undefined ||
-      values.group !== undefined ||
       paths
     )
       throw new Error(
-        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, --group, or --paths.`,
+        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, or --paths.`,
       );
     if (partItems.length < 2)
       throw new UsageError(`Name two or more pull requests or branches after --${shape}.`);
@@ -609,15 +605,6 @@ export async function parseReviewCommand(
     input = { ...(input as object), guide: await readGuide(values.guide) };
   }
   if (values.key !== undefined) input = { ...(input as object), key: values.key };
-  if ((values.group === undefined) !== (values.attempt === undefined))
-    throw new UsageError(
-      "Use --group and --attempt together, such as --group week-view --attempt 2.",
-    );
-  if (values.group !== undefined)
-    input = {
-      ...(input as object),
-      group: { id: values.group, attempt: Number(values.attempt) },
-    };
   const found = await sessions();
   if (found.length)
     input = {
@@ -639,9 +626,7 @@ export async function parseReviewCommand(
           ? `Invalid brief: ${result.error.issues.find((issue) => issue.path[0] === "brief")!.message}`
           : result.error.issues.some((issue) => issue.path[0] === "key")
             ? `Invalid key: ${result.error.issues.find((issue) => issue.path[0] === "key")!.message}`
-            : result.error.issues.some((issue) => issue.path[0] === "group")
-              ? "Invalid group: use a name of letters, digits, and . _ -, and an attempt from 1 to 3."
-              : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
+            : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
   // A brief can name generated files too (docs/PRACTICES.md): they join --generated.
   const named = [...(generated ?? []), ...readReviewOutput([result.data.brief]).generated];

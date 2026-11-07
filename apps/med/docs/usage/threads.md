@@ -83,11 +83,10 @@ load it or read its agents until you open it again.
   - **Where the agent works**: **New worktree**, the default, makes a branch
     named for the task in a new linked worktree, so the work stays apart from
     your checkout; **Checkout** works on the checkout's current branch, which
-    the item names. Below them, **1 attempt**, **2 attempts**, or
-    **3 attempts** gives the same task to more agents
-    ([Attempts](#attempts)).
-  - The agent's mark, its model, and its effort in grey. Its menu chooses the
-    agent, when Med has more than one, then the model and the effort. Claude
+    the item names.
+  - **Model**: the agent's mark and its model. Its **Agent** submenu chooses
+    another agent, when Med has more than one.
+  - **Effort**, such as **High effort**, while the model has efforts. Claude
     Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
     keeps your last choice for each agent.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
@@ -340,33 +339,6 @@ Code and ACP agents that take images get them with the message, up to ten of 5
 MB each. Other agents get the paths of saved copies, which Claude Code and
 Codex open themselves; Med keeps the copies for 30 days. Med stops its agents when the server stops. See
 [agent sessions](../SESSIONS.md).
-
-## Attempts
-
-Two agents seldom do a task the same way. **2 attempts** or **3 attempts**,
-in New thread's **Where the agent works** menu (`⌥N`), gives one task to two
-or three agents. Each attempt has its Agent, Model, and Effort rows under its
-letter, and its own branch (the task's name with `-a`, `-b`, `-c`) in a new
-worktree. `↵` starts them all and opens the Attempts page.
-
-- Each attempt is a session row of its own in the sidebar.
-- The **Attempts page** has a column for each attempt: its agent and model,
-  its state and time, its branch, its changes, the checks that its session ran
-  (test, type-check, lint, and build commands, with their pass and fail
-  counts), and its last message. Below, the files that more attempts changed
-  come first, side by side, each against the commit that the attempts started
-  from. `←` and `→` move between the attempts' **Keep** buttons; `Esc` goes
-  back.
-- **Keep** makes that attempt the thread. Med stops the agents of the others,
-  commits their work to their branches ("Attempt A of …, not kept"), removes
-  their worktrees, and closes their tabs. Their branches stay. A worktree
-  that another thread uses, or one with an agent that Med cannot stop, stays,
-  and the notice says why. The notice offers **Undo**, which brings back the
-  other attempts with their worktrees and uncommitted work. Undo lasts until
-  the host restarts.
-
-An agent can hand off one attempt with
-`med review create --working --group <task> --attempt <1-3>`.
 
 ## Scheduled
 

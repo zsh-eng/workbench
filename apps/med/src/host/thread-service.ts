@@ -145,7 +145,6 @@ export function createThreadService(options: ThreadServiceOptions) {
           },
         }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-      ...(review.group && { group: review.group }),
       ...(review.parts && { parts: threadParts(review) }),
     } satisfies Thread;
   };
@@ -698,17 +697,6 @@ export function createThreadService(options: ThreadServiceOptions) {
       await service.prune().catch(() => {});
       pruneTimer = setInterval(() => void service.prune().catch(() => {}), DAY);
       pruneTimer.unref?.();
-    },
-
-    /** The saved reviews as attempts read them: a closed thread is archived. */
-    async attemptReviews(): Promise<SavedReview[]> {
-      return (await reviewIndex()).map((review) => {
-        const { archivedAt: _old, ...rest } = review;
-        const closedAt = tabs.entry(review.id)?.closedAt;
-        return tabs.isOpen(review.id) || closedAt === undefined
-          ? rest
-          : { ...rest, archivedAt: new Date(closedAt).toISOString() };
-      });
     },
 
     /** Stops the daily pruning. */

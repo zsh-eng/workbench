@@ -7,21 +7,10 @@ sessions.
 **A thread is one intent; reviews are its parts.** An agent that reviews four
 stacked pull requests makes one thread with four parts, not four workspaces.
 
-| Shape    | Parts                                   | A part's diff                                     |
-| -------- | --------------------------------------- | ------------------------------------------------- |
-| Stack    | Ordered layers; the first is the bottom | Against the layer below (the bottom: its base)    |
-| Set      | Independent parts, in any order         | Against its own base                              |
-| Attempts | Alternatives; keep one                  | Each attempt's worktree against the shared commit |
-
-Attempts stay as they are: a group of threads (`group` on each saved review,
-[Attempts](usage/threads.md#attempts)). An attempt is a live agent with its own session,
-worktree, and live Changes; Med's thread is one lead session and one checkout,
-and the sidebar state, recap, message box, and auto-close are per thread. A
-stack's or a set's parts are frozen hand-offs of one session. Folding attempts
-into parts needs a thread with several lead sessions, which is a larger change
-than this one and would put Keep, Undo, and the Attempts page at risk. The
-sidebar shows each as session rows, and the shape names leave room for
-`attempts` later.
+| Shape | Parts                                   | A part's diff                                  |
+| ----- | --------------------------------------- | ---------------------------------------------- |
+| Stack | Ordered layers; the first is the bottom | Against the layer below (the bottom: its base) |
+| Set   | Independent parts, in any order         | Against its own base                           |
 
 ## Data model
 
@@ -140,4 +129,4 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
   commits changed is a new target).
 - GitHub review threads and state per layer: the top bar shows the stored title
   and state; comments still read the thread's own pull request.
-- Reordering parts by drag inside a thread; attempts as a shape.
+- Reordering parts by drag inside a thread.
