@@ -111,7 +111,7 @@ test("an agent drafts a pull request from the template with an image; the reader
   const feedback = (await (await api(`/api/reviews/${id}/feedback`)).response.json()) as {
     text: string;
   };
-  expect(feedback.text).toContain("On: the pull request draft (revision 1;");
+  expect(feedback.text).toContain("## On the pull request draft (revision 1;");
   expect(feedback.text).toContain("> Calls failed once");
   // The next draft is the next revision.
   await pr(...draft, "--title", "Retry failed fetches three times", ...instance);

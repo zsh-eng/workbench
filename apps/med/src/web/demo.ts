@@ -71,7 +71,7 @@ if (scene === "replies") answerComment(recording);
 
 /**
  * The replies scene: Med runs the agent's session, and the agent has
- * answered the reviewer's comment in its thread (`med review reply`).
+ * answered the reviewer's comment in its thread (`med reply`).
  */
 function answerComment(recording: Recording) {
   const rewrite = (text: string, change: (value: any) => void) =>

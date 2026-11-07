@@ -134,7 +134,7 @@ the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **S
 When Med started the session and runs it, one comment can go on its own: hold
 the pointer over it and select the agent's mark (**Send to Claude**). The
 comment then says **Sent to Claude** until you change it or reply. The agent
-can answer a comment in its thread (`med review reply`): its answer shows
+can answer a comment in its thread (`med reply <id>`): its answer shows
 under your comment with the agent's name, and leaves the comment sent. Reply
 to it as to any comment; your reply makes the thread unsent again.
 

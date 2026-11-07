@@ -58,7 +58,7 @@ it("prints help with med help, and a command's own help with med help <command>"
   // Each command it lists has its own help, which names it.
   const commands = [...help.stdout.matchAll(/^ {2}([a-z]+) {2,}/gm)].map((match) => match[1]!);
   expect(commands).toEqual(
-    "web add status stop review pr thread open list remove index skills service agents docs".split(
+    "web add status stop review reply pr thread open list remove index skills service agents docs".split(
       " ",
     ),
   );

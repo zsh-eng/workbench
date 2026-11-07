@@ -189,7 +189,7 @@ describe("agent review CLI through the production host", () => {
     }
   });
 
-  it("answers a comment in its thread as the session, by the review's key or ID", async () => {
+  it("answers a comment in its thread as the session, by the start of its ID", async () => {
     const f = await fixture();
     const claude = "5c1f0e2a-9b7d-4e3a-8f6c-2d4b6a8c0e1f";
     const bundle = await f.saved(
@@ -222,10 +222,12 @@ describe("agent review CLI through the production host", () => {
       })
     ).json();
     const comment = added.notes[0].id;
-    expect(
-      await f.run("reply", "--key", "fix-copy", "--comment", comment, "--text", "It reads later."),
-    ).toBe("Your reply is in the comment's thread.");
-    await f.run("reply", "--key", bundle.id, "--comment", comment, "--text", "  Or after.  ");
+    // The start of the ID finds the comment and its review; the words after it
+    // are the answer.
+    expect(await f.run("reply", comment.slice(0, 6), "It", "reads", "later.")).toBe(
+      "Your reply is in the comment's thread.",
+    );
+    await f.run("reply", comment, "--key", bundle.id, "--text", "  Or after.  ");
     const notes = (await f.api(notesPath)).notes;
     expect(notes.slice(1)).toMatchObject([
       {
@@ -236,11 +238,15 @@ describe("agent review CLI through the production host", () => {
       { parentId: comment, text: "Or after.", author: { agent: "claude", sessionId: claude } },
     ]);
     await expect(f.run("reply", "--key", "fix-copy", "--text", "Done.")).rejects.toThrow(
-      "Use reply with --comment, the Comment ID in the user's message.",
+      "Use reply with the comment's ID, as the user's message gives it",
     );
-    await expect(
-      f.run("reply", "--key", "fix-copy", "--comment", "gone", "--text", "Done."),
-    ).rejects.toThrow("Med request failed: This review has no comment with that ID.");
+    await expect(f.run("reply", "gone", "Done.")).rejects.toThrow('"gone" is not a comment ID.');
+    await expect(f.run("reply", "abcdef12", "Done.")).rejects.toThrow(
+      "No review in Med has a comment with ID abcdef12.",
+    );
+    await expect(f.run("reply", "abcdef12", "--key", "fix-copy", "Done.")).rejects.toThrow(
+      "Med request failed: This review has no comment with that ID.",
+    );
   });
 
   it("attaches a brief from a file, then replaces and removes it without a new revision", async () => {

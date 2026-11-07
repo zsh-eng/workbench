@@ -1675,11 +1675,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const feedback = input.noteIds.length
                 ? await savedReviews.feedback(reviewId, new Set(input.noteIds))
                 : undefined;
-              if (feedback?.count)
-                parts.push(
-                  feedback.text,
-                  `To answer a comment in its thread, where the user reads it, run \`med review reply --key ${reviewId} --comment <Comment ID> --text -\` with your answer on standard input. Answer in the thread when the user asks a question or when you decline a change; your final message still says what you did.`,
-                );
+              // The text ends with how to answer a comment in its thread.
+              if (feedback?.count) parts.push(feedback.text);
               const included = input.noteIds.flatMap((id) => {
                 const thread = feedback?.threads.get(id);
                 return thread ? [[id, thread] as const] : [];
@@ -2423,6 +2420,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
             send({ ...state, reviewId });
             inbox.touch(id!);
+            return;
+          }
+          // `med reply <id>`: the reviews with a comment whose ID starts so.
+          const commentRoute = /^\/api\/comments\/([0-9a-fA-F-]{6,36})$/.exec(url.pathname);
+          if (commentRoute && request.method === "GET") {
+            const ids = await savedReviews.reviewsWithComment(commentRoute[1]!.toLowerCase());
+            const reviews = await Promise.all(
+              ids.map(async (id) => ({ id, title: (await savedReviews.get(id)).title })),
+            );
+            send({ reviews });
             return;
           }
           if (url.pathname === "/api/reviews/by-key" && request.method === "POST") {

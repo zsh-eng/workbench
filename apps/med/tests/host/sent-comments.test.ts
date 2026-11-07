@@ -199,11 +199,11 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
   });
   expect(first.status).toBe(200);
   await vi.waitFor(async () => expect(await prompts()).toHaveLength(1), { timeout: 5000 });
-  // The message says how to answer a comment where the user reads it.
-  expect((await prompts())[0]).toContain(
-    `med review reply --key ${saved.id} --comment <Comment ID> --text -`,
-  );
-  expect((await prompts())[0]).toContain(`Comment ID: ${commentId}`);
+  // The comment goes by the start of its ID, and the message says how to
+  // answer it where the user reads it.
+  const short = commentId.slice(0, 6);
+  expect((await prompts())[0]).toContain(`## ${short} · summary.ts:1\n`);
+  expect((await prompts())[0]).toContain(`med reply ${short} <<'END'`);
   // Med runs the session now, so a comment can go to it from the comment.
   const before = await inbox();
   expect(before.owned).toEqual([session]);
@@ -212,7 +212,7 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
   const answered = await api<{ note: { id: string; parentId: string; author: unknown } }>(
     `/api/reviews/${saved.id}/agent/reply`,
     {
-      commentId,
+      commentId: short,
       text: "Minutes drop the seconds. Keep them for short runs?",
       session: { agent: "claude", id: session },
     },
@@ -252,14 +252,15 @@ test("the agent answers a comment in its thread; the comment stays sent, and the
   });
   await vi.waitFor(async () => expect(await prompts()).toHaveLength(2), { timeout: 5000 });
   const second = (await prompts())[1]!;
-  expect(second).toContain("## Claude's reply to User Comment 1");
-  expect(second).toContain("## User Comment 2");
-  expect(second).toContain("Reply to: User Comment 1");
-  expect(second).not.toContain("## User Comment 3");
+  // One thread: the comment, Claude's answer, then the user's reply.
+  expect(second.split("\n## ")).toHaveLength(2);
+  expect(second).toContain(
+    "Claude replied:\nMinutes drop the seconds. Keep them for short runs?\n\nThe user replied:\nYes, under a minute.",
+  );
 
   const missing = await api<{ error: { message: string } }>(
     `/api/reviews/${saved.id}/agent/reply`,
-    { commentId: "no-such-comment", text: "Done." },
+    { commentId: "abcdef12", text: "Done." },
   );
   expect(missing.status).toBe(404);
   expect(missing.data.error.message).toBe("This review has no comment with that ID.");

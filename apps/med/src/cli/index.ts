@@ -30,6 +30,7 @@ const COMMANDS = [
   "status",
   "stop",
   "review",
+  "reply",
   "pr",
   "thread",
   "open",
@@ -59,7 +60,8 @@ Start:
   stop      Stop the server. The agents that it started keep working.
 
 Hand off work:
-  review    Hand off a change for review, or wait for the comments
+  review    Hand off a change for review
+  reply     Answer one of the user's comments in its thread
   pr        Check out a pull request, or draft one for the user
   thread    List, open, close, find, or adopt agent threads
   open      Print a link that opens a file in Med
@@ -156,6 +158,10 @@ async function main(args: string[]) {
   }
   if (command === "review") {
     await runReviewCommand(rest);
+    return;
+  }
+  if (command === "reply") {
+    await runReviewCommand(["reply", ...rest]);
     return;
   }
   if (command === "agents") {

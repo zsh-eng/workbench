@@ -181,22 +181,42 @@ newest sessions.
 
 ### Answer a comment
 
-The user's message lists each comment with its `Comment ID`. To answer one in
-its thread, where the user reads it, run:
+The user's message gives each comment as a heading with its short ID, the
+file and lines, the diff hunk, and the user's words, with the replies under
+it:
+
+````markdown
+## 6f1c9e · src/summary.ts:14
+
+```diff
+@@ -12,3 +12,3 @@
+-  return `${ms} ms`;
++  return `${Math.round(ms / 60000)} min`;
+```
+
+Round half a minute up.
+````
+
+To answer one in its thread, where the user reads it, run `med reply` with
+the ID, and the answer on standard input (or after the ID):
 
 ```sh
-med review reply --key <key> --comment <Comment ID> --text - <<'END'
+med reply 6f1c9e <<'END'
 Minutes drop the seconds. Keep them for runs under a minute?
 END
 ```
 
-`--key` takes the review's key or its ID (`r_…`); the message names the ID.
-Med shows the answer under the comment with your agent's name, as the session
-that runs the command (or else the review's latest session). It does not make
-the comment unsent, and the next message that holds the thread shows the
-answer as yours. A comment on the Notes takes no reply; answer it in your
-message. Use a reply for a question the user asked on a line, or to say why
-you left a change out; your final message still says what you did.
+The ID is the first 6 characters of the comment's ID, or more when another
+comment of the review starts the same way. Med finds the review by the
+comment, trying the thread's review first (`MED_THREAD_KEY`); `--key` names
+the review when two reviews have such a comment. `med review reply` is the
+same command. Med shows the answer under the comment with your agent's name,
+as the session that runs the command (or else the review's latest session).
+It does not make the comment unsent, and the next message that holds the
+thread shows the answer as yours. A comment on a passage of the guide or the
+pull request draft has no ID and takes no reply; answer it in your message.
+Use a reply for a question the user asked on a line, or to say why you left a
+change out; your final message still says what you did.
 
 ### Attach a guide
 
@@ -372,8 +392,8 @@ med pr draft --key fix/parser --file pr.md
 - Images can be local PNG, JPEG, GIF, or WebP files, relative to the file
   (`![Retry chart](shots/retry.png)`), or https links. Med keeps a copy of
   each local one, up to 8 images of 5 MB.
-- Comments on the draft come back as the user's other comments do, marked
-  `On: the pull request draft`. Revise the file and run `med pr draft` again
+- Comments on the draft come back as the user's other comments do, under the
+  heading `On the pull request draft`. Revise the file and run `med pr draft` again
   with the same key: each run is the next revision.
 - Never run `gh pr create` yourself. **Create** runs it from the checkout's
   branch, which must be on GitHub with all of its commits, and links the pull request to the

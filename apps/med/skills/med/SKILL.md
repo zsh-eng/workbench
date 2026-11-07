@@ -82,10 +82,10 @@ current source first. Apply them and hand off the next version with
 `med review create` and the same key, as step 4 says, until the user says the
 task is done.
 
-To answer one comment in its thread, where the user reads it (a question they
-asked on a line, or why you left a change out), run
-`med review reply --key <key> --comment <Comment ID> --text -` with the answer
-on standard input. Your final message still says what you did.
+Each comment in the message starts with its ID, as `## 6f1c9e · path:line`.
+To answer one in its thread, where the user reads it (a question they asked on
+a line, or why you left a change out), run `med reply 6f1c9e <<'END'` with the
+answer, then `END`. Your final message still says what you did.
 
 ## Threads and sessions
 

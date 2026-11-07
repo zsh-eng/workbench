@@ -16,7 +16,8 @@ export type Unit =
   | { key: string; explore: ToolItem[] }
   | WorkUnit;
 
-/** The skill's `med review wait`, in the agent's own command or a path to the CLI. */
+/** `med review wait`, which older sessions ran, in the agent's own command or a
+ * path to the CLI. */
 const MED_WAIT = /(?:^|[\s;&|(])(?:\S*\/)?med review wait\b/;
 /** The agent waits for the user's next message from Med; it does no work. */
 export function isMedWait(call: ToolItem["call"]) {

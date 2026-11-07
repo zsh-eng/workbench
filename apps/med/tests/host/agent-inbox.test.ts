@@ -185,8 +185,9 @@ test("a comment on a passage of the Notes counts, and copies with its quote", as
     count: number;
   };
   expect(feedback.count).toBe(2);
+  // A comment on a passage takes no reply, so it has no ID.
   expect(feedback.text).toContain(
-    `On: the review's brief (iteration 1)\nComment ID: ${id}\n\nQuote:\n> rounds to whole seconds\n\nComment:\nRound to minutes instead.`,
+    "## On the review's brief (iteration 1)\n> rounds to whole seconds\n\nRound to minutes instead.",
   );
 
   const edited = (await comment({ edit: { id, text: "Use minutes." } })).data as SavedReview;

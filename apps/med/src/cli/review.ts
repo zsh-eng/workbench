@@ -59,7 +59,7 @@ export const reviewHelp = `Usage: med review create --title <title> --repo <path
        med review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
-       med review reply --key <key> --comment <id> --text <text|->
+       med review reply <id> [<text>]   (or med reply <id> [<text>])
        med review repos [--repo <path>] [--json]
 
 create hands off a change: a new review, or a new version of the review with
@@ -81,7 +81,7 @@ Examples:
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
 --paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
-reply answers the comment with that Comment ID (from the user's message) under it, where the user reads it, as your session. --text - reads the answer from standard input. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. A comment on the Notes takes no reply.
+reply answers the comment with that ID (the user's message gives each comment's ID, such as 6f1c9e) in its thread, where the user reads it, as your session. The answer is the words after the ID, or standard input: med reply 6f1c9e <<'END' … END. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. Med finds the review by the comment; --key names the review when the ID is in more than one. A comment on a passage of the guide or the pull request draft takes no reply.
 repos prints one line for each registered repository: its name, path, main branch, and number of worktrees. --repo <path> says whether Med knows the checkout that holds <path>; --json prints every branch and worktree.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med records no session and says why.
 Without --port and --state-dir, MED_PORT and MED_STATE_DIR choose the host; Med sets them in a session that it started. In a thread, MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review.
@@ -98,6 +98,24 @@ The running host must already have the target repositories registered.
 --stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}. --manifest - reads it from standard input.
 The create command prints a Markdown review link without an access token.`;
+
+export const replyHelp = `Usage: med reply <id> [<text>] [--key <review>]
+
+Answers one of the user's comments in its thread, where the user reads it, as
+your session. The user's message gives each comment's ID in its heading, such
+as "## 6f1c9e · src/summary.ts:14". The answer is the words after the ID, or
+standard input:
+
+  med reply 6f1c9e <<'END'
+  Minutes drop the seconds. Keep them for runs under a minute?
+  END
+
+Use a reply for a question the user asked on a line, or to say why you left a
+change out; your final message still says what you did. Med finds the review
+by the comment, trying the thread's review (MED_THREAD_KEY) first; --key names
+the review when the ID is in more than one. med review reply is the same.
+Options: --text <text|->, --key <key>, --session <agent:id>, --port <port>,
+--state-dir <path>`;
 
 /**
  * Takes `--paths a b c` (and `--paths=a`) out of the arguments: the words
@@ -168,9 +186,16 @@ export interface ReviewCommand {
   kind: "help" | "repos" | "create" | "update" | "reply";
   /** For repos: the checkout to look up (--repo), or the full listing (--json). */
   repos?: { repo?: string; json?: boolean };
-  /** For reply: the review's key, the comment it answers, and the session
-   * that answers. */
-  reply?: { key: string; commentId: string; text: string; session?: AgentSession };
+  /** For reply: the comment it answers, the answer, and the session that
+   * answers. `key` (--key) names the review; without it, Med finds the
+   * review by the comment, trying the thread's review (`threadKey`) first. */
+  reply?: {
+    key?: string;
+    threadKey?: string;
+    commentId: string;
+    text: string;
+    session?: AgentSession;
+  };
   /** For update: the review's key and its new details. With `paths`, a new
    * version shows those files' uncommitted changes in `repo` (or the
    * thread's checkout). */
@@ -342,13 +367,17 @@ export async function parseReviewCommand(
   // A session that Med started for a thread knows the thread from its environment.
   const environment = sessionOptions.environment ?? process.env;
   const owned = environment.MED_SESSION === "owned";
+  const givenKey = values.key;
   values.key ??= environment.MED_THREAD_KEY || undefined;
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = await clientPort(stateDir, values.port, environment);
   const common = { port, stateDir, caller, ...(values.json && { json: true }) };
   if (values.help) return { ...common, kind: "help" };
-  if (positionals.length !== 1 || !["repos", "create", "update", "reply"].includes(positionals[0]!))
+  if (
+    !["repos", "create", "update", "reply"].includes(positionals[0]!) ||
+    (positionals.length !== 1 && positionals[0] !== "reply")
+  )
     throw new UsageError(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
     throw new UsageError("Use --paths with create or update.");
@@ -357,21 +386,42 @@ export async function parseReviewCommand(
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
     throw new UsageError("Use --generated with create, or with update --paths.");
   if (positionals[0] === "reply") {
-    if (!values.key)
-      throw new UsageError("Use reply with --key, the review's key or its ID (r_…).");
-    if (!values.comment)
-      throw new UsageError("Use reply with --comment, the Comment ID in the user's message.");
-    if (values.text === undefined)
-      throw new UsageError("Use reply with --text <text>, or --text - to read standard input.");
-    const key = reviewKeySchema.safeParse(values.key);
-    if (!key.success) throw new Error(key.error.issues[0]!.message);
-    const text = (values.text === "-" ? await readStandardInput() : values.text).trim();
+    const [, id = values.comment, ...words] = positionals;
+    if (!id)
+      throw new UsageError(
+        "Use reply with the comment's ID, as the user's message gives it: med reply <id>, with the answer on standard input.",
+      );
+    if (!/^[0-9a-f-]{6,36}$/i.test(id))
+      throw new UsageError(
+        `"${id}" is not a comment ID. The user's message gives each comment's ID, such as 6f1c9e.`,
+      );
+    if (words.length && values.text !== undefined)
+      throw new UsageError("Give the answer after the ID or with --text, not both.");
+    const given = words.length ? words.join(" ") : values.text;
+    if (given === undefined && process.stdin.isTTY)
+      throw new UsageError(
+        `Give the answer on standard input: med reply ${id} <<'END' … END, or after the ID.`,
+      );
+    const text = (given === undefined || given === "-" ? await readStandardInput() : given).trim();
     if (!text) throw new UsageError("The reply is empty.");
+    let key: string | undefined;
+    if (givenKey !== undefined) {
+      const parsed = reviewKeySchema.safeParse(givenKey);
+      if (!parsed.success) throw new Error(parsed.error.issues[0]!.message);
+      key = parsed.data;
+    }
+    const threadKey = givenKey === undefined ? values.key : undefined;
     const session = (await sessions())[0];
     return {
       ...common,
       kind: "reply",
-      reply: { key: key.data, commentId: values.comment, text, ...(session && { session }) },
+      reply: {
+        ...(key && { key }),
+        ...(threadKey && { threadKey }),
+        commentId: id.toLowerCase(),
+        text,
+        ...(session && { session }),
+      },
     };
   }
   if (positionals[0] === "update") {
@@ -674,7 +724,7 @@ export async function runReviewCommand(
   const print = options.print ?? console.log;
   const warn = options.warn ?? console.error;
   if (command.kind === "help") {
-    print(reviewHelp);
+    print(args[0] === "reply" ? replyHelp : reviewHelp);
     return;
   }
   const connection = await readConnection(command.stateDir, command.port);
@@ -683,13 +733,7 @@ export async function runReviewCommand(
   const instance = { port: command.port, stateDir: command.stateDir };
   if (command.caller?.note) warn(command.caller.note);
   if (command.kind === "reply") {
-    const { key, commentId, text, session } = command.reply!;
-    const found = await reviewByKey(connection, key, fetcher);
-    await request(connection, `/api/reviews/${found.id}/agent/reply`, fetcher, {
-      commentId,
-      text,
-      ...(session && { session: { agent: session.agent, id: session.id } }),
-    });
+    await replyToComment(command.reply!, connection, fetcher);
     print("Your reply is in the comment's thread.");
     return;
   }
@@ -953,6 +997,50 @@ async function keyElsewhere(
 }
 
 /** A review by its key, or by its ID (r_…) when no review has that key. */
+/**
+ * `med reply`: answers a comment in the review that --key names, or else in
+ * the thread's review, or else in the one review that has the comment.
+ */
+async function replyToComment(
+  reply: NonNullable<ReviewCommand["reply"]>,
+  connection: RunningConnection,
+  fetcher: typeof fetch,
+) {
+  const { key, threadKey, commentId, text, session } = reply;
+  const send = (id: string) =>
+    request(connection, `/api/reviews/${id}/agent/reply`, fetcher, {
+      commentId,
+      text,
+      ...(session && { session: { agent: session.agent, id: session.id } }),
+    });
+  if (key) {
+    await send((await reviewByKey(connection, key, fetcher)).id);
+    return;
+  }
+  if (threadKey) {
+    // The comment can come from another review, pasted into this thread.
+    const done = await reviewByKey(connection, threadKey, fetcher)
+      .then((found) => send(found.id))
+      .then(
+        () => true,
+        (error: unknown) => (error instanceof NotFoundError ? false : Promise.reject(error)),
+      );
+    if (done) return;
+  }
+  const { reviews } = z
+    .object({
+      reviews: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/), title: z.string() })),
+    })
+    .parse(await request(connection, `/api/comments/${commentId}`, fetcher));
+  if (!reviews.length)
+    throw new NotFoundError(`No review in Med has a comment with ID ${commentId}.`);
+  if (reviews.length > 1)
+    throw new UsageError(
+      `Comments in ${reviews.length} reviews have an ID that starts with ${commentId}: ${reviews.map((review) => `"${review.title}" (--key ${review.id})`).join(", ")}. Add --key with the review's ID.`,
+    );
+  await send(reviews[0]!.id);
+}
+
 async function reviewByKey(connection: RunningConnection, key: string, fetcher: typeof fetch) {
   const shape = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) });
   try {

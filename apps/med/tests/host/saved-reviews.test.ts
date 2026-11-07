@@ -102,20 +102,24 @@ describe("saved review storage boundaries", () => {
     await store.mutate(saved.id, b.id, 0, note("B feedback"));
     const feedback = await store.feedback(saved.id);
     expect(feedback).toMatchObject({ count: 3, repositoryCount: 2, revision: 3 });
-    expect(feedback.text).toMatch(/^# Diff comments:\n/);
-    expect(feedback.text).toContain(
-      "## User Comment 1\nFile: old.ts\nWorkspace: /repo/a\nSide: L\nLines: 5-6",
+    expect(feedback.text).toMatch(/^# Comments on the review "/);
+    // A comment's short ID, then where it is: the side, the rename, and the
+    // repository when the review has more than one.
+    expect(feedback.text).toMatch(
+      /\n## [0-9a-f]{6} · old\.ts:5-6 \(before the change, renamed to new\.ts, in \/repo\/a\)\n/,
     );
-    expect(feedback.text).toContain("Rename: old.ts → new.ts");
     expect(feedback.text).toContain(
       "  2 | two\n  3 | three\n  4 | four\n> 5 | five\n> 6 | six\n  7 | seven\n  8 | eight\n  9 | nine",
     );
     expect(feedback.text).not.toContain("  1 | one");
-    expect(feedback.text).toContain("Reply to: User Comment 1");
-    expect(feedback.text).toContain(
-      "## User Comment 3\nFile: new.ts\nWorkspace: /repo/b\nSide: R\nLines: 5-6",
+    expect(feedback.text).toContain("The user replied:\nReply text");
+    expect(feedback.text).toMatch(
+      /\n## [0-9a-f]{6} · new\.ts:5-6 \(renamed from old\.ts, in \/repo\/b\)\n/,
     );
-    expect(feedback.text).toContain("Comparison: base-oid → working");
+    expect(feedback.text).not.toContain("Repository ID");
+    // It ends with how to answer in a thread, with the first comment's ID.
+    const first = /\n## ([0-9a-f]{6}) /.exec(feedback.text)![1];
+    expect(feedback.text).toContain(`med reply ${first} <<'END'`);
     expect((await store.get(saved.id)).commentCount).toBe(3);
   });
 
@@ -132,7 +136,7 @@ describe("saved review storage boundaries", () => {
     const feedback = await new SavedReviewStore(directory).feedback(saved.id);
     expect(feedback.count).toBe(1);
     expect(feedback.text).toContain(
-      "Reply to: Claude's comment in the guide\n> Check the callers.\n> All of them.",
+      "In reply to Claude's comment in the guide:\n> Check the callers.\n> All of them.",
     );
   });
 
@@ -152,14 +156,15 @@ describe("saved review storage boundaries", () => {
       note: { ...note().note, side: "old" },
     });
     const exported = await store.feedback(saved.id);
-    const [newComment, oldComment] = exported.text.split("## User Comment ").slice(1);
-    expect(newComment).toContain("File: new.ts\nWorkspace: /repo/a\nSide: R\nLines: 5-6");
-    expect(oldComment).toContain("File: old.ts\nWorkspace: /repo/a\nSide: L\nLines: 5-6");
+    const [newComment, oldComment] = exported.text.split("\n## ").slice(1);
+    expect(newComment).toMatch(/^[0-9a-f]{6} · new\.ts:5-6 \(renamed from old\.ts\)\n/);
+    expect(oldComment).toMatch(
+      /^[0-9a-f]{6} · old\.ts:5-6 \(before the change, renamed to new\.ts\)\n/,
+    );
     for (const comment of [newComment, oldComment]) {
-      expect(comment).toContain("Diff hunk:\n```diff\n@@");
+      expect(comment).toContain(")\n```diff\n@@");
       expect(comment).toContain("-five\n-six\n+FIVE\n+SIX");
-      expect(comment).toContain("Rename: old.ts → new.ts");
-      expect(comment).not.toContain("Captured source");
+      expect(comment).not.toContain("The source");
     }
   });
 
@@ -190,10 +195,10 @@ describe("saved review storage boundaries", () => {
       note: { path: "new.ts", side: "new", line: 12, text: "Last line" },
     });
     const exported = await store.feedback(saved.id);
-    expect(exported.text).toContain("Diff hunk:\n`````diff\n@@ -0,0 +2,8 @@\n+line 2");
+    expect(exported.text).toContain("new.ts:5-6\n`````diff\n@@ -0,0 +2,8 @@\n+line 2");
     expect(exported.text).toContain("+````\n+line 6");
     expect(exported.text).not.toContain("+line 1\n");
-    expect(exported.text.split("## User Comment 2")[0]).not.toContain("+line 10\n");
+    expect(exported.text.split("\n## ")[1]).not.toContain("+line 10\n");
     expect(exported.text).toContain("@@ -0,0 +9,4 @@");
     expect(exported.text).toContain("+line 12\n\\ No newline at end of file");
     expect(exported.text.length).toBeLessThan(2000);
@@ -220,12 +225,10 @@ describe("saved review storage boundaries", () => {
       },
     });
     const exported = await store.feedback(saved.id);
-    expect(exported.text).toContain(
-      "Captured source (saved diff does not cover the full selection):",
-    );
+    expect(exported.text).toContain("The source (the saved diff does not cover these lines):");
     expect(exported.text).toContain("> 2 | TWO\n> 3 | three");
     expect(exported.text).toContain("> 8 | EIGHT\n  9 | nine");
-    expect(exported.text).not.toContain("Diff hunk:");
+    expect(exported.text).not.toContain("```diff");
   });
 
   it("serializes separate stores sharing the same directory without losing accepted notes", async () => {

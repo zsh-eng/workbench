@@ -332,7 +332,7 @@ Desktop's messaging socket is not documented.
    text for every comment, for an agent that Med does not run. Copying marks
    nothing sent.
 4. **Answer.** The agent answers a comment in its thread with
-   `med review reply`: a question you asked on a line, or why it left a
+   `med reply <id>`: a question you asked on a line, or why it left a
    change out. The answer shows under your comment with the agent's mark,
    and does not make your comment a draft. Its final message still says what
    it did.
