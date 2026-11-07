@@ -362,18 +362,20 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
 
   // The next turn works while the reader watches its session, and ends: seen,
   // so no recap.
-  const activity = page.getByText("Running bun test");
+  const row = page.getByRole("navigation", { name: "Sessions" }).getByRole("button", {
+    name: /^Week view/,
+  });
   host.setThread(working(id, first + 10_000));
-  await expect.element(activity).toBeVisible();
+  await expect.element(row).toHaveAttribute("aria-busy", "true");
   expect(shownRecap()).toBeNull();
   host.setThread(ended(id, first + 20_000));
-  await expect.element(activity).not.toBeInTheDocument();
+  await expect.element(row).not.toHaveAttribute("aria-busy");
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(shownRecap()).toBeNull();
 
   // A turn that ends while the window hides comes unseen: a new recap.
   host.setThread(working(id, first + 30_000));
-  await expect.element(activity).toBeVisible();
+  await expect.element(row).toHaveAttribute("aria-busy", "true");
   Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
   document.dispatchEvent(new Event("visibilitychange"));
   host.setThread(ended(id, first + 40_000, { changes: { files: 1, additions: 2, deletions: 0 } }));

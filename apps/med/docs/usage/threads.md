@@ -4,11 +4,13 @@ A thread is one task: an agent's work and its changes, as a saved review, or
 a Claude Code or Codex session that Med found. The threads that you have open
 are **tabs**. All other threads are **history**.
 
-The sidebar shows only the tabs, by repository, in your order. A new tab goes
-to the top of its repository. Drag a row, or press `⌥↑` or `⌥↓` on a focused
-row, to move it in its repository. A row does not move when its agent's state
-changes, so `⌘1`–`⌘9` always open the tab at that place. A row shows the
-title, the branch, the age, and the change totals.
+The sidebar lists the tabs as sessions, one row each: **Pinned**, in the
+order you pinned them, then **Recent**, newest activity first. There is no
+grouping by repository. `⌘1`–`⌘9` open the session at that place in the list.
+A row shows the agent's mark and the session's name, and at most one dot: blue
+when something is new since you looked, amber when the work stopped. While the
+agent works, its name dims under a passing light. **New** at the top starts a
+thread, and **Settings** is at the foot.
 
 Tabs stay loaded and Med follows their agents. History is cold: Med does not
 load it or read its agents until you open it again.
@@ -22,16 +24,10 @@ load it or read its agents until you open it again.
 - A Med with another state folder than `~/.local/state/med` lists only its
   own threads: found sessions start hidden there. **Show sessions not kept in
   Med** in the palette shows them.
-- A row shows its agent's state by its type. The title is dim while the agent
-  works, and the second line shows what the agent does now, such as "Running
-  bun test". The title is bold when a turn ended while you were elsewhere.
-  **Needs you** shows, with a dot, while the agent waits for a permission
-  answer or for your review, and after a turn that ended on a question, until
-  you send a message from Med.
-- Above the tabs, a line counts the tabs that need you and the tabs whose
-  agents work, such as **1 needs you · 2 working**. It shows only when a count
-  is more than 0. Click a count to open the next tab of that kind. `⌘0` opens
-  the next tab that needs you, or else the next tab whose agent works.
+- A row's blue dot shows when a turn ended while you were elsewhere, while
+  the agent waits for a permission answer or for your review, and after a turn
+  that ended on a question, until you send a message from Med. `⌘0` opens the
+  next tab that needs you, or else the next tab whose agent works.
 - When you look elsewhere, Med tells you only that a tab needs you. While the
   sidebar is hidden, **Show sidebar** has a dot, and its name gives the count,
   such as "Show sidebar · 1 needs you". The installed app's Dock icon shows
@@ -41,26 +37,20 @@ load it or read its agents until you open it again.
   notification with the thread's title and the first line of its question.
   Click it to open the tab. Work that starts or ends sends none. **Stop
   notifying me when a tab needs you** turns them off.
-- A Claude Code tab lists its subagents under it: each one's task, and what
-  it does now. The title is dim while the subagent works and bold when it has
-  a result that you did not see. Click a subagent to open the thread with the
-  subagent's tab in its Session pane. A finished subagent stays until you see
-  the thread, then it goes from the list.
+- A Claude Code session's subagents show in its conversation, not in the
+  sidebar.
 
 ## Close, reopen, and delete
 
-- **Close a tab** with the **×** on its row, **Close tab** in `⌘K` or in the
-  row's menu, or `⌘⌥W`. Closing does not stop the agent: Med stops its streams
-  and Git checks, and the thread goes to history. **Undo** in the notice, or
-  `⌘⌥T` (**Reopen closed tab**), opens it again at its place. **Close and
-  remove worktree** also removes the worktree that Med made; the branch
-  stays, and Git keeps a worktree with changes.
-- Med closes a tab on its own when its work has landed: you read it, it was
-  off screen for 5 minutes, it does not need you, its agent does not work, and
-  its branch has no commits ahead of its base and no uncommitted changes. The
-  window that you used last does this, and a notice with **Undo** tells you.
-  Med never closes a tab whose work it cannot check, or a tab with an unsaved
-  draft.
+- **Archive a session** with **Archive** in its row's menu, **Close tab** in
+  `⌘K`, or `⌘⌥W`. Archiving does not stop the agent: Med stops its streams and
+  Git checks, and the thread goes to history. No notice announces it; `⌘⌥T`
+  (**Reopen closed tab**) opens it again, and `⌃Tab` finds it in history.
+- Med archives a session on its own when its work has landed: you read it, it
+  was off screen for 5 minutes, it does not need you, its agent does not work,
+  and its branch has no commits ahead of its base and no uncommitted changes.
+  The window that you used last does this. Med never archives a session whose
+  work it cannot check, or one with an unsaved draft.
 - **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
   Type a word, also while you hold Control, to search history too: closed
   threads and found sessions that are not tabs, by title, branch, repository,
@@ -95,9 +85,13 @@ load it or read its agents until you open it again.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
-- Right-click a row to open it, rename it, copy a command that resumes the
-  agent's session or opens lazygit in its checkout, mark it read or unread,
-  close it, or delete it.
+- A row's menu opens from its **⋯** button, which shows when the pointer
+  rests on the row, or from a right-click. It has **Open pull request** (`G`,
+  when the session has one), **Copy resume command** (`C`), **Pin** or
+  **Unpin** (`P`), **Mark as unread** or **Mark as read** (`U`), **Rename**
+  (`R`), **Archive** (`A`), and **Delete** (`D`). While the menu is open, a
+  letter runs its item. Med keeps the pins, also across a restart and in
+  history.
 - **Rename a thread** with **Rename…** in its row's menu, a double-click on
   its row, or **Rename thread…** in the palette (`⌘K`). With the sidebar
   hidden, the field shows in the title band, where a double-click on the
@@ -106,10 +100,9 @@ load it or read its agents until you open it again.
   history, and the palette. Med keeps it, not the agent: a new hand-off does
   not change it, and it stays after a restart. An empty name gives the thread
   its agent's title again.
-- **Repositories**, at the foot of the sidebar, lists the registered
-  repositories and vaults by name. Click one to browse it without a thread;
-  **+** opens the Sources page.
-- `⌘B` shows or hides the sidebar. In a window narrower than 760 pixels, the
+- **Settings**, at the foot of the sidebar, opens the Sources page for now:
+  the registered repositories and vaults.
+- `⌘B`, or the button beside **New**, shows or hides the sidebar. In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
 
 ## A thread's pane
@@ -273,9 +266,7 @@ works, ⌘↩ queues for the turn's end** in `⌘K` swaps the two keys. Other
 agents take messages only between turns, so for them the button is
 **Queue**. Until a message goes, **Edit** or `↑` brings its text back into
 the box (attachments stay out, and the box says so), and **Remove** drops it.
-The sidebar's **Running now** lists the Claude Code and Codex sessions that
-run on this Mac, in Med or elsewhere (a Codex Desktop thread while a turn
-runs); click one to open its thread, or to keep it in Med. The pane's header
+The pane's header
 shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
@@ -340,9 +331,7 @@ Effort rows under its letter, and its own branch (the task's name with `-a`,
 `-b`, `-c`) in a new worktree. Start starts them all and opens the Attempts
 page.
 
-- The sidebar shows the task as one row, with its attempts under it, such as
-  **A · Claude** and **B · Codex**. They fold when all are done; the chevron,
-  `→`, and `←` show or hide them. Click the row to open the Attempts page.
+- Each attempt is a session row of its own in the sidebar.
 - The **Attempts page** has a column for each attempt: its agent and model,
   its state and time, its branch, its changes, the checks that its session ran
   (test, type-check, lint, and build commands, with their pass and fail
@@ -368,10 +357,7 @@ Med shows what Claude Code scheduled and never runs a schedule
 in the thread: "Every hour at :23", its prompt, recurring or one-shot, when it
 expires, and Cancelled, Expired, Fired, or Missed. A `CronDelete` changes its
 job's card to Cancelled and is a row of its turn's work, so one schedule is
-one card. A job of a session ends with it, which the card says. The sidebar's
-**Scheduled** section lists only the jobs that will fire: the tabs' jobs whose
-session's process runs, with their thread and prompt. A job whose session
-ended, or that ended, stays in its thread's cards only, and with no job to
-fire there is no section. The Claude app's scheduled tasks are not listed: Med
-cannot read their schedules
+one card. A job of a session ends with it, which the card says. The cards are
+the only place Med shows schedules; the sidebar does not list them. The Claude
+app's scheduled tasks are not shown: Med cannot read their schedules
 ([why](../SCHEDULES.md#desktop-scheduled-tasks-left-out)).

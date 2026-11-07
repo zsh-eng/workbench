@@ -348,7 +348,7 @@ const shown = () =>
 async function openChanges() {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
@@ -495,7 +495,7 @@ test("a pull request is the thread's title in the window's band, before its chec
 async function openPullTab() {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");

@@ -49,14 +49,7 @@ import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
-import {
-  groupThreads,
-  needsYou,
-  NO_THREADS,
-  shortAge,
-  tabOrder,
-  useThreads,
-} from "../data/threads";
+import { needsYou, NO_THREADS, shortAge, tabOrder, useThreads } from "../data/threads";
 import {
   isFoundThread,
   threadInput,
@@ -67,28 +60,18 @@ import { foundThreadId } from "../../shared/found-sessions";
 import {
   closeThread,
   deleteThread,
-  groupThread,
   landed,
   openThread,
-  orderThreads,
   readHistory,
   reopenThread,
   renameThread,
-  requestSubagentOpen,
-  setThreadShape,
-  ungroupThread,
+  pinThread,
   useReadState,
 } from "../data/tabs";
-import { requestLayer } from "../data/stack";
-import { ScheduledSection } from "./shell/ScheduledSection";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
-import {
-  NoticeBar,
-  ThreadSidebar,
-  type SidebarSource,
-  type TabNotice,
-} from "./shell/ThreadSidebar";
+import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
+import { SessionSidebar } from "./shell/SessionSidebar";
 import { NewThread } from "./shell/NewThread";
 import { SEARCH_OPEN_EVENT, type SearchOpen } from "./SearchView";
 import { requestFileOpen, requestSearchOpen } from "../data/file-opens";
@@ -231,7 +214,6 @@ interface TabActions {
   openHistory(): void;
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
-  move(threadId: string, by: -1 | 1): void;
   /** Shows the name field of the thread. */
   rename(threadId: string): void;
   /** Turns the notifications for tabs that need the reader on or off. */
@@ -241,8 +223,8 @@ interface TabActions {
 const Tabs = createContext<TabActions | null>(null);
 
 /** The palette's commands for tabs: close this workspace's tab, reopen a
- * closed one, open one from history, go to the next that needs you, move
- * this tab, and notifications. Outside a window with tabs, none. */
+ * closed one, open one from history, go to the next that needs you, rename
+ * it, and notifications. Outside a window with tabs, none. */
 export function useTabCommands(): ReviewCommand[] {
   const tabs = use(Tabs);
   const thread = workspaceThread(use(Entry) ?? undefined);
@@ -275,18 +257,6 @@ export function useTabCommands(): ReviewCommand[] {
         managesFocus: true,
         disabled: !isTab,
         run: run(tabs.rename),
-      },
-      {
-        id: "tab-up",
-        label: "Move tab up",
-        disabled: !isTab,
-        run: run((id) => tabs.move(id, -1)),
-      },
-      {
-        id: "tab-down",
-        label: "Move tab down",
-        disabled: !isTab,
-        run: run((id) => tabs.move(id, 1)),
       },
       {
         id: "notify-needs-you",
@@ -1032,24 +1002,10 @@ export function WorkspaceHost({
     const still = [...closing].filter((id) => threadList.threads.some((entry) => entry.id === id));
     if (still.length !== closing.size) setClosing(new Set(still));
   }
-  // An order that the reader chose, until the host's list has it.
-  const [ordered, setOrdered] = useState<readonly string[] | null>(null);
-  if (ordered && threadList) {
-    const listed = threadList.threads.flatMap((entry) =>
-      ordered.includes(entry.id) ? [entry.id] : [],
-    );
-    const mine = ordered.filter((id) => listed.includes(id));
-    if (listed.every((id, index) => id === mine[index])) setOrdered(null);
-  }
   const tabs = useMemo(() => {
-    let list = threadList?.threads ?? [];
-    if (closing.size) list = list.filter((entry) => !closing.has(entry.id));
-    if (ordered) {
-      const place = new Map(ordered.map((id, index) => [id, index]));
-      list = list.toSorted((a, b) => (place.get(a.id) ?? -1) - (place.get(b.id) ?? -1));
-    }
-    return list;
-  }, [threadList, closing, ordered]);
+    const list = threadList?.threads ?? [];
+    return closing.size ? list.filter((entry) => !closing.has(entry.id)) : list;
+  }, [threadList, closing]);
   const tabsRef = useRef(tabs);
   useLayoutEffect(() => {
     tabsRef.current = tabs;
@@ -1063,22 +1019,6 @@ export function WorkspaceHost({
   );
   const [threads] = useState(createThreadStore);
   useLayoutEffect(() => threads.set(statuses), [threads, statuses]);
-  // A vault is one more repository: one list, by name.
-  const sources = useMemo<SidebarSource[]>(
-    () =>
-      [
-        ...(threadList?.repositories ?? []).map((repository) => ({
-          kind: "repository" as const,
-          ...repository,
-        })),
-        ...snapshot.workspaces.flatMap((workspace) =>
-          workspace.kind === "vault"
-            ? [{ kind: "vault" as const, id: workspace.sourceId, name: workspace.title ?? "Vault" }]
-            : [],
-        ),
-      ].sort(byName),
-    [threadList, snapshot.workspaces],
-  );
   // Each window keeps its sidebar: read once, not followed (view-settings.ts).
   const [sidebarVisible, setSidebarVisible] = useState(
     () => viewSettings.sidebar.get() === "shown",
@@ -1186,31 +1126,6 @@ export function WorkspaceHost({
       setClosing((value) => new Set([...value].filter((id) => !list.some((t) => t.id === id)))),
     [],
   );
-  /** Opens tabs again at their places, and shows the one that was on screen. */
-  const reopenTabs = useCallback(
-    async (list: readonly Thread[], shown?: Thread) => {
-      setNotice(null);
-      const now = Date.now();
-      for (const thread of list) {
-        kept.current.add(thread.id);
-        lastShown.current.set(thread.id, now);
-        opening.current.add(thread.id);
-      }
-      forget(list);
-      if (shown) openTab(shown);
-      const results = await Promise.allSettled(
-        list.map((thread) => openThread(thread.id, true, fetcher)),
-      );
-      const failed = results.findIndex((result) => result.status === "rejected");
-      if (failed < 0) return;
-      for (const thread of list) opening.current.delete(thread.id);
-      setNotice({
-        problem: true,
-        text: `Could not open “${list[failed]!.title}”. ${reason(results[failed]!)}`.trim(),
-      });
-    },
-    [fetcher, forget, openTab],
-  );
   /** Asks before a close that leaves unsaved drafts. They stay in the
    * window and in the browser's storage, so the question is a reminder. */
   const confirmClose = useCallback(
@@ -1261,19 +1176,9 @@ export function WorkspaceHost({
         });
         return;
       }
-      const title = list[0]!.title;
-      setNotice({
-        text: details.auto
-          ? list.length === 1
-            ? `Closed “${title}”: its work has landed.`
-            : `Closed ${list.length} tabs whose work has landed.`
-          : details.removeWorktree
-            ? `Closed “${title}” and removed its worktree.`
-            : `Closed “${title}”.`,
-        actions: [{ label: "Undo", run: () => void reopenTabs(list, shown) }],
-      });
+      // Archived: ⌘⌥T, ⌃Tab and history bring it back, so no notice.
     },
-    [closeView, fetcher, forget, openTab, reopenTabs],
+    [closeView, fetcher, forget, openTab],
   );
   /** Closes tabs. A close that you ask for checks for unsaved drafts first;
    * one that Med makes, as for landed work, does not. */
@@ -1356,6 +1261,19 @@ export function WorkspaceHost({
   // while the sidebar hides.
   const [renaming, setRenaming] = useState<string | null>(null);
   if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
+  const pinTo = useCallback(
+    async (thread: Thread, pinned: boolean) => {
+      try {
+        await pinThread(thread.id, pinned, fetcher);
+      } catch (error) {
+        setNotice({
+          problem: true,
+          text: `Could not ${pinned ? "pin" : "unpin"} “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher],
+  );
   /** Names a thread. An empty name, or its agent's own title, gives it its
    * agent's title again. */
   const renameTo = useCallback(
@@ -1381,81 +1299,6 @@ export function WorkspaceHost({
       }
     },
     [fetcher],
-  );
-  /** Puts a thread on top of another's stack (docs/STACKS.md). Its tab closes;
-   * the stack's tab shows when the thread was on screen. */
-  const stackTab = useCallback(
-    async (thread: Thread, onto: Thread) => {
-      try {
-        await groupThread(thread.id, onto.id, fetcher);
-        const shown = currentRef.current === thread.id;
-        closeView(thread);
-        if (shown) openTab(onto);
-        setNotice({
-          text: `Stacked “${thread.title}” on “${onto.title}”. Ungroup it from the stack's menu.`,
-        });
-      } catch (error) {
-        setNotice({
-          problem: true,
-          text: `Could not stack “${thread.title}”. ${errorText(error, "")}`.trim(),
-        });
-      }
-    },
-    [fetcher, closeView, openTab],
-  );
-  const ungroupTab = useCallback(
-    async (thread: Thread) => {
-      try {
-        const made = await ungroupThread(thread.id, fetcher);
-        setNotice({
-          text: `“${thread.title}” is ${made.length + 1} threads again, one for each part.`,
-        });
-      } catch (error) {
-        setNotice({
-          problem: true,
-          text: `Could not ungroup “${thread.title}”. ${errorText(error, "")}`.trim(),
-        });
-      }
-    },
-    [fetcher],
-  );
-  const shapeTab = useCallback(
-    async (thread: Thread, shape: "stack" | "set") => {
-      try {
-        await setThreadShape(thread.id, shape, fetcher);
-      } catch (error) {
-        setNotice({ problem: true, text: errorText(error, "Could not change the thread.") });
-      }
-    },
-    [fetcher],
-  );
-  /** Puts one repository's tabs in this order; the other tabs keep their places. */
-  const reorderGroup = useCallback(
-    (group: readonly string[]) => {
-      const all = tabsRef.current.map((thread) => thread.id);
-      const slots = all.flatMap((id, index) => (group.includes(id) ? [index] : []));
-      const next = [...all];
-      slots.forEach((slot, index) => (next[slot] = group[index]!));
-      if (next.every((id, index) => id === all[index])) return;
-      setOrdered(next);
-      void orderThreads(next, fetcher).catch(() => setOrdered(null));
-    },
-    [fetcher],
-  );
-  const moveTab = useCallback(
-    (thread: Thread, by: -1 | 1) => {
-      const group = groupThreads(tabsRef.current).find((entry) =>
-        entry.threads.some((member) => member.id === thread.id),
-      );
-      if (!group) return;
-      const ids = group.threads.map((member) => member.id);
-      const from = ids.indexOf(thread.id);
-      const to = from + by;
-      if (to < 0 || to >= ids.length) return;
-      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
-      reorderGroup(ids);
-    },
-    [reorderGroup],
   );
   /** Shows the next tab after the one on screen, in the sidebar's order, that
    * this test chooses. False when there is none. */
@@ -1607,9 +1450,9 @@ export function WorkspaceHost({
   useLayoutEffect(() => {
     for (const listener of tabListeners) listener();
   }, [tabListeners, tabs]);
-  const latest = useRef({ closeTabs, reopenLast, nextAttention, moveTab });
+  const latest = useRef({ closeTabs, reopenLast, nextAttention });
   useLayoutEffect(() => {
-    latest.current = { closeTabs, reopenLast, nextAttention, moveTab };
+    latest.current = { closeTabs, reopenLast, nextAttention };
   });
   const tabActions = useMemo<TabActions>(() => {
     const find = (id: string | undefined) =>
@@ -1626,10 +1469,6 @@ export function WorkspaceHost({
         setSwitcher({ held: false, reverse: false, history: true });
       },
       next: () => void latest.current.nextAttention(),
-      move(id, by) {
-        const thread = find(id);
-        if (thread) latest.current.moveTab(thread, by);
-      },
       rename(id) {
         if (find(id)) setRenaming(id);
       },
@@ -1778,68 +1617,38 @@ export function WorkspaceHost({
                               narrow ? styles.shellOverlay : styles.width(sidebarWidth),
                             )}
                           >
-                            <ThreadSidebar
+                            <SessionSidebar
                               threads={tabs}
-                              sources={sources}
-                              snapshot={snapshot}
-                              loaded={!!threadList}
-                              current={currentThread}
+                              current={currentThread ?? null}
                               read={read}
+                              loaded={!!threadList}
                               notice={noticeBar}
-                              onOpen={(input) => {
-                                setNewThread(false);
+                              newThread={newThread}
+                              renaming={renaming}
+                              onOpen={(thread) => {
                                 setOverlay(false);
-                                actions.open(input);
-                              }}
-                              onOpenThread={openTab}
-                              onOpenSubagent={(thread, subagent) => {
-                                read.seeSubagent(subagent);
                                 openTab(thread);
-                                requestSubagentOpen(
-                                  store.match(threadInput(thread)) ?? threadWorkspaceId(thread),
-                                  subagent.id,
-                                );
                               }}
                               onNewThread={() => {
                                 setOverlay(false);
                                 setNewThread(true);
                               }}
-                              newThread={newThread}
                               onHide={toggleSidebar}
-                              onSources={() => {
+                              onSettings={() => {
                                 history.pushState(null, "", "/sources");
                                 window.dispatchEvent(new PopStateEvent("popstate"));
                               }}
-                              onClose={(thread, removeWorktree) =>
-                                void closeTabs([thread], { removeWorktree })
+                              onArchive={(thread) =>
+                                void closeTabs([thread], { removeWorktree: false })
                               }
                               onDelete={confirmDelete}
-                              onReorder={reorderGroup}
-                              onMove={moveTab}
-                              onNext={(kind) => nextTab(kind === "needs" ? needsYou : isWorking)}
                               onPrefetch={(thread) => {
                                 readThread(thread);
                                 setPointed(threadWorkspaceId(thread));
                               }}
-                              renaming={renaming}
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
-                              onGroup={(thread, onto) => void stackTab(thread, onto)}
-                              onUngroup={(thread) => void ungroupTab(thread)}
-                              onShape={(thread, shape) => void shapeTab(thread, shape)}
-                              onOpenPart={(thread, part) => {
-                                requestLayer(thread.id, part);
-                                openTab(thread);
-                              }}
-                              scheduled={
-                                <ScheduledSection
-                                  fetcher={fetcher}
-                                  onOpenThread={(id) => {
-                                    const thread = tabsRef.current.find((entry) => entry.id === id);
-                                    if (thread) openTab(thread);
-                                  }}
-                                />
-                              }
+                              onPin={(thread, pinned) => void pinTo(thread, pinned)}
                             />
                           </aside>
                           {!narrow && (

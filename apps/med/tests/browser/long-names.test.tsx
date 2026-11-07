@@ -211,7 +211,7 @@ async function away() {
 }
 async function openThread() {
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rotate refresh tokens/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("guide-target");

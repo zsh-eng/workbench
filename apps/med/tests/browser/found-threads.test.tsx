@@ -309,12 +309,10 @@ const shown = () =>
 test("a found session lists as a thread, opens on its checkout with its session, and Keep in Med saves it", async () => {
   const host = createHost([found()]);
   render(host);
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   const row = sidebar.getByRole("button", { name: /^README glossary/ });
-  // Among its repository's threads, with its agent's state.
-  await expect.element(sidebar.getByRole("region", { name: "tide" })).toBeVisible();
-  await expect.element(row).toHaveAccessibleName(/README glossary.*working/);
-  await expect.element(sidebar.getByText("+6")).toBeVisible();
+  // One row, like any session's: its name, dimmed while its agent works.
+  await expect.element(row).toHaveAttribute("aria-busy", "true");
 
   // It opens on its checkout's live changes, with its session beside them.
   await row.click();
@@ -358,48 +356,6 @@ test("a found session lists as a thread, opens on its checkout with its session,
   expect(document.body.textContent).not.toContain("Return to review");
 });
 
-test("Running now lists the agent sessions that run, in Med or elsewhere: one with a thread opens it, and Keep in Med makes one a thread", async () => {
-  const host = createHost(
-    [found()],
-    [
-      {
-        agent: "claude",
-        id: glossarySession.id,
-        title: "README glossary",
-        cwd: "/test/glossary",
-        place: "med",
-        thread: found().id,
-      },
-      {
-        agent: "codex",
-        id: "01a189b0-0000-7000-8000-000000000001",
-        title: "Port the tide parser",
-        cwd: "/test/repo",
-        place: "other-app",
-      },
-    ],
-  );
-  render(host);
-  const running = page
-    .getByRole("navigation", { name: "Threads" })
-    .getByRole("region", { name: "Running now" });
-  await expect.element(running.getByText("2")).toBeVisible();
-  // One that a thread has opens it.
-  await running.getByRole("button", { name: /README glossary/ }).click();
-  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("glossary");
-  // Codex in its app: one click keeps it in Med, as a thread.
-  const codex = running.getByRole("button", { name: /Port the tide parser/ });
-  await expect.element(running.getByText("Keep in Med")).toBeVisible();
-  await codex.click();
-  await expect.poll(() => location.pathname).toBe("/review/r_kept");
-  expect(host.posts).toEqual([
-    {
-      path: "/api/sessions/adopt",
-      body: { session: "01a189b0-0000-7000-8000-000000000001", title: "Port the tide parser" },
-    },
-  ]);
-});
-
 test("Close on a found tab sends it to history, Delete hides its session, and the palette hides all", async () => {
   const codex = found({
     id: "found-codex-c1",
@@ -413,13 +369,8 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   const row = page.getByRole("button", { name: /^Readers in the US/ });
   await row.click({ button: "right" });
-  // A found thread has no worktree of Med's to remove.
-  expect(document.body.textContent).not.toContain("Close and remove worktree");
-  await page.getByRole("menuitem", { name: /^Close tab/ }).click();
+  await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.element(row).not.toBeInTheDocument();
-  await expect
-    .element(page.getByText("Closed “Readers in the US want heights in feet”."))
-    .toBeVisible();
   expect(host.posts).toEqual([
     { path: "/api/threads/found-codex-c1/close", body: { removeWorktree: false } },
   ]);
@@ -427,7 +378,7 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
   // Delete asks first; the host hides the session, so it does not come back.
   const glossary = page.getByRole("button", { name: /^README glossary/ });
   await glossary.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("menuitem", { name: /^Delete/ }).click();
   await page
     .getByRole("status")
     .filter({ hasText: "Delete “README glossary”?" })

@@ -51,8 +51,9 @@ beforeEach(async () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
   localStorage.removeItem("med:zen");
+  // A test's drafts and open files would reopen in the next one's workspace.
   for (const key of Object.keys(localStorage))
-    if (key.startsWith("med:draft:")) localStorage.removeItem(key);
+    if (key.startsWith("med:draft:") || key.startsWith("med:files:")) localStorage.removeItem(key);
   for (const key of ["thread-seen", "thread-seen-since", "subagent-seen", "subagent-seen-since"])
     localStorage.removeItem(`med:${key}`);
   for (const key of ["med:thread-seen", "med:thread-seen-since", "med:new-thread", "med:sidebar"])
@@ -214,12 +215,6 @@ function createHost() {
     // Tabs and history, as the host keeps them (src/host/thread-service.ts).
     if (url.pathname === "/api/threads/history")
       return Response.json({ threads: past.map((entry) => ({ ...entry, open: false })) });
-    if (url.pathname === "/api/threads/order" && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { order: string[] };
-      threadRequests.push({ path: url.pathname, body });
-      setThreads(body.order.flatMap((id) => threads.find((entry) => entry.id === id) ?? []));
-      return Response.json({ ok: true });
-    }
     if (url.pathname === "/api/threads/reopen" && init?.method === "POST") {
       threadRequests.push({ path: url.pathname, body: {} });
       const last = past.shift();
@@ -564,16 +559,21 @@ const shown = () =>
     element.checkVisibility({ visibilityProperty: true }),
   );
 /** Each thread row's name, with its state, and whether it is the one shown. */
+// A row: its name, its dot, whether it works, and whether it is current.
 const threadRows = () =>
-  [...document.querySelectorAll<HTMLElement>("[data-thread]")].map((row) =>
-    [
-      row.children[1]?.firstElementChild?.firstElementChild?.textContent,
-      row.lastElementChild?.textContent,
-      row.getAttribute("aria-current") && "(current)",
+  [...document.querySelectorAll<HTMLElement>("[data-session-row]")].map((row) => {
+    const button = row.querySelector<HTMLElement>("button")!;
+    const dot = button.querySelector('[role="img"]')?.getAttribute("aria-label");
+    return [
+      button.title,
+      dot === "New since you looked" && ", new",
+      dot === "Stopped" && ", stopped",
+      button.getAttribute("aria-busy") && ", working",
+      button.getAttribute("aria-current") && "(current)",
     ]
       .filter(Boolean)
-      .join(""),
-  );
+      .join("");
+  });
 const thread = (id: string, patch: Partial<Thread> = {}): Thread => ({
   id,
   title: savedTitles[id] ?? id,
@@ -826,166 +826,6 @@ test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chr
   expect(statusBar()).toBe(false);
 });
 
-test("the sidebar lists every thread by repository with its agent's state", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  host.setThreads([
-    thread("agent", { agent: "claude", state: "working", updatedAt: Date.now() }),
-    thread("second", {
-      agent: "codex",
-      state: "waiting",
-      branch: "export",
-      changes: { files: 2, additions: 12, deletions: 3 },
-    }),
-  ]);
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
-  await expect.element(sidebar.getByRole("region", { name: "fixture" })).toBeVisible();
-  await expect.poll(threadRows).toEqual(["Agent review, working", "Second review, needs you"]);
-  await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
-  await expect.element(sidebar.getByText("+12")).toBeVisible();
-
-  // ⌃2 (⌘2 on a Mac) opens the second thread in the list.
-  await userEvent.keyboard("{Control>}2{/Control}");
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
-  // The title band names the checkout that the thread works in.
-  const band = page.getByRole("banner", { name: "Workspace" });
-  await expect
-    .element(band.getByRole("button", { name: "fixture, export. Copy path" }))
-    .toBeVisible();
-
-  // A pointer that rests on a row reads its thread ahead, and the click uses
-  // that read.
-  const reads = (path: string) => host.requested.filter((entry) => entry === path).length;
-  await page.getByRole("button", { name: /^Agent review/ }).hover();
-  await expect.poll(() => reads("/api/reviews/agent/targets/agent-target/review")).toBe(1);
-  expect(reads("/api/reviews/agent")).toBe(1);
-  await page.getByRole("button", { name: /^Agent review/ }).click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
-  expect(reads("/api/reviews/agent")).toBe(1);
-  expect(reads("/api/reviews/agent/targets/agent-target/review")).toBe(1);
-  await expect.poll(() => location.pathname).toBe("/review/agent");
-  await expect.poll(() => threadRows()[0]).toBe("Agent review, working(current)");
-
-  // A turn that ends while another thread shows marks that thread new; a
-  // look at it marks it read.
-  await page.getByRole("button", { name: /^Second review/ }).click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
-  host.setThreads([
-    thread("agent", { agent: "claude", state: "idle", updatedAt: Date.now() }),
-    thread("second", { agent: "codex", state: "idle", branch: "export" }),
-  ]);
-  await expect.poll(() => threadRows()[0]).toBe("Agent review, new");
-  await page.getByRole("button", { name: /^Agent review/ }).click();
-  await expect.poll(() => threadRows()[0]).toBe("Agent review(current)");
-
-  // The registered repositories open as workspaces of their own.
-  await sidebar.getByRole("button", { name: /^Repositories/ }).click();
-  await sidebar.getByRole("button", { name: "fixture", exact: true }).click();
-  await expect.poll(() => shown()?.dataset.selectedBranch).toBe("main");
-  await expect.poll(() => threadRows()[0]).toBe("Agent review");
-
-  // A narrow window hides the sidebar; it opens over the workspace, and a
-  // choice closes it.
-  await page.viewport(600, 800);
-  await expect.element(sidebar).not.toBeInTheDocument();
-  await band.getByRole("button", { name: "Show sidebar" }).click();
-  await page.getByRole("button", { name: /^Second review/ }).click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
-  await expect.element(sidebar).not.toBeInTheDocument();
-});
-
-test("a thread's row says what its agent does now and whether its turn asks you", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const ended = Date.now() - 120_000;
-  host.setThreads([
-    thread("agent", {
-      agent: "claude",
-      state: "working",
-      updatedAt: Date.now(),
-      turn: { activity: "Running bun test" },
-    }),
-    thread("second", { agent: "codex", state: "idle", turn: { endedAt: ended, asks: true } }),
-    // A message sent from Med after the turn ended answers its question.
-    thread("third", {
-      agent: "claude",
-      state: "idle",
-      updatedAt: Date.now() - 90_000,
-      turn: { endedAt: ended, asks: true },
-      replied: { at: ended + 1000, text: "Yes", delivery: "delivered" },
-    }),
-  ]);
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
-  await expect
-    .poll(threadRows)
-    .toEqual(["Agent review, working", "Second review, needs you", "Third review"]);
-  // The activity shows in place of the branch.
-  await expect.element(sidebar.getByText("Running bun test")).toBeVisible();
-  await expect.element(sidebar.getByText("Needs you", { exact: true })).toBeVisible();
-});
-
-test("tabs keep the reader's order: a state change moves no row, ⌘1–⌘9 follow the rows, and ⌥↓ or a drag moves one", async () => {
-  const host = createHost();
-  render(host);
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const minutes = (count: number) => Date.now() - count * 60_000;
-  host.setThreads([
-    thread("agent", { agent: "claude", state: "idle", updatedAt: minutes(30) }),
-    thread("second", { agent: "codex", state: "idle", updatedAt: minutes(20) }),
-    thread("third", { agent: "claude", state: "idle", updatedAt: minutes(10) }),
-  ]);
-  const ids = () =>
-    [...document.querySelectorAll<HTMLElement>("[data-thread]")].map((row) => row.dataset.thread);
-  await expect.poll(ids).toEqual(["agent", "second", "third"]);
-  // Nothing works or waits: no counts line.
-  const counts = page.getByRole("group", { name: "Tabs at work" });
-  await expect.element(counts).not.toBeInTheDocument();
-
-  // The first asks and the third starts to work: no row moves.
-  host.setThreads([
-    thread("agent", { agent: "claude", state: "waiting", updatedAt: minutes(30) }),
-    thread("second", { agent: "codex", state: "idle", updatedAt: minutes(20) }),
-    thread("third", { agent: "claude", state: "working", updatedAt: Date.now() }),
-  ]);
-  await expect
-    .poll(threadRows)
-    .toEqual(["Agent review, needs you", "Second review", "Third review, working"]);
-  // ⌃3 (⌘3 on a Mac) shows the third row.
-  await userEvent.keyboard("{Control>}3{/Control}");
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
-
-  // The counts line; ⌘0 shows the next tab that needs you, and a count the
-  // next of its tabs.
-  await expect.element(counts).toHaveTextContent("1 needs you·1 working");
-  await userEvent.keyboard("{Control>}0{/Control}");
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("agent-target");
-  await counts.getByRole("button", { name: "1 working" }).click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
-
-  // ⌥↓ on a row moves its tab down in its repository; the row keeps the
-  // focus, and the host keeps the order.
-  (page.getByRole("button", { name: /^Agent review/ }).element() as HTMLElement).focus();
-  await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
-  await expect.poll(ids).toEqual(["second", "agent", "third"]);
-  expect(host.threadRequests.at(-1)).toEqual({
-    path: "/api/threads/order",
-    body: { order: ["second", "agent", "third"] },
-  });
-  await expect.poll(() => (document.activeElement as HTMLElement).dataset.thread).toBe("agent");
-  // ⌘1 follows the new order.
-  await userEvent.keyboard("{Control>}1{/Control}");
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
-
-  // A drag puts a tab in another place.
-  await page
-    .getByRole("button", { name: /^Third review/ })
-    .dropTo(page.getByRole("button", { name: /^Second review/ }));
-  await expect.poll(() => ids()[0]).toBe("third");
-  expect(host.threadRequests.at(-1)?.path).toBe("/api/threads/order");
-});
-
 test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it in history", async () => {
   const host = createHost();
   render(host);
@@ -997,25 +837,26 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   ]);
   await expect.poll(threadRows).toEqual(["Agent review", "Second review, working", "Third review"]);
 
-  // × on the row closes the tab; its agent keeps working.
-  await page.getByRole("button", { name: /^Second review/ }).hover();
-  await page.getByRole("button", { name: "Close Second review" }).click();
+  // Archive in the row's menu sends the session to history; its agent keeps
+  // working, and nothing announces it.
+  await page.getByRole("button", { name: "Actions for Second review" }).click();
+  await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.poll(threadRows).toEqual(["Agent review", "Third review"]);
   expect(host.threadRequests.at(-1)).toEqual({
     path: "/api/threads/second/close",
     body: { removeWorktree: false },
   });
-  const notice = page.getByRole("status").filter({ hasText: "Closed “Second review”." });
-  await expect.element(notice).toBeVisible();
-  // Undo opens it again at its place.
-  await notice.getByRole("button", { name: "Undo" }).click();
-  await expect.poll(threadRows).toEqual(["Agent review", "Second review, working", "Third review"]);
+  expect(page.getByRole("status").filter({ hasText: "Closed" }).query()).toBeNull();
+  // ⌘⌥T opens it again.
+  await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
+  await expect.poll(threadRows).toContain("Second review, working(current)");
 
   // ⌘⌥W closes the tab on screen with its workspace, and ⌘⌥T opens it again.
   await page.getByRole("button", { name: /^Third review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
   await userEvent.keyboard("{Control>}{Alt>}w{/Alt}{/Control}");
-  await expect.poll(threadRows).toEqual(["Agent review", "Second review, working"]);
+  // Reopening put Second at the top of Recent, and closing lands on it.
+  await expect.poll(threadRows).toEqual(["Second review, working(current)", "Agent review"]);
   await expect.poll(() => shown()?.dataset.reviewId).not.toBe("third-target");
   expect(document.querySelector('[data-workspace-slot="review-third"]')).toBeNull();
   await userEvent.keyboard("{Control>}{Alt>}t{/Alt}{/Control}");
@@ -1026,7 +867,7 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Close tab");
   await userEvent.keyboard("{Enter}");
-  await expect.poll(threadRows).toEqual(["Agent review", "Second review, working"]);
+  await expect.poll(threadRows).toEqual(["Second review, working(current)", "Agent review"]);
 
   // ⌃Tab with a typed word searches history too; Return opens the thread as
   // a tab, at the top. A letter with Control held searches and runs no
@@ -1048,8 +889,8 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await expect.poll(threadRows).toContain("Third review(current)");
 
   // "Open from history…" lists the closed threads, newest first.
-  await page.getByRole("button", { name: /^Agent review/ }).hover();
-  await page.getByRole("button", { name: "Close Agent review" }).click();
+  await page.getByRole("button", { name: "Actions for Agent review" }).click();
+  await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.poll(threadRows).not.toContain("Agent review");
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Open from history");
@@ -1187,56 +1028,9 @@ test("a tab whose work has landed stays open while it has an unsaved draft", asy
   const later = vi.spyOn(Date, "now").mockImplementation(() => realNow() + AUTO_CLOSE_MS * 2);
   onTestFinished(() => later.mockRestore());
   host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
-  await expect.element(page.getByText("Closed “Fifth review”: its work has landed.")).toBeVisible();
-  expect(threadRows().map((row) => row.split(/(?<=review)/)[0])).toEqual([
-    "Third review",
-    "Fourth review",
-  ]);
-});
-
-test("a tab lists its subagents; a click opens one in the Session pane, and a finished one folds once seen", async () => {
-  const host = createHost();
-  render(host);
-  host.releaseSession();
-  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  host.setThreads([
-    thread("agent", { agent: "claude", state: "idle" }),
-    thread("talk", {
-      agent: "claude",
-      state: "working",
-      updatedAt: Date.now(),
-      sessions: [talkSession],
-      subagents: [
-        {
-          id: "toolu_edge",
-          description: "Check the edge cases",
-          state: "working",
-          activity: "Running bun test",
-          updatedAt: Date.now(),
-        },
-        { id: "toolu_docs", description: "Read the docs", state: "idle", updatedAt: Date.now() },
-      ],
-    }),
-  ]);
-  const subagents = page.getByRole("list", { name: "Talk review subagents" });
-  const working = subagents.getByRole("button", { name: /^Check the edge cases/ });
-  await expect.element(working).toBeVisible();
-  await expect.element(subagents.getByText("Running bun test")).toBeVisible();
   await expect
-    .element(subagents.getByRole("button", { name: /^Read the docs\W+done$/ }))
-    .toBeVisible();
-
-  // A click shows the thread with the subagent's tab open in its Session pane.
-  await working.click();
-  await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
-  await expect
-    .element(page.getByRole("tab", { name: /Check the edge cases/ }))
-    .toHaveAttribute("aria-selected", "true");
-  // The thread on screen shows the finished subagent's result: its row folds.
-  await expect
-    .element(subagents.getByRole("button", { name: /^Read the docs/ }))
-    .not.toBeInTheDocument();
-  await expect.element(working).toBeVisible();
+    .poll(() => threadRows().map((row) => row.split(/(?<=review)/)[0]))
+    .toEqual(["Third review", "Fourth review"]);
 });
 
 test("a thread takes a name from its menu, a double-click, or the palette; Esc keeps the old one, and an empty name gives the agent's title back", async () => {
@@ -1248,10 +1042,10 @@ test("a thread takes a name from its menu, a double-click, or the palette; Esc k
   const field = page.getByRole("textbox", { name: "Thread name" });
   const named = () => host.threadRequests.filter((request) => request.path.endsWith("/name"));
 
-  // The menu's Rename… puts a field with the name in the row; Enter keeps the
+  // The menu's Rename puts a field with the name in the row; Enter keeps the
   // new name, and the focus goes back to the row.
   await page.getByRole("button", { name: /^Agent review/ }).click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await page.getByRole("menuitem", { name: /^Rename/ }).click();
   await expect.element(field).toHaveFocus();
   await expect.element(field).toHaveValue("Agent review");
   await userEvent.fill(field, "Talk prep");
@@ -1286,7 +1080,7 @@ test("a thread takes a name from its menu, a double-click, or the palette; Esc k
 
   // With the sidebar hidden, the title band holds the field.
   await userEvent.keyboard("{Control>}b{/Control}");
-  await expect.element(page.getByRole("navigation", { name: "Threads" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("navigation", { name: "Sessions" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Rename thread");
   await userEvent.keyboard("{Enter}");
@@ -1318,42 +1112,32 @@ test("a tab's menu copies its resume command, marks it unread, and closes it", a
   const row = page.getByRole("button", { name: /^Agent review/ });
   const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: /Copy Claude Code resume command/ }).click();
+  await page.getByRole("menuitem", { name: /^Copy resume command/ }).click();
   // The directory is quoted for the shell, so the command pastes as is.
   expect(copy).toHaveBeenCalledWith(`cd '/work/it'\\''s here' && claude --resume abc-123`);
-  await expect.element(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
   copy.mockRestore();
 
   await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Mark as unread" }).click();
+  await page.getByRole("menuitem", { name: /^Mark as unread/ }).click();
   await expect.poll(() => threadRows()[0]).toBe("Agent review, new");
   await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Mark as read" }).click();
+  await page.getByRole("menuitem", { name: /^Mark as read/ }).click();
   await expect.poll(() => threadRows()[0]).toBe("Agent review");
 
-  // Close leaves the list at once, with its worktree; Undo brings the tab back.
+  // Archive leaves the list at once.
   await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: /^Close and remove worktree/ }).click();
+  await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.poll(threadRows).toEqual(["Second review"]);
   expect(host.threadRequests).toEqual([
-    { path: "/api/threads/agent/close", body: { removeWorktree: true } },
+    { path: "/api/threads/agent/close", body: { removeWorktree: false } },
   ]);
-  await page.getByRole("button", { name: "Undo" }).click();
-  await expect.poll(threadRows).toEqual(["Agent review", "Second review"]);
-  expect(host.threadRequests.at(-1)).toEqual({
-    path: "/api/threads/agent/open",
-    body: { restore: true },
-  });
 
-  // The second has no linked worktree, so its menu only closes it. Delete
-  // asks first.
+  // Delete asks first.
   await page.getByRole("button", { name: /^Second review/ }).click({ button: "right" });
-  await expect.element(page.getByRole("menuitem", { name: /^Close tab/ })).toBeVisible();
-  expect(document.body.textContent).not.toContain("Close and remove worktree");
-  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("menuitem", { name: /^Delete/ }).click();
   const ask = page.getByRole("status").filter({ hasText: "Delete “Second review”?" });
   await ask.getByRole("button", { name: "Delete" }).click();
-  await expect.poll(threadRows).toEqual(["Agent review"]);
+  await expect.poll(threadRows).toEqual([]);
   expect(host.threadRequests.at(-1)).toEqual({ path: "/api/threads/second/delete", body: {} });
 });
 

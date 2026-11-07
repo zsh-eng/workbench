@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { threadListSchema, type Thread, type ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
-import { orderAttempts } from "./attempts";
 import { readBrowserToken } from "./auth";
 import { noteFoundSettings } from "./found-threads";
 import { readServerEvents } from "./sse";
@@ -69,35 +68,12 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
   return list;
 }
 
-export interface ThreadGroup {
-  /** The repository's ID, or the checkout for a thread outside a registered one. */
-  key: string;
-  name: string;
-  threads: Thread[];
-}
-
-/**
- * Tabs by repository, in the user's order: a group shows where its first tab
- * is, and keeps its tabs' order. The attempts of one task stay together
- * (data/attempts.ts). A tab never moves when its agent's state changes.
- */
-export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
-  const groups = new Map<string, ThreadGroup>();
-  for (const thread of threads) {
-    const key = thread.repository?.id ?? thread.checkout ?? "other";
-    const name =
-      thread.repository?.name ?? thread.checkout?.split("/").filter(Boolean).at(-1) ?? "Other";
-    let group = groups.get(key);
-    if (!group) groups.set(key, (group = { key, name, threads: [] }));
-    group.threads.push(thread);
-  }
-  for (const group of groups.values()) group.threads = orderAttempts(group.threads);
-  return [...groups.values()];
-}
-
-/** The tabs in the sidebar's order, which ⌘1–⌘9 follow. */
-export const tabOrder = (threads: readonly Thread[]) =>
-  groupThreads(threads).flatMap((group) => group.threads);
+/** The sessions in the sidebar's order, which ⌘1–⌘9 follow: the pinned ones
+ * in the order they were pinned, then the others, newest activity first. */
+export const tabOrder = (threads: readonly Thread[]) => [
+  ...threads.filter((thread) => thread.pinned).toSorted((a, b) => a.pinned! - b.pinned!),
+  ...threads.filter((thread) => !thread.pinned).toSorted((a, b) => b.updatedAt - a.updatedAt),
+];
 
 /** The user sent a message from Med after the turn ended. */
 const answered = (thread: Thread) =>

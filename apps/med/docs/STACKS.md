@@ -20,8 +20,8 @@ and the sidebar state, recap, message box, and auto-close are per thread. A
 stack's or a set's parts are frozen hand-offs of one session. Folding attempts
 into parts needs a thread with several lead sessions, which is a larger change
 than this one and would put Keep, Undo, and the Attempts page at risk. The
-sidebar draws both the same way (one row, its parts under it), and the shape
-names leave room for `attempts` later.
+sidebar shows each as session rows, and the shape names leave room for
+`attempts` later.
 
 ## Data model
 
@@ -105,13 +105,7 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 
 ## UI states
 
-- **Sidebar.** The thread's row has a progress strip, one segment per part,
-  bottom first: unreviewed (outline), in progress (some files viewed, or a
-  comment), approved (all files viewed, no comments), changes requested (all
-  files viewed, with comments). The Review writes each layer's viewed and file
-  counts to `med:layers:v1:<review>` in local storage, so the strip reads no
-  diff. The chevron shows the parts, top first, numbered, with +/−. A merged
-  or closed layer's segment is dim.
+- **Sidebar.** A stack or a set is one session row, like any other.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom, the
   base branch (`main`) at the bottom, each with its number, title, state, and
   +/−. Shift-click picks a range. **This layer** and **Whole stack** sit above.

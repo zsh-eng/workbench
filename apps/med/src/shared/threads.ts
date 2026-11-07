@@ -70,6 +70,9 @@ export const threadSchema = z.object({
     })
     .optional(),
   pullRequestUrl: z.string().optional(),
+  /** Its place among the pins, from 1, when the reader pinned it: the
+   * sidebar lists the pinned sessions first, in the order they were pinned. */
+  pinned: z.number().int().positive().optional(),
   /** A session that Med found by itself (src/host/found-sessions.ts): no
    * saved review names it, and its ID is not a review's. */
   found: z.boolean().optional(),
@@ -212,9 +215,7 @@ export const threadClosedSchema = z.object({ closed: z.boolean() });
 /** `POST /api/threads/:id/name`: a name for the thread, which Med keeps (not
  * the agent). An empty name gives the thread its agent's title again. */
 export const threadNameSchema = z.object({ name: z.string().max(120) });
-
-/** `POST /api/threads/order`: the tabs in their new order. */
-export const threadOrderSchema = z.object({ order: z.array(threadIdSchema).max(1000) });
+export const threadPinSchema = z.object({ pinned: z.boolean() });
 
 /** A new thread: the task, where the agent works, and which agent. */
 export const threadStartSchema = z.object({

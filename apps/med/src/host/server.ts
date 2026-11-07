@@ -143,7 +143,7 @@ import {
   threadIdSchema,
   threadOpenSchema,
   threadNameSchema,
-  threadOrderSchema,
+  threadPinSchema,
   threadGroupSchema,
   threadShapeSchema,
   threadSlug,
@@ -3349,11 +3349,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ threads: await threads.history() });
             return;
           }
-          if (url.pathname === "/api/threads/order" && request.method === "POST") {
-            await threads.order(threadOrderSchema.parse(await readBody(request)).order);
-            send({ ok: true });
-            return;
-          }
           if (url.pathname === "/api/threads/reopen" && request.method === "POST") {
             const thread = await threads.reopen();
             if (!thread)
@@ -3386,9 +3381,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             return;
           }
-          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(
-            url.pathname,
-          );
+          const threadAction =
+            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin)$/.exec(url.pathname);
           if (threadAction && request.method === "POST") {
             const id = threadIdSchema.parse(threadAction[1]);
             const action = threadAction[2];
@@ -3403,6 +3397,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               send({ deleted: true });
             } else if (action === "name") {
               await threads.rename(id, threadNameSchema.parse(body ?? {}).name);
+              send({ ok: true });
+            } else if (action === "pin") {
+              await threads.pin(id, threadPinSchema.parse(body ?? {}).pinned);
               send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.

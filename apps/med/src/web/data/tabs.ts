@@ -44,12 +44,13 @@ export const reopenThread = (fetcher: typeof fetch) =>
     .json("/api/threads/reopen", threadOpenedSchema, post())
     .then((result) => result.thread);
 
-export const orderThreads = (order: readonly string[], fetcher: typeof fetch) =>
-  api(fetcher).json("/api/threads/order", z.object({ ok: z.boolean() }), post({ order }));
-
 /** Names a thread in Med; an empty name gives it its agent's title again. */
 export const renameThread = (id: string, name: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/name`, z.object({ ok: z.boolean() }), post({ name }));
+
+/** Pins a thread under the other pins, or unpins it. */
+export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch) =>
+  api(fetcher).json(`/api/threads/${id}/pin`, z.object({ ok: z.boolean() }), post({ pinned }));
 
 /** Puts the thread on top of `onto`'s stack (docs/STACKS.md); `onto` stays. */
 export const groupThread = (id: string, onto: string, fetcher: typeof fetch) =>

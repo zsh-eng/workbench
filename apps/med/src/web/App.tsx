@@ -2946,12 +2946,10 @@ export function App({
           if (id && id !== row.active) selectTab(id);
           return;
         }
-        // ⌥↑ and ⌥↓ go up and down a stack, unless a sidebar row has the focus:
-        // there they move the tab.
+        // ⌥↑ and ⌥↓ go up and down a stack.
         if (
           (key === "ArrowUp" || key === "ArrowDown") &&
           !event.shiftKey &&
-          !(event.target instanceof Element && event.target.closest("[data-sidebar-row]")) &&
           stepLayer(key === "ArrowUp" ? 1 : -1)
         ) {
           event.preventDefault();

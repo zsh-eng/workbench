@@ -166,7 +166,13 @@ export function createThreadService(options: ThreadServiceOptions) {
    * title stays in `agentTitle`, and stubs keep it. */
   const named = (thread: Thread): Thread => {
     const name = tabs.entry(thread.id)?.name;
-    return name ? { ...thread, title: name, agentTitle: thread.title } : thread;
+    const place = tabs.pins().indexOf(thread.id);
+    if (!name && place < 0) return thread;
+    return {
+      ...thread,
+      ...(name && { title: name, agentTitle: thread.title }),
+      ...(place >= 0 && { pinned: place + 1 }),
+    };
   };
 
   /** A thread from what history keeps of it. */
@@ -568,11 +574,6 @@ export function createThreadService(options: ThreadServiceOptions) {
       return undefined;
     },
 
-    async order(order: readonly string[]) {
-      tabs.reorder(order);
-      await tabs.save();
-    },
-
     /**
      * Names a tab or a thread in history. Med keeps the name, not the agent:
      * a hand-off that changes the review's title does not change it. An empty
@@ -584,6 +585,14 @@ export function createThreadService(options: ThreadServiceOptions) {
         throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
       tabs.setName(id, name.trim() || undefined);
       await tabs.save();
+    },
+
+    /** Pins a thread under the other pins, or unpins it. */
+    async pin(id: string, pinned: boolean) {
+      await reviewIndex();
+      if (!tabs.known(id))
+        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      if (tabs.setPinned(id, pinned)) await tabs.save();
     },
 
     /**

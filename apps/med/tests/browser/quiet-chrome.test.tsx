@@ -275,7 +275,7 @@ const comparison = () =>
 /** A Review of one version: "Version 1" and its age. */
 const versionOne = /^Version 1 · (just now|\d+ (min|hr|day|days|mo|yr) ago)$/;
 const openThread = async (title: string) => {
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: new RegExp(`^${title}`) }).click();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -612,10 +612,10 @@ test.runIf(platform === "mac")(
     await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
     await expect.poll(changedPane).toBeUndefined();
     await expect.element(showChanged).toBeVisible();
-    await expect.element(page.getByRole("navigation", { name: "Threads" })).toBeVisible();
+    await expect.element(page.getByRole("navigation", { name: "Sessions" })).toBeVisible();
     await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
     await expect.poll(changedPane).toBeTruthy();
-    await expect.element(page.getByRole("navigation", { name: "Threads" })).toBeVisible();
+    await expect.element(page.getByRole("navigation", { name: "Sessions" })).toBeVisible();
   },
 );
 

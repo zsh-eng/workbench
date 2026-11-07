@@ -245,8 +245,8 @@ test("a dot on Show sidebar says that a tab needs you while the sidebar hides", 
   const host = createHost([thread("agent"), asking("second", "Should I switch it?")]);
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  // The sidebar counts the tab; the band has no toggle.
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  // The sidebar marks the tab; the band has no toggle.
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
   await expect.element(band.getByRole("button", { name: /^Show sidebar/ })).not.toBeInTheDocument();
 
   await userEvent.keyboard("{Control>}b{/Control}");
@@ -286,7 +286,7 @@ test("a dot on Show sidebar says that a tab needs you while the sidebar hides", 
     .element(band.getByRole("button", { name: "Show sidebar · 1 needs you" }))
     .toBeVisible();
   await userEvent.keyboard("{Control>}b{/Control}");
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
   await expect.element(band.getByRole("button", { name: /^Show sidebar/ })).not.toBeInTheDocument();
 });
 
@@ -356,7 +356,7 @@ test("opt-in notifications: only when a tab starts to need you, only while no wi
   // Off by default: a tab that needs you while no window shows sends nothing.
   hide();
   host.setThreads([thread("agent"), asking("second", "Should I switch it?")]);
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
   reveal();
 
   // ⌘K turns it on; the browser asks for permission the first time.
@@ -369,9 +369,10 @@ test("opt-in notifications: only when a tab starts to need you, only while no wi
 
   // While a window shows, a tab that starts to need you sends nothing.
   host.setThreads([asking("agent", "Which zone?"), asking("second", "Should I switch it?")]);
-  await expect.element(page.getByRole("button", { name: "2 needs you" })).toBeVisible();
+  // Nothing on screen counts the tabs that ask; give the update a moment.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   host.setThreads([thread("agent"), asking("second", "Should I switch it?")]);
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
 
   // Nor while another Med window shows: it holds the shared lock.
   hide();
@@ -379,9 +380,10 @@ test("opt-in notifications: only when a tab starts to need you, only while no wi
   const other = new Promise<void>((resolve) => (leave = resolve));
   void navigator.locks.request("med:looking", { mode: "shared" }, () => other);
   host.setThreads([asking("agent", "Which zone?"), asking("second", "Should I switch it?")]);
-  await expect.element(page.getByRole("button", { name: "2 needs you" })).toBeVisible();
+  // Nothing on screen counts the tabs that ask; give the update a moment.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   host.setThreads([thread("agent"), asking("second", "Should I switch it?")]);
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
   leave();
 
   // With no window shown: one notification, with the title and the first
@@ -430,7 +432,7 @@ test("opt-in notifications: only when a tab starts to need you, only while no wi
   expect(localStorage.getItem("med:notify")).toBeNull();
   hide();
   host.setThreads([thread("agent"), thread("second"), asking("third", "Ready to land?")]);
-  await expect.element(page.getByRole("button", { name: "1 needs you" })).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "New since you looked" })).toBeVisible();
   expect(sent).toHaveLength(2);
 });
 

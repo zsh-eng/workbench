@@ -162,8 +162,9 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
 
 ### Running now
 
-The sidebar's **Running now** lists the agent sessions that run on this
-computer (`GET /api/sessions/running`): Med's own while they work on a turn,
+The sidebar has no Running now section: a running session joins the session
+list as a tab. `GET /api/sessions/running` still lists the agent sessions that
+run on this computer, for no client yet: Med's own while they work on a turn,
 and Claude Code, Codex, and agy sessions that another process has open. Med
 reads Claude Code's process records (`~/.claude/sessions/<pid>.json`),
 Codex's thread locks, and agy's presence locks
@@ -241,7 +242,7 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 ### Antigravity is off
 
 Med's Antigravity support is off by default, while the user does not use it:
-Med offers no agy agent, lists no agy sessions in Running now, and refuses
+Med offers no agy agent, lists no running agy sessions, and refuses
 Continue in Med for an agy conversation. The code and its tests stay
 (`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
 Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it

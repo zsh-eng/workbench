@@ -14,7 +14,7 @@ import { Icon } from "../Icon";
 import { SessionComposer } from "../session/SessionComposer";
 import { ConnectionNote, SessionNotice, TurnMark } from "../session/SessionNotice";
 import { SessionThread } from "../session/SessionThread";
-import { ThreadRowsPreview } from "../shell/ThreadSidebar";
+import { SessionRowsPreview } from "../shell/SessionSidebar";
 import { Section, Specimen } from "./Specimen";
 import {
   NOW,
@@ -313,9 +313,8 @@ function Frame({ spec }: { spec: FrameSpec }) {
       <div {...stylex.props(styles.board)}>
         <span {...stylex.props(ui.label, styles.layer)}>Thread list</span>
         <div {...stylex.props(styles.rowSlot)}>
-          <ThreadRowsPreview
+          <SessionRowsPreview
             threads={[spec.thread]}
-            now={NOW}
             unread={spec.id === "ready" ? [spec.thread.id] : []}
           />
         </div>

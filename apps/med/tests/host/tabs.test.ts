@@ -141,8 +141,8 @@ async function fixture() {
 }
 
 test("the first start with tabs opens the recent threads, closes the rest, and keeps the order", async () => {
-  const { api, save, tabs, history, restart, record, stateDir } = await fixture();
-  const recent = await save("Recent work");
+  const { save, tabs, history, restart, record, stateDir } = await fixture();
+  await save("Recent work");
   const older = await save("Quiet for twenty days");
   const quiet = await save("Quiet for ten days");
   const archived = await save("Archived before tabs");
@@ -179,14 +179,11 @@ test("the first start with tabs opens the recent threads, closes the rest, and k
   expect(closed[0]!.closedAt).toBeGreaterThan(Date.now() - 60_000);
   expect(closed[2]!.closedAt).toBe(Date.parse("2026-10-01T08:00:00.000Z"));
 
-  // A new thread opens at the top of its repository; the reader's order stays
-  // across a restart, which does not make the tabs again.
-  const next = await save("Next task");
+  // A new thread opens at the top, and a restart does not make the tabs again.
+  await save("Next task");
   expect(await tabs()).toEqual(["Next task", "Recent work"]);
-  expect((await api("/api/threads/order", { order: [recent.id, next.id] })).status).toBe(200);
-  expect(await tabs()).toEqual(["Recent work", "Next task"]);
   await restart();
-  expect(await tabs()).toEqual(["Recent work", "Next task"]);
+  expect(await tabs()).toEqual(["Next task", "Recent work"]);
   expect((await history()).map((thread) => thread.title)).toEqual([
     "Quiet for ten days",
     "Quiet for twenty days",
@@ -261,6 +258,44 @@ test("a thread keeps the name that the reader gives it across a restart, a hand-
   expect((await api(`/api/threads/r_${"0".repeat(24)}/name`, { name: "Nothing" })).status).toBe(
     404,
   );
+});
+
+test("a pinned thread stays pinned across a restart and in history, and a deleted one leaves the pins", async () => {
+  const { api, save, history, restart, stateDir } = await fixture();
+  const first = await save("Forgiving station search");
+  const second = await save("Offline tides");
+  const pinned = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads
+      .filter((thread) => thread.pinned)
+      .map((thread) => thread.title);
+
+  expect((await api(`/api/threads/${second.id}/pin`, { pinned: true })).status).toBe(200);
+  expect((await api(`/api/threads/${first.id}/pin`, { pinned: true })).status).toBe(200);
+  expect(await pinned()).toEqual(["Offline tides", "Forgiving station search"]);
+  // Med keeps the pins in its tabs file, in the order they were pinned.
+  const saved = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+    pins?: string[];
+  };
+  expect(saved.pins).toEqual([second.id, first.id]);
+  await restart();
+  expect(await pinned()).toEqual(["Offline tides", "Forgiving station search"]);
+
+  // A closed thread keeps its pin; unpinning takes it off.
+  expect((await api(`/api/threads/${second.id}/close`, {})).status).toBe(200);
+  expect((await history()).map((thread) => [thread.title, thread.pinned])).toEqual([
+    ["Offline tides", 1],
+  ]);
+  expect((await api(`/api/threads/${first.id}/pin`, { pinned: false })).status).toBe(200);
+  expect(await pinned()).toEqual([]);
+
+  // Deleting a thread removes its pin, and Med cannot pin what it does not know.
+  expect((await api(`/api/threads/${second.id}/delete`, {})).status).toBe(200);
+  const after = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+    pins?: string[];
+  };
+  expect(after.pins).toEqual([]);
+  expect((await api(`/api/threads/r_${"0".repeat(24)}/pin`, { pinned: true })).status).toBe(404);
+  expect((await api(`/api/threads/${first.id}/pin`, { pinned: "yes" })).status).toBe(400);
 });
 
 test("a tabs file with an entry that Med cannot read keeps the other tabs and their names, and a copy of the file", async () => {

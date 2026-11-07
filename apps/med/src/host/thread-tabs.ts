@@ -59,6 +59,8 @@ const stateSchema = z.object({
   /** The tabs, top first. */
   order: z.array(z.string().max(200)).max(1000),
   entries: z.record(z.string().max(200), entrySchema),
+  /** The pinned threads, in the reader's order. */
+  pins: z.array(z.string().max(200)).max(1000).optional(),
   /** The last pruning, in milliseconds. */
   prunedAt: z.number().optional(),
 });
@@ -229,17 +231,6 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
       else dirty = true;
       return index >= 0;
     },
-    /** Puts the tabs in this order. Tabs that it leaves out keep their places
-     * after it; IDs that are not tabs are ignored. */
-    reorder(order: readonly string[]) {
-      const wanted = [...new Set(order)].filter((id) => state.order.includes(id));
-      const rest = state.order.filter((id) => !wanted.includes(id));
-      const next = [...wanted, ...rest];
-      if (next.every((id, index) => id === state.order[index])) return false;
-      state.order = next;
-      changed();
-      return true;
-    },
     setGroup(id: string, group: string) {
       const item = state.entries[id];
       if (!item || item.group === group) return;
@@ -251,6 +242,16 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
       if (!item || item.prompt) return;
       item.prompt = prompt.slice(0, 400);
       dirty = true;
+    },
+    /** The pinned threads, in the reader's order. */
+    pins: (): readonly string[] => state.pins ?? [],
+    /** Pins the thread under the others, or unpins it. False when nothing changed. */
+    setPinned(id: string, pinned: boolean) {
+      const pins = state.pins ?? [];
+      if (pins.includes(id) === pinned) return false;
+      state.pins = pinned ? [...pins, id] : pins.filter((entry) => entry !== id);
+      changed();
+      return true;
     },
     /** Names the thread; without a name, it shows its agent's title again.
      * False when the name was the same. */
@@ -274,6 +275,7 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
     forget(id: string) {
       if (!(id in state.entries) && !state.order.includes(id)) return false;
       state.order = state.order.filter((other) => other !== id);
+      if (state.pins?.includes(id)) state.pins = state.pins.filter((other) => other !== id);
       delete state.entries[id];
       changed();
       return true;
