@@ -883,6 +883,9 @@ const review = async (panes: { sidebar: boolean; session: boolean }, name: strin
     );
     await pause(300);
   }
+  // Closing the session gives its toggle the focus, which shows its tooltip.
+  await pause(300);
+  (document.activeElement as HTMLElement | null)?.blur();
   tab(name);
   if (name === "Changes") await until(() => visible("diffs-container"));
 };
