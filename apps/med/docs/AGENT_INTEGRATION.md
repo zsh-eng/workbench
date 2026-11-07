@@ -2,8 +2,8 @@
 
 An agent hands off its changes as a review in Med. You read its guide and its
 diff, comment on lines, and send the comments back. A review can hold comparisons from
-several repositories, and it stays on your machine. [Concepts](USAGE.md#concepts)
-defines the words that Med uses, such as key, version, and guide.
+several repositories, and it stays on your machine. [The words](USAGE.md#the-words)
+defines the words that Med uses, such as hand-off, key, and guide.
 
 ## Set up
 
