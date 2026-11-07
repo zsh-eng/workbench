@@ -14,7 +14,6 @@ import type { ParsedReviewFile } from "../data/controller";
 import { generatedIndex, splitGenerated } from "../data/generated";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
-import { paneHandle } from "./PaneTree";
 import { PathContextMenu, treeRowPath, type PathActions } from "./PathMenu";
 import { treeIcons } from "./tree-icons";
 
@@ -55,7 +54,7 @@ export const FileSidebar = memo(function FileSidebar({
   controls,
   top,
 }: {
-  /** A pane's controls, at the heading's end. */
+  /** Controls at the heading's end, such as the sidebar's hide button. */
   controls?: React.ReactNode;
   /** Under the heading, above the filter, such as a stack's layers. */
   top?: React.ReactNode;
@@ -89,7 +88,7 @@ export const FileSidebar = memo(function FileSidebar({
   const deletions = groups.generated.reduce((sum, file) => sum + file.info.deletions, 0);
   return (
     <section {...stylex.props(styles.panel)} aria-label="Changed files">
-      <div {...(controls ? paneHandle : {})} {...stylex.props(styles.heading)}>
+      <div {...stylex.props(styles.heading)}>
         <span {...stylex.props(ui.label)}>Changes</span>
         <span {...stylex.props(styles.count)}>{filter ? `${files.length} / ${total}` : total}</span>
         {controls && <span {...stylex.props(styles.controls)}>{controls}</span>}

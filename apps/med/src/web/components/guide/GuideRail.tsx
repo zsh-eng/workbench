@@ -26,6 +26,8 @@ export interface GuideRailProps {
   onToggleViewed(fileIds: readonly string[], viewed: boolean): void;
   /** Above the Guide, such as a stack's layers. */
   top?: ReactNode;
+  /** At the heading's end, such as the sidebar's hide button. */
+  controls?: ReactNode;
   /** What changed since the reader's last review, from version 2. */
   since?: { from: number; files: number; commits: ReadonlySet<string> };
 }
@@ -50,6 +52,7 @@ export const GuideRail = memo(function GuideRail({
   onToggleViewed,
   top,
   since,
+  controls,
 }: GuideRailProps) {
   const { measure, width, pane } = useColumnWidth("guide", () => 268);
   return (
@@ -65,6 +68,7 @@ export const GuideRail = memo(function GuideRail({
         >
           <span {...stylex.props(styles.countDone)}>{done}</span>/{total}
         </span>
+        {controls}
       </div>
       <div {...stylex.props(styles.meter)} aria-hidden="true">
         <span {...stylex.props(styles.meterFill(total ? done / total : 0))} />

@@ -199,7 +199,7 @@ export function SavedReviewHeader({
       {pickTarget && (
         <select
           aria-label="Review version"
-          {...stylex.props(styles.select)}
+          {...stylex.props(styles.select, compact && styles.compactSelect)}
           value={state.savedTargetId ?? ""}
           onChange={(event) => {
             setNotice(null);
@@ -600,6 +600,8 @@ const styles = stylex.create({
     textDecoration: { default: "none", ":hover": "underline" },
   },
   grow: { flexGrow: 1 },
+  // In the review's header, the version gives the title and the pages room.
+  compactSelect: { maxWidth: 160 },
   select: {
     minWidth: 0,
     maxWidth: "min(280px, 30vw)",

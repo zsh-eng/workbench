@@ -77,6 +77,7 @@ const storedPreferences = [
   "med:work",
   "med:viewed:v1:saved",
   "med:changes-rail",
+  "med:guide-rail",
   "med:offer:proof-first",
   "med:offer:explain-first",
   "med:offer:round-limit",
@@ -1216,19 +1217,6 @@ describe("graphical review", () => {
     await userEvent.keyboard("ix");
     await expect.poll(() => label()).toBeNull();
   });
-  test("a click on the selected changes-tree file shows it in Changes again", async () => {
-    await mountApp();
-    const alpha = page.getByRole("treeitem", { name: /alpha.ts/ });
-    await alpha.click();
-    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
-    await expect
-      .element(page.getByRole("tab", { name: "alpha.ts", exact: true }))
-      .toHaveAttribute("aria-selected", "true");
-    await alpha.click();
-    await expect
-      .element(page.getByRole("radio", { name: "Changes", exact: true }))
-      .toHaveAttribute("aria-checked", "true");
-  });
   test("a fresh launch opens read-only files with a visible Vim cursor and keyboard focus", async () => {
     await mountApp({ readOnly: true });
     await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
@@ -1350,7 +1338,10 @@ describe("graphical review", () => {
 
   test("file close shortcuts preserve Changes and close only the requested tabs", async () => {
     await mountApp();
+    // The changed files are the Changes page's sidebar, so each open starts there.
+    const changes = page.getByRole("radio", { name: "Changes", exact: true });
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
+    await changes.click();
     await page.getByRole("treeitem", { name: /beta.ts/ }).dblClick();
     const altKey = (code: string, shiftKey = false) =>
       window.dispatchEvent(
@@ -1370,6 +1361,7 @@ describe("graphical review", () => {
     // The tab that showed before comes back, not the closed tab's neighbor:
     // the list's first click showed alpha.ts in Changes.
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+    await changes.click();
     await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
     await expect.element(tab("alpha.ts")).toHaveAttribute("aria-selected", "true");
     altKey("KeyW");
@@ -1569,7 +1561,9 @@ describe("graphical review", () => {
             document.querySelector('[aria-label="Workspace files"]')?.checkVisibility() ?? false,
         )
         .toBe(visible);
-      expect(document.querySelector('[data-pane="changed"]')?.checkVisibility()).toBe(true);
+      expect(document.querySelector('nav[aria-label="Files and commits"]')?.checkVisibility()).toBe(
+        true,
+      );
     }
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -1595,7 +1589,7 @@ describe("graphical review", () => {
       [...document.querySelectorAll<HTMLElement>("[data-pane]:not([hidden])")]
         .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
         .sort((a, b) => a[1].left - b[1].left);
-    await expect.poll(() => panes().map(([id]) => id)).toEqual(["changed", "review", "files"]);
+    await expect.poll(() => panes().map(([id]) => id)).toEqual(["review", "files"]);
 
     // Zoom gives one pane the whole tree; the others wait behind it, inert.
     const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
@@ -1634,7 +1628,7 @@ describe("graphical review", () => {
     await page.viewport(400, 800);
     await expect.poll(ids).toEqual(["files"]);
     await page.viewport(1280, 800);
-    await expect.poll(ids).toEqual(["changed", "review", "files"]);
+    await expect.poll(ids).toEqual(["review", "files"]);
   });
   test("a Markdown file reads rendered, and ⌘⇧V shows its source in its place", async () => {
     await page.viewport(1280, 800);
@@ -1749,7 +1743,7 @@ describe("graphical review", () => {
         .map((pane) => [pane.dataset.pane!, pane.getBoundingClientRect()] as const)
         .sort((a, b) => a[1].top - b[1].top || a[1].left - b[1].left)
         .map(([id]) => id);
-    await expect.poll(order).toEqual(["changed", "review", "files"]);
+    await expect.poll(order).toEqual(["review", "files"]);
     const rect = (id: string) =>
       document.querySelector(`[data-pane="${id}"]`)!.getBoundingClientRect();
     const grip = () => document.querySelector('[data-pane="files"] [data-pane-handle]')!;
@@ -1781,15 +1775,15 @@ describe("graphical review", () => {
     // The lower edge of the review: Files goes below it.
     const review = rect("review");
     await dragTo(review.left + review.width / 2, review.bottom - 10);
-    await expect.poll(order).toEqual(["changed", "review", "files"]);
+    await expect.poll(order).toEqual(["review", "files"]);
     expect(Math.round(rect("files").top)).toBeGreaterThan(Math.round(review.top) + 100);
     // It settles in from a slight scale, as a new pane does.
     await expect.poll(() => Math.round(rect("files").left)).toBe(Math.round(rect("review").left));
 
-    // The middle of Changed files swaps the two.
-    const changed = rect("changed");
-    await dragTo(changed.left + changed.width / 2, changed.top + changed.height / 2);
-    await expect.poll(() => Math.round(rect("files").left)).toBe(Math.round(changed.left));
+    // The middle of the review swaps the two.
+    const above = rect("review");
+    await dragTo(above.left + above.width / 2, above.top + above.height / 2);
+    await expect.poll(() => Math.round(rect("files").top)).toBe(Math.round(above.top));
 
     // Escape keeps the pane where it was.
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1802,9 +1796,9 @@ describe("graphical review", () => {
 
     // ⌘⌥⇧ and an arrow move the focused pane past its neighbor.
     document.querySelector<HTMLElement>('[data-pane="files"]')!.focus();
-    const files = Math.round(rect("files").left);
-    await userEvent.keyboard("{Meta>}{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}{/Meta}");
-    await expect.poll(() => Math.round(rect("files").left)).toBeGreaterThan(files);
+    const files = Math.round(rect("files").top);
+    await userEvent.keyboard("{Meta>}{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}{/Meta}");
+    await expect.poll(() => Math.round(rect("files").top)).toBeGreaterThan(files);
   });
 
   test("files sidebar retains its tree and collapsed folders across toggles", async () => {
@@ -1868,9 +1862,10 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("button", { name: "Working changes", exact: true }))
       .not.toBeInTheDocument();
+    // Alone, ⌘B is the Changes page's sidebar.
     const sidebar = () =>
-      document.querySelector('[data-pane="changed"]')?.checkVisibility() ?? false;
-    const panel = document.querySelector('[data-pane="changed"] > *');
+      document.querySelector('nav[aria-label="Files and commits"]')?.checkVisibility() ?? false;
+    const panel = document.querySelector('nav[aria-label="Files and commits"]');
     expect(panel).not.toBeNull();
     await expect.poll(() => name().element().getAnimations()).toEqual([]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
@@ -1879,8 +1874,8 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true, bubbles: true }));
     await expect.poll(sidebar).toBe(true);
     expect(name().element().getAnimations()).toEqual([]);
-    // The pane comes back as it was, without building its content again.
-    expect(document.querySelector('[data-pane="changed"] > *')).toBe(panel);
+    // The sidebar comes back as it was, without building its content again.
+    expect(document.querySelector('nav[aria-label="Files and commits"]')).toBe(panel);
   });
 
   test("mounts real Pierre stream, changes theme and reviews commits without dropping other files", async () => {
@@ -2939,7 +2934,7 @@ describe("review guide", () => {
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
     expect(JSON.parse(localStorage.getItem("med:viewed:v1:saved") ?? "[]")).toHaveLength(1);
   });
-  test("the guide and the files rail are one nested sidebar that the reader hides and shows", async () => {
+  test("each page keeps its own sidebar: the guide in Review, the changed files in Changes", async () => {
     await page.viewport(1280, 800);
     await mountApp({
       savedReview: true,
@@ -2953,41 +2948,39 @@ describe("review guide", () => {
     });
     const guide = page.getByRole("navigation", { name: "Guide" });
     await expect.element(guide).toBeVisible();
-    // The toggle sits at the end of the review's row.
-    await page.getByRole("button", { name: "Hide the guide" }).click();
+    // Its heading hides it, and a button at the start of the review's header
+    // shows it again.
+    await guide.getByRole("button", { name: "Hide the guide" }).click();
     await expect.element(guide).not.toBeInTheDocument();
-    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
-    await expect
-      .element(page.getByRole("button", { name: "Show the guide" }))
-      .toHaveAttribute("aria-pressed", "false");
+    expect(localStorage.getItem("med:guide-rail")).toBe("closed");
+    const showGuide = page.getByRole("button", { name: "Show the guide" });
+    await expect.element(showGuide).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => document.activeElement).toBe(showGuide.element());
     // The overview takes the room.
     await expect.element(page.getByRole("region", { name: "Guide overview" })).toBeVisible();
 
-    // Hidden in the Guide, hidden beside the diff: one choice for the place.
-    // (The Changed files pane would list the files instead of the rail.)
+    // Changes keeps its own choice: its sidebar still shows, until hidden.
     await page.getByRole("radio", { name: "Changes" }).click();
-    await page.getByRole("button", { name: "Hide changed files" }).click();
     const files = page.getByRole("navigation", { name: "Files and commits" });
-    await expect
-      .element(page.getByRole("button", { name: "Show files and commits" }))
-      .toBeVisible();
+    await expect.element(files).toBeVisible();
+    await files.getByRole("button", { name: "Hide changed files" }).click();
+    await expect.element(page.getByRole("button", { name: "Show changed files" })).toBeVisible();
     await expect.element(files).not.toBeInTheDocument();
     await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
     await expect.element(files).toBeVisible();
     expect(localStorage.getItem("med:changes-rail")).toBe("open");
-
-    // Open holds in a pane too narrow for "auto", and the shortcut hides it again.
-    await page.viewport(700, 800);
     await page.getByRole("radio", { name: "Review" }).click();
+    await expect.element(showGuide).toBeVisible();
+    expect(guide.query()).toBeNull();
+
+    // Open holds in a review too narrow for "auto", and the shortcut hides it again.
+    await page.viewport(700, 800);
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
     await expect.element(guide).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Hide the guide" })).toBeVisible();
+    expect(localStorage.getItem("med:guide-rail")).toBe("open");
     await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
     await expect.element(guide).not.toBeInTheDocument();
-    expect(localStorage.getItem("med:changes-rail")).toBe("closed");
-    // There the row keeps its room: the button goes with the rail.
-    await expect
-      .element(page.getByRole("button", { name: "Show the guide" }))
-      .not.toBeInTheDocument();
+    expect(localStorage.getItem("med:guide-rail")).toBe("closed");
   });
 });
 
@@ -2995,6 +2988,7 @@ describe("reading a version by commit and since the last review", () => {
   test("Since version N shows only what changed, from the Overview and the rail, with the version's comments", async () => {
     await page.viewport(1500, 900);
     localStorage.setItem("med:changes-rail", "open");
+    localStorage.setItem("med:guide-rail", "open");
     const { controller, savedReads } = await mountApp({
       savedReview: true,
       iterationBriefs: ["The first round.", "The second round."],
@@ -3062,6 +3056,7 @@ describe("reading a version by commit and since the last review", () => {
   test("a commit of the range shows the version's comments on its lines, and says how many it cannot show", async () => {
     await page.viewport(1500, 900);
     localStorage.setItem("med:changes-rail", "open");
+    localStorage.setItem("med:guide-rail", "open");
     const { savedReads } = await mountApp({
       savedReview: true,
       rangeCommits: true,
@@ -3097,6 +3092,7 @@ describe("reading a version by commit and since the last review", () => {
   test("the same commit in Changes shows only its own comments, not the version's", async () => {
     await page.viewport(1500, 900);
     localStorage.setItem("med:changes-rail", "open");
+    localStorage.setItem("med:guide-rail", "open");
     const { controller } = await mountApp({
       savedReview: true,
       rangeCommits: true,
@@ -3502,10 +3498,8 @@ describe("saved reviews", () => {
       .getByRole("button", { name: "All files" })
       .click();
     await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
-    // The Changed files pane holds the tree; without it, the rail does.
+    // Its sidebar lists the files and the range's commits.
     const rail = page.getByRole("navigation", { name: "Files and commits" });
-    await expect.element(rail).not.toBeInTheDocument();
-    await page.getByRole("button", { name: "Hide changed files" }).click();
     await expect.element(rail).toBeVisible();
     await expect.element(rail.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
     const list = rail.getByRole("list", { name: "Commits" });
@@ -3535,8 +3529,8 @@ describe("saved reviews", () => {
     await expect
       .element(list.getByRole("button", { name: /Add the initial renderer/ }))
       .toBeVisible();
-    // The toolbar hides the rail, and the choice holds.
-    await page.getByRole("button", { name: "Hide files and commits" }).click();
+    // Its heading hides it, and the choice holds.
+    await rail.getByRole("button", { name: "Hide changed files" }).click();
     await expect.element(rail).not.toBeInTheDocument();
     expect(localStorage.getItem("med:changes-rail")).toBe("closed");
     await reviewTab.click();
@@ -3544,7 +3538,7 @@ describe("saved reviews", () => {
     await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
   });
 
-  test("a pull request's Changed files pane lists its commits, read ahead so each shows at once", async () => {
+  test("a pull request's sidebar lists its commits, read ahead so each shows at once", async () => {
     await page.viewport(1400, 900);
     const { controller, requests } = await mountApp({
       savedReview: true,
@@ -3556,11 +3550,8 @@ describe("saved reviews", () => {
       .getByRole("button", { name: "All files" })
       .click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
-    // The pane is open, so the rail is not: the pane lists the files and,
-    // below them, the range's commits.
-    await expect
-      .element(page.getByRole("navigation", { name: "Files and commits" }))
-      .not.toBeInTheDocument();
+    // The sidebar lists the files and, below them, the range's commits.
+    await expect.element(page.getByRole("navigation", { name: "Files and commits" })).toBeVisible();
     await expect.element(page.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
     const list = page.getByRole("list", { name: "Commits" });
     await expect
@@ -3572,7 +3563,7 @@ describe("saved reviews", () => {
         .filter((comparison) => comparison.kind === "commit")
         .map((c) => "commit" in c && c.commit);
     await expect.poll(commitReads).toEqual([firstCommit, secondCommit]);
-    // A commit picked in the pane narrows the Review's diff to it, with no request.
+    // A commit picked in the sidebar narrows the Review's diff to it, with no request.
     await list.getByRole("button", { name: /Add the initial renderer/ }).click();
     await expect
       .poll(() => controller.getSnapshot().comparison)
@@ -3610,7 +3601,7 @@ describe("saved reviews", () => {
     await expect.element(changesTab).toHaveAttribute("aria-checked", "true");
   });
 
-  test("a branch's Changes list its own commits in the Changed files pane", async () => {
+  test("a branch's Changes list its own commits in the page's sidebar", async () => {
     await page.viewport(1400, 900);
     const { controller, requests } = await mountApp({ branchCommits: true });
     await controller.selectComparison({ kind: "working", base: "main" });
@@ -4193,7 +4184,8 @@ describe("agent session", () => {
   });
 
   test("a wide session pane shows the side panel, which the reader closes and opens again", async () => {
-    await page.viewport(2400, 900);
+    // Room for the side panel, with the thread's column under its widest.
+    await page.viewport(2200, 900);
     await mountApp({
       savedReview: true,
       session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,

@@ -220,17 +220,11 @@ export const guideContexts: GuideContext[] = [
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
-          {
-            label: "Toggle the changed files",
-            keys: mac ? ["Mod+Ctrl+B"] : [],
-            note: "The Changes pane, with its tree and filter",
-            command: "changed-files",
-          },
           { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
           {
-            label: "Toggle the guide, or the files and commits",
+            label: "Toggle the page's sidebar",
             keys: ["Mod+Alt+B"],
-            note: "The rail beside Review and Changes",
+            note: "Review's guide, or Changes' changed files",
             command: "changes-rail",
           },
           {

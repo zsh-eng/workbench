@@ -10,7 +10,6 @@ import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspac
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 import { createBrowseApi } from "../../src/web/data/browse";
 import type { CommitApi } from "../../src/web/data/commit";
-import { platform } from "../../src/web/data/keys";
 import type { Comparison } from "../../src/shared/protocol";
 import type { EndpointNames } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
@@ -266,10 +265,11 @@ const shown = () =>
 /** The review's header, its one row. */
 const row = () =>
   shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ?? undefined;
-/** What the diff shows: in Changes the comparison, in Review the version (a
- * select, or text when there is one version). */
+/** What the diff shows: in Changes the comparison (atop the page's sidebar,
+ * or in the header while it hides), in Review the version (a select, or text
+ * when there is one version). */
 const comparison = () =>
-  row()?.querySelector<HTMLElement>(
+  shown()?.querySelector<HTMLElement>(
     '[aria-label="Comparison"], [aria-label="Review version"], [data-choice-static]',
   );
 /** A Review of one version: "Version 1" and its age. */
@@ -440,7 +440,8 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
       const box = tab(name).getBoundingClientRect();
       return `${name} ${Math.round(box.left)}+${Math.round(box.width)}`;
     });
-  for (const width of [1440, 900, 600]) {
+  // Beside the session, at a width with room for the header's pages.
+  for (const width of [1440]) {
     await page.viewport(width, 800);
     const seen: string[][] = [];
     for (const name of [...names, "Review"]) {
@@ -462,54 +463,57 @@ const visible = (selector: string) =>
   [...document.querySelectorAll<HTMLElement>(selector)].find((element) =>
     element.checkVisibility(),
   );
-/** The Changed files pane on screen. */
-const changedPane = () => visible('[data-pane="changed"]');
+/** The Changes page's sidebar on screen. */
+const changesSidebar = () => visible('nav[aria-label="Files and commits"]');
 const hideChanged = page.getByRole("button", { name: "Hide changed files" });
 const showChanged = page.getByRole("button", { name: "Show changed files" });
 
-test("a closed Changed files pane comes back by the button where it was, ⌘K and ⋯, and stays as chosen after a restart", async () => {
+test("the Changes page's sidebar hides from its heading, comes back by the header's button, ⌘⌥B, ⌘K, and ⋯, and stays as chosen after a restart", async () => {
+  await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await openThread("Week view");
-  await expect.poll(changedPane).toBeTruthy();
-  const keys = platform === "mac" ? "Mod+Ctrl+B" : null;
-  // Open, the pane's header hides it, and its tooltip names the shortcut.
-  expect(hideChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
+  await expect.poll(changesSidebar).toBeTruthy();
+  // What the diff compares tops it.
+  expect(changesSidebar()!.contains(comparison()!)).toBe(true);
+  // Its heading hides it, and the tooltip names the shortcut.
+  expect(hideChanged.element().getAttribute("data-tooltip-keys")).toBe("Mod+Alt+B");
   await hideChanged.click();
-  await expect.poll(changedPane).toBeUndefined();
-  // Closed, its button is where it was, at the start of the review's row,
-  // and has the focus that the pane's button had.
+  await expect.poll(changesSidebar).toBeUndefined();
+  // Hidden, its button is at the start of the review's header, with the
+  // focus, and the comparison is in the header.
   await expect.element(showChanged).toBeVisible();
   expect(row()!.contains(showChanged.element())).toBe(true);
-  expect(document.activeElement).toBe(showChanged.element());
-  expect(showChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
+  await expect.poll(() => document.activeElement).toBe(showChanged.element());
+  expect(row()!.contains(comparison()!)).toBe(true);
+  expect(localStorage.getItem("med:changes-rail")).toBe("closed");
   await showChanged.click();
-  await expect.poll(changedPane).toBeTruthy();
+  await expect.poll(changesSidebar).toBeTruthy();
   await expect.element(showChanged).not.toBeInTheDocument();
 
-  // ⌘K and ⋯ name it too.
-  await hideChanged.click();
+  // ⌘⌥B, ⌘K, and ⋯ show it too.
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  await expect.poll(changesSidebar).toBeUndefined();
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Show changed files");
   await page.getByRole("option", { name: /^Show changed files/ }).click();
-  await expect.poll(changedPane).toBeTruthy();
+  await expect.poll(changesSidebar).toBeTruthy();
   await hideChanged.click();
   [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!.click();
   await page.getByRole("menuitemcheckbox", { name: /^Changed files/ }).click();
-  await expect.poll(changedPane).toBeTruthy();
+  await expect.poll(changesSidebar).toBeTruthy();
 
-  // Closed, it stays closed when Med opens again, once the layout is saved.
+  // Hidden, it stays hidden when Med opens again.
   await hideChanged.click();
-  await expect.poll(changedPane).toBeUndefined();
-  await expect
-    .poll(() => localStorage.getItem("med:panes:v1:review:week"))
-    .toMatch(/^(?!.*"changed").*"review"/);
+  await expect.poll(changesSidebar).toBeUndefined();
   root!.unmount();
   mount!.remove();
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   await expect.element(showChanged).toBeVisible();
-  expect(changedPane()).toBeUndefined();
+  expect(changesSidebar()).toBeUndefined();
 });
 
 test("a hidden session pane comes back by its button where it was, and ⌘K hides the session's side panel where it has room", async () => {
@@ -594,23 +598,6 @@ test("the sidebar moves the session pane and its side panel in one frame, as wid
   );
   expect(shownAgain).toEqual([hidden[1], start]);
 });
-
-test.runIf(platform === "mac")(
-  "⌘⌃B hides and shows the Changed files pane, and ⌘B's sidebar stays",
-  async () => {
-    render();
-    await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-    await openThread("Week view");
-    await expect.poll(changedPane).toBeTruthy();
-    await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
-    await expect.poll(changedPane).toBeUndefined();
-    await expect.element(showChanged).toBeVisible();
-    await expect.element(page.getByRole("navigation", { name: "Sessions" })).toBeVisible();
-    await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
-    await expect.poll(changedPane).toBeTruthy();
-    await expect.element(page.getByRole("navigation", { name: "Sessions" })).toBeVisible();
-  },
-);
 
 test("Push… waits for the remotes, with the reason in its tooltip", async () => {
   render();

@@ -19,7 +19,6 @@ export interface QuietMenuActions {
     layout: { mode: "split" | "unified"; canSplit: boolean; set(mode: "split" | "unified"): void };
     comments: Toggle;
     wrap: Toggle;
-    rail?: Toggle;
     collapse?: { collapsed: boolean; toggle(): void };
     /** `blocked` says why Push… cannot open yet, such as remotes that Med
      * still reads. */
@@ -36,8 +35,8 @@ export interface QuietMenuActions {
     };
   };
   workingFile?: { label: string; open(): void };
-  /** The Changed files pane, and its shortcut where it has one. */
-  changed?: Toggle & { shortcut?: string };
+  /** The page's sidebar: Changes' changed files, or Review's guide. */
+  sidebar?: Toggle & { label: string };
   session?: Toggle;
   files?: Toggle;
   openBranch?: () => void;
@@ -91,14 +90,6 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
             sections: [
               [
                 ...item(
-                  diff.rail && {
-                    label: "Files and commits",
-                    shortcut: "Mod+Alt+B",
-                    checked: diff.rail.on,
-                    onClick: diff.rail.toggle,
-                  },
-                ),
-                ...item(
                   diff.collapse && {
                     label: diff.collapse.collapsed ? "Expand all files" : "Collapse all files",
                     onClick: diff.collapse.toggle,
@@ -118,12 +109,12 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
         },
       ),
       ...item(
-        actions.changed && {
-          label: "Changed files",
-          ...(actions.changed.shortcut ? { shortcut: actions.changed.shortcut } : {}),
-          checked: actions.changed.on,
+        actions.sidebar && {
+          label: actions.sidebar.label,
+          shortcut: "Mod+Alt+B",
+          checked: actions.sidebar.on,
           choice: true,
-          onClick: actions.changed.toggle,
+          onClick: actions.sidebar.toggle,
         },
       ),
       ...item(

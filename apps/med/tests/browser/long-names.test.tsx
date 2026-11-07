@@ -245,8 +245,7 @@ test("a cut file name shows its path in the tooltip, a whole one shows none", as
 test("a thread's file list resizes with the pointer and the keys, resets on a double-click, and keeps its width", async () => {
   render();
   await openChanges();
-  // Without the Changed files pane, the review lists its files in a column.
-  await page.getByRole("button", { name: /^Hide changed files/i }).click();
+  // The Changes page lists its files in a column, its sidebar.
   const rail = page.getByRole("navigation", { name: "Files and commits" });
   await expect.element(rail).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize the file list" });

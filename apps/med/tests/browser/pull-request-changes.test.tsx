@@ -478,13 +478,10 @@ test("a pull request is the thread's title in the window's band, before its chec
   expect(region(band)).toBe("drag");
   expect(region(link.element())).toBe("no-drag");
   expect(region(comments.element())).toBe("no-drag");
-  // The review card starts with its header, level with the Changed files pane.
+  // The review card starts with its header.
   const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
   const header = review.querySelector('header[aria-label="Review header"]')!;
   expect(header.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
-  const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
-  expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
-  expect(files.textContent).not.toContain("Rename the export");
 });
 
 /** The thread's Pull request tab, once its review shows. */

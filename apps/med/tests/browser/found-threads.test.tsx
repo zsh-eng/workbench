@@ -114,7 +114,13 @@ const kept = (id: string, title: string, repo = "/test/glossary", versions = 0) 
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
 let address = "";
-const KEYS = ["med:workspaces:v1", "med:window", "med:thread-seen", "med:thread-seen-since"];
+const KEYS = [
+  "med:workspaces:v1",
+  "med:window",
+  "med:thread-seen",
+  "med:thread-seen-since",
+  "med:changes-rail",
+];
 beforeEach(async () => {
   await page.viewport(1280, 800);
   address = location.pathname + location.search;
@@ -396,8 +402,9 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
 });
 
 test("a kept thread on a shared checkout shows its Changes, keeps its session's files on request, and shows each Review version that its agent hands off", async () => {
-  // Room for the comparison in the review's header beside the session.
+  // The Changes page's sidebar shows, with the comparison at its top.
   await page.viewport(1800, 800);
+  localStorage.setItem("med:changes-rail", "open");
   const thread: Thread = {
     id: "r_kept",
     title: "README glossary",
@@ -488,8 +495,9 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
 });
 
 test("a thread's Comparison menu keeps a base for its Changes and moves the thread to another checkout", async () => {
-  // Room for the comparison in the review's header beside the session.
+  // The Changes page's sidebar shows, with the comparison at its top.
   await page.viewport(1800, 800);
+  localStorage.setItem("med:changes-rail", "open");
   const thread: Thread = {
     id: "r_kept",
     title: "README glossary",

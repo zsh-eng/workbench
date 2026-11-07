@@ -50,7 +50,6 @@ import {
   type ReviewCommand,
 } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
-import { FileSidebar } from "./components/FileSidebar";
 import { ReviewHeader, type ReviewPage } from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
@@ -179,7 +178,7 @@ import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
-import { ChangesRail, RangeCommits } from "./components/ChangesRail";
+import { ChangesRail } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
 import {
   layerProgress,
@@ -250,15 +249,6 @@ function preloadPanes() {
   preloadFileEditor();
   CommitView.preload();
 }
-/** ⌘⌃B shows or hides the Changed files pane, beside ⌘B for the sidebar,
- * ⌘⇧B for the session, and ⌘⌥B for the review's rail. Linux reads ⌘⌃ as
- * Ctrl+Alt, which is the rail's, so there the button and ⌘K show it. */
-const CHANGED_SHORTCUT = platform === "mac" ? "Mod+Ctrl+B" : undefined;
-const CHANGED_HIDE = {
-  label: "Hide changed files",
-  icon: "panelLeft" as const,
-  ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
-};
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
@@ -392,7 +382,6 @@ const setLineBlame = switchSetter(viewSettings.lineBlame, "on", "off");
 /** Where each pane opens beside the review, and its share of the room. */
 const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> = {
   session: { near: "review", side: "left", share: 0.5 },
-  changed: { near: "review", side: "left", share: 0.24 },
   files: { near: "review", side: "right", share: 0.26 },
   // At the right of the row, with room from the thread and the review alike,
   // so that an answer has room to read.
@@ -480,24 +469,22 @@ export function App({
             children: [{ id: "session" }, { id: "review" }],
             sizes: [0.5, 0.5],
           }
-        : {
-            axis: "row",
-            children: [{ id: "changed" }, { id: "review" }],
-            sizes: [0.24, 0.76],
-          },
+        : { id: "review" },
     [threadLayout],
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
-  const changedVisible = panes.isOpen("changed");
   // Markdown files now read rendered or show their source in the file view
-  // (FullFileView), so a saved layout's Preview pane has nothing to show.
+  // (FullFileView), so a saved layout's Preview pane has nothing to show;
+  // the changed files are the Changes page's sidebar, not a pane.
   const retiredPreview = panes.isOpen("preview");
+  const retiredChanged = panes.isOpen("changed");
   const closeRetired = panes.close;
   useEffect(() => {
     if (retiredPreview) closeRetired("preview");
-  }, [retiredPreview, closeRetired]);
+    if (retiredChanged) closeRetired("changed");
+  }, [retiredPreview, retiredChanged, closeRetired]);
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
   const comparisonTrigger = useRef<HTMLButtonElement>(null);
   // The comparison's place in the review's row; empty while it is in ⋯.
@@ -987,9 +974,6 @@ export function App({
     take();
     return subscribeSubagentOpens(take);
   }, [workspaceId, showPane]);
-  // ⌘B shows or hides the window's thread list; alone, the changed files.
-  const toggleChanged = useCallback(() => togglePane("changed"), [togglePane]);
-  const toggleReviewSidebar = shell?.toggleSidebar ?? toggleChanged;
   const preferredMode = useViewSetting(viewSettings.diffLayout);
   const codeSize = useViewSetting(viewSettings.codeSize);
   // Split diffs need room for two columns; a narrow review pane shows them
@@ -1017,27 +1001,25 @@ export function App({
   // A pane hidden from its header takes its button, and the focus, with it:
   // the button that shows it again, where it was, takes the focus. The review
   // widens as the pane goes, so the button can come a frame later, with room.
-  const panesShown = useRef({ changed: changedVisible, session: sessionVisible });
-  const focusShow = useRef<"changed" | "session">(undefined);
+  const sessionShown = useRef(sessionVisible);
+  const focusShow = useRef(false);
   useLayoutEffect(() => {
-    const before = panesShown.current;
-    panesShown.current = { changed: changedVisible, session: sessionVisible };
+    const before = sessionShown.current;
+    sessionShown.current = sessionVisible;
     const active = document.activeElement;
     const lost =
       !(active instanceof HTMLElement) || active === document.body || !active.checkVisibility();
-    if (before.changed && !changedVisible) focusShow.current = lost ? "changed" : undefined;
-    else if (before.session && !sessionVisible) focusShow.current = lost ? "session" : undefined;
-    const id = focusShow.current;
-    if (!id) return;
-    if (!lost || (id === "changed" ? changedVisible : sessionVisible)) {
-      focusShow.current = undefined;
+    if (before && !sessionVisible) focusShow.current = lost;
+    if (!focusShow.current) return;
+    if (!lost || sessionVisible) {
+      focusShow.current = false;
       return;
     }
-    const button = visibleElement(`[data-pane-show="${id}"]`);
+    const button = visibleElement('[data-pane-show="session"]');
     if (!button) return;
-    focusShow.current = undefined;
+    focusShow.current = false;
     button.focus();
-  }, [changedVisible, sessionVisible, roomy]);
+  }, [sessionVisible, roomy]);
   const wrap = useViewSetting(viewSettings.wrap) === "on";
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
@@ -1229,12 +1211,7 @@ export function App({
   // the review. The reader starts an agent from the session toggle.
   const adoptPanes = panes.adopt;
   useEffect(() => {
-    if (threadLayout && state.savedReview && !hasSessions)
-      adoptPanes({
-        axis: "row",
-        children: [{ id: "changed" }, { id: "review" }],
-        sizes: [0.24, 0.76],
-      });
+    if (threadLayout && state.savedReview && !hasSessions) adoptPanes({ id: "review" });
   }, [threadLayout, state.savedReview, hasSessions, adoptPanes]);
   useEffect(() => {
     if (sessionReady || !hasSessions) return;
@@ -1722,16 +1699,15 @@ export function App({
       : fileState.active;
   // The diff stream shows in Review and Changes, and in the Guide for a segment or commit.
   const streamShown = fileState.active === "changes" || guideDiff;
-  // A thread's Review and Changes list their files beside the diff, and
-  // Review its commits, unless the Changed files pane shows them.
-  const changesRail =
-    fileState.active === "changes" && !!state.savedReview && !changedVisible && gitAvailable;
-  // The Guide's rail takes the same place in Review's Guide. The two are one
-  // nested sidebar: hiding it keeps it hidden between the Guide and the diff.
-  // "auto" shows it in a pane with room for it; the reader's choice holds in
-  // any width, so a pane at the edge of the breakpoint stays as chosen.
+  // Each page has its own sidebar. Changes (and a Review without a guide)
+  // lists the changed files, with what the diff compares at its top.
+  const changesRail = fileState.active === "changes" && gitAvailable;
+  // Review's sidebar is its guide. Each page keeps whether its sidebar shows:
+  // "auto" shows it in a review with room for it; the reader's choice holds
+  // in any width, so a review at the edge of the breakpoint stays as chosen.
   const guideRail = guideTab;
-  const railChoice = useViewSetting(viewSettings.reviewRail);
+  const railSetting = guideRail ? viewSettings.guideSidebar : viewSettings.changesSidebar;
+  const railChoice = useViewSetting(railSetting);
   // The session's side panel shows where its pane has room (SessionPanel.tsx).
   const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
   const followUpChoice = useViewSetting(viewSettings.followUp);
@@ -1741,10 +1717,13 @@ export function App({
   const railShown = changesRail && railOpen;
   const guideRailShown = guideRail && railOpen;
   const toggleRail = useCallback(
-    () => viewSettings.reviewRail.set(railOpen ? "closed" : "open"),
-    [railOpen],
+    () => railSetting.set(railOpen ? "closed" : "open"),
+    [railSetting, railOpen],
   );
-  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "files and commits"}`;
+  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "changed files"}`;
+  // ⌘B shows or hides the window's thread list; alone, the page's sidebar.
+  const toggleReviewSidebar = shell?.toggleSidebar ?? toggleRail;
+  const sidebarShown = railShown || guideRailShown;
   // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
   // the whole stack, or a range of layers, from one checkout.
   const stack = useMemo(
@@ -2923,21 +2902,6 @@ export function App({
           return;
         }
       }
-      // ⌘⌃B shows or hides the Changed files pane, in the shell or alone.
-      // Without Git it does nothing, rather than ⌘B's sidebar.
-      if (
-        CHANGED_SHORTCUT &&
-        event.metaKey &&
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.code === "KeyB"
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat && gitAvailable) toggleChanged();
-        return;
-      }
       // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
       if (
         (event.metaKey || event.ctrlKey) &&
@@ -3244,7 +3208,6 @@ export function App({
     changesRail,
     guideRail,
     toggleRail,
-    toggleChanged,
   ]);
 
   const selectBranch = useCallback(
@@ -3585,7 +3548,7 @@ export function App({
     fileWorkspace.select("changes");
     void controller.showReview();
   }, [state.savedTargetId, fileWorkspace, controller]);
-  // The commits beside the diff, in the rail or the Changed files pane: the
+  // The commits beside the diff, in the Changes page's sidebar: the
   // Review's range, and in Changes the same list, or else the branch's own
   // commits. A commit opens in the tab that lists it, and one that showed
   // before shows again from the cache.
@@ -4387,9 +4350,10 @@ export function App({
       id: "filter",
       label: "Filter changed files",
       run: () => {
-        // The Changes rail's filter, when it shows; otherwise the pane's.
+        // The Changes sidebar's filter: the page and its sidebar show first.
         if (filterRef.current?.offsetParent) return filterRef.current.focus();
-        showPane("changed");
+        selectTab("changes");
+        viewSettings.changesSidebar.set("open");
         requestAnimationFrame(() => filterRef.current?.focus());
       },
     },
@@ -4428,25 +4392,14 @@ export function App({
           },
         ]
       : []),
-    {
-      id: "sidebar",
-      label: shell
-        ? shell.sidebarVisible
-          ? "Hide threads"
-          : "Show threads"
-        : changedVisible
-          ? "Hide changed files"
-          : "Show changed files",
-      shortcut: "⌘ B",
-      run: toggleReviewSidebar,
-    },
-    ...(shell && gitAvailable
+    // Without the window's shell, ⌘B is the page's sidebar (⌘⌥B, below).
+    ...(shell
       ? [
           {
-            id: "changed-files",
-            label: changedVisible ? "Hide changed files" : "Show changed files",
-            ...(CHANGED_SHORTCUT ? { shortcut: "⌘⌃B" } : {}),
-            run: toggleChanged,
+            id: "sidebar",
+            label: shell.sidebarVisible ? "Hide threads" : "Show threads",
+            shortcut: "⌘ B",
+            run: shell.toggleSidebar,
           },
         ]
       : []),
@@ -5455,13 +5408,13 @@ export function App({
   // a saved review's header names its own branch.
   const identity = (
     <div {...stylex.props(styles.identity)}>
-      {!shell && (
+      {!shell && (changesRail || guideRail) && (
         <ToolButton
-          label={changedVisible ? "Hide changed files" : "Show changed files"}
+          label={railLabel}
           shortcut="⌘ B"
           icon="panelLeft"
           aria-label="Toggle sidebar"
-          aria-pressed={changedVisible}
+          aria-pressed={railOpen}
           onClick={toggleReviewSidebar}
         />
       )}
@@ -5470,22 +5423,36 @@ export function App({
   );
   // The title band names the checkout and its branch.
   const identityShown = !state.savedReview && !shell;
-  // A hidden Changed files pane leaves its button where the pane was, at the
-  // start of the review's row, where the row has room (the header's session
-  // toggle does the same for the session).
-  const changedShow = gitAvailable && !changedVisible && roomy && !(identityShown && !shell) && (
+  // A hidden sidebar leaves its button at the start of the review's header
+  // (the session's toggle does the same for the session). It hides from its
+  // own edge (railHide).
+  const railShow = (changesRail || guideRail) && !railOpen && !identityShown && (
     <ToolButton
       icon="panelLeft"
-      label="Show changed files"
-      {...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {})}
+      label={railLabel}
+      shortcut="Mod+Alt+B"
       aria-pressed={false}
-      data-pane-show="changed"
-      onClick={toggleChanged}
+      data-pane-show="rail"
+      onClick={toggleRail}
     />
   );
-  const leading = (identityShown || changedShow) && (
+  // Hiding the sidebar from its own button leaves the focus on the button
+  // that shows it again.
+  const railHide = (
+    <ToolButton
+      icon="panelLeft"
+      label={railLabel}
+      shortcut="Mod+Alt+B"
+      aria-pressed
+      onClick={() => {
+        toggleRail();
+        requestAnimationFrame(() => visibleElement('[data-pane-show="rail"]')?.focus());
+      }}
+    />
+  );
+  const leading = (identityShown || railShow) && (
     <>
-      {changedShow}
+      {railShow}
       {identityShown && (
         <>
           {identity}
@@ -5493,20 +5460,6 @@ export function App({
         </>
       )}
     </>
-  );
-  // The nested sidebar's toggle, at the end of the review's row with the
-  // pane's other controls; the tabs keep their places. It stays where it
-  // is, so a hidden rail is one click back.
-  // The button shows where the rail has room, or while it shows; a narrow
-  // row keeps its room for the comparison, and ⌘⌥B or ⌘K still opens it.
-  const railToggle = (changesRail || guideRail) && (railOpen || railRoom) && (
-    <ToolButton
-      icon="panelLeft"
-      label={railLabel}
-      shortcut="Mod+Alt+B"
-      aria-pressed={railOpen}
-      onClick={toggleRail}
-    />
   );
   // The diff's controls: in the review's one row, while the diff shows.
   const streamChrome = streamShown;
@@ -5545,7 +5498,13 @@ export function App({
       : []),
   ];
   // In a narrow row the comparison takes its short label, then goes into ⋯.
-  const comparisonFit = useRowFit(comparisonSlot, streamChrome ? comparisonText : null);
+  // On the Changes page, what the diff compares tops its sidebar; elsewhere,
+  // and while the sidebar hides, it is in the header's row or in ⋯.
+  const comparisonInRail = railShown && shownTab === "changes" && streamChrome;
+  const comparisonFit = useRowFit(
+    comparisonSlot,
+    streamChrome && !comparisonInRail ? comparisonText : null,
+  );
   // A Review of one version names it, with nothing to choose. (Review has no
   // compare actions.)
   const stackRail = stack && reviewShown && (
@@ -5561,17 +5520,15 @@ export function App({
     />
   );
   // Where the rail hides, the layers are a menu in the review's row.
-  const layerMenu = stack &&
-    reviewShown &&
-    !(railShown || (changedVisible && gitAvailable) || guideRailShown) && (
-      <LayerMenu
-        stack={stack}
-        current={Math.max(0, layerIndex)}
-        mode={stackMode}
-        onLayer={showLayer}
-        onRange={showLayers}
-      />
-    );
+  const layerMenu = stack && reviewShown && !sidebarShown && (
+    <LayerMenu
+      stack={stack}
+      current={Math.max(0, layerIndex)}
+      mode={stackMode}
+      onLayer={showLayer}
+      onRange={showLayers}
+    />
+  );
   const comparisonSelect =
     reviewShown && comparisonChoices.length <= 1 ? (
       <ChoiceLabel
@@ -5637,7 +5594,6 @@ export function App({
           layout: { mode, canSplit: roomy, set: setMode },
           comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
           wrap: { on: wrap, toggle: () => setWrap(!wrap) },
-          rail: changesRail ? { on: railShown, toggle: toggleRail } : undefined,
           collapse:
             files.length > 1 ? { collapsed: allCollapsed, toggle: toggleAllFiles } : undefined,
           push: comparisonActionsShown ? { blocked: pushBlocked, open: openPush } : undefined,
@@ -5661,13 +5617,10 @@ export function App({
             open: () => openWorkingFile(selectedFile.path),
           }
         : undefined,
-    changed: gitAvailable
-      ? {
-          on: changedVisible,
-          toggle: toggleChanged,
-          ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
-        }
-      : undefined,
+    sidebar:
+      changesRail || guideRail
+        ? { label: guideRail ? "Guide" : "Changed files", on: railOpen, toggle: toggleRail }
+        : undefined,
     session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
     files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
     openBranch:
@@ -5713,7 +5666,7 @@ export function App({
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
   const quietTrailing = (
     <>
-      {streamChrome && (
+      {streamChrome && !comparisonInRail && (
         <span
           ref={comparisonSlot}
           {...stylex.props(styles.rowComparison, comparisonFit === "menu" && styles.hiddenSurface)}
@@ -5731,7 +5684,6 @@ export function App({
       {!shell && state.savedReview?.pullRequestUrl && (
         <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
       )}
-      {railToggle}
       {state.savedReview ? (
         savedHeader(true)
       ) : (
@@ -6163,11 +6115,19 @@ export function App({
                     onToggleViewed={setFilesViewed}
                     top={stackRail}
                     since={sinceRow}
+                    controls={railHide}
                   />
                 )}
-                {railShown && (
+                {changesRail && (
                   <ChangesRail
+                    hidden={!railShown}
                     top={stackRail}
+                    controls={railHide}
+                    range={
+                      comparisonInRail && (
+                        <div {...stylex.props(styles.railRange)}>{comparisonSelect}</div>
+                      )
+                    }
                     repo={state.session?.repository.path ?? null}
                     pathActions={pathActions}
                     files={files}
@@ -6664,37 +6624,6 @@ export function App({
         </main>
       ),
     },
-    ...(gitAvailable
-      ? [
-          {
-            id: "changed",
-            label: "Changed files",
-            ariaLabel: "Changed files",
-            icon: "diff" as const,
-            hide: CHANGED_HIDE,
-            render: (controls: ReactNode) => (
-              <>
-                <FileSidebar
-                  controls={controls}
-                  top={stackRail}
-                  repo={state.session?.repository.path ?? null}
-                  pathActions={pathActions}
-                  files={files}
-                  total={state.files.length}
-                  selected={state.selectedFileId}
-                  filter={state.filter}
-                  onFilter={controller.setFilter}
-                  onSelect={reveal}
-                  onPrefetch={prefetchFile}
-                  onOpen={browseSource ? openChangedFile : undefined}
-                  filterRef={filterRef}
-                />
-                <RangeCommits {...rangeCommits} />
-              </>
-            ),
-          },
-        ]
-      : []),
     ...sidePanes,
   ];
   const app = (
@@ -6702,7 +6631,7 @@ export function App({
       <div
         {...stylex.props(styles.app)}
         data-theme={activeTheme.id}
-        data-sidebar-visible={shell ? shell.sidebarVisible : changedVisible}
+        data-sidebar-visible={shell ? shell.sidebarVisible : sidebarShown}
         data-selected-branch={state.activeBranch ?? ""}
         data-selected-repository={state.activeRepositoryId ?? ""}
         data-selected-commit={loadedCommit}
@@ -7127,6 +7056,8 @@ const styles = stylex.create({
   // The comparison gives way first in a narrow row: useRowFit chooses a label
   // that fits, or ⋯.
   rowComparison: { display: "flex", flexGrow: 0, flexShrink: 1000, minWidth: 0 },
+  // The Changes sidebar's range, under its heading.
+  railRange: { display: "flex", minWidth: 0, paddingInline: 6, paddingBottom: 6 },
   // Empty while Stage all has no room here, and then no gap in the row.
   rowStage: { display: { default: "flex", ":empty": "none" }, flexShrink: 0 },
   // Quiet as a tab is: the row's text, not the toolbar's strong label.

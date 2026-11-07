@@ -25,9 +25,10 @@ type CommitProps = {
 };
 
 /**
- * A thread's rail beside Review and Changes: the changed files as a tree, and
- * the commits. It sits where the Guide's rail does, so the diff keeps
- * its place between the tabs. Its edge resizes it (ColumnResize.tsx).
+ * The Changes page's sidebar: what the diff compares (`range`), the changed
+ * files as a tree, and the commits. It sits where the Guide does in Review,
+ * so the diff keeps its place between the pages. Its edge resizes it
+ * (ColumnResize.tsx).
  */
 export function ChangesRail({
   commits,
@@ -39,17 +40,27 @@ export function ChangesRail({
   onWhole,
   fresh,
   top,
+  range,
+  hidden = false,
   ...files
-}: ComponentProps<typeof FileSidebar> & CommitProps & { top?: ReactNode }) {
+}: ComponentProps<typeof FileSidebar> &
+  CommitProps & {
+    top?: ReactNode;
+    /** What the diff compares, under the heading. */
+    range?: ReactNode;
+    /** Hidden, it keeps its tree for its return. */
+    hidden?: boolean;
+  }) {
   const { measure, width, pane } = useColumnWidth("changes", () => RAIL_WIDTH);
   return (
     <nav
       ref={measure}
       aria-label="Files and commits"
-      {...stylex.props(styles.rail, styles.width(width))}
+      hidden={hidden}
+      {...stylex.props(styles.rail, styles.width(width), hidden && styles.hidden)}
     >
       {top}
-      <FileSidebar {...files} />
+      <FileSidebar {...files} top={range} />
       <RangeCommits
         commits={commits}
         moreCommits={moreCommits}
@@ -65,8 +76,8 @@ export function ChangesRail({
   );
 }
 
-/** A range's or a branch's commits under its files, in the rail or the
- * Changed files pane. A range of one commit lists none. */
+/** A range's or a branch's commits under its files. A range of one commit
+ * lists none. */
 export function RangeCommits({
   commits,
   moreCommits,
@@ -106,6 +117,7 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
   },
   width: (width: number) => ({ width }),
+  hidden: { display: "none" },
   commits: {
     flexShrink: 0,
     maxHeight: "40%",
