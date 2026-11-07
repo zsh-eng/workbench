@@ -27,7 +27,8 @@ MED_STATE_DIR=/tmp/med-trial med add ~/code/my-app
 Its server never takes port 6330, the port of `~/.local/state/med`: without
 `--port` or `MED_PORT`, it takes a free port and says which. Each command with
 the same `--state-dir` or `MED_STATE_DIR` finds that server, and the commands
-that Med prints carry `--port` and `--state-dir`. It lists only its own
+that Med prints carry `--port` and `--state-dir`. It keeps its settings in
+`settings.json` in that folder, and does not pull base branches. It lists only its own
 threads; the palette's **Show sessions not kept in Med** shows the others.
 
 ## Choose the repositories

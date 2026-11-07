@@ -92,7 +92,7 @@ describe("theme choices", () => {
       active: { id: "tokyo-night" },
       light: { id: "vitesse-light" },
     });
-    // index.html paints the frame from this before the app loads.
+    // public/first-paint.js paints the frame from this before the app loads.
     expect(JSON.parse(storage.getItem(THEME_PAINT_KEY)!)).toEqual({
       mode: "dark",
       light: findTheme("vitesse-light").palette.panel,

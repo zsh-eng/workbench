@@ -512,6 +512,25 @@ describe("HTTP boundary", () => {
     expect((await open({ path: "file.txt", editor: "vim" })).status).toBe(404);
     expect(launched).toEqual([["zed", join(await realpath(repo), "file.txt"), "3"]]);
   });
+  test("a Med with another state folder keeps its settings in that folder", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const stateDir = await realpath(await mkdtemp(join(tmpdir(), "med-trial-")));
+    temporary.push(stateDir);
+    const host = await startHost({ repo, stateDir });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    const put = await fetch(`${base}/api/settings`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ key: "diffs.wrap", value: true }),
+    });
+    expect(await put.json()).toMatchObject({ path: join(stateDir, "settings.json") });
+    expect(JSON.parse(await readFile(join(stateDir, "settings.json"), "utf8"))).toEqual({
+      "diffs.wrap": true,
+    });
+  });
   test("the settings file: Med reads it, writes one key, and sends an agent's save at once", async () => {
     const repo = await repository();
     await commit(repo, "one\n", "first");
@@ -695,7 +714,22 @@ describe("HTTP boundary", () => {
     expect(await (await fetch(`http://127.0.0.1:${host.port}/elements`)).text()).toBe(
       "<title>Review</title>",
     );
-    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    // So is Settings, also after a reload there.
+    expect(await (await fetch(`http://127.0.0.1:${host.port}/settings`)).text()).toBe(
+      "<title>Review</title>",
+    );
+    const policy = response.headers.get("content-security-policy");
+    expect(policy).toContain("frame-ancestors 'none'");
+    // Pierre's highlighter compiles its WebAssembly as it loads.
+    expect(policy).toContain("script-src 'self' 'wasm-unsafe-eval';");
+  });
+  test("index.html has no inline script, which script-src 'self' would block", async () => {
+    const html = await readFile(resolve("index.html"), "utf8");
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+    expect(
+      scripts.map(([, attributes, body]) => [/\bsrc="\//.test(attributes!), body!.trim()]),
+    ).toEqual(scripts.map(() => [true, ""]));
+    expect(scripts.length).toBe(2);
   });
   test("serves the install manifest and its icons without a token", async () => {
     const repo = await repository();

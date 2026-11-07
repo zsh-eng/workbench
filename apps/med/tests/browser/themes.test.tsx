@@ -157,6 +157,7 @@ test("Settings shows the light theme, the dark one, or the system's choice, with
   document.body.append(mount);
   root = createRoot(mount);
   root.render(<SettingsPage onSources={() => {}} />);
+  await expect.poll(() => document.title).toBe("Settings");
   const html = document.documentElement;
   // Every setting is on the one page.
   for (const name of ["Appearance", "Code", "Files and sessions", "Sources"])

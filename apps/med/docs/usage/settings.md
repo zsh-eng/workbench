@@ -48,6 +48,9 @@ in Med writes its key and keeps the others. A file that is not valid JSON,
 such as one mid-edit, keeps the settings that Med read last, and the page
 says why.
 
+A Med with another state folder (`--state-dir`), such as a trial or a test,
+keeps its own `settings.json` in that folder, so it never changes your Med.
+
 Med also keeps each setting in the browser's storage for its address, as it
 does the other [view settings](layout.md#view-settings), and the two stay the
 same. A choice from before the file goes to it once, the first time Med reads

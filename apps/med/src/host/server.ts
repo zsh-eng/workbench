@@ -167,7 +167,7 @@ import {
   type SavedCheckout,
   type SavedReviewCreate,
 } from "../shared/saved-review";
-import { getPersistentToken, publishConnection } from "./runtime/connection";
+import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
 import { medCommand } from "./runtime/med-command";
 import { ownedEnvironment, writeMedCommand } from "./thread-agents";
 
@@ -189,7 +189,11 @@ export interface StartHostOptions {
   stateDir?: string;
   /** Shows a file in the system file manager; tests replace it. */
   reveal?: (path: string) => void;
-  /** The settings file; tests give a file of their own. */
+  /**
+   * The settings file. Med's own state folder uses ~/.config/med/settings.json;
+   * another state folder, such as a trial's or a test's, keeps its own
+   * settings.json in that folder, so it never changes the reader's Med.
+   */
   settingsPath?: string;
   /** Open in's editors, code hosts, and launches; tests replace them. */
   openIn?: {
@@ -550,7 +554,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     onChange: () => listChanged(),
   });
   // The open pull request of a tab's branch, for a thread that has none yet.
-  const settingsFile = createSettingsFile(options.settingsPath ?? settingsPath());
+  const settingsFile = createSettingsFile(
+    options.settingsPath ??
+      (options.stateDir && resolve(options.stateDir) === defaultStateDirectory()
+        ? settingsPath()
+        : join(options.stateDir ?? temporaryState!, "settings.json")),
+  );
   const settingsStreams = new Set<ServerResponse>();
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
@@ -3467,6 +3476,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
       const appRoute =
         path === "/sources" ||
+        path === "/settings" ||
+        path.startsWith("/settings/") ||
         path === "/sessions" ||
         path === "/welcome" ||
         path === "/elements" ||
@@ -3513,7 +3524,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "content-security-policy":
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
       });
       response.end(request.method === "HEAD" ? undefined : data);
     })()

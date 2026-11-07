@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef, type ReactNode } from "react";
 import { CODE_SIZES, useViewSetting, viewSettings } from "../../data/view-settings";
+import { useDocumentTitle } from "../../data/document-title";
 import { useSettingsFile } from "../../data/settings-file";
 import { tokens } from "../../theme.stylex";
 import {
@@ -36,6 +37,8 @@ export function SettingsPage({
   section?: SettingsSection;
   onSources(): void;
 }) {
+  // Above a vault's or a file's title, which the page covers.
+  useDocumentTitle("Settings", 3);
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const box = scroller.current;

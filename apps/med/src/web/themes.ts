@@ -1625,8 +1625,8 @@ export const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 export const THEME_MODE_KEY = "med:theme-mode";
 export const THEME_LIGHT_KEY = "med:theme-light";
 export const THEME_DARK_KEY = "med:theme-dark";
-/** The mode and each appearance's frame color, which index.html paints before the
- * app loads, so the first frame is not the browser's own white or black. */
+/** The mode and each appearance's frame color, which public/first-paint.js paints
+ * before the app loads, so the first frame is not the browser's own white or black. */
 export const THEME_PAINT_KEY = "med:theme-paint";
 
 export interface ThemeSnapshot {
