@@ -1174,10 +1174,13 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   expect(model.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
   expect(box.right - model.element().getBoundingClientRect().right).toBeLessThan(16);
   await expect.element(dialog.getByRole("button", { name: /^Start/ })).not.toBeInTheDocument();
-  // ⌘↵ starts from anywhere on the page: here, from the model's menu.
+  // ⌘↵ starts from anywhere on the page: here, from the model's menu, once
+  // it has closed and its button has the focus again.
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  await expect.element(model).toHaveFocus();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect
-    .poll(() => host.threadRequests)
+    .poll(() => host.threadRequests, { timeout: 5_000 })
     .toEqual([
       {
         path: "/api/threads",
