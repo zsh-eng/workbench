@@ -10,19 +10,26 @@ the comments back to you.
 
 1. Make one review per task. Use the same `--key` (such as the branch) for
    every round: each `med review create` adds a version.
-2. Attach a guide with `--guide -` (below).
-3. After you apply the user's comments, hand off again with
+2. Each version shows the comparison you give it. Usually that is the whole
+   task's change. When the user asks for only the newest change, or a round
+   reads better alone, compare from the last round's commit
+   (`--base <commit> --head HEAD`) or keep to the files you changed
+   (`--paths`).
+3. Say only what the change needs. A small change can be just the diff: leave
+   out `--guide`. A change with parts gets a guide (below); one segment with a
+   one-sentence summary is a whole guide.
+4. After you apply the user's comments, hand off again with
    `med review create` and the same key. `med review update --guide` only
    replaces the guide of a version that Med already captured.
-4. End your turn with the link. The user's comments come back as your next
+5. End your turn with the link. The user's comments come back as your next
    message: in a Med thread (`MED_SESSION=owned`) as a new turn; elsewhere
    Med resumes your session with them, or the user pastes them in while
    another app has it open. A subagent gives the link to its parent agent.
-5. Put the printed link in your final message. Never invent a link or print
+6. Put the printed link in your final message. Never invent a link or print
    Med's token.
-6. If `med review repos --repo <root>` says that a repository you changed is
+7. If `med review repos --repo <root>` says that a repository you changed is
    not registered, name it and ask the user before you run `med add`.
-7. Act on the advice that `med review` prints, such as a guide check, and run
+8. Act on the advice that `med review` prints, such as a guide check, and run
    its commands as printed: they carry any `--port` and `--state-dir`.
 
 ## Create the review
@@ -53,7 +60,7 @@ med review create --key feat/retry --title "Fetch retries" \
 GUIDE
 ```
 
-The guide: group by intent; use the fewest segments (usually 1–5); order
+A guide, when the change needs one: group by intent; use the fewest segments (usually 1–5); order
 core change, supporting code, tests, then lockfiles, generated files and
 formatting last; put every changed file in exactly one segment; summaries say
 why in 1–3 sentences; comment only where it saves the reader time (`kind`:
@@ -80,7 +87,8 @@ In a Med thread, `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default
 `--key` and `--repo`. Comments point at the captured version, so check the
 current source first. Apply them and hand off the next version with
 `med review create` and the same key, as step 4 says, until the user says the
-task is done.
+task is done. The version can be the whole change again or only what you
+changed for the comments (step 2), as the user asks.
 
 Each comment in the message starts with its ID, as `## 6f1c9e · path:line`.
 To answer one in its thread, where the user reads it (a question they asked on

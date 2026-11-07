@@ -23,9 +23,14 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
 - `--key` names the task (such as the branch). Use the same key for every
   round: each create adds a version to the same review. Without `--key`,
   Med uses the branch's name and prints it.
+- A version shows the comparison you give it: the whole change, or, when the
+  user asks for the newest change only, `--base <last round's commit>
+--head HEAD`, or `--paths` with the files you changed.
 - `--title`: 2–4 words naming what the task builds. Leave out the repository
   name and words such as "review" and "changes".
 - `--guide -` reads a JSON guide from standard input (see "Write a guide").
+  It is optional: a small change can be just the diff, and a short guide (one
+  segment, one sentence) is enough for a change with one idea.
 - After you change code, hand off a new version with `med review create`.
   `med review update --key <task> --guide -` only replaces the guide of the
   version that Med captured, such as to fix what the guide check reports.

@@ -140,6 +140,13 @@ comparisons. Keys use letters, digits, and
 branch is not the repository's base branch, and prints it. `update --key`
 also takes the review's ID (`r_…`).
 
+A version shows the comparison that you give it, so choose what the reader
+needs. Usually that is the whole task's change, from the same base each
+round. When the user asks for only the newest change, or a round reads better
+alone, compare from the commit that the last round ended on
+(`--base <commit> --head HEAD`), or show only the files that you changed this
+round (`--working --paths <files>`). A review can be part of a change.
+
 ```sh
 med review create --key feat/parser --title "Parser recovery" \
   --repo ~/code/parser --base origin/main --head HEAD --merge-base --brief -
@@ -220,7 +227,10 @@ change out; your final message still says what you did.
 
 ### Attach a guide
 
-A guide splits the review into segments that the reader checks one at a time.
+A guide is optional: say only what the change needs. A small change that
+explains itself can be just the diff, and a change with one idea needs one
+segment with a sentence. A larger change gets a guide that splits it into
+segments that the reader checks one at a time.
 Write it in JSON: a short summary of the whole change, then up to 40 segments.
 Each segment has a title, an optional area, a summary in Markdown, its files,
 and your comments.
