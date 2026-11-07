@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { CODE_SIZES, useViewSetting, viewSettings } from "../../data/view-settings";
+import { FILE_SETTINGS, filePart, useSettingsFile } from "../../data/settings-file";
 import { tokens } from "../../theme.stylex";
 import {
   THEME_MODES,
@@ -121,6 +122,7 @@ function Appearance() {
           />
         </Row>
       </Group>
+      <FileFooter page="appearance" />
     </>
   );
 }
@@ -168,7 +170,29 @@ function Code() {
           />
         </Row>
       </Group>
+      <FileFooter page="code" />
     </>
+  );
+}
+
+/** The page's end: the settings file's path and the page's part of it, which an agent can edit. */
+function FileFooter({ page }: { page: keyof typeof FILE_SETTINGS }) {
+  const file = useSettingsFile();
+  if (!file) return null;
+  const part = filePart(file, page);
+  return (
+    <section aria-label="Settings file" {...stylex.props(styles.file)}>
+      <p {...stylex.props(styles.fileNote)}>
+        These settings live in <code {...stylex.props(styles.filePath)}>{file.path}</code>. An agent
+        can change them there; Med applies a saved change at once.
+      </p>
+      {file.error && (
+        <p role="alert" {...stylex.props(styles.fileError)}>
+          {file.error}
+        </p>
+      )}
+      {part !== "{}" && <pre {...stylex.props(styles.fileText)}>{part}</pre>}
+    </section>
   );
 }
 
@@ -328,6 +352,22 @@ const styles = stylex.create({
   },
   title: { margin: 0, marginBottom: 28, fontSize: 22, fontWeight: 600, letterSpacing: "-0.01em" },
   group: { marginBottom: 32 },
+  file: { marginTop: 8, color: tokens.muted, fontSize: 12.5, lineHeight: 1.6 },
+  fileNote: { margin: 0, marginBottom: 8 },
+  filePath: { fontFamily: tokens.code, fontSize: 12, color: tokens.text },
+  fileError: { margin: 0, marginBottom: 8, color: tokens.red },
+  fileText: {
+    margin: 0,
+    paddingBlock: 10,
+    paddingInline: 12,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    color: tokens.text,
+    fontFamily: tokens.code,
+    fontSize: 12,
+    lineHeight: 1.6,
+    overflowX: "auto",
+  },
   groupTitle: { margin: 0, marginBottom: 10, fontSize: 13, fontWeight: 600 },
   rows: {
     borderRadius: `calc(10px * ${tokens.round})`,

@@ -512,6 +512,59 @@ describe("HTTP boundary", () => {
     expect((await open({ path: "file.txt", editor: "vim" })).status).toBe(404);
     expect(launched).toEqual([["zed", join(await realpath(repo), "file.txt"), "3"]]);
   });
+  test("the settings file: Med reads it, writes one key, and sends an agent's save at once", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const folder = await mkdtemp(join(tmpdir(), "med-settings-"));
+    const path = join(folder, "med", "settings.json");
+    const host = await startHost({ repo, settingsPath: path });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    // No file yet: no settings.
+    expect(await (await fetch(`${base}/api/settings`, { headers })).json()).toEqual({
+      path,
+      settings: {},
+      error: null,
+    });
+    const put = (body: object) =>
+      fetch(`${base}/api/settings`, { method: "PUT", headers, body: JSON.stringify(body) });
+    expect((await put({ key: "diffs.layout", value: "unified" })).status).toBe(200);
+    expect((await put({ key: "diffs.wrap", value: true })).status).toBe(200);
+    expect((await put({ key: "not a key", value: 1 })).status).toBe(400);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      "diffs.layout": "unified",
+      "diffs.wrap": true,
+    });
+    // An agent's save arrives on the stream.
+    const abort = new AbortController();
+    const stream = await fetch(`${base}/api/settings/events`, { headers, signal: abort.signal });
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = "";
+    const until = async (text: string) => {
+      while (!received.includes(text)) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value);
+      }
+    };
+    await until('"diffs.wrap":true');
+    await writeFile(path, JSON.stringify({ "diffs.layout": "split", "code.textSize": 14 }));
+    await until('"code.textSize":14');
+    expect(received).toContain('"diffs.layout":"split"');
+    abort.abort();
+    // A file mid-edit keeps what Med read last, and says why.
+    await writeFile(path, "{ broken");
+    await expect
+      .poll(async () => (await (await fetch(`${base}/api/settings`, { headers })).json()).error)
+      .toMatch(/could not read/);
+    expect((await (await fetch(`${base}/api/settings`, { headers })).json()).settings).toEqual({
+      "diffs.layout": "split",
+      "code.textSize": 14,
+    });
+    await rm(folder, { recursive: true, force: true });
+  });
   test("reads a remote's host, owner and repository from its address", () => {
     for (const url of [
       "git@github.com:acme/trailhead.git",

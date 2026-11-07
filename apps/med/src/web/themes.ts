@@ -1,3 +1,4 @@
+import { noteStored } from "./data/stored-settings";
 import { useSyncExternalStore } from "react";
 import type { BundledTheme } from "shiki";
 import { codeVariables } from "./code-colors";
@@ -1691,6 +1692,9 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
       // The theme on screen, for an older Med that reads only this key.
       storage?.setItem(THEME_STORAGE_KEY, theme.id);
       paint(mode, light, dark);
+      noteStored(THEME_MODE_KEY, mode);
+      noteStored(THEME_LIGHT_KEY, light.id);
+      noteStored(THEME_DARK_KEY, dark.id);
     } catch {
       error = "Theme could not be saved. It applies to this session.";
     }

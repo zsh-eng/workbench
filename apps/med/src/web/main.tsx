@@ -12,6 +12,7 @@ import { AppTooltip } from "./components/ToolButton";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
+import { startSettingsFile } from "./data/settings-file";
 import { watchTitleBar } from "./data/title-bar";
 import { rememberWelcome, routeFirstRun, WELCOME_PATH } from "./data/setup";
 import { createPatchParser } from "./workers/client";
@@ -30,6 +31,8 @@ watchTitleBar();
 await authorizeBrowser().catch(() => {});
 await routeFirstRun();
 initializeTheme();
+// The settings file and the page's settings stay the same while it is open.
+startSettingsFile();
 const controllerOptions = {};
 const poolOptions = {
   workerFactory: () => new PierreWorker(),

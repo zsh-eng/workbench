@@ -1,4 +1,5 @@
 import { useMemo, useSyncExternalStore, type SetStateAction } from "react";
+import { noteStored } from "./stored-settings";
 
 /**
  * The reader's view settings: how the diff, the files, the session, and the
@@ -55,6 +56,7 @@ function viewSetting<T extends string>(
         try {
           localStorage.setItem(key, value);
           page = undefined;
+          noteStored(key, value);
         } catch {
           /* The choice holds for this page. */
         }

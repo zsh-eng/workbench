@@ -124,6 +124,7 @@ import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-s
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
 import { codeHostLink, createHostProbe, findEditors, launchEditor, type Editor } from "./open-in";
+import { createSettingsFile, SETTING_KEY, settingsPath } from "./settings-file";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -192,6 +193,8 @@ export interface StartHostOptions {
   stateDir?: string;
   /** Shows a file in the system file manager; tests replace it. */
   reveal?: (path: string) => void;
+  /** The settings file; tests give a file of their own. */
+  settingsPath?: string;
   /** Open in's editors, code hosts, and launches; tests replace them. */
   openIn?: {
     editors?(): Promise<Editor[]>;
@@ -685,6 +688,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     onChange: () => listChanged(),
   });
   // The open pull request of a tab's branch, for a thread that has none yet.
+  const settingsFile = createSettingsFile(options.settingsPath ?? settingsPath());
+  const settingsStreams = new Set<ServerResponse>();
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
     refs: (checkout) => checkoutState(checkout, false),
@@ -1477,6 +1482,45 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const unsubscribe = pullJobs.subscribe(id, push);
           response.once("close", () => {
             pullStreams.delete(response);
+            unsubscribe();
+          });
+          push();
+          return;
+        }
+        // The settings file, sent again each time it changes, also when an
+        // agent saves it.
+        if (url.pathname === "/api/settings" && request.method === "GET") {
+          send(await settingsFile.snapshot());
+          return;
+        }
+        if (url.pathname === "/api/settings" && request.method === "PUT") {
+          const input = z
+            .object({
+              key: z.string().regex(SETTING_KEY),
+              value: z.union([z.string().max(200), z.number().finite(), z.boolean()]),
+            })
+            .parse(await readBody(request));
+          send(await settingsFile.set(input.key, input.value));
+          return;
+        }
+        if (url.pathname === "/api/settings/events" && request.method === "GET") {
+          if (settingsStreams.size >= 16)
+            throw new HostError("too-many-streams", "Too many settings streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          settingsStreams.add(response);
+          const push = () =>
+            void settingsFile.snapshot().then((snapshot) => {
+              if (!response.writableEnded)
+                response.write(`event: state\ndata: ${JSON.stringify(snapshot)}\n\n`);
+            });
+          const unsubscribe = settingsFile.subscribe(push);
+          response.once("close", () => {
+            settingsStreams.delete(response);
             unsubscribe();
           });
           push();
@@ -3806,6 +3850,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       found.close();
       checkoutWork.close();
       pullRequestLinks.close();
+      settingsFile.close();
       threadFeed.close();
       checkoutChanges.close();
       threads.stop();
