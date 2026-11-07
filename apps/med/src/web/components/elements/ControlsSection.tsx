@@ -90,7 +90,6 @@ const commands: ReviewCommand[] = [
   { id: "layout", label: "Use split diff layout", run: noop },
   { id: "next-hunk", label: "Go to next hunk", shortcut: "]", run: noop },
   { id: "open-branch", label: "Open branch or worktree", shortcut: "Mod+Shift+G", run: noop },
-  { id: "zen", label: "Enter zen mode", shortcut: "Alt+Z", run: noop },
   { id: "theme", label: "Change theme", run: noop },
   { id: "help", label: "Show keyboard shortcuts", shortcut: "?", run: noop },
   { id: "close-file", label: "Close current file", shortcut: "Alt+W", disabled: true, run: noop },
@@ -117,7 +116,7 @@ function ToolButtons() {
         <ToolButton label="Refresh review" icon="refresh" busy />
       </Cell>
       <Cell label="Disabled">
-        <ToolButton label="Zen mode" shortcut="Alt+Z" icon="focus" disabled />
+        <ToolButton label="Push" icon="push" disabled />
       </Cell>
     </div>
   );
@@ -183,10 +182,7 @@ function Menus() {
               { label: "Show comments", checked: notes, onClick: () => setNotes(!notes) },
               { label: "Wrap long lines", checked: wrap, onClick: () => setWrap(!wrap) },
             ],
-            [
-              { label: "Zen mode", shortcut: "Alt+Z", onClick: noop },
-              { label: "Refresh review", disabled: true, onClick: noop },
-            ],
+            [{ label: "Refresh review", disabled: true, onClick: noop }],
           ]}
         />
       </Cell>

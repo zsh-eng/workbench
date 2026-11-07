@@ -327,8 +327,8 @@ test("a turn that asked a question ends with its facts; Review opens the Guide's
   await userEvent.click(recap.getByRole("button", { name: /^Review/ }));
   await expect.element(page.getByRole("heading", { name: "Phase of the moon" })).toBeVisible();
   await expect
-    .element(page.getByRole("tab", { name: "Review", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Review", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
   await expect.poll(() => shownRecap()?.dataset.recap).toBe("hidden");
   expect(getComputedStyle(shownRecap()!).visibility).toBe("hidden");
   const after = shownRecap()!.getBoundingClientRect();
@@ -346,14 +346,14 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
   await openSession();
   await expect.element(recap).toBeVisible();
   // No Review yet: the tab row has no Review tab.
-  expect(page.getByRole("tab", { name: "Review", exact: true }).query()).toBeNull();
+  expect(page.getByRole("radio", { name: "Review", exact: true }).query()).toBeNull();
 
   // ⌥↵ from the message box opens Changes at its first file; the box gets no new line.
   composer()!.focus();
   await userEvent.keyboard("{Alt>}{Enter}{/Alt}");
   await expect
-    .element(page.getByRole("tab", { name: "Changes", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Changes", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
   await expect.poll(() => shownRecap()?.dataset.recap).toBe("hidden");
   expect(composer()!.value).toBe("");
   await expect
@@ -392,6 +392,6 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
   expect(document.activeElement?.classList.contains("med-thread-scroller")).toBe(true);
   // The tab row did not move: Esc went to the recap only.
   await expect
-    .element(page.getByRole("tab", { name: "Changes", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Changes", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
 });

@@ -3,7 +3,6 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import { createReviewController } from "../../src/web/data/controller";
 import type { Comparison, ReviewFile, ReviewResponse } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
@@ -154,7 +153,6 @@ const DAY = 24 * 60 * 60 * 1000;
 
 beforeEach(async () => {
   await page.viewport(1440, 900);
-  setChromeMode("full", false);
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:viewed:v1:") || key === "med:changes-rail")
       localStorage.removeItem(key);
@@ -300,7 +298,7 @@ const groupLines = () =>
     line.getAttribute("data-generated-file"),
   );
 
-test("generated files fold at the end of the stream and under the tree, out of the totals", async () => {
+test("generated files fold at the end of the stream and under the tree", async () => {
   await mountReview();
   // The stream: the files that people wrote, in order; the group folds after them.
   // The first diff in a page loads Pierre's highlighter on the main thread.
@@ -322,12 +320,6 @@ test("generated files fold at the end of the stream and under the tree, out of t
   expect(line("src/schema.ts").textContent).toContain("from gen.ts");
   // An older capture's snapshot is known by its path.
   expect(line("tests/__snapshots__/app.test.ts.snap").textContent).toContain("Snapshot");
-  // The headline counts only the files that people wrote: +32 −12.
-  await expect
-    .element(page.getByRole("button", { name: /^Comparison total/ }))
-    .toHaveAccessibleName(
-      "Comparison total: 32 lines added, 12 lines deleted, without 508 generated lines",
-    );
 
   // Opened, the group's files join the stream, each folded to its header.
   await userEvent.click(page.getByRole("button", { name: "Show 4 generated files" }));

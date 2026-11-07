@@ -50,7 +50,6 @@ beforeEach(async () => {
   address = location.pathname + location.search;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
-  localStorage.removeItem("med:zen");
   // A test's drafts and open files would reopen in the next one's workspace.
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:draft:") || key.startsWith("med:files:")) localStorage.removeItem(key);
@@ -65,7 +64,6 @@ afterEach(() => {
   root = mount = undefined;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WINDOW_KEY);
-  localStorage.removeItem("med:chrome:v1");
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:draft:")) localStorage.removeItem(key);
   // Workspaces move the address; the test page keeps its own.
@@ -624,7 +622,7 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
   // Files still open after the review was hidden and shown again.
   await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
   await expect.poll(() => shown()?.dataset.activeFile).toBe("src/alpha.ts");
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => shown()?.dataset.activeFile).toBe("");
   await expect
     .poll(() => [...host.streams].map((key) => key.split("#")[0]))
@@ -756,7 +754,7 @@ test("the notice after Clear shows under the ⋯ button, on one line, wider than
   expect(box.top - button.bottom).toBeLessThan(40);
 });
 
-test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chrome brings back the bars", async () => {
+test("the review's header names the review, keeps rare actions in ⋯, and there is no toolbar or status bar", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -767,26 +765,21 @@ test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chr
   const session = page.getByRole("region", { name: "Claude session" });
   await expect.element(session.getByText("Rename the export.")).toBeVisible();
   const band = page.getByRole("banner", { name: "Workspace" });
-  const viewOptions = page.getByRole("button", { name: "View options", exact: true });
   const statusBar = () =>
     [...document.querySelectorAll("[data-connection]")].some((dot) => dot.checkVisibility());
-  const command = async (name: string) => {
-    await userEvent.keyboard("{Control>}k{/Control}");
-    await page.getByRole("combobox", { name: "Search commands" }).fill(name);
-    await page.getByRole("option", { name: new RegExp(`^${name}`) }).click();
-  };
 
-  // Quiet by default: the sidebar names the thread, the band its branch, and
-  // the review's one row what it shows: the Review's version, as the thread
-  // opens on its Review. No toolbar or status bar.
+  // The band names the branch, the review's header the review, and the
+  // session's header only its agent. No toolbar or status bar.
   await expect
     .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
     .toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { level: 2, name: "Talk review", exact: true }))
+    .toBeVisible();
   await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
-  await expect.element(page.getByText(/^Version 1\b/)).toBeVisible();
-  await expect.element(viewOptions).not.toBeInTheDocument();
+  expect(page.getByRole("button", { name: "View options", exact: true }).query()).toBeNull();
   expect(statusBar()).toBe(false);
-  // The ⋯ menu has the header's and the toolbar's actions; View has the diff's.
+  // The ⋯ menu has the review's rarer actions; View has the rail and folding.
   await page.getByRole("button", { name: "More actions", exact: true }).click();
   for (const name of ["Copy comments", "Clear all comments…", "Find in diffs", "Commands"])
     await expect
@@ -796,34 +789,25 @@ test("quiet chrome says each thing once, keeps rare actions in ⋯, and full chr
     .element(page.getByRole("menuitemcheckbox", { name: /^Agent session/ }))
     .toBeChecked();
   await page.getByRole("menuitem", { name: "View", exact: true }).click();
-  await expect
-    .element(page.getByRole("menuitemcheckbox", { name: "Wrap long lines" }))
-    .toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /^Collapse all files/ })).toBeVisible();
   // Escape closes the submenu, then the menu.
   await userEvent.keyboard("{Escape}{Escape}");
   await expect.element(page.getByRole("menu").first()).not.toBeInTheDocument();
-  // ⌘K has what the toolbar's buttons did.
+  // ⌘K has the comparison's choices, and no other chrome to choose.
   await userEvent.keyboard("{Control>}k{/Control}");
-  await page.getByRole("combobox", { name: "Search commands" }).fill("Compare against");
+  const search = page.getByRole("combobox", { name: "Search commands" });
+  await search.fill("Compare against");
   await expect
     .element(page.getByRole("option", { name: /^Compare against a base branch/ }))
     .toBeVisible();
+  await search.fill("chrome");
+  await expect.element(page.getByRole("option", { name: /full chrome/ })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
   // With the sidebar hidden, the band names the thread.
   await userEvent.keyboard("{Control>}b{/Control}");
   await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
   await userEvent.keyboard("{Control>}b{/Control}");
   await expect.element(band.getByText("Talk review", { exact: true })).not.toBeInTheDocument();
-
-  // Full chrome: the session's header names the thread, and the toolbar and
-  // the status bar come back.
-  await command("Use full chrome");
-  await expect.element(viewOptions).toBeVisible();
-  await expect.element(session.getByText("Talk review")).toBeVisible();
-  expect(statusBar()).toBe(true);
-  await command("Use quiet chrome");
-  await expect.element(viewOptions).not.toBeInTheDocument();
-  expect(statusBar()).toBe(false);
 });
 
 test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it in history", async () => {

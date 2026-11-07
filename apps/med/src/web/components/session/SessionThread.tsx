@@ -24,7 +24,6 @@ import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
 import { LinkedText } from "../FileRefs";
-import { ZenContext } from "../ZenExit";
 import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
 import { SidePanelCard } from "./SessionSidePanel";
@@ -326,11 +325,10 @@ const Item = memo(function Item({
  */
 function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
   const actions = useContext(ReplyActionsContext);
-  const zen = useContext(ZenContext);
   const [copied, setCopied] = useState(false);
   const [pinning, setPinning] = useState(false);
   const pinId = actions?.pinned(item.id);
-  if (zen || (!final && pinId === undefined)) return null;
+  if (!final && pinId === undefined) return null;
   const copy = () =>
     navigator.clipboard.writeText(item.text).then(
       () => {

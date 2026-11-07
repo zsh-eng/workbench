@@ -3,7 +3,6 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import {
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +24,6 @@ import {
 import { useOwnedSession } from "../../data/owned-session";
 import { useThreadUsage } from "../../data/thread-usage";
 import { useOutbox, type Outgoing } from "../../data/outbox";
-import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
@@ -43,7 +41,6 @@ import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
-import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
 import {
@@ -105,7 +102,6 @@ function SessionMenu({
   loadTurns,
   onTurn,
   starter,
-  leads = false,
 }: {
   agent: string;
   sessions: AgentSession[];
@@ -117,8 +113,6 @@ function SessionMenu({
   loadTurns?(): Promise<SessionTurn[]>;
   onTurn(turn: SessionTurn): void;
   starter?: SessionStarter;
-  /** The menu starts the header and names the pane, as quiet chrome has it. */
-  leads?: boolean;
 }) {
   const [turns, setTurns] = useState<SessionTurn[] | null>(null);
   const [error, setError] = useState(false);
@@ -129,18 +123,18 @@ function SessionMenu({
   const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
   const [open, setOpen] = useState(false);
   return (
-    <QuietMenuRoot open={open} onOpenChange={setOpen} look={`${agent}\n${leads}`}>
+    <QuietMenuRoot open={open} onOpenChange={setOpen} look={agent}>
       <Menu.Trigger
         aria-label={`${agent} session menu`}
         {...tooltip("Sessions, work, and turns")}
-        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, leads && styles.leadTrigger)}
+        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, styles.leadTrigger)}
       >
         {agent}
         <Icon name="chevron" size={12} />
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
-          align={leads ? "start" : "end"}
+          align="start"
           sideOffset={6}
           {...stylex.props(styles.menuPositioner)}
         >
@@ -249,26 +243,22 @@ export function SessionStart({
   starter,
   controls,
   repo,
-  title,
   detail,
 }: {
   starter: SessionStarter;
   controls?: ReactNode;
   repo?: string;
-  /** The thread's name and place, as in the session's own header. */
-  title?: string;
+  /** Where the thread works, such as its repository and branch. */
   detail?: string;
 }) {
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Quiet chrome names the thread once, in the sidebar or the title band.
-  const quiet = useQuietChrome();
   const agents = starter.agents;
   return (
     <section aria-label="Start a session" {...stylex.props(styles.panel)}>
       <header {...paneHandle} {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.title)}>
-          {quiet ? "Session" : (title ?? "Session")}
+          Session
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
         </span>
         {controls}
@@ -370,8 +360,6 @@ export function SessionPanel({
   pins,
   controls,
   starter,
-  title,
-  detail,
   lead,
   mentions,
   onMentionsWanted,
@@ -405,10 +393,6 @@ export function SessionPanel({
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
-  /** The thread's name for the header, in place of the session's own. */
-  title?: string;
-  /** Where the thread works, such as its repository and branch. */
-  detail?: string;
   /** Starts new sessions; without it the header has no New session menu. */
   starter?: SessionStarter;
   /** The column's pane controls, in place of the close button. */
@@ -818,9 +802,7 @@ export function SessionPanel({
         : undefined,
     [recap, session.id, latest],
   );
-  const zen = useContext(ZenContext);
-  const quiet = useQuietChrome();
-  const side = roomy && !zen && sideChoice === "auto";
+  const side = roomy && sideChoice === "auto";
   useEffect(() => {
     if (!onSideRoom) return;
     onSideRoom(roomy);
@@ -875,8 +857,7 @@ export function SessionPanel({
             : waiting
               ? "Waiting for you"
               : "Idle";
-  // Zen keeps the agent and its status; a folded turn still opens.
-  const menu = !zen && (
+  const menu = (
     <SessionMenu
       agent={agent}
       sessions={sessions}
@@ -887,7 +868,6 @@ export function SessionPanel({
       loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
       onTurn={(turn) => void showTurn(turn).catch(() => {})}
       starter={starter}
-      leads={quiet}
     />
   );
 
@@ -901,21 +881,10 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      <header {...paneHandle} {...stylex.props(styles.header, quiet && styles.quietHeader)}>
-        {/* Quiet chrome names the thread in the sidebar or the title band; the
-            agent's menu names the pane. */}
-        {quiet ? (
-          zen && <span {...stylex.props(styles.zenAgent)}>{agent}</span>
-        ) : (
-          <span
-            {...stylex.props(styles.title)}
-            title={title ?? snapshot.title ?? `${agent} session`}
-          >
-            {title ?? snapshot.title ?? `${agent} session`}
-            {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
-          </span>
-        )}
-        {quiet && menu}
+      {/* The sidebar or the title band names the thread; the agent's menu
+          names the pane. */}
+      <header {...paneHandle} {...stylex.props(styles.header, styles.quietHeader)}>
+        {menu}
         <span {...stylex.props(styles.status)}>
           <span
             {...stylex.props(
@@ -926,9 +895,9 @@ export function SessionPanel({
           />
           {status}
         </span>
-        {quiet ? <span {...stylex.props(styles.grow)} /> : menu}
-        {!zen && !side && <UsageChip usage={usage} context={shownContext} />}
-        {roomy && !zen && (
+        <span {...stylex.props(styles.grow)} />
+        {!side && <UsageChip usage={usage} context={shownContext} />}
+        {roomy && (
           <ToolButton
             icon="panelRight"
             label={side ? "Hide the side panel" : "Show the side panel"}
@@ -938,15 +907,14 @@ export function SessionPanel({
             onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
           />
         )}
-        {!zen &&
-          (controls ?? (
-            <ToolButton
-              icon="panelLeft"
-              label="Hide the session pane. The agent keeps working."
-              shortcut="Mod+Shift+B"
-              onClick={onClose}
-            />
-          ))}
+        {controls ?? (
+          <ToolButton
+            icon="panelLeft"
+            label="Hide the session pane. The agent keeps working."
+            shortcut="Mod+Shift+B"
+            onClick={onClose}
+          />
+        )}
       </header>
       <div {...stylex.props(styles.split)}>
         <div {...stylex.props(styles.main)}>
@@ -1064,13 +1032,6 @@ const styles = stylex.create({
   },
   // The menu's label starts where the review's first tab label does.
   quietHeader: { gap: 6, paddingInlineStart: 6 },
-  // The agent's name, without its menu, in zen mode.
-  zenAgent: {
-    paddingInlineStart: 8,
-    color: tokens.text,
-    fontSize: 12.5,
-    fontWeight: 500,
-  },
   grow: { flex: "1" },
   leadTrigger: {
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },

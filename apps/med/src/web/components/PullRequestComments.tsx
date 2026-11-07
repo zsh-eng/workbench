@@ -530,13 +530,9 @@ export type { ThreadPlacement };
 export function PullRequestPanel({
   state,
   placement,
-  words = false,
 }: {
   state: PullRequestState;
   placement: ThreadPlacement;
-  /** Quiet chrome: the count in words, such as "3 comments", and nothing
-   * while the comments load. */
-  words?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [part, setPart] = useState<HTMLSpanElement | null>(null);
@@ -551,7 +547,7 @@ export function PullRequestPanel({
     : count === null
       ? "Pull request comments"
       : `${count} pull request ${count === 1 ? "comment" : "comments"}`;
-  const room = useRowPart(words ? part : null, error ? "error" : "count");
+  const room = useRowPart(part, error ? "error" : "count");
   return (
     <Popover.Root
       open={open}
@@ -563,33 +559,27 @@ export function PullRequestPanel({
       <Popover.Trigger
         {...stylex.props(ui.button, ui.pressable, styles.trigger)}
         aria-label={label}
-        {...(words ? tooltip(error ?? label) : { title: label })}
+        {...tooltip(error ?? label)}
       >
         <Icon name="note" size={14} />
-        {words ? (
-          (error || count !== null) && (
-            // The words give way before the row's tabs do: "7", or "!".
-            <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
-              {error ? (
-                <>
-                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                    Comments could not load
-                  </span>
-                  {!room && "!"}
-                </>
-              ) : (
-                <>
-                  {count}
-                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                    {count === 1 ? " comment" : " comments"}
-                  </span>
-                </>
-              )}
-            </span>
-          )
-        ) : (
-          <span {...stylex.props(styles.count, error ? styles.bad : null)}>
-            {error ? "!" : (count ?? "…")}
+        {(error || count !== null) && (
+          // The words give way before the review's title shortens: "7", or "!".
+          <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
+            {error ? (
+              <>
+                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                  Comments could not load
+                </span>
+                {!room && "!"}
+              </>
+            ) : (
+              <>
+                {count}
+                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                  {count === 1 ? " comment" : " comments"}
+                </span>
+              </>
+            )}
           </span>
         )}
       </Popover.Trigger>

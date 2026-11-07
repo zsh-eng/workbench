@@ -35,12 +35,9 @@ export function SavedReviewHeader({
   sendTo,
   notesPickIteration,
   compact = false,
-  quiet = false,
   more = [],
   ref,
 }: {
-  /** Quiet chrome: the pull request's comments count in words. */
-  quiet?: boolean;
   /**
    * The thread beside it names the review, so the header leaves the name out,
    * and its actions go in one menu with `more`, as a title bar keeps few.
@@ -173,7 +170,7 @@ export function SavedReviewHeader({
         </span>
       )}
       {!compact && saved.pullRequestUrl && pullRequest && threadPlacement && (
-        <PullRequestPanel state={pullRequest} placement={threadPlacement} words={quiet} />
+        <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
       {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
         <CodexReviewPanel state={codexReviews} placement={findingPlacement} />
@@ -544,7 +541,8 @@ const styles = stylex.create({
     minHeight: 0,
     paddingInline: 0,
     borderBottomWidth: 0,
-    flexShrink: 1,
+    // Its buttons keep their room; the review's title shortens instead.
+    flexShrink: 0,
   },
   header: {
     position: "relative",

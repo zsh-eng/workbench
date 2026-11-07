@@ -34,10 +34,7 @@ export function FileViewTabs({
   leading,
   trailing,
   pathActions,
-  keepTabs = false,
 }: {
-  /** The tabs keep their width, and the trailing controls give way first. */
-  keepTabs?: boolean;
   pathActions?: PathActions;
   tabs: FileViewTab[];
   active: string;
@@ -96,7 +93,7 @@ export function FileViewTabs({
       <Tabs.List
         ref={list}
         aria-label="Open files"
-        {...stylex.props(styles.list, keepTabs && styles.keep)}
+        {...stylex.props(styles.list, styles.keep)}
       >
         {showReview && (
           <Tabs.Tab

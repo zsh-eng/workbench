@@ -41,7 +41,6 @@ export interface QuietMenuActions {
   session?: Toggle;
   files?: Toggle;
   openBranch?: () => void;
-  zen(): void;
   commands(): void;
   shortcuts(): void;
 }
@@ -91,30 +90,6 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
             label: "View",
             sections: [
               [
-                {
-                  label: "Split diff",
-                  checked: diff.layout.mode === "split",
-                  choice: true,
-                  disabled: !diff.layout.canSplit,
-                  onClick: () => diff.layout.set("split"),
-                },
-                {
-                  label: "Unified diff",
-                  checked: diff.layout.mode === "unified",
-                  choice: true,
-                  onClick: () => diff.layout.set("unified"),
-                },
-                {
-                  label: "Show comments",
-                  checked: diff.comments.on,
-                  onClick: diff.comments.toggle,
-                },
-                {
-                  label: "Wrap long lines",
-                  checked: diff.wrap.on,
-                  letter: "w",
-                  onClick: diff.wrap.toggle,
-                },
                 ...item(
                   diff.rail && {
                     label: "Files and commits",
@@ -175,7 +150,6 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
           onClick: actions.openBranch,
         },
       ),
-      { label: "Zen mode", shortcut: "Alt+Z", letter: "z", onClick: actions.zen },
     ],
     diff
       ? [
@@ -204,8 +178,8 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
 
 /** A file header's tooltip: its path and, as quiet chrome has no status bar,
  * its size. */
-export function fileTitle(path: string, size: number | undefined, quiet: boolean) {
-  return quiet && size !== undefined ? `${path} · ${size.toLocaleString()} bytes` : path;
+export function fileTitle(path: string, size: number | undefined) {
+  return size !== undefined ? `${path} · ${size.toLocaleString()} bytes` : path;
 }
 
 const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
@@ -263,6 +237,25 @@ export type RowFit = "long" | "short" | "menu";
  * tabs and its other controls. The slot counts while it is hidden too, so
  * that the room it needs does not change as it shows.
  */
+/**
+ * An item's width with its shortened names whole (up to its own max-width),
+ * so the row's optional controls give way before a title shortens.
+ */
+function wholeWidth(child: Element, rowWidth: number) {
+  const width = child.getBoundingClientRect().width;
+  let hidden = 0;
+  for (const name of child.querySelectorAll("[data-truncates]"))
+    hidden += name.scrollWidth - name.clientWidth;
+  if (!hidden) return width;
+  const max = getComputedStyle(child).maxWidth;
+  const cap = max.endsWith("%")
+    ? (parseFloat(max) / 100) * rowWidth
+    : max === "none"
+      ? Infinity
+      : parseFloat(max);
+  return Math.max(width, Math.min(width + hidden, cap));
+}
+
 function rowRoom(row: HTMLElement, slot: HTMLElement) {
   const style = getComputedStyle(row);
   const gap = parseFloat(style.columnGap) || 0;
@@ -270,7 +263,8 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
   let items = 1;
   const count = (children: HTMLCollection) => {
     for (const child of children) {
-      if (child === slot) continue;
+      // The slot, and the space that only fills the row.
+      if (child === slot || child.hasAttribute("data-row-grow")) continue;
       const { display, position, marginLeft, marginRight } = getComputedStyle(child);
       // A wrapper with `display: contents`, as the totals, puts its children in the row.
       if (display === "contents") {
@@ -280,12 +274,7 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
       if (display === "none" || position === "absolute" || position === "fixed") continue;
       items++;
       used += (parseFloat(marginLeft) || 0) + (parseFloat(marginRight) || 0);
-      if (child.getAttribute("role") === "tablist") {
-        // The tabs' own width, not the room that the list takes.
-        const first = child.firstElementChild?.getBoundingClientRect();
-        const last = child.lastElementChild?.getBoundingClientRect();
-        used += first && last ? last.right - first.left : 0;
-      } else used += child.getBoundingClientRect().width;
+      used += wholeWidth(child, row.clientWidth);
     }
   };
   count(row.children);
@@ -293,8 +282,8 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
 }
 
 /**
- * Whether a control of a fixed width, such as the Commit tab's Stage all,
- * fits in the review's row beside the tabs. `slot` is its place in the row,
+ * Whether a control of a fixed width, such as the Commit page's Stage all,
+ * fits in the review's row beside the title and the pages. `slot` is its place in the row,
  * also while it is hidden; its width is the one that it had when it showed.
  */
 export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
@@ -326,33 +315,32 @@ export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
 
 /**
  * Whether an optional part of a control in the review's row, such as the
- * word "comments" after a count, may show: it shows while the row's tabs
- * keep their full width. `part` is the part's element, also while it is
- * hidden; its width is the one that it had when it showed. A new `text`
- * shows first, to measure it.
+ * word "comments" after a count, may show: it shows while the row has room
+ * for it beside the title's whole width. `part` is the part's element, also
+ * while it is hidden; its width is the one that it had when it showed. A new
+ * `text` shows first, to measure it.
  */
 export function useRowPart(part: HTMLElement | null, text: string) {
   const [state, setState] = useState({ text, fits: true });
   const width = useRef(0);
   useLayoutEffect(() => {
     width.current = 0;
-    // The row is the element whose child is the tab list (FileViewTabs).
-    let row = part?.parentElement ?? null;
-    const tabsOf = (element: Element) =>
-      [...element.children].find((child) => child.getAttribute("role") === "tablist");
-    while (row && !tabsOf(row)) row = row.parentElement;
-    const list = row && tabsOf(row);
-    if (!part || !row || !list) return;
+    // The row is the element whose child is the space that fills it, and
+    // the control is its child that holds the part.
+    let control: HTMLElement | null = part;
+    const isRow = (element: Element) =>
+      [...element.children].some((child) => child.hasAttribute("data-row-grow"));
+    while (control?.parentElement && !isRow(control.parentElement)) control = control.parentElement;
+    const row = control?.parentElement;
+    if (!part || !control || !row) return;
     const measure = () => {
       // A hidden workspace has no width; it keeps its fit for its return.
       if (!row.clientWidth) return;
-      const first = list.firstElementChild?.getBoundingClientRect();
-      const last = list.lastElementChild?.getBoundingClientRect();
-      // The room that the tab list has beyond its tabs; below zero, they scroll.
-      const free = list.clientWidth - (first && last ? last.right - first.left : 0);
       const shown = part.getBoundingClientRect().width;
       if (shown) width.current = shown;
-      const fits = shown ? free > -1 : free >= width.current;
+      // The row's room for the control without its part, less the control.
+      const free = rowRoom(row, control) - (control.getBoundingClientRect().width - shown);
+      const fits = free >= width.current;
       setState((current) =>
         current.text === text && current.fits === fits ? current : { text, fits },
       );
@@ -373,7 +361,7 @@ export function useRowPart(part: HTMLElement | null, text: string) {
 
 /**
  * Which label of the comparison fits in the review's row: its full one, its
- * short one, or none, when the comparison goes into ⋯. The row's tabs and
+ * short one, or none, when the comparison goes into ⋯. The row's pages and
  * other controls keep their width; the comparison has the room that is left.
  * `slot` is the comparison's place in the row, also while it is empty.
  */

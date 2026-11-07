@@ -91,7 +91,7 @@ const icons: Record<IconName, ReactNode> = {
       <circle cx="8" cy="8" r="1.25" fill="currentColor" stroke="none" />
     </>
   ),
-  // Corners turned inward: the way back out of zen mode.
+  // Corners turned inward: back to the actual size.
   focusExit: (
     <path d="M5.75 2.75v1.5a1.5 1.5 0 0 1-1.5 1.5h-1.5M13.25 5.75h-1.5a1.5 1.5 0 0 1-1.5-1.5v-1.5M10.25 13.25v-1.5a1.5 1.5 0 0 1 1.5-1.5h1.5M2.75 10.25h1.5a1.5 1.5 0 0 1 1.5 1.5v1.5" />
   ),

@@ -8,7 +8,6 @@ import { createApi } from "../data/api";
 import { readBrowserToken } from "../data/auth";
 import { ChoiceSelect, QuietMenuRoot } from "./Controls";
 import { Icon } from "./Icon";
-import { tooltip } from "./ToolButton";
 import { picked, tokens, ui } from "../theme.stylex";
 
 /** Opens the actions from elsewhere, such as a menu or ⌘K. */
@@ -56,7 +55,6 @@ export function ComparisonActions({
   onBase,
   targets,
   targetsError = "",
-  triggers = true,
   anchor,
   ref,
 }: {
@@ -71,9 +69,8 @@ export function ComparisonActions({
   /** From useGitTargets. */
   targets?: GitTargets;
   targetsError?: string;
-  /** Without them, the menu and the dialog open only through `ref`. */
-  triggers?: boolean;
-  /** Where the base branch menu opens without its own trigger. */
+  /** Where the base branch menu opens; it and the dialog open only through
+   * `ref`. */
   anchor?: () => HTMLElement | null;
   ref?: Ref<ComparisonActionsHandle>;
 }) {
@@ -149,40 +146,21 @@ export function ComparisonActions({
     <>
       <QuietMenuRoot
         open={compareOpen}
-        look={triggers ? JSON.stringify(comparison) : ""}
+        look=""
         onOpenChange={changeCompare}
         onOpenChangeComplete={(open) => {
           if (open) filterRef.current?.focus();
         }}
       >
-        {triggers && (
-          <Menu.Trigger
-            {...stylex.props(ui.button, styles.trigger, !!base && ui.strong)}
-            aria-label="Compare against base branch"
-          >
-            {base ? (
-              <>
-                <span {...stylex.props(styles.baseLabel)}>Base</span>
-                <span {...stylex.props(styles.label)}>
-                  {base.replace(/^refs\/(heads|remotes)\//, "")}
-                </span>
-              </>
-            ) : (
-              <span {...stylex.props(styles.label)}>Compare against</span>
-            )}
-            <span {...stylex.props(styles.chevron)}>
-              <Icon name="chevron" size={14} />
-            </span>
-          </Menu.Trigger>
-        )}
         <Menu.Portal>
           <Menu.Positioner
             sideOffset={6}
-            {...(triggers ? {} : { anchor, align: "start" as const })}
+            anchor={anchor}
+            align="start"
             {...stylex.props(styles.positioner)}
           >
             <Menu.Popup
-              {...(triggers ? {} : { finalFocus: () => anchor?.() ?? true })}
+              finalFocus={() => anchor?.() ?? true}
               {...stylex.props(ui.popup, ui.pop, styles.menu)}
             >
               <div {...stylex.props(styles.filter)}>
@@ -263,16 +241,6 @@ export function ComparisonActions({
         </Menu.Portal>
       </QuietMenuRoot>
       <Dialog.Root open={pushOpen} onOpenChange={changePush}>
-        {triggers && (
-          <Dialog.Trigger
-            {...stylex.props(ui.button, ui.iconButton, ui.pressable)}
-            {...tooltip("Push to remote")}
-            aria-label="Push"
-            disabled={!commitHead || !targets}
-          >
-            <Icon name="push" size={15} />
-          </Dialog.Trigger>
-        )}
         <Dialog.Portal>
           <Dialog.Backdrop {...stylex.props(ui.scrim, styles.backdrop)} />
           <Dialog.Popup {...stylex.props(styles.dialog)}>

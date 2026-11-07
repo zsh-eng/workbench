@@ -3,7 +3,6 @@ import { memo, type ReactNode } from "react";
 import type { ParsedReviewFile } from "../../../shared/review";
 import type { SavedCommit } from "../../../shared/review-guide";
 import type { GuideScope, GuideSection } from "../../data/guide";
-import { hoveredPath } from "../../data/hovered-path";
 import { picked, tokens, ui } from "../../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "../ColumnResize";
 import { Icon } from "../Icon";
@@ -179,8 +178,6 @@ export const GuideRail = memo(function GuideRail({
                             <button
                               type="button"
                               onClick={() => onFile(section.key, id)}
-                              onPointerEnter={() => hoveredPath.set(file.path)}
-                              onPointerLeave={() => hoveredPath.set(null)}
                               {...clippedTooltip(file.path)}
                               {...stylex.props(styles.file, isViewed && styles.fileViewed)}
                             >

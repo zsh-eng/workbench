@@ -19,18 +19,18 @@ line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
 Codex** sends them to the review's own agent; see
 [sending comments](review-changes.md#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
-Beside a thread, the review's header keeps only its tabs: **Send to** shows
+Beside a thread, the review's header keeps its pages: **Send to** shows
 when there are comments to send, and **Copy comments**, **Clear all
 comments**, **Commands**, and **Files** are in its **⋯** menu.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
 the title for the time Med saved the review and its repository. Beside a
-thread, and in quiet chrome, a pull request is the thread's title in the
-window's title band: its number and title, which open it on GitHub, its state
+thread, a pull request is the thread's title in the window's title band: its number and title, which open it on GitHub, its state
 (**Open**, **Draft**, **Merged**, or **Closed**), and its author, then the
 repository and branch in quieter text, and its comments at the band's end. A
 long title is cut at its end; in a narrow band, the repository and branch go
-first. The review card keeps its tabs as its first row. See
+first. The review card keeps its header, with the review's own title, as its
+first row. See
 [titles and pull requests](../AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ## Set up agents

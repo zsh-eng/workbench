@@ -1,6 +1,7 @@
 import { registerCustomTheme, resolveTheme, setCustomExtension } from "@pierre/diffs";
 import { useWorkerPool } from "@pierre/diffs/react";
 import { useEffect } from "react";
+import { codeLineHeight, useViewSetting, viewSettings } from "./data/view-settings";
 import { themes, useTheme, type Theme } from "./themes";
 import { zedSyntax } from "./zed-syntax";
 
@@ -68,5 +69,17 @@ export function PierreThemeSync() {
       console.error("Could not apply the syntax theme", error);
     });
   }, [pool, active.pierreTheme]);
+  return null;
+}
+
+/** The code's text size (Display, and Settings), as the variables that every
+ * diff and file reads: `--med-code-size` and its line height. */
+export function CodeSizeSync() {
+  const size = Number(useViewSetting(viewSettings.codeSize));
+  useEffect(() => {
+    const root = document.documentElement.style;
+    root.setProperty("--med-code-size", `${size}px`);
+    root.setProperty("--med-code-line", `${codeLineHeight(size)}px`);
+  }, [size]);
   return null;
 }

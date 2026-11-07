@@ -5,7 +5,6 @@ import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { Comparison, LivePullRequest, PullRequestComments } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -310,7 +309,6 @@ beforeEach(async () => {
   liveFails = "";
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
-  setChromeMode("quiet", false);
 });
 afterEach(() => {
   root?.unmount();
@@ -352,7 +350,7 @@ async function openChanges() {
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("live-working");
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
 }
@@ -447,7 +445,7 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request is the thread's title in the window's band, before its checkout; no row sits above the tabs", async () => {
+test("a pull request is the thread's title in the window's band, before its checkout; the review's header is the card's first row", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
@@ -480,12 +478,10 @@ test("a pull request is the thread's title in the window's band, before its chec
   expect(region(band)).toBe("drag");
   expect(region(link.element())).toBe("no-drag");
   expect(region(comments.element())).toBe("no-drag");
-  // The review card starts with its tab row, with no pull request in it,
-  // level with the Changed files pane.
+  // The review card starts with its header, level with the Changed files pane.
   const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
-  const tabs = review.querySelector('[role="tablist"]')!;
-  expect(tabs.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
-  expect(review.textContent).not.toContain("Rename the export");
+  const header = review.querySelector('header[aria-label="Review header"]')!;
+  expect(header.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
   const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
   expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
   expect(files.textContent).not.toContain("Rename the export");
@@ -499,7 +495,7 @@ async function openPullTab() {
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
-  await page.getByRole("tab", { name: "Pull request" }).click();
+  await page.getByRole("radio", { name: "Pull request" }).click();
   return page.getByRole("region", { name: "Pull request" });
 }
 

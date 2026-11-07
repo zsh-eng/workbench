@@ -2,7 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type Ref } from "react";
 import type { Thread, ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
-import { useQuietChrome } from "../../data/chrome";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ToolButton, tooltip } from "../ToolButton";
@@ -68,7 +67,7 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
  * title bar hidden, the band is the title bar beside the window controls; it
  * moves the window, and its controls take clicks.
  *
- * With quiet chrome, the band is the one place for the thread's branch. While
+ * The band is the one place for the thread's branch. While
  * the sidebar, which lists the thread, is hidden, the band names the thread
  * too, and a dot on Show sidebar tells that a tab needs the reader. A
  * thread's pull request is its title here (InTitleBand): the checkout follows
@@ -97,9 +96,7 @@ export function WorkspaceBar({
    * request: the checkout follows it, quieter, and goes in a narrow band. */
   titled?: boolean;
 }) {
-  const quiet = useQuietChrome();
-  const title =
-    quiet && showSidebar && !titled && context?.kind === "checkout" ? context.title : undefined;
+  const title = showSidebar && !titled && context?.kind === "checkout" ? context.title : undefined;
   return (
     <header
       aria-label="Workspace"
@@ -134,7 +131,6 @@ export function WorkspaceBar({
       {context?.kind === "checkout" && (
         <Checkout
           {...context}
-          quiet={quiet}
           after={!!title || !!rename?.editing || titled}
           secondary={titled}
         />
@@ -157,11 +153,9 @@ function Checkout({
   branch,
   path,
   linked,
-  quiet,
   after,
   secondary,
 }: Extract<BarContext, { kind: "checkout" }> & {
-  quiet: boolean;
   after: boolean;
   secondary: boolean;
 }) {
@@ -195,8 +189,8 @@ function Checkout({
         <Icon name="branch" size={13} />
         <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
       </span>
-      {/* Quiet chrome leaves out a worktree folder that has the branch's name. */}
-      {linked && !(quiet && basename(path) === branch) && (
+      {/* A worktree folder that has the branch's name says nothing more. */}
+      {linked && basename(path) !== branch && (
         <span {...stylex.props(styles.part, styles.worktree)}>
           <Icon name="folder" size={13} />
           <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>

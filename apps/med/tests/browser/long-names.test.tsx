@@ -5,7 +5,6 @@ import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { Comparison } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -167,7 +166,6 @@ const clearStorage = () => {
 beforeEach(async () => {
   await page.viewport(1280, 800);
   clearStorage();
-  setChromeMode("quiet", false);
 });
 afterEach(() => {
   unmount();
@@ -206,7 +204,8 @@ const shown = () =>
 const tooltip = () => document.querySelector('[role="tooltip"]')?.textContent ?? null;
 /** Moves the pointer off every control, and waits for the tooltip to close. */
 async function away() {
-  await userEvent.hover(page.getByRole("tab", { name: /^Changes/ }));
+  // The review's title has no tooltip of its own.
+  await userEvent.hover(page.getByRole("heading", { level: 2 }).last());
   await expect.poll(tooltip).toBeNull();
 }
 async function openThread() {
@@ -219,7 +218,7 @@ async function openThread() {
 /** The thread's live Changes. */
 async function openChanges() {
   await openThread();
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("live-working");
 }
 /** A row of the Changed files pane's tree, in its shadow root. */
@@ -232,7 +231,7 @@ const treeRow = (path: string) => {
   return rows.nth(index);
 };
 
-test("a cut file name shows its path in the tooltip, a whole one shows none; full chrome's status bar names the file under the pointer", async () => {
+test("a cut file name shows its path in the tooltip, a whole one shows none", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await treeRow(long).hover();
@@ -241,15 +240,6 @@ test("a cut file name shows its path in the tooltip, a whole one shows none; ful
   await treeRow(short).hover();
   await new Promise((resolve) => setTimeout(resolve, 800));
   expect(tooltip()).toBeNull();
-
-  // Full chrome's status bar says the path of the file under the pointer.
-  setChromeMode("full", false);
-  const status = () =>
-    [...document.querySelectorAll("footer")].find((footer) => footer.checkVisibility());
-  await expect.poll(() => status()).toBeTruthy();
-  await away();
-  await treeRow(long).hover();
-  await expect.poll(() => status()?.textContent).toContain(long);
 });
 
 test("a thread's file list resizes with the pointer and the keys, resets on a double-click, and keeps its width", async () => {

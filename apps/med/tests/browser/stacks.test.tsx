@@ -3,7 +3,6 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import { createReviewController } from "../../src/web/data/controller";
 import type { Comparison, ReviewResponse } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
@@ -96,7 +95,6 @@ const saved = (): SavedReview => ({
 
 beforeEach(async () => {
   await page.viewport(1440, 900);
-  setChromeMode("full", false);
   for (const key of Object.keys(localStorage))
     if (
       key.startsWith("med:viewed:v1:") ||
@@ -228,7 +226,7 @@ test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓
   await mountStack();
   await expect.element(rail()).toBeVisible();
   // The review's one link is only the first layer's pull request: no live tab.
-  expect(page.getByRole("tab", { name: "Pull request" }).query()).toBeNull();
+  expect(page.getByRole("radio", { name: "Pull request" }).query()).toBeNull();
   // Top to bottom, as git draws a stack, with the base branch under it.
   const numbers = [...document.querySelectorAll("[data-stack-rail] [data-layer]")].map((row) =>
     row.getAttribute("data-layer"),

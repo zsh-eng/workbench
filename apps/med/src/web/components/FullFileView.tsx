@@ -46,7 +46,6 @@ import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
 import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
-import { useQuietChrome } from "../data/chrome";
 import { fileTitle } from "./QuietChrome";
 import { HIGHLIGHTER } from "../pierre-theme";
 
@@ -154,7 +153,6 @@ function ReadOnlyFileView({
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
-  const quiet = useQuietChrome();
   const sourceCursorAt = useRef(0);
   const cursorLine = useRef((_line: number) => {});
   const followCursor = useCallback(
@@ -481,11 +479,11 @@ function ReadOnlyFileView({
       data-file-plain={plain}
     >
       {!compact && (
-        <header data-lift-row="" {...stylex.props(styles.header)}>
+        <header {...stylex.props(styles.header)}>
           <Icon name="file" size={15} />
           <span
             {...stylex.props(styles.path)}
-            title={displayPath && fileTitle(displayPath, file?.size, quiet)}
+            title={displayPath && fileTitle(displayPath, file?.size)}
           >
             {displayPath}
           </span>
@@ -602,8 +600,8 @@ function ReadOnlyFileView({
                 style={
                   {
                     "--diffs-font-family": tokens.code,
-                    "--diffs-font-size": "12px",
-                    "--diffs-line-height": "20px",
+                    "--diffs-font-size": "var(--med-code-size, 12px)",
+                    "--diffs-line-height": "var(--med-code-line, 20px)",
                     "--diffs-bg-context-override": tokens.canvas,
                     "--diffs-bg-context-gutter-override": tokens.canvas,
                     ...codeSurfaceStyle,
@@ -874,7 +872,6 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
   const [editError, setEditError] = useState("");
-  const quiet = useQuietChrome();
   const markdown =
     !props.compact &&
     props.file?.kind === "text" &&
@@ -1004,10 +1001,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     return (
       <div ref={reader} className="med-markdown-reader">
         {/* The header matches the source view's, so nothing moves as the views change. */}
-        <header
-          data-lift-row={draft?.editing ? "editor" : ""}
-          {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}
-        >
+        <header {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}>
           {draft?.editing ? (
             <span
               role="img"
@@ -1018,10 +1012,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
           ) : (
             <Icon name="file" size={15} />
           )}
-          <span
-            {...stylex.props(styles.path)}
-            title={fileTitle(props.file.path, props.file.size, quiet)}
-          >
+          <span {...stylex.props(styles.path)} title={fileTitle(props.file.path, props.file.size)}>
             {props.path ?? props.file.path}
           </span>
           {!draft?.editing && (

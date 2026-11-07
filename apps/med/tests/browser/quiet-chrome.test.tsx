@@ -9,7 +9,6 @@ import "../../src/web/components/TitleRow.css";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { CommitApi } from "../../src/web/data/commit";
 import { platform } from "../../src/web/data/keys";
 import type { Comparison } from "../../src/shared/protocol";
@@ -208,7 +207,6 @@ beforeEach(async () => {
   await page.viewport(1280, 800);
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
-  setChromeMode("quiet", false);
   const remotes = new Promise<void>((resolve) => (releaseRemotes = resolve));
   globalThis.fetch = async (input, init) => {
     if (!String(input).includes("/api/git/targets")) return pageFetch(input, init);
@@ -265,7 +263,9 @@ const shown = () =>
     element.checkVisibility({ visibilityProperty: true }),
   );
 /** The review's row: its tabs and the controls after them. */
-const row = () => shown()?.querySelector<HTMLElement>('[role="tablist"]')?.parentElement;
+/** The review's header, its one row. */
+const row = () =>
+  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ?? undefined;
 /** What the diff shows: in Changes the comparison, in Review the version (a
  * select, or text when there is one version). */
 const comparison = () =>
@@ -326,7 +326,7 @@ test("the Commit tab's Stage all is in the review's row, and the tab does not na
   });
   render(repository.api);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
   const files = page.getByRole("listbox", { name: "Changed files" });
   await expect.element(files).toBeVisible();
   const stage = () =>
@@ -349,15 +349,8 @@ test("the Commit tab's Stage all is in the review's row, and the tab does not na
     .toBe(true);
   await expect.poll(() => stage()?.textContent).toBe("Unstage all");
   // Changes has no Stage all.
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => stage()).toBeUndefined();
-
-  // Full chrome keeps the Commit tab's own header.
-  setChromeMode("full", false);
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
-  await expect.element(page.getByText("feature/commit-tab", { exact: true })).toBeVisible();
-  await expect.element(files.getByRole("option").first()).toBeVisible();
-  expect(stage()).toBeUndefined();
 });
 
 test("a narrow row shortens the comparison, then moves it into ⋯, and keeps ⋯ in view", async () => {
@@ -390,11 +383,9 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
     const label = value()?.textContent ?? "⋯";
     if (!seen.has(label)) seen.set(label, width);
   }
-  // Review's version: with its age, then without, then in ⋯.
-  const [long, short, menu] = [...seen.keys()];
-  expect(long).toMatch(versionOne);
-  expect([short, menu]).toEqual(["Version 1", "⋯"]);
-  expect(seen.get(long!)).toBe(1280);
+  // Review's version gives way to the header's own controls, and goes in ⋯
+  // last of all.
+  expect([...seen.keys()].at(-1)).toBe("⋯");
 
   // In ⋯, the comparison is the menu's first item: in Review, the version,
   // which has nothing to choose; in Changes, the comparisons.
@@ -406,7 +397,7 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   await expect.element(page.getByRole("menuitem", { name: versionOne })).toBeDisabled();
   expect(page.getByRole("menuitem", { name: "Working changes" }).query()).toBeNull();
   await userEvent.keyboard("{Escape}");
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   more().click();
   await page.getByRole("menuitem", { name: "Working changes" }).hover();
   await expect
@@ -417,20 +408,20 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   // 600 px: the tabs keep their place and ⋯ its own.
   await page.viewport(600, 800);
   await frame();
-  const changes = row()!.querySelector<HTMLElement>('[role="tab"]')!;
+  const changes = row()!.querySelector<HTMLElement>('[role="radio"]')!;
   expect(changes.getBoundingClientRect().width).toBeGreaterThan(0);
 
-  // On the Commit tab, a row without room for Stage all gives it back to
-  // the view's header, and the tabs keep that room. It returns to the row as
-  // the row widens.
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
+  // On the Commit page, a row without room for Stage all gives it back to
+  // the view's header, and the pages keep that room. It returns to the row
+  // once the row has room for it beside the title.
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
   const stage = () =>
     [...row()!.querySelectorAll("button")].find((button) =>
       /^(Un)?[Ss]tage /.test(button.textContent ?? ""),
     );
   await expect.element(page.getByRole("button", { name: /^(Un)?[Ss]tage all$/ })).toBeVisible();
   await expect.poll(() => stage()).toBeUndefined();
-  await page.viewport(1280, 800);
+  await page.viewport(2400, 800);
   await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
 });
 
@@ -441,7 +432,9 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
   await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
   const names = ["Review", "Changes", "Commit"];
   const tab = (name: string) =>
-    row()!.querySelector<HTMLElement>(`[role="tab"][aria-label="${name}"]`)!;
+    [...row()!.querySelectorAll<HTMLElement>('[role="radio"]')].find(
+      (radio) => radio.textContent === name,
+    )!;
   const boxes = () =>
     names.map((name) => {
       const box = tab(name).getBoundingClientRect();
@@ -451,8 +444,8 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
     await page.viewport(width, 800);
     const seen: string[][] = [];
     for (const name of [...names, "Review"]) {
-      await page.getByRole("tab", { name, exact: true }).click();
-      await expect.poll(() => tab(name).getAttribute("aria-selected")).toBe("true");
+      await page.getByRole("radio", { name, exact: true }).click();
+      await expect.poll(() => tab(name).getAttribute("aria-checked")).toBe("true");
       await frame();
       await frame();
       seen.push(boxes());
@@ -484,10 +477,10 @@ test("a closed Changed files pane comes back by the button where it was, ⌘K an
   expect(hideChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
   await hideChanged.click();
   await expect.poll(changedPane).toBeUndefined();
-  // Closed, its button is where it was, first in the review's row, and has
-  // the focus that the pane's button had.
+  // Closed, its button is where it was, at the start of the review's row,
+  // and has the focus that the pane's button had.
   await expect.element(showChanged).toBeVisible();
-  expect(row()!.querySelector("button")).toBe(showChanged.element());
+  expect(row()!.contains(showChanged.element())).toBe(true);
   expect(document.activeElement).toBe(showChanged.element());
   expect(showChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
   await showChanged.click();

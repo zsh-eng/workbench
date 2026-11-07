@@ -762,8 +762,6 @@ class MemoryStorage {
 const storage = new MemoryStorage();
 for (const [name, value] of Object.entries(recording.storage)) storage.setItem(name, value);
 storage.setItem("med:theme:v1", theme());
-// Zen mode's first hints name keys that a visitor on the website does not need.
-storage.setItem("med:zen-hints", "3");
 Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 Object.defineProperty(window, "sessionStorage", {
   value: new MemoryStorage(),
@@ -785,9 +783,9 @@ const visible = (selector: string) =>
 const until = async (test: () => unknown) => {
   for (let waited = 0; waited < 15_000 && !test(); waited += 100) await pause(100);
 };
-/** Sets a toggle button, such as a pane, to shown or hidden. */
+/** Shows a page of the review's header, or a file's tab. */
 const tab = (name: string) =>
-  all<HTMLElement>("[role='tab']")
+  all<HTMLElement>("[role='radio'], [role='tab']")
     .find((node) => node.textContent?.trim().startsWith(name))
     ?.click();
 const scroller = (node: Element | null) => {
@@ -839,12 +837,10 @@ const marks = (action: "stage" | "unstage") =>
   );
 
 const scenes: Record<string, () => Promise<void>> = {
-  // Med in zen mode: the thread in the sidebar, the agent's session waiting
-  // for the review, and the diff with the reviewer's comment on the first file.
+  // The thread in the sidebar, the agent's session waiting for the review,
+  // and the diff with the reviewer's comment on the first file.
   async review() {
     await review({ sidebar: true, session: true }, "Changes");
-    if (!visible("[data-zen-exit]"))
-      dispatchEvent(new KeyboardEvent("keydown", { key: "Ω", code: "KeyZ", altKey: true }));
     await until(() => visible(`${session} textarea`) && visible("[data-comment-card]"));
     // The first file, with the comment, at the top.
     const stream = scroller(visible("diffs-container") ?? null);
@@ -858,7 +854,8 @@ const scenes: Record<string, () => Promise<void>> = {
   // A short unified diff with the reviewer's comment.
   async comment() {
     await review({ sidebar: false, session: false }, "Changes");
-    visible("[role='group'][aria-label='Diff layout'] button[aria-label='Unified']")?.click();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
     await toComment();
   },
   async session() {

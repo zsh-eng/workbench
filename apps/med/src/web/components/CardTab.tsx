@@ -78,12 +78,8 @@ function edge({ width, height, shoulder, start, end, radius, flare: foot }: Shap
  * The outline draws over the card's content. The card clips its content to a
  * curve 1px outside the outline's, so content drawn below it covered the
  * outline at the bottom corners.
- *
- * With `lift` (zen mode), the content rises into the tab: the card clips it
- * to its outline, and `--med-lift-start` and `--med-lift-end` give the first
- * row the room that the window controls take on either side.
  */
-export function CardTab({ lift = false }: { lift?: boolean }) {
+export function CardTab() {
   const svg = useRef<SVGSVGElement>(null);
   const line = useRef<SVGPathElement>(null);
   const probe = useRef<HTMLSpanElement>(null);
@@ -121,12 +117,6 @@ export function CardTab({ lift = false }: { lift?: boolean }) {
       card.style.setProperty("--med-card-body", `${shoulder + 1}px`);
       fill.setAttribute("d", edge(shape, 1));
       outline.setAttribute("d", edge(shape, 0.5));
-      if (lift) {
-        card.dataset.lift = "";
-        card.style.clipPath = `path("${edge(shape, 0)}")`;
-        card.style.setProperty("--med-lift-start", `${start}px`);
-        card.style.setProperty("--med-lift-end", `${end < box.width ? box.width - end : 0}px`);
-      }
     };
     update();
     const observer = new ResizeObserver(update);
@@ -136,20 +126,16 @@ export function CardTab({ lift = false }: { lift?: boolean }) {
     if (row) observer.observe(row);
     return () => {
       observer.disconnect();
-      card.style.removeProperty("clip-path");
-      delete card.dataset.lift;
       for (const name of [
         "tab-before",
         "tab-after",
         "tab-inset-start",
         "tab-inset-end",
         "card-body",
-        "lift-start",
-        "lift-end",
       ])
         card.style.removeProperty(`--med-${name}`);
     };
-  }, [lift]);
+  }, []);
   const frame = stylex.props(styles.svg);
   const above = stylex.props(styles.svg, styles.above);
   return (

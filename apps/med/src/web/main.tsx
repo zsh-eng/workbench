@@ -7,7 +7,7 @@ import { initializeTheme, themeController } from "./themes";
 import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
-import { HIGHLIGHTER, PierreThemeSync } from "./pierre-theme";
+import { CodeSizeSync, HIGHLIGHTER, PierreThemeSync } from "./pierre-theme";
 import { AppTooltip } from "./components/ToolButton";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
@@ -100,6 +100,7 @@ createRoot(root).render(
     <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
       <div className="med-titlebar-band" aria-hidden="true" />
       <PierreThemeSync />
+      <CodeSizeSync />
       <UpdateNotice />
       <AppTooltip />
       <Root />

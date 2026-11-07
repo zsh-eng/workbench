@@ -16,19 +16,19 @@ files, the rail, and the session's side panel, and hides the session; a hidden
 session's button has its agent's mark. Med keeps each choice: a pane's in the
 thread's layout, the others in the view settings.
 
-| Pane or panel                      | Hide                                                 | Show again                                                                                                                                   |
-| ---------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sidebar (the threads)              | **Hide sidebar** in it, `⌘B`                         | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`                                                                          |
-| Changes (the changed files)        | **Hide changed files** in its header, `⌘⌃B`          | **Show changed files** at the start of the review's row, `⌘⌃B`, **Changed files** in quiet chrome's **⋯**, or **Show changed files** in `⌘K` |
-| Session                            | The button in its header, `⌘⇧B`                      | **Show agent session** at the start of the review's row (full chrome: at its end), `⌘⇧B`, **Agent session** in quiet chrome's **⋯**, or `⌘K` |
-| Files                              | The × in its header                                  | **Files** in quiet chrome's **⋯**, the folder button in full chrome, or **Show files sidebar** in `⌘K`                                       |
-| A vault's files sidebar            | The folder button, or **Hide files sidebar** in `⌘K` | The same button, or **Show files sidebar** in `⌘K`                                                                                           |
-| Files and commits rail, Guide list | The button at the end of the review's row, `⌘⌥B`     | The same button, `⌘⌥B`, or **Show files and commits** or **Show the guide** in `⌘K`                                                          |
-| The session's side panel           | The button in the session's row, `⌘⌥⇧B`              | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`                                                                        |
+| Pane or panel                      | Hide                                                 | Show again                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar (the threads)              | **Hide sidebar** in it, `⌘B`                         | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`                                                              |
+| Changes (the changed files)        | **Hide changed files** in its header, `⌘⌃B`          | **Show changed files** at the start of the review's header, `⌘⌃B`, **Changed files** in **⋯**, or **Show changed files** in `⌘K` |
+| Session                            | The button in its header, `⌘⇧B`                      | **Show agent session** at the start of the review's header, `⌘⇧B`, **Agent session** in **⋯**, or `⌘K`                           |
+| Files                              | The × in its header                                  | **Files** in **⋯**, or **Show files sidebar** in `⌘K`                                                                            |
+| A vault's files sidebar            | The folder button, or **Hide files sidebar** in `⌘K` | The same button, or **Show files sidebar** in `⌘K`                                                                               |
+| Files and commits rail, Guide list | The button at the end of the review's row, `⌘⌥B`     | The same button, `⌘⌥B`, or **Show files and commits** or **Show the guide** in `⌘K`                                              |
+| The session's side panel           | The button in the session's row, `⌘⌥⇧B`              | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`                                                            |
 
-The review's row shows the buttons at its ends where it has room; a narrower
-row keeps its room for the tabs and the comparison, and the shortcuts, **⋯**,
-and `⌘K` still work. `⌘⌃B` is for macOS: on Linux it would be the rail's
+The review's header shows the buttons at its ends where it has room; a
+narrower header keeps its room for the title and the pages, and the shortcuts,
+**⋯**, and `⌘K` still work. `⌘⌃B` is for macOS: on Linux it would be the rail's
 Ctrl+Alt+B. Two have no button to bring them back: the **Question** pane
 discards its question and answer unless you keep them as a comment, and the
 **Background** list's × hides the tasks until one starts or fails.
@@ -47,41 +47,34 @@ discards its question and answer unless you keep them as a comment, and the
   shows them again when there is room.
 - A review narrower than 760 pixels shows unified diffs.
 
-## Zen mode
+## The review's header
 
-`⌥Z`, the focus button at the top right, or **Enter zen mode** hides every
-bar: the tabs, the Changes toolbar, and the status bar. It also hides the saved
-review's header, the session's controls, and the reply and background bars.
-The panes stay, and the session keeps its thread and message box; a folded
-turn still opens.
+The review has one header, and each thing shows once: the sidebar names the
+thread (the title band does while the sidebar is hidden), and the session's
+row names the agent and its state.
 
-In zen mode, the command palette has the review's actions: **Send comments
-to** the agent, **Copy comments**, **Show Review**, and **Show Changes**. `⌘B` and `⌘⇧B`
-still show or hide the sidebar and the session. Press `⌥Z` again or click
-**Leave zen** to leave. Escape does not leave zen mode, so it stays free for
-search, Vim, and dialogs.
-
-## Quiet chrome
-
-Quiet chrome is on by default. Each pane has one row, and each thing shows
-once: the sidebar names the thread (the title band does while the sidebar is
-hidden), the title band names its branch, the review's row names what the diff
-compares, and the session's row names the agent and its state.
-
-- The review's row has its tabs (**Review**, **Changes**, **Commit**), the
-  comparison or, in Review, the version, and **⋯**. In Changes, the
-  comparison menu also has **Base branch…** (for a branch without a
-  worktree, **Compare against a branch…**) and **Compare two revisions…**, in
-  a thread **Thread checkout…**, and in a shared checkout **Only this
-  session's files**.
-- **⋯** has the comments, **Find in diffs**, the panes, **Zen mode**, **Push…**,
-  and **Refresh review**. Its **View** menu has the diff's layout, comments,
-  wrapping, the files and commits rail, and **Collapse all files**.
-- There is no Changes toolbar and no status bar. While the page reconnects to
-  the server, a notice shows at the lower right of the workspace.
-- Every action stays in `⌘K` and keeps its shortcut. **Use full chrome** in
-  `⌘K` brings back the toolbar, the status bar, and the review's header; **Use
-  quiet chrome** goes back. Med keeps the choice for every window.
+- From the start: the session's button while the session is hidden (with its
+  agent's mark), the review's title after Med's mark, and its branch, which
+  copies its name. Then what the diff compares, **⋯**, **Display**, and the
+  pages.
+- The pages are **Review**, **Changes**, and **Commit**, or **Pull request**
+  for a thread with one. The number keys `1` to `3` switch between them while
+  the focus is not in a text field, the diff, or the session.
+- **Display** has the diff's layout (**Split** or **Unified**, `S`), **Wrap
+  long lines** (`W`), **Comments in the diff** (`C`), and the code's text
+  size. The keys work while it is open.
+- In Changes, the comparison menu also has **Base branch…** (for a branch
+  without a worktree, **Compare against a branch…**) and **Compare two
+  revisions…**, in a thread **Thread checkout…**, and in a shared checkout
+  **Only this session's files**.
+- **⋯** has the comments, **Find in diffs**, the panes, **Push…**, and
+  **Refresh review**. Its **View** menu has the files and commits rail and
+  **Collapse all files**.
+- A narrow header gives way in this order: what the diff compares moves into
+  **⋯**, **Display** keeps its icon, the title shortens to Med's mark, the
+  branch hides, and last the pages' names shorten.
+- There is no toolbar and no status bar. While the page reconnects to the
+  server, a notice shows at the lower right of the workspace.
 
 ## View settings
 
@@ -96,21 +89,21 @@ every workspace and window, except where the table says "each window" or
 | ---------------------------------------------- | ------------ | ---------------------------------- |
 | Split or unified diff                          | Split        | `med:mode`                         |
 | Wrap long lines                                | Off          | `med:wrap`                         |
-| Show comments                                  | On           | `med:comments`                     |
+| Comments in the diff                           | On           | `med:comments`                     |
 | Guide or files and commits rail                | Auto         | `med:changes-rail`                 |
-| Quiet or full chrome                           | Quiet        | `med:chrome:v1`                    |
+| Code text size (11 to 16 pixels)               | 12           | `med:code-size`                    |
 | Theme                                          | Med Night    | `med:theme:v1`                     |
 | Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`        |
 | Find file's preview                            | On           | `med:picker-preview`               |
 | Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`       |
 | Session side panel                             | Shown        | `med:session-panel`                |
 | Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width` |
-| Zen mode (each workspace)                      | Off          | `med:zen`                          |
 | Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`         |
 | Changes rail, Guide, and Commit list widths    | Per pane     | `med:column:v1:<kind>`             |
 
 A missing or unknown value reads as the default, so nothing needs setting up.
 Some choices belong to one place, not to the view: the Git blame gutter (one
 file tab), **Collapse all files** (one review), and a Markdown file's source
-view (one file). Med has no text size or whitespace setting; the browser's
-zoom (`⌘+`, `⌘−`) changes the text size, and the browser keeps it.
+view (one file). **Display**'s text size sets the code's size; the browser's
+zoom (`⌘+`, `⌘−`) changes everything else, and the browser keeps it. Med has
+no whitespace setting.

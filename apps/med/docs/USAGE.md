@@ -34,6 +34,6 @@ These words name the parts of Med.
 - [Find files and code](usage/find.md): find files, search their contents, and go to symbols.
 - [Edit working files](usage/edit-files.md): edit, commit, and push, and open files outside Git.
 - [Read and edit Markdown](usage/markdown.md): read rendered Markdown, images, and videos.
-- [Layout](usage/layout.md): panes, zen mode, quiet chrome, and the view settings.
+- [Layout](usage/layout.md): panes, the review's header, and the view settings.
 - [Keyboard shortcuts](usage/keyboard.md): every shortcut, by place.
 - [Limits and evidence](usage/limits.md): what Med does not do, and the reports that measure it.

@@ -12,7 +12,6 @@ import {
 } from "react";
 import type { ParsedReviewFile } from "../data/controller";
 import { generatedIndex, splitGenerated } from "../data/generated";
-import { hoveredPath } from "../data/hovered-path";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { paneHandle } from "./PaneTree";
@@ -278,9 +277,7 @@ function ChangedTree({
             | HTMLElement
             | undefined;
           if (row?.dataset.itemPath) onPrefetch?.(row.dataset.itemPath);
-          hoveredPath.set(row?.dataset.itemPath ?? null);
         }}
-        onPointerLeave={() => hoveredPath.set(null)}
         onDoubleClick={(event) => {
           const row = event.nativeEvent
             .composedPath()

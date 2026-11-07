@@ -24,7 +24,6 @@ import {
   type WorkingFile,
   type WorkingStatus,
 } from "../data/commit";
-import { hoveredPath, type PathValue } from "../data/hovered-path";
 import { visibleElement } from "../data/palette-focus";
 import { useTheme } from "../themes";
 import { picked, tokens, ui } from "../theme.stylex";
@@ -240,11 +239,8 @@ export default function CommitView({
   keys = "window",
   onOpenFile,
   stageIn,
-  focusPath,
 }: {
-  /** Gets the path of the file that the list's focus is on, for the status bar. */
-  focusPath?: PathValue;
-  /** With quiet chrome, a place in the review's row: Stage all goes there,
+  /** A place in the review's row: Stage all goes there,
    * and the view has no header, as the title band names the branch. Null
    * while the row does not show. */
   stageIn?: HTMLElement | null;
@@ -307,10 +303,6 @@ export default function CommitView({
     [files, filter],
   );
   const focusedFile = shown.find((file) => file.path === focused) ?? shown[0] ?? null;
-  const focusedPath = focusedFile?.path ?? null;
-  useEffect(() => {
-    if (active) focusPath?.set(focusedPath);
-  }, [active, focusPath, focusedPath]);
   // The file list's width, as the reader set it with its edge.
   const { measure, width, pane } = useColumnWidth("commit", (pane) => Math.max(240, pane * 0.28));
   const stacked = !!pane && pane <= 720;
@@ -737,7 +729,7 @@ export default function CommitView({
       <div {...stylex.props(styles.layout, styles.listWidth(width))}>
         <div ref={measure} {...stylex.props(styles.side)}>
           {!inRow && (
-            <header data-lift-row="" {...stylex.props(styles.header)}>
+            <header {...stylex.props(styles.header)}>
               <Icon name="gitBranch" size={14} />
               <span {...stylex.props(styles.branch)}>{status?.branch || "Detached HEAD"}</span>
               {status?.upstream && (
@@ -783,7 +775,6 @@ export default function CommitView({
             tabIndex={0}
             aria-label="Changed files"
             aria-activedescendant={focusedFile ? rowId(focusedFile.path) : undefined}
-            onPointerLeave={() => hoveredPath.set(null)}
             {...stylex.props(styles.list)}
           >
             {loadError && !status && (
@@ -813,7 +804,6 @@ export default function CommitView({
                   {...clippedTooltip(
                     file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
                   )}
-                  onPointerEnter={() => hoveredPath.set(file.path)}
                   onClick={() => {
                     select(file.path, true);
                     list.current?.focus({ preventScroll: true });

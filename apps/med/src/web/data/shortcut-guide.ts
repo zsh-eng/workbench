@@ -61,6 +61,11 @@ export const guideContexts: GuideContext[] = [
             note: "Enter opens it here; Mod+Enter opens a new workspace",
             command: "open-branch",
           },
+          {
+            label: "Show the Review, Changes, or Commit page",
+            keys: ["{1–3}"],
+            note: "While the focus is not in text, the diff, or the session",
+          },
           { label: "Show a tab by its place in the sidebar", keys: ["Mod+{1–9}"] },
           {
             label: "Show the next tab that needs you",
@@ -233,12 +238,6 @@ export const guideContexts: GuideContext[] = [
             keys: ["Mod+Alt+Shift+B"],
             note: "In a session pane with room beside its thread",
             command: "session-side-panel",
-          },
-          {
-            label: "Zen mode",
-            keys: ["Alt+Z"],
-            note: "Hides every bar; the sidebar keys still show panels",
-            command: "zen",
           },
         ],
       },

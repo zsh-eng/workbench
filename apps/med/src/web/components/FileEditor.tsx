@@ -48,7 +48,6 @@ import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
 import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
-import { useQuietChrome } from "../data/chrome";
 import { fileTitle } from "./QuietChrome";
 import "./FileEditor.css";
 
@@ -270,7 +269,6 @@ export default function FileEditor({
   const view = useRef<EditorView | null>(null);
   const jumpPulse = useRef<Animation | null>(null);
   const [mode, setMode] = useState("NORMAL");
-  const quiet = useQuietChrome();
   const [confirm, setConfirm] = useState(false);
   const [syntaxError, setSyntaxError] = useState("");
   const [clipboardError, setClipboardError] = useState("");
@@ -849,17 +847,12 @@ export default function FileEditor({
         />
         <span
           className="med-editor-path"
-          title={fileTitle(draft.file.path, draft.file.size, quiet)}
+          title={fileTitle(draft.file.path, draft.file.size)}
         >
           {context.path ?? draft.file.path}
         </span>
-        {/* Quiet chrome has no status bar to say "Editing file · Vim". */}
-        <span
-          className="med-editor-mode"
-          aria-live="polite"
-          title={quiet ? "Editing file · Vim" : undefined}
-        >
-          {quiet ? `Vim · ${mode}` : mode}
+        <span className="med-editor-mode" aria-live="polite" title="Editing file · Vim">
+          {`Vim · ${mode}`}
         </span>
         <ToolButton
           label="Save"
