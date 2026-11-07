@@ -142,7 +142,7 @@ test("large plain files remain virtualized and never enter worker syntax highlig
   render(
     <WorkerPoolContextProvider
       poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
-      highlighterOptions={{ theme: "med-graphite-dark" }}
+      highlighterOptions={{ theme: "med-graphite-dark", preferredHighlighter: "highlights" }}
     >
       <Probe />
     </WorkerPoolContextProvider>,
@@ -263,18 +263,19 @@ test("search highlights follow virtualized rows and release their ranges on clos
   expect(searchRanges()).toEqual([]);
 });
 
+// Pierre names Crystal files, but its highlighter has no Crystal grammar.
 test("an unsupported grammar keeps readable source and identifies plain highlighting", async () => {
   render(
     <FullFileView
       {...props}
-      file={{ ...base, path: "example.zig", identity: "zig:1", text: "pub fn main() void {}" }}
+      file={{ ...base, path: "example.cr", identity: "cr:1", text: 'puts "hello"' }}
     />,
   );
   await expect.poll(() => lines()?.length ?? 0).toBeGreaterThan(0);
-  expect(lines()![0].textContent).toContain("pub fn main()");
-  expect(mount!.querySelector('[role="status"]')?.textContent).toContain(
-    "Syntax highlighting is not available for zig",
-  );
+  expect(lines()![0].textContent).toContain('puts "hello"');
+  await expect
+    .poll(() => mount!.querySelector('[role="status"]')?.textContent)
+    .toContain("Syntax highlighting is not available for crystal");
 });
 
 test("a long plain line uses horizontal scrolling instead of wrapping", async () => {
@@ -1872,7 +1873,7 @@ test.each(["java", "cpp"])("%s is highlighted by the real syntax worker", async 
   const text = lang === "java" ? "class Demo { int count = 42; }" : "int main() { return 42; }";
   render(
     <WorkerPoolContextProvider
-      highlighterOptions={{ theme: "github-dark" }}
+      highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
       poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
     >
       <FullFileView
@@ -1906,7 +1907,7 @@ test("worker highlighting preserves distant multiline state across file switches
     const [second, setSecond] = useState(false);
     return (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         <button onClick={() => setSecond((value) => !value)}>Switch file</button>
@@ -1936,10 +1937,12 @@ test("worker highlighting preserves distant multiline state across file switches
   await pane.click();
   await userEvent.keyboard("gg");
   await expect.poll(() => line(1)?.textContent).toBe("class Demo {");
-  await expect.poll(() => color(1)).toContain("#f97583");
+  // The jump paints line 1 at once; its colors follow from the worker.
+  await expect.poll(() => color(1), { timeout: 5_000 }).toContain("#f97583");
   await userEvent.keyboard("G");
   await expect.poll(() => line(304)?.textContent).toBe("int count = 42;");
-  await expect.poll(() => color(304)).toContain("#f97583");
+  // Code again after the comment: `int` is a type in Pierre's Java grammar.
+  await expect.poll(() => color(304)).toContain("#b392f0");
   await page.getByRole("button", { name: "Switch file" }).click();
   await expect.poll(() => line(1)?.textContent).toBe("class Other { int value = 7; }");
   await page.getByRole("button", { name: "Switch file" }).click();
@@ -1947,12 +1950,12 @@ test("worker highlighting preserves distant multiline state across file switches
   await expect.poll(() => color(290)).toContain("#6a737d");
 });
 
-test("colors Groovy and Gradle files with the Java tokenizer", async () => {
+test("colors Groovy and Gradle files with the Groovy grammar", async () => {
   function Harness() {
     const [gradle, setGradle] = useState(false);
     return (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         <button onClick={() => setGradle(true)}>Open Gradle</button>

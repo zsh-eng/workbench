@@ -8,9 +8,7 @@ import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element, RootContent } from "hast";
-import type { AdapterTheme } from "../highlighting/adapter";
-import { createHighlighter } from "../highlighting/runtime";
-import { supportedLanguage } from "../highlighting/languages";
+import { loadTheme, tokenLines, type SyntaxThemeData } from "../highlighting/highlighter";
 import type { MarkdownBlock, MarkdownHeading } from "./model";
 import { siteIcon } from "./site-icons";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype);
@@ -21,7 +19,6 @@ const replyParser = unified()
   .use(remarkMath, { singleDollarTextMath: false })
   .use(remarkRehype);
 const stringify = unified().use(rehypeStringify);
-const highlighter = await createHighlighter();
 const codeCache = new Map<string, Element["children"]>();
 /** Text with a line break opportunity (<wbr>) at the separators of its long
  * words (breaks.ts), so that a table column's narrowest width is its longest
@@ -47,7 +44,7 @@ type Task = {
   id: number;
   text: string;
   /** The theme, once for each worker; later tasks name it. */
-  theme?: AdapterTheme;
+  theme?: SyntaxThemeData;
   themeName?: string;
   vault?: boolean;
   fileLinks?: boolean;
@@ -64,7 +61,7 @@ type Task = {
 // renders each task in order and replies to each.
 let latest: Task | undefined;
 const queue: Task[] = [];
-const themes = new Map<string, AdapterTheme>();
+const themes = new Map<string, SyntaxThemeData>();
 let running = false;
 self.onmessage = (event: MessageEvent<Task | { batch: Task[] }>) => {
   if ("batch" in event.data) queue.push(...event.data.batch);
@@ -92,8 +89,8 @@ async function drain() {
       if (task.theme) themes.set(task.theme.name!, task.theme);
       const known = task.theme ?? themes.get(task.themeName!);
       if (!known) throw new Error("The Markdown theme is not loaded. Reload the page.");
-      const theme: AdapterTheme = known;
-      highlighter.loadThemeSync(theme);
+      const theme: SyntaxThemeData = known;
+      loadTheme(theme);
       async function visit(node: RootContent, sourceLine: number, cell = false): Promise<void> {
         if (node.type !== "element") return;
         if (node.position) {
@@ -208,28 +205,19 @@ async function drain() {
               node.properties.dataMermaid = true;
               return;
             }
-            if (supportedLanguage(language) && source.length < 100_000 && language !== "markdown") {
+            if (language !== "text" && source.length < 100_000 && language !== "markdown") {
               const key = `${theme.name}:${language}:${source}`;
               let children = codeCache.get(key);
               if (!children) {
-                await highlighter.prepareSource(language, source);
                 children = [];
-                const lines = highlighter.codeToTokens(source, {
-                  lang: language,
-                  theme: theme.name!,
-                  tokenizeMaxLineLength: 20000,
-                });
+                const lines = await tokenLines(source, language, theme.name!);
                 lines.forEach((line, index) => {
                   if (index) children!.push({ type: "text", value: "\n" });
                   for (const token of line)
                     children!.push({
                       type: "element",
                       tagName: "span",
-                      properties: {
-                        style: Object.entries(token.htmlStyle ?? {})
-                          .map(([k, v]) => `${k}:${v}`)
-                          .join(";"),
-                      },
+                      properties: { style: token.style },
                       children: [{ type: "text", value: token.content }],
                     });
                 });

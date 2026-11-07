@@ -63,6 +63,7 @@ import {
   selectedPassage,
   type Passage,
 } from "./BriefComments";
+import { HIGHLIGHTER } from "../pierre-theme";
 
 export interface BriefLocation {
   fileId: string;
@@ -1046,6 +1047,7 @@ function CheckoutExcerptCard({
   const options = useMemo<FileDiffOptions<undefined, undefined>>(
     () => ({
       theme: pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType,
       diffStyle: "unified",
       overflow: "wrap",
@@ -1238,6 +1240,7 @@ function ExcerptCard({
         ?.setAttribute("aria-label", "Add note to line");
     return {
       theme: pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType,
       diffStyle: "unified",
       overflow: "wrap",

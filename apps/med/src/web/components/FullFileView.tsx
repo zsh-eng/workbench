@@ -26,6 +26,7 @@ import {
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
+import { useSyntaxSupport } from "../highlighting/support";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
 import type { BlameLoader, CommitLoader } from "../data/blame";
@@ -38,7 +39,6 @@ import { Icon } from "./Icon";
 import { useFileVim, type FileNavigationCommand } from "../data/use-file-vim";
 import { pierreFile } from "../data/file-prefetch";
 import { getFiletypeFromFileName } from "@pierre/diffs";
-import { supportedLanguage } from "../highlighting/languages";
 import { createSearchHighlights } from "../data/search-highlights";
 import { BlameTooltips } from "./BlameTooltips";
 import type { FileChanges } from "../../shared/file-changes";
@@ -48,6 +48,7 @@ import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
 import { useQuietChrome } from "../data/chrome";
 import { fileTitle } from "./QuietChrome";
+import { HIGHLIGHTER } from "../pierre-theme";
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -350,10 +351,7 @@ function ReadOnlyFileView({
   }, [file, stale, loading, loadChanges, changes]);
   const plain = !!file?.plain;
   const language = getFiletypeFromFileName(file?.path ?? "");
-  const unsupportedSyntax =
-    import.meta.env.MED_HIGHLIGHTER !== "shiki" &&
-    language !== "text" &&
-    !supportedLanguage(language);
+  const unsupportedSyntax = useSyntaxSupport(language) === false;
   const items = useMemo<CodeViewItem<undefined>[]>(() => {
     if (file?.kind !== "text" || typeof file.text !== "string") return [];
     return [
@@ -388,6 +386,7 @@ function ReadOnlyFileView({
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       overflow: "scroll",
       disableFileHeader: true,

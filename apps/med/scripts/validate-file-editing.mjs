@@ -246,7 +246,7 @@ try {
       "65ms ease-out cursor motion in Normal and Visual modes",
       "reduced-motion cursor preference",
       "deep link to second repository",
-      "Twinkleplop syntax colors",
+      "syntax colors",
       "Vim insert and :w",
       "undo after save",
       "byte-identical restore",

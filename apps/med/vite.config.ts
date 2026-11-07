@@ -2,7 +2,6 @@ import { createRequire } from "node:module";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import stylex from "@stylexjs/unplugin";
-import { pierreHighlighter } from "./tools/pierre-highlighter.ts";
 import { pierreKeepAlive } from "./tools/pierre-keep-alive.ts";
 
 export default defineConfig({
@@ -18,7 +17,6 @@ export default defineConfig({
     },
   },
   plugins: [
-    pierreHighlighter(),
     pierreKeepAlive(),
     // StyleX adds its rules to the app's own stylesheet: index.html's, or
     // main's in the demo, which imports main after it sets up. Without this
@@ -39,7 +37,7 @@ export default defineConfig({
       "@pierre/trees",
     ],
   },
-  worker: { format: "es", plugins: () => [pierreHighlighter()] },
+  worker: { format: "es" },
   build: { outDir: "dist/web", target: "es2022", sourcemap: true },
   server: {
     host: "127.0.0.1",

@@ -36,6 +36,7 @@ import { PathLabel } from "./PathLabel";
 import { ShortcutKeys } from "./ShortcutKeys";
 import { clippedTooltip } from "./ToolButton";
 import { useWorkspaceShown } from "./Workspaces";
+import { HIGHLIGHTER } from "../pierre-theme";
 
 type Change = NonNullable<WorkingFile["staged"]>;
 const letters: Record<Change, string> = {
@@ -700,6 +701,7 @@ export default function CommitView({
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({
       theme: theme.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: theme.appearance,
       diffStyle: "unified",
       overflow: "wrap",

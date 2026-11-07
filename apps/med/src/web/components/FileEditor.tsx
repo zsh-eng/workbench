@@ -30,7 +30,8 @@ import {
 } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
-import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
+import { getFiletypeFromFileName } from "@pierre/diffs";
+import { resolveSyntaxTheme, HIGHLIGHTER } from "../pierre-theme";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import { useTheme } from "../themes";
 import { codeColors } from "../code-colors";
@@ -218,6 +219,7 @@ function DiskChanges({ path, before, after }: { path: string; before: FileRead; 
   const options = useMemo(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle: "unified" as const,
       overflow: "wrap" as const,
@@ -514,7 +516,7 @@ export default function FileEditor({
     let sequence = 0,
       stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let theme: Awaited<ReturnType<typeof resolveTheme>> | undefined;
+    let theme: Awaited<ReturnType<typeof resolveSyntaxTheme>> | undefined;
     const schedule = (immediate = false) => {
       clearTimeout(timer);
       const id = ++sequence;
@@ -780,7 +782,7 @@ export default function FileEditor({
     };
     worker.onerror = () =>
       setSyntaxError("Syntax colors unavailable; editing and saving still work.");
-    void resolveTheme(active.pierreTheme)
+    void resolveSyntaxTheme(active.pierreTheme)
       .then((result) => {
         if (!stopped) {
           theme = result;

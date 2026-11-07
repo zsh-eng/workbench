@@ -18,7 +18,7 @@ _Bun and med · Vitesse Light_
 
 ## Find and read code
 
-Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Twinkleplop supplies syntax colours, including local Java, C++, Go, Rust, and Swift support; Groovy and Gradle files use the Java colours. Files without a supported grammar remain readable as plain text. See [highlighting parity and performance](docs/validation/JAVA_CPP_HIGHLIGHTING.md) for measured results and known differences from Shiki.
+Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Pierre's WebAssembly highlighter colours 152 languages; anything else stays readable as plain text.
 
 ![Bun file search with matching paths and a code preview in Vitesse Dark](docs/screenshots/bun-search-vitesse-dark.png)
 
@@ -125,8 +125,7 @@ See the [usage guide](docs/USAGE.md) for all shortcuts, search setup, and limits
 
 | Project                                                            | Use in med                                             |
 | ------------------------------------------------------------------ | ------------------------------------------------------ |
-| [Pierre Diffs and Trees](https://github.com/pierrecomputer/pierre) | Code and diff rendering; file trees                    |
-| [Twinkleplop](https://github.com/pngwn/twinkleplop)                | Syntax highlighting                                    |
+| [Pierre Diffs and Trees](https://github.com/pierrecomputer/pierre) | Code and diff rendering, syntax highlighting; trees    |
 | [Base UI](https://base-ui.com/)                                    | UI controls and dialogs                                |
 | [Universal Ctags](https://github.com/universal-ctags/ctags)        | Symbol extraction                                      |
 | [Zoekt](https://github.com/sourcegraph/zoekt)                      | Indexed search across committed branches               |

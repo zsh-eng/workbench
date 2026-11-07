@@ -592,7 +592,8 @@ test("keeps branch workspaces live, switches by shortcut, and restores them", as
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   const mainView = shown();
   const mainDiffs = () => [...mainView!.querySelectorAll("diffs-container")];
-  await expect.poll(() => mainDiffs().length).toBe(2);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
+  await expect.poll(() => mainDiffs().length, { timeout: 5_000 }).toBe(2);
   const renderedDiffs = mainDiffs();
 
   // ⌘↵ in the branch picker (⌘⇧G) opens the branch as a new workspace.

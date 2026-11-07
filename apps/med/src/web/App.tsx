@@ -234,6 +234,7 @@ import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
 import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
+import { HIGHLIGHTER } from "./pierre-theme";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -2527,6 +2528,7 @@ export function App({
   const options = useMemo<CodeViewReactOptions<Annotation, undefined>>(
     () => ({
       theme: activeTheme.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: theme,
       diffStyle: mode,
       overflow: wrap ? "wrap" : "scroll",
@@ -5075,7 +5077,8 @@ export function App({
     [fileWorkspace],
   );
   const renderAnnotation = useCallback(
-    (annotation: { metadata?: Annotation }) =>
+    // Pierre also passes the file and the item; Med reads the metadata only.
+    (annotation: { metadata?: Annotation }, ..._rest: unknown[]) =>
       annotation.metadata?.draft ? (
         <NoteComposer
           key={JSON.stringify(annotation.metadata.draft)}

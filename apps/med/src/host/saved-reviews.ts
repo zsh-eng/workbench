@@ -264,7 +264,7 @@ function patchSections(patch: string) {
   for (const section of patch.split(/(?=^diff --git )/m)) {
     if (!section.startsWith("diff --git ")) continue;
     try {
-      const file = parsePatchFiles(section, undefined, true)[0]?.files[0];
+      const file = parsePatchFiles(section, { throwOnError: true })[0]?.files[0];
       if (file) sections.set(normalizeDiffMetadataPaths(file).name, section);
     } catch {
       /* A part that does not parse shows nothing. */
@@ -2600,7 +2600,7 @@ export class SavedReviewStore {
         repositories.add(info.repositoryId);
         let parsed: FileDiffMetadata[] = [];
         try {
-          parsed = parsePatchFiles(target.review.patch, undefined, true)
+          parsed = parsePatchFiles(target.review.patch, { throwOnError: true })
             .flatMap((patch) => patch.files)
             .map(normalizeDiffMetadataPaths);
         } catch {

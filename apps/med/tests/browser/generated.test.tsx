@@ -303,7 +303,10 @@ const groupLines = () =>
 test("generated files fold at the end of the stream and under the tree, out of the totals", async () => {
   await mountReview();
   // The stream: the files that people wrote, in order; the group folds after them.
-  await expect.poll(streamPaths).toEqual(["package.json", "scripts/gen.ts", "src/app.ts"]);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
+  await expect
+    .poll(streamPaths, { timeout: 5_000 })
+    .toEqual(["package.json", "scripts/gen.ts", "src/app.ts"]);
   await expect.element(group()).toHaveAttribute("data-generated-group", "folded");
   await expect.element(group().getByText("4 files")).toBeVisible();
   expect(groupLines()).toEqual([
@@ -369,7 +372,10 @@ test("a generated file is viewed with its source, and the tree reveals a folded 
     .element(page.getByRole("checkbox", { name: "Viewed dist/app.js" }))
     .toHaveAttribute("aria-checked", "false");
   await userEvent.click(page.getByRole("button", { name: "Fold 4 generated files" }));
-  await expect.poll(streamPaths).toEqual(["package.json", "scripts/gen.ts", "src/app.ts"]);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
+  await expect
+    .poll(streamPaths, { timeout: 5_000 })
+    .toEqual(["package.json", "scripts/gen.ts", "src/app.ts"]);
 
   // A line of the folded group opens it, with that file's diff.
   await userEvent.click(group().getByRole("link", { name: "dist/app.js" }));

@@ -139,7 +139,7 @@ async function mountFile(
   root.render(
     syntaxSource ? (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         {app}

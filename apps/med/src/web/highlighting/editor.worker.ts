@@ -1,7 +1,6 @@
-import { createHighlighter } from "./runtime";
-import type { AdapterTheme } from "./adapter";
-const highlighter = await createHighlighter();
-let latest: { id: number; text: string; language: string; theme: AdapterTheme } | undefined;
+import { loadTheme, tokenLines, type SyntaxThemeData } from "./highlighter";
+
+let latest: { id: number; text: string; language: string; theme: SyntaxThemeData } | undefined;
 let running = false;
 self.onmessage = (event: MessageEvent<NonNullable<typeof latest>>) => {
   latest = event.data;
@@ -13,31 +12,33 @@ async function drain() {
     const task = latest;
     latest = undefined;
     try {
-      highlighter.loadThemeSync(task.theme);
-      await highlighter.prepareSource(task.language, task.text);
-      // An in-flight grammar load can be overtaken by newer input.
+      loadTheme(task.theme);
+      const lines = await tokenLines(task.text, task.language, task.theme.name!);
+      // Newer input overtook this one while the highlighter loaded.
       if (latest) continue;
       const styles: string[] = [];
       const indices = new Map<string, number>();
       const ranges: number[] = [];
-      for (const line of highlighter.codeToTokens(task.text, {
-        lang: task.language,
-        theme: task.theme.name!,
-        tokenizeMaxLineLength: 20000,
-      })) {
+      let lineStart = 0;
+      const text = task.text;
+      // A line's tokens spell the line, so each token starts where the one
+      // before it ended, whatever the highlighter counts its offsets from.
+      for (const line of lines) {
+        let start = lineStart;
         for (const token of line) {
-          if (!token.content.length) continue;
-          const style = Object.entries(token.htmlStyle ?? {})
-            .map(([key, value]) => `${key}:${value}`)
-            .join(";");
-          let index = indices.get(style);
+          const length = token.content.length;
+          if (!length) continue;
+          let index = indices.get(token.style);
           if (index === undefined) {
             index = styles.length;
-            styles.push(style);
-            indices.set(style, index);
+            styles.push(token.style);
+            indices.set(token.style, index);
           }
-          ranges.push(token.offset, token.offset + token.content.length, index);
+          ranges.push(start, start + length, index);
+          start += length;
         }
+        const lf = text.indexOf("\n", start);
+        lineStart = lf < 0 ? text.length : lf + 1;
       }
       const packed = Uint32Array.from(ranges);
       self.postMessage({ id: task.id, styles, ranges: packed }, [packed.buffer]);

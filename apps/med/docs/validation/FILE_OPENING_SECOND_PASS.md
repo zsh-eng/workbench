@@ -79,7 +79,7 @@ and worker completion while preserving the original visible-view end condition.
 
 The [raw results](file-opening-second-pass-results.json) contain every sample,
 phase, source hash, build asset hash, and payload comparison. See the
-[Java/C++ report](JAVA_CPP_HIGHLIGHTING.md) for known Shiki classification gaps.
+Java/C++ report (removed with that highlighter) for known Shiki classification gaps.
 
 ## Reproduce
 

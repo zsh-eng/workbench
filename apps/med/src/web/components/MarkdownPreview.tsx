@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
   type CSSProperties,
 } from "react";
-import { resolveTheme } from "@pierre/diffs";
+import { resolveSyntaxTheme } from "../pierre-theme";
 import type { FileRead } from "../../shared/local-file";
 import { useTheme } from "../themes";
 import type {
@@ -184,7 +184,7 @@ export default function MarkdownPreview({
     const id = ++sequence.current;
     const timer = setTimeout(
       () => {
-        void resolveTheme(active.pierreTheme)
+        void resolveSyntaxTheme(active.pierreTheme)
           .then((theme) => {
             if (id === sequence.current)
               worker.current?.postMessage({

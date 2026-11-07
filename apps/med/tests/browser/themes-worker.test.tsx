@@ -36,7 +36,7 @@ index 1111111..2222222 100644
 +export const greeting = "after";
  export function hello() { return greeting; }
 `,
-  "theme-worker-fixture",
+  { cacheKeyPrefix: "theme-worker-fixture" },
 )[0].files[0];
 const file = {
   name: "example.ts",
@@ -112,7 +112,7 @@ test.each(["file", "diff"] as const)(
     root.render(
       <WorkerPoolContextProvider
         poolOptions={poolOptions}
-        highlighterOptions={{ theme: "med-graphite-dark" }}
+        highlighterOptions={{ theme: "med-graphite-dark", preferredHighlighter: "highlights" }}
       >
         <PierreThemeSync />
         <Review view={view} />

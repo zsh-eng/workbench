@@ -29,7 +29,7 @@ export interface ParsedReviewFile {
 
 /** Small-patch fallback. Large reviews supply the same parser through a worker. */
 export function parseReviewPatch(patch: string): FileDiffMetadata[] {
-  return parsePatchFiles(patch, undefined, true).flatMap((entry) => entry.files);
+  return parsePatchFiles(patch, { throwOnError: true }).flatMap((entry) => entry.files);
 }
 
 /** Metadata without hunks, for a file whose changes are not shown. */
@@ -50,6 +50,8 @@ export function emptyMetadata(info: ReviewFile): FileDiffMetadata {
     unifiedLineCount: 0,
     additionLines: [],
     deletionLines: [],
+    additionCharacterCount: 0,
+    deletionCharacterCount: 0,
     isPartial: true,
   };
 }

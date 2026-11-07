@@ -1,11 +1,13 @@
 import { describe, expect, test, vi } from "vitest";
 import { resolveTheme } from "@pierre/diffs";
 import "../../src/web/pierre-theme";
+import { zedSyntax } from "../../src/web/zed-syntax";
 import {
   createThemeController,
   defaultTheme,
   themes,
   THEME_STORAGE_KEY,
+  type SyntaxTheme,
 } from "../../src/web/themes";
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -50,25 +52,68 @@ describe("theme choices", () => {
     expect(controller.getSnapshot().active.id).toBe("tokyo-night");
   });
 
-  test("resolves every custom Pierre theme with its syntax rules", async () => {
-    for (const theme of themes) {
-      const resolved = await resolveTheme(theme.pierreTheme);
-      expect(resolved.name).toBe(theme.pierreTheme);
+  test.each(themes.map((theme) => [theme.pierreTheme, theme] as const))(
+    "resolves %s as a Zed theme on Med's canvas, with Med's Git colors",
+    async (name, theme) => {
+      const resolved = await resolveTheme(name, "highlights");
+      expect(resolved.name).toBe(name);
       expect(resolved.type).toBe(theme.appearance);
       expect(resolved.bg).toBe(theme.palette.canvas);
-      expect(resolved.fg).toBe(theme.palette.text);
       expect(resolved.colors?.["gitDecoration.addedResourceForeground"]).toBe(theme.palette.green);
-      expect(resolved.settings.length).toBeGreaterThan(1);
-      const upstream =
-        typeof theme.syntax === "string" ? (await resolveTheme(theme.syntax)).settings : null;
-      // Vesper has a rule without settings; Shiki skips it.
-      const colors = resolved.settings.map((rule) => rule.settings?.foreground?.toLowerCase());
-      const expected =
-        typeof theme.syntax === "string"
-          ? colors
-          : theme.syntax.rules.flatMap((rule) => (rule.color ? [rule.color.toLowerCase()] : []));
-      expect(upstream ?? resolved.settings).toEqual(resolved.settings);
-      expect(colors).toEqual(expect.arrayContaining(expected));
-    }
+      expect(resolved.colors?.["gitDecoration.deletedResourceForeground"]).toBe(theme.palette.red);
+    },
+  );
+
+  // A bundled syntax keeps Pierre's own build of it.
+  test.each(
+    themes.flatMap((theme) =>
+      typeof theme.syntax === "string" ? [[theme.pierreTheme, theme.syntax] as const] : [],
+    ),
+  )("%s keeps the syntax colors of Pierre's %s", async (name, syntax) => {
+    const resolved = (await resolveTheme(name, "highlights")).zed!.style;
+    const upstream = (await resolveTheme(syntax, "highlights")).zed!.style;
+    expect(resolved.syntax).toEqual(upstream.syntax);
+    expect(resolved["editor.foreground"]).toBe(upstream["editor.foreground"] ?? upstream.text);
+  });
+
+  // Med's own rules: each capture takes the rule TextMate would apply.
+  test.each(
+    themes.flatMap((theme) =>
+      typeof theme.syntax === "string" ? [] : [[theme.pierreTheme, theme.syntax] as const],
+    ),
+  )("%s colors code by its TextMate rules", async (name, rules: SyntaxTheme) => {
+    const resolved = (await resolveTheme(name, "highlights")).zed!.style;
+    const ruleColor = (scope: string) =>
+      rules.rules.find((rule) => rule.scope.includes(scope))?.color;
+    const color = (capture: string) => {
+      const value = resolved.syntax![capture];
+      return typeof value === "string" ? value : value?.color;
+    };
+    expect(resolved["editor.foreground"]).toBe(rules.foreground);
+    expect(color("comment")).toBe(ruleColor("comment"));
+    expect(color("string")).toBe(ruleColor("string"));
+    expect(color("keyword")).toBe(ruleColor("keyword"));
+    expect(color("function")).toBe(ruleColor("entity.name.function"));
+  });
+
+  test("maps TextMate rules to captures by TextMate's own precedence", () => {
+    const syntax = zedSyntax({
+      foreground: "#000000",
+      rules: [
+        { scope: ["keyword"], color: "#111111" },
+        { scope: ["keyword.operator"], color: "#222222" },
+        { scope: ["string"], color: "#333333" },
+        { scope: ["string"], color: "#444444", style: "italic" },
+        { scope: ["markup.heading"], style: "bold" },
+      ],
+    });
+    // The longest selector wins; of two as long, the later one.
+    expect(syntax.keyword).toEqual({ color: "#111111" });
+    expect(syntax["keyword.operator"]).toEqual({ color: "#222222" });
+    expect(syntax.string).toEqual({ color: "#444444", font_style: "italic" });
+    // A style without a color keeps the parent capture's color.
+    expect(syntax["markup.heading"]).toEqual({ font_weight: 700 });
+    // A capture no rule reaches is left to its parent.
+    expect(syntax.function).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@ import { formatDuration } from "./Elapsed";
 import { motion, rowStyles } from "./session-styles";
 import { ScheduleCard } from "./ScheduleCard";
 import { isMedWait } from "./thread-model";
+import { HIGHLIGHTER } from "../../pierre-theme";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type DiffContent = Extract<ToolCallContent, { type: "diff" }>;
@@ -278,6 +279,7 @@ function RenderedDiff({ diff }: { diff: DiffContent }) {
   const options = useMemo(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle: "unified" as const,
       overflow: "wrap" as const,

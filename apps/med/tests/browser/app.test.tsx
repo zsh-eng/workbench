@@ -1033,8 +1033,9 @@ async function mountApp(
       options.iterationBriefs ||
       options.guide ||
       options.rangeCommits);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
   await expect
-    .poll(() => document.querySelectorAll("diffs-container").length)
+    .poll(() => document.querySelectorAll("diffs-container").length, { timeout: 5_000 })
     .toBeGreaterThanOrEqual(briefFirst ? 0 : options.review ? 1 : 2);
   return {
     controller,

@@ -1,4 +1,4 @@
-import { resolveTheme } from "@pierre/diffs";
+import { resolveSyntaxTheme } from "../pierre-theme";
 import type { MarkdownResult } from "./model";
 import RenderWorker from "./render.worker?worker";
 
@@ -40,7 +40,7 @@ const IN_FLIGHT = 2;
 let inFlight = 0;
 let flushing = false;
 /** Themes as the worker takes them, once resolved, so a batch goes at once. */
-const resolved = new Map<string, Awaited<ReturnType<typeof resolveTheme>>>();
+const resolved = new Map<string, Awaited<ReturnType<typeof resolveSyntaxTheme>>>();
 let sequence = 0;
 const replies = new Map<number, (data: MarkdownResult & { error?: string }) => void>();
 
@@ -121,15 +121,16 @@ function next() {
 }
 
 async function send(tasks: Task[]) {
-  const themes = new Map<string, ReturnType<typeof resolveTheme>>();
-  const sent: { task: Task; id: number; theme: Awaited<ReturnType<typeof resolveTheme>> }[] = [];
+  const themes = new Map<string, ReturnType<typeof resolveSyntaxTheme>>();
+  const sent: { task: Task; id: number; theme: Awaited<ReturnType<typeof resolveSyntaxTheme>> }[] =
+    [];
   for (const task of tasks) {
     const known = resolved.get(task.theme);
     if (known) {
       sent.push({ task, id: ++sequence, theme: known });
       continue;
     }
-    if (!themes.has(task.theme)) themes.set(task.theme, resolveTheme(task.theme));
+    if (!themes.has(task.theme)) themes.set(task.theme, resolveSyntaxTheme(task.theme));
     try {
       const theme = await themes.get(task.theme)!;
       resolved.set(task.theme, theme);

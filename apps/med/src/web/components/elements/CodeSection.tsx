@@ -10,6 +10,7 @@ import { diffSurfaceStyle, EXPANSION_LINES } from "../diff-surface";
 import { FullFileView } from "../FullFileView";
 import { relativeTimePatch, sampleFile, themePatch } from "./fixtures";
 import { Section, Specimen } from "./Specimen";
+import { HIGHLIGHTER } from "../../pierre-theme";
 
 /** The visual options of the Changes view, without its review callbacks. */
 function useDiffOptions<A>(diffStyle: "unified" | "split" = "unified") {
@@ -17,6 +18,7 @@ function useDiffOptions<A>(diffStyle: "unified" | "split" = "unified") {
   return useMemo<FileDiffOptions<A, undefined>>(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle,
       overflow: "scroll",

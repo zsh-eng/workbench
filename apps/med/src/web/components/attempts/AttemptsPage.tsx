@@ -20,6 +20,7 @@ import { CardTab, tabbedCard } from "../CardTab";
 import { diffSurfaceStyle } from "../diff-surface";
 import { Icon, type IconName } from "../Icon";
 import { ToolButton } from "../ToolButton";
+import { HIGHLIGHTER } from "../../pierre-theme";
 
 /**
  * The Attempts page: one task that two or three agents did, side by side. A
@@ -623,6 +624,7 @@ function Diff({ patch }: { patch: string }) {
   const options = useMemo(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle: "unified" as const,
       overflow: "wrap" as const,

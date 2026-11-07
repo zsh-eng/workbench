@@ -2382,7 +2382,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               let parsed: Map<string, FileDiffMetadata> | undefined;
               const fileOf = (path: string) => {
                 parsed ??= new Map(
-                  parsePatchFiles(stored.patch, undefined, true)
+                  parsePatchFiles(stored.patch, { throwOnError: true })
                     .flatMap((patch) => patch.files)
                     .map((file) => {
                       const named = normalizeDiffMetadataPaths(file);

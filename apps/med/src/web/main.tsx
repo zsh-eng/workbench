@@ -7,7 +7,7 @@ import { initializeTheme, themeController } from "./themes";
 import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
-import { PierreThemeSync } from "./pierre-theme";
+import { HIGHLIGHTER, PierreThemeSync } from "./pierre-theme";
 import { AppTooltip } from "./components/ToolButton";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
@@ -36,7 +36,10 @@ const poolOptions = {
   poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1)),
   totalASTLRUCacheSize: 80,
 };
-const highlighterOptions = { theme: themeController.getSnapshot().active.pierreTheme };
+const highlighterOptions = {
+  theme: themeController.getSnapshot().active.pierreTheme,
+  preferredHighlighter: HIGHLIGHTER,
+};
 const Welcome = lazy(() => import("./components/welcome/Welcome"));
 // The workspace list renders its views again on every switch. A review renders
 // again only for its own state, so showing a hidden one does not render it.
