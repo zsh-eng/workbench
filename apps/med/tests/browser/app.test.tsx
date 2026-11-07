@@ -2926,6 +2926,38 @@ describe("review guide", () => {
     await userEvent.keyboard("k");
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
   });
+  test("where the Guide's rail hides, its parts step in the review's header", async () => {
+    await page.viewport(1280, 800);
+    localStorage.setItem("med:guide-rail", "closed");
+    await mountApp({
+      savedReview: true,
+      guide: {
+        summary: "Renames the export.",
+        segments: [
+          { title: "Rename alpha", files: ["src/alpha.ts"] },
+          { title: "Rename beta", files: ["src/beta.ts"] },
+        ],
+      },
+    });
+    await expect.element(page.getByRole("navigation", { name: "Guide" })).not.toBeInTheDocument();
+    const stepper = page.getByRole("group", { name: "Guide parts" });
+    await expect.element(stepper).toHaveTextContent("Overview");
+    await expect.element(stepper.getByRole("button", { name: "Previous part" })).toBeDisabled();
+    await stepper.getByRole("button", { name: "Next part" }).click();
+    await expect.element(page.getByRole("heading", { name: "Rename alpha" })).toBeVisible();
+    await expect.element(stepper).toHaveTextContent("01 Rename alpha");
+    // The part's name is a menu of all the parts.
+    await stepper.getByRole("button", { name: "Choose a part" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "02 Rename beta" }).click();
+    await expect.element(page.getByRole("heading", { name: "Rename beta" })).toBeVisible();
+    await expect.element(stepper.getByRole("button", { name: "Next part" })).toBeDisabled();
+    // With the rail open again, the header has no stepper.
+    localStorage.setItem("med:guide-rail", "open");
+    window.dispatchEvent(new StorageEvent("storage", { key: "med:guide-rail" }));
+    await expect.element(page.getByRole("navigation", { name: "Guide" })).toBeVisible();
+    await expect.element(stepper).not.toBeInTheDocument();
+  });
+
   test("each page keeps its own sidebar: the guide in Review, the changed files in Changes", async () => {
     await page.viewport(1280, 800);
     await mountApp({

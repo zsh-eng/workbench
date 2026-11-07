@@ -18,7 +18,9 @@ request split into small ones.
   reply with the words that it answers.
 - **The rail.** The Guide's parts are in the rail at the left, which hides in
   a narrow window. **Next** at the end of a segment, or `j`, opens the next
-  one.
+  one. Where the rail hides, as beside the session, the review's header steps
+  through the parts instead: the arrows go back and on, and the part's name
+  is a menu of all of them.
 - **Commits.** They are not in the Guide. With two or more commits in the
   range, the rail of **All files** lists them: each one opens on its own, with
   its message, and **Whole range** goes back to the whole range.

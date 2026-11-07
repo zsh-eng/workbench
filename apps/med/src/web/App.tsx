@@ -172,6 +172,7 @@ import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
+import { GuideStepper } from "./components/guide/GuideStepper";
 import { ChangesRail } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
 import { layerRange, rangeOf, subscribeLayers, takeLayer, stackOf } from "./data/stack";
@@ -345,7 +346,6 @@ const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
 };
-
 
 // The view settings outlast a restart, and every workspace and window shares
 // them (data/view-settings.ts).
@@ -5429,8 +5429,20 @@ export function App({
   const plainHeader = state.session?.repository.git === false && !hasPullTab && !hasGuide;
   // Quiet chrome's row, after the tabs: what the diff compares and the few
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
+  // Where the Guide's rail hides, as beside the session, its parts step in
+  // the header, so the screen keeps three columns.
+  const guideStepper = guideTab && !guideRailShown && (guideSections.length > 0 || !!sinceFrom) && (
+    <GuideStepper
+      sections={guideSections}
+      since={!!sinceFrom}
+      scope={guideScope}
+      onScope={openGuide}
+      onStep={stepGuide}
+    />
+  );
   const quietTrailing = (
     <>
+      {guideStepper}
       {streamChrome && !comparisonInRail && comparisonShown && (
         <span
           ref={comparisonSlot}
