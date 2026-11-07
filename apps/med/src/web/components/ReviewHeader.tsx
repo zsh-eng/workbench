@@ -300,7 +300,7 @@ const styles = stylex.create({
     alignItems: "center",
     flex: "none",
     gap: 2,
-    height: 44,
+    height: tokens.bar,
     minWidth: 0,
     paddingInline: 8,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,

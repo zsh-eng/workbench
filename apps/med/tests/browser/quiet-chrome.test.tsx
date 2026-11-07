@@ -541,6 +541,62 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   expect(showSession.query()).toBeNull();
 });
 
+test("the review has Expand and Hide in its header, in ⋯ when the row is narrow, and comes back by Show review", async () => {
+  await page.viewport(1600, 900);
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // Alone, the review has neither: it is the whole workspace, and stays.
+  expect(page.getByRole("button", { name: "Expand review" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
+  await openThread("A thread about the export");
+  await page.getByRole("button", { name: "Hide sidebar" }).click();
+  const review = () => visible('[data-pane="review"]');
+  const session = () => visible('[data-pane="session"]');
+  await expect.poll(session).toBeTruthy();
+
+  // Beside the session, Expand fills the workspace and Restore gives the
+  // session its place back.
+  await page.getByRole("button", { name: "Expand review" }).click();
+  await expect
+    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
+    .toBe(true);
+  await page.getByRole("button", { name: "Restore the other panes" }).click();
+  await expect
+    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
+    .toBe(false);
+
+  // Hide leaves the session, whose header shows the review again.
+  await page.getByRole("button", { name: "Hide the review" }).click();
+  await expect.poll(review).toBeUndefined();
+  const showReview = page.getByRole("button", { name: "Show review" });
+  await showReview.click();
+  await expect.poll(review).toBeTruthy();
+
+  // Hiding the session while the review hides shows the review: the
+  // workspace keeps a pane.
+  await page.getByRole("button", { name: "Hide the review" }).click();
+  await expect.poll(review).toBeUndefined();
+  await page.getByRole("button", { name: /^Hide the session pane/ }).click();
+  await expect.poll(review).toBeTruthy();
+  await expect.poll(session).toBeUndefined();
+  expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
+  await page.getByRole("button", { name: "Show agent session" }).click();
+  await expect.poll(session).toBeTruthy();
+
+  // A narrow row keeps its tabs and puts Expand and Hide in ⋯.
+  await page.viewport(700, 800);
+  await expect
+    .poll(() => row()!.querySelector('[aria-label="Hide the review"]')?.checkVisibility())
+    .toBe(false);
+  const more = [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
+  more.click();
+  await expect.element(page.getByRole("menuitem", { name: /^Expand review/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Hide review" }).click();
+  await expect.poll(review).toBeUndefined();
+  await showReview.click();
+  await expect.poll(review).toBeTruthy();
+});
+
 /**
  * What the browser painted while `act` ran, and in the frames after it, in
  * order and without repeats. A ResizeObserver runs after a frame's animation

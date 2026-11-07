@@ -1606,12 +1606,17 @@ describe("graphical review", () => {
 
     // Zoom gives one pane the whole tree; the others wait behind it, inert.
     const tree = document.querySelector("[data-pane-tree]")!.getBoundingClientRect();
-    // A double-click on a pane's header zooms it, as on a window's title bar.
-    await userEvent.dblClick(files.getByText("Files", { exact: true }));
+    // Expand in a pane's header zooms it; so does a double-click on the
+    // header, as on a window's title bar.
+    await files.getByRole("button", { name: "Expand files" }).click();
     const filesPane = document.querySelector<HTMLElement>('[data-pane="files"]')!;
     await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
     expect(document.querySelector<HTMLElement>('[data-pane="review"]')!.inert).toBe(true);
-    await files.getByRole("button", { name: "Restore files" }).click();
+    await files.getByRole("button", { name: "Restore the other panes" }).click();
+    await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
+    await userEvent.dblClick(files.getByText("Files", { exact: true }));
+    await expect.poll(() => filesPane.getBoundingClientRect().width).toBe(tree.width);
+    await userEvent.dblClick(files.getByText("Files", { exact: true }));
     await expect.poll(() => filesPane.getBoundingClientRect().width).toBeLessThan(tree.width / 2);
 
     // A gutter's arrow keys move the edge between two panes; ⌘⌃= gives each

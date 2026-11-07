@@ -11,22 +11,26 @@ heading's end, `⌘⌥B` hides and shows it, and a hidden sidebar leaves a butto
 at the start of the review's header. Each page keeps its own choice. The
 Commit page keeps its files, with the message and Push, beside the diff.
 
-Every pane and panel but the review hides. A thread's **Session** leaves a
+Every pane and panel hides, and the review hides while the session shows
+beside it, so the workspace always keeps a pane. A thread's **Session** leaves a
 button at the start of the review's header while it is hidden, with its
-agent's mark. **Files**, which you open yourself, opens again from **⋯**. A
-pane's hide button is in its header, where its × would be. The panel icon,
+agent's mark; a hidden review leaves **Show review** in the session's header,
+and hiding the session then shows the review. **Files**, which you open
+yourself, opens again from **⋯**. A pane's hide button is in its header, where
+its × would be, with **Expand** before it while other panes show. The panel icon,
 shaded on the side where the panel is, hides and shows the sidebars and the
 session's side panel, and hides the session. Med keeps each choice: a pane's in
 the thread's layout, the others in the view settings.
 
-| Pane or panel                           | Hide                                                             | Show again                                                                                              |
-| --------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                     | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`                                     |
-| Session                                 | The button in its header, `⌘⇧B`                                  | **Show agent session** at the start of the review's header, `⌘⇧B`, **Agent session** in **⋯**, or `⌘K`  |
-| Files                                   | The × in its header                                              | **Files** in **⋯**, or **Show files sidebar** in `⌘K`                                                   |
-| A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`             | The same button, or **Show files sidebar** in `⌘K`                                                      |
-| A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab | The button at the start of the review's header, `⌘⌥B`, **Guide** or **Changed files** in **⋯**, or `⌘K` |
-| The session's side panel                | The button in the session's row, `⌘⌥⇧B`                          | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`                                   |
+| Pane or panel                           | Hide                                                                                    | Show again                                                                                              |
+| --------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                                            | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`                                     |
+| Review                                  | **Hide the review** in its header, **Hide review** in **⋯** or `⌘K`, beside the session | **Show review** in the session's header, `⌘K`, or opening a page or a file                              |
+| Session                                 | The button in its header, `⌘⇧B`                                                         | **Show agent session** at the start of the review's header, `⌘⇧B`, **Agent session** in **⋯**, or `⌘K`  |
+| Files                                   | The × in its header                                                                     | **Files** in **⋯**, or **Show files sidebar** in `⌘K`                                                   |
+| A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`                                    | The same button, or **Show files sidebar** in `⌘K`                                                      |
+| A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab                        | The button at the start of the review's header, `⌘⌥B`, **Guide** or **Changed files** in **⋯**, or `⌘K` |
+| The session's side panel                | The button in the session's row, `⌘⌥⇧B`                                                 | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`                                   |
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts,
@@ -36,13 +40,14 @@ discards its question and answer unless you keep them as a comment, and the
 
 - A pane's header acts as a window's title bar. Drag it onto a side of another
   pane to place the pane there, or onto the middle to swap the two; Escape
-  leaves it where it was. Double-click it to zoom the pane.
+  leaves it where it was. **Expand** in it, or a double-click on it, zooms
+  the pane.
 - `⌘⌥←→↑↓` moves the focus to the next pane; with `⇧`, the focused pane moves
   past its neighbor.
 - Drag a gap between panes to resize them, or focus the gap and press the
   arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
 - `⌘E` zooms the focused pane to the whole workspace. Press it again, or click
-  **Restore** in the pane's header, to show the others.
+  **Restore the other panes** in the pane's header, to show the others.
 - A pane does not get narrower than 220 pixels or lower than 120. When the
   window is too small for all of them, Med hides panes until the rest fit, and
   shows them again when there is room.
@@ -72,6 +77,8 @@ row names the agent and its state.
   **Only this session's files**.
 - **⋯** has the comments, **Find in diffs**, the panes, **Push…**, and
   **Refresh review**. Its **View** menu has **Collapse all files**.
+- At its end, the pane's **Expand** and **Hide the review**, while the session
+  shows beside it. A header narrower than 520 pixels puts them in **⋯**.
 - A narrow header gives way in this order: what the diff compares (in
   Review, or while Changes' sidebar hides) moves into **⋯**, **Display** keeps its icon, the title shortens to Med's mark, the
   branch hides, and last the pages' names shorten.

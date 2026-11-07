@@ -42,6 +42,9 @@ export const tokens = stylex.defineVars({
   // title bar at 16 pt; inside the frame's 6 px gutter, 10 px keeps the two
   // corners concentric. The theme's `round` shapes what is inside the cards.
   frame: "10px",
+  // A pane's title bar, the same in each pane beside another: the session's,
+  // the review's (which holds the page switch), and a split pane's.
+  bar: "44px",
   buttonRound: "var(--med-button-round, 6px)",
   // The highlighted row of a list or menu, the chosen segment, and their text.
   pick: "var(--med-pick, color-mix(in srgb, var(--med-text, #ececef) 9%, transparent))",

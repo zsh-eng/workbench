@@ -39,6 +39,8 @@ export interface QuietMenuActions {
   sidebar?: Toggle & { label: string };
   session?: Toggle;
   files?: Toggle;
+  /** The pane's own Expand and Hide, when its row has no room for them. */
+  pane?: { label: string; zoomed: boolean; zoom?(): void; hide?(): void };
   openBranch?: () => void;
   commands(): void;
   shortcuts(): void;
@@ -133,6 +135,16 @@ export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
           choice: true,
           onClick: actions.files.toggle,
         },
+      ),
+      ...item(
+        actions.pane?.zoom && {
+          label: actions.pane.zoomed ? "Restore the other panes" : `Expand ${actions.pane.label}`,
+          shortcut: "Mod+E",
+          onClick: actions.pane.zoom,
+        },
+      ),
+      ...item(
+        actions.pane?.hide && { label: `Hide ${actions.pane.label}`, onClick: actions.pane.hide },
       ),
       ...item(
         actions.openBranch && {
@@ -302,6 +314,29 @@ export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
     };
   }, [slot]);
   return fits;
+}
+
+/**
+ * Whether the row that holds `slot` is at least `width` pixels wide. It
+ * goes by the row's width alone, not by what the page puts in the row, so
+ * that a control shown by it stays as the pages switch and the tabs keep
+ * their places.
+ */
+export function useRowWide(slot: HTMLElement | null, width: number) {
+  const [wide, setWide] = useState(true);
+  useLayoutEffect(() => {
+    const row = slot?.parentElement;
+    if (!row) return;
+    // A hidden workspace has no width; it keeps its answer for its return.
+    const measure = () => {
+      if (row.clientWidth) setWide(row.clientWidth >= width);
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(row);
+    return () => resize.disconnect();
+  }, [slot, width]);
+  return wide;
 }
 
 /**

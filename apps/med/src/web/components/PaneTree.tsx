@@ -34,10 +34,10 @@ import {
   type Rect,
   type Side,
 } from "../data/pane-tree";
-import { tokens, ui } from "../theme.stylex";
+import { tokens } from "../theme.stylex";
 import { resizeLine } from "./ColumnResize";
 import { Icon, type IconName } from "./Icon";
-import { ToolButton, tooltip } from "./ToolButton";
+import { ToolButton } from "./ToolButton";
 
 /** The room between panes and around them, in pixels. */
 export const PANE_GAP = 6;
@@ -56,7 +56,8 @@ export interface PaneSpec {
   preload?: boolean;
   /** Where the pane opens when nothing says otherwise. */
   place?: { near?: string; side?: Side; share?: number };
-  /** The pane cannot close, such as the review. */
+  /** The pane stays when the window is too small for the others, such as the
+   * review. It closes only through its own `onClose`. */
   fixed?: boolean;
   /** The close button, when closing only hides what the pane shows, such as
    * an agent's session that keeps working: its name, icon, and shortcut. */
@@ -465,18 +466,22 @@ export function PaneHeader({
 }
 
 /**
- * The end of a pane's header: Restore while the pane is zoomed, and Close. The
- * header itself moves the pane and zooms it (see paneHandle), as ⌘E does.
+ * The end of a pane's header: Expand (or Restore while the pane fills the
+ * workspace), then Close or Hide. The header itself also moves the pane, and
+ * a double click on it expands it (see paneHandle), as ⌘E does.
  */
 export function PaneControls({
   label,
   zoomed,
+  several = zoomed,
   onZoom,
   onClose,
   hide,
 }: {
   label: string;
   zoomed: boolean;
+  /** Other panes show beside this one, so it can expand. */
+  several?: boolean;
   onZoom(): void;
   onClose?(): void;
   hide?: PaneSpec["hide"];
@@ -484,16 +489,13 @@ export function PaneControls({
   const name = label.toLowerCase();
   return (
     <>
-      {zoomed && (
-        <button
-          type="button"
-          aria-label={`Restore ${name}`}
-          {...tooltip("Restore the other panes", "Mod+E")}
+      {(several || zoomed) && (
+        <ToolButton
+          label={zoomed ? `Restore the other panes` : `Expand ${name}`}
+          icon={zoomed ? "restore" : "maximize"}
+          shortcut="Mod+E"
           onClick={onZoom}
-          {...stylex.props(ui.button, ui.pressable, styles.restore)}
-        >
-          Restore
-        </button>
+        />
       )}
       {onClose &&
         (hide ? (
@@ -748,12 +750,11 @@ export function PaneTree({
               <PaneControls
                 label={pane.label}
                 zoomed={zoomed === pane.id}
+                several={several}
                 onZoom={() => state.toggleZoom(pane.id)}
                 {...(pane.hide && { hide: pane.hide })}
                 onClose={
-                  pane.fixed
-                    ? undefined
-                    : () => (pane.onClose ? pane.onClose() : state.close(pane.id))
+                  pane.onClose ? pane.onClose : pane.fixed ? undefined : () => state.close(pane.id)
                 }
               />,
             )}
@@ -975,7 +976,6 @@ const styles = stylex.create({
     height,
   }),
   hidden: { display: "none" },
-  restore: { flexShrink: 0, height: 24, paddingInline: 8, fontSize: 12 },
   veil: {
     position: "absolute",
     zIndex: 3,
@@ -1045,14 +1045,13 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8,
-    height: 38,
+    height: tokens.bar,
     flexShrink: 0,
+    boxSizing: "border-box",
     paddingInlineStart: 14,
     paddingInlineEnd: 6,
     color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     fontFamily: tokens.ui,
   },
   title: { flexShrink: 0, color: tokens.text, fontSize: 12.5, fontWeight: 500 },

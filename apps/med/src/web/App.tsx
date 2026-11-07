@@ -142,6 +142,7 @@ import {
   ConnectionNotice,
   useQuietMenu,
   useRowFit,
+  useRowWide,
   useSlotFits,
 } from "./components/QuietChrome";
 import { switchSetter, useViewSetting, viewSettings } from "./data/view-settings";
@@ -233,6 +234,9 @@ function preloadPanes() {
   CommitView.preload();
 }
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
+/** The review hides while the session shows beside it; its pages, a file,
+ * or Show review bring it back. */
+const REVIEW_HIDE = { label: "Hide the review", icon: "panelRight" } as const;
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
   icon: "panelLeft",
@@ -359,6 +363,7 @@ const setLineBlame = switchSetter(viewSettings.lineBlame, "on", "off");
 /** Where each pane opens beside the review, and its share of the room. */
 const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> = {
   session: { near: "review", side: "left", share: 0.5 },
+  review: { near: "session", side: "right", share: 0.5 },
   files: { near: "review", side: "right", share: 0.26 },
   // At the right of the row, with room from the thread and the review alike,
   // so that an answer has room to read.
@@ -452,6 +457,7 @@ export function App({
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
+  const reviewVisible = panes.isOpen("review");
   // Markdown files now read rendered or show their source in the file view
   // (FullFileView), so a saved layout's Preview pane has nothing to show;
   // the changed files are the Changes page's sidebar, not a pane.
@@ -482,6 +488,10 @@ export function App({
   // the tabs keep their labels.
   const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
   const stageFits = useSlotFits(stageSlot, 72);
+  // The review pane's Expand and Hide, at the row's end. A narrow row puts
+  // them in ⋯, so that the tabs keep their labels.
+  const [paneSlot, setPaneSlot] = useState<HTMLElement | null>(null);
+  const paneControlsFit = useRowWide(paneSlot, 520);
   const savedActions = useRef<SavedReviewActions>(null);
   // The base branch menu opens below the comparison once the select closes.
   const openCompare = useCallback(
@@ -938,19 +948,40 @@ export function App({
     setPickerResume(true);
     setFilePickerOpen(true);
   }, []);
-  const { close: closePane, show: showInTree, toggle: toggleInTree } = panes;
+  const { close: closePane, show: showInTree } = panes;
   const showPane = useCallback(
     (id: string, options: { quiet?: boolean } = {}) =>
       showInTree(id, { ...PANE_PLACES[id], ...options }),
     [showInTree],
   );
-  const togglePane = useCallback((id: string) => toggleInTree(id, PANE_PLACES[id]), [toggleInTree]);
   const showFiles = useCallback(() => showPane("files"), [showPane]);
   const toggleFilesSidebar = useCallback(() => {
     if (rightVisible) closePane("files");
     else showFiles();
   }, [rightVisible, showFiles, closePane]);
-  const toggleSession = useCallback(() => togglePane("session"), [togglePane]);
+  // The workspace keeps one pane: hiding the session while the review is
+  // hidden shows the review instead.
+  const hideSession = useCallback(() => {
+    if (!reviewVisible) showPane("review");
+    closePane("session");
+  }, [reviewVisible, showPane, closePane]);
+  const toggleSession = useCallback(
+    () => (sessionVisible ? hideSession() : showPane("session")),
+    [sessionVisible, hideSession, showPane],
+  );
+  const toggleReview = useCallback(
+    () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
+    [reviewVisible, sessionVisible, closePane, showPane],
+  );
+  /** The session's header: Show review while the review is hidden. */
+  const withShowReview = (controls: ReactNode) => (
+    <>
+      {!reviewVisible && (
+        <ToolButton label="Show review" icon="panelRight" onClick={() => showPane("review")} />
+      )}
+      {controls}
+    </>
+  );
   useEffect(() => {
     if (!workspaceId) return;
     const take = () => {
@@ -1989,6 +2020,7 @@ export function App({
   const selectTab = useCallback(
     (id: string) => {
       pendingTab.current = null;
+      if (!reviewVisible) showPane("review");
       if (id === "review") {
         if (hasGuide) openGuide(guideScope);
         else {
@@ -2010,8 +2042,15 @@ export function App({
       }
       fileWorkspace.select(id);
     },
-    [hasGuide, openGuide, guideScope, fileWorkspace, controller],
+    [hasGuide, openGuide, guideScope, fileWorkspace, controller, reviewVisible, showPane],
   );
+  // A page or a file that opens while the review is hidden shows the review.
+  const revealedTab = useRef(fileState.active);
+  useEffect(() => {
+    if (revealedTab.current === fileState.active) return;
+    revealedTab.current = fileState.active;
+    if (!reviewVisible) showPane("review");
+  }, [fileState.active, reviewVisible, showPane]);
   /** q: open the Commit tab, or go back to the tab that showed before it,
    * by the rule that a closed tab follows. */
   const toggleCommit = useCallback(() => {
@@ -4132,6 +4171,16 @@ export function App({
                   shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
+                // The review hides only beside the session.
+                ...(sessionVisible || !reviewVisible
+                  ? [
+                      {
+                        id: "review-pane",
+                        label: reviewVisible ? "Hide review" : "Show review",
+                        run: toggleReview,
+                      },
+                    ]
+                  : []),
               ]
             : []),
           ...(state.savedReview
@@ -4142,6 +4191,16 @@ export function App({
                   shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
+                // The review hides only beside the session.
+                ...(sessionVisible || !reviewVisible
+                  ? [
+                      {
+                        id: "review-pane",
+                        label: reviewVisible ? "Hide review" : "Show review",
+                        run: toggleReview,
+                      },
+                    ]
+                  : []),
                 ...(agentPresets ?? [])
                   .filter((agent) => agent.available)
                   .map((agent) => ({
@@ -5417,6 +5476,14 @@ export function App({
         : undefined,
     session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
     files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
+    pane: paneControlsFit
+      ? undefined
+      : {
+          label: "review",
+          zoomed: panes.zoom === "review",
+          zoom: panes.open.length > 1 ? () => panes.toggleZoom("review") : undefined,
+          hide: sessionVisible ? () => closePane("review") : undefined,
+        },
     openBranch:
       !state.savedReview && gitAvailable && shell ? () => openBranchPicker(false) : undefined,
     commands: () => setCommandsOpen(true),
@@ -5527,7 +5594,14 @@ export function App({
         pages={plainHeader ? [] : reviewPages}
         page={shownPage}
         onPage={selectTab}
-        controls={controls}
+        controls={
+          <span
+            ref={setPaneSlot}
+            {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
+          >
+            {controls}
+          </span>
+        }
       />
       {/* An open Search tab has a label, empty before a query. */}
       {(fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
@@ -5643,6 +5717,7 @@ export function App({
             ariaLabel: "Agent session",
             icon: leadIcon,
             hide: SESSION_HIDE,
+            onClose: hideSession,
             preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
               <Suspense
@@ -5656,7 +5731,7 @@ export function App({
                 {agentSessions.length === 0 ? (
                   <SessionStart
                     starter={sessionStarter}
-                    controls={controls}
+                    controls={withShowReview(controls)}
                     repo={state.review?.repo}
                     detail={shell ? undefined : threadPlace}
                   />
@@ -5674,9 +5749,9 @@ export function App({
                     }
                     onOpenPath={openFromPane}
                     fileRefs={fileRefs}
-                    onClose={() => closePane("session")}
+                    onClose={hideSession}
                     onSideRoom={setSessionSideRoom}
-                    controls={controls}
+                    controls={withShowReview(controls)}
                     starter={sessionStarter}
                     lead={sessionVisible}
                     mentions={mentionSources}
@@ -5708,6 +5783,7 @@ export function App({
             ariaLabel: "Agent session",
             icon: found.agent,
             hide: SESSION_HIDE,
+            onClose: hideSession,
             preload: true,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
@@ -5716,10 +5792,10 @@ export function App({
                   session={found}
                   root={state.review?.repo}
                   fetcher={sessionFetch}
-                  controls={controls}
+                  controls={withShowReview(controls)}
                   onOpenPath={openFromPane}
                   fileRefs={fileRefs}
-                  onClose={() => closePane("session")}
+                  onClose={hideSession}
                   onSideRoom={setSessionSideRoom}
                   openAgent={openAgent}
                 />
@@ -5844,6 +5920,9 @@ export function App({
       ariaLabel: "Review",
       icon: "diff",
       fixed: true,
+      hide: REVIEW_HIDE,
+      // The review hides only beside another pane.
+      ...(sessionVisible && { onClose: () => closePane("review") }),
       render: (controls: ReactNode) => (
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {linkError}
@@ -6813,6 +6892,12 @@ const styles = stylex.create({
   railRange: { display: "flex", minWidth: 0, paddingInline: 6, paddingBottom: 6 },
   // Empty while Stage all has no room here, and then no gap in the row.
   rowStage: { display: { default: "flex", ":empty": "none" }, flexShrink: 0 },
+  rowPane: {
+    display: { default: "flex", ":empty": "none" },
+    alignItems: "center",
+    gap: 2,
+    flexShrink: 0,
+  },
   // Quiet as a tab is: the row's text, not the toolbar's strong label.
   rowComparisonTrigger: {
     width: "100%",
