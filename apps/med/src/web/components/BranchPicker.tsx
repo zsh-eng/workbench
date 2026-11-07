@@ -8,6 +8,7 @@ import { parsePullUrl } from "../../shared/pull-workspace";
 import { picked, tokens, ui } from "../theme.stylex";
 import { focusPaletteInput } from "../data/palette-focus";
 import { distinctLabels } from "../data/tab-labels";
+import { rankRepositories, recordOpen } from "../data/repository-opens";
 import { Icon } from "./Icon";
 
 export interface BranchEntry {
@@ -37,6 +38,7 @@ export function BranchPicker({
   onPullRequest,
   agents = [],
   initialQuery = "",
+  repositoriesFirst = false,
 }: {
   repositories: RegisteredRepository[];
   entries: BranchEntry[];
@@ -56,6 +58,11 @@ export function BranchPicker({
   agents?: { id: string; name: string }[];
   /** The search it opens with, such as a link on the Elements page. */
   initialQuery?: string;
+  /**
+   * ⌘O: the repositories first, ranked as zoxide does; Tab searches the
+   * chosen one's branches, and ⇧Tab goes back.
+   */
+  repositoriesFirst?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const pathInput = useRef<HTMLInputElement>(null);
@@ -75,12 +82,39 @@ export function BranchPicker({
   );
   const labelOf = new Map(repositories.map((repository, index) => [repository.id, labels[index]]));
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  const allResults = entries.filter((entry) => {
-    const text =
-      `${labelOf.get(entry.repositoryId)} ${entry.label} ${entry.checkout ?? ""}`.toLowerCase();
-    return words.every((word) => text.includes(word));
-  });
+  // ⌘O's repository whose branches the box searches, after Tab.
+  const [scope, setScope] = useState<string | null>(null);
+  // The picker opens again on the repositories.
+  const setOpen = (next: boolean) => {
+    if (!next) setScope(null);
+    onOpenChange(next);
+  };
+  const scoped = scope ? repositories.find((repository) => repository.id === scope) : undefined;
+  const allResults = entries
+    .filter((entry) => {
+      if (scoped && entry.repositoryId !== scoped.id) return false;
+      const text = (
+        scoped
+          ? `${entry.label} ${entry.checkout ?? ""}`
+          : `${labelOf.get(entry.repositoryId)} ${entry.label} ${entry.checkout ?? ""}`
+      ).toLowerCase();
+      return words.every((word) => text.includes(word));
+    })
+    // In a repository, its worktrees come first.
+    .toSorted((a, b) => (scoped ? Number(!a.path) - Number(!b.path) : 0));
   const results = allResults.slice(0, 200);
+  // The checkout that opens for a repository: its own folder's branch.
+  const checkoutOf = (id: string) => {
+    const repository = repositories.find((entry) => entry.id === id);
+    const own = entries.filter((entry) => entry.repositoryId === id);
+    return own.find((entry) => entry.path === repository?.path) ?? own[0];
+  };
+  const showRepositories = repositoriesFirst && !scoped;
+  const repositoryRows = showRepositories
+    ? rankRepositories(repositories).filter((repository) =>
+        words.every((word) => labelOf.get(repository.id)!.toLowerCase().includes(word)),
+      )
+    : [];
   // A pasted pull request link opens it, alone or with an agent to review it.
   const pull = onPullRequest ? parsePullUrl(query) : undefined;
   const pullRows = pull
@@ -91,7 +125,7 @@ export function BranchPicker({
           : `Open pull request #${pull.number}`,
       }))
     : [];
-  const count = pull ? pullRows.length : results.length;
+  const count = pull ? pullRows.length : showRepositories ? repositoryRows.length : results.length;
   const resultIndex = new Map(results.map((entry, index) => [entry.key, index]));
   const selectedIndex = Math.min(active, Math.max(0, count - 1));
   useEffect(() => {
@@ -116,7 +150,7 @@ export function BranchPicker({
   function openPull(row: (typeof pullRows)[number] | undefined) {
     if (!pull || !row) return;
     onPullRequest?.(pull.url, row.agent);
-    onOpenChange(false);
+    setOpen(false);
     setQuery(initialQuery);
     setActive(0);
   }
@@ -128,11 +162,29 @@ export function BranchPicker({
       return;
     }
     setError(null);
-    onOpenChange(false);
+    recordOpen(entry.repositoryId);
+    setOpen(false);
     setActive(0);
   }
+  function enter(repository: RegisteredRepository | undefined) {
+    if (!repository) return;
+    setScope(repository.id);
+    setQuery("");
+    setActive(0);
+  }
+  function leave() {
+    const back = scope;
+    setScope(null);
+    setQuery("");
+    setActive(
+      Math.max(
+        0,
+        rankRepositories(repositories).findIndex((entry) => entry.id === back),
+      ),
+    );
+  }
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Backdrop {...stylex.props(styles.backdrop, ui.instant)} />
         <Dialog.Popup
@@ -141,11 +193,13 @@ export function BranchPicker({
         >
           <div {...stylex.props(styles.heading)}>
             <Dialog.Title {...stylex.props(styles.title)}>
-              {workspaces === "new"
-                ? "New workspace"
-                : workspaces === "thread"
-                  ? "Thread checkout"
-                  : "Open branch"}
+              {repositoriesFirst
+                ? "Open repository"
+                : workspaces === "new"
+                  ? "New workspace"
+                  : workspaces === "thread"
+                    ? "Thread checkout"
+                    : "Open branch"}
             </Dialog.Title>
             <span {...stylex.props(ui.grow)} />
             <ToolButton
@@ -165,6 +219,12 @@ export function BranchPicker({
           </Dialog.Description>
           <div {...stylex.props(styles.search)}>
             <Icon name="search" />
+            {scoped && (
+              <span {...stylex.props(styles.chip)}>
+                <Icon name="folder" size={13} />
+                {labelOf.get(scoped.id)}
+              </span>
+            )}
             <input
               ref={input}
               value={query}
@@ -174,7 +234,16 @@ export function BranchPicker({
                 setActive(0);
               }}
               onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
+                if (event.key === "Tab" && !event.shiftKey && showRepositories && !pull) {
+                  event.preventDefault();
+                  enter(repositoryRows[selectedIndex]);
+                } else if (
+                  scoped &&
+                  ((event.key === "Tab" && event.shiftKey) || (event.key === "Backspace" && !query))
+                ) {
+                  event.preventDefault();
+                  leave();
+                } else if (event.key === "ArrowDown") {
                   event.preventDefault();
                   setActive(Math.min(selectedIndex + 1, Math.max(0, count - 1)));
                 } else if (event.key === "ArrowUp") {
@@ -183,21 +252,35 @@ export function BranchPicker({
                 } else if (event.key === "Enter") {
                   event.preventDefault();
                   if (pull) openPull(pullRows[selectedIndex]);
-                  else select(results[selectedIndex], event.metaKey || event.ctrlKey);
+                  else if (showRepositories) {
+                    const repository = repositoryRows[selectedIndex];
+                    if (repository)
+                      select(checkoutOf(repository.id), event.metaKey || event.ctrlKey);
+                  } else select(results[selectedIndex], event.metaKey || event.ctrlKey);
                 }
               }}
               {...stylex.props(styles.field)}
               placeholder={
-                onPullRequest
-                  ? "Search branches, or paste a pull request link"
-                  : "Search branches, worktrees, or repositories"
+                showRepositories
+                  ? "Search repositories"
+                  : scoped
+                    ? `Search ${scoped.name}'s branches and worktrees`
+                    : onPullRequest
+                      ? "Search branches, or paste a pull request link"
+                      : "Search branches, worktrees, or repositories"
               }
-              aria-label="Search branches"
+              aria-label={showRepositories ? "Search repositories" : "Search branches"}
               role="combobox"
               aria-expanded="true"
               aria-controls={`${id}-results`}
               aria-activedescendant={
-                (pull ? pullRows[selectedIndex] : results[selectedIndex])
+                (
+                  pull
+                    ? pullRows[selectedIndex]
+                    : showRepositories
+                      ? repositoryRows[selectedIndex]
+                      : results[selectedIndex]
+                )
                   ? `${id}-result-${selectedIndex}`
                   : undefined
               }
@@ -209,7 +292,53 @@ export function BranchPicker({
                 Showing the first 200 of {allResults.length} matches. Refine your search.
               </p>
             )}
-            <div id={`${id}-results`} role="listbox" aria-label="Branches and worktrees">
+            {showRepositories && !pull && (
+              <div id={`${id}-results`} role="listbox" aria-label="Repositories">
+                {repositoryRows.map((repository, index) => {
+                  const checkout = checkoutOf(repository.id);
+                  return (
+                    <div
+                      key={repository.id}
+                      id={`${id}-result-${index}`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === selectedIndex}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          select(checkout, event.metaKey || event.ctrlKey);
+                        }
+                      }}
+                      onClick={(event) => select(checkout, event.metaKey || event.ctrlKey)}
+                      onPointerMove={() => setActive(index)}
+                      {...stylex.props(
+                        styles.option,
+                        index === selectedIndex && [styles.selected, picked],
+                      )}
+                    >
+                      <Icon name="folder" size={14} />
+                      <span {...stylex.props(styles.entry, styles.line)}>
+                        <span>{labelOf.get(repository.id)}</span>
+                        {checkout?.branch && (
+                          <span {...stylex.props(styles.detail, styles.branch)}>
+                            {checkout.branch}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+                {!repositoryRows.length && (
+                  <p {...stylex.props(styles.notice)}>No matching repositories.</p>
+                )}
+              </div>
+            )}
+            <div
+              id={showRepositories && !pull ? undefined : `${id}-results`}
+              role="listbox"
+              aria-label="Branches and worktrees"
+              hidden={showRepositories && !pull}
+            >
               {pull && (
                 <div role="group" aria-label="Pull request">
                   <div {...stylex.props(styles.groupTitle)}>
@@ -252,7 +381,9 @@ export function BranchPicker({
                 </div>
               )}
               {!pull &&
+                !showRepositories &&
                 repositories.map((repository, repositoryIndex) => {
+                  if (scoped && repository.id !== scoped.id) return null;
                   const grouped = results.filter((entry) => entry.repositoryId === repository.id);
                   const matchesRepository = words.every((word) =>
                     labels[repositoryIndex]!.toLowerCase().includes(word),
@@ -302,12 +433,28 @@ export function BranchPicker({
                     </div>
                   );
                 })}
-              {!pull && !results.length && (
+              {!pull && !showRepositories && !results.length && (
                 <p {...stylex.props(styles.notice)}>No matching branches or worktrees.</p>
               )}
             </div>
           </div>
-          {workspaces && (
+          {repositoriesFirst && (
+            <div {...stylex.props(styles.hints)}>
+              <span {...stylex.props(styles.hint)}>
+                <ShortcutKeys value="Enter" /> Open
+              </span>
+              {scoped ? (
+                <span {...stylex.props(styles.hint)}>
+                  <ShortcutKeys value="Shift+Tab" /> Repositories
+                </span>
+              ) : (
+                <span {...stylex.props(styles.hint)}>
+                  <ShortcutKeys value="Tab" /> Its branches
+                </span>
+              )}
+            </div>
+          )}
+          {workspaces && !repositoriesFirst && (
             <div {...stylex.props(styles.hints)}>
               {workspaces === "new" ? (
                 <span {...stylex.props(styles.hint)}>
@@ -334,7 +481,7 @@ export function BranchPicker({
               )}
             </div>
           )}
-          <div {...stylex.props(styles.management)}>
+          <div {...stylex.props(styles.management, repositoriesFirst && styles.gone)}>
             <details>
               <summary {...stylex.props(styles.summary)}>Manage repositories</summary>
               {repositories.map((repository, index) => (
@@ -425,6 +572,23 @@ export function BranchPicker({
 }
 
 const styles = stylex.create({
+  gone: { display: "none" },
+  // ⌘O's repository, in the search box, after Tab.
+  chip: {
+    display: "inline-flex",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 5,
+    height: 22,
+    paddingInline: 7,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: tokens.fill,
+    color: tokens.text,
+    fontSize: 12.5,
+  },
+  // A repository's row: its name, then its branch.
+  line: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  branch: { fontFamily: tokens.code },
   backdrop: { position: "fixed", inset: 0, backgroundColor: tokens.scrim, zIndex: 110 },
   dialog: {
     position: "fixed",

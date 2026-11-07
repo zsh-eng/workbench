@@ -62,6 +62,12 @@ export const guideContexts: GuideContext[] = [
             command: "open-branch",
           },
           {
+            label: "Open a repository",
+            keys: ["Mod+O"],
+            note: "Tab searches its branches; Shift+Tab goes back",
+            command: "open-repository",
+          },
+          {
             label: "Show the Review, Changes, or Commit page",
             keys: ["{1–3}"],
             note: "While the focus is not in text, the diff, or the session",
@@ -97,8 +103,12 @@ export const guideContexts: GuideContext[] = [
             keys: ["Alt+Up", "Alt+Down"],
             note: "On a focused sidebar row, or drag it",
           },
-          { label: "Symbols in this file", keys: ["Mod+O"], command: "file-symbols" },
-          { label: "Symbols in the project", keys: ["Mod+Shift+O"], command: "project-symbols" },
+          {
+            label: "Symbols in this file",
+            keys: ["Mod+Shift+O"],
+            note: "In the project with no file open",
+            command: "file-symbols",
+          },
           { label: "Resume the last file search", keys: ["Alt+R"], command: "resume-picker" },
           { label: "Shortcuts and commands", keys: ["?"], note: "Outside text fields and files" },
         ],

@@ -530,6 +530,8 @@ export function App({
   const [blameTab, setBlameTab] = useState<string | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [branchPickerNew, setBranchPickerNew] = useState(false);
+  // ⌘O opens the picker on the repositories; ⌘⇧G on every branch.
+  const [branchPickerRepos, setBranchPickerRepos] = useState(false);
   const workerPool = useWorkerPool();
   const [diagnostics] = useState(createRenderDiagnostics);
   // Developers save the last render events from the console
@@ -2915,14 +2917,21 @@ export function App({
         selectTab(order[(index + step + order.length) % order.length]!);
         return;
       }
-      // ⌘O and ⌘⇧O open the symbol picker wherever there is a checkout, so the
-      // browser never opens its own file dialog; with no file open, ⌘O's
-      // picker says so and offers the project.
+      // ⌘O opens a repository, and ⌘⇧O the symbols of the file, or of the
+      // project with no file open; the browser never opens its own file dialog.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        if (!browseSource) return;
+        if (event.shiftKey ? !browseSource : !gitAvailable) return;
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) openSymbols(event.shiftKey ? "project" : "file");
+        if (event.repeat) return;
+        if (event.shiftKey)
+          openSymbols(activeFile && fileState.file?.kind === "text" ? "file" : "project");
+        else {
+          setCommandsOpen(false);
+          setBranchPickerNew(false);
+          setBranchPickerRepos(true);
+          setBranchPickerOpen(true);
+        }
         return;
       }
       if (
@@ -2956,6 +2965,7 @@ export function App({
         if (event.repeat) return;
         setCommandsOpen(false);
         setBranchPickerNew(false);
+        setBranchPickerRepos(false);
         setBranchPickerOpen((open) => !open);
         return;
       }
@@ -3131,8 +3141,9 @@ export function App({
     onBranch: selectBranch,
     onWorktree: selectWorktree,
   });
-  const openBranchPicker = (newWorkspace: boolean) => {
+  const openBranchPicker = (newWorkspace: boolean, repositoriesFirst = false) => {
     setBranchPickerNew(newWorkspace);
+    setBranchPickerRepos(repositoriesFirst);
     setBranchPickerOpen(true);
   };
   // Plain ↵ opens a branch here, or shows the workspace that already has it;
@@ -3856,7 +3867,7 @@ export function App({
       id: "file-symbols",
       managesFocus: true,
       label: "Search symbols in current file",
-      shortcut: "⌘ O",
+      shortcut: "⌘ ⇧ O",
       disabled: !activeFile || fileState.file?.kind !== "text",
       run: () => openSymbols("file"),
     },
@@ -3864,7 +3875,6 @@ export function App({
       id: "project-symbols",
       managesFocus: true,
       label: "Search symbols in project commits",
-      shortcut: "⌘ ⇧ O",
       disabled: !browseSource,
       run: () => openSymbols("project"),
     },
@@ -3872,6 +3882,14 @@ export function App({
       id: "vim",
       label: vimEnabled ? "Disable Vim navigation in files" : "Enable Vim navigation in files",
       run: () => setVimEnabled((value) => !value),
+    },
+    {
+      id: "open-repository",
+      managesFocus: true,
+      label: "Open repository…",
+      shortcut: "⌘ O",
+      disabled: !gitAvailable,
+      run: () => openBranchPicker(false, true),
     },
     {
       id: "open-branch",
@@ -5775,10 +5793,15 @@ export function App({
       onSelect={(entry, newWorkspace) =>
         !workspace
           ? branches.open(entry)
-          : threadPicker && !newWorkspace && !branchPickerNew
+          : threadPicker && !newWorkspace && !branchPickerNew && !branchPickerRepos
             ? moveThreadTo(entry)
-            : openBranch(entry, newWorkspace || branchPickerNew)
+            : // A repository opened from a thread opens beside it.
+              openBranch(
+                entry,
+                newWorkspace || branchPickerNew || (branchPickerRepos && !!threadPicker),
+              )
       }
+      repositoriesFirst={branchPickerRepos}
       workspaces={
         workspace ? (branchPickerNew ? "new" : threadPicker ? "thread" : "here") : undefined
       }

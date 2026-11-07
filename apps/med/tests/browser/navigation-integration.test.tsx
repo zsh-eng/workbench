@@ -230,7 +230,7 @@ test("symbol palette previews in the current file and Escape restores cursor and
   )!;
   await expect.poll(() => scroller.scrollTop).toBeGreaterThan(0);
   const scrollTop = scroller.scrollTop;
-  shortcut("o");
+  shortcut("o", true);
   await expect.element(page.getByRole("option", { name: /example80/ })).toBeVisible();
   await expect.element(pane).toHaveAttribute("data-vim-line", "80");
   expect(document.querySelector('[aria-label="Symbol preview"]')).toBeNull();
@@ -248,7 +248,7 @@ test("symbol palette previews in the current file and Escape restores cursor and
   await userEvent.keyboard("''");
   await expect.element(pane).toHaveAttribute("data-vim-line", "1");
   await userEvent.keyboard("72G");
-  shortcut("o");
+  shortcut("o", true);
   await expect
     .element(page.getByRole("option", { name: /example80/ }))
     .toHaveAttribute("aria-selected", "true");
@@ -297,7 +297,7 @@ test("file symbols retain a selected query and Enter accepts without reloading t
     exact: true,
     includeHidden: true,
   });
-  shortcut("o");
+  shortcut("o", true);
   const input = page.getByRole("combobox", { name: "Find symbol in file" });
   await input.fill("example80");
   await expect.element(pane).toHaveAttribute("data-vim-line", "80");
@@ -305,7 +305,7 @@ test("file symbols retain a selected query and Enter accepts without reloading t
   await expect.poll(() => document.activeElement).toBe(pane.element());
   await userEvent.keyboard("j");
   await expect.element(pane).toHaveAttribute("data-vim-line", "81");
-  shortcut("o");
+  shortcut("o", true);
   await expect.element(input).toHaveValue("example80");
   await expect.poll(() => (input.element() as HTMLInputElement).selectionEnd).toBe(9);
   await expect.poll(() => (input.element() as HTMLInputElement).selectionStart).toBe(0);

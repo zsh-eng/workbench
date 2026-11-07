@@ -1260,12 +1260,18 @@ describe("graphical review", () => {
     await expect
       .element(page.getByRole("region", { name: "File editor", exact: true }))
       .toBeVisible();
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", metaKey: true, shiftKey: true, bubbles: true }),
+    );
     await expect.element(page.getByRole("dialog", { name: "Find symbol" })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "File", exact: true }))
+      .toHaveAttribute("aria-pressed", "true");
     await page.getByRole("combobox").fill("working");
     await page.getByRole("option", { name: /workingContents/ }).click();
     await expect.poll(() => fileRequests.at(-1)?.source.kind).toBe("worktree");
     await expect.element(page.getByRole("dialog", { name: "Find symbol" })).not.toBeInTheDocument();
+    // With a file open, ⌘⇧O opens its symbols; the picker switches to the project's.
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "o",
@@ -1274,6 +1280,7 @@ describe("graphical review", () => {
         bubbles: true,
       }),
     );
+    await page.getByRole("button", { name: "Project", exact: true }).click();
     await page.getByRole("combobox").fill("working");
     await page.getByRole("option", { name: /workingContents/ }).click();
     await expect

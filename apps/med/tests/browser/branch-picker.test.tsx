@@ -33,6 +33,7 @@ function repository(id: string, path: string, name = id): RegisteredRepository {
 }
 async function setup(
   initial = [repository("frontend", "/repos/frontend"), repository("backend", "/repos/backend")],
+  { repositoriesFirst = false } = {},
 ) {
   const selections: string[] = [];
   function Harness() {
@@ -72,6 +73,7 @@ async function setup(
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           onSelect={model.open}
+          repositoriesFirst={repositoriesFirst}
           onRefresh={async () => {}}
           onAddRepository={async (path) => {
             if (path === "/missing") throw new Error("Repository does not exist.");
@@ -301,4 +303,66 @@ test("removes the final repository and starts with fresh branch tabs when it is 
     .element(page.getByRole("button", { name: "Open branch", exact: true }))
     .toHaveTextContent("frontend/release");
   expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0);
+});
+
+test("⌘O's picker ranks repositories as zoxide does, and Tab searches one's branches", async () => {
+  localStorage.setItem(
+    "med:repository-opens",
+    JSON.stringify({ backend: { count: 3, last: Date.now() - 60_000 } }),
+  );
+  const { selections } = await setup(
+    [
+      repository("frontend", "/repos/frontend"),
+      repository("backend", "/repos/backend"),
+      repository("api-a", "/team-a/api", "api"),
+      repository("api-b", "/team-b/api", "api"),
+    ],
+    { repositoriesFirst: true },
+  );
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await expect.element(page.getByRole("dialog", { name: "Open repository" })).toBeVisible();
+  const search = page.getByRole("combobox", { name: "Search repositories" });
+  await expect.element(search).toHaveFocus();
+  const rows = (name: string) =>
+    [...document.querySelectorAll(`[role="listbox"][aria-label="${name}"] [role="option"]`)].map(
+      (option) =>
+        `${option.textContent}${option.getAttribute("aria-selected") === "true" ? " ✓" : ""}`,
+    );
+  // The one opened lately first, then the host's order. A row is the name and
+  // its branch; the folder shows only where two names are the same.
+  expect(rows("Repositories")).toEqual([
+    "backendmain ✓",
+    "frontendmain",
+    "team-a/apimain",
+    "team-b/apimain",
+  ]);
+  await expect.element(page.getByText("Manage repositories")).not.toBeVisible();
+  // One word of the name is enough.
+  await userEvent.keyboard("front");
+  expect(rows("Repositories")).toEqual(["frontendmain ✓"]);
+  // Tab moves the repository into the box and searches its branches, its
+  // worktrees first.
+  await userEvent.keyboard("{Tab}");
+  const branches = page.getByRole("combobox", { name: "Search branches" });
+  await expect.element(branches).toHaveValue("");
+  await expect.element(branches).toHaveFocus();
+  expect(rows("Branches and worktrees").map((row) => row.split(/frontend|Committed/)[0])).toEqual([
+    "main",
+    "Detached · ccccccc",
+    "release",
+  ]);
+  // ⇧Tab goes back, to the same repository.
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  await expect.element(search).toHaveValue("");
+  expect(rows("Repositories")[1]).toBe("frontendmain ✓");
+  await userEvent.keyboard("{Tab}rel{Enter}");
+  expect(selections.at(-1)).toBe("frontend:release");
+  // Each open counts toward the ranking.
+  expect(JSON.parse(localStorage.getItem("med:repository-opens")!).frontend.count).toBe(1);
+  // Enter on a repository opens its own checkout.
+  await page.getByRole("button", { name: "Open branch", exact: true }).click();
+  await expect.element(search).toHaveFocus();
+  await userEvent.keyboard("backend{Enter}");
+  expect(selections.at(-1)).toBe("backend:main");
+  localStorage.removeItem("med:repository-opens");
 });

@@ -102,9 +102,9 @@ Until the index is ready, Git answers: in a checkout, from its working files.
 
 Without the index, search says nothing about it while Git answers. Once in a
 run, a Git search that takes a second or more adds a quiet line that the index
-would make it faster. **Symbols in the project** (`⌘⇧O`) at a commit, or in a
+would make it faster. **Symbols in the project** at a commit, or in a
 checkout of more than 20,000 files, needs the index; without it, the picker
-says so, and **Symbols in this file** (`⌘O`) still works.
+says so, and **Symbols in this file** (`⌘⇧O`) still works.
 
 The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 `MED_SEARCH_CACHE` to move it, or `MED_ZOEKT_BIN` to a folder that has
@@ -114,12 +114,12 @@ The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 
 ![In-file symbol palette with a live jump in the current file](../validation/symbol-navigation.png)
 
-**Symbols in this file** (`⌘O`) starts at the symbol nearest the cursor and
+**Symbols in this file** (`⌘⇧O`) starts at the symbol nearest the cursor and
 ranks ties by distance. Arrow keys jump in the file; Enter keeps the position,
-and Escape restores it. **Symbols in the project** (`⌘⇧O`) searches the
-checkout's working files, with their uncommitted changes, and has its own
-preview. Both keep the last query, and both work in any view of a checkout.
-With no file open, `⌘O` says so and offers the project.
+and Escape restores it. **Symbols in the project**, from the picker or the
+palette, searches the checkout's working files, with their uncommitted
+changes, and has its own preview. Both keep the last query, and both work in
+any view of a checkout. With no file open, `⌘⇧O` opens the project's.
 
 Symbols come from Universal Ctags (`brew install universal-ctags`). Project
 symbols need no index: Med parses the files that Git tracks or does not

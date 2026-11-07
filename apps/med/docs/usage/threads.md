@@ -165,6 +165,14 @@ load it or read its agents until you open it again.
   title bar, beside the window controls; while the sidebar is hidden, the band
   starts with **Show sidebar**.
 
+**Open a repository** (`⌘O`) is a small picker of your repositories, ranked
+as zoxide ranks folders: by how often and how recently you opened them. One
+word from the name is enough, and more words narrow it. A row shows the
+repository's name and its current branch; the folder shows only when two
+repositories share a name. `Tab` moves the repository into the box and
+searches its branches, its worktrees first; `⇧Tab` goes back. `↵` opens the
+repository's own checkout, or the branch; from a thread, it opens beside it.
+
 The branch switcher (`⌘⇧G`) searches the branches and worktrees of every
 registered repository. `↵` opens a branch in the current workspace; `⌘↵` opens
 it as a new workspace. In a thread, `↵` moves the thread to the branch's

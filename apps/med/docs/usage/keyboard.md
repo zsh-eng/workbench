@@ -10,8 +10,8 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Find a file                            | `⌘⇧K`           |
 | Search file contents                   | `⌘⇧F`           |
 | Find in the diff                       | `⌘F`            |
-| Symbols in this file                   | `⌘O`            |
-| Symbols in the project                 | `⌘⇧O`           |
+| Open a repository                      | `⌘O`            |
+| Symbols in this file                   | `⌘⇧O`           |
 | Open a branch or worktree              | `⌘⇧G`           |
 | Open tab 1–9                           | `⌘1`–`⌘9`       |
 | Next tab that needs you                | `⌘0`            |
