@@ -216,13 +216,6 @@ export const GuideRail = memo(function GuideRail({
           />
         )}
       </div>
-      <div {...stylex.props(styles.keys)} aria-hidden="true">
-        <kbd {...stylex.props(styles.kbd)}>j</kbd>
-        <kbd {...stylex.props(styles.kbd)}>k</kbd>
-        <span>segments</span>
-        <kbd {...stylex.props(styles.kbd)}>v</kbd>
-        <span>viewed</span>
-      </div>
       <ColumnHandle kind="guide" width={width} pane={pane} label="the Guide" />
     </nav>
   );
@@ -552,33 +545,5 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     color: tokens.muted,
     fontSize: 12,
-  },
-  keys: {
-    display: { default: "flex", "@media (max-height: 560px)": "none" },
-    alignItems: "center",
-    gap: 5,
-    flexShrink: 0,
-    height: 32,
-    paddingInline: 14,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-    color: tokens.faint,
-    fontSize: 11,
-  },
-  kbd: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 16,
-    height: 16,
-    paddingInline: 3,
-    boxSizing: "border-box",
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-    color: tokens.muted,
-    fontFamily: tokens.code,
-    fontSize: 10,
   },
 });
