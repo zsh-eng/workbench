@@ -1,10 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentProps, ReactNode } from "react";
 import type { SavedCommit } from "../../shared/review-guide";
-import { tokens } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "./ColumnResize";
 import { FileSidebar } from "./FileSidebar";
-import { RailCommits } from "./guide/GuideRail";
+import { clippedTooltip } from "./ToolButton";
 
 /** As wide as the Guide's rail. */
 const RAIL_WIDTH = 268;
@@ -103,6 +103,87 @@ export function RangeCommits({
   );
 }
 
+/** A range's commits, after a first row for the whole range. */
+function RailCommits({
+  commits,
+  more,
+  current,
+  fresh,
+  onCommit,
+  whole,
+}: {
+  commits: readonly SavedCommit[];
+  more?: boolean;
+  /** The commit that shows, if one does. */
+  current: string | null;
+  /** Commits that are new since the reader's last review. */
+  fresh?: ReadonlySet<string>;
+  onCommit(id: string): void;
+  /** A row for the whole range, "Whole range" unless `label` names it. */
+  whole: { current: boolean; label: string; onShow(): void };
+}) {
+  return (
+    <>
+      <div {...stylex.props(commitStyles.section)}>
+        <span {...stylex.props(ui.label)}>Commits</span>
+        <span {...stylex.props(commitStyles.sectionCount)}>
+          {commits.length}
+          {more ? "+" : ""}
+        </span>
+      </div>
+      <ol aria-label="Commits" {...stylex.props(commitStyles.list)}>
+        <li>
+          <button
+            type="button"
+            aria-current={whole.current ? "page" : undefined}
+            onClick={whole.onShow}
+            {...stylex.props(
+              commitStyles.row,
+              commitStyles.commit,
+              whole.current && [commitStyles.on, picked],
+            )}
+          >
+            <span aria-hidden="true" {...stylex.props(commitStyles.sha, commitStyles.all)}>
+              all
+            </span>
+            <span {...stylex.props(commitStyles.commitSubject)}>{whole.label}</span>
+          </button>
+        </li>
+        {commits.map((commit) => {
+          const open = current === commit.id;
+          return (
+            <li key={commit.id}>
+              <button
+                type="button"
+                aria-current={open ? "page" : undefined}
+                {...clippedTooltip(commit.subject)}
+                onClick={() => onCommit(commit.id)}
+                {...stylex.props(
+                  commitStyles.row,
+                  commitStyles.commit,
+                  open && [commitStyles.on, picked],
+                )}
+              >
+                <span {...stylex.props(commitStyles.sha)}>{commit.id.slice(0, 7)}</span>
+                <span data-clip="" {...stylex.props(commitStyles.commitSubject)}>
+                  {commit.subject}
+                </span>
+                {fresh?.has(commit.id) && (
+                  <span
+                    title="New since your last review"
+                    aria-label="new"
+                    {...stylex.props(commitStyles.fresh)}
+                  />
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </>
+  );
+}
+
 const styles = stylex.create({
   rail: {
     position: "relative",
@@ -128,5 +209,70 @@ const styles = stylex.create({
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: tokens.line,
+  },
+});
+
+const commitStyles = stylex.create({
+  section: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 4,
+    paddingInline: 8,
+    minHeight: 24,
+  },
+  sectionCount: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+  },
+  list: { listStyle: "none", margin: 0, padding: 0 },
+  row: {
+    display: "flex",
+    alignItems: "center",
+    width: "100%",
+    boxSizing: "border-box",
+    borderWidth: 0,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    textAlign: "left",
+    cursor: "pointer",
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
+    outlineOffset: -2,
+  },
+  on: {
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
+    color: tokens.selectedText,
+  },
+  commit: { minHeight: 30, paddingInline: 8, gap: 9 },
+  sha: {
+    flexShrink: 0,
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+  },
+  // As wide as a short hash, so the subjects line up.
+  all: { width: "7ch" },
+  fresh: {
+    flexShrink: 0,
+    width: 6,
+    height: 6,
+    marginLeft: "auto",
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+  },
+  commitSubject: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.muted,
+    fontSize: 12,
   },
 });

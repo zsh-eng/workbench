@@ -130,7 +130,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Next / previous segment",
             keys: ["j", "k"],
-            note: "In the Review tab's Guide; commits step the same way",
+            note: "In the Review tab's Guide",
           },
         ],
       },

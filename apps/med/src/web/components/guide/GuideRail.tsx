@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo, type ReactNode } from "react";
 import type { ParsedReviewFile } from "../../../shared/review";
-import type { SavedCommit } from "../../../shared/review-guide";
 import type { GuideScope, GuideSection } from "../../data/guide";
 import { picked, tokens, ui } from "../../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "../ColumnResize";
@@ -11,8 +10,6 @@ import { clippedTooltip } from "../ToolButton";
 
 export interface GuideRailProps {
   sections: readonly GuideSection[];
-  commits: readonly SavedCommit[];
-  moreCommits?: boolean;
   scope: GuideScope;
   filesById: ReadonlyMap<string, ParsedReviewFile>;
   onScope(scope: GuideScope): void;
@@ -22,19 +19,18 @@ export interface GuideRailProps {
   /** At the heading's end, such as the sidebar's hide button. */
   controls?: ReactNode;
   /** What changed since the reader's last review, from version 2. */
-  since?: { from: number; files: number; commits: ReadonlySet<string> };
+  since?: { from: number; files: number };
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
- * The Guide's table of contents: the Overview, the agent's segments, and the
- * range's commits. The open segment lists its files.
+ * The Guide's table of contents: the Overview, what is new since the
+ * reader last looked, and the agent's segments. The open segment lists its
+ * files.
  */
 export const GuideRail = memo(function GuideRail({
   sections,
-  commits,
-  moreCommits,
   scope,
   filesById,
   onScope,
@@ -171,98 +167,11 @@ export const GuideRail = memo(function GuideRail({
             })}
           </ol>
         )}
-        {commits.length > 0 && (
-          <RailCommits
-            commits={commits}
-            more={moreCommits}
-            current={scope.kind === "commit" ? scope.id : null}
-            fresh={since?.commits}
-            onCommit={(id) => onScope({ kind: "commit", id })}
-          />
-        )}
       </div>
       <ColumnHandle kind="guide" width={width} pane={pane} label="the Guide" />
     </nav>
   );
 });
-
-/**
- * A range's commits, as the Guide and the Changes rail list them. Changes adds
- * a first row for the whole range.
- */
-export function RailCommits({
-  commits,
-  more,
-  current,
-  fresh,
-  onCommit,
-  whole,
-}: {
-  commits: readonly SavedCommit[];
-  more?: boolean;
-  /** The commit that shows, if one does. */
-  current: string | null;
-  /** Commits that are new since the reader's last review. */
-  fresh?: ReadonlySet<string>;
-  onCommit(id: string): void;
-  /** A row for the whole range, "Whole range" unless `label` names it. */
-  whole?: { current: boolean; label?: string; onShow(): void };
-}) {
-  return (
-    <>
-      <div {...stylex.props(styles.section)}>
-        <span {...stylex.props(ui.label)}>Commits</span>
-        <span {...stylex.props(styles.sectionCount)}>
-          {commits.length}
-          {more ? "+" : ""}
-        </span>
-      </div>
-      <ol aria-label="Commits" {...stylex.props(styles.list)}>
-        {whole && (
-          <li>
-            <button
-              type="button"
-              aria-current={whole.current ? "page" : undefined}
-              onClick={whole.onShow}
-              {...stylex.props(styles.row, styles.commit, whole.current && [styles.on, picked])}
-            >
-              <span aria-hidden="true" {...stylex.props(styles.sha, styles.all)}>
-                all
-              </span>
-              <span {...stylex.props(styles.commitSubject)}>{whole.label ?? "Whole range"}</span>
-            </button>
-          </li>
-        )}
-        {commits.map((commit) => {
-          const open = current === commit.id;
-          return (
-            <li key={commit.id}>
-              <button
-                type="button"
-                aria-current={open ? "page" : undefined}
-                {...clippedTooltip(commit.subject)}
-                onClick={() => onCommit(commit.id)}
-                {...stylex.props(styles.row, styles.commit, open && [styles.on, picked])}
-              >
-                <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                <span data-clip="" {...stylex.props(styles.commitSubject)}>
-                  {commit.subject}
-                </span>
-                {fresh?.has(commit.id) && (
-                  <span
-                    title="New since your last review"
-                    aria-label="new"
-                    {...stylex.props(styles.fresh)}
-                  />
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-    </>
-  );
-}
 
 const styles = stylex.create({
   // A narrow pane gives the diff the room; the Overview lists the segments.
@@ -422,44 +331,5 @@ const styles = stylex.create({
     flexShrink: 0,
     fontFamily: tokens.code,
     fontSize: 10.5,
-  },
-  section: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 16,
-    marginBottom: 4,
-    paddingInline: 8,
-    minHeight: 24,
-  },
-  sectionCount: {
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-  },
-  commit: { minHeight: 30, paddingInline: 8, gap: 9 },
-  sha: {
-    flexShrink: 0,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-  },
-  // As wide as a short hash, so the subjects line up.
-  all: { width: "7ch" },
-  fresh: {
-    flexShrink: 0,
-    width: 6,
-    height: 6,
-    marginLeft: "auto",
-    borderRadius: "50%",
-    backgroundColor: tokens.accent,
-  },
-  commitSubject: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    color: tokens.muted,
-    fontSize: 12,
   },
 });

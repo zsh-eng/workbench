@@ -3056,7 +3056,7 @@ describe("reading a version by commit and since the last review", () => {
       },
     });
     await page
-      .getByRole("navigation", { name: "Guide" })
+      .getByRole("list", { name: "Commits" })
       .getByRole("button", { name: /Add the initial renderer/ })
       .click();
     await expect.element(page.getByText("From the whole range.")).toBeVisible();
@@ -3102,10 +3102,10 @@ describe("reading a version by commit and since the last review", () => {
     await expect
       .poll(() => controller.getSnapshot().comparison)
       .toEqual({ kind: "commit", commit: secondCommit });
-    // The same commit in the Review's Guide has the version's comments too.
+    // The same commit in the Review has the version's comments too.
     await page.getByRole("radio", { name: "Review", exact: true }).click();
     await page
-      .getByRole("navigation", { name: "Guide" })
+      .getByRole("list", { name: "Commits" })
       .getByRole("button", { name: /Add the initial renderer/ })
       .click();
     await expect.element(page.getByText("From the whole range.")).toBeVisible();
@@ -3545,12 +3545,8 @@ describe("saved reviews", () => {
     const reviewTab = page.getByRole("radio", { name: "Review", exact: true });
     const changesTab = page.getByRole("radio", { name: "Changes", exact: true });
     await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
-    // The Review opens on its Guide, the range's commits; All files shows the whole diff.
-    await page
-      .getByRole("region", { name: "Guide overview" })
-      .getByRole("button", { name: "All files" })
-      .click();
-    await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
+    // A Review without a guide opens on the whole diff.
+    await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     // Its sidebar lists the files and the range's commits.
     const rail = page.getByRole("navigation", { name: "Files and commits" });
     await expect.element(rail).toBeVisible();
@@ -3598,10 +3594,6 @@ describe("saved reviews", () => {
       rangeCommits: true,
     });
     const reviewTab = page.getByRole("radio", { name: "Review", exact: true });
-    await page
-      .getByRole("region", { name: "Guide overview" })
-      .getByRole("button", { name: "All files" })
-      .click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     // The sidebar lists the files and, below them, the range's commits.
     await expect.element(page.getByRole("navigation", { name: "Files and commits" })).toBeVisible();

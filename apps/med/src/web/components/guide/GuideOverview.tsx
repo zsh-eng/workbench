@@ -1,10 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
-import type { SavedCommit } from "../../../shared/review-guide";
 import type { ReviewOutput } from "../../../shared/review-output";
 import type { Since } from "../../../shared/saved-review";
 import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
-import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { clippedTooltip } from "../ToolButton";
@@ -24,8 +22,8 @@ const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
  * The Guide's first page: the proof, what changed and why, what changed since
- * the reader's last review, the findings, then the segments to read and the
- * range's commits. Each row opens its part of the diff. A part that the
+ * the reader's last review, the findings, then the segments to read. Each
+ * row opens its part of the diff. A part that the
  * version does not have does not show.
  */
 export function GuideOverview({
@@ -35,8 +33,6 @@ export function GuideOverview({
   from,
   agent,
   sections,
-  commits,
-  moreCommits,
   proof,
   findings,
   openFindings = 0,
@@ -56,8 +52,6 @@ export function GuideOverview({
   from?: number;
   agent: { name: string; mark: IconName } | null;
   sections: readonly GuideSection[];
-  commits: readonly SavedCommit[];
-  moreCommits?: boolean;
   /** The version's proof, or the checks that its session ran. */
   proof?: OverviewProof;
   /** The version's findings, from its notes or guide (shared/review-output.ts). */
@@ -76,7 +70,6 @@ export function GuideOverview({
   onWhole(): void;
   onOpenLink(href: string): void;
 }) {
-  const [now] = useState(Date.now);
   const next = sections[0];
   const comments = sections.reduce((sum, section) => sum + section.notes.length, 0);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
@@ -118,25 +111,12 @@ export function GuideOverview({
           </div>
         ) : offer?.slot === "explainer" ? (
           offerIn("explainer")
-        ) : (
-          !sections.length &&
-          commits.length > 0 && (
-            <p {...stylex.props(styles.quiet)}>
-              This review has no guide. Read it one commit at a time, or all at once.
-            </p>
-          )
-        )}
+        ) : null}
         <div {...stylex.props(styles.start)}>
-          {(next || commits.length > 0) && (
+          {next && (
             <button
               type="button"
-              onClick={() =>
-                onScope(
-                  next
-                    ? { kind: "segment", key: next.key }
-                    : { kind: "commit", id: commits[0]!.id },
-                )
-              }
+              onClick={() => onScope({ kind: "segment", key: next.key })}
               {...stylex.props(ui.button, ui.primary, ui.pressable, styles.startButton)}
             >
               Start reviewing
@@ -146,12 +126,7 @@ export function GuideOverview({
           <button
             type="button"
             onClick={onWhole}
-            {...stylex.props(
-              ui.button,
-              !next && !commits.length && ui.primary,
-              ui.pressable,
-              styles.startButton,
-            )}
+            {...stylex.props(ui.button, !next && ui.primary, ui.pressable, styles.startButton)}
           >
             All files
           </button>
@@ -162,9 +137,6 @@ export function GuideOverview({
               sections.length > 0 &&
                 comments > 0 &&
                 `${comments} ${comments === 1 ? "comment" : "comments"}`,
-              sections.length === 0 &&
-                commits.length > 0 &&
-                `${commits.length}${moreCommits ? "+" : ""} ${commits.length === 1 ? "commit" : "commits"}`,
               openFindings > 0 &&
                 `${openFindings} open ${openFindings === 1 ? "finding" : "findings"}`,
             ]
@@ -232,37 +204,6 @@ export function GuideOverview({
             </ol>
           </>
         )}
-        {commits.length > 0 && (
-          <>
-            <h2 {...stylex.props(styles.label)}>
-              Commits
-              <span {...stylex.props(styles.labelCount)}>
-                {commits.length}
-                {moreCommits ? "+" : ""}
-              </span>
-            </h2>
-            <ol {...stylex.props(styles.list)}>
-              {commits.map((commit) => (
-                <li key={commit.id}>
-                  <button
-                    type="button"
-                    onClick={() => onScope({ kind: "commit", id: commit.id })}
-                    {...clippedTooltip(commit.subject)}
-                    {...stylex.props(styles.commit)}
-                  >
-                    <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                    <span data-clip="" {...stylex.props(styles.subject)}>
-                      {commit.subject}
-                    </span>
-                    <span {...stylex.props(styles.when)}>
-                      {commit.author} · {relativeTime(commit.timestamp, now)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </>
-        )}
       </div>
     </section>
   );
@@ -318,7 +259,6 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
   },
   summary: { marginTop: 26 },
-  quiet: { marginTop: 22, marginBottom: 0, color: tokens.muted, fontSize: 14, lineHeight: 1.6 },
   start: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 14, marginTop: 28 },
   startButton: { minHeight: 32, paddingInline: 14, gap: 8, fontSize: 12.5 },
   startMeta: { color: tokens.faint, fontSize: 12 },
@@ -335,7 +275,6 @@ const styles = stylex.create({
     letterSpacing: tokens.labelTracking,
     textTransform: tokens.labelCase,
   },
-  labelCount: { color: tokens.faint, fontFamily: tokens.code, fontSize: 10.5 },
   list: {
     listStyle: "none",
     margin: 0,
@@ -417,40 +356,4 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   sentence: { color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
-  commit: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 12,
-    width: "100%",
-    boxSizing: "border-box",
-    minHeight: 38,
-    paddingBlock: 9,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    textAlign: "left",
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: -2,
-  },
-  sha: { flexShrink: 0, color: tokens.faint, fontFamily: tokens.code, fontSize: 11 },
-  subject: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 13,
-  },
-  when: {
-    display: { default: "inline", "@container (max-width: 520px)": "none" },
-    flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11.5,
-  },
 });

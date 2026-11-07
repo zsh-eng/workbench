@@ -4,10 +4,10 @@ When an agent attaches a guide, the **Review** tab opens on the Guide. A guide
 splits the change into segments that you check one at a time, like a pull
 request split into small ones.
 
-- **Overview.** The agent's summary, the segments with their area, size, and
-  comment count, and the range's commits. **Needs care** marks a segment that
-  the agent flagged as risky. **Start reviewing** opens the first segment that
-  you have not finished, and **All files** shows the version's whole diff.
+- **Overview.** The agent's summary and the segments with their area, size,
+  and comment count. **Needs care** marks a segment that the agent flagged as
+  risky. **Start reviewing** opens the first segment, and **All files** shows
+  the version's whole diff.
   A summary is Markdown: `mermaid` diagrams show, and images load from the
   review's checkout, with paths from the repository root.
 - **A segment.** Its title, summary, and only its files, with the agent's
@@ -18,8 +18,9 @@ request split into small ones.
 - **The rail.** The Guide's parts are in the rail at the left, which hides in
   a narrow window. **Next** at the end of a segment, or `j`, opens the next
   one.
-- **Commits.** With two or more commits in the range, each one opens on its own,
-  with its message. **Whole range** in the rail goes back to the whole range.
+- **Commits.** They are not in the Guide. With two or more commits in the
+  range, the rail of **All files** lists them: each one opens on its own, with
+  its message, and **Whole range** goes back to the whole range.
   The version's comments, yours and the agent's, show on the commit's lines
   where the commit shows the same line; the commit's head says how many it
   cannot show. A comment that you add on a commit belongs to the version when
@@ -29,12 +30,12 @@ request split into small ones.
   what changed since your last review (see
   [later versions](#proof-findings-and-later-versions)). The diff goes from that
   version's text to this one's, so your comments keep their lines; a comment on
-  a removed line is not possible there. A dot marks the commits that are new
-  since then.
-- **Move.** `j` and `k` step through the Overview, Since, and the segments, or
-  through the commits once one is open.
+  a removed line is not possible there. In the file rail, a dot marks the
+  commits that are new since then.
+- **Move.** `j` and `k` step through the Overview, Since, and the segments.
 
-A range with several commits and no guide shows its commits in the Guide too.
+A review with nothing for the Overview (no guide, proof, or findings) opens on
+its whole diff.
 Agents pass a guide with [`--guide`](../AGENT_INTEGRATION.md#attach-a-guide).
 
 ## Proof, findings, and later versions

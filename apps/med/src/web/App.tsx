@@ -1599,7 +1599,6 @@ export function App({
     capturedVersions.some((entry) => entry.number < shownIteration);
   const overviewParts =
     !!savedGuide ||
-    guideCommits.length >= 2 ||
     !!reviewOutput.proof ||
     reviewOutput.findings.length > 0 ||
     !!reviewOutput.counts;
@@ -1639,21 +1638,21 @@ export function App({
     guideScope.kind === "segment"
       ? guideSections.find((section) => section.key === guideScope.key)
       : undefined;
+  // A commit of the saved range, picked in the Review's file sidebar, shows
+  // with the version's comments and its message.
+  const shownCommit = state.comparison.kind === "commit" ? state.comparison.commit : null;
   const commitIndex =
-    guideScope.kind === "commit"
-      ? guideCommits.findIndex((commit) => commit.id === guideScope.id)
+    state.inReview && !state.savedView && shownCommit
+      ? guideCommits.findIndex((commit) => commit.id === shownCommit)
       : -1;
-  const guideCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
+  const rangeCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
   const guideTab = hasGuide && fileState.active === "guide";
-  // A segment shows the saved comparison; a commit shows that commit; Since
-  // shows the saved comparison as only what changed since an earlier version.
+  // A segment shows the saved comparison; Since shows it as only what changed
+  // since an earlier version.
   const guideDiff =
     guideTab &&
     ((!!guideSection && state.savedView && !state.savedSince) ||
-      (guideScope.kind === "since" && state.savedView && !!state.savedSince) ||
-      (!!guideCommit &&
-        state.comparison.kind === "commit" &&
-        state.comparison.commit === guideCommit.id));
+      (guideScope.kind === "since" && state.savedView && !!state.savedSince));
   const guideOverview = guideTab && !guideDiff;
   // What changed since the reader's last review: the host compares the
   // captures, and answers again when an approval, a comment, or opening a
@@ -1882,11 +1881,6 @@ export function App({
       setSelection(null);
       fileWorkspace.select("guide");
       setPendingGuideFile(fileId ?? null);
-      if (scope.kind === "commit") {
-        if (snapshot.comparison.kind !== "commit" || snapshot.comparison.commit !== scope.id)
-          void controller.selectComparison({ kind: "commit", commit: scope.id }, true);
-        return;
-      }
       if (scope.kind === "since") {
         if (sinceFrom) void controller.showSince(sinceFrom);
         return;
@@ -1908,16 +1902,13 @@ export function App({
     if (guideTab && guideScope.kind === "since" && sinceFrom && state.savedSince !== sinceFrom)
       void controller.showSince(sinceFrom);
   }, [controller, guideTab, guideScope.kind, sinceFrom, state.savedSince]);
-  // j and k step through the segments, or through the commits once one shows.
+  // j and k step through the segments.
   const stepGuide = useCallback(
     (delta: number) => {
-      const commits = guideScope.kind === "commit" || !guideSections.length;
       const order: GuideScope[] = [
         { kind: "overview" },
         ...(sinceFrom ? [{ kind: "since" as const }] : []),
-        ...(commits
-          ? guideCommits.map((commit) => ({ kind: "commit" as const, id: commit.id }))
-          : guideSections.map((section) => ({ kind: "segment" as const, key: section.key }))),
+        ...guideSections.map((section) => ({ kind: "segment" as const, key: section.key })),
       ];
       const index = order.findIndex(
         (scope) => JSON.stringify(scope) === JSON.stringify(guideScope),
@@ -1926,7 +1917,7 @@ export function App({
       if (next && index + delta >= 0 && JSON.stringify(next) !== JSON.stringify(guideScope))
         openGuide(next);
     },
-    [guideScope, guideSections, guideCommits, openGuide, sinceFrom],
+    [guideScope, guideSections, openGuide, sinceFrom],
   );
   const streamRef = useRef<HTMLDivElement>(null);
   // A file chosen in the rail shows once its segment's stream has mounted.
@@ -2197,10 +2188,7 @@ export function App({
         : NO_GUIDE_NOTES,
     [resolvedGuide],
   );
-  const lensReview =
-    guideCommit && state.inReview && !state.savedView && state.status === "ready"
-      ? state.review
-      : null;
+  const lensReview = rangeCommit && state.status === "ready" ? state.review : null;
   const [placedGuide, setPlacedGuide] = useState<{
     review: string;
     byPath: Map<string, GuideNote[]>;
@@ -5063,18 +5051,30 @@ export function App({
     : guideScope.kind === "since"
       ? guideSections[0]
       : undefined;
-  const nextGuideCommit =
-    commitIndex >= 0
-      ? guideCommits[commitIndex + 1]
-      : guideScope.kind === "since" && !guideSections.length
-        ? guideCommits[0]
-        : undefined;
   const nextGuideLabel = nextGuidePart
     ? `${nextGuidePart.automatic ? "" : `${String(nextGuidePart.number).padStart(2, "0")} · `}${nextGuidePart.title}`
-    : nextGuideCommit
-      ? `${nextGuideCommit.id.slice(0, 7)} · ${nextGuideCommit.subject}`
-      : undefined;
+    : undefined;
   const renderCodeViewHeader = useCallback(() => {
+    if (rangeCommit)
+      return (
+        <CommitHeader
+          commit={rangeCommit}
+          number={commitIndex + 1}
+          count={guideCommits.length}
+          hidden={state.notes?.hidden}
+          onWhole={showReviewDiff}
+          totals={
+            state.review
+              ? {
+                  additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
+                  deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
+                  files: state.files.length,
+                }
+              : undefined
+          }
+          loadDetails={loadGuideCommit}
+        />
+      );
     if (!guideDiff) return dependencyCard || null;
     if (guideSection)
       return (
@@ -5102,26 +5102,6 @@ export function App({
           onWhole={showReviewDiff}
         />
       );
-    if (guideCommit)
-      return (
-        <CommitHeader
-          commit={guideCommit}
-          number={commitIndex + 1}
-          count={guideCommits.length}
-          hidden={state.notes?.hidden}
-          onWhole={showReviewDiff}
-          totals={
-            state.review
-              ? {
-                  additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
-                  deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
-                  files: state.files.length,
-                }
-              : undefined
-          }
-          loadDetails={loadGuideCommit}
-        />
-      );
     return null;
   }, [
     guideDiff,
@@ -5132,7 +5112,7 @@ export function App({
     notes,
     controller,
     openGuideLink,
-    guideCommit,
+    rangeCommit,
     commitIndex,
     guideCommits,
     state.review,
@@ -5916,8 +5896,6 @@ export function App({
                 {guideRailShown && (
                   <GuideRail
                     sections={guideSections}
-                    commits={guideCommits}
-                    moreCommits={guideTarget?.moreCommits}
                     scope={guideScope}
                     filesById={guideFilesById}
                     onScope={openGuide}
@@ -5977,8 +5955,6 @@ export function App({
                     }
                     agent={leadSession ? { name: guideAgent.name, mark: guideAgent.mark } : null}
                     sections={guideSections}
-                    commits={guideCommits}
-                    moreCommits={guideTarget?.moreCommits}
                     proof={overviewProof}
                     findings={reviewOutput}
                     openFindings={openFindings}

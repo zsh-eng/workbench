@@ -56,13 +56,12 @@ export const answersGuideNote = (note: Note, guide: GuideNote) =>
   note.guideComment.text === guide.body;
 
 /** What the Guide tab shows: the Overview, what changed since the reader's
- * last review, one segment, or one commit. Each is a way to read the same
- * version, with the same comments. */
+ * last review, or one segment. Each is a way to read the same version, with
+ * the same comments. */
 export type GuideScope =
   | { kind: "overview" }
   | { kind: "since" }
-  | { kind: "segment"; key: string }
-  | { kind: "commit"; id: string };
+  | { kind: "segment"; key: string };
 
 /** Area names as the Guide shows them. */
 export const AREA_LABELS: Record<GuideArea, string> = {
