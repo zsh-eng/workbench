@@ -76,8 +76,7 @@ The command prints a link to paste into the final message:
 ```
 
 With `--json`, the command prints one JSON object instead: the review's `id`,
-`key`, `version`, `url`, and `title`; `layer` when it joined a stack; `wait`,
-the command to run when Med expects `med review wait`; `notes`, the lines that
+`key`, `version`, `url`, and `title`; `layer` when it joined a stack; `notes`, the lines that
 it prints after the link; and `advice`, the lines that it otherwise writes to
 standard error. The `url` has no access token.
 
@@ -167,9 +166,9 @@ the agent's thread, read from the transcript and followed live; see
 - A subagent has its parent's `CLAUDE_CODE_SESSION_ID`. Med looks for the
   command's call in the session's transcripts: when a subagent runs the
   command, or when Med cannot tell which agent runs it, Med records no
-  session and says why. The review then has no Session pane, and Med prints
-  no `med review wait` line, because nothing would send the subagent a
-  message. `--session claude:<id>` records a session by hand; `med thread
+  session and says why. The review then has no Session pane, because nothing
+  would send the subagent a message. `--session claude:<id>` records a
+  session by hand; `med thread
 show` in a subagent needs `--key`.
 - Other sessions need `--session codex:<id>` or `--session claude:<id>`. Repeat
   the option for more sessions; `review update --key <name> --session …` adds
@@ -653,10 +652,7 @@ after the review is saved.
 | `--working` without `--paths` has files the session never edited | Names them and prints `med review update --paths` with the session's files                                         |
 | `update --guide` after the checkout moved on                     | Prints `med review create` for the next version                                                                    |
 | The guide puts lockfiles or generated files first                | The guide check names the segments                                                                                 |
-| A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                                                            |
-| A subagent runs the command, or Med cannot tell                  | Records no session, says why, and prints no `med review wait` line                                                 |
-| `review wait` outside Claude Code, as in Codex, or in a subagent | Fails at once: nothing would send it a message                                                                     |
-| `review wait` in a Claude Code session that the review lacks     | Adds the session to the review, as `update --session` does, and says so                                            |
+| A subagent runs the command, or Med cannot tell                  | Records no session, and says why                                                                                   |
 | `--port` or `--state-dir` is not the default                     | Each printed command carries them, so it reaches the same Med                                                      |
 
 Med suggests review practices and enforces none by default. A repository can

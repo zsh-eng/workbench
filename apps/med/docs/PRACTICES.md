@@ -54,7 +54,6 @@ make a review that cannot be right.
 | Titles of 2–4 words, no repository name | Warn, and print `med review update --key K --title "…"`.                                                                                                               |
 | One `--key` per task                    | Default the key to the branch (not the base branch), and print it. `update --key` also takes a review ID.                                                              |
 | A fix round is a new version            | `update --guide` on a capture that the checkout has moved past warns: "the capture is older than the checkout; run `med review create --key K …` to make version N+1". |
-| Wait after a hand-off                   | In a Claude Code session outside a Med thread, `create` prints the `med review wait --key K` line.                                                                     |
 | Generated files last                    | The guide check names a segment of lockfiles or generated files that comes before other segments.                                                                      |
 | Several repositories need a file        | `--manifest -` reads the manifest from standard input.                                                                                                                 |
 

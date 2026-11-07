@@ -88,7 +88,6 @@ test("a page reads all its event streams over one connection", async () => {
   ]);
   expect(JSON.parse(opened[5]!.events[0]!.data)).toEqual({
     messages: [],
-    waiting: [],
     drafts: [],
     elsewhere: {},
     resumable: [],

@@ -964,18 +964,6 @@ describe("hand-off checks that say what to do next", () => {
     expect(sub.advice).toContain(
       "Session: this command runs in a subagent of Claude Code session parent.",
     );
-    expect(sub.advice).not.toContain("med review wait");
-    // Its wait would take the messages that the user sends to the parent.
-    await transcripts(
-      "",
-      call("toolu_wait", "Bash", { command: "med review wait --key sub" }, true),
-    );
-    await expect(
-      parseReviewCommand(["wait", "--key", "sub", ...f.flags.split(" ")], {
-        environment: { CLAUDE_CODE_SESSION_ID: "parent" },
-        home,
-      }),
-    ).rejects.toThrow("so this wait would take the messages that the user sends to the parent");
 
     // The parent's own hand-off, beside a subagent at work, records the parent.
     await transcripts(
@@ -986,7 +974,6 @@ describe("hand-off checks that say what to do next", () => {
     expect((await f.saved(own.out)).sessions).toEqual([
       { agent: "claude", id: "parent", cwd: "/work/app" },
     ]);
-    expect(own.advice).toContain(`med review wait --key own ${f.flags}`);
 
     // When no transcript shows the call, Med records nothing and says so.
     await transcripts("", call("toolu_test", "Bash", { command: "bun run test" }, true));
@@ -997,7 +984,7 @@ describe("hand-off checks that say what to do next", () => {
     );
   });
 
-  it("checks the title, defaults the key to the branch, and says how to wait", async () => {
+  it("checks the title, and defaults the key to the branch", async () => {
     const f = await fixture(2);
     const repo = f.repos[0]!;
     git(repo, "switch", "-c", "feat/retry");
@@ -1012,9 +999,7 @@ describe("hand-off checks that say what to do next", () => {
     expect(short.advice).toContain(
       "Key: feat/retry, from the branch. Hand off each later round of this task with the same key",
     );
-    expect(short.advice).toContain(
-      `To get the user's comments, run this as a background command: med review wait --key feat/retry ${f.flags}.`,
-    );
+    expect(short.advice).not.toContain("med review wait");
     // The next round on the branch is the next version of the same review.
     await writeFile(join(repo, "file.txt"), "round two\n");
     const named = await checked(f, [

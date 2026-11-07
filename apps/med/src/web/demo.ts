@@ -108,7 +108,6 @@ function answerComment(recording: Recording) {
       const own = (state: AgentInboxState) => {
         const ids = [...new Set(state.messages.map((message) => message.sessionId))];
         state.owned = ids;
-        state.waiting = [];
       };
       if (path.endsWith("/events")) {
         entry.text = rewrite(entry.text, own);
@@ -288,7 +287,6 @@ function inbox(id: string): AgentInboxState {
     streamed<AgentInboxState>(`${path}/events`) ??
     read<AgentInboxState>(path) ?? {
       messages: [],
-      waiting: [],
       elsewhere: {},
       resumable: [],
       owned: [],

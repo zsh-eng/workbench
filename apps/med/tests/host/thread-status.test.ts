@@ -9,7 +9,6 @@ import type { Thread, ThreadList } from "../../src/shared/threads";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { readServerEvents } from "../../src/web/data/sse";
-import { openSession } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
 // The thread list reads each thread's last turn from its transcript's tail: what
@@ -19,10 +18,8 @@ import { removeFolder } from "./remove-folder";
 const directories: string[] = [];
 const hosts: RunningHost[] = [];
 const streams: AbortController[] = [];
-const ends: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const stream of streams.splice(0)) stream.abort();
-  await Promise.all(ends.splice(0).map((end) => end()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
@@ -368,9 +365,8 @@ test("each thread tells what its agent does now, what it said, and whether it as
   });
   expect(thread("Add feet")?.turn).toMatchObject({ asks: true });
 
-  // A reply from Med waits in the thread's agent inbox while the session runs
-  // in a terminal, and the list says so.
-  ends.push((await openSession(home, ids.ask)).end);
+  // A reply from Med answers the question: Med resumes the session with it,
+  // and the list says so.
   const sent = await api(`/api/reviews/${asked.data.id}/agent/messages`, {
     sessionId: ids.ask,
     text: "Keep the station's own time.",
@@ -381,32 +377,11 @@ test("each thread tells what its agent does now, what it said, and whether it as
     () =>
       expect(thread("Daylight saving times")?.replied).toMatchObject({
         text: "Keep the station's own time.",
-        delivery: "pending",
+        delivery: "delivered",
       }),
     { timeout: 5000 },
   );
   expect(thread("Daylight saving times")!.replied!.at).toBeGreaterThan(
     thread("Daylight saving times")!.turn!.endedAt!,
   );
-
-  // An agent in `med review wait` needs you; its open wait is not work.
-  await claude(home, trees.done, ids.done, "Make search forgiving.", [
-    { text: "Search ignores case now. I wait for your review." },
-    { tool: "Bash", input: { command: "med review wait", description: "Wait for review" } },
-  ]);
-  const forgiving = latest.value!.threads.find((entry) => entry.title === "Forgiving search")!;
-  const waited = api(`/api/reviews/${forgiving.id}/agent/wait`, { session: ids.done });
-  await vi.waitFor(() => expect(thread("Forgiving search")?.state).toBe("waiting"), {
-    timeout: 5000,
-  });
-  expect(thread("Forgiving search")!.turn).toEqual({
-    startedAt: expect.any(Number),
-    said: "Search ignores case now. I wait for your review.",
-  });
-  await api(`/api/reviews/${forgiving.id}/agent/messages`, {
-    sessionId: ids.done,
-    text: "Looks good.",
-    noteIds: [],
-  });
-  expect((await waited).status).toBe(200);
 });

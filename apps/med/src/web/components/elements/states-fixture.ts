@@ -176,11 +176,6 @@ export const receipts: SentMessage[] = [
   sent("m1", 10, "Keep the column header as it is.", { delivery: "delivered" }),
   sent("m2", 9, "Round half a minute up.", { delivery: "sending" }),
   sent("m3", 8, "Then run the export tests.", { delivery: "pending" }),
-  sent("m4", 7, "Also check the weekly summary.", { delivery: "queued" }),
-  sent("m5", 6, "Commit when the tests pass.", {
-    delivery: "pending",
-    waitsFor: "terminal",
-  }),
   sent("m6", 5, "Push the branch.", {
     delivery: "failed",
     error: "Med could not save it",

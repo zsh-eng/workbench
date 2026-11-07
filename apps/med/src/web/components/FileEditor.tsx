@@ -845,10 +845,7 @@ export default function FileEditor({
           title={draft.dirty ? "Unsaved changes" : "Saved"}
           style={{ color: draft.dirty ? active.palette.warning : active.palette.muted }}
         />
-        <span
-          className="med-editor-path"
-          title={fileTitle(draft.file.path, draft.file.size)}
-        >
+        <span className="med-editor-path" title={fileTitle(draft.file.path, draft.file.size)}>
           {context.path ?? draft.file.path}
         </span>
         <span className="med-editor-mode" aria-live="polite" title="Editing file · Vim">

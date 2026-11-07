@@ -103,8 +103,8 @@ import {
   readTranscriptPage,
   transcriptTurns,
 } from "./agent-transcripts";
-import { AgentInbox, findCodex } from "./agent-inbox";
-import { createHeldMessages } from "./held-messages";
+import { AgentInbox } from "./agent-inbox";
+import { findCodex } from "./find-codex";
 import { createQueuedMessages } from "./queued-messages";
 import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
@@ -150,7 +150,6 @@ import {
 } from "../shared/threads";
 import {
   agentMessageInputSchema,
-  deliveredText,
   type AgentInboxState,
   type SessionPlace,
 } from "../shared/agent-inbox";
@@ -197,12 +196,6 @@ export interface StartHostOptions {
     isGitHub?(host: string): Promise<boolean>;
     launch?(editor: Editor, file: string, line: number): void;
   };
-  /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
-  queueCodex?: (threadId: string, text: string) => Promise<void>;
-  /** How long a `med review wait` has to confirm a message (tests shorten it). */
-  agentAckMs?: number;
-  /** How often Med checks the process that holds a message (held-messages.ts). */
-  heldCheckMs?: number;
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
@@ -363,10 +356,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
     },
   });
-  const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
-    ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
-    ...(options.agentAckMs ? { ackMs: options.agentAckMs } : {}),
-  });
+  const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"));
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
   const prDrafts = createPrDrafts({
@@ -402,17 +392,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   await ownedSessions.restore();
   /**
-   * The review's Claude sessions that Med does not run now, or restored
-   * without a process: those that another process runs, such as Claude Code
-   * in a terminal, with where each is open, and those that a message resumes
-   * in Med. A session that takes messages with `med review wait` is in
-   * neither.
+   * The review's sessions that Med does not run now, or restored without a
+   * process: those that another process has open, such as Claude Code in a
+   * terminal or a thread in Codex Desktop, with where each is open, and the
+   * Claude sessions that a message resumes in Med. Med cannot type into
+   * another process: the reader sees the thread, and Continue in Med forks it.
    */
-  const claudeSessions = async (
-    reviewId: string,
-    sessions: readonly AgentSession[] = [],
-    maxAgeMs = 1000,
-  ) => {
+  const sessionPlaces = async (sessions: readonly AgentSession[] = [], maxAgeMs = 1000) => {
     const ids = sessions.flatMap((session) => {
       const runner = ownedSessions.get(session.id);
       return session.agent === "claude" &&
@@ -423,42 +409,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const running = ids.length
       ? await ownedSessions.elsewhere(ids, maxAgeMs)
       : new Map<string, SessionPlace>();
+    const codex = await Promise.all(
+      sessions
+        .filter((session) => session.agent === "codex" && !ownedSessions.get(session.id))
+        .map(async (session): Promise<[string, SessionPlace][]> =>
+          (await ownedSessions.lockedElsewhere("codex", session.id).catch(() => false))
+            ? [[session.id, "other-app"]]
+            : [],
+        ),
+    );
     return {
-      elsewhere: Object.fromEntries([...running].filter(([id]) => !inbox.usesWait(reviewId, id))),
+      elsewhere: Object.fromEntries<SessionPlace>([...running, ...codex.flat()]),
       resumable: ids.filter((id) => !running.has(id)),
     };
   };
-  // Messages that wait for another process to end. When it ends, Med resumes
-  // the session, or wakes the one that it restored, and gives it the
-  // messages in one prompt. A `med review wait` of that process takes them
-  // first if it runs.
-  const heldMessages = createHeldMessages({
-    ...(options.heldCheckMs ? { intervalMs: options.heldCheckMs } : {}),
-    check: async (reviewId, sessionId) => {
-      if (!(await inbox.pending(reviewId, sessionId))) return "done";
-      const waits = inbox.waiting(reviewId);
-      if (waits.includes(sessionId) || waits.includes("*")) return "held";
-      if (await ownedSessions.runsElsewhere(sessionId)) return "held";
-      const bundle = await savedReviews.get(reviewId).catch(() => undefined);
-      const session = bundle?.sessions?.find((entry) => entry.id === sessionId);
-      if (!bundle || session?.agent !== "claude") return "done";
-      const current = ownedSessions.get(sessionId);
-      // The user stopped the session in Med; the messages stay for a wait.
-      if (current?.state().status === "exited") return "done";
-      let runner = current;
-      try {
-        runner ??= await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {});
-      } catch (error) {
-        await inbox.deliverPending(reviewId, sessionId, () => Promise.reject(error));
-        return "done";
-      }
-      const { left } = await inbox.deliverPending(reviewId, sessionId, (body) =>
-        runner.prompt(body),
-      );
-      return left ? "held" : "done";
-    },
-  });
-  for (const { reviewId, sessionId } of await inbox.held()) heldMessages.watch(reviewId, sessionId);
   // Messages that came while an agent that Med runs worked.
   const queuedMessages = createQueuedMessages({
     inbox,
@@ -473,7 +437,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       const runner = ownedSessions.get(sessionId);
       return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
     },
-    waiting: (reviewId) => inbox.waiting(reviewId),
     logPath: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
   });
@@ -1595,10 +1558,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }
           throw new HostError("method-not-allowed", "This session action is not supported.", 405);
         }
-        // Messages from the review to its agent sessions. `wait` is the long
-        // poll behind `med review wait`, so it stays outside the request limit.
+        // Messages from the review to its agent sessions.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now|reply))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now|reply))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1628,8 +1590,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
-              waiting: inbox.waiting(reviewId),
-              ...(await claudeSessions(reviewId, sessions)),
+              ...(await sessionPlaces(sessions)),
               owned: (sessions ?? []).flatMap((session) =>
                 ownedSessions.get(session.id) ? [session.id] : [],
               ),
@@ -1731,42 +1692,56 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 parts.push(`## ${attachment.label}\n\n${attachment.text}`);
               const runner = ownedSessions.get(session.id);
               const live = runner && runner.state().status !== "exited" ? runner : undefined;
-              // A Claude session that Med does not run, or restored without its
-              // process, can run in another process, such as Claude Code in a
-              // terminal. Then the message waits until that process takes it
-              // with `med review wait`, or ends. Otherwise Med resumes the
-              // session and sends the message as its next prompt.
-              let held = false;
+              // Med sends only to a session that it runs, or resumes because no
+              // other process has it open. One that Claude Code in a terminal,
+              // the Claude app, or Codex Desktop has open is the reader's to
+              // see: Continue in Med forks it into one that Med runs.
               let resume = false;
               if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
-                const waits = inbox.waiting(reviewId);
-                held =
-                  waits.includes(session.id) ||
-                  waits.includes("*") ||
-                  (await ownedSessions.runsElsewhere(session.id));
-                resume = !held && !live;
-              } else if (
-                session.agent === "codex" &&
-                !live &&
-                !runner &&
-                (await ownedSessions.agents()).some(
-                  (agent) => agent.kind === "codex" && agent.available,
-                ) &&
-                !(await ownedSessions.lockedElsewhere("codex", session.id))
-              )
-                // A Codex thread that no process has open: Med resumes it
-                // through Codex's app-server and runs it from then on. One
-                // that Codex Desktop or a terminal has open takes the message
-                // through `codex queue`.
+                if (await ownedSessions.runsElsewhere(session.id))
+                  throw new HostError(
+                    "session-elsewhere",
+                    "Claude Code has this session open in another app, so Med can't send to it. Continue it in Med, or copy the comments.",
+                    409,
+                  );
+                resume = !live;
+              } else if (session.agent === "codex" && !live && !runner) {
+                if (await ownedSessions.lockedElsewhere("codex", session.id))
+                  throw new HostError(
+                    "session-elsewhere",
+                    "Codex has this thread open in another app, so Med can't send to it. Continue it in Med, or copy the comments.",
+                    409,
+                  );
+                if (
+                  !(await ownedSessions.agents()).some(
+                    (agent) => agent.kind === "codex" && agent.available,
+                  )
+                )
+                  throw new HostError(
+                    "codex-not-found",
+                    "Med could not find the codex command. Install Codex, or set MED_CODEX_PATH.",
+                    409,
+                  );
+                // Med resumes the thread through Codex's app-server and runs it
+                // from then on.
                 resume = true;
+              }
+              // A session that stopped in Med takes no message, as one that no
+              // agent of Med's can resume.
+              if (!resume && !live)
+                throw new HostError(
+                  "session-stopped",
+                  "This session stopped, so Med can't send to it. Start a new session, or copy the comments.",
+                  409,
+                );
               // The agent that Med runs works: the message waits for its next
               // step (queued-messages.ts), and the user can take it back.
-              const queue = !held && !resume && live?.state().status === "working";
+              const queue = !resume && live?.state().status === "working";
               // An agent that Med runs and that takes images gets them in the
               // prompt, as Claude Code does. Any other agent, or a queued
               // message, gets the paths of saved copies.
               const native =
-                !queue && (resume || (live && !held && live.state().images)) ? input.images : [];
+                !queue && (resume || (live && live.state().images)) ? input.images : [];
               if (input.images.length && !native.length)
                 parts.push(imagesText(await saveImages(imageDirectory, input.images)));
               if (!parts.length && !native.length)
@@ -1776,11 +1751,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   400,
                 );
               // A session that Med runs takes the message as its next prompt.
-              const target = held
-                ? undefined
-                : resume
-                  ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
-                  : live;
+              const target = resume
+                ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
+                : live;
               const message = await inbox.send(
                 reviewId,
                 session,
@@ -1798,44 +1771,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   ? { queued: true, afterTurn: !!input.afterTurn }
                   : target
                     ? { deliver: (body) => target.prompt(body, native) }
-                    : { held },
+                    : {},
               );
-              if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
               if (queue && message.delivery === "pending")
                 queuedMessages.watch(reviewId, session.id);
               return message;
             });
             send({ message, state: await inboxState() });
-            return;
-          }
-          if (action === "wait" && request.method === "POST") {
-            const input = z
-              .object({
-                session: z
-                  .string()
-                  .regex(/^[A-Za-z0-9_-]{1,128}$/)
-                  .optional(),
-                timeout: z.number().int().min(1).max(25_000).default(25_000),
-                // The wait confirms what it prints (ack), so a message that
-                // reaches no one goes to the next wait.
-                confirm: z.boolean().default(false),
-              })
-              .parse(await readBody(request));
-            const result = await inbox.wait(
-              reviewId,
-              input.session,
-              input.timeout,
-              abort.signal,
-              input.confirm,
-            );
-            send(
-              result && "body" in result
-                ? {
-                    message: deliveredText(bundle.title, [{ body: result.body }]),
-                    ...(input.confirm ? { ids: result.ids } : {}),
-                  }
-                : { message: null, ...(result ? { superseded: true } : {}) },
-            );
             return;
           }
           // Takes back a queued message that the agent has not had, to edit
@@ -1901,14 +1843,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             // Open pages read the comments again.
             inbox.touch(reviewId);
             send({ note });
-            return;
-          }
-          if (action === "ack" && request.method === "POST") {
-            const input = z
-              .object({ ids: z.array(z.string().min(1).max(128)).min(1).max(100) })
-              .parse(await readBody(request));
-            await inbox.ack(reviewId, input.ids);
-            send({ ok: true });
             return;
           }
           throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
@@ -3688,7 +3622,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
-      heldMessages.stop();
       queuedMessages.stop();
       await ownedSessions.detachAll();
       await questions.stopAll();

@@ -310,22 +310,20 @@ state, in place of the tabs over the thread. Its button in the header, `⌘⌥�
   continues in the mode you choose beside it (Accept edits at first), and
   **Keep planning** takes an optional note on what should change.
 
-A Claude Code session that you kept in Med or adopted gets your messages too:
+A Claude Code session that you kept in Med or adopted gets your messages when
+Med can run it:
 
-- When no process runs it, Med resumes it with your message, and any
-  messages that waited, as its next prompt. Med then runs the session, with
-  the pickers and **Stop**, also after a restart.
-- When Claude Code has it open in a terminal, the message box says "Claude
-  has this session open in a terminal. Med can't type there." A message then
-  shows "Waiting for the terminal session to close". In the Claude app, they
-  say "open in the Claude app" and "Waiting for the session in the Claude app
-  to close"; in any other app, "open in another app" and "Waiting for the
-  session to close there". When that session ends, Med resumes it and sends
-  the waiting messages. If that session runs `med review wait`, it gets them
-  there instead.
+- When no process runs it, Med resumes it with your message as its next
+  prompt. Med then runs the session, with the pickers and **Stop**, also
+  after a restart.
+- When Claude Code has it open in a terminal, you read the thread in Med, and
+  the message box is shut: "Claude has this session open in a terminal. Med
+  can't type there." In the Claude app it says "open in the Claude app"; in
+  any other app, "open in another app". Copy the comments into that session,
+  or continue it here.
 - **Continue in Med**, on that line or in `⌘K`, forks the session into one
-  that Med runs and sends it the waiting messages. The thread follows the
-  fork; the terminal or app keeps its own session.
+  that Med runs, and the message box opens on the fork. The thread follows
+  the fork; the terminal or app keeps its own session.
 
 Type `@` in the message box, or in a new thread's task, to name a file in the
 checkout, a note in a registered vault, or another thread. A query can have

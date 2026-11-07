@@ -17,7 +17,6 @@ import {
   type OverviewProof,
 } from "./OverviewParts";
 
-
 /**
  * The Guide's first page: the proof, what changed and why, what changed since
  * the reader's last review, and the findings. It does not repeat the

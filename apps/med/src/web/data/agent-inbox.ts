@@ -150,9 +150,6 @@ const textOf = (item: SessionItem) =>
  */
 export type SentMessage = Omit<AgentMessage, "delivery"> & {
   delivery: AgentMessage["delivery"] | "sending";
-  /** A pending message waits for the session that another app has open,
-   * such as a terminal, to end, because Med cannot type there. */
-  waitsFor?: SessionPlace;
   retry?(): void;
   discard?(): void;
   /** A queued message: back into the message box, or gone, or into the
@@ -167,19 +164,10 @@ export const openIn = (state: AgentInboxState | null | undefined, sessionId: str
   state && Object.hasOwn(state.elsewhere, sessionId) ? state.elsewhere[sessionId] : undefined;
 
 /** How Med names where another process has a session open. */
-export const SESSION_PLACES: Record<SessionPlace, { open: string; waiting: string }> = {
-  terminal: {
-    open: "in a terminal",
-    waiting: "Waiting for the terminal session to close",
-  },
-  "claude-app": {
-    open: "in the Claude app",
-    waiting: "Waiting for the session in the Claude app to close",
-  },
-  "other-app": {
-    open: "in another app",
-    waiting: "Waiting for the session to close there",
-  },
+export const SESSION_PLACES: Record<SessionPlace, { open: string }> = {
+  terminal: { open: "in a terminal" },
+  "claude-app": { open: "in the Claude app" },
+  "other-app": { open: "in another app" },
 };
 
 /** What the agent reads of a message: its text, or else its first comment. */

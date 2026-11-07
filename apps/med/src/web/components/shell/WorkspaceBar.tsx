@@ -129,11 +129,7 @@ export function WorkspaceBar({
       )}
       <span ref={slots?.lead} {...stylex.props(styles.lead, !titled && styles.empty)} />
       {context?.kind === "checkout" && (
-        <Checkout
-          {...context}
-          after={!!title || !!rename?.editing || titled}
-          secondary={titled}
-        />
+        <Checkout {...context} after={!!title || !!rename?.editing || titled} secondary={titled} />
       )}
       {context?.kind === "label" && (
         <span {...stylex.props(styles.checkout)}>

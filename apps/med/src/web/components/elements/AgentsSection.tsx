@@ -147,7 +147,6 @@ function Still({ state }: { state: OwnedState }) {
       <SessionComposer
         agent="claude"
         name="Claude"
-        waiting={false}
         drafts={[]}
         attachments={[]}
         onRemoveAttachment={() => {}}

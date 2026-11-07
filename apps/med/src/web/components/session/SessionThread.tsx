@@ -15,7 +15,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
-import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
+import type { SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import { useMinuteClock } from "../../data/relative-time";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
@@ -417,9 +417,7 @@ function Delivery({ message }: { message: SentMessage }) {
                 message.afterTurn || (message.agent !== "claude" && message.agent !== "codex")
                 ? `Queued until ${agent}'s turn ends`
                 : `Queued for ${agent}'s next step`
-              : message.waitsFor
-                ? SESSION_PLACES[message.waitsFor].waiting
-                : `Waiting for ${agent} to take it`,
+              : `Waiting for ${agent} to take it`,
           ]
         : message.delivery === "queued"
           ? [`Queued for ${agent}`]

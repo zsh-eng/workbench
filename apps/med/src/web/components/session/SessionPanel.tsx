@@ -606,7 +606,6 @@ export function SessionPanel({
     [pins, session.id, session.agent],
   );
   const agent = agentName(session);
-  const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;
   // Messages on their way to the host show at once, as in a chat app. The
@@ -704,9 +703,7 @@ export function SessionPanel({
                     }
                   : {}),
               }
-            : presence && presence !== "resumable" && message.delivery === "pending"
-              ? { ...message, waitsFor: presence }
-              : message,
+            : message,
         ) ?? []),
       ...outgoing
         .filter((message) => message.input.sessionId === session.id)
@@ -850,9 +847,7 @@ export function SessionPanel({
           ? "Unavailable"
           : running
             ? "Working"
-            : waiting
-              ? "Waiting for you"
-              : "Idle";
+            : "Idle";
   const menu = (
     <SessionMenu
       agent={agent}
@@ -886,7 +881,7 @@ export function SessionPanel({
             {...stylex.props(
               styles.dot,
               running && !needsYou && styles.dotLive,
-              (needsYou || (!running && waiting)) && styles.dotWaiting,
+              needsYou && styles.dotWaiting,
             )}
           />
           {status}
@@ -956,7 +951,6 @@ export function SessionPanel({
                 draftKey={`${reviewId}/${session.id}`}
                 agent={session.agent}
                 name={agent}
-                waiting={waiting}
                 presence={presence}
                 onContinue={onContinue && (() => onContinue(session.id))}
                 drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}

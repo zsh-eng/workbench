@@ -46,7 +46,6 @@ async function fixture() {
     repos: [repo],
     stateDir: join(directory, "state"),
     port: 0,
-    agentAckMs: 300,
     agents: async () => {
       if (hold) {
         held = true;

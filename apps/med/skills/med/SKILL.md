@@ -14,12 +14,10 @@ the comments back to you.
 3. After you apply the user's comments, hand off again with
    `med review create` and the same key. `med review update --guide` only
    replaces the guide of a version that Med already captured.
-4. Run `med review wait` only when `med review create` printed its line
-   (Claude Code outside Med): run it as printed, as a background command;
-   its output is the user's message. Everywhere else, end your turn with the
-   link: in a Med thread (`MED_SESSION=owned`) the user's messages arrive as
-   new turns, Codex reads them from its queue at its next turn, and a
-   subagent gives the link to its parent agent.
+4. End your turn with the link. The user's comments come back as your next
+   message: in a Med thread (`MED_SESSION=owned`) as a new turn; elsewhere
+   Med resumes your session with them, or the user pastes them in while
+   another app has it open. A subagent gives the link to its parent agent.
 5. Put the printed link in your final message. Never invent a link or print
    Med's token.
 6. If `med review repos --repo <root>` says that a repository you changed is

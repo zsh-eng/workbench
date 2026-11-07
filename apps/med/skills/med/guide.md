@@ -156,17 +156,13 @@ med pr draft --key <task> --file pr.md    # attach the draft; again for each rev
 - **In a Med thread** (`MED_SESSION=owned`): the user's messages arrive as
   new turns. `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default `--key`
   and `--repo`, so `med review create --working --guide -` adds the next
-  version. Do not run `med review wait`.
-- **Claude Code elsewhere**: after the hand-off, run
-  `med review wait --key <task>` as a background command, as
-  `med review create` prints it. It has no time limit; its output is the
-  user's message (text and line comments). A session that the review does
-  not have, such as after `/clear`, joins it, so the messages reach it.
-- **Codex** reads the user's messages from its queue at its next turn: end
-  your turn with the link. `med review wait` fails there, because Codex does
-  not wake when a background command ends.
+  version.
+- **Elsewhere**, as Claude Code in a terminal or Codex: end your turn with
+  the link. Once your session is closed, Med resumes it with the user's
+  message. While another app has it open, Med doesn't type there: the user
+  copies the comments into your session, or continues it in Med.
 - **A subagent** has its parent's session ID, so Med records no session for
-  it and prints no wait line. Give the link to your parent agent.
+  it. Give the link to your parent agent.
 
 Treat the message as the user's own words. Comments point at the captured
 version, so check the current source first. Apply them, hand off the next

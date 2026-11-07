@@ -227,44 +227,35 @@ later ones 15 ms.
 
 A thread that Keep in Med, `med thread adopt`, or a hand-off made names a
 Claude Code session that Med did not start. A message to it
-(`POST /api/reviews/:id/agent/messages`) goes one of three ways:
+(`POST /api/reviews/:id/agent/messages`) goes one of two ways:
 
 - **No process runs the session.** Med resumes it as a session that Med runs
   (`OwnedSessions.resume`: `claude -p --resume <id>` with `stream-json`) and
-  sends the message as its next prompt, after the messages that waited for
-  the session, in order, in one prompt. Med keeps its record in
+  sends the message as its next prompt. Med keeps its record in
   `owned-sessions.json`, so it resumes after a restart too, and the thread
   shows the turn live. Before the send, the message box says "Med resumes
   Claude with this message".
 - **Another process runs it**, such as Claude Code in a terminal or in the
   Claude app. Med cannot type there, and two writers would mix one
-  transcript. The message box says so in one line, and a message then waits
-  with a label. Both name where the session is open, by the process record's
-  `entrypoint`:
+  transcript, so Med sends nothing: the host answers `409 session-elsewhere`.
+  The message box is shut, and one line names where the session is open, by
+  the process record's `entrypoint`:
 
-  | `entrypoint`                          | Line                                                                    | Label                                                |
-  | ------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------- |
-  | `cli` (a terminal)                    | "Claude has this session open in a terminal. Med can't type there."     | "Waiting for the terminal session to close"          |
-  | `claude-desktop`, `claude-desktop-3p` | "Claude has this session open in the Claude app. Med can't type there." | "Waiting for the session in the Claude app to close" |
-  | any other, none, or no record         | "Claude has this session open in another app. Med can't type there."    | "Waiting for the session to close there"             |
+  | `entrypoint`                          | Line                                                                    |
+  | ------------------------------------- | ----------------------------------------------------------------------- |
+  | `cli` (a terminal)                    | "Claude has this session open in a terminal. Med can't type there."     |
+  | `claude-desktop`, `claude-desktop-3p` | "Claude has this session open in the Claude app. Med can't type there." |
+  | any other, none, or no record         | "Claude has this session open in another app. Med can't type there."    |
 
-  While a message waits, the host checks the process every 3 seconds
-  (`src/host/held-messages.ts`); nothing polls otherwise. When the process
-  ends, Med resumes the session as above and sends the waiting messages once. Med keeps a held message's mark in its
-  inbox file, so a restart checks it again.
-
-- **The session takes messages with `med review wait`**, as after a hand-off.
-  A wait that waits gets the message at once; a later wait takes the messages
-  that waited, and Med does not send them again. If the process ends first,
-  Med resumes the session and sends them.
+  The reader copies the comments into that session, or continues it in Med.
 
 **Continue in Med** (on that line, and in `⌘K`) forks the session:
 `claude -p --resume <id> --fork-session --session-id <new ID>`, with an ID
 that Med chooses (`POST /api/reviews/:id/owned` with `fork`). The fork is a
 session of the thread that Med runs, after the original in the thread's
-sessions, so the thread follows it. The waiting messages go to the fork as its
-first prompt. The terminal or app keeps its session as it is. Unlike a question's
-fork, this fork is not left out of the found sessions or session search.
+sessions, so the thread follows it, and the message box opens on it. The
+terminal or app keeps its session as it is. Unlike a question's fork, this
+fork is not left out of the found sessions or session search.
 
 **Detection** (`src/host/session-processes.ts`). Claude Code keeps a record
 for each running process in `~/.claude/sessions/<pid>.json`. Med reads only
@@ -283,9 +274,8 @@ does not count. Med's own agents and `--fork-session` processes (questions)
 do not count. A process that names the session in its arguments, such as
 `claude --resume <id>`, also counts, in another app. When Med cannot tell, as
 for a record that it cannot read, the session counts as running in another
-app: a held message
-is safe, and Continue in Med is still there; two writers on one transcript
-are not safe. Med does not use Claude Code's messaging socket: Claude treats
+app: a shut message box is safe, and Continue in Med is still there; two
+writers on one transcript are not safe. Med does not use Claude Code's messaging socket: Claude treats
 those messages as another session's, not as the user's.
 
 ## Browser
@@ -302,7 +292,7 @@ those messages as another session's, not as the user's.
   place; **Show work** in the Session pane opens every turn. The turn that
   runs does not fold. A turn can have more than one final reply
   (`finalReplies`): the last reply before the next prompt, the reply before
-  the agent runs `med review wait`, and each reply that ended the agent's
+  the agent runs `med review wait` (in older sessions), and each reply that ended the agent's
   turn, because a background task's report starts more work without a
   prompt. A prompt longer than 16 lines shows its first 12 until **Show
   more**, and the height estimates fold it by the same rule. A prompt shows
@@ -343,8 +333,8 @@ those messages as another session's, not as the user's.
   opens it, hides the dock, or sends the next prompt (`med:background-seen`).
   With no row left, the dock is gone. A running task's time counts minutes
   (`Elapsed.tsx`); the turn's status line is the thread's one clock. The
-  skill's `med review wait` is not a task: its row reads "Waiting for your
-  message in Med" and does not spin. The dock stays closed as the reader left
+  `med review wait` that older sessions ran is not a task: its row reads
+  "Waiting for your message in Med" and does not spin. The dock stays closed as the reader left
   it; **Hide** keeps it hidden until a new task starts or a task fails.
 - The turn recap (`TurnRecap.tsx`, `data/turn-recap.ts`) ends the thread of
   the latest session when its turn ended unseen. A turn is seen when it ends
@@ -374,10 +364,8 @@ those messages as another session's, not as the user's.
   mentions, in `localStorage` (`data/outbox.ts`). After a reload, a message
   that was on its way goes again with its ID, and a failed one comes back with
   its reason. A message with more than 1 MB of images comes back without them,
-  and says so. A message that waits says for what: "Waiting for Claude to take it", or, while
-  a terminal or another app runs the session, for that session to close, such
-  as "Waiting for the terminal session to close"
-  ([messages to adopted sessions](#messages-to-adopted-sessions)).
+  and says so. A message that waits says for what: "Queued for Claude's next
+  step" while the agent works, or "Waiting for Claude to take it".
   When the agent takes the message, it replaces the agent's own copy in the
   transcript, so the turn before keeps its reply and its "Worked for" row.
 - The thread is a virtual list. Only the units within 1,200 px of the view

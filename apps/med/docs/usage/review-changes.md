@@ -138,37 +138,25 @@ can answer a comment in its thread (`med review reply`): its answer shows
 under your comment with the agent's name, and leaves the comment sent. Reply
 to it as to any comment; your reply makes the thread unsent again.
 
-- **A session that Med started** in a thread gets the message as a new turn.
-  It does not run `med review wait`; in such a session, the command exits at
-  once. `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
-- **Claude Code** in a terminal or app takes the message with
-  `med review wait --key <task>`, which the skill runs in the background after
-  it creates the review. The command
-  waits with no time limit, prints the message, and ends; Claude Code then
-  wakes the agent. The pane shows **Waiting for you** while the agent waits. A
-  message sent earlier stays in Med until the agent waits. The command confirms
-  each message that it prints; a message that no wait confirms within 10
-  seconds, as when the waiting process stopped, goes to the next wait. When
-  the Claude Code process ends with messages still waiting, Med resumes the
-  session and sends them. A wait in a Claude Code session that the review
-  does not have, such as after `/clear`, adds that session to the review, so
-  the pane can send to it. Outside Claude Code, as in Codex or a subagent,
-  the command fails at once: nothing would send it a message.
-- **A Claude Code session that no process runs**, such as an adopted one
-  after its terminal closed, resumes in Med with the message as its next
-  turn, and Med runs it from then on. A session open in a terminal or another
-  app that does not run `med review wait` gets its messages when that session
-  ends, or in a fork with **Continue in Med**
-  ([messages to adopted sessions](../SESSIONS.md#messages-to-adopted-sessions)).
-- **Codex**: a thread that no process has open resumes in Med, through
-  Codex's app-server, and Med runs it from then on. One that Codex Desktop or
-  a terminal has open gets the message in its queue (`codex queue`), and its
-  next turn reads it first, as a user message. Med finds `codex` on the PATH,
-  in the ChatGPT app, or at `MED_CODEX_PATH`.
+Med sends only to a session that it runs:
 
-The thread shows each sent message as waiting (for the agent, or for its
-session in a terminal or another app to close), taken, or queued. A sent comment leaves the
-drafts until you edit it or reply to it. Each message keeps the version of
+- **A session that Med started** in a thread gets the message as a new turn.
+  `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
+- **A session that no process runs**, such as Claude Code or Codex after its
+  terminal closed, resumes in Med with the message as its next turn, and Med
+  runs it from then on. Med finds `codex` on the PATH, in the ChatGPT app, or
+  at `MED_CODEX_PATH`.
+- **A session open in a terminal or another app** is for reading in Med. Its
+  message box is shut, and one line says where it is open. **Continue in
+  Med** forks it into a session that Med runs; or **Copy comments** and paste
+  them into the session there
+  ([messages to adopted sessions](../SESSIONS.md#messages-to-adopted-sessions)).
+
+**Copy comments** (in the review's header, or ⌘K) copies every comment as the
+same text that a message holds, for any agent. Copying marks nothing sent.
+
+The thread shows each sent message as taken, or queued while the agent works.
+A sent comment leaves the drafts until you edit it or reply to it. Each message keeps the version of
 each comment that it sent, from the same read as the agent's text, so an
 edit while Med sends stays a draft.
 

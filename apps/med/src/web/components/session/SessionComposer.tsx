@@ -128,10 +128,10 @@ export function PermissionCard({
 
 /**
  * Writes to the agent from the review: the user's text, the comments not yet
- * sent, and other text such as GitHub comments. A Claude session that no
- * process runs resumes in Med with the message; one that a terminal or
- * another app runs takes it when it runs `med review wait`, or gets it when
- * that session closes. A Codex session reads its queue.
+ * sent, and other text such as GitHub comments. A session that Med runs takes
+ * it as its next prompt, and one that no process has open resumes in Med with
+ * it. One that a terminal or another app has open is the reader's to see:
+ * the box stays shut, and Continue in Med forks the session.
  */
 const clock = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -139,7 +139,6 @@ const clock = (at: number) =>
 export function SessionComposer({
   agent,
   name,
-  waiting,
   presence,
   onContinue,
   drafts,
@@ -177,8 +176,6 @@ export function SessionComposer({
   agent: AgentMessage["agent"];
   /** The agent's name, such as Claude or OpenCode. */
   name: string;
-  /** The agent waits in `med review wait` now. */
-  waiting: boolean;
   drafts: DraftComment[];
   attachments: ComposerAttachment[];
   onRemoveAttachment(id: string): void;
@@ -298,9 +295,15 @@ export function SessionComposer({
     setRestored(restore.nonce);
     setText((current) => (current.trim() ? `${restore.text}\n\n${current}` : restore.text));
   }
+  const openThere =
+    presence && presence !== "resumable"
+      ? `${name} has this session open ${SESSION_PLACES[presence].open}. Med can't type there.`
+      : undefined;
+  // Another app has the session open: Med can't send to it.
+  const blocked = !!openThere && !owned;
   // While the agent works, a message waits for its next step (queued-messages.ts).
   const send = async (afterTurn = queues()) => {
-    if (empty || stopped) return;
+    if (empty || stopped || blocked) return;
     setError(null);
     onSend({
       // Each mention reaches the agent as its absolute path.
@@ -381,12 +384,8 @@ export function SessionComposer({
       void act({ action: "interrupt" });
     }
   };
-  const openThere =
-    presence && presence !== "resumable"
-      ? `${name} has this session open ${SESSION_PLACES[presence].open}. Med can't type there.`
-      : undefined;
   // Without a Med runner, the line takes the footer's status place.
-  const elsewhere = !!openThere && !owned && !error;
+  const elsewhere = blocked && !error;
   const ownedStatus = error
     ? error
     : status === "starting"
@@ -607,12 +606,15 @@ export function SessionComposer({
           <textarea
             {...mentions.textarea}
             aria-label={`Message ${name}`}
+            disabled={blocked}
             placeholder={
-              owned?.state.commands.length
-                ? `Message ${name}, @ to mention, or / for commands…`
-                : mentionSources
-                  ? `Message ${name}, or @ to mention…`
-                  : `Message ${name}…`
+              blocked
+                ? `Continue in Med to message ${name} here`
+                : owned?.state.commands.length
+                  ? `Message ${name}, @ to mention, or / for commands…`
+                  : mentionSources
+                    ? `Message ${name}, or @ to mention…`
+                    : `Message ${name}…`
             }
             value={text}
             rows={2}
@@ -692,23 +694,7 @@ export function SessionComposer({
             </div>
           ) : (
             <span role="status" {...stylex.props(styles.status, error !== null && styles.error)}>
-              {error ? (
-                error
-              ) : agent === "codex" ? (
-                "Codex reads this at its next turn"
-              ) : waiting ? (
-                <>
-                  <span {...stylex.props(styles.live)} />
-                  {name} is waiting for your review
-                </>
-              ) : presence === "resumable" ? (
-                `Med resumes ${name} with this message`
-              ) : (
-                <>
-                  {name} gets this when it runs{" "}
-                  <code {...stylex.props(styles.code)}>med review wait</code>
-                </>
-              )}
+              {error ?? `Med resumes ${name} with this message`}
             </span>
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}
@@ -751,7 +737,7 @@ export function SessionComposer({
               type="button"
               aria-label="Add images"
               title="Add images, or paste them"
-              disabled={stopped}
+              disabled={stopped || blocked}
               onClick={() => imageInput.current?.click()}
               {...stylex.props(ui.button, ui.iconButton, styles.attach)}
             >
@@ -788,7 +774,7 @@ export function SessionComposer({
                         ? `Queue for the end of ${name}'s turn (⌘↩); ⇧⌘↩ sends it now; ↑ takes it back`
                         : `Send now: ${name} reads it at its next step (⌘↩); ⇧⌘↩ queues it for the turn's end; ↑ takes it back`
                 }
-                disabled={empty || stopped}
+                disabled={empty || stopped || blocked}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >
                 <Icon name={queues() ? "clock" : "arrowUp"} size={14} />
@@ -1060,8 +1046,6 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
   },
   error: { color: tokens.red, whiteSpace: "normal" },
-  live: { width: 6, height: 6, flexShrink: 0, borderRadius: "50%", backgroundColor: tokens.green },
-  code: { fontFamily: tokens.code, fontSize: 10.5 },
   send: {
     width: 26,
     minWidth: 26,
