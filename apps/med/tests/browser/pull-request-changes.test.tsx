@@ -504,6 +504,7 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
       createdAt: "2026-09-30T00:00:00Z",
       state: "CHANGES_REQUESTED",
     },
+    { ...comment(4, "jordan", ""), createdAt: "2026-09-29T00:00:00Z", state: "APPROVED" },
   ];
   // Nothing reads the live pull request until the reader opens the tab.
   render();
@@ -556,6 +557,8 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   // GitHub shows no HTML comment, and a dollar is not math here.
   expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
   await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();
+  // An approval with no text is one line.
+  await expect.element(view.getByText("jordan approved", { exact: true })).toBeVisible();
   // Reviews and comments in time order, with the threads below them.
   const talk = view.getByRole("region", { name: "Conversation" });
   await expect
@@ -624,12 +627,16 @@ test("the ⌘K command reads GitHub past the host's cache; the page has no Refre
 
 test("a thread in the tab links to its line in the diff, and says why when it cannot", async () => {
   const view = await openPullTab();
-  await expect.element(view.getByRole("region", { name: "Code comments" })).toBeVisible();
+  // One timeline: comments, reviews, and code threads together.
+  await expect.element(view.getByRole("region", { name: "Conversation" })).toBeVisible();
   // The reader's own comment is in their pending review, which only they see.
   const pending = view.getByRole("region", { name: "Your pending review" });
   await expect.element(pending.getByText("1 comment, only you see them")).toBeVisible();
   await expect.poll(() => pending.element().textContent).toContain("And in the docs.");
-  const code = view.getByRole("region", { name: "Code comments" });
+  const code = view.getByRole("region", { name: "Conversation" });
+  // An outdated thread is one line, which opens.
+  expect(code.element().textContent).not.toContain("Outdated on GitHub.");
+  await code.getByRole("button", { name: /gamma\.ts, outdated$/ }).click();
   await expect.poll(() => code.element().textContent).toContain("Outdated on GitHub.");
   expect(code.getByRole("button", { name: "Show gamma.ts:R4 in the diff" }).query()).toBeNull();
   await pending.getByRole("button", { name: "Show alpha.ts:R1 in the diff" }).click();

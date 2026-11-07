@@ -23,6 +23,7 @@ import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import type { MarkdownResult } from "../markdown/model";
 import { scrollPaneTo } from "../markdown/scroll";
 import { tokens, ui } from "../theme.stylex";
+import { Fold } from "./Fold";
 import { useTheme } from "../themes";
 import { DiagramBlock } from "./DiagramBlock";
 import { Icon, type IconName } from "./Icon";
@@ -561,7 +562,9 @@ export default function PullRequestView({
             {!pull && !error && <p {...stylex.props(styles.note)}>Reading the pull request…</p>}
             {pull &&
               (pull.body.trim() ? (
-                <Description body={pull.body} reviewId={reviewId} root={root} />
+                <Fold>
+                  <Description body={pull.body} reviewId={reviewId} root={root} />
+                </Fold>
               ) : (
                 <p {...stylex.props(styles.note)}>No description.</p>
               ))}
