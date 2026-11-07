@@ -67,6 +67,60 @@ const file =
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
+if (scene === "replies") answerComment(recording);
+
+/**
+ * The replies scene: Med runs the agent's session, and the agent has
+ * answered the reviewer's comment in its thread (`med review reply`).
+ */
+function answerComment(recording: Recording) {
+  const rewrite = (text: string, change: (value: any) => void) =>
+    text.replace(/^data: (.*)$/gm, (_line, json: string) => {
+      const value = JSON.parse(json);
+      change(value);
+      return `data: ${JSON.stringify(value)}`;
+    });
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET") continue;
+    const path = entry.url.split("?")[0]!;
+    if (/\/targets\/[^/]+\/notes$/.test(path)) {
+      const state = JSON.parse(entry.text) as NoteState;
+      const comment = state.notes.find((note) => !note.parentId);
+      if (!comment) continue;
+      const answered = new Date(recording.recordedAt).toISOString();
+      state.notes.push({
+        path: comment.path,
+        side: comment.side,
+        line: comment.line,
+        ...(comment.endLine ? { endLine: comment.endLine } : {}),
+        parentId: comment.id,
+        text: 'On the list, it reads out every trail as the list changes. I would put it on the count above the list instead, so a filter change is one short announcement: "12 trails". Shall I?',
+        id: "c0ffee00-0000-4000-8000-000000000001",
+        createdAt: answered,
+        updatedAt: answered,
+        resolution: "active",
+        author: { agent: "claude" },
+      });
+      entry.text = JSON.stringify(state);
+    }
+    // Med runs the session: a comment goes to it from the comment.
+    if (/\/agent(\/events)?$/.test(path)) {
+      const own = (state: AgentInboxState) => {
+        const ids = [...new Set(state.messages.map((message) => message.sessionId))];
+        state.owned = ids;
+        state.waiting = [];
+      };
+      if (path.endsWith("/events")) {
+        entry.text = rewrite(entry.text, own);
+        for (const chunk of entry.chunks ?? []) chunk.text = rewrite(chunk.text, own);
+      } else {
+        const state = JSON.parse(entry.text) as AgentInboxState;
+        own(state);
+        entry.text = JSON.stringify(state);
+      }
+    }
+  }
+}
 
 // The clock. A timeline's recording time is its start, which the clock
 // shows again when the timeline starts.
@@ -237,6 +291,7 @@ function inbox(id: string): AgentInboxState {
       waiting: [],
       elsewhere: {},
       resumable: [],
+      owned: [],
       drafts: [],
     }
   );
@@ -816,7 +871,8 @@ const toComment = async () => {
 /** The review, with only the parts that a scene names. The thread sidebar
  * folds away by itself in a narrow window. */
 const review = async (panes: { sidebar: boolean; session: boolean }, name: string) => {
-  await until(() => visible("diffs-container"));
+  // The review opens on its Review page, which shows diffs only in a part.
+  await until(() => visible("[data-review-status='ready']"));
   if (!panes.sidebar) visible("button[aria-label='Hide sidebar']")?.click();
   // ⌘⇧B shows the session at any width. A phone shows the chosen pane only:
   // there the session is open without room, so it closes, then opens chosen.
@@ -826,8 +882,23 @@ const review = async (panes: { sidebar: boolean; session: boolean }, name: strin
     );
     await pause(300);
   }
-  if (!panes.session) visible("button[aria-label^='Hide the session pane']")?.click();
+  if (!panes.session)
+    visible(
+      "button[aria-label^='Hide the session pane'], button[aria-label='Hide agent session']",
+    )?.click();
   tab(name);
+  if (name === "Changes") await until(() => visible("diffs-container"));
+};
+/** Review's every file, with the comments on the saved version. Changes
+ * shows the checkout as it is now. */
+const allFiles = async () => {
+  await until(() =>
+    all<HTMLButtonElement>("button").find((button) => button.textContent === "All files"),
+  );
+  all<HTMLButtonElement>("button")
+    .find((button) => button.textContent === "All files")
+    ?.click();
+  await until(() => visible("diffs-container"));
 };
 const session = "section[aria-label='Claude session']";
 /** The Commit tab's marks that stage or unstage a file. */
@@ -861,7 +932,16 @@ const scenes: Record<string, () => Promise<void>> = {
   },
   // A short unified diff with the reviewer's comment.
   async comment() {
-    await review({ sidebar: false, session: false }, "Changes");
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
+    await toComment();
+  },
+  // The agent's answer under the reviewer's comment.
+  async replies() {
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
     localStorage.setItem("med:mode", "unified");
     dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
     await toComment();
@@ -903,6 +983,7 @@ await scenes[scene]?.();
 const parts: Record<string, () => HTMLElement | undefined> = {
   brief: () => visible("section[aria-label='Notes']"),
   comment: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
+  replies: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
   session: () => visible(session),
   // A phone has room for the files to stage, without their diffs.
   commit: () =>
@@ -964,13 +1045,15 @@ if (find) {
   keep();
   new MutationObserver(keep).observe(document.body, { childList: true, subtree: true });
   // The comment sits near the foot of its window, under the lines it is about.
-  if (scene === "comment" && part) {
+  if ((scene === "comment" || scene === "replies") && part) {
     await pause(200);
     const card = visible("[data-comment-card]");
     if (card) part.scrollTop += card.getBoundingClientRect().bottom - (innerHeight - 64);
   }
 }
 await pause(400);
+// A control that a scene clicked keeps its focus, and its tooltip, otherwise.
+if (scene !== "review") (document.activeElement as HTMLElement | null)?.blur();
 document.documentElement.dataset.demo = "ready";
 if (parent !== window) parent.postMessage({ type: "med-demo", state: "ready" }, "*");
 

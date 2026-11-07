@@ -51,6 +51,13 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "replies",
+    label: "Agent replies",
+    note: "The agent answers a comment in its thread. A comment goes to an agent that Med runs from the comment, by the agent's mark.",
+    scene: "replies",
+    recording: "recording.json",
+  },
+  {
     id: "settings",
     label: "Settings",
     note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",
