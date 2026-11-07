@@ -179,6 +179,25 @@ Med reads a session's folder from its transcript in `~/.claude` or `~/.codex`.
 Without a transcript, it records the command's folder. A review keeps its 32
 newest sessions.
 
+### Answer a comment
+
+The user's message lists each comment with its `Comment ID`. To answer one in
+its thread, where the user reads it, run:
+
+```sh
+med review reply --key <key> --comment <Comment ID> --text - <<'END'
+Minutes drop the seconds. Keep them for runs under a minute?
+END
+```
+
+`--key` takes the review's key or its ID (`r_…`); the message names the ID.
+Med shows the answer under the comment with your agent's name, as the session
+that runs the command (or else the review's latest session). It does not make
+the comment unsent, and the next message that holds the thread shows the
+answer as yours. A comment on the Notes takes no reply; answer it in your
+message. Use a reply for a question the user asked on a line, or to say why
+you left a change out; your final message still says what you did.
+
 ### Attach a guide
 
 A guide splits the review into segments that the reader checks one at a time.

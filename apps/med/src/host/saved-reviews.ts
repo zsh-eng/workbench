@@ -23,9 +23,11 @@ import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   comparisonSchema,
+  noteAuthorSchema,
   noteInputSchema,
   noteMutationSchema,
   type Note,
+  type NoteAuthor,
   type NoteMutation,
   type NoteState,
   type ReviewResponse,
@@ -71,6 +73,7 @@ import {
   type SavedCheckout,
   type CapturedReviewTarget,
   threadCheckout,
+  agentName,
 } from "../shared/saved-review";
 import {
   guideError,
@@ -129,6 +132,7 @@ const noteSchema = noteInputSchema.extend({
   createdAt: text,
   updatedAt: text,
   resolution: z.enum(["active", "stale", "orphaned"]).optional(),
+  author: noteAuthorSchema.optional(),
 });
 const targetSchema = z.object({
   id: z.string().regex(TARGET_ID),
@@ -2542,10 +2546,68 @@ export class SavedReviewStore {
           .map((note) => ({
             ...note,
             updatedAt: threadVersion(target.notes.notes, note),
-            replies: target.notes.notes.filter((item) => item.parentId === note.id).length,
+            replies: target.notes.notes.filter((item) => item.parentId === note.id && !item.author)
+              .length,
           })),
       );
     });
+  }
+
+  /**
+   * An agent's answer to a comment on a line, under it in the comment's
+   * thread (`med review reply`). A reply's ID answers its thread.
+   */
+  reply(
+    id: string,
+    commentId: string,
+    text: string,
+    author: NoteAuthor,
+    beforeCommit?: () => void,
+  ): Promise<Note> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const found = record.captures.flatMap((target) =>
+        target.notes.notes
+          .filter((note) => note.id === commentId)
+          .map((note) => ({ target, note })),
+      )[0];
+      if (!found) {
+        const passage = record.saved.briefComments?.some((comment) => comment.id === commentId);
+        throw new HostError(
+          "note-not-found",
+          passage
+            ? "That comment is on the Notes, which take no replies. Answer it in your message."
+            : "This review has no comment with that ID.",
+          404,
+        );
+      }
+      if (record.saved.commentCount >= MAX_NOTES)
+        throw new HostError("too-many-notes", "A saved review can contain at most 500 notes.", 413);
+      const parent = found.note.parentId
+        ? found.target.notes.notes.find((note) => note.id === found.note.parentId)!
+        : found.note;
+      validateReviewNoteText(text);
+      const now = new Date().toISOString();
+      const note: Note = {
+        path: parent.path,
+        side: parent.side,
+        line: parent.line,
+        ...(parent.endLine ? { endLine: parent.endLine } : {}),
+        text,
+        parentId: parent.id,
+        id: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+        resolution: parent.resolution ?? "active",
+        author,
+      };
+      found.target.notes.notes.push(note);
+      found.target.notes.revision++;
+      record.saved.revision++;
+      record.saved.commentCount = countComments(record);
+      await this.write(record, beforeCommit);
+      return note;
+    }, beforeCommit);
   }
 
   /** The comments as text for an agent; `include` limits it to those threads. */
@@ -2620,6 +2682,16 @@ export class SavedReviewStore {
           appendText(label, `${fence}${language}`, snippet.join("\n"), fence);
         };
         const append = (note: Note, parentNumber?: number) => {
+          if (note.author && parentNumber) {
+            appendText(
+              `## ${agentName(note.author)}'s reply to User Comment ${parentNumber}`,
+              `Comment ID: ${note.id}`,
+              "",
+              note.text,
+              "",
+            );
+            return;
+          }
           const number = ++index;
           const file = target.review.files.find((item) => item.path === note.path)!;
           const path = note.side === "old" ? (file.previousPath ?? note.path) : note.path;
@@ -2723,8 +2795,9 @@ export class SavedReviewStore {
 }
 
 /** A comment thread's version: its newest change. A reply changes the thread. */
+/** A thread's last change by the user. An agent's reply leaves it sent. */
 function threadVersion(notes: readonly Note[], note: Note) {
-  return [note, ...notes.filter((item) => item.parentId === note.id)]
+  return [note, ...notes.filter((item) => item.parentId === note.id && !item.author)]
     .map((item) => item.updatedAt)
     .sort()
     .at(-1)!;

@@ -113,6 +113,7 @@ export function createDemoAgent(
     waiting: [],
     elsewhere: {},
     resumable: [],
+    owned: [],
     drafts: options.drafts ?? [],
   };
   const inboxListeners = new Set<() => void>();

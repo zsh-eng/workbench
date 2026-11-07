@@ -1677,7 +1677,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // Messages from the review to its agent sessions. `wait` is the long
         // poll behind `med review wait`, so it stays outside the request limit.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now|reply))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1701,7 +1701,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               }
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
-            const { briefComments, sessions } = await savedReviews.get(reviewId);
+            const { briefComments, sessions, revision } = await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
@@ -1709,6 +1709,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               messages,
               waiting: inbox.waiting(reviewId),
               ...(await claudeSessions(reviewId, sessions)),
+              owned: (sessions ?? []).flatMap((session) =>
+                ownedSessions.get(session.id) ? [session.id] : [],
+              ),
+              revision,
               drafts: [
                 ...comments.filter(unsent).map((comment) => ({
                   id: comment.id,
@@ -1789,7 +1793,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const feedback = input.noteIds.length
                 ? await savedReviews.feedback(reviewId, new Set(input.noteIds))
                 : undefined;
-              if (feedback?.count) parts.push(feedback.text);
+              if (feedback?.count)
+                parts.push(
+                  feedback.text,
+                  `To answer a comment in its thread, where the user reads it, run \`med review reply --key ${reviewId} --comment <Comment ID> --text -\` with your answer on standard input. Answer in the thread when the user asks a question or when you decline a change; your final message still says what you did.`,
+                );
               const included = input.noteIds.flatMap((id) => {
                 const thread = feedback?.threads.get(id);
                 return thread ? [[id, thread] as const] : [];
@@ -1937,6 +1945,41 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 409,
               );
             send({ state: await inboxState() });
+            return;
+          }
+          // `med review reply`: the agent answers a comment in its thread.
+          if (action === "reply" && request.method === "POST") {
+            const input = z
+              .object({
+                commentId: z.string().min(1).max(128),
+                text: z.string().min(1).max(16384),
+                session: z
+                  .object({
+                    agent: z.enum(["claude", "codex", "acp"]),
+                    id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+                  })
+                  .optional(),
+              })
+              .parse(await readBody(request));
+            const session =
+              (input.session &&
+                bundle.sessions?.find(
+                  (entry) => entry.id === input.session!.id && entry.agent === input.session!.agent,
+                )) ??
+              bundle.sessions?.at(-1);
+            const author = session
+              ? {
+                  agent: session.agent,
+                  ...(session.name ? { name: session.name } : {}),
+                  sessionId: session.id,
+                }
+              : input.session
+                ? { agent: input.session.agent, sessionId: input.session.id }
+                : { agent: "acp" as const };
+            const note = await savedReviews.reply(reviewId, input.commentId, input.text, author);
+            // Open pages read the comments again.
+            inbox.touch(reviewId);
+            send({ note });
             return;
           }
           if (action === "ack" && request.method === "POST") {

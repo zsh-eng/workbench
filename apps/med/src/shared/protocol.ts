@@ -338,11 +338,24 @@ export const noteInputSchema = z.object({
   guideComment: guideCommentRefSchema.optional(),
 });
 export type NoteInput = z.infer<typeof noteInputSchema>;
+/** The agent that wrote a reply with `med review reply`. The user's own
+ * comments and replies have no author. */
+export const noteAuthorSchema = z.object({
+  agent: z.enum(["claude", "codex", "acp"]),
+  /** An ACP agent's own name, such as OpenCode. */
+  name: z.string().min(1).max(80).optional(),
+  sessionId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,128}$/)
+    .optional(),
+});
+export type NoteAuthor = z.infer<typeof noteAuthorSchema>;
 export interface Note extends NoteInput {
   id: string;
   createdAt: string;
   updatedAt: string;
   resolution?: "active" | "stale" | "orphaned";
+  author?: NoteAuthor;
 }
 export interface NoteState {
   reviewId: string;

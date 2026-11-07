@@ -181,8 +181,8 @@ async function mountApp(
     sessionAgent?: "claude" | "codex";
     /** The saved review's messages to its agent: drafts, who waits, and
      * which sessions another process runs. */
-    inbox?: Omit<AgentInboxState, "elsewhere" | "resumable"> &
-      Partial<Pick<AgentInboxState, "elsewhere" | "resumable">>;
+    inbox?: Omit<AgentInboxState, "elsewhere" | "resumable" | "owned"> &
+      Partial<Pick<AgentInboxState, "elsewhere" | "resumable" | "owned">>;
     /** Each message waits for its own call; a call with an error fails the send. */
     answerAgentMessages?: boolean;
     /** Agents that Med can start; a started one runs as session o1. */
@@ -347,6 +347,7 @@ async function mountApp(
   const inboxState = (): AgentInboxState => ({
     ...inbox!,
     elsewhere: inbox!.elsewhere ?? {},
+    owned: inbox!.owned ?? [],
     resumable: inbox!.resumable ?? [],
     drafts: [
       ...inbox!.drafts,
@@ -3243,6 +3244,79 @@ describe("review guide comments", () => {
     const cards = [...document.querySelectorAll("[data-comment-card]")];
     expect(cards[0]!.textContent).toContain("Callers still import");
     expect(cards[1]!.textContent).toContain("A note that names no comment.");
+  });
+
+  test("the agent's answer shows in the comment's thread, and a comment goes to the agent that Med runs from the comment", async () => {
+    await page.viewport(1280, 800);
+    const comment = {
+      path: "src/alpha.ts",
+      side: "new" as const,
+      line: 2,
+      createdAt: "2026-09-19T00:00:00Z",
+      updatedAt: "2026-09-19T00:00:00Z",
+      resolution: "active" as const,
+    };
+    const { agentMessages } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      guide,
+      notes: [
+        { ...comment, id: "ask", text: "Why rename it here?" },
+        {
+          ...comment,
+          id: "answer",
+          parentId: "ask",
+          text: "The old name hid that it retries.",
+          author: { agent: "claude", sessionId: "s1" },
+        },
+        { ...comment, id: "later", line: 1, text: "Keep the old name exported." },
+      ],
+      inbox: { messages: [], waiting: [], owned: ["s1"], drafts: [] },
+    });
+    await userEvent.keyboard("j");
+    const asked = page.getByRole("article", { name: "Comment thread at line R2" });
+    await expect.element(asked.getByText("The old name hid that it retries.")).toBeVisible();
+    // The answer names its agent, and only the user's words can be edited.
+    await expect.element(asked.getByText("Claude", { exact: true })).toBeVisible();
+    expect(asked.getByRole("button", { name: "Edit reply" }).query()).toBeNull();
+    await expect.element(asked.getByRole("button", { name: "Delete reply" })).toBeInTheDocument();
+
+    const later = page.getByRole("article", { name: "Comment thread at line R1" });
+    await later.getByText("Keep the old name exported.").hover();
+    await userEvent.click(later.getByRole("button", { name: "Send to Claude" }));
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["later"] });
+    await expect.element(later.getByText("· Sent to Claude")).toBeVisible();
+    expect(later.getByRole("button", { name: "Send to Claude" }).query()).toBeNull();
+    // The other comment waits for its own send.
+    await expect.element(asked.getByRole("button", { name: "Send to Claude" })).toBeInTheDocument();
+  });
+
+  test("a comment has no Send when Med does not run the agent", async () => {
+    await page.viewport(1280, 800);
+    await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      guide,
+      notes: [
+        {
+          id: "ask",
+          path: "src/alpha.ts",
+          side: "new",
+          line: 2,
+          text: "Why rename it here?",
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+          resolution: "active",
+        },
+      ],
+      inbox: { messages: [], waiting: [], elsewhere: { s1: "terminal" }, drafts: [] },
+    });
+    await userEvent.keyboard("j");
+    const asked = page.getByRole("article", { name: "Comment thread at line R2" });
+    await expect.element(asked.getByText("Why rename it here?")).toBeVisible();
+    expect(asked.getByRole("button", { name: /^Send to / }).query()).toBeNull();
   });
 
   test("a reply to a comment that a later guide replaced says what it answers", async () => {

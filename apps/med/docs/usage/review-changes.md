@@ -132,6 +132,13 @@ with your text and the comments that you have not sent. Select the comment
 count to choose comments. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
+When Med started the session and runs it, one comment can go on its own: hold
+the pointer over it and select the agent's mark (**Send to Claude**). The
+comment then says **Sent to Claude** until you change it or reply. The agent
+can answer a comment in its thread (`med review reply`): its answer shows
+under your comment with the agent's name, and leaves the comment sent. Reply
+to it as to any comment; your reply makes the thread unsent again.
+
 - **A session that Med started** in a thread gets the message as a new turn.
   It does not run `med review wait`; in such a session, the command exits at
   once. `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.

@@ -101,12 +101,42 @@ async function fixture() {
   const prompts = async () => {
     const path = join(home, ".claude", "projects", "-fake-repo", `${session}.jsonl`);
     if (!existsSync(path)) return [];
-    return (await readFile(path, "utf8"))
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { type: string; message: { content: unknown } })
-      .filter((record) => record.type === "user")
-      .map((record) => String(record.message.content));
+    return (
+      (await readFile(path, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type: string;
+              message: { content: unknown };
+              attachment?: { type: string; prompt: string };
+            },
+        )
+        // A prompt that came during a turn is queued for the agent's next step.
+        .map((record) =>
+          record.attachment?.type === "queued_command"
+            ? { type: "user", message: { content: record.attachment.prompt } }
+            : record,
+        )
+        .filter(
+          (record) =>
+            record.type === "user" &&
+            !(
+              Array.isArray(record.message.content) &&
+              record.message.content.some(
+                (block: { type?: string }) => block.type === "tool_result",
+              )
+            ),
+        )
+        .map((record) => {
+          const content = record.message.content;
+          // A prompt to the running session comes as content blocks.
+          return Array.isArray(content)
+            ? content.map((block: { text?: string }) => block.text ?? "").join("")
+            : String(content);
+        })
+    );
   };
   return {
     api,
@@ -157,4 +187,81 @@ test("an edit while Med sends a comment keeps the comment a draft, and the threa
   ]);
   // The edit has not reached the agent, so the comment is still a draft.
   expect(state.drafts).toMatchObject([{ id: commentId, text: "Round to hours." }]);
+});
+
+test("the agent answers a comment in its thread; the comment stays sent, and the next message shows the answer as the agent's", async () => {
+  const { api, saved, commentId, mutate, inbox, prompts } = await fixture();
+  await expect.poll(async () => (await inbox()).resumable).toEqual([session]);
+  expect((await inbox()).owned).toEqual([]);
+  const first = await api(`/api/reviews/${saved.id}/agent/messages`, {
+    sessionId: session,
+    text: "",
+    noteIds: [commentId],
+  });
+  expect(first.status).toBe(200);
+  await vi.waitFor(async () => expect(await prompts()).toHaveLength(1), { timeout: 5000 });
+  // The message says how to answer a comment where the user reads it.
+  expect((await prompts())[0]).toContain(
+    `med review reply --key ${saved.id} --comment <Comment ID> --text -`,
+  );
+  expect((await prompts())[0]).toContain(`Comment ID: ${commentId}`);
+  // Med runs the session now, so a comment can go to it from the comment.
+  const before = await inbox();
+  expect(before.owned).toEqual([session]);
+  expect(before.drafts).toEqual([]);
+
+  const answered = await api<{ note: { id: string; parentId: string; author: unknown } }>(
+    `/api/reviews/${saved.id}/agent/reply`,
+    {
+      commentId,
+      text: "Minutes drop the seconds. Keep them for short runs?",
+      session: { agent: "claude", id: session },
+    },
+  );
+  expect(answered.status).toBe(200);
+  expect(answered.data.note).toMatchObject({
+    parentId: commentId,
+    author: { agent: "claude", sessionId: session },
+  });
+  // The answer is not the user's change: the comment stays sent, and the
+  // review's revision tells open pages to read the comments again.
+  const after = await inbox();
+  expect(after.drafts).toEqual([]);
+  expect(after.revision).toBeGreaterThan(before.revision!);
+  const notes = await mutate({
+    type: "add",
+    note: {
+      path: "summary.ts",
+      side: "new",
+      line: 1,
+      parentId: commentId,
+      text: "Yes, under a minute.",
+    },
+  });
+  expect(notes.notes.map((note) => note.text)).toEqual([
+    "Round to minutes.",
+    "Minutes drop the seconds. Keep them for short runs?",
+    "Yes, under a minute.",
+  ]);
+  // The user's reply makes the thread a draft; the agent reads its own
+  // answer as its own.
+  expect((await inbox()).drafts).toMatchObject([{ id: commentId, replies: 1 }]);
+  await api(`/api/reviews/${saved.id}/agent/messages`, {
+    sessionId: session,
+    text: "",
+    noteIds: [commentId],
+  });
+  await vi.waitFor(async () => expect(await prompts()).toHaveLength(2), { timeout: 5000 });
+  const second = (await prompts())[1]!;
+  expect(second).toContain("## Claude's reply to User Comment 1");
+  expect(second).toContain("## User Comment 2");
+  expect(second).toContain("Reply to: User Comment 1");
+  expect(second).not.toContain("## User Comment 3");
+
+  const missing = await api<{ error: { message: string } }>(
+    `/api/reviews/${saved.id}/agent/reply`,
+    { commentId: "no-such-comment", text: "Done." },
+  );
+  expect(missing.status).toBe(404);
+  expect(missing.data.error.message).toBe("This review has no comment with that ID.");
 });

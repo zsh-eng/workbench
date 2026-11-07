@@ -60,11 +60,13 @@ export const reviewHelp = `Usage: med review create --title <title> --repo <path
        med review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
        med review wait --key <key>
+       med review reply --key <key> --comment <id> --text <text|->
        med review repos [--repo <path>] [--json]
 
 create hands off a change: a new review, or a new version of the review with
 the same --key. update changes a review. wait prints the user's next message.
-repos lists the repositories that Med knows.
+reply answers one of the user's comments in its thread. repos lists the
+repositories that Med knows.
 
 Examples:
   # The commits of a branch, with a guide from standard input
@@ -83,6 +85,7 @@ Examples:
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
 --paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
+reply answers the comment with that Comment ID (from the user's message) under it, where the user reads it, as your session. --text - reads the answer from standard input. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. A comment on the Notes takes no reply.
 wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit. Only Claude Code outside Med needs it: run it when create prints its line. A Claude Code session that the review does not have, such as after /clear, joins the review. Outside Claude Code, as in Codex, wait fails at once: Codex reads the user's messages from its queue.
 repos prints one line for each registered repository: its name, path, main branch, and number of worktrees. --repo <path> says whether Med knows the checkout that holds <path>; --json prints every branch and worktree.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med records no session and says why.
@@ -168,11 +171,14 @@ export function repoPaths(repo: string, paths: readonly string[], cwd = process.
 }
 
 export interface ReviewCommand {
-  kind: "help" | "repos" | "create" | "update" | "wait";
+  kind: "help" | "repos" | "create" | "update" | "wait" | "reply";
   /** For repos: the checkout to look up (--repo), or the full listing (--json). */
   repos?: { repo?: string; json?: boolean };
   /** For wait: the review's key, and the Claude Code session that waits. `owned`: Med started this session and sends it messages itself. */
   wait?: { key: string; session?: AgentSession; owned?: boolean };
+  /** For reply: the review's key, the comment it answers, and the session
+   * that answers. */
+  reply?: { key: string; commentId: string; text: string; session?: AgentSession };
   /** For update: the review's key and its new details. With `paths`, a new
    * version shows those files' uncommitted changes in `repo` (or the
    * thread's checkout). */
@@ -326,6 +332,8 @@ export async function parseReviewCommand(
       session: { type: "string", multiple: true },
       "no-session": { type: "boolean" },
       json: { type: "boolean" },
+      comment: { type: "string" },
+      text: { type: "string" },
     },
   });
   // The Claude Code session that runs this command, and why Med left it out.
@@ -350,7 +358,10 @@ export async function parseReviewCommand(
   const port = await clientPort(stateDir, values.port, environment);
   const common = { port, stateDir, caller, ...(values.json && { json: true }) };
   if (values.help) return { ...common, kind: "help" };
-  if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
+  if (
+    positionals.length !== 1 ||
+    !["repos", "create", "update", "wait", "reply"].includes(positionals[0]!)
+  )
     throw new UsageError(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
     throw new UsageError("Use --paths with create or update.");
@@ -358,6 +369,24 @@ export async function parseReviewCommand(
     throw new UsageError("Use --json with create or repos.");
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
     throw new UsageError("Use --generated with create, or with update --paths.");
+  if (positionals[0] === "reply") {
+    if (!values.key)
+      throw new UsageError("Use reply with --key, the review's key or its ID (r_…).");
+    if (!values.comment)
+      throw new UsageError("Use reply with --comment, the Comment ID in the user's message.");
+    if (values.text === undefined)
+      throw new UsageError("Use reply with --text <text>, or --text - to read standard input.");
+    const key = reviewKeySchema.safeParse(values.key);
+    if (!key.success) throw new Error(key.error.issues[0]!.message);
+    const text = (values.text === "-" ? await readStandardInput() : values.text).trim();
+    if (!text) throw new UsageError("The reply is empty.");
+    const session = (await sessions())[0];
+    return {
+      ...common,
+      kind: "reply",
+      reply: { key: key.data, commentId: values.comment, text, ...(session && { session }) },
+    };
+  }
   if (positionals[0] === "wait") {
     if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
     if (!values.key)
@@ -712,6 +741,17 @@ export async function runReviewCommand(
   if (command.caller?.note) warn(command.caller.note);
   if (command.kind === "wait") {
     await waitForMessage(command, connection, fetcher, print, warn, options.retryDelay);
+    return;
+  }
+  if (command.kind === "reply") {
+    const { key, commentId, text, session } = command.reply!;
+    const found = await reviewByKey(connection, key, fetcher);
+    await request(connection, `/api/reviews/${found.id}/agent/reply`, fetcher, {
+      commentId,
+      text,
+      ...(session && { session: { agent: session.agent, id: session.id } }),
+    });
+    print("Your reply is in the comment's thread.");
     return;
   }
   if (command.kind === "update") {

@@ -189,6 +189,60 @@ describe("agent review CLI through the production host", () => {
     }
   });
 
+  it("answers a comment in its thread as the session, by the review's key or ID", async () => {
+    const f = await fixture();
+    const claude = "5c1f0e2a-9b7d-4e3a-8f6c-2d4b6a8c0e1f";
+    const bundle = await f.saved(
+      await f.run(
+        "create",
+        "--key",
+        "fix-copy",
+        "--title",
+        "Fix",
+        "--repo",
+        f.repos[0]!,
+        "--working",
+        "--no-session",
+        "--session",
+        `claude:${claude}`,
+      ),
+    );
+    const notesPath = `/api/reviews/${bundle.id}/targets/${bundle.targets[0].id}/notes`;
+    const added = await (
+      await fetch(`http://127.0.0.1:${f.host.port}${notesPath}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          expectedRevision: (await f.api(notesPath)).revision,
+          mutation: {
+            type: "add",
+            note: { path: "file.txt", side: "new", line: 1, text: "Why after?" },
+          },
+        }),
+      })
+    ).json();
+    const comment = added.notes[0].id;
+    expect(
+      await f.run("reply", "--key", "fix-copy", "--comment", comment, "--text", "It reads later."),
+    ).toBe("Your reply is in the comment's thread.");
+    await f.run("reply", "--key", bundle.id, "--comment", comment, "--text", "  Or after.  ");
+    const notes = (await f.api(notesPath)).notes;
+    expect(notes.slice(1)).toMatchObject([
+      {
+        parentId: comment,
+        text: "It reads later.",
+        author: { agent: "claude", sessionId: claude },
+      },
+      { parentId: comment, text: "Or after.", author: { agent: "claude", sessionId: claude } },
+    ]);
+    await expect(f.run("reply", "--key", "fix-copy", "--text", "Done.")).rejects.toThrow(
+      "Use reply with --comment, the Comment ID in the user's message.",
+    );
+    await expect(
+      f.run("reply", "--key", "fix-copy", "--comment", "gone", "--text", "Done."),
+    ).rejects.toThrow("Med request failed: This review has no comment with that ID.");
+  });
+
   it("attaches a brief from a file, then replaces and removes it without a new revision", async () => {
     const f = await fixture();
     const path = join(f.root, "brief.md");

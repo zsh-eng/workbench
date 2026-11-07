@@ -128,6 +128,12 @@ export const agentInboxStateSchema = z.object({
   /** Claude sessions that no process runs: a message resumes the session,
    * which Med then runs. */
   resumable: z.array(z.string()).default([]),
+  /** Sessions that Med started, or took over, and runs: a comment goes to
+   * one at once, from the comment. */
+  owned: z.array(z.string()).default([]),
+  /** The saved review's revision: a newer one, as after an agent's reply,
+   * has comments that the page reads again. */
+  revision: z.number().int().nonnegative().optional(),
   drafts: z.array(draftCommentSchema),
 });
 export type AgentInboxState = z.infer<typeof agentInboxStateSchema>;

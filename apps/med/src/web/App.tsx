@@ -219,6 +219,7 @@ import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
+import { CommentAgentContext, type CommentAgent } from "./data/comment-agent";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionStarter } from "./components/session/SessionPanel";
 import type { ThreadLink } from "./components/session/SessionSidePanel";
@@ -1265,6 +1266,38 @@ export function App({
         : null,
     [replyAgent, showPane],
   );
+  // A comment goes to the agent from the comment when Med started that agent
+  // and runs it. One that a terminal runs takes comments from its message.
+  const inboxState = agentInbox.state;
+  const sendAgentMessage = agentInbox.send;
+  const commentAgent = useMemo<CommentAgent | null>(() => {
+    if (!leadSession || !replyAgent || !inboxState?.owned.includes(leadSession.id)) return null;
+    const unsent = new Set(inboxState.drafts.map((draft) => draft.id));
+    const held = new Set(inboxState.messages.flatMap((message) => message.noteIds));
+    return {
+      name: replyAgent,
+      mark: leadSession.agent === "acp" ? "agent" : leadSession.agent,
+      sent: (id) => held.has(id) && !unsent.has(id),
+      send: async (id) => {
+        await sendAgentMessage({
+          id: crypto.randomUUID(),
+          sessionId: leadSession.id,
+          text: "",
+          noteIds: [id],
+          attachments: [],
+          images: [],
+        });
+      },
+    };
+  }, [leadSession, replyAgent, inboxState, sendAgentMessage]);
+  // An agent's reply changes the review where the page does not write: the
+  // inbox says so, and the page reads the comments again.
+  const inboxRevision = inboxState?.revision;
+  const savedRevision = state.savedReview?.revision;
+  useEffect(() => {
+    if (inboxRevision !== undefined && savedRevision !== undefined && inboxRevision > savedRevision)
+      void controller.refreshSavedReview().catch(() => {});
+  }, [inboxRevision, savedRevision, controller]);
   const savedTarget = state.savedReview?.targets.find(
     (target) => target.id === state.savedTargetId,
   );
@@ -6758,7 +6791,9 @@ export function App({
   );
   return (
     <PendingReviewContext.Provider value={pendingReview}>
-      <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+      <CommentAgentContext.Provider value={commentAgent}>
+        <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+      </CommentAgentContext.Provider>
     </PendingReviewContext.Provider>
   );
 }

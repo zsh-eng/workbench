@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { generatedMarkSchema } from "../../shared/generated";
-import { apiErrorMessage, comparisonSchema, guideCommentRefSchema } from "../../shared/protocol";
+import {
+  apiErrorMessage,
+  comparisonSchema,
+  guideCommentRefSchema,
+  noteAuthorSchema,
+} from "../../shared/protocol";
 import { savedCommitSchema } from "../../shared/review-guide";
 import type { RouteContract } from "../../shared/routes";
 import { browserFetch, liveStream } from "./live";
@@ -198,6 +203,7 @@ export const notesSchema = z.object({
       createdAt: z.string(),
       updatedAt: z.string(),
       resolution: z.enum(["active", "stale", "orphaned"]).optional(),
+      author: noteAuthorSchema.optional(),
     }),
   ),
   hidden: z.number().int().nonnegative().optional(),
