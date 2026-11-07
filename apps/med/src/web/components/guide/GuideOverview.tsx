@@ -2,10 +2,9 @@ import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import type { ReviewOutput } from "../../../shared/review-output";
 import type { Since } from "../../../shared/saved-review";
-import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
+import type { GuideScope, GuideSection } from "../../data/guide";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { clippedTooltip } from "../ToolButton";
 import { GuideMarkdown } from "./GuideMarkdown";
 import {
   dismissOffer,
@@ -18,12 +17,11 @@ import {
   type OverviewProof,
 } from "./OverviewParts";
 
-const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
  * The Guide's first page: the proof, what changed and why, what changed since
- * the reader's last review, the findings, then the segments to read. Each
- * row opens its part of the diff. A part that the
+ * the reader's last review, and the findings. It does not repeat the
+ * segments, which the rail lists. A part that the
  * version does not have does not show.
  */
 export function GuideOverview({
@@ -147,57 +145,6 @@ export function GuideOverview({
         {since && <SincePart since={since} onOpen={onSince} />}
         {offerIn("rounds")}
         {hasFindings && <FindingsPart output={findings} open={openFindings} onOpen={onOpenLink} />}
-        {sections.length > 0 && (
-          <>
-            <h2 {...stylex.props(styles.label)}>Segments</h2>
-            <ol {...stylex.props(styles.list)}>
-              {sections.map((section) => {
-                const sentence = firstSentence(section.summary);
-                return (
-                  <li key={section.key}>
-                    <button
-                      type="button"
-                      onClick={() => onScope({ kind: "segment", key: section.key })}
-                      {...clippedTooltip(section.title)}
-                      {...stylex.props(styles.card)}
-                    >
-                      <span {...stylex.props(styles.number, section.automatic && styles.auto)}>
-                        {section.automatic ? "··" : pad(section.number)}
-                      </span>
-                      <span {...stylex.props(styles.cardBody)}>
-                        <span data-clip="lines" {...stylex.props(styles.cardTitle)}>
-                          {section.title}
-                        </span>
-                        <span {...stylex.props(styles.cardMeta)}>
-                          {section.critical && (
-                            <span {...stylex.props(styles.critical)}>
-                              <Icon name="alert" size={11} />
-                              Needs care
-                            </span>
-                          )}
-                          {section.area && (
-                            <span {...stylex.props(styles.kind)}>{AREA_LABELS[section.area]}</span>
-                          )}
-                          <span>
-                            {section.fileIds.length}{" "}
-                            {section.fileIds.length === 1 ? "file" : "files"}
-                          </span>
-                          {section.notes.length > 0 && (
-                            <span {...stylex.props(styles.notes)}>
-                              <Icon name="note" size={11} />
-                              {section.notes.length}
-                            </span>
-                          )}
-                        </span>
-                        {sentence && <span {...stylex.props(styles.sentence)}>{sentence}</span>}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </>
-        )}
       </div>
     </section>
   );
@@ -256,98 +203,5 @@ const styles = stylex.create({
   start: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 14, marginTop: 28 },
   startButton: { minHeight: 32, paddingInline: 14, gap: 8, fontSize: 12.5 },
   startMeta: { color: tokens.faint, fontSize: 12 },
-  label: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 44,
-    marginBottom: 8,
-    color: tokens.labelColor,
-    fontFamily: tokens.ui,
-    fontSize: tokens.labelSize,
-    fontWeight: tokens.labelWeight,
-    letterSpacing: tokens.labelTracking,
-    textTransform: tokens.labelCase,
-  },
-  list: {
-    listStyle: "none",
-    margin: 0,
-    padding: 0,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
-  card: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 14,
-    width: "100%",
-    boxSizing: "border-box",
-    paddingBlock: 14,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    textAlign: "left",
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: -2,
-    transitionProperty: "background-color",
-    transitionDuration: "120ms",
-  },
-  number: {
-    flexShrink: 0,
-    width: 20,
-    paddingTop: 2,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 12,
-    fontVariantNumeric: "tabular-nums",
-  },
-  auto: { letterSpacing: "0.1em" },
-  cardBody: { display: "flex", flexDirection: "column", gap: 5, flex: "1", minWidth: 0 },
   // Two lines at most; a longer title shows whole in the tooltip.
-  cardTitle: {
-    display: "-webkit-box",
-    WebkitBoxOrient: "vertical",
-    WebkitLineClamp: 2,
-    overflow: "hidden",
-    overflowWrap: "anywhere",
-    fontSize: 14,
-    fontWeight: 550,
-    lineHeight: 1.35,
-    letterSpacing: "-0.005em",
-  },
-  cardMeta: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    fontVariantNumeric: "tabular-nums",
-  },
-  kind: {
-    fontFamily: tokens.ui,
-    fontSize: 10,
-    fontWeight: 500,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  notes: { display: "inline-flex", alignItems: "center", gap: 3, color: tokens.accent },
-  critical: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    color: tokens.warning,
-    fontFamily: tokens.ui,
-    fontSize: 10.5,
-    fontWeight: 500,
-  },
-  sentence: { color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
 });

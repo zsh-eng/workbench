@@ -295,7 +295,10 @@ test("a thread's file list resizes with the pointer and the keys, resets on a do
 test("a Guide segment's title wraps to two lines; a longer one shows whole in the tooltip", async () => {
   render();
   await openThread();
-  await page.getByRole("button", { name: /^01\s*Move the refresh token/ }).click();
+  await page
+    .getByRole("region", { name: "Guide overview" })
+    .getByRole("button", { name: /^Start reviewing/ })
+    .click();
   const guide = page.getByRole("navigation", { name: "Guide" });
   const segments = guide.getByRole("list", { name: "Segments" });
   const first = segments.getByRole("button", { name: /^1\. Move the refresh token/ });

@@ -4,11 +4,11 @@ When an agent attaches a guide, the **Review** tab opens on the Guide. A guide
 splits the change into segments that you check one at a time, like a pull
 request split into small ones.
 
-- **Overview.** The agent's summary and the segments with their area, file
-  count, and comment count. Line counts and hashes show only in each file's
-  own header. **Needs care** marks a segment that the agent flagged as
-  risky. **Start reviewing** opens the first segment, and **All files** shows
-  the version's whole diff.
+- **Overview.** The agent's summary and picture, its proof when it gave some,
+  and **Start reviewing**, which opens the first segment; **All files** shows
+  the whole diff. The segments are in the rail, with their file and comment
+  counts; **Needs care** marks one that the agent flagged as risky. Line
+  counts and hashes show only in each file's own header.
   A summary is Markdown: `mermaid` diagrams show, and images load from the
   review's checkout, with paths from the repository root.
 - **A segment.** Its title, summary, and only its files, with the agent's

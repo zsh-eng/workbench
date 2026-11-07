@@ -2890,8 +2890,13 @@ describe("review guide", () => {
       .toHaveAttribute("aria-checked", "true");
     const overview = page.getByRole("region", { name: "Guide overview" });
     await expect.element(overview.getByText(/^Renames the/)).toBeVisible();
-    await expect.element(overview.getByRole("button", { name: /Rename alpha/ })).toBeVisible();
-    await expect.element(overview.getByText("Needs care")).toBeVisible();
+    // The Overview does not repeat the segments: the rail lists them.
+    await expect.element(overview.getByText(/^2 segments · 2 comments/)).toBeVisible();
+    expect(overview.getByRole("button", { name: /Rename alpha/ }).query()).toBeNull();
+    const rail = page.getByRole("navigation", { name: "Guide" });
+    await expect
+      .element(rail.getByRole("button", { name: "1. Rename alpha, needs care" }))
+      .toBeVisible();
 
     await userEvent.keyboard("j");
     await expect.element(page.getByRole("heading", { name: "Rename alpha" })).toBeVisible();
