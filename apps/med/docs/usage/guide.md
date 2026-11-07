@@ -82,8 +82,9 @@ rebase still diffs cleanly. Each part shows only when the hand-off has it.
   shows at a time, and **Dismiss** hides it for good in this browser.
   `med skills suggest` lists all of them.
 
-A thread's diff has a rail of its changed files as a tree. In **Review**, the
-rail also lists the range's commits when it has two or more. A commit shows on
+A thread's diff has a rail of its changed files as a tree. Its top holds the
+range: what the diff compares, then, in **Review**, the range's commits when
+it has two or more. A commit shows on
 its own; **Whole range** goes back. In **Changes**, the rail lists the
 branch's commits, or the Review's range, and **All changes** goes back. The
 Guide's list takes the same place in the Guide. The two are one nested

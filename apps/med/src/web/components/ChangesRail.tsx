@@ -25,8 +25,8 @@ type CommitProps = {
 };
 
 /**
- * The Changes page's sidebar: what the diff compares (`range`), the changed
- * files as a tree, and the commits. It sits where the Guide does in Review,
+ * The Changes page's sidebar: the range at its top (what the diff compares,
+ * and the range's commits, one at a time), then the changed files as a tree. It sits where the Guide does in Review,
  * so the diff keeps its place between the pages. Its edge resizes it
  * (ColumnResize.tsx).
  */
@@ -60,23 +60,30 @@ export function ChangesRail({
       {...stylex.props(styles.rail, styles.width(width), hidden && styles.hidden)}
     >
       {top}
-      <FileSidebar {...files} top={range} />
-      <RangeCommits
-        commits={commits}
-        moreCommits={moreCommits}
-        commit={commit}
-        whole={whole}
-        wholeLabel={wholeLabel}
-        onCommit={onCommit}
-        onWhole={onWhole}
-        fresh={fresh}
+      <FileSidebar
+        {...files}
+        top={
+          <>
+            {range}
+            <RangeCommits
+              commits={commits}
+              moreCommits={moreCommits}
+              commit={commit}
+              whole={whole}
+              wholeLabel={wholeLabel}
+              onCommit={onCommit}
+              onWhole={onWhole}
+              fresh={fresh}
+            />
+          </>
+        }
       />
       <ColumnHandle kind="changes" width={width} pane={pane} label="the file list" />
     </nav>
   );
 }
 
-/** A range's or a branch's commits under its files. A range of one commit
+/** A range's or a branch's commits, above its files. A range of one commit
  * lists none. */
 export function RangeCommits({
   commits,
@@ -201,10 +208,11 @@ const styles = stylex.create({
     overflowY: "auto",
     scrollbarWidth: "thin",
     paddingInline: 6,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    paddingBottom: 8,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
   },
 });
 
@@ -213,8 +221,8 @@ const commitStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8,
-    marginTop: 16,
-    marginBottom: 4,
+    marginTop: 2,
+    marginBottom: 2,
     paddingInline: 8,
     minHeight: 24,
   },

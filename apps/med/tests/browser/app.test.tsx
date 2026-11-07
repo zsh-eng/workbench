@@ -3602,7 +3602,7 @@ describe("saved reviews", () => {
     });
     const reviewTab = page.getByRole("radio", { name: "Review", exact: true });
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
-    // The sidebar lists the files and, below them, the range's commits.
+    // The sidebar lists the range's commits at its top, then the files.
     await expect.element(page.getByRole("navigation", { name: "Files and commits" })).toBeVisible();
     await expect.element(page.getByRole("textbox", { name: "Filter changed files" })).toBeVisible();
     const list = page.getByRole("list", { name: "Commits" });
