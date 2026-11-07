@@ -20,7 +20,7 @@ first frame is never the browser's own white or black.
 
 The diff's layout (**Split** or **Unified**), **Wrap long lines**, **Comments
 in the diff**, and the code's **Text size**: the same settings as the review
-header's **Display**.
+header's **Display**, whose **All code settings** opens this page.
 
 ## Sources
 

@@ -2405,6 +2405,16 @@ describe("graphical review", () => {
     await expect
       .poll(() => document.querySelector("[data-file-count]")?.getAttribute("data-file-count"))
       .toBe("2");
+    // Display ends with the way to every code setting.
+    const address = location.href;
+    await page.getByRole("button", { name: "Display" }).click();
+    await page
+      .getByRole("dialog", { name: "Display" })
+      .getByRole("button", { name: "All code settings" })
+      .click();
+    expect(location.pathname).toBe("/settings/code");
+    await expect.element(page.getByRole("dialog", { name: "Display" })).not.toBeInTheDocument();
+    history.replaceState(null, "", address);
   });
 
   test("reveals metadata-only files selected in the sidebar", async () => {

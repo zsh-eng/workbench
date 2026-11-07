@@ -238,6 +238,27 @@ function DisplayButton({ options }: { options: DisplayOptions }) {
               </button>
               <kbd {...stylex.props(styles.key)} />
             </div>
+            <span role="separator" {...stylex.props(styles.separator)} />
+            {/* Settings › Code has these, plus theme, font, and the file view's. */}
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                history.pushState(null, "", "/settings/code");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+              {...stylex.props(
+                ui.button,
+                ui.pressable,
+                styles.line,
+                styles.row,
+                styles.toggle,
+                styles.more,
+              )}
+            >
+              <span {...stylex.props(styles.grow)}>All code settings</span>
+              <Icon name="arrowLeft" size={12} style={{ transform: "rotate(180deg)" }} />
+            </button>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -366,6 +387,7 @@ const styles = stylex.create({
     fontSize: 12.5,
   },
   separator: { display: "block", height: 1, marginBlock: 4, backgroundColor: tokens.line },
+  more: { color: { default: tokens.muted, ":hover": tokens.text } },
   key: {
     width: 12,
     color: tokens.faint,
