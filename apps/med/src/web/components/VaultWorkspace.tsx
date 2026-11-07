@@ -518,8 +518,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
         {error && locationState.id && notice}
         {locationState.settings ? (
           <SettingsPage
-            section={locationState.settings}
-            onSection={(section) => navigate(`/settings/${section}`)}
+            section={locationState.settings === "appearance" ? undefined : locationState.settings}
             onSources={() => navigate("/sources")}
           />
         ) : !locationState.id ? (

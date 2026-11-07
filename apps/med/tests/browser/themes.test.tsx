@@ -156,10 +156,16 @@ test("Settings shows the light theme, the dark one, or the system's choice, with
   mount = document.createElement("div");
   document.body.append(mount);
   root = createRoot(mount);
-  root.render(<SettingsPage section="appearance" onSection={() => {}} onSources={() => {}} />);
+  root.render(<SettingsPage onSources={() => {}} />);
   const html = document.documentElement;
+  // Every setting is on the one page.
+  for (const name of ["Appearance", "Code", "Files and sessions", "Sources"])
+    await expect.element(page.getByRole("region", { name, exact: true })).toBeVisible();
+  await expect.element(page.getByRole("switch", { name: "Vim keys" })).toBeInTheDocument();
   const modes = page.getByRole("radiogroup", { name: "Interface theme" });
+  await modes.getByRole("radio", { name: "Dark" }).click();
   await expect.element(modes.getByRole("radio", { name: "Dark" })).toBeChecked();
+  await expect.poll(() => html.dataset.appearance).toBe("dark");
 
   await modes.getByRole("radio", { name: "Light" }).click();
   await expect.poll(() => html.dataset.appearance).toBe("light");

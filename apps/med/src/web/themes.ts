@@ -1505,7 +1505,10 @@ export const themeGroups: readonly { family: string; items: readonly Theme[] }[]
   }));
 
 export const THEME_STORAGE_KEY = "med:theme:v1";
-export const defaultTheme = themes[0];
+/** With nothing chosen, Med follows the system between Pierre Light and Pierre Dark. */
+export const defaultTheme = themes.find((theme) => theme.id === "pierre-dark")!;
+export const defaultLightTheme = themes.find((theme) => theme.id === "pierre-light")!;
+export const DEFAULT_THEME_MODE: ThemeMode = "system";
 
 export function findTheme(id: string | null | undefined): Theme {
   return themes.find((theme) => theme.id === id) ?? defaultTheme;
@@ -1664,9 +1667,9 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
     active: defaultTheme,
     saved: defaultTheme,
     persistenceError: null,
-    mode: defaultTheme.appearance,
-    light: partner(defaultTheme, "light"),
-    dark: partner(defaultTheme, "dark"),
+    mode: DEFAULT_THEME_MODE,
+    light: defaultLightTheme,
+    dark: defaultTheme,
   };
   const listeners = new Set<() => void>();
   const resolve = (mode: ThemeMode, light: Theme, dark: Theme) =>
@@ -1719,17 +1722,19 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
     initialize(nextStorage = storage) {
       storage = nextStorage;
       let error: string | null = null;
-      let mode: ThemeMode = defaultTheme.appearance;
-      let light = partner(defaultTheme, "light");
-      let dark = partner(defaultTheme, "dark");
+      let mode: ThemeMode = DEFAULT_THEME_MODE;
+      let light = defaultLightTheme;
+      let dark = defaultTheme;
       try {
         const stored = storage?.getItem(THEME_STORAGE_KEY);
         const legacy = !stored ? storage?.getItem("med:theme") : null;
         // Before the mode, Med kept one theme: it stays the one that shows.
         const single = findTheme(stored ?? (legacy === "light" ? "graphite-light" : undefined));
-        mode = single.appearance;
-        light = partner(single, "light");
-        dark = partner(single, "dark");
+        if (stored || legacy) {
+          mode = single.appearance;
+          light = partner(single, "light");
+          dark = partner(single, "dark");
+        }
         const storedMode = storage?.getItem(THEME_MODE_KEY);
         if (THEME_MODES.includes(storedMode as ThemeMode)) mode = storedMode as ThemeMode;
         const storedLight = themes.find((t) => t.id === storage?.getItem(THEME_LIGHT_KEY));

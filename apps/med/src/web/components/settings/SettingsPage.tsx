@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { CODE_SIZES, useViewSetting, viewSettings } from "../../data/view-settings";
-import { FILE_SETTINGS, filePart, useSettingsFile } from "../../data/settings-file";
+import { useSettingsFile } from "../../data/settings-file";
 import { tokens } from "../../theme.stylex";
 import {
   THEME_MODES,
@@ -16,11 +16,6 @@ import { Icon } from "../Icon";
 
 export type SettingsSection = "appearance" | "code";
 
-const SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: "appearance", label: "Appearance" },
-  { id: "code", label: "Code" },
-];
-
 const MODE_LABELS: Record<ThemeMode, string> = {
   system: "System",
   light: "Light",
@@ -28,44 +23,54 @@ const MODE_LABELS: Record<ThemeMode, string> = {
 };
 
 /**
- * Settings, as Linear lays them out: the sections on the left, and on the
- * right one column of rows, each a label and its control. Sources keep their
- * own page, which the list opens.
+ * Settings, on one page as Linear lays a page out: the title, each section's
+ * heading and the text in the cards share one left edge, and the cards reach
+ * 20 pixels past it on each side. A row is a name and a note, with its
+ * control at the right. `section` scrolls to a section, as from Display's
+ * All code settings.
  */
 export function SettingsPage({
   section,
-  onSection,
   onSources,
 }: {
-  section: SettingsSection;
-  onSection(section: SettingsSection): void;
+  section?: SettingsSection;
   onSources(): void;
 }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = scroller.current;
+    const target = section && box?.querySelector<HTMLElement>(`[data-section="${section}"]`);
+    if (box) box.scrollTop = target ? target.offsetTop - 24 : 0;
+  }, [section]);
+  const file = useSettingsFile();
   return (
     <div {...stylex.props(styles.page)}>
-      <div {...stylex.props(styles.card)}>
-        <nav aria-label="Settings" {...stylex.props(styles.nav)}>
-          <h1 {...stylex.props(styles.navTitle)}>Settings</h1>
-          {SECTIONS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              aria-current={section === entry.id ? "page" : undefined}
-              onClick={() => onSection(entry.id)}
-              {...stylex.props(styles.navItem, section === entry.id && styles.navCurrent)}
-            >
-              {entry.label}
-            </button>
-          ))}
-          <button type="button" onClick={onSources} {...stylex.props(styles.navItem)}>
-            Sources
-          </button>
-        </nav>
-        <main {...stylex.props(styles.main)}>
-          <div {...stylex.props(styles.column)}>
-            {section === "appearance" ? <Appearance /> : <Code />}
-          </div>
-        </main>
+      <div ref={scroller} {...stylex.props(styles.card)}>
+        <div {...stylex.props(styles.column)}>
+          <h1 {...stylex.props(styles.title)}>Settings</h1>
+          <p {...stylex.props(styles.intro)}>
+            {file ? (
+              <>
+                Each setting is also a key in{" "}
+                <code {...stylex.props(styles.path)}>{file.path}</code>, so an agent can change it;
+                Med applies a saved change at once.
+              </>
+            ) : (
+              "How Med looks, and how it shows code."
+            )}
+          </p>
+          <Appearance />
+          <Code />
+          <Files />
+          <Section title="Sources" note="The repositories and folders that Med shows.">
+            <Row label="Repositories and folders">
+              <button type="button" onClick={onSources} {...stylex.props(styles.link)}>
+                Open Sources
+              </button>
+            </Row>
+          </Section>
+          {file && <FileSection file={file} />}
+        </div>
       </div>
     </div>
   );
@@ -78,52 +83,50 @@ function Appearance() {
       .filter((theme) => theme.appearance === appearance)
       .map((theme) => ({ value: theme.id, label: theme.label }));
   return (
-    <>
-      <h2 {...stylex.props(styles.title)}>Appearance</h2>
-      <Group title="Theme">
-        <Row
-          label="Interface theme"
-          note="Med can follow your system, from light to dark and back."
-          block
-        >
-          <div role="radiogroup" aria-label="Interface theme" {...stylex.props(styles.modes)}>
-            {THEME_MODES.map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={mode === value}
-                onClick={() => themeController.setMode(value)}
-                {...stylex.props(styles.mode, mode === value && styles.modeOn)}
-              >
-                <ThemeSwatch light={light} dark={dark} mode={value} on={mode === value} />
-                <span {...stylex.props(styles.modeLabel)}>
-                  {mode === value && <Icon name="check" size={12} />}
-                  {MODE_LABELS[value]}
-                </span>
-              </button>
-            ))}
-          </div>
-        </Row>
-        <Row label="Light theme" note="In Light, and in System while the system is light.">
-          <ChoiceSelect
-            label="Light theme"
-            value={light.id}
-            choices={choices("light")}
-            onChange={(id) => themeController.setTheme(id)}
-          />
-        </Row>
-        <Row label="Dark theme" note="In Dark, and in System while the system is dark.">
-          <ChoiceSelect
-            label="Dark theme"
-            value={dark.id}
-            choices={choices("dark")}
-            onChange={(id) => themeController.setTheme(id)}
-          />
-        </Row>
-      </Group>
-      <FileFooter page="appearance" />
-    </>
+    <Section
+      id="appearance"
+      title="Appearance"
+      note="Med can follow your system between a light and a dark theme."
+    >
+      <Row label="Interface theme" block>
+        <div role="radiogroup" aria-label="Interface theme" {...stylex.props(styles.modes)}>
+          {THEME_MODES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              onClick={() => themeController.setMode(value)}
+              {...stylex.props(styles.mode, mode === value && styles.modeOn)}
+            >
+              <ThemeSwatch light={light} dark={dark} mode={value} on={mode === value} />
+              <span {...stylex.props(styles.modeLabel)}>
+                {mode === value && <Icon name="check" size={12} />}
+                {MODE_LABELS[value]}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Row>
+      <Row label="Light theme" note="In Light, and in System while the system is light.">
+        <ChoiceSelect
+          trigger={styles.select}
+          label="Light theme"
+          value={light.id}
+          choices={choices("light")}
+          onChange={(id) => themeController.setTheme(id)}
+        />
+      </Row>
+      <Row label="Dark theme" note="In Dark, and in System while the system is dark.">
+        <ChoiceSelect
+          trigger={styles.select}
+          label="Dark theme"
+          value={dark.id}
+          choices={choices("dark")}
+          onChange={(id) => themeController.setTheme(id)}
+        />
+      </Row>
+    </Section>
   );
 }
 
@@ -133,73 +136,128 @@ function Code() {
   const comments = useViewSetting(viewSettings.comments);
   const size = useViewSetting(viewSettings.codeSize);
   return (
-    <>
-      <h2 {...stylex.props(styles.title)}>Code</h2>
-      <Group title="Diffs">
-        <Row label="Diff layout" note="Split needs a review at least 760 pixels wide.">
-          <ChoiceSelect
-            label="Diff layout"
-            value={layout}
-            choices={[
-              { value: "split", label: "Split" },
-              { value: "unified", label: "Unified" },
-            ]}
-            onChange={(value) => viewSettings.diffLayout.set(value as "split" | "unified")}
-          />
-        </Row>
-        <Row label="Wrap long lines">
-          <Switch
-            label="Wrap long lines"
-            on={wrap === "on"}
-            toggle={() => viewSettings.wrap.set(wrap === "on" ? "off" : "on")}
-          />
-        </Row>
-        <Row label="Comments in the diff" note="Writing or opening a comment shows them again.">
-          <Switch
-            label="Comments in the diff"
-            on={comments === "shown"}
-            toggle={() => viewSettings.comments.set(comments === "shown" ? "hidden" : "shown")}
-          />
-        </Row>
-        <Row label="Text size" note="Of code in diffs and files.">
-          <ChoiceSelect
-            label="Text size"
-            value={size}
-            choices={CODE_SIZES.map((value) => ({ value, label: `${value} px` }))}
-            onChange={(value) => viewSettings.codeSize.set(value as (typeof CODE_SIZES)[number])}
-          />
-        </Row>
-      </Group>
-      <FileFooter page="code" />
-    </>
+    <Section id="code" title="Code" note="How diffs and files show code.">
+      <Row label="Diff layout" note="Split needs a review at least 760 pixels wide.">
+        <ChoiceSelect
+          trigger={styles.select}
+          label="Diff layout"
+          value={layout}
+          choices={[
+            { value: "split", label: "Split" },
+            { value: "unified", label: "Unified" },
+          ]}
+          onChange={(value) => viewSettings.diffLayout.set(value as "split" | "unified")}
+        />
+      </Row>
+      <Row label="Wrap long lines" note="Otherwise long lines scroll sideways.">
+        <Switch
+          label="Wrap long lines"
+          on={wrap === "on"}
+          toggle={() => viewSettings.wrap.set(wrap === "on" ? "off" : "on")}
+        />
+      </Row>
+      <Row label="Comments in the diff" note="Writing or opening a comment shows them again.">
+        <Switch
+          label="Comments in the diff"
+          on={comments === "shown"}
+          toggle={() => viewSettings.comments.set(comments === "shown" ? "hidden" : "shown")}
+        />
+      </Row>
+      <Row label="Text size" note="Of code in diffs and files.">
+        <ChoiceSelect
+          trigger={styles.select}
+          label="Text size"
+          value={size}
+          choices={CODE_SIZES.map((value) => ({ value, label: `${value} px` }))}
+          onChange={(value) => viewSettings.codeSize.set(value as (typeof CODE_SIZES)[number])}
+        />
+      </Row>
+    </Section>
   );
 }
 
-/** The page's end: the settings file's path and the page's part of it, which an agent can edit. */
-function FileFooter({ page }: { page: keyof typeof FILE_SETTINGS }) {
-  const file = useSettingsFile();
-  if (!file) return null;
-  const part = filePart(file, page);
+function Files() {
+  const vim = useViewSetting(viewSettings.vim);
+  const blame = useViewSetting(viewSettings.lineBlame);
+  const preview = useViewSetting(viewSettings.filePreview);
+  const followUp = useViewSetting(viewSettings.followUp);
+  const flip = (setting: typeof viewSettings.vim, value: "on" | "off") =>
+    setting.set(value === "on" ? "off" : "on");
   return (
-    <section aria-label="Settings file" {...stylex.props(styles.file)}>
-      <p {...stylex.props(styles.fileNote)}>
-        These settings live in <code {...stylex.props(styles.filePath)}>{file.path}</code>. An agent
-        can change them there; Med applies a saved change at once.
-      </p>
-      {file.error && (
-        <p role="alert" {...stylex.props(styles.fileError)}>
-          {file.error}
-        </p>
-      )}
-      {part !== "{}" && <pre {...stylex.props(styles.fileText)}>{part}</pre>}
-    </section>
+    <Section
+      title="Files and sessions"
+      note="Editing files, finding them, and messages to an agent."
+    >
+      <Row label="Vim keys" note="In files you open.">
+        <Switch label="Vim keys" on={vim === "on"} toggle={() => flip(viewSettings.vim, vim)} />
+      </Row>
+      <Row label="Blame on the cursor's line" note="Its author, age, and commit, after the line.">
+        <Switch
+          label="Blame on the cursor's line"
+          on={blame === "on"}
+          toggle={() => flip(viewSettings.lineBlame, blame)}
+        />
+      </Row>
+      <Row label="Preview in Find file" note="The chosen file beside the results.">
+        <Switch
+          label="Preview in Find file"
+          on={preview === "on"}
+          toggle={() => flip(viewSettings.filePreview, preview)}
+        />
+      </Row>
+      <Row label="A message while the agent works" note="⌘↩ does this; ⇧⌘↩ does the other.">
+        <ChoiceSelect
+          trigger={styles.select}
+          label="A message while the agent works"
+          value={followUp}
+          choices={[
+            { value: "now", label: "Send at its next step" },
+            { value: "queue", label: "Queue for the turn's end" },
+          ]}
+          onChange={(value) => viewSettings.followUp.set(value as "now" | "queue")}
+        />
+      </Row>
+    </Section>
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+/** The settings file, which an agent can edit: its path, and what it holds. */
+function FileSection({ file }: { file: NonNullable<ReturnType<typeof useSettingsFile>> }) {
+  const text = JSON.stringify(file.settings, null, 2);
   return (
-    <section aria-label={title} {...stylex.props(styles.group)}>
-      <h3 {...stylex.props(styles.groupTitle)}>{title}</h3>
+    <Section
+      title="Settings file"
+      note="What the file holds now. Keys left out keep their defaults."
+    >
+      <div aria-label="Settings file" role="region">
+        {file.error && (
+          <p role="alert" {...stylex.props(styles.fileError)}>
+            {file.error}
+          </p>
+        )}
+        <pre {...stylex.props(styles.fileText)}>{text}</pre>
+      </div>
+    </Section>
+  );
+}
+
+function Section({
+  id,
+  title,
+  note,
+  children,
+}: {
+  id?: SettingsSection;
+  title: string;
+  note?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={title} data-section={id} {...stylex.props(styles.section)}>
+      <div {...stylex.props(styles.sectionHead)}>
+        <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
+        {note && <p {...stylex.props(styles.sectionNote)}>{note}</p>}
+      </div>
       <div {...stylex.props(styles.rows)}>{children}</div>
     </section>
   );
@@ -301,95 +359,95 @@ const styles = stylex.create({
   card: {
     flex: "1",
     minWidth: 0,
-    display: "flex",
-    overflow: "hidden",
+    overflowY: "auto",
     backgroundColor: tokens.canvas,
     borderRadius: tokens.frame,
     boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
-  nav: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 1,
-    flexShrink: 0,
-    width: 200,
-    paddingBlock: 14,
-    paddingInline: 10,
-    borderRightWidth: 1,
-    borderRightStyle: "solid",
-    borderRightColor: tokens.line,
-  },
-  navTitle: {
-    margin: 0,
-    marginBottom: 10,
-    paddingInline: 8,
-    color: tokens.muted,
-    fontSize: 12,
-    fontWeight: 500,
-  },
-  navItem: {
-    display: "flex",
-    alignItems: "center",
-    height: 28,
-    paddingInline: 8,
-    borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.text,
-    font: "inherit",
-    textAlign: "start",
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
-  navCurrent: { backgroundColor: tokens.fill, fontWeight: 500 },
-  main: { flex: "1", minWidth: 0, overflowY: "auto" },
+  // The text's column; the cards reach 20 pixels past it on each side.
   column: {
+    boxSizing: "content-box",
     maxWidth: 640,
     marginInline: "auto",
-    paddingInline: 32,
-    paddingTop: 48,
-    paddingBottom: 64,
+    paddingInline: 44,
+    paddingTop: 56,
+    paddingBottom: 72,
   },
-  title: { margin: 0, marginBottom: 28, fontSize: 22, fontWeight: 600, letterSpacing: "-0.01em" },
-  group: { marginBottom: 32 },
-  file: { marginTop: 8, color: tokens.muted, fontSize: 12.5, lineHeight: 1.6 },
-  fileNote: { margin: 0, marginBottom: 8 },
-  filePath: { fontFamily: tokens.code, fontSize: 12, color: tokens.text },
-  fileError: { margin: 0, marginBottom: 8, color: tokens.red },
-  fileText: {
+  title: {
     margin: 0,
-    paddingBlock: 10,
-    paddingInline: 12,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-    color: tokens.text,
-    fontFamily: tokens.code,
-    fontSize: 12,
-    lineHeight: 1.6,
-    overflowX: "auto",
+    fontSize: 26,
+    lineHeight: 1.2,
+    fontWeight: 550,
+    letterSpacing: "-0.022em",
   },
-  groupTitle: { margin: 0, marginBottom: 10, fontSize: 13, fontWeight: 600 },
+  intro: { margin: 0, marginTop: 8, color: tokens.muted, fontSize: 15, lineHeight: 1.5 },
+  path: { fontFamily: tokens.code, fontSize: 13, color: tokens.text },
+  section: { marginTop: 44 },
+  sectionHead: { marginBottom: 14 },
+  sectionTitle: { margin: 0, fontSize: 17, fontWeight: 550, letterSpacing: "-0.012em" },
+  sectionNote: { margin: 0, marginTop: 4, color: tokens.muted, fontSize: 14 },
   rows: {
-    borderRadius: `calc(10px * ${tokens.round})`,
-    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
-    backgroundColor: tokens.panel,
+    marginInline: -20,
+    paddingInline: 20,
+    borderRadius: `calc(12px * ${tokens.round})`,
+    backgroundColor: `color-mix(in srgb, ${tokens.text} 3.5%, transparent)`,
   },
   row: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 24,
-    minHeight: 60,
+    boxSizing: "border-box",
+    minHeight: 64,
     paddingBlock: 12,
-    paddingInline: 16,
     borderTopWidth: { default: 1, ":first-child": 0 },
     borderTopStyle: "solid",
     borderTopColor: tokens.line,
   },
-  rowBlock: { flexDirection: "column", alignItems: "stretch", gap: 14 },
-  rowText: { minWidth: 0 },
-  rowLabel: { fontWeight: 500 },
-  rowNote: { marginTop: 3, color: tokens.muted, fontSize: 12 },
+  rowBlock: { flexDirection: "column", alignItems: "stretch", gap: 14, paddingBlock: 16 },
+  rowText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
+  rowLabel: { fontSize: 14, fontWeight: 500 },
+  rowNote: { color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
+  link: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    height: 30,
+    paddingInline: 10,
+    borderWidth: 0,
+    borderRadius: tokens.buttonRound,
+    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
+    color: tokens.text,
+    font: "inherit",
+    fontSize: 13,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  // A select's trigger: a quiet bordered button that ends at the text's edge.
+  select: {
+    flexShrink: 0,
+    height: 32,
+    paddingInlineStart: 12,
+    paddingInlineEnd: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: tokens.line,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: { default: tokens.canvas, ":hover": tokens.hover },
+    fontSize: 13,
+  },
+  fileError: { margin: 0, paddingTop: 14, color: tokens.red, fontSize: 13 },
+  fileText: {
+    margin: 0,
+    paddingBlock: 14,
+    color: tokens.text,
+    fontFamily: tokens.code,
+    fontSize: 12.5,
+    lineHeight: 1.6,
+    overflowX: "auto",
+  },
   modes: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 },
   mode: {
     display: "flex",
@@ -446,12 +504,12 @@ const styles = stylex.create({
   switch: {
     position: "relative",
     flexShrink: 0,
-    width: 30,
-    height: 18,
+    width: 34,
+    height: 20,
     padding: 0,
     borderWidth: 0,
-    borderRadius: 9,
-    backgroundColor: tokens.border,
+    borderRadius: 10,
+    backgroundColor: tokens.lineStrong,
     cursor: "pointer",
     transitionProperty: "background-color",
     transitionDuration: "120ms",
@@ -463,13 +521,13 @@ const styles = stylex.create({
     position: "absolute",
     top: 2,
     left: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: "#fff",
     boxShadow: "0 1px 2px #0003",
     transitionProperty: "transform",
     transitionDuration: "120ms",
   },
-  knobOn: { transform: "translateX(12px)" },
+  knobOn: { transform: "translateX(14px)" },
 });

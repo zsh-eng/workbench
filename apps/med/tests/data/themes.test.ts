@@ -34,6 +34,31 @@ describe("theme choices", () => {
     expect(unknown.getSnapshot().active).toBe(defaultTheme);
   });
 
+  test("with nothing chosen, follows the system between Pierre Light and Pierre Dark", () => {
+    let dark = false;
+    let change = () => {};
+    const storage = memoryStorage();
+    const controller = createThemeController({
+      storage,
+      system: { dark: () => dark, watch: (listener) => void (change = listener) },
+    });
+    controller.initialize();
+    expect(controller.getSnapshot()).toMatchObject({
+      mode: "system",
+      active: { id: "pierre-light" },
+      light: { id: "pierre-light" },
+      dark: { id: "pierre-dark" },
+    });
+    dark = true;
+    change();
+    expect(controller.getSnapshot().active.id).toBe("pierre-dark");
+    expect(JSON.parse(storage.getItem(THEME_PAINT_KEY)!)).toEqual({
+      mode: "system",
+      light: findTheme("pierre-light").palette.panel,
+      dark: findTheme("pierre-dark").palette.panel,
+    });
+  });
+
   test("shows the light or the dark theme, or follows the system between them", () => {
     let dark = true;
     let change = () => {};

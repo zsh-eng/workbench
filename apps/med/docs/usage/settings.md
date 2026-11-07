@@ -42,19 +42,19 @@ does the other [view settings](layout.md#view-settings), and the two stay the
 same. A choice from before the file goes to it once, the first time Med reads
 the file.
 
-| Key                     | Values                                                     | Default       |
-| ----------------------- | ---------------------------------------------------------- | ------------- |
-| `appearance.theme`      | `"system"`, `"light"`, or `"dark"`                         | `"dark"`      |
-| `appearance.lightTheme` | a light theme's id, such as `"graphite-light"`             | its partner   |
-| `appearance.darkTheme`  | a dark theme's id, such as `"med-night"`                   | `"med-night"` |
-| `diffs.layout`          | `"split"` or `"unified"`                                   | `"split"`     |
-| `diffs.wrap`            | `true` or `false`: wrap long lines                         | `false`       |
-| `diffs.comments`        | `true` or `false`: comments in the diff                    | `true`        |
-| `code.textSize`         | `11`, `11.5`, `12`, `12.5`, `13`, `14`, `15`, `16`         | `12`          |
-| `files.vim`             | `true` or `false`: Vim keys in files                       | `true`        |
-| `files.lineBlame`       | `true` or `false`: the cursor line's blame                 | `true`        |
-| `files.findPreview`     | `true` or `false`: the preview in Find file                | `true`        |
-| `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`       |
+| Key                     | Values                                                     | Default          |
+| ----------------------- | ---------------------------------------------------------- | ---------------- |
+| `appearance.theme`      | `"system"`, `"light"`, or `"dark"`                         | `"system"`       |
+| `appearance.lightTheme` | a light theme's id, such as `"graphite-light"`             | `"pierre-light"` |
+| `appearance.darkTheme`  | a dark theme's id, such as `"med-night"`                   | `"pierre-dark"`  |
+| `diffs.layout`          | `"split"` or `"unified"`                                   | `"split"`        |
+| `diffs.wrap`            | `true` or `false`: wrap long lines                         | `false`          |
+| `diffs.comments`        | `true` or `false`: comments in the diff                    | `true`           |
+| `code.textSize`         | `11`, `11.5`, `12`, `12.5`, `13`, `14`, `15`, `16`         | `12`             |
+| `files.vim`             | `true` or `false`: Vim keys in files                       | `true`           |
+| `files.lineBlame`       | `true` or `false`: the cursor line's blame                 | `true`           |
+| `files.findPreview`     | `true` or `false`: the preview in Find file                | `true`           |
+| `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`          |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.
