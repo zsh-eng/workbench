@@ -45,6 +45,7 @@ const Welcome = lazy(() => import("./components/welcome/Welcome"));
 // again only for its own state, so showing a hidden one does not render it.
 const WorkspaceApp = memo(App);
 const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
+const ScreensPage = lazy(() => import("./components/screens/ScreensPage"));
 
 /** The welcome replaces the app while it shows; leaving it starts the app. */
 function Root() {
@@ -58,6 +59,13 @@ function Root() {
     return (
       <Suspense fallback={null}>
         <ElementsPage />
+      </Suspense>
+    );
+  // A design tool, like Storybook: its frames need the dev server's demo page.
+  if (import.meta.env.DEV && location.pathname === "/screens")
+    return (
+      <Suspense fallback={null}>
+        <ScreensPage />
       </Suspense>
     );
   if (welcome)

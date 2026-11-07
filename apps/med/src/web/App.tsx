@@ -4185,6 +4185,9 @@ export function App({
       label: "Open elements page",
       run: () => location.assign("/elements"),
     },
+    ...(import.meta.env.DEV
+      ? [{ id: "screens", label: "Open screens page", run: () => location.assign("/screens") }]
+      : []),
     { id: "reload", label: "Reload Med", run: () => location.reload() },
     {
       id: "restart-server",

@@ -11,9 +11,11 @@
 //
 // `?scene=` picks the view, one for each window on the website: the review,
 // the brief, a comment, the agent's session, the commit, or the notes vault.
+// Med's Screens page (/screens) uses the same scenes, and its own, on the
+// recordings that `?recording=` names.
 // The review plays its recording on a timeline: the reviewer sends a comment,
 // and the agent answers it. `?still` keeps a scene at its first moment, for
-// screenshots.
+// screenshots. `?full` shows the whole window, not just the scene's part.
 
 import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { AgentStatus } from "../shared/agent-status";
@@ -58,7 +60,10 @@ interface Recording {
 const params = new URLSearchParams(location.search);
 const scene = params.get("scene") ?? "review";
 // The notes vault and the review's timeline have recordings of their own.
-const file = scene === "notes" ? "vault.json" : scene === "review" ? "hero.json" : "recording.json";
+// The Screens page names its own recordings (public/screens).
+const file =
+  params.get("recording") ??
+  (scene === "notes" ? "vault.json" : scene === "review" ? "hero.json" : "recording.json");
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
@@ -727,7 +732,8 @@ if (parent === window) {
 }
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
-const theme = () => (dark.matches ? "med-night" : "med-dawn");
+// The Screens page picks the theme (`?theme=`); the website follows the visitor.
+const theme = () => params.get("theme") ?? (dark.matches ? "med-night" : "med-dawn");
 
 // The demos on a page share one origin, and so one storage: a scene's layout
 // would open in the next demo, and each write would reach the others as a
@@ -900,7 +906,8 @@ const parts: Record<string, () => HTMLElement | undefined> = {
       : visible("[role='tabpanel'][aria-label='Commit']"),
   notes: () => visible("#vault-file-panel"),
 };
-const find = parts[scene];
+// The Screens page shows the whole window (`?full`).
+const find = params.has("full") ? undefined : parts[scene];
 if (find) {
   const fill = document.createElement("style");
   fill.textContent = `
