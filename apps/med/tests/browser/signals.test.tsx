@@ -449,10 +449,10 @@ test("a blocked permission keeps notifications off and says so", async () => {
   expect(localStorage.getItem("med:notify")).toBeNull();
 });
 
-test("New thread lists the newest threads' repositories first, one click each, and More… finds the others", async () => {
+test("New thread lists every repository, the newest threads' first, and filters as you type", async () => {
   const names = ["tide", "harbour", "almanac", "charts", "buoys", "pilot", "moon"];
   const known = names.map((name, index) => listed(`repo-${index}`, name));
-  // More repositories than fit on the row's line.
+  // More repositories than the list shows at once.
   const archives = Array.from({ length: 10 }, (_, index) =>
     listed(`archive-${index}`, `station-archive-${index}`),
   );
@@ -478,61 +478,58 @@ test("New thread lists the newest threads' repositories first, one click each, a
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  const row = dialog.getByRole("radiogroup", { name: "Repository" });
-  await expect.element(row).toBeVisible();
-  // Newest first, each once, at most five, then the others; the current
-  // choice is marked. The row shows what fits on its line.
+  const list = dialog.getByRole("listbox", { name: "Repositories" });
+  await expect.element(list).toBeVisible();
+  // Newest first, each once, at most five, then the others in the host's
+  // order; the current choice is marked. The list scrolls.
   const choices = () =>
-    [...row.element().querySelectorAll('[role="radio"]')].map(
-      (radio) => `${radio.textContent}${radio.getAttribute("aria-checked") === "true" ? " ✓" : ""}`,
+    [...list.element().querySelectorAll('[role="option"]')].map(
+      (option) =>
+        `${option.textContent!.split("/test/")[0]}${option.getAttribute("aria-selected") === "true" ? " ✓" : ""}`,
     );
   await expect
-    .poll(() => choices().slice(0, 6))
-    .toEqual(["charts", "tide ✓", "buoys", "harbour", "almanac", "pilot"]);
-  expect(choices()).not.toContain("station-archive-9");
-  // More… ends the line, inside the task box's width.
-  const more = dialog.getByRole("combobox", { name: "More repositories" });
+    .poll(choices)
+    .toEqual([
+      "charts",
+      "tide ✓",
+      "buoys",
+      "harbour",
+      "almanac",
+      "pilot",
+      ...archives.map((entry) => entry.name),
+    ]);
+  expect(list.element().scrollHeight).toBeGreaterThan(list.element().clientHeight);
   const task = dialog.getByRole("combobox", { name: "Task" });
-  expect(more.element().getBoundingClientRect().right).toBeLessThanOrEqual(
-    task.element().getBoundingClientRect().right,
-  );
 
-  // One click chooses.
-  await row.getByRole("radio", { name: "buoys" }).click();
-  expect(choices().slice(0, 6)).toEqual([
-    "charts",
-    "tide",
-    "buoys ✓",
-    "harbour",
-    "almanac",
-    "pilot",
-  ]);
+  // One click chooses, and the task keeps the focus.
+  await list.getByRole("option", { name: /^buoys/ }).click();
+  expect(choices().slice(0, 4)).toEqual(["charts", "tide", "buoys ✓", "harbour"]);
+  await expect.element(task).toHaveFocus();
 
-  // More… lists them all, filtered as you type. Escape closes the list, not New thread.
-  await more.click();
-  const filter = page.getByRole("combobox", { name: "Filter repositories" });
-  await expect.element(filter).toHaveFocus();
-  await userEvent.keyboard("{Escape}");
-  await expect.element(filter).not.toBeInTheDocument();
-  await expect.element(dialog).toBeVisible();
-  await more.click();
-  await expect.element(filter).toHaveFocus();
+  // Typing filters; Enter picks. Escape clears the filter, not New thread.
+  const filter = dialog.getByRole("combobox", { name: "Filter repositories" });
+  await filter.click();
   await userEvent.keyboard("archive-9");
-  const options = () =>
-    [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
-      (option) => option.textContent,
-    );
-  await expect.poll(options).toEqual(["station-archive-9"]);
+  await expect.poll(choices).toEqual(["station-archive-9"]);
   await userEvent.keyboard("{Enter}");
-  // The chosen repository shows in the row, though it is not recent.
-  await expect.poll(choices).toContain("station-archive-9 ✓");
-  expect(choices().slice(0, 2)).toEqual(["charts", "tide"]);
+  await expect.element(task).toHaveFocus();
+  await filter.click();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(filter).toHaveValue("");
+  await expect.element(dialog).toBeVisible();
+  expect(choices()).toContain("station-archive-9 ✓");
+  // The arrows move from the choice; Enter picks.
+  await userEvent.keyboard("{ArrowUp}{ArrowUp}{Enter}");
+  await expect.poll(choices).toContain("station-archive-7 ✓");
+  await expect
+    .element(dialog.getByRole("button", { name: "Repository" }))
+    .toHaveTextContent("station-archive-7");
   await task.fill("Add the moon's phase");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "archive-9" }]);
+  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "archive-7" }]);
 });
 
-test("New thread names its only repository as plain text", async () => {
+test("New thread names its only repository as plain text, and Add a folder… opens Sources", async () => {
   const host = createHost([thread("agent"), thread("second")], {
     past: [thread("third")],
   });
@@ -540,8 +537,9 @@ test("New thread names its only repository as plain text", async () => {
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  await expect.element(dialog.getByText("tide", { exact: true })).toBeVisible();
-  await expect
-    .element(dialog.getByRole("radiogroup", { name: "Repository" }))
-    .not.toBeInTheDocument();
+  await expect.element(dialog.getByRole("option", { name: /^tide/, selected: true })).toBeVisible();
+  await expect.element(dialog.getByRole("button", { name: "Repository" })).not.toBeInTheDocument();
+  await dialog.getByRole("button", { name: "Add a folder…" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+  expect(location.pathname).toBe("/sources");
 });

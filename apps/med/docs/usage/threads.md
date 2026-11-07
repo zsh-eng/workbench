@@ -68,20 +68,28 @@ load it or read its agents until you open it again.
 
 ## New threads and the sidebar
 
-- **New thread** (`⌥N`) asks for the task. Under the task box, one row for
-  each choice lists all its options; one click chooses, and the chosen option
-  has a highlight. **Repository** lists the repositories of your newest
-  threads, tabs and history, newest first, up to 5, then the others, as many
-  as fit on the line; **More…** lists them all, and you type to filter them.
-  **Works in**: **New worktree**, the default, makes a branch named for the
-  task in a new linked worktree, so the work stays apart from your checkout;
-  **Checkout** works on the checkout's current branch, which the option names.
-  **Attempts** gives the same task to 2 or 3 agents ([Attempts](#attempts)).
-  **Agent**, **Model**, and **Effort** follow. Claude Code starts on Opus 5.5
-  at medium effort and Codex on `gpt-6-astra`; Med keeps your last choice for
-  each agent. A row with one option shows it as text. In a row, `←` and `→`
-  choose; `Tab` goes to the next row. `⌘↵` starts the agent on the task at
-  once, from anywhere on the page.
+- **New thread** (`⌥N`) asks one thing in its middle: **Where to work**.
+  Your repositories are one list: those of your newest threads, tabs and
+  history first, newest first, up to 5, then the others. The chosen one has a
+  check. The list scrolls when it is long. Type in its filter to narrow it;
+  `↑` and `↓` move, and `↵` picks. A first `Esc` clears the filter.
+  **Add a folder…** at its foot opens Sources, where you register another
+  repository or vault.
+- The task box sits at the bottom, as in a chat. `↵` starts the agent on the
+  task, and `⇧↵` adds a line; `⌘↵` starts from anywhere on the page. Under
+  the box, one line of menus:
+  - **Repository**, on the left, the same choice as the list. With only one
+    repository, its name is plain text.
+  - **Where the agent works**: **New worktree**, the default, makes a branch
+    named for the task in a new linked worktree, so the work stays apart from
+    your checkout; **Checkout** works on the checkout's current branch, which
+    the item names. Below them, **1 attempt**, **2 attempts**, or
+    **3 attempts** gives the same task to more agents
+    ([Attempts](#attempts)).
+  - The agent's mark, its model, and its effort in grey. Its menu chooses the
+    agent, when Med has more than one, then the model and the effort. Claude
+    Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
+    keeps your last choice for each agent.
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
@@ -327,11 +335,11 @@ Codex open themselves; Med keeps the copies for 30 days. Med stops its agents wh
 
 ## Attempts
 
-Two agents seldom do a task the same way. **Attempts** in New thread (`⌥N`)
-gives one task to two or three agents. Each attempt has its Agent, Model, and
-Effort rows under its letter, and its own branch (the task's name with `-a`,
-`-b`, `-c`) in a new worktree. Start starts them all and opens the Attempts
-page.
+Two agents seldom do a task the same way. **2 attempts** or **3 attempts**,
+in New thread's **Where the agent works** menu (`⌥N`), gives one task to two
+or three agents. Each attempt has its Agent, Model, and Effort rows under its
+letter, and its own branch (the task's name with `-a`, `-b`, `-c`) in a new
+worktree. `↵` starts them all and opens the Attempts page.
 
 - Each attempt is a session row of its own in the sidebar.
 - The **Attempts page** has a column for each attempt: its agent and model,

@@ -4,7 +4,7 @@ import { attemptLetter, MAX_ATTEMPTS } from "../../../shared/attempts";
 import type { AgentOptions, AgentPreset } from "../../../shared/owned-session";
 import { startAttempts, type AttemptStart } from "../../data/attempts";
 import { useAgentOptions } from "../../data/owned-session";
-import { AgentRows, ChoiceRow, choiceStyles } from "../shell/ChoiceRows";
+import { AgentRows, choiceStyles } from "../shell/ChoiceRows";
 import { sessionChoices } from "../shell/NewThread";
 
 // New thread with two or three attempts: the count, and for each attempt its
@@ -140,21 +140,6 @@ export function useAttempts(
   };
 }
 export type Attempts = ReturnType<typeof useAttempts>;
-
-/** The count of attempts, a row of New thread's choices. */
-export function AttemptsCount({ attempts }: { attempts: Attempts }) {
-  return (
-    <ChoiceRow
-      label="Attempts"
-      choices={Array.from({ length: MAX_ATTEMPTS }, (_, index) => ({
-        value: String(index + 1),
-        text: String(index + 1),
-      }))}
-      value={String(attempts.count)}
-      onChange={(value) => attempts.setCount(Number(value))}
-    />
-  );
-}
 
 /** The agent, model, and effort of each attempt, under its letter. */
 export function AttemptRows({

@@ -417,17 +417,19 @@ test("New thread starts a task as two attempts, each with its agent and its own 
   const onStarted = vi.fn<(review: SavedReview) => void>();
   render(<NewThread list={list} fetcher={fetcher} onStarted={onStarted} onCancel={() => {}} />);
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  await dialog.getByRole("combobox", { name: "Task" }).fill(title);
+  const task = dialog.getByRole("combobox", { name: "Task" });
+  await task.fill(title);
   const chosen = (name: string) =>
     dialog
       .getByRole("radiogroup", { name, exact: true })
       .element()
       .querySelector('[aria-checked="true"]')?.textContent;
-  await expect.poll(() => chosen("Model")).toBe("Opus 5.5");
-  await dialog
-    .getByRole("radiogroup", { name: "Attempts" })
-    .getByRole("radio", { name: "2" })
-    .click();
+  const model = dialog.getByRole("button", { name: "Agent and model" });
+  await expect.element(model).toHaveTextContent("Opus 5.5");
+  // The attempts are chosen with where the agent works.
+  const where = dialog.getByRole("button", { name: "Where the agent works" });
+  await where.click();
+  await page.getByRole("menuitemcheckbox", { name: "2 attempts" }).click();
 
   // The agent's rows for each attempt, under its letter; B takes the other
   // agent. Each needs a worktree, so the checkout is not offered.
@@ -440,21 +442,25 @@ test("New thread starts a task as two attempts, each with its agent and its own 
   await b.getByRole("radio", { name: "Claude Code" }).click();
   await expect.poll(() => chosen("Model for attempt B")).toBe("Opus 5.5");
   await b.getByRole("radio", { name: "Codex" }).click();
-  await expect
-    .element(dialog.getByRole("radiogroup", { name: "Model", exact: true }))
-    .not.toBeInTheDocument();
-  await expect.element(dialog.getByRole("radio", { name: /^Checkout/ })).not.toBeInTheDocument();
+  await expect.element(model).not.toBeInTheDocument();
+  await expect.element(where).toHaveTextContent("2 worktrees");
+  await where.click();
   await expect
     .element(
-      dialog.getByText("New worktrees · show-week-tides-cli-a, show-week-tides-cli-b", {
-        exact: true,
+      page.getByRole("menuitemcheckbox", {
+        name: "New worktrees · show-week-tides-cli-a, show-week-tides-cli-b",
       }),
     )
     .toBeVisible();
+  await expect
+    .element(page.getByRole("menuitemcheckbox", { name: /^Checkout/ }))
+    .not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
   await expect.poll(() => chosen("Model for attempt B")).toBe("gpt-6");
   await b.getByRole("radio", { name: "gpt-6-astra" }).click();
 
-  await dialog.getByRole("button", { name: /^Start/ }).click();
+  await task.click();
+  await userEvent.keyboard("{Enter}");
   await expect.poll(() => requests.length).toBe(2);
   const group = (requests[0]!.group as { id: string }).id;
   expect(group).toMatch(/^show-week-tides-cli-[0-9a-f]{4}$/);
