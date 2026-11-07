@@ -3059,8 +3059,8 @@ describe("reading a version by commit and since the last review", () => {
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
   });
 
-  test("the Pull request tab says what changed since the last review, and shows it in the Review", async () => {
-    const { controller } = await mountApp({
+  test("the Pull request page has no versions note: the review opens on what is new", async () => {
+    await mountApp({
       savedReview: true,
       iterationBriefs: ["The first round.", "The second round."],
       since: {
@@ -3080,13 +3080,9 @@ describe("reading a version by commit and since the last review", () => {
     });
     await userEvent.click(page.getByRole("radio", { name: "Pull request" }));
     const live = page.getByRole("region", { name: "Pull request" });
-    await expect.element(live.getByText("1 file changed since your last review.")).toBeVisible();
-    await live.getByRole("button", { name: "Show only these changes" }).click();
-    await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
-    await expect
-      .element(page.getByRole("radio", { name: "Review", exact: true }))
-      .toHaveAttribute("aria-checked", "true");
-    await expect.element(page.getByText("What changed since you commented")).toBeVisible();
+    await expect.element(live.getByRole("heading", { level: 1 })).toBeVisible();
+    expect(live.element().textContent).not.toContain("since your last review");
+    expect(live.getByRole("button", { name: "Show only these changes" }).query()).toBeNull();
   });
 
   test("a commit of the range shows the version's comments on its lines, and says how many it cannot show", async () => {
@@ -3584,12 +3580,12 @@ describe("saved reviews", () => {
       .toHaveAttribute("href", "https://github.com/example/repo/pull/7");
     // The draft has become the live pull request, and it stays one click away.
     const live = page.getByRole("region", { name: "Pull request", exact: true });
-    await expect.element(live.getByText("Pull request #7")).toBeVisible();
+    await expect.element(live.getByRole("link", { name: "Open on GitHub" })).toBeVisible();
     expect(page.getByText("Pull request draft · revision 2").query()).toBeNull();
     await live.getByRole("button", { name: "Draft", exact: true }).click();
     await expect.element(page.getByText("Pull request draft · revision 2")).toBeVisible();
     await page.getByRole("button", { name: "Live pull request" }).click();
-    await expect.element(live.getByText("Pull request #7")).toBeVisible();
+    await expect.element(live.getByRole("link", { name: "Open on GitHub" })).toBeVisible();
   });
 
   test("a thread's Review lists its files and commits, and Changes shows the live changes", async () => {

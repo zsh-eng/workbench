@@ -1,9 +1,7 @@
-/* The Pull request tab, live. Its column is a draft's, so a draft that opens
-   as a pull request keeps its place. The status sits above the description
-   in a narrow pane; beside it when the pane has room for both. */
+/* The Pull request page, live: one column, a draft's, so a draft that opens
+   as a pull request keeps its place. The status box sits under the title. */
 .med-pull {
   --med-pull-gutter: clamp(20px, 4cqw, 48px);
-  --med-pull-side: 300px;
   box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -30,7 +28,9 @@
   font-size: 13px;
 }
 .med-pull-title {
-  margin: 14px 0 10px;
+  flex: 1;
+  min-width: 0;
+  margin: 10px 0 8px;
   font-family: var(--med-font-headings);
   font-size: clamp(1.5em, 3.4cqw, 2em);
   font-weight: 600;
@@ -53,23 +53,4 @@
 .med-pull-prose img {
   max-width: 100%;
   height: auto;
-}
-@container (min-width: 900px) {
-  .med-pull {
-    grid-template-columns: minmax(0, 1fr) var(--med-pull-side);
-    grid-template-areas: "head head" "main side";
-    column-gap: 44px;
-    align-items: start;
-    max-width: calc(
-      var(--med-measure, 51em) + var(--med-pull-side) + 44px + 2 * var(--med-pull-gutter)
-    );
-  }
-  .med-pull-side {
-    position: sticky;
-    top: 16px;
-    max-height: calc(100cqh - 32px);
-    overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-  }
 }

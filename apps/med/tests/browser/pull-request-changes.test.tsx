@@ -514,9 +514,11 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
 
   const view = await openPullTab();
   await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-  await expect.element(view.getByText("Pull request #7")).toBeVisible();
-  await expect.element(view.getByText("main ← feature")).toBeVisible();
-  await expect.element(view.getByText("bug", { exact: true })).toBeVisible();
+  // One line says who wants to merge which branch into which; no labels.
+  await expect
+    .poll(() => view.element().querySelector("header p")?.textContent)
+    .toMatch(/wants to merge feature into main#7$/);
+  expect(view.getByText("bug", { exact: true }).query()).toBeNull();
   await expect
     .element(view.getByRole("link", { name: "Open on GitHub" }).first())
     .toHaveAttribute("href", pullUrl);
@@ -524,13 +526,13 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   const merge = view.getByRole("region", { name: "Merge" });
   await expect.element(merge.getByText("Blocked: changes requested.")).toBeVisible();
   await expect.element(merge.getByText("3 commits behind main.")).toBeVisible();
-  // Failures show; the six that passed fold behind one line, and open.
-  const checks = view.getByRole("region", { name: "Checks" });
-  await expect.element(checks.getByText("2 failed, 6 passed")).toBeVisible();
+  // One status box. Failures show; the six that passed are a count, which opens.
+  const status = view.getByRole("region", { name: "Status" });
+  const checks = status.getByRole("region", { name: "Checks" });
   await expect.element(checks.getByText("2m 49s")).toBeVisible();
   await expect.element(checks.getByRole("img", { name: "Error" })).toBeVisible();
   expect(checks.getByText("a", { exact: true }).query()).toBeNull();
-  await checks.getByRole("button", { name: "Show 6 passed" }).click();
+  await checks.getByRole("button", { name: "Checks: 6 passed" }).click();
   await expect.element(checks.getByText("a", { exact: true })).toBeVisible();
   await expect
     .element(view.getByRole("region", { name: "Reviewers" }).getByText("Changes requested"))
@@ -605,16 +607,12 @@ test("a failed job's log comes only when asked for, and opens at its error", asy
   expect(view.getByRole("button", { name: "Show the failed log of deploy" }).query()).toBeNull();
 });
 
-test("Refresh and the ⌘K command read GitHub past the host's cache", async () => {
+test("the ⌘K command reads GitHub past the host's cache; the page has no Refresh", async () => {
   const view = await openPullTab();
   await expect.element(view.getByRole("region", { name: "Checks" })).toBeVisible();
-  await expect.poll(() => view.element().textContent).toContain("Read just now");
-  asked = [];
-  await view.getByRole("button", { name: "Read the pull request again" }).click();
-  await expect
-    .poll(() => asked)
-    .toEqual(expect.arrayContaining(["pull-request?refresh=1", "pull-request-live?refresh=1"]));
-  await expect.poll(() => view.element().textContent).toContain("Read just now");
+  // Med reads while the page is open, so the page names no time and no Refresh.
+  expect(view.getByRole("button", { name: "Read the pull request again" }).query()).toBeNull();
+  expect(view.element().textContent).not.toContain("Read just now");
   asked = [];
   await userEvent.keyboard("{Control>}k{/Control}");
   await userEvent.keyboard("Read the pull request again");

@@ -6291,15 +6291,6 @@ export function App({
                           : undefined
                       }
                       onDismissLeft={() => setPullImagesLeft(null)}
-                      since={
-                        sinceRow && sinceRow.files > 0
-                          ? {
-                              from: sinceRow.from,
-                              files: sinceRow.files,
-                              onShow: () => openGuide({ kind: "since" }),
-                            }
-                          : undefined
-                      }
                     />
                   ) : (
                     <BriefView
