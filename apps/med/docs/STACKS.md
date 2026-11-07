@@ -40,15 +40,13 @@ iteration.guides = { "l_…": guide }; // each part's Guide in that version
 ```
 
 - A part's **target** is its comparison in a version (base..head), with its
-  captured sources and its comments, as any target. Its **viewed** marks are
-  the review's (`data/viewed.ts`): they belong to file content, so a file that
-  two layers show with the same blob is viewed in both, and "Whole stack" shows
-  the top layer's blobs.
+  captured sources and its comments, as any target. "Whole stack" shows the top
+  layer's blobs.
 - A part's **key** (its PR URL or branch) matches it across versions. Each
   key also maps to the thread in `.keys.json`, so `med review create --key
 <part key>` adds a version of the thread that replaces only that part.
 - A new version recaptures every part. A part whose base and head did not
-  change keeps its target, so its comments and viewed marks stay.
+  change keeps its target, so its comments stay.
 - `describe()` adds `partTotals` (files, +/−, comments) from the current
   version; the thread list sends them with each part.
 
@@ -110,9 +108,7 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
   base branch (`main`) at the bottom, each with its number, title, state, and
   +/−. Shift-click picks a range. **This layer** and **Whole stack** sit above.
   A narrow pane, where the rail hides, has a layer menu in the review's row.
-- **Keys.** `⌥↑` and `⌥↓` go up and down the stack. **Next unreviewed** (button
-  and `⌘K`) goes to the lowest layer that has no verdict (approved or changes
-  requested) and is not merged or closed.
+- **Keys.** `⌥↑` and `⌥↓` go up and down the stack.
 - **Top bar.** The current layer's pull request, through `PullRequestTitle`.
 
 ## Critique
@@ -123,7 +119,7 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
   the source; a crash between the two can leave a comparison in both, never in
   neither.
 - **Merged or closed layers.** They stay in the rail with their state; their
-  captures stay readable. Next unreviewed skips them. The whole stack still
+  captures stay readable. The whole stack still
   starts at the bottom layer's base.
 - **A retargeted base.** A pull request whose base is no longer the layer
   below (such as `main` after the layer below merged) is diffed against its own
@@ -140,8 +136,8 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 
 ## Deferred
 
-- Comments that follow code across layers, and viewed marks through a restack
-  (a layer whose commits changed is a new target).
+- Comments that follow code across layers through a restack (a layer whose
+  commits changed is a new target).
 - GitHub review threads and state per layer: the top bar shows the stored title
   and state; comments still read the thread's own pull request.
 - Reordering parts by drag inside a thread; attempts as a shape.

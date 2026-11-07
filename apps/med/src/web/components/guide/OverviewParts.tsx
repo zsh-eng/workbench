@@ -103,7 +103,7 @@ export function ProofPart({ proof }: { proof: OverviewProof }) {
 const BASIS: Record<Since["basis"], string> = {
   approved: "the version that you approved",
   commented: "the version that you commented on",
-  viewed: "the version in which you marked files viewed",
+  viewed: "the version you last looked at",
   previous: "the version before",
 };
 const CHANGE: Record<Since["files"][number]["change"], string> = {

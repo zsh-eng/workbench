@@ -19,7 +19,6 @@ import {
   type Offer,
   type OverviewProof,
 } from "./OverviewParts";
-import { Progress } from "./Progress";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -38,9 +37,6 @@ export function GuideOverview({
   sections,
   commits,
   moreCommits,
-  viewed,
-  total,
-  done,
   proof,
   findings,
   openFindings = 0,
@@ -62,9 +58,6 @@ export function GuideOverview({
   sections: readonly GuideSection[];
   commits: readonly SavedCommit[];
   moreCommits?: boolean;
-  viewed: ReadonlySet<string>;
-  total: number;
-  done: number;
   /** The version's proof, or the checks that its session ran. */
   proof?: OverviewProof;
   /** The version's findings, from its notes or guide (shared/review-output.ts). */
@@ -84,8 +77,7 @@ export function GuideOverview({
   onOpenLink(href: string): void;
 }) {
   const [now] = useState(Date.now);
-  const next =
-    sections.find((section) => section.fileIds.some((id) => !viewed.has(id))) ?? sections[0];
+  const next = sections[0];
   const comments = sections.reduce((sum, section) => sum + section.notes.length, 0);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
     () => new Set(offers.filter((offer) => offerDismissed(offer.id)).map((offer) => offer.id)),
@@ -147,7 +139,7 @@ export function GuideOverview({
               }
               {...stylex.props(ui.button, ui.primary, ui.pressable, styles.startButton)}
             >
-              {done > 0 && done < total ? "Continue" : "Start reviewing"}
+              Start reviewing
               <Icon name="arrowLeft" size={13} style={{ transform: "rotate(180deg)" }} />
             </button>
           )}
@@ -175,7 +167,6 @@ export function GuideOverview({
                 `${commits.length}${moreCommits ? "+" : ""} ${commits.length === 1 ? "commit" : "commits"}`,
               openFindings > 0 &&
                 `${openFindings} open ${openFindings === 1 ? "finding" : "findings"}`,
-              total > 0 && `${done} of ${total} files viewed`,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -189,7 +180,6 @@ export function GuideOverview({
             <h2 {...stylex.props(styles.label)}>Segments</h2>
             <ol {...stylex.props(styles.list)}>
               {sections.map((section) => {
-                const seen = section.fileIds.filter((id) => viewed.has(id)).length;
                 const sentence = firstSentence(section.summary);
                 return (
                   <li key={section.key}>
@@ -234,9 +224,6 @@ export function GuideOverview({
                           )}
                         </span>
                         {sentence && <span {...stylex.props(styles.sentence)}>{sentence}</span>}
-                      </span>
-                      <span {...stylex.props(styles.progress)}>
-                        <Progress value={seen} total={section.fileIds.length} />
                       </span>
                     </button>
                   </li>
@@ -430,7 +417,6 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   sentence: { color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
-  progress: { display: "flex", paddingTop: 2 },
   commit: {
     display: "flex",
     alignItems: "baseline",

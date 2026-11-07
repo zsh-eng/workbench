@@ -132,12 +132,6 @@ export const guideContexts: GuideContext[] = [
             keys: ["j", "k"],
             note: "In the Review tab's Guide; commits step the same way",
           },
-          {
-            label: "Mark the top file viewed",
-            keys: ["v"],
-            note: "Folds it and moves to the next file",
-          },
-          { label: "Mark the segment viewed and continue", keys: ["Shift+V"] },
         ],
       },
       {
@@ -211,7 +205,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Review the turn",
             keys: ["Alt+Enter"],
-            note: "While its recap shows: the Guide's first segment not viewed, or Changes",
+            note: "While its recap shows: what is new since you last looked, or the overview",
           },
           { label: "Hide the recap until the next turn", keys: ["Esc"], note: "In the recap" },
         ],

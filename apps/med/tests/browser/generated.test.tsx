@@ -10,8 +10,8 @@ import "../../src/web/pierre-theme";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 // Generated files in a thread's Review (docs/GENERATED.md): they fold at the
-// end of the stream and under the file tree, stay out of the headline totals,
-// and are viewed with the file whose change made them.
+// end of the stream and under the file tree, and stay out of the headline
+// totals.
 
 let root: Root | undefined;
 let mount: HTMLDivElement | undefined;
@@ -154,8 +154,7 @@ const DAY = 24 * 60 * 60 * 1000;
 beforeEach(async () => {
   await page.viewport(1440, 900);
   for (const key of Object.keys(localStorage))
-    if (key.startsWith("med:viewed:v1:") || key === "med:changes-rail")
-      localStorage.removeItem(key);
+    if (key === "med:changes-rail") localStorage.removeItem(key);
 });
 afterEach(() => {
   omitted = new Set();
@@ -163,7 +162,6 @@ afterEach(() => {
   mount?.remove();
   root = undefined;
   mount = undefined;
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:viewed:v1:${REVIEW}` }));
 });
 
 async function mountReview(options: { without?: string[] } = {}) {
@@ -287,11 +285,11 @@ async function mountReview(options: { without?: string[] } = {}) {
   return { controller, reads, lookups, provenance };
 }
 
-/** The files in the stream, from their headers' Viewed boxes, in order. */
+/** The files in the stream, from their headers' fold buttons, in order. */
 const streamPaths = () =>
-  [...document.querySelectorAll('[role="checkbox"][aria-label^="Viewed "]')]
-    .map((box) => box.getAttribute("aria-label")!.slice("Viewed ".length))
-    .filter((path) => path !== "all generated files");
+  [...document.querySelectorAll("[data-stream-file] > button[aria-expanded]")].map((button) =>
+    button.getAttribute("aria-label")!.replace(/^(Collapse|Expand) /, ""),
+  );
 const group = () => page.getByRole("region", { name: "Generated files" });
 const groupLines = () =>
   [...document.querySelectorAll("[data-generated-file]")].map((line) =>
@@ -351,18 +349,11 @@ test("generated files fold at the end of the stream and under the tree", async (
     .toBe("open");
 });
 
-test("a generated file is viewed with its source, and the tree reveals a folded one", async () => {
+test("generated files fold at the stream's end, and the tree reveals a folded one", async () => {
   await mountReview();
   await expect.poll(streamPaths).toContain("package.json");
-  await userEvent.click(page.getByRole("checkbox", { name: "Viewed package.json" }));
-  // The lockfile follows the manifest; the build output has no source here.
   await userEvent.click(page.getByRole("button", { name: "Show 4 generated files" }));
-  await expect
-    .element(page.getByRole("checkbox", { name: "Viewed bun.lock" }))
-    .toHaveAttribute("aria-checked", "true");
-  await expect
-    .element(page.getByRole("checkbox", { name: "Viewed dist/app.js" }))
-    .toHaveAttribute("aria-checked", "false");
+  await expect.poll(streamPaths).toContain("bun.lock");
   await userEvent.click(page.getByRole("button", { name: "Fold 4 generated files" }));
   // The first diff in a page loads Pierre's highlighter on the main thread.
   await expect
@@ -427,7 +418,7 @@ test("a manifest's dependencies show above the stream, and lookups add licences 
   await expect.element(group().getByText("1 to check")).toBeVisible();
 });
 
-test("a lockfile without its manifest is a warning, and the group's check marks every generated file", async () => {
+test("a lockfile without its manifest is a warning", async () => {
   await mountReview({ without: ["package.json"] });
   const line = (path: string) =>
     document.querySelector(`[data-generated-file="${path}"]`)?.textContent ?? "";
@@ -437,22 +428,4 @@ test("a lockfile without its manifest is a warning, and the group's check marks 
   expect(document.querySelector("[data-dependency-card]")).toBeNull();
   // The lockfile, and the build output that the session edited by hand.
   await expect.element(group().getByText("2 to check")).toBeVisible();
-
-  await userEvent.click(page.getByRole("checkbox", { name: "Viewed all generated files" }));
-  await expect
-    .element(page.getByRole("checkbox", { name: "Viewed all generated files" }))
-    .toHaveAttribute("aria-checked", "true");
-  await userEvent.click(page.getByRole("button", { name: "Show 4 generated files" }));
-  for (const path of [
-    "bun.lock",
-    "dist/app.js",
-    "src/schema.ts",
-    "tests/__snapshots__/app.test.ts.snap",
-  ])
-    await expect
-      .element(page.getByRole("checkbox", { name: `Viewed ${path}` }))
-      .toHaveAttribute("aria-checked", "true");
-  await expect
-    .element(page.getByRole("checkbox", { name: "Viewed src/app.ts" }))
-    .toHaveAttribute("aria-checked", "false");
 });

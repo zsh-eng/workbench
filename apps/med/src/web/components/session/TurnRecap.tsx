@@ -18,7 +18,7 @@ export interface TurnRecapProps {
   facts: TurnFacts;
   /** Seen: the recap keeps its place, out of sight, until the next turn. */
   hidden: boolean;
-  /** Opens the Review at the Guide's first segment not viewed, or Changes. */
+  /** Opens the Review at what is new since the reader last looked, or the overview. */
   onReview(): void;
   /** Puts the focus in the message box. */
   onReply(): void;

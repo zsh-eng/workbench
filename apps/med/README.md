@@ -28,7 +28,7 @@ _Bun · Vitesse Dark_
 
 Open an agent's review link, leave line comments, then copy comments from all its repositories back to the agent. Comments appear immediately and stay attached to the captured code.
 
-The agent can split its change into a [Guide](docs/usage/guide.md): a summary, then segments that you read one at a time, each with only its files and the agent's comments. Mark files viewed as you go, or read a range one commit at a time.
+The agent can split its change into a [Guide](docs/usage/guide.md): a summary, then segments that you read one at a time, each with only its files and the agent's comments, or read a range one commit at a time. A later version opens on what is new since you last looked.
 
 ![Saved med review with a multiline comment and Copy comments controls in Rosé Pine Dawn](docs/screenshots/med-comments-rose-pine-dawn.png)
 

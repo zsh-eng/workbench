@@ -32,8 +32,6 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Comment on selected lines              | `c`             |
 | Ask about selected lines               | `a`             |
 | Next / previous guide segment          | `j` / `k`       |
-| Mark the top file viewed               | `v`             |
-| Mark the segment viewed, go on         | `⇧V`            |
 | Next / previous excerpt or reply       | `]` / `[`       |
 | Resume search                          | `⌥R`            |
 | Show tab 1–8 / the last tab            | `⌥1`–`⌥9`       |

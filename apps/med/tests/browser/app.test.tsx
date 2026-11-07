@@ -75,7 +75,6 @@ const storedPreferences = [
   "med:pane-layout",
   "med:pane-width",
   "med:work",
-  "med:viewed:v1:saved",
   "med:changes-rail",
   "med:guide-rail",
   "med:offer:proof-first",
@@ -111,8 +110,6 @@ afterEach(() => {
   mount = undefined;
   for (const key of storedPreferences) localStorage.removeItem(key);
   forgetDrafts();
-  // As from another window: the viewed marks drop their in-memory copy.
-  window.dispatchEvent(new StorageEvent("storage", { key: "med:viewed:v1:saved" }));
 });
 
 function response(comparison: Comparison): ReviewResponse {
@@ -291,6 +288,8 @@ async function mountApp(
   let brief = options.brief;
   let pins: SavedPin[] = [];
   let approvals: { version: number; at: string }[] = [];
+  /** The versions the reader opened, as the host records them. */
+  let readVersions: number[] = [];
   let briefComments: BriefComment[] = [];
   let prDraft = options.prDraft;
   const prCreates: unknown[] = [];
@@ -391,6 +390,7 @@ async function mountApp(
     ...(prDraft ? { prDraft } : {}),
     ...(prDraft?.pullRequestUrl ? { pullRequestUrl: prDraft.pullRequestUrl } : {}),
     ...(approvals.length ? { approvals } : {}),
+    ...(readVersions.length ? { readVersions } : {}),
     ...(options.iterationBriefs
       ? {
           key: "feat/agent",
@@ -622,6 +622,11 @@ async function mountApp(
           ...approvals.filter((entry) => entry.version !== version),
           ...(approved ? [{ version, at: "2026-10-27T00:00:00Z" }] : []),
         ];
+        return Response.json(savedBundle());
+      }
+      if (url.pathname === "/api/reviews/saved/read" && init?.method === "POST") {
+        const { version } = JSON.parse(String(init.body)) as { version: number };
+        readVersions = [...new Set([...readVersions, version])].sort((a, b) => a - b);
         return Response.json(savedBundle());
       }
       if (url.pathname === "/api/reviews/saved/codex-reviews")
@@ -1055,6 +1060,7 @@ async function mountApp(
     questions,
     savedNotes,
     approvals: () => approvals,
+    readVersions: () => readVersions,
   };
 }
 
@@ -2842,7 +2848,7 @@ describe("review guide", () => {
     expect(overview.getByRole("complementary").elements()).toHaveLength(0);
   });
 
-  test("opens on the overview, reads one segment at a time with its comments, and keeps viewed marks", async () => {
+  test("opens on the overview and reads one segment at a time with its comments", async () => {
     await page.viewport(1280, 800);
     await mountApp({
       savedReview: true,
@@ -2899,19 +2905,11 @@ describe("review guide", () => {
     await expect.element(page.getByText("The module keeps one export.")).toBeVisible();
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
 
-    const rail = page.getByRole("navigation", { name: "Guide" });
-    const alpha = rail.getByRole("checkbox", { name: "Viewed src/alpha.ts" });
-    await expect.element(alpha).toHaveAttribute("aria-checked", "false");
-    await userEvent.keyboard("v");
-    await expect.element(alpha).toHaveAttribute("aria-checked", "true");
-    await expect.element(rail.getByLabelText("1 of 2 files viewed")).toBeVisible();
-
     await userEvent.keyboard("j");
     await expect.element(page.getByRole("heading", { name: "Rename beta" })).toBeVisible();
     await expect.poll(streamFiles).toEqual([expect.stringContaining("beta.ts")]);
     await userEvent.keyboard("k");
     await expect.poll(streamFiles).toEqual([expect.stringContaining("alpha.ts")]);
-    expect(JSON.parse(localStorage.getItem("med:viewed:v1:saved") ?? "[]")).toHaveLength(1);
   });
   test("each page keeps its own sidebar: the guide in Review, the changed files in Changes", async () => {
     await page.viewport(1280, 800);
@@ -2968,7 +2966,7 @@ describe("reading a version by commit and since the last review", () => {
     await page.viewport(1500, 900);
     localStorage.setItem("med:changes-rail", "open");
     localStorage.setItem("med:guide-rail", "open");
-    const { controller, savedReads } = await mountApp({
+    const { controller, savedReads, readVersions } = await mountApp({
       savedReview: true,
       iterationBriefs: ["The first round.", "The second round."],
       since: {
@@ -2980,6 +2978,9 @@ describe("reading a version by commit and since the last review", () => {
       },
     });
     const overview = page.getByRole("region", { name: "Guide overview" });
+    // Opening version 2 marks it read: the next version's "since" starts here.
+    await expect.poll(readVersions).toEqual([2]);
+    await expect.poll(() => controller.getSnapshot().savedReview?.readVersions).toEqual([2]);
     await overview.getByRole("button", { name: "Show only these changes" }).click();
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
     await expect.element(page.getByText("What changed since version 1")).toBeVisible();

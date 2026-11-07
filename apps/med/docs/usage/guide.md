@@ -15,10 +15,9 @@ request split into small ones.
   not show, follow the summary. **Reply** on a comment on lines adds your note
   under it, in its card, on a line down the card's side. The agent gets your
   reply with the words that it answers.
-- **Viewed.** Check **Viewed** in a file's header, or press `v` for the file at
-  the top. A viewed file folds and stays viewed until it changes. `⇧V` marks
-  the segment viewed and opens the next one. The rail at the left shows your
-  progress; it hides in a narrow window.
+- **The rail.** The Guide's parts are in the rail at the left, which hides in
+  a narrow window. **Next** at the end of a segment, or `j`, opens the next
+  one.
 - **Commits.** With two or more commits in the range, each one opens on its own,
   with its message. **Whole range** in the rail goes back to the whole range.
   The version's comments, yours and the agent's, show on the commit's lines
@@ -58,8 +57,8 @@ only when the version has it.
   that the session ran in the turn that made the latest version show, marked
   "from the session's last turn".
 - **Since version N.** From version 2: the files that changed since your last
-  review, the last earlier version that you approved, commented on, or marked
-  a file viewed in, or else the version before. **Show only these changes**,
+  review, the last earlier version that you approved, commented on, or
+  opened, or else the version before. **Show only these changes**,
   or a file, opens them as **Since version N** in the rail, which the
   **Pull request** tab offers too. Med compares the text that each version
   saved, not Git history, so a rebase or a force push does not matter. When

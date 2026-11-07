@@ -180,18 +180,7 @@ import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
 import { ChangesRail } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
-import {
-  layerProgress,
-  layerRange,
-  nextUnreviewed,
-  rangeOf,
-  setLayerViewed,
-  subscribeLayers,
-  takeLayer,
-  stackOf,
-  useLayerViewed,
-  type LayerProgress,
-} from "./data/stack";
+import { layerRange, rangeOf, subscribeLayers, takeLayer, stackOf } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
 import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
@@ -210,7 +199,6 @@ import {
   type GuideScope,
   type GuideSection,
 } from "./data/guide";
-import { useViewed, viewKey } from "./data/viewed";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
 import { requestServerRestart } from "./components/UpdateNotice";
@@ -280,7 +268,6 @@ const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
 const NO_GUIDE_NOTES: GuideNote[] = [];
-const NO_PROGRESS: LayerProgress[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
@@ -1669,8 +1656,8 @@ export function App({
         state.comparison.commit === guideCommit.id));
   const guideOverview = guideTab && !guideDiff;
   // What changed since the reader's last review: the host compares the
-  // captures, and answers again when an approval, a comment, or a viewed mark
-  // moves the basis.
+  // captures, and answers again when an approval, a comment, or opening a
+  // version moves the basis.
   const approvals = state.savedReview?.approvals;
   const sinceKey =
     laterVersion && state.savedReview
@@ -1773,18 +1760,6 @@ export function App({
     : layerSpan.from === 0 && layerSpan.to === stack!.layers.length - 1
       ? { kind: "whole" }
       : { kind: "range", ...layerSpan };
-  const layerViewed = useLayerViewed(stack ? (state.savedReview?.id ?? null) : null);
-  const layerStates = useMemo(
-    () =>
-      stack
-        ? stack.layers.map((layer) => {
-            const counts = layerViewed[layer.target.id];
-            return layerProgress(counts?.viewed ?? 0, layer.files ?? counts?.files, layer.comments);
-          })
-        : NO_PROGRESS,
-    [stack, layerViewed],
-  );
-  const nextLayer = stack ? nextUnreviewed(stack.layers, layerStates) : -1;
   const showLayer = useCallback(
     (index: number) => {
       const layer = stack?.layers[index];
@@ -1819,9 +1794,6 @@ export function App({
     },
     [stack, reviewShown, layerIndex, state.savedView, showLayer],
   );
-  const showNextUnreviewed = useCallback(() => {
-    if (nextLayer >= 0) showLayer(nextLayer);
-  }, [nextLayer, showLayer]);
   // Outside the Guide, whose order the agent chose, generated files come
   // last, and only while their group is open.
   const fileGroups = useMemo(() => splitGenerated(files, generatedFiles), [files, generatedFiles]);
@@ -1843,87 +1815,29 @@ export function App({
     () => setCollapsed(allCollapsed ? new Set() : new Set(streamFiles.map((file) => file.id))),
     [allCollapsed, streamFiles],
   );
-  // Viewed marks, by file ID, for the shown comparison and for the guide's files.
-  const viewed = useViewed(state.savedReview?.id ?? null);
-  const markedIds = useCallback(
-    (list: readonly ParsedReviewFile[]) => {
-      const ids = new Set<string>();
-      for (const file of list) if (viewed.marks.has(viewKey(file))) ids.add(file.id);
-      // A generated file is viewed with the file whose change made it.
-      if (generatedFiles.sources.size) {
-        const byId = new Map(state.files.map((file) => [file.id, file]));
-        for (const file of list) {
-          const source = byId.get(generatedFiles.sources.get(file.id) ?? "");
-          if (source && viewed.marks.has(viewKey(source))) ids.add(file.id);
-        }
-      }
-      return ids;
-    },
-    [viewed.marks, generatedFiles, state.files],
-  );
-  const viewedIds = useMemo(() => markedIds(state.files), [markedIds, state.files]);
-  // The sidebar draws a stack's progress from each layer's viewed count.
-  const shownLayerTarget = state.savedView && shownLayer ? shownLayer.target.id : null;
-  const viewedReview = state.savedReview?.id;
-  useEffect(() => {
-    if (!shownLayerTarget || !viewedReview || state.status !== "ready") return;
-    setLayerViewed(viewedReview, shownLayerTarget, viewedIds.size, state.files.length);
-  }, [shownLayerTarget, viewedReview, state.status, viewedIds, state.files.length]);
+  const stackReview = state.savedReview?.id;
   // A layer that the sidebar picked shows once the thread's review is read.
-  const stackReady = !!stack && !!viewedReview;
+  const stackReady = !!stack && !!stackReview;
   useEffect(() => {
-    if (!stackReady || !viewedReview) return;
+    if (!stackReady || !stackReview) return;
     const take = () => {
-      const part = takeLayer(viewedReview);
+      const part = takeLayer(stackReview);
       if (!part) return;
       const index = stack?.layers.findIndex((layer) => layer.id === part) ?? -1;
       if (index >= 0) showLayer(index);
     };
     take();
     return subscribeLayers(take);
-  }, [stackReady, viewedReview, stack, showLayer]);
-  const guideViewedIds = useMemo(
-    () => (shownGuideFiles === state.files ? viewedIds : markedIds(shownGuideFiles)),
-    [markedIds, shownGuideFiles, state.files, viewedIds],
-  );
-  const setFilesViewed = useCallback(
-    (ids: readonly string[], value: boolean) => {
-      const byId = new Map([...shownGuideFiles, ...state.files].map((file) => [file.id, file]));
-      const keys = ids.flatMap((id) => {
-        const file = byId.get(id);
-        return file ? [viewKey(file)] : [];
-      });
-      viewed.set(keys, value);
-      // "Since" starts from the last version that the reader read: a file
-      // marked in the Review tab, not in the live Changes tab.
-      if (
-        value &&
-        state.savedReview &&
-        (state.savedView || state.inReview) &&
-        shownIteration !== undefined
-      )
-        controller.markRead(shownIteration).catch(() => {});
-      // A viewed file folds away, as on GitHub; marking it unviewed opens it again.
-      setCollapsed((current) => {
-        const next = new Set(current);
-        for (const id of ids) {
-          if (value) next.add(id);
-          else next.delete(id);
-        }
-        return next;
-      });
-    },
-    [
-      shownGuideFiles,
-      state.files,
-      viewed,
-      state.savedReview,
-      state.savedView,
-      state.inReview,
-      shownIteration,
-      controller,
-    ],
-  );
+  }, [stackReady, stackReview, stack, showLayer]);
+  // The reader looked at the version on screen: the next version's "since"
+  // starts here.
+  const lookedIteration =
+    state.status === "ready" && state.savedReview && (state.savedView || state.inReview)
+      ? shownIteration
+      : undefined;
+  useEffect(() => {
+    if (lookedIteration !== undefined) controller.markRead(lookedIteration).catch(() => {});
+  }, [controller, lookedIteration]);
   const guideFilesById = useMemo(
     () => new Map(shownGuideFiles.map((file) => [file.id, file])),
     [shownGuideFiles],
@@ -1949,7 +1863,6 @@ export function App({
         : []),
     ].join(" · ");
   }, [guideTarget, shownGuideFiles]);
-  const canMarkViewed = !!state.savedReview;
   const guideAt = savedGuide?.updatedAt ?? state.savedReview?.createdAt ?? "";
   const guideAgent = useMemo(
     () => ({
@@ -1979,19 +1892,16 @@ export function App({
         return;
       }
       if (!snapshot.savedView || snapshot.savedSince) void controller.showReview();
-      // A segment's viewed files start folded.
-      const section =
-        scope.kind === "segment" ? guideSections.find((entry) => entry.key === scope.key) : null;
-      if (section)
+      // The file chosen in the rail opens, if it was folded.
+      if (fileId)
         setCollapsed((current) => {
+          if (!current.has(fileId)) return current;
           const next = new Set(current);
-          for (const id of section.fileIds)
-            if (guideViewedIds.has(id) && id !== fileId) next.add(id);
-            else if (id === fileId) next.delete(id);
+          next.delete(fileId);
           return next;
         });
     },
-    [controller, fileWorkspace, guideSections, guideViewedIds, sinceFrom],
+    [controller, fileWorkspace, sinceFrom],
   );
   // Since follows its basis: a new answer, such as after an approval, or another version.
   useEffect(() => {
@@ -2018,30 +1928,7 @@ export function App({
     },
     [guideScope, guideSections, guideCommits, openGuide, sinceFrom],
   );
-  // v: the file whose header is at the top of the stream, or the first one
-  // below the segment's header. Marking it viewed folds it and shows the next.
   const streamRef = useRef<HTMLDivElement>(null);
-  const toggleTopFileViewed = useCallback(() => {
-    const host = streamRef.current;
-    if (!host) return;
-    const top = host.getBoundingClientRect().top;
-    let current: string | undefined;
-    for (const header of host.querySelectorAll<HTMLElement>("[data-stream-file]"))
-      if (header.getBoundingClientRect().top <= top + 4) current = header.dataset.streamFile;
-    current ??= streamFiles[0]?.id;
-    if (!current) return;
-    const value = !viewedIds.has(current);
-    setFilesViewed([current], value);
-    if (!value) return;
-    const next = streamFiles[streamFiles.findIndex((file) => file.id === current) + 1];
-    requestAnimationFrame(() =>
-      viewer.current?.scrollTo({
-        type: "item",
-        id: next?.id ?? current,
-        align: "start",
-      }),
-    );
-  }, [streamFiles, viewedIds, setFilesViewed]);
   // A file chosen in the rail shows once its segment's stream has mounted.
   useEffect(() => {
     // `path:` names a file of a diff that has not loaded yet, as in Since.
@@ -3126,24 +3013,11 @@ export function App({
         event.altKey
       )
         return;
-      // The Guide: j and k step through its parts; v marks the file at the top
-      // of the stream as viewed; Shift+V marks the part and moves on.
+      // The Guide: j and k step through its parts.
       if (guideTab && (event.key === "j" || event.key === "k")) {
         event.preventDefault();
         event.stopPropagation();
         stepGuide(event.key === "j" ? 1 : -1);
-        return;
-      }
-      if (guideDiff && (event.key === "v" || event.key === "V")) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "V") {
-          setFilesViewed(
-            streamFiles.map((file) => file.id),
-            true,
-          );
-          stepGuide(1);
-        } else toggleTopFileViewed();
         return;
       }
       if (!streamShown) return;
@@ -3232,9 +3106,6 @@ export function App({
     guideTab,
     guideDiff,
     stepGuide,
-    setFilesViewed,
-    streamFiles,
-    toggleTopFileViewed,
     shown,
     stepLayer,
     changesRail,
@@ -3844,15 +3715,12 @@ export function App({
   else if (keptRecap !== undefined && !recap.unseen && (!sessionVisible || recapKey !== keptRecap))
     setKeptRecap(undefined);
   useEffect(() => () => setKeptRecap(undefined), []);
-  // Review from the recap waits for the diff that it opens, then goes to the
-  // Guide's first segment not viewed, or to the first file.
+  // Review from the recap waits for the diff that it opens, then goes to what
+  // is new since the reader last looked, or to the Guide's Overview.
   const recapJump = useRef<"guide" | "review" | "changes" | null>(null);
-  const firstUnviewed = useCallback(() => {
-    const next =
-      guideSections.find((section) => section.fileIds.some((id) => !guideViewedIds.has(id))) ??
-      guideSections[0];
-    openGuide(next ? { kind: "segment", key: next.key } : { kind: "overview" });
-  }, [guideSections, guideViewedIds, openGuide]);
+  const openFresh = useCallback(() => {
+    openGuide(sinceFrom ? { kind: "since" } : { kind: "overview" });
+  }, [openGuide, sinceFrom]);
   const jumpReady = (jump: "guide" | "review" | "changes") => {
     const snapshot = controller.getSnapshot();
     if (snapshot.status !== "ready") return false;
@@ -3860,7 +3728,7 @@ export function App({
   };
   const finishJump = (jump: "guide" | "review" | "changes") => {
     recapJump.current = null;
-    if (jump === "guide") firstUnviewed();
+    if (jump === "guide") openFresh();
     else if (files[0]) reveal(files[0].id);
   };
   useEffect(() => {
@@ -3946,12 +3814,6 @@ export function App({
   const commands: ReviewCommand[] = [
     ...(stack && reviewAvailable
       ? [
-          {
-            id: "stack-next-unreviewed",
-            label: `Next unreviewed ${stack.shape === "stack" ? "layer" : "part"}`,
-            disabled: nextLayer < 0,
-            run: showNextUnreviewed,
-          },
           ...(stack.shape === "stack"
             ? [
                 {
@@ -4882,7 +4744,6 @@ export function App({
               : renamedFrom
                 ? { label: "Renamed", tone: styles.statusRenamed }
                 : null;
-      const isViewed = viewedIds.has(item.id);
       const generated = generatedFiles.marks.get(item.id);
       const generatedFrom = fileInfoById.get(generatedFiles.sources.get(item.id) ?? "")?.path;
       const written = generated ? provenance.get(path) : undefined;
@@ -4960,36 +4821,10 @@ export function App({
               <DiffStat additions={info.additions} deletions={info.deletions} />
             </span>
           )}
-          {canMarkViewed && (
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={isViewed}
-              aria-label={`Viewed ${path}`}
-              title={isViewed ? "Viewed · folds the file (v)" : "Mark as viewed (v)"}
-              onClick={() => setFilesViewed([item.id], !isViewed)}
-              {...stylex.props(styles.viewedToggle, isViewed && styles.viewedOn)}
-            >
-              <span {...stylex.props(styles.viewedBox, isViewed && styles.viewedBoxOn)}>
-                {isViewed && <Icon name="check" size={10} />}
-              </span>
-              Viewed
-            </button>
-          )}
         </div>
       );
     },
-    [
-      fileInfoById,
-      collapsed,
-      prefetchFile,
-      openWorkingFile,
-      viewedIds,
-      canMarkViewed,
-      setFilesViewed,
-      generatedFiles,
-      provenance,
-    ],
+    [fileInfoById, collapsed, prefetchFile, openWorkingFile, generatedFiles, provenance],
   );
   // A link to a file in a comment opens the file at its line.
   const openCommentLink = useCallback(
@@ -5239,8 +5074,6 @@ export function App({
     : nextGuideCommit
       ? `${nextGuideCommit.id.slice(0, 7)} · ${nextGuideCommit.subject}`
       : undefined;
-  const streamViewed =
-    streamFiles.length > 0 && streamFiles.every((file) => viewedIds.has(file.id));
   const renderCodeViewHeader = useCallback(() => {
     if (!guideDiff) return dependencyCard || null;
     if (guideSection)
@@ -5248,12 +5081,10 @@ export function App({
         <SegmentHeader
           section={guideSection}
           count={guideSections.length}
-          viewed={guideSection.fileIds.filter((id) => viewedIds.has(id)).length}
           agent={guideAgent}
           stray={guideStray}
           notes={notes}
           repo={state.review?.repo}
-          onMarkAll={(value) => setFilesViewed(guideSection.fileIds, value)}
           onMutate={(mutation) => controller.mutateNote(mutation)}
           onOpenLink={openGuideLink}
         />
@@ -5296,11 +5127,9 @@ export function App({
     guideDiff,
     guideSection,
     guideSections.length,
-    viewedIds,
     guideAgent,
     guideStray,
     notes,
-    setFilesViewed,
     controller,
     openGuideLink,
     guideCommit,
@@ -5335,7 +5164,6 @@ export function App({
               kind: mark.kind,
               additions: file.info.additions,
               deletions: file.info.deletions,
-              viewed: viewedIds.has(file.id),
               ...(summary && { summary }),
               ...(done?.command && { command: done.command }),
               ...(source && sourceId ? { source: { id: sourceId, path: source.path } } : {}),
@@ -5343,15 +5171,7 @@ export function App({
             };
           })
         : [],
-    [
-      groupGenerated,
-      fileGroups,
-      generatedFiles,
-      fileInfoById,
-      viewedIds,
-      generatedSummaries,
-      provenance,
-    ],
+    [groupGenerated, fileGroups, generatedFiles, fileInfoById, generatedSummaries, provenance],
   );
   const toggleGenerated = useCallback(() => {
     if (generatedOpenRef.current) {
@@ -5367,10 +5187,9 @@ export function App({
           open={generatedOpen}
           onToggle={toggleGenerated}
           onReveal={reveal}
-          onViewed={canMarkViewed ? setFilesViewed : undefined}
         />
       ),
-    [generatedRows, generatedOpen, toggleGenerated, reveal, canMarkViewed, setFilesViewed],
+    [generatedRows, generatedOpen, toggleGenerated, reveal],
   );
   const renderCodeViewFooter = useCallback(
     () =>
@@ -5379,15 +5198,7 @@ export function App({
           {skipped.length > 0 && renderMetadataRows()}
           <GuideFooter
             next={nextGuideLabel}
-            allViewed={streamViewed}
-            onNext={(mark) => {
-              if (mark)
-                setFilesViewed(
-                  streamFiles.map((file) => file.id),
-                  true,
-                );
-              stepGuide(1);
-            }}
+            onNext={() => stepGuide(1)}
             onOverview={() => openGuide({ kind: "overview" })}
           />
         </>
@@ -5411,9 +5222,6 @@ export function App({
       generatedGroup,
       files.length,
       nextGuideLabel,
-      streamViewed,
-      setFilesViewed,
-      streamFiles,
       stepGuide,
       openGuide,
     ],
@@ -5527,11 +5335,8 @@ export function App({
       stack={stack}
       current={Math.max(0, layerIndex)}
       mode={stackMode}
-      progress={layerStates}
-      next={nextLayer}
       onLayer={showLayer}
       onRange={showLayers}
-      onNext={showNextUnreviewed}
     />
   );
   // Where the rail hides, the layers are a menu in the review's row.
@@ -5804,9 +5609,7 @@ export function App({
             label: "Review",
             detail: approvals?.some((entry) => entry.version === reviewVersion)
               ? `Version ${reviewVersion} · approved`
-              : hasGuide && shownGuideFiles.length
-                ? `Version ${reviewVersion} · ${guideViewedIds.size}/${shownGuideFiles.length} viewed`
-                : `Version ${reviewVersion}`,
+              : `Version ${reviewVersion}`,
             onOpen: () => {
               revealPane("review");
               selectTab("review");
@@ -6117,9 +5920,6 @@ export function App({
                     moreCommits={guideTarget?.moreCommits}
                     scope={guideScope}
                     filesById={guideFilesById}
-                    viewed={guideViewedIds}
-                    total={shownGuideFiles.length}
-                    done={guideViewedIds.size}
                     onScope={openGuide}
                     onFile={(key, id) => {
                       if (guideDiff && guideSection?.key === key) reveal(id);
@@ -6129,7 +5929,6 @@ export function App({
                         openGuide({ kind: "segment", key }, id);
                       }
                     }}
-                    onToggleViewed={setFilesViewed}
                     top={stackRail}
                     since={sinceRow}
                     controls={railHide}
@@ -6180,9 +5979,6 @@ export function App({
                     sections={guideSections}
                     commits={guideCommits}
                     moreCommits={guideTarget?.moreCommits}
-                    viewed={guideViewedIds}
-                    total={shownGuideFiles.length}
-                    done={guideViewedIds.size}
                     proof={overviewProof}
                     findings={reviewOutput}
                     openFindings={openFindings}
@@ -6922,54 +6718,6 @@ const styles = stylex.create({
     minWidth: 0,
     containerType: "inline-size",
   },
-  // A file's Viewed mark at the end of its header, as on GitHub.
-  // In a narrow pane the label and the totals give way before the file name;
-  // the box stays.
-  viewedToggle: {
-    // Above the header's fold button, as the other header parts are.
-    position: "relative",
-    pointerEvents: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    flexShrink: 100,
-    minWidth: 27,
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    height: 24,
-    marginInlineStart: 4,
-    paddingInline: 7,
-    borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.faint, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    cursor: "pointer",
-    outline: {
-      default: "none",
-      ":focus-visible": `2px solid ${tokens.accentLine}`,
-    },
-    outlineOffset: -1,
-  },
-  viewedOn: { color: { default: tokens.muted, ":hover": tokens.text } },
-  viewedBox: {
-    display: "inline-flex",
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    width: 13,
-    height: 13,
-    boxSizing: "border-box",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    color: tokens.canvas,
-    transitionProperty: "background-color, border-color",
-    transitionDuration: "120ms",
-  },
-  viewedBoxOn: { borderColor: tokens.green, backgroundColor: tokens.green },
   // One quiet message at a time, low in the review card, with an optional undo.
   toast: {
     position: "absolute",

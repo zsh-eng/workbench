@@ -143,8 +143,6 @@ afterEach(() => {
   mount?.remove();
   root = mount = undefined;
   for (const key of KEYS) localStorage.removeItem(key);
-  for (const key of Object.keys(localStorage))
-    if (key.startsWith("med:viewed:v1:recap-")) localStorage.removeItem(key);
   history.replaceState(null, "", address);
   delete (document as unknown as Record<string, unknown>).visibilityState;
 });
@@ -293,10 +291,8 @@ async function openSession() {
   await expect.element(thread.getByText(question)).toBeVisible();
 }
 
-test("a turn that asked a question ends with its facts; Review opens the Guide's first segment not viewed", async () => {
+test("a turn that asked a question ends with its facts; Review opens the Guide's overview", async () => {
   const id = "recap-guide";
-  // The first segment's file is viewed already.
-  localStorage.setItem(`med:viewed:v1:${id}`, JSON.stringify(["src/tides.ts\u00002222222"]));
   const host = createHost(ended(id, Date.now() - 5_000), true);
   render(host);
   await openSession();
@@ -321,11 +317,11 @@ test("a turn that asked a question ends with its facts; Review opens the Guide's
   await userEvent.click(recap.getByRole("button", { name: "Reply" }));
   expect(document.activeElement).toBe(composer());
 
-  // Review: the turn is seen, and the Guide shows its first segment that is
-  // not viewed. The recap keeps its place out of sight, so nothing moves.
+  // Review: the turn is seen, and a first version opens on the Guide's
+  // overview. The recap keeps its place out of sight, so nothing moves.
   const before = shownRecap()!.getBoundingClientRect();
   await userEvent.click(recap.getByRole("button", { name: /^Review/ }));
-  await expect.element(page.getByRole("heading", { name: "Phase of the moon" })).toBeVisible();
+  await expect.element(page.getByRole("region", { name: "Guide overview" })).toBeVisible();
   await expect
     .element(page.getByRole("radio", { name: "Review", exact: true }))
     .toHaveAttribute("aria-checked", "true");

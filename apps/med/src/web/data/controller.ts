@@ -172,7 +172,7 @@ export interface ReviewController {
   showReview(): Promise<void>;
   /** Shows the Review's version as only what changed since an earlier version. */
   showSince(from: number): Promise<void>;
-  /** Marks a version read: the reader marked a file of it viewed. */
+  /** Marks a version read: the reader opened it. */
   markRead(version: number): Promise<void>;
   /** Places lines of the Review's version on the commit that shows: each
    * line there, or null when the commit does not show it. */

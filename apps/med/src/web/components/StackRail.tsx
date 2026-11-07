@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo } from "react";
 import type { PullRequestState } from "../../shared/saved-review";
-import { progressLabels, type LayerProgress, type Stack, type StackLayer } from "../data/stack";
+import type { Stack, StackLayer } from "../data/stack";
 import { picked, tokens, ui } from "../theme.stylex";
 import { ChoiceSelect } from "./Controls";
 import { Icon } from "./Icon";
@@ -18,13 +18,9 @@ export interface StackRailProps {
   /** The shown layer's index, bottom first. */
   current: number;
   mode: StackMode;
-  progress: readonly LayerProgress[];
-  /** The lowest layer that waits for review, or -1. */
-  next: number;
   onLayer(index: number): void;
   /** Shows layers `from` to `to` as one diff; all of them is Whole stack. */
   onRange(from: number, to: number): void;
-  onNext(): void;
 }
 
 const stateLabels: Record<PullRequestState, string> = {
@@ -61,11 +57,8 @@ export const StackRail = memo(function StackRail({
   stack,
   current,
   mode,
-  progress,
-  next,
   onLayer,
   onRange,
-  onNext,
 }: StackRailProps) {
   const { layers } = stack;
   const isStack = stack.shape === "stack";
@@ -73,11 +66,6 @@ export const StackRail = memo(function StackRail({
     mode.kind === "whole" ||
     (mode.kind === "range" && index >= mode.from && index <= mode.to) ||
     (mode.kind === "layer" && index === current);
-  const counts = progress.reduce(
-    (sum, entry) => sum + (entry === "approved" || entry === "changes" ? 1 : 0),
-    0,
-  );
-  const noun = isStack ? "layers" : "parts";
   return (
     <section
       aria-label={isStack ? "Stack" : "Set"}
@@ -86,27 +74,6 @@ export const StackRail = memo(function StackRail({
     >
       <div {...stylex.props(styles.head)}>
         <span {...stylex.props(ui.label)}>{isStack ? "Stack" : "Set"}</span>
-        <span
-          {...stylex.props(styles.count)}
-          aria-label={`${counts} of ${layers.length} ${noun} reviewed`}
-          title={`${counts} of ${layers.length} ${noun} reviewed`}
-        >
-          <span {...stylex.props(styles.countDone)}>{counts}</span>/{layers.length}
-        </span>
-        <span {...stylex.props(ui.grow)} />
-        <button
-          type="button"
-          disabled={next < 0}
-          title={
-            next < 0
-              ? `Every ${isStack ? "layer" : "part"} is reviewed`
-              : `Show ${isStack ? "layer" : "part"} ${next + 1}, the lowest that waits for review`
-          }
-          onClick={onNext}
-          {...stylex.props(styles.next)}
-        >
-          Next unreviewed
-        </button>
       </div>
       {isStack && (
         <div role="group" aria-label="Diff" {...stylex.props(styles.modes)}>
@@ -142,7 +109,6 @@ export const StackRail = memo(function StackRail({
             const here = mode.kind === "layer" && index === current;
             const base = isStack ? movedBase(layers, index) : undefined;
             const gone = layer.state === "merged" || layer.state === "closed";
-            const state = progress[index] ?? "unreviewed";
             return (
               <li key={layer.id}>
                 <button
@@ -152,7 +118,6 @@ export const StackRail = memo(function StackRail({
                   aria-label={[
                     `${isStack ? "Layer" : "Part"} ${index + 1}: ${layer.title}`,
                     layer.state && stateLabels[layer.state],
-                    progressLabels[state],
                   ]
                     .filter(Boolean)
                     .join(", ")}
@@ -193,11 +158,6 @@ export const StackRail = memo(function StackRail({
                       )}
                     </span>
                   </span>
-                  <span
-                    aria-hidden="true"
-                    title={progressLabels[state]}
-                    {...stylex.props(styles.dot, dotStyles[state])}
-                  />
                 </button>
               </li>
             );
@@ -266,23 +226,6 @@ const stateStyles = stylex.create({
   closed: { color: tokens.red },
 });
 
-const dotStyles = stylex.create({
-  unreviewed: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    backgroundColor: "transparent",
-  },
-  progress: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.accent,
-    backgroundImage: `linear-gradient(90deg, ${tokens.accent} 50%, transparent 50%)`,
-  },
-  approved: { backgroundColor: tokens.green },
-  changes: { backgroundColor: tokens.warning },
-});
-
 const styles = stylex.create({
   rail: {
     flexShrink: 0,
@@ -304,27 +247,6 @@ const styles = stylex.create({
     flexShrink: 0,
     paddingInlineStart: 14,
     paddingInlineEnd: 8,
-  },
-  count: {
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 11,
-    fontVariantNumeric: "tabular-nums",
-  },
-  countDone: { color: tokens.text },
-  next: {
-    height: 22,
-    paddingInline: 8,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.line,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.muted, ":hover": tokens.text, ":disabled": tokens.faint },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    cursor: { default: "pointer", ":disabled": "default" },
-    opacity: { default: 1, ":disabled": 0.6 },
   },
   modes: {
     display: "flex",
@@ -422,13 +344,6 @@ const styles = stylex.create({
   },
   state: { fontFamily: tokens.ui, fontWeight: 500 },
   notes: { display: "inline-flex", alignItems: "center", gap: 3, color: tokens.accent },
-  dot: {
-    flexShrink: 0,
-    width: 8,
-    height: 8,
-    boxSizing: "border-box",
-    borderRadius: "50%",
-  },
   base: {
     display: "flex",
     alignItems: "center",

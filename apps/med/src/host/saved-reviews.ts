@@ -1185,8 +1185,7 @@ export class SavedReviewStore {
   /**
    * A new version of a stack or a set. A hand-off with parts replaces them
    * all; one comparison with a part's key replaces that part only. A part
-   * whose comparison did not change keeps its target, so its comments and
-   * viewed marks stay.
+   * whose comparison did not change keeps its target, so its comments stay.
    */
   private async iterateParts(
     record: SavedRecord,
@@ -1453,7 +1452,7 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
-  /** Record that the reader read a version: they marked a file of it viewed.
+  /** Record that the reader read a version: they opened it.
    * "Since" then starts from it, as from an approved version. */
   markRead(id: string, version: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
@@ -1586,7 +1585,6 @@ export class SavedReviewStore {
           continue;
         } else from = replayed;
       }
-      // The new side keeps the version's blob, so a viewed mark stays the same.
       const blob = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(whole.section)?.[1];
       let section = await textPatch(file.path, from, source.new);
       if (blob) section = section.replace(/^(index [0-9a-f]+\.\.)[0-9a-f]+/m, `$1${blob}`);
@@ -1624,8 +1622,8 @@ export class SavedReviewStore {
 
   /**
    * The files of a version that changed since the reader's last review: the
-   * last earlier version that they approved, commented on, or marked a file
-   * viewed in, or else the one before. Undefined before version 2.
+   * last earlier version that they approved, commented on, or opened, or else
+   * the one before. Undefined before version 2.
    */
   async since(id: string, version?: number): Promise<Since | undefined> {
     const record = await this.serial(() => this.read(id));

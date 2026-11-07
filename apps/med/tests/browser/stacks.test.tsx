@@ -96,20 +96,13 @@ const saved = (): SavedReview => ({
 beforeEach(async () => {
   await page.viewport(1440, 900);
   for (const key of Object.keys(localStorage))
-    if (
-      key.startsWith("med:viewed:v1:") ||
-      key.startsWith("med:layers:v1:") ||
-      key === "med:changes-rail"
-    )
-      localStorage.removeItem(key);
+    if (key === "med:changes-rail") localStorage.removeItem(key);
 });
 afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = undefined;
   mount = undefined;
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:viewed:v1:${REVIEW}` }));
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:layers:v1:${REVIEW}` }));
 });
 
 async function mountStack() {
@@ -216,10 +209,10 @@ async function mountStack() {
 const rail = () => page.getByRole("region", { name: "Stack" });
 const layerRow = (number: number) =>
   document.querySelector<HTMLElement>(`[data-stack-rail] [data-layer="${number}"]`);
-/** The files of the diff, from their headers' Viewed boxes. */
+/** The files of the diff, from their headers' fold buttons. */
 const diffPaths = () =>
-  [...document.querySelectorAll('[role="checkbox"][aria-label^="Viewed "]')]
-    .map((box) => box.getAttribute("aria-label")!.slice("Viewed ".length))
+  [...document.querySelectorAll("[data-stream-file] > button[aria-expanded]")]
+    .map((button) => button.getAttribute("aria-label")!.replace(/^(Collapse|Expand) /, ""))
     .sort();
 
 test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓ go between them", async () => {
@@ -237,7 +230,8 @@ test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓
   await expect.element(rail().getByText("Draft")).toBeVisible();
   // The thread opens on the bottom layer, with only its own file.
   await expect.poll(() => layerRow(1)?.getAttribute("aria-current")).toBe("page");
-  await expect.poll(diffPaths).toEqual(["src/query.ts"]);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
+  await expect.poll(diffPaths, { timeout: 5_000 }).toEqual(["src/query.ts"]);
 
   await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
   await expect.poll(() => layerRow(2)?.getAttribute("aria-current")).toBe("page");
@@ -275,20 +269,4 @@ test("Whole stack shows main to the top layer's head, a Shift-click a range, and
   await expect.poll(diffPaths).toEqual(["src/query.ts", "src/rank.ts"]);
   await userEvent.click(rail().getByRole("button", { name: "This layer" }));
   await expect.poll(diffPaths).toEqual(["src/query.ts"]);
-});
-
-test("Next unreviewed skips a merged layer and one whose files are all viewed", async () => {
-  await mountStack();
-  await expect.poll(diffPaths).toEqual(["src/query.ts"]);
-  // Layer 1 merged: the lowest that waits is layer 2.
-  await userEvent.click(rail().getByRole("button", { name: "Next unreviewed" }));
-  await expect.poll(() => layerRow(2)?.getAttribute("aria-current")).toBe("page");
-  await userEvent.click(page.getByRole("checkbox", { name: "Viewed src/rank.ts" }));
-  await expect.poll(() => layerRow(2)?.getAttribute("aria-label")).toContain("Approved");
-  await userEvent.click(rail().getByRole("button", { name: "Next unreviewed" }));
-  await expect.poll(() => layerRow(3)?.getAttribute("aria-current")).toBe("page");
-  // What the sidebar draws: layer 2's file is viewed.
-  expect(JSON.parse(localStorage.getItem(`med:layers:v1:${REVIEW}`) ?? "{}")).toMatchObject({
-    t2: { viewed: 1, files: 1 },
-  });
 });

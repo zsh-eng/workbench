@@ -8,7 +8,6 @@ import { ColumnHandle, useColumnWidth } from "../ColumnResize";
 import { Icon } from "../Icon";
 import { PathLabel } from "../PathLabel";
 import { clippedTooltip } from "../ToolButton";
-import { Progress } from "./Progress";
 
 export interface GuideRailProps {
   sections: readonly GuideSection[];
@@ -16,14 +15,8 @@ export interface GuideRailProps {
   moreCommits?: boolean;
   scope: GuideScope;
   filesById: ReadonlyMap<string, ParsedReviewFile>;
-  /** File IDs the reader marked as viewed. */
-  viewed: ReadonlySet<string>;
-  /** Changed files in the review, and how many are viewed. */
-  total: number;
-  done: number;
   onScope(scope: GuideScope): void;
   onFile(section: string, fileId: string): void;
-  onToggleViewed(fileIds: readonly string[], viewed: boolean): void;
   /** Above the Guide, such as a stack's layers. */
   top?: ReactNode;
   /** At the heading's end, such as the sidebar's hide button. */
@@ -36,7 +29,7 @@ const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
  * The Guide's table of contents: the Overview, the agent's segments, and the
- * range's commits. The open segment lists its files, each with a viewed mark.
+ * range's commits. The open segment lists its files.
  */
 export const GuideRail = memo(function GuideRail({
   sections,
@@ -44,12 +37,8 @@ export const GuideRail = memo(function GuideRail({
   moreCommits,
   scope,
   filesById,
-  viewed,
-  total,
-  done,
   onScope,
   onFile,
-  onToggleViewed,
   top,
   since,
   controls,
@@ -61,17 +50,7 @@ export const GuideRail = memo(function GuideRail({
       <div {...stylex.props(styles.head)}>
         <span {...stylex.props(ui.label)}>Guide</span>
         <span {...stylex.props(ui.grow)} />
-        <span
-          {...stylex.props(styles.count)}
-          aria-label={`${done} of ${total} files viewed`}
-          title={`${done} of ${total} changed files viewed`}
-        >
-          <span {...stylex.props(styles.countDone)}>{done}</span>/{total}
-        </span>
         {controls}
-      </div>
-      <div {...stylex.props(styles.meter)} aria-hidden="true">
-        <span {...stylex.props(styles.meterFill(total ? done / total : 0))} />
       </div>
       <div {...stylex.props(styles.scroll)}>
         <button
@@ -109,13 +88,12 @@ export const GuideRail = memo(function GuideRail({
           <ol aria-label="Segments" {...stylex.props(styles.list)}>
             {sections.map((section) => {
               const open = scope.kind === "segment" && scope.key === section.key;
-              const seen = section.fileIds.filter((id) => viewed.has(id)).length;
               return (
                 <li key={section.key} {...stylex.props(styles.item)}>
                   <button
                     type="button"
                     aria-current={open ? "page" : undefined}
-                    aria-label={`${section.number}. ${section.title}${section.critical ? ", needs care" : ""}, ${seen} of ${section.fileIds.length} files viewed`}
+                    aria-label={`${section.number}. ${section.title}${section.critical ? ", needs care" : ""}`}
                     onClick={() => onScope({ kind: "segment", key: section.key })}
                     {...clippedTooltip(section.title)}
                     {...stylex.props(styles.row, styles.segment, open && [styles.on, picked])}
@@ -158,32 +136,19 @@ export const GuideRail = memo(function GuideRail({
                         )}
                       </span>
                     </span>
-                    <Progress value={seen} total={section.fileIds.length} />
                   </button>
                   {open && section.fileIds.length > 0 && (
                     <ul aria-label={`Files in ${section.title}`} {...stylex.props(styles.files)}>
                       {section.fileIds.map((id) => {
                         const file = filesById.get(id);
                         if (!file) return null;
-                        const isViewed = viewed.has(id);
                         return (
                           <li key={id} {...stylex.props(styles.fileRow)}>
                             <button
                               type="button"
-                              role="checkbox"
-                              aria-checked={isViewed}
-                              aria-label={`Viewed ${file.path}`}
-                              title={isViewed ? "Viewed" : "Mark as viewed"}
-                              onClick={() => onToggleViewed([id], !isViewed)}
-                              {...stylex.props(styles.check, isViewed && styles.checked)}
-                            >
-                              {isViewed && <Icon name="check" size={10} />}
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => onFile(section.key, id)}
                               {...clippedTooltip(file.path)}
-                              {...stylex.props(styles.file, isViewed && styles.fileViewed)}
+                              {...stylex.props(styles.file)}
                             >
                               <PathLabel path={file.path} folder={false} />
                               <span {...stylex.props(ui.grow)} />
@@ -328,26 +293,6 @@ const styles = stylex.create({
     fontSize: 11,
     fontVariantNumeric: "tabular-nums",
   },
-  countDone: { color: tokens.text },
-  meter: {
-    flexShrink: 0,
-    height: 2,
-    marginInline: 14,
-    marginBottom: 8,
-    borderRadius: 2,
-    overflow: "hidden",
-    backgroundColor: tokens.fillStrong,
-  },
-  meterFill: (scale: number) => ({
-    display: "block",
-    height: "100%",
-    backgroundColor: tokens.green,
-    transform: `scaleX(${scale})`,
-    transformOrigin: "left",
-    transitionProperty: "transform",
-    transitionDuration: "320ms",
-    transitionTimingFunction: tokens.easeOut,
-  }),
   scroll: {
     flex: "1",
     minHeight: 0,
@@ -449,34 +394,6 @@ const styles = stylex.create({
     paddingInlineEnd: 0,
   },
   fileRow: { display: "flex", alignItems: "center", gap: 2 },
-  check: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    width: 14,
-    height: 14,
-    padding: 0,
-    marginInlineEnd: 4,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: { default: tokens.lineStrong, ":hover": tokens.faint },
-    borderRadius: `calc(4px * ${tokens.round})`,
-    backgroundColor: "transparent",
-    color: tokens.canvas,
-    cursor: "pointer",
-    outline: {
-      default: "none",
-      ":focus-visible": `2px solid ${tokens.accentLine}`,
-    },
-    outlineOffset: 1,
-    transitionProperty: "background-color, border-color",
-    transitionDuration: "120ms",
-  },
-  checked: {
-    borderColor: { default: tokens.green, ":hover": tokens.green },
-    backgroundColor: tokens.green,
-  },
   file: {
     display: "flex",
     alignItems: "center",
@@ -499,7 +416,6 @@ const styles = stylex.create({
     },
     outlineOffset: -2,
   },
-  fileViewed: { color: tokens.faint, textDecorationLine: "none" },
   fileStat: {
     display: "flex",
     gap: 5,

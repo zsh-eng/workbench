@@ -317,8 +317,8 @@ export type Approval = z.infer<typeof approvalSchema>;
 export const sinceSchema = z.object({
   from: z.number().int().positive(),
   to: z.number().int().positive(),
-  /** Why `from`: the last version approved, commented on, or with a file
-   * marked viewed, or else the one before. */
+  /** Why `from`: the last version approved, commented on, or opened
+   * (`viewed`), or else the one before. */
   basis: z.enum(["approved", "commented", "viewed", "previous"]),
   files: z.array(
     z.object({
@@ -382,7 +382,7 @@ export const savedReviewSchema = z.object({
   /** The versions that the reader approved (docs/PRACTICES.md): a record
    * for the reader, not a gate. A review without iterations has version 1. */
   approvals: z.array(approvalSchema).optional(),
-  /** The versions in which the reader marked a file viewed. */
+  /** The versions the reader opened. */
   readVersions: z.array(z.number().int().positive()).optional(),
   /** Each part's counts in the current version, by part ID. */
   partTotals: z.record(z.string(), partTotalsSchema).optional(),

@@ -9,7 +9,6 @@ import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { GuideThread } from "./GuideThread";
-import { Progress } from "./Progress";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -26,19 +25,16 @@ interface Agent {
 export function SegmentHeader({
   section,
   count,
-  viewed,
   agent,
   stray,
   notes,
   repo,
-  onMarkAll,
   onMutate,
   onOpenLink,
 }: {
   section: GuideSection;
   /** Segments in the guide. */
   count: number;
-  viewed: number;
   agent: Agent;
   /** The segment's comments on lines that the diff does not show. */
   stray: readonly GuideNote[];
@@ -46,12 +42,9 @@ export function SegmentHeader({
   notes: readonly Note[];
   /** The review's checkout, for the summary's images. */
   repo?: string;
-  onMarkAll(viewed: boolean): void;
   onMutate(mutation: NoteMutation): Promise<void>;
   onOpenLink(href: string): void;
 }) {
-  const files = section.fileIds.length;
-  const all = files > 0 && viewed >= files;
   return (
     <Frame
       eyebrow={
@@ -69,31 +62,13 @@ export function SegmentHeader({
           )}
         </>
       }
-      action={
-        files > 0 && (
-          <span {...stylex.props(styles.viewed)}>
-            <Progress value={viewed} total={files} size={14} />
-            <span>
-              {viewed} of {files} viewed
-            </span>
-            <button
-              type="button"
-              onClick={() => onMarkAll(!all)}
-              {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.markAll)}
-            >
-              {all ? "Mark unviewed" : "Mark all viewed"}
-              {!all && <kbd {...stylex.props(styles.key)}>⇧V</kbd>}
-            </button>
-          </span>
-        )
-      }
       title={section.title}
       meta={
         <>
           {section.additions > 0 && <span {...stylex.props(ui.added)}>+{section.additions}</span>}
           {section.deletions > 0 && <span {...stylex.props(ui.removed)}>−{section.deletions}</span>}
           <span>
-            {files} {files === 1 ? "file" : "files"}
+            {section.fileIds.length} {section.fileIds.length === 1 ? "file" : "files"}
           </span>
           {section.notes.length > 0 && (
             <span {...stylex.props(styles.notes)}>
@@ -227,7 +202,7 @@ function Elsewhere({ count, where, onWhole }: { count: number; where: string; on
 const BASIS: Record<Since["basis"], string> = {
   approved: "you approved",
   commented: "you commented on",
-  viewed: "you marked files viewed in",
+  viewed: "you last looked at",
   previous: "before this one",
 };
 
@@ -292,14 +267,12 @@ export function SinceHeader({
 /** The end of a segment or commit: the next part, and the way back to the Overview. */
 export function GuideFooter({
   next,
-  allViewed,
   onNext,
   onOverview,
 }: {
   /** The next part's label, such as "03 · Routes"; none at the end. */
   next?: string;
-  allViewed: boolean;
-  onNext(markViewed: boolean): void;
+  onNext(): void;
   onOverview(): void;
 }) {
   return (
@@ -307,39 +280,24 @@ export function GuideFooter({
       <span {...stylex.props(styles.rule)} />
       <div {...stylex.props(styles.footerRow)}>
         {next ? (
-          <>
-            {!allViewed && (
-              <button
-                type="button"
-                onClick={() => onNext(true)}
-                {...stylex.props(ui.button, ui.pressable, ui.outlined, styles.footerButton)}
-              >
-                <Icon name="check" size={13} />
-                Mark viewed and continue
-                <kbd {...stylex.props(styles.key)}>⇧V</kbd>
-              </button>
+          <button
+            type="button"
+            title="Next part (j)"
+            onClick={onNext}
+            {...stylex.props(
+              ui.button,
+              ui.pressable,
+              ui.primary,
+              styles.footerButton,
+              styles.nextButton,
             )}
-            <button
-              type="button"
-              onClick={() => onNext(false)}
-              {...stylex.props(
-                ui.button,
-                ui.pressable,
-                allViewed ? ui.primary : null,
-                styles.footerButton,
-                styles.nextButton,
-              )}
-            >
-              <span {...stylex.props(styles.nextLabel)}>Next</span>
-              <span {...stylex.props(ui.truncate)}>{next}</span>
-              <kbd {...stylex.props(styles.key, allViewed && styles.keyOnPrimary)}>j</kbd>
-            </button>
-          </>
+          >
+            <span {...stylex.props(styles.nextLabel)}>Next</span>
+            <span {...stylex.props(ui.truncate)}>{next}</span>
+          </button>
         ) : (
           <>
-            <span {...stylex.props(styles.endText)}>
-              {allViewed ? "That was the last part." : "End of the guide."}
-            </span>
+            <span {...stylex.props(styles.endText)}>End of the guide.</span>
             <button
               type="button"
               onClick={onOverview}
@@ -414,20 +372,6 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   sha: { color: tokens.faint, fontFamily: tokens.code, fontSize: 11 },
-  viewed: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    color: tokens.faint,
-    fontSize: 11.5,
-    fontVariantNumeric: "tabular-nums",
-  },
-  markAll: { minHeight: 26, gap: 7, paddingInline: 9, fontSize: 11.5 },
-  key: {
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10,
-  },
   title: {
     margin: 0,
     marginTop: 8,
@@ -512,6 +456,5 @@ const styles = stylex.create({
   footerButton: { minHeight: 32, gap: 8, paddingInline: 12, fontSize: 12.5 },
   nextButton: { maxWidth: 420 },
   nextLabel: { opacity: 0.6 },
-  keyOnPrimary: { color: "inherit", opacity: 0.6 },
   endText: { color: tokens.faint, fontSize: 12.5 },
 });

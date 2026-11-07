@@ -49,9 +49,7 @@ group's row to add the files to the stream. Choosing a generated file in
 Changed files, a search, or a link opens the group. In Changed files, the
 generated files are in a second tree under a folded **Generated** row.
 
-A generated file counts as viewed when its source is viewed, for example a
-`bun.lock` when you mark its `package.json`. The group's check marks all of
-them. Two warnings show on a generated file: **Edited by hand**, when an agent
+Two warnings show on a generated file: **Edited by hand**, when an agent
 session of the thread edited it directly, and **No manifest changed**, for a
 lockfile without a changed manifest (correct after `bun update`).
 
