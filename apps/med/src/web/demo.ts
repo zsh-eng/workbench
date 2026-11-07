@@ -876,16 +876,13 @@ const review = async (panes: { sidebar: boolean; session: boolean }, name: strin
   if (!panes.sidebar) visible("button[aria-label='Hide sidebar']")?.click();
   // ⌘⇧B shows the session at any width. A phone shows the chosen pane only:
   // there the session is open without room, so it closes, then opens chosen.
-  for (let press = 0; panes.session && press < 2 && !visible(session); press += 1) {
+  // A key, not a click, so no button keeps the focus and its tooltip.
+  for (let press = 0; press < 2 && !!visible(session) !== panes.session; press += 1) {
     dispatchEvent(
       new KeyboardEvent("keydown", { key: "B", code: "KeyB", metaKey: true, shiftKey: true }),
     );
     await pause(300);
   }
-  if (!panes.session)
-    visible(
-      "button[aria-label^='Hide the session pane'], button[aria-label='Hide agent session']",
-    )?.click();
   tab(name);
   if (name === "Changes") await until(() => visible("diffs-container"));
 };
@@ -925,10 +922,10 @@ const scenes: Record<string, () => Promise<void>> = {
     dispatchEvent(new PopStateEvent("popstate"));
     await until(() => visible("nav[aria-label='Settings']"));
   },
-  // The agent's brief, with its cited diffs.
+  // The agent's summary on the Review page, with links to the lines it cites.
   async brief() {
-    await review({ sidebar: false, session: false }, "Notes");
-    await until(() => visible("diffs-container"));
+    await review({ sidebar: false, session: false }, "Review");
+    await until(() => visible("section[aria-label='Guide overview']"));
   },
   // A short unified diff with the reviewer's comment.
   async comment() {
@@ -947,7 +944,8 @@ const scenes: Record<string, () => Promise<void>> = {
     await toComment();
   },
   async session() {
-    await review({ sidebar: false, session: true }, "Changes");
+    await review({ sidebar: false, session: true }, "Review");
+    await allFiles();
     await toComment();
   },
   // The Commit tab, with the first four files staged.
@@ -981,7 +979,7 @@ await scenes[scene]?.();
 // rest of the app; the app still runs underneath. While the part is gone, as
 // when the visitor opens something else, the whole app shows.
 const parts: Record<string, () => HTMLElement | undefined> = {
-  brief: () => visible("section[aria-label='Notes']"),
+  brief: () => visible("section[aria-label='Guide overview']"),
   comment: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
   replies: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
   session: () => visible(session),

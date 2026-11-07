@@ -38,8 +38,8 @@ export const screens: readonly Screen[] = [
   },
   {
     id: "brief",
-    label: "The agent's notes",
-    note: "What the agent says it changed and why, with the diffs it cites.",
+    label: "The agent's summary",
+    note: "Review opens on what the agent says it changed and why, with links to the lines it cites.",
     scene: "brief",
     recording: "recording.json",
   },
