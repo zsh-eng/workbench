@@ -19,6 +19,7 @@ File browsing is read-only and stays in the review workspace. It uses the existi
 - The permanent Changes tab keeps the continuous diff view and its scroll position while a file is open.
 - Each file opens in a tab of its own, which stays until you close it. A click in Files, or Enter on a selected file, opens it; the arrow keys move through the tree without opening files. ⌘-click opens a file in the background. In Find file, Enter opens the file. A file that is open already shows its tab, at the line when one is given.
 - A single click in Changes reveals its diff. A double-click opens the current file from the selected workspace. The view menu also provides an explicit open-file action.
+- File tabs look like a browser's: each starts 200px wide and narrows as the row fills, while the page tabs before them keep their width. The selected tab takes the code's background and curves outward into it at its foot; the strip's line is drawn under the other tabs only, so it never crosses those curves. A long name fades at its end. An unsaved file shows a dot where its × goes, and the × takes its place on hover.
 - File tabs and the active tab are kept separately for each workspace. A workspace holds 24 file tabs; when the row is full, a new file takes the place of the oldest tab without an unsaved draft. Only the active file's bytes are retained by the workspace controller.
 - The full-file header shows its source, read-only state, and a refresh action. Detected working-file changes mark a loaded file stale; refresh it to load new bytes.
 

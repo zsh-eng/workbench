@@ -90,11 +90,7 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       {leading}
-      <Tabs.List
-        ref={list}
-        aria-label="Open files"
-        {...stylex.props(styles.list, styles.keep)}
-      >
+      <Tabs.List ref={list} aria-label="Open files" {...stylex.props(styles.list, styles.keep)}>
         {showReview && (
           <Tabs.Tab
             value="review"
@@ -217,16 +213,20 @@ export function FileViewTabs({
               {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
-              {tab.dirty && (
-                <span
-                  aria-label="Unsaved changes"
-                  title="Unsaved changes"
-                  {...stylex.props(styles.dirty)}
-                />
-              )}
             </Tabs.Tab>
+            {/* An unsaved file's dot takes the close button's place, until hover. */}
+            {tab.dirty && (
+              <span
+                aria-label="Unsaved changes"
+                title="Unsaved changes"
+                {...stylex.props(styles.dirty)}
+              />
+            )}
             <button
-              {...stylex.props(styles.close, active === tab.id && styles.closeVisible)}
+              {...stylex.props(
+                styles.close,
+                active === tab.id && !tab.dirty && styles.closeVisible,
+              )}
               aria-label={`Close ${tab.path}`}
               title={`Close ${tab.path}`}
               onClick={() => onClose(tab.id)}
@@ -244,10 +244,15 @@ const tabEnter = stylex.keyframes({
   from: { opacity: 0, transform: "translateX(-4px)" },
   to: { opacity: 1, transform: "none" },
 });
+/** The current tab's corners: rounded at its top, and turned inward where it
+ * meets the file below, as Chrome's are. */
+const CORNER = `calc(8px * ${tokens.round})`;
 const styles = stylex.create({
+  // The strip's bottom line is a shadow inside it, not a border: the current
+  // tab and its inward corners cover it, where a border would clip them.
   root: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-end",
     gap: 4,
     flexShrink: 0,
     minWidth: 0,
@@ -255,33 +260,45 @@ const styles = stylex.create({
     minHeight: 38,
     boxSizing: "border-box",
     paddingInline: 6,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    backgroundColor: tokens.panel,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
+  // The tabs narrow as more open and never scroll. Room at the ends keeps the
+  // first and last tabs' inward corners.
   list: {
     display: "flex",
-    alignItems: "center",
-    gap: 2,
+    alignItems: "flex-end",
     flex: "1",
     minWidth: 0,
-    overflowX: "auto",
-    scrollbarWidth: "none",
+    height: "100%",
+    paddingInline: CORNER,
+    overflow: "hidden",
   },
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
-  // scroll before the row's last controls shrink.
+  // narrow before the row's last controls shrink.
   keep: { flexBasis: "auto", flexShrink: 100 },
-  item: { position: "relative", display: "flex", alignItems: "center", flexShrink: 0 },
+  item: {
+    position: "relative",
+    display: "flex",
+    alignItems: "flex-end",
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: 200,
+    minWidth: 56,
+    height: 32,
+  },
   tab: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    height: 26,
+    height: "100%",
+    minWidth: 0,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderTopLeftRadius: CORNER,
+    borderTopRightRadius: CORNER,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
-    paddingInline: 8,
+    paddingInline: 10,
     fontFamily: tokens.ui,
     fontSize: 12,
     fontWeight: 450,
@@ -290,18 +307,46 @@ const styles = stylex.create({
     outlineOffset: -2,
     whiteSpace: "nowrap",
   },
-  changes: { paddingInlineEnd: 6 },
+  changes: { flexShrink: 0, paddingInlineEnd: 6 },
   enter: {
     animationName: { default: tabEnter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { paddingInlineEnd: 26 },
+  fileTab: { width: "100%", paddingInlineEnd: 26 },
   active: {
+    position: "relative",
+    zIndex: 1,
     color: { default: tokens.text, ":hover": tokens.text },
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
+    backgroundColor: { default: tokens.canvas, ":hover": tokens.canvas },
+    "::before": {
+      content: "''",
+      position: "absolute",
+      bottom: 0,
+      left: `calc(-1 * ${CORNER})`,
+      width: CORNER,
+      height: CORNER,
+      backgroundImage: `radial-gradient(circle at 0 0, transparent ${CORNER}, ${tokens.canvas} calc(${CORNER} + 0.5px))`,
+    },
+    "::after": {
+      content: "''",
+      position: "absolute",
+      bottom: 0,
+      right: `calc(-1 * ${CORNER})`,
+      width: CORNER,
+      height: CORNER,
+      backgroundImage: `radial-gradient(circle at 100% 0, transparent ${CORNER}, ${tokens.canvas} calc(${CORNER} + 0.5px))`,
+    },
   },
-  name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
+  // A long name fades at the tab's edge; a short one never reaches it.
+  name: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textAlign: "start",
+    maskImage: "linear-gradient(to right, #000 calc(100% - 18px), transparent)",
+  },
   query: { maxWidth: 180, whiteSpace: "pre" },
   count: {
     minWidth: 18,
@@ -317,15 +362,22 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   dirty: {
+    position: "absolute",
+    zIndex: 2,
+    insetInlineEnd: 10,
+    bottom: 13,
     width: 6,
     height: 6,
     borderRadius: "50%",
     backgroundColor: tokens.warning,
-    flexShrink: 0,
+    pointerEvents: "none",
+    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
   },
   close: {
     position: "absolute",
+    zIndex: 2,
     insetInlineEnd: 4,
+    bottom: 7,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
