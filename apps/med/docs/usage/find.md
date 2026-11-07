@@ -29,8 +29,24 @@ it. A workspace holds 24 file tabs; when the row is full, a new file takes the
 place of the oldest tab without an unsaved draft.
 
 Right-click a file in a tree or tab for **Reveal in Finder**, **Copy path**,
-and **Copy relative path**. The panel button beside **Esc**, or **Hide file
-preview in Find file**, hides the preview in every picker and window.
+and **Copy relative path**.
+
+**Open in**, above a working-tree file, opens it elsewhere at the cursor's
+line, each item with a letter while the menu is open:
+
+- The code host by its address, such as `github.acme.build` (`G`): the file
+  at the same line on the branch's page. Med reads the host from the remote
+  that the branch pushes to, or origin. github.com is GitHub; Med asks any
+  other host once, through `/api/v3/meta`, and a host that answers is GitHub
+  Enterprise. A branch that is not pushed has no page, so the item reads
+  **Push to open**.
+- The editors on this Mac, each with the first free letter of its name:
+  VS Code (`code -g`), Cursor (`cursor -g`), Zed (`zed path:line`), and
+  IntelliJ IDEA (`idea --line`). Med finds each one's tool on `PATH`, or in
+  its app in /Applications.
+- **Reveal in Finder** (`R`), **Copy path** (`P`), and **Copy link** (`L`),
+  the code host's link. The panel button beside **Esc**, or **Hide file
+  preview in Find file**, hides the preview in every picker and window.
 
 ## Search file contents
 

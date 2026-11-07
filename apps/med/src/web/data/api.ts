@@ -79,6 +79,17 @@ export const branchCommitsSchema = z.object({
   more: z.boolean(),
 });
 export const revealSchema = z.object({ revealed: z.literal(true) });
+/** Open in's editors and the code host's page of the checkout's branch. */
+export const openInSchema = z.object({
+  editors: z.array(z.object({ id: z.string(), name: z.string() })),
+  host: z
+    .union([
+      z.object({ name: z.string(), base: z.string().url() }),
+      z.object({ name: z.string(), push: z.literal(true) }),
+    ])
+    .nullable(),
+});
+export type OpenInLinks = z.infer<typeof openInSchema>;
 const pullRequestCommentSchema = z.object({
   id: z.number(),
   author: z.string(),

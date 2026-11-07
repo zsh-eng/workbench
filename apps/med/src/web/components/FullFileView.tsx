@@ -1,5 +1,7 @@
 import { MediaFileView } from "./MediaView";
 import { ToolButton } from "./ToolButton";
+import { OpenInMenu } from "./OpenInMenu";
+import type { PathActions, PathTarget } from "./PathMenu";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -97,6 +99,8 @@ export interface FullFileViewProps {
   onOpenAfter?(): void;
   onOpenFile?(path: string, line?: number): void;
   onEdit?(): void;
+  /** Open in, for a working-tree file: its code host, editors, and paths. */
+  openIn?: { actions: PathActions; target: PathTarget & { repo: string } };
   editor?: {
     drafts: EditorDrafts;
     key: string;
@@ -150,14 +154,18 @@ function ReadOnlyFileView({
   onOpenBefore,
   onOpenAfter,
   onEdit,
+  openIn,
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
   const sourceCursorAt = useRef(0);
   const cursorLine = useRef((_line: number) => {});
+  // The cursor's line, where Open in opens the file.
+  const lastLine = useRef(line ?? 1);
   const followCursor = useCallback(
     (line: number) => {
       sourceCursorAt.current = performance.now();
+      lastLine.current = line;
       cursorLine.current(line);
       onSourcePosition?.(line, "cursor");
     },
@@ -534,6 +542,13 @@ function ReadOnlyFileView({
               icon="refresh"
               disabled={loading}
               onClick={onRefresh}
+            />
+          )}
+          {openIn && (
+            <OpenInMenu
+              actions={openIn.actions}
+              target={openIn.target}
+              line={() => lastLine.current}
             />
           )}
           {previewControl}
@@ -1026,6 +1041,13 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
               icon="refresh"
               disabled={!!draft?.dirty}
               onClick={props.onRefresh}
+            />
+          )}
+          {props.openIn && !draft?.editing && (
+            <OpenInMenu
+              actions={props.openIn.actions}
+              target={props.openIn.target}
+              line={() => props.line ?? 1}
             />
           )}
           {previewControl}

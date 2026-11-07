@@ -8,6 +8,7 @@ import { runProcess } from "../../src/host/runtime/process";
 import { loadHistory, listBranches, listWorktrees } from "../../src/host/repository/history";
 import { ReviewService, parseRawDiff } from "../../src/host/repository/review";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { parseRemote } from "../../src/host/open-in";
 import { NoteService } from "../../src/host/notes";
 
 const temporary: string[] = [];
@@ -464,6 +465,62 @@ describe("HTTP boundary", () => {
     expect((await reveal("../outside.txt")).status).toBe(403);
     expect((await reveal("missing.txt")).status).toBe(404);
     expect(revealed).toEqual([join(await realpath(repo), "file.txt")]);
+  });
+  test("Open in links the branch's page on its code host and opens editors at a line", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    git(repo, "checkout", "-q", "-b", "feature/tides");
+    git(repo, "remote", "add", "origin", "git@github.acme.build:acme/trailhead.git");
+    const launched: string[][] = [];
+    const zed = {
+      id: "zed",
+      name: "Zed",
+      command: "/test/zed",
+      args: (file: string, line: number) => [`${file}:${line}`],
+    };
+    const host = await startHost({
+      repo,
+      openIn: {
+        editors: async () => [zed],
+        isGitHub: async (name) => name === "github.acme.build",
+        launch: (editor, file, line) => launched.push([editor.id, file, String(line)]),
+      },
+    });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    const links = async () => (await fetch(`${base}/api/open-in`, { headers })).json();
+    // A branch that is not pushed has no page yet.
+    expect(await links()).toEqual({
+      editors: [{ id: "zed", name: "Zed" }],
+      host: { name: "github.acme.build", push: true },
+    });
+    git(repo, "update-ref", "refs/remotes/origin/feature/tides", "HEAD");
+    git(repo, "branch", "-q", "--set-upstream-to=origin/feature/tides");
+    expect((await links()).host).toEqual({
+      name: "github.acme.build",
+      base: "https://github.acme.build/acme/trailhead/blob/feature/tides",
+    });
+    // A host that is not GitHub has no link.
+    git(repo, "remote", "set-url", "origin", "https://git.example.org/acme/trailhead.git");
+    expect((await links()).host).toBeNull();
+
+    const open = (body: object) =>
+      fetch(`${base}/api/open-in`, { method: "POST", headers, body: JSON.stringify(body) });
+    expect((await open({ path: "file.txt", line: 3, editor: "zed" })).status).toBe(200);
+    expect((await open({ path: "../outside.txt", editor: "zed" })).status).toBe(403);
+    expect((await open({ path: "file.txt", editor: "vim" })).status).toBe(404);
+    expect(launched).toEqual([["zed", join(await realpath(repo), "file.txt"), "3"]]);
+  });
+  test("reads a remote's host, owner and repository from its address", () => {
+    for (const url of [
+      "git@github.com:acme/trailhead.git",
+      "ssh://git@github.com:22/acme/trailhead.git",
+      "https://github.com/acme/trailhead",
+      "https://token@github.com/acme/trailhead.git/",
+    ])
+      expect(parseRemote(url)).toEqual({ host: "github.com", owner: "acme", repo: "trailhead" });
+    expect(parseRemote("/srv/git/trailhead.git")).toBeNull();
   });
   test("reads a commit's body, co-authors, and size for the history card", async () => {
     const repo = await repository();

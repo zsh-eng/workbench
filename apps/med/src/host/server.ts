@@ -123,6 +123,7 @@ import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
+import { codeHostLink, createHostProbe, findEditors, launchEditor, type Editor } from "./open-in";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -191,6 +192,12 @@ export interface StartHostOptions {
   stateDir?: string;
   /** Shows a file in the system file manager; tests replace it. */
   reveal?: (path: string) => void;
+  /** Open in's editors, code hosts, and launches; tests replace them. */
+  openIn?: {
+    editors?(): Promise<Editor[]>;
+    isGitHub?(host: string): Promise<boolean>;
+    launch?(editor: Editor, file: string, line: number): void;
+  };
   /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
   queueCodex?: (threadId: string, text: string) => Promise<void>;
   /** How long a `med review wait` has to confirm a message (tests shorten it). */
@@ -1098,6 +1105,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ...attempts.routes(),
     ...questions.routes(),
   ]);
+  // The editors on this machine, looked for again after a minute.
+  let editorsFound: { at: number; editors: Promise<Editor[]> } | null = null;
+  const openInEditors = () => {
+    if (options.openIn?.editors) return options.openIn.editors();
+    if (!editorsFound || Date.now() - editorsFound.at > 60_000)
+      editorsFound = { at: Date.now(), editors: findEditors() };
+    return editorsFound.editors;
+  };
+  const openInIsGitHub = options.openIn?.isGitHub ?? createHostProbe();
   const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
     const owners = new Set<string>();
@@ -3469,6 +3485,37 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               throw new HostError("not-found", "This file is not in the working tree.", 404);
             (options.reveal ?? revealInFileManager)(target);
             send({ revealed: true });
+            return;
+          }
+          if (url.pathname === "/api/open-in" && request.method === "GET") {
+            const checkout = await requireRepo(url.searchParams.get("repo"));
+            const [editors, host] = await Promise.all([
+              openInEditors(),
+              codeHostLink(checkout, openInIsGitHub),
+            ]);
+            send({ editors: editors.map(({ id, name }) => ({ id, name })), host });
+            return;
+          }
+          if (url.pathname === "/api/open-in" && request.method === "POST") {
+            const input = z
+              .object({
+                repo: z.string().optional(),
+                path: z.string().min(1),
+                line: z.number().int().positive().default(1),
+                editor: z.string().min(1),
+              })
+              .parse(await readBody(request));
+            const repo = await requireRepo(input.repo ?? null);
+            const target = resolve(repo, input.path);
+            const inside = relative(repo, target);
+            if (!inside || inside.startsWith("..") || isAbsolute(inside))
+              throw new HostError("path-not-allowed", "Choose a file in this repository.", 403);
+            if (!(await lstat(target).catch(() => null)))
+              throw new HostError("not-found", "This file is not in the working tree.", 404);
+            const editor = (await openInEditors()).find((entry) => entry.id === input.editor);
+            if (!editor) throw new HostError("not-found", "Med did not find this editor.", 404);
+            (options.openIn?.launch ?? launchEditor)(editor, target, input.line);
+            send({ opened: true });
             return;
           }
           if (url.pathname === "/api/review" && request.method === "POST") {

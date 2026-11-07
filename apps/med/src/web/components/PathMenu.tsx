@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import type { OpenInLinks } from "../data/api";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface PathTarget {
@@ -19,10 +20,15 @@ export interface PathMenuItem {
 export interface PathActions {
   reveal(target: PathTarget & { repo: string }): Promise<void>;
   notify(text: string): void;
+  /** Open in's links and editors, where the host has them. */
+  openIn?: {
+    links(repo: string): Promise<OpenInLinks>;
+    open(target: PathTarget & { repo: string }, line: number, editor: string): Promise<void>;
+  };
 }
 
 const platform = typeof navigator === "undefined" ? "" : navigator.platform;
-const REVEAL_LABEL = /Mac/.test(platform)
+export const REVEAL_LABEL = /Mac/.test(platform)
   ? "Reveal in Finder"
   : /Win/.test(platform)
     ? "Show in Explorer"

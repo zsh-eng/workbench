@@ -61,6 +61,8 @@ import {
   livePullRequestSchema,
   pullRequestCheckLogSchema,
   revealSchema,
+  openInSchema,
+  type OpenInLinks,
   HttpError,
   unanswered,
   notesSchema,
@@ -248,6 +250,10 @@ export interface ReviewController {
   loadCommitDetails(id: string, signal?: AbortSignal): Promise<CommitDetails>;
   /** Shows a working-tree file in the system file manager. */
   revealPath(repo: string, path: string): Promise<void>;
+  /** Open in's editors and code host link for a checkout. */
+  openInLinks(repo: string): Promise<OpenInLinks>;
+  /** Opens a working-tree file in an editor at a line. */
+  openInEditor(repo: string, path: string, line: number, editor: string): Promise<void>;
   selectWorktree(path: string, repositoryId?: string): Promise<void>;
   selectBranch(name: string, repositoryId?: string): Promise<void>;
   addRepository(path: string): Promise<void>;
@@ -2688,6 +2694,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo, path }),
+      });
+    },
+    openInLinks: (repo) => api.json(`/api/open-in?repo=${encodeURIComponent(repo)}`, openInSchema),
+    async openInEditor(repo, path, line, editor) {
+      await api.json("/api/open-in", z.object({ opened: z.literal(true) }), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, path, line, editor }),
       });
     },
     loadSources: (path) => loadSources(path),

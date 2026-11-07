@@ -1986,3 +1986,84 @@ test("colors Groovy and Gradle files with the Groovy grammar", async () => {
   await expect.poll(() => color("class")).toBeUndefined();
   await expect.poll(() => color("'med'")).toContain("#9ecbff");
 });
+
+test("Open in lists the code host at the file's line, the editors, and the paths, each with a letter", async () => {
+  const opened: unknown[] = [];
+  const notes: string[] = [];
+  const windows = vi.spyOn(window, "open").mockReturnValue(null);
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const actions = {
+    reveal: vi.fn<() => Promise<void>>(async () => {}),
+    notify: (text: string) => notes.push(text),
+    openIn: {
+      links: async () => ({
+        editors: [
+          { id: "vscode", name: "VS Code" },
+          { id: "zed", name: "Zed" },
+        ],
+        host: {
+          name: "github.acme.build",
+          base: "https://github.acme.build/acme/trailhead/blob/feature/tides",
+        },
+      }),
+      open: async (...args: unknown[]) => void opened.push(args),
+    },
+  };
+  const target = { repo: "/work/trailhead-open-in", path: "src/trail notes.ts" };
+  render(<FullFileView {...props} file={base} line={1} openIn={{ actions, target }} />);
+  await page.getByRole("button", { name: "Open in" }).click();
+  const item = (name: string) => page.getByRole("menuitem", { name });
+  await expect.element(item("github.acme.build")).toBeVisible();
+  const names = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent);
+  expect(names).toEqual([
+    "github.acme.build",
+    "VS Code",
+    "Zed",
+    "Reveal in Finder",
+    "Copy path",
+    "Copy link",
+  ]);
+  // Each link goes to the same line on the branch.
+  await item("github.acme.build").click();
+  expect(windows).toHaveBeenCalledWith(
+    "https://github.acme.build/acme/trailhead/blob/feature/tides/src/trail%20notes.ts#L1",
+    "_blank",
+    "noopener",
+  );
+  // A letter chooses while the menu is open.
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect.element(item("Zed")).toBeVisible();
+  await userEvent.keyboard("z");
+  await expect.poll(() => opened).toEqual([[target, 1, "zed"]]);
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect.element(item("Copy link")).toBeVisible();
+  await userEvent.keyboard("p");
+  await expect.poll(() => notes).toEqual(["Path copied."]);
+  expect(copy).toHaveBeenCalledWith("/work/trailhead-open-in/src/trail notes.ts");
+  windows.mockRestore();
+  copy.mockRestore();
+});
+
+test("Open in says Push to open while the branch has no page on its host", async () => {
+  const actions = {
+    reveal: async () => {},
+    notify: () => {},
+    openIn: {
+      links: async () => ({ editors: [], host: { name: "github.com", push: true as const } }),
+      open: async () => {},
+    },
+  };
+  render(
+    <FullFileView
+      {...props}
+      file={base}
+      openIn={{ actions, target: { repo: "/work/trailhead-unpushed", path: "src/example.ts" } }}
+    />,
+  );
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Push to open on github.com" }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect.element(page.getByRole("menuitem", { name: "Copy link" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+});

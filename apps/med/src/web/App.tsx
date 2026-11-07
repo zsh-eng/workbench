@@ -2032,6 +2032,11 @@ export function App({
       reveal: (target: { repo: string; path: string }) =>
         controller.revealPath(target.repo, target.path),
       notify: (text: string) => showToast(text),
+      openIn: {
+        links: (repo) => controller.openInLinks(repo),
+        open: (target, line, editor) =>
+          controller.openInEditor(target.repo, target.path, line, editor),
+      },
     }),
     [controller, showToast],
   );
@@ -6383,6 +6388,14 @@ export function App({
                 onOpenFile={openLinkedFile}
                 onOpenBefore={openBefore}
                 onOpenAfter={openAfter}
+                openIn={
+                  activeFile.source.kind === "worktree"
+                    ? {
+                        actions: pathActions,
+                        target: { repo: activeFile.source.repo, path: activeFile.path },
+                      }
+                    : undefined
+                }
               />
             )}
           </div>
