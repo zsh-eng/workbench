@@ -1633,7 +1633,7 @@ export function WorkspaceHost({
                               }}
                               onHide={toggleSidebar}
                               onSettings={() => {
-                                history.pushState(null, "", "/sources");
+                                history.pushState(null, "", "/settings");
                                 window.dispatchEvent(new PopStateEvent("popstate"));
                               }}
                               onArchive={(thread) =>

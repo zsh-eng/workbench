@@ -5622,8 +5622,10 @@ export function App({
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
         findingPlacement={codexFindings.placement}
+        // It opens the session: while the session shows, its message box
+        // holds the comments to send.
         sendTo={
-          replyAgent
+          replyAgent && !sessionVisible
             ? {
                 name: replyAgent,
                 icon: leadIcon,

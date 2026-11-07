@@ -86,21 +86,21 @@ or a new browser profile, starts with the defaults. A change shows at once in
 every workspace and window, except where the table says "each window" or
 "each workspace": those read the setting when they open.
 
-| Setting                                        | Default      | Kept in (`localStorage`)             |
-| ---------------------------------------------- | ------------ | ------------------------------------ |
-| Split or unified diff                          | Split        | `med:mode`                           |
-| Wrap long lines                                | Off          | `med:wrap`                           |
-| Comments in the diff                           | On           | `med:comments`                       |
-| Changes' sidebar, Review's guide               | Auto         | `med:changes-rail`, `med:guide-rail` |
-| Code text size (11 to 16 pixels)               | 12           | `med:code-size`                      |
-| Theme                                          | Med Night    | `med:theme:v1`                       |
-| Vim keys and line blame in files               | On           | `med:vim`, `med:line-blame`          |
-| Find file's preview                            | On           | `med:picker-preview`                 |
-| Show work, background tasks (Session pane)     | Folded, open | `med:work`, `med:background`         |
-| Session side panel                             | Shown        | `med:session-panel`                  |
-| Sidebar shown, its width (each window)         | Shown, 272   | `med:sidebar`, `med:sidebar-width`   |
-| Panes: open, hidden, sizes, zoom (each thread) | Per layout   | `med:panes:v1:<workspace>`           |
-| Changes rail, Guide, and Commit list widths    | Per pane     | `med:column:v1:<kind>`               |
+| Setting                                        | Default                   | Kept in (`localStorage`)                              |
+| ---------------------------------------------- | ------------------------- | ----------------------------------------------------- |
+| Split or unified diff                          | Split                     | `med:mode`                                            |
+| Wrap long lines                                | Off                       | `med:wrap`                                            |
+| Comments in the diff                           | On                        | `med:comments`                                        |
+| Changes' sidebar, Review's guide               | Auto                      | `med:changes-rail`, `med:guide-rail`                  |
+| Code text size (11 to 16 pixels)               | 12                        | `med:code-size`                                       |
+| Theme: mode, light theme, dark theme           | Dark, Med Dawn, Med Night | `med:theme-mode`, `med:theme-light`, `med:theme-dark` |
+| Vim keys and line blame in files               | On                        | `med:vim`, `med:line-blame`                           |
+| Find file's preview                            | On                        | `med:picker-preview`                                  |
+| Show work, background tasks (Session pane)     | Folded, open              | `med:work`, `med:background`                          |
+| Session side panel                             | Shown                     | `med:session-panel`                                   |
+| Sidebar shown, its width (each window)         | Shown, 272                | `med:sidebar`, `med:sidebar-width`                    |
+| Panes: open, hidden, sizes, zoom (each thread) | Per layout                | `med:panes:v1:<workspace>`                            |
+| Changes rail, Guide, and Commit list widths    | Per pane                  | `med:column:v1:<kind>`                                |
 
 A missing or unknown value reads as the default, so nothing needs setting up.
 Some choices belong to one place, not to the view: the Git blame gutter (one

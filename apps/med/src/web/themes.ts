@@ -1614,16 +1614,40 @@ export function applyTheme(theme: Theme, root: HTMLElement = document.documentEl
   meta.content = theme.palette.panel;
 }
 
+/** Which theme shows: the light one, the dark one, or the system's choice
+ * between the two. */
+export type ThemeMode = "system" | "light" | "dark";
+export const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
+export const THEME_MODE_KEY = "med:theme-mode";
+export const THEME_LIGHT_KEY = "med:theme-light";
+export const THEME_DARK_KEY = "med:theme-dark";
+
 export interface ThemeSnapshot {
   active: Theme;
   saved: Theme;
   persistenceError: string | null;
+  mode: ThemeMode;
+  /** The theme for each appearance. */
+  light: Theme;
+  dark: Theme;
 }
 
 type ThemeStorage = Pick<Storage, "getItem" | "setItem">;
 export interface ThemeControllerOptions {
   storage?: ThemeStorage;
   apply?: (theme: Theme) => void;
+  /** Whether the system prefers dark, and a way to hear when it changes. */
+  system?: { dark(): boolean; watch(change: () => void): void };
+}
+
+/** The other appearance of a theme's family, or the first theme of that appearance. */
+function partner(theme: Theme, appearance: Theme["appearance"]): Theme {
+  if (theme.appearance === appearance) return theme;
+  return (
+    themes.find((entry) => entry.family === theme.family && entry.appearance === appearance) ??
+    themes.find((entry) => entry.appearance === appearance) ??
+    theme
+  );
 }
 
 // Selection preview is temporary. Only commit writes storage. This follows the
@@ -1631,21 +1655,46 @@ export interface ThemeControllerOptions {
 // https://github.com/zed-industries/zed/blob/main/crates/theme_selector/src/theme_selector.rs
 export function createThemeController(options: ThemeControllerOptions = {}) {
   let storage = options.storage;
+  const systemDark = () => options.system?.dark() ?? true;
   let snapshot: ThemeSnapshot = {
     active: defaultTheme,
     saved: defaultTheme,
     persistenceError: null,
+    mode: defaultTheme.appearance,
+    light: partner(defaultTheme, "light"),
+    dark: partner(defaultTheme, "dark"),
   };
   const listeners = new Set<() => void>();
-  function publish(
-    active: Theme,
-    saved = snapshot.saved,
-    persistenceError = snapshot.persistenceError,
-  ) {
-    options.apply?.(active);
-    snapshot = { active, saved, persistenceError };
+  const resolve = (mode: ThemeMode, light: Theme, dark: Theme) =>
+    mode === "light" ? light : mode === "dark" ? dark : systemDark() ? dark : light;
+  function publish(next: Partial<ThemeSnapshot>) {
+    snapshot = { ...snapshot, ...next };
+    options.apply?.(snapshot.active);
     for (const listener of listeners) listener();
   }
+  /** Saves the choices and shows the theme that they resolve to. */
+  function choose(mode: ThemeMode, light: Theme, dark: Theme) {
+    let error: string | null = null;
+    const theme = resolve(mode, light, dark);
+    try {
+      storage?.setItem(THEME_MODE_KEY, mode);
+      storage?.setItem(THEME_LIGHT_KEY, light.id);
+      storage?.setItem(THEME_DARK_KEY, dark.id);
+      // The theme on screen, for an older Med that reads only this key.
+      storage?.setItem(THEME_STORAGE_KEY, theme.id);
+    } catch {
+      error = "Theme could not be saved. It applies to this session.";
+    }
+    publish({ active: theme, saved: theme, persistenceError: error, mode, light, dark });
+  }
+  options.system?.watch(() => {
+    if (snapshot.mode !== "system") return;
+    const theme = resolve(snapshot.mode, snapshot.light, snapshot.dark);
+    // A preview stays until it ends; the saved theme follows the system.
+    publish(
+      snapshot.active === snapshot.saved ? { active: theme, saved: theme } : { saved: theme },
+    );
+  });
   return {
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
@@ -1656,41 +1705,74 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
     },
     initialize(nextStorage = storage) {
       storage = nextStorage;
-      let theme = defaultTheme;
       let error: string | null = null;
+      let mode: ThemeMode = defaultTheme.appearance;
+      let light = partner(defaultTheme, "light");
+      let dark = partner(defaultTheme, "dark");
       try {
         const stored = storage?.getItem(THEME_STORAGE_KEY);
         const legacy = !stored ? storage?.getItem("med:theme") : null;
-        theme = findTheme(stored ?? (legacy === "light" ? "graphite-light" : undefined));
+        // Before the mode, Med kept one theme: it stays the one that shows.
+        const single = findTheme(stored ?? (legacy === "light" ? "graphite-light" : undefined));
+        mode = single.appearance;
+        light = partner(single, "light");
+        dark = partner(single, "dark");
+        const storedMode = storage?.getItem(THEME_MODE_KEY);
+        if (THEME_MODES.includes(storedMode as ThemeMode)) mode = storedMode as ThemeMode;
+        const storedLight = themes.find((t) => t.id === storage?.getItem(THEME_LIGHT_KEY));
+        const storedDark = themes.find((t) => t.id === storage?.getItem(THEME_DARK_KEY));
+        if (storedLight?.appearance === "light") light = storedLight;
+        if (storedDark?.appearance === "dark") dark = storedDark;
       } catch {
         error = "Theme storage is unavailable. Changes apply to this session.";
       }
-      publish(theme, theme, error);
+      const theme = resolve(mode, light, dark);
+      publish({ active: theme, saved: theme, persistenceError: error, mode, light, dark });
     },
     preview(id: string) {
       const theme = findTheme(id);
-      if (theme !== snapshot.active) publish(theme);
+      if (theme !== snapshot.active) publish({ active: theme });
     },
+    /** A theme chosen from the picker: the theme for its appearance, and it
+     * shows. In the system's mode, a theme of the other appearance leaves it. */
     commit(id: string) {
       const theme = findTheme(id);
-      let error: string | null = null;
-      try {
-        storage?.setItem(THEME_STORAGE_KEY, theme.id);
-      } catch {
-        error = "Theme could not be saved. It applies to this session.";
-      }
-      publish(theme, theme, error);
+      const light = theme.appearance === "light" ? theme : snapshot.light;
+      const dark = theme.appearance === "dark" ? theme : snapshot.dark;
+      const keeps =
+        snapshot.mode === "system" && theme.appearance === (systemDark() ? "dark" : "light");
+      choose(keeps ? "system" : theme.appearance, light, dark);
+    },
+    setMode(mode: ThemeMode) {
+      choose(mode, snapshot.light, snapshot.dark);
+    },
+    /** The theme for its appearance, which shows when the mode picks it. */
+    setTheme(id: string) {
+      const theme = findTheme(id);
+      choose(
+        snapshot.mode,
+        theme.appearance === "light" ? theme : snapshot.light,
+        theme.appearance === "dark" ? theme : snapshot.dark,
+      );
     },
     cancelPreview() {
-      if (snapshot.active !== snapshot.saved) publish(snapshot.saved);
+      if (snapshot.active !== snapshot.saved) publish({ active: snapshot.saved });
     },
   };
 }
 
+const darkQuery =
+  typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
 export const themeController = createThemeController({
   apply: (theme) => {
     if (typeof document !== "undefined") applyTheme(theme);
   },
+  ...(darkQuery && {
+    system: {
+      dark: () => darkQuery.matches,
+      watch: (change) => darkQuery.addEventListener("change", change),
+    },
+  }),
 });
 
 /** Call once before React mounts to avoid an incorrect first frame. */

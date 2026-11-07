@@ -846,6 +846,14 @@ const scenes: Record<string, () => Promise<void>> = {
     const stream = scroller(visible("diffs-container") ?? null);
     if (stream) stream.scrollTop = 0;
   },
+  // Settings, on its Appearance section: the system's light and dark, and a
+  // theme for each.
+  async settings() {
+    await until(() => visible("[data-review-status='ready']"));
+    history.pushState(null, "", "/settings");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await until(() => visible("nav[aria-label='Settings']"));
+  },
   // The agent's brief, with its cited diffs.
   async brief() {
     await review({ sidebar: false, session: false }, "Notes");

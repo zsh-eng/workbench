@@ -32,6 +32,49 @@ describe("theme choices", () => {
     expect(unknown.getSnapshot().active).toBe(defaultTheme);
   });
 
+  test("shows the light or the dark theme, or follows the system between them", () => {
+    let dark = true;
+    let change = () => {};
+    const system = {
+      dark: () => dark,
+      watch: (listener: () => void) => {
+        change = listener;
+      },
+    };
+    const storage = memoryStorage({ [THEME_STORAGE_KEY]: "graphite-dark" });
+    const controller = createThemeController({ storage, system });
+    controller.initialize();
+    // One saved theme keeps showing: its appearance is the mode.
+    expect(controller.getSnapshot()).toMatchObject({
+      mode: "dark",
+      active: { id: "graphite-dark" },
+      light: { id: "graphite-light" },
+    });
+    controller.setMode("system");
+    expect(controller.getSnapshot().active.id).toBe("graphite-dark");
+    dark = false;
+    change();
+    expect(controller.getSnapshot().active.id).toBe("graphite-light");
+    // The light theme for a light system shows at once.
+    controller.setTheme("vitesse-light");
+    expect(controller.getSnapshot().active.id).toBe("vitesse-light");
+    // The picker's dark theme, while the system is light, leaves System for Dark.
+    controller.commit("tokyo-night");
+    expect(controller.getSnapshot()).toMatchObject({
+      mode: "dark",
+      active: { id: "tokyo-night" },
+      light: { id: "vitesse-light" },
+    });
+    // The choices come back with Med.
+    const again = createThemeController({ storage, system });
+    again.initialize();
+    expect(again.getSnapshot()).toMatchObject({
+      mode: "dark",
+      active: { id: "tokyo-night" },
+      light: { id: "vitesse-light" },
+    });
+  });
+
   test("keeps the session usable when browser storage fails", () => {
     const controller = createThemeController({
       storage: {

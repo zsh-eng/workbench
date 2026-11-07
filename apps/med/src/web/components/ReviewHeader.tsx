@@ -320,7 +320,7 @@ const styles = stylex.create({
   },
   grow: { flex: "1", minWidth: 0 },
   display: { gap: 6, height: 28, marginInlineEnd: 6, paddingInline: 8, color: tokens.muted },
-  displayLabel: { display: { default: "inline", "@container (max-width: 520px)": "none" } },
+  displayLabel: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
   // The pages' names shorten last, once the title is down to its mark.
   pages: {
     display: "flex",

@@ -51,6 +51,13 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "settings",
+    label: "Settings",
+    note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",
+    scene: "settings",
+    recording: "recording.json",
+  },
+  {
     id: "notes",
     label: "Notes vault",
     note: "A folder of notes beside the code, read as Markdown.",

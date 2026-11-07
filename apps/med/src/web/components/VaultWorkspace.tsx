@@ -23,6 +23,7 @@ import { createEditorDrafts } from "../data/editor-drafts";
 import { ThemePicker } from "./ThemePicker";
 import { Icon } from "./Icon";
 import { SourcesPage, type Source } from "./SourcesPage";
+import { SettingsPage, type SettingsSection } from "./settings/SettingsPage";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
@@ -42,14 +43,24 @@ interface VaultTab {
 /** Open notes, and their bytes, that the vault's row holds. */
 const TAB_LIMIT = 24;
 const TAB_BYTES = 32 * 1024 * 1024;
+const settingsSection = (): SettingsSection | null =>
+  location.pathname === "/settings" || location.pathname === "/settings/appearance"
+    ? "appearance"
+    : location.pathname === "/settings/code"
+      ? "code"
+      : null;
 const route = () => ({
-  visible: location.pathname === "/sources" || location.pathname.startsWith("/vault/"),
+  visible:
+    location.pathname === "/sources" ||
+    location.pathname.startsWith("/vault/") ||
+    settingsSection() !== null,
+  settings: settingsSection(),
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
   file: new URLSearchParams(location.search).get("file") ?? "",
 });
 
-/** The vault and sources pages. The review stays mounted beneath them, so
- * returning to it keeps its place. */
+/** The vault, sources, and settings pages. The review stays mounted beneath
+ * them, so returning to it keeps its place. */
 export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [locationState, setLocationState] = useState(route);
   const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
@@ -505,7 +516,13 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       {review}
       <div className="med-vault" data-standalone-files>
         {error && locationState.id && notice}
-        {!locationState.id ? (
+        {locationState.settings ? (
+          <SettingsPage
+            section={locationState.settings}
+            onSection={(section) => navigate(`/settings/${section}`)}
+            onSources={() => navigate("/sources")}
+          />
+        ) : !locationState.id ? (
           <SourcesPage
             sources={sources}
             home={home}
