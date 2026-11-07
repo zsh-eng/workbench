@@ -1040,6 +1040,49 @@ test("wb arctic text --missing: the run's deadline stops a page that hangs and l
   }
 });
 
+test("wb arctic text --missing exits when its run is done, though a read that timed out left its browser running", async () => {
+  const api = fakeAPI();
+  const directory = mkdtempSync(join(tmpdir(), "wb-arctic-finish-"));
+  await seedLinks(api, [
+    {
+      url: "https://example.com/hangs",
+      library: { saved: true, savedAt: toSwift(Date.now()) },
+    },
+  ]);
+  // The interval stands in for the browser that a timed-out read leaves: it
+  // keeps Bun running, as Unwall's browser did until the hourly cap.
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `import { fetchMissingText, stopOnSignal } from ${JSON.stringify(join(import.meta.dirname, "../src/arctic.ts"))};
+const stop = stopOnSignal();
+const read = {
+  read: () => (setInterval(() => {}, 1000), new Promise(() => {})),
+  close: async () => {},
+};
+fetchMissingText({ origin: process.argv[1], token: "fixture", directory: process.argv[2], readTimeoutMs: 100, read, signal: stop.signal })
+  .then((run) => {
+    console.log(run.results.map((result) => result.status).join());
+    return stop.finish();
+  });`,
+      api.server.url.origin,
+      directory,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+  try {
+    expect(await new Response(child.stdout).text()).toBe("failed\n");
+    expect(await child.exited).toBe(0);
+  } finally {
+    clearTimeout(timer);
+    child.kill("SIGKILL");
+    api.server.stop(true);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("wb arctic text --missing stops on SIGTERM while a page hangs: it closes the reader and exits 143", async () => {
   const api = fakeAPI();
   const directory = mkdtempSync(join(tmpdir(), "wb-arctic-sigterm-"));
@@ -1067,7 +1110,7 @@ const read = {
 fetchMissingText({ origin: process.argv[1], token: "fixture", directory: process.argv[2], gapMs: 0, read, signal: stop.signal })
   .then((run) => {
     console.log(run.results.map((result) => result.status).join());
-    stop.exitIfStopped();
+    return stop.finish();
   });`,
       api.server.url.origin,
       directory,

@@ -25,6 +25,7 @@ import {
   backfillPreviews,
   describe,
   describePreview,
+  exitWhenWritten,
   fetchMissingText,
   stopOnSignal,
 } from "./arctic";
@@ -307,9 +308,8 @@ async function main() {
           : `Read ${read}: ${uploaded} uploaded, ${read - uploaded} without text` +
             (notTried ? `; ${notTried} not tried: the run stopped.` : ".")),
     );
-    stop.exitIfStopped();
     // A page without text is expected, and waits for its next try.
-    return;
+    return stop.finish();
   }
   if (command === "arctic") {
     const token = getCredential(origin, directory);
@@ -337,9 +337,8 @@ async function main() {
       onResult: json ? undefined : (result) => console.log(describe(result)),
     });
     if (json) print(results, json);
-    stop.exitIfStopped();
     if (results.some((result) => result.error)) process.exitCode = 1;
-    return;
+    return stop.finish();
   }
   if (command === "db" && sub === "path") {
     print(join(directory, "mirror.sqlite"), json);
@@ -508,5 +507,6 @@ main().catch((error) => {
   console.error(
     `wb: ${error instanceof Error ? error.message : String(error)}`,
   );
-  process.exitCode = 1;
+  // A failed Arctic run may leave a browser behind; it must not hold wb.
+  return exitWhenWritten(Number(process.exitCode) || 1);
 });

@@ -298,8 +298,8 @@ export const READ_TIMEOUT_MS = 2 * 60 * 1000;
  * Stops an Arctic run on SIGTERM or SIGINT, as the hourly job's cap sends.
  * Playwright's own handler closes the browser but doesn't exit, and the run's
  * awake timer would then hold wb forever. Here `signal` aborts, so the run
- * stops reading and closes its reader, and `exitIfStopped` ends wb with 128
- * plus the signal's number. A run that can't stop in 15 s is ended anyway.
+ * stops reading and closes its reader, and `finish` ends wb with 128 plus
+ * the signal's number. A run that can't stop in 15 s is ended anyway.
  */
 export function stopOnSignal() {
   const controller = new AbortController();
@@ -316,10 +316,20 @@ export function stopOnSignal() {
     });
   return {
     signal: controller.signal,
-    exitIfStopped() {
-      if (code !== undefined) process.exit(code);
-    },
+    /** Ends wb when its run is done, with the signal's code if one stopped it. */
+    finish: () => exitWhenWritten(code ?? Number(process.exitCode ?? 0)),
   };
+}
+
+/**
+ * Ends wb after its output is written. Once a run is done, nothing may hold
+ * wb: a read that timed out can leave a browser that won't close, and its
+ * handles would hold wb until the hourly job's cap stops it.
+ */
+export async function exitWhenWritten(code: number): Promise<never> {
+  for (const stream of [process.stdout, process.stderr])
+    await new Promise<void>((resolve) => stream.write("", () => resolve()));
+  process.exit(code);
 }
 
 /** `promise`, or `signal`'s reason if it aborts first. */
