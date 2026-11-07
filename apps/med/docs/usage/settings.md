@@ -34,7 +34,9 @@ other).
 ## Sources
 
 **Open Sources** opens the registered repositories and notes vaults
-(`/sources`).
+(`/sources`). **Pull base branches** keeps each repository's base branch up
+to date with its remote, every 15 minutes, where nothing of yours would
+change (see [Run Med](run-med.md#base-branches-stay-up-to-date)).
 
 ## The settings file
 
@@ -64,6 +66,7 @@ the file.
 | `files.lineBlame`       | `true` or `false`: the cursor line's blame                 | `true`           |
 | `files.findPreview`     | `true` or `false`: the preview in Find file                | `true`           |
 | `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`          |
+| `sources.pullBase`      | `true` or `false`: pull each repository's base branch      | `true`           |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.

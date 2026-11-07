@@ -62,13 +62,7 @@ export function SettingsPage({
           <Appearance />
           <Code />
           <Files />
-          <Section title="Sources" note="The repositories and folders that Med shows.">
-            <Row label="Repositories and folders">
-              <button type="button" onClick={onSources} {...stylex.props(styles.link)}>
-                Open Sources
-              </button>
-            </Row>
-          </Section>
+          <Sources onSources={onSources} />
           {file && <FileSection file={file} />}
         </div>
       </div>
@@ -215,6 +209,29 @@ function Files() {
             { value: "queue", label: "Queue for the turn's end" },
           ]}
           onChange={(value) => viewSettings.followUp.set(value as "now" | "queue")}
+        />
+      </Row>
+    </Section>
+  );
+}
+
+function Sources({ onSources }: { onSources(): void }) {
+  const pull = useViewSetting(viewSettings.pullBase);
+  return (
+    <Section title="Sources" note="The repositories and folders that Med shows.">
+      <Row label="Repositories and folders">
+        <button type="button" onClick={onSources} {...stylex.props(styles.link)}>
+          Open Sources
+        </button>
+      </Row>
+      <Row
+        label="Pull base branches"
+        note="Every 15 minutes, each repository's main branch moves up to its remote's, where nothing of yours would change."
+      >
+        <Switch
+          label="Pull base branches"
+          on={pull === "on"}
+          toggle={() => viewSettings.pullBase.set(pull === "on" ? "off" : "on")}
         />
       </Row>
     </Section>

@@ -86,6 +86,7 @@ import { blameBrowse } from "./repository/inspect";
 import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
+import { BasePulls } from "./repository/base-pull";
 import { RepositoryRegistry } from "./repository/registry";
 import { Memo } from "./repository/cache";
 import { CheckoutRevisions } from "./repository/events";
@@ -210,6 +211,10 @@ export interface StartHostOptions {
   foundSessions?: boolean;
   /** Offer Antigravity (`agy`): off unless `MED_AGY=1` (default false). */
   agy?: boolean;
+  /** Pull each repository's base branch now and then (`BasePulls`): on for
+   * Med's own service and review, off for tests and another state folder.
+   * Tests give their own times. */
+  basePull?: boolean | { delayMs?: number; intervalMs?: number };
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -728,6 +733,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
+  // The base branches stay up to date unless the reader turns
+  // `sources.pullBase` off; POST /api/base-pulls pulls now.
+  const basePulls = new BasePulls(
+    {
+      repositories: () => registry.snapshot(),
+      enabled: async () => (await settingsFile.snapshot()).settings["sources.pullBase"] !== false,
+      refresh: () => registry.list(),
+    },
+    typeof options.basePull === "object" ? options.basePull : {},
+  );
+  if (options.basePull) basePulls.start();
   /** Removes a linked worktree with `git worktree remove`. Git keeps one with
    * changes; an agent that works there keeps it too. */
   const removeLinkedWorktree = async (input: string, signal: AbortSignal) => {
@@ -2423,6 +2439,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           // `med reply <id>`: the reviews with a comment whose ID starts so.
+          if (url.pathname === "/api/base-pulls") {
+            if (request.method === "POST") send({ pulls: await basePulls.run() });
+            else send({ pulls: [...basePulls.last.values()] });
+            return;
+          }
           const commentRoute = /^\/api\/comments\/([0-9a-fA-F-]{6,36})$/.exec(url.pathname);
           if (commentRoute && request.method === "GET") {
             const ids = await savedReviews.reviewsWithComment(commentRoute[1]!.toLowerCase());
@@ -3629,6 +3650,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
+      basePulls.close();
       queuedMessages.stop();
       await ownedSessions.detachAll();
       await questions.stopAll();

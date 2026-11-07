@@ -76,6 +76,7 @@ export const FILE_SETTINGS = {
     flag("files.findPreview", "med:picker-preview", "on", "off"),
     word("session.followUp", "med:follow-up", ["now", "queue"]),
   ],
+  sources: [flag("sources.pullBase", "med:pull-base", "on", "off")],
 } satisfies Record<string, Mirror[]>;
 const MIRRORS = Object.values(FILE_SETTINGS).flat();
 const THEME_KEYS = new Set([THEME_MODE_KEY, THEME_LIGHT_KEY, THEME_DARK_KEY]);

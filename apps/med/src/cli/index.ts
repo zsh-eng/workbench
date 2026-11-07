@@ -268,6 +268,7 @@ async function main(args: string[]) {
       fileMode: values.editor,
       stateDir,
       foundSessions: stateDir === defaultStateDirectory(),
+      basePull: stateDir === defaultStateDirectory(),
       ...(initialComparison ? { initialComparison } : {}),
       allowedInputPaths,
       onClose: cleanup,

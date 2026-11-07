@@ -88,3 +88,26 @@ worktree belongs to its repository; separate clones stay separate, even with
 the same remote. On the **Sources** page, a row's **⋯** menu can index a vault
 again, copy the path, or remove the source. Removing a source keeps its folder.
 See [notes and vaults](../VAULTS.md) for vaults.
+
+### Base branches stay up to date
+
+Med pulls each registered repository's base branch, so a new branch or a
+review starts from the newest commits without a `git pull` first. A minute
+after Med starts, and then every 15 minutes, it fetches the branch that the
+remote names as its default (`origin/HEAD`, such as `main`, `master`, or
+`develop`), or else the main checkout's branch, from its upstream, and moves
+the local branch forward as `git pull --ff-only` would:
+
+- A checkout that has the branch out moves with it while it has no
+  uncommitted changes to tracked files. With changes, Med only fetches.
+- A branch that no checkout has out moves by its ref, so a thread's own
+  branch and worktree stay as they are.
+- A branch with commits of its own stays as it is: Med never merges or
+  rebases. It only fetches the remote's branch.
+- A fetch never asks for a password or a passphrase. A key in the SSH agent
+  and a password in the keychain work; otherwise the pull fails quietly and
+  tries again later.
+
+Turn it off with **Pull base branches** in [Settings](settings.md#sources), or
+`"sources.pullBase": false` in the settings file. Only the Med that uses its
+own state folder pulls; one started with `--state-dir` does not.
