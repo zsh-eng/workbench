@@ -9,6 +9,21 @@
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Med</title>
+    <script>
+      // The theme's frame color for the first frame, before the app loads (themes.ts).
+      try {
+        const paint = JSON.parse(localStorage.getItem("med:theme-paint") ?? "null") ?? {
+          mode: "dark",
+          dark: "#111217",
+        };
+        const dark =
+          paint.mode === "dark" ||
+          (paint.mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        const root = document.documentElement;
+        root.style.colorScheme = dark ? "dark" : "light";
+        root.style.backgroundColor = dark ? paint.dark : paint.light;
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

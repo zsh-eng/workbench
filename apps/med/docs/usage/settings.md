@@ -13,6 +13,9 @@ and what it does, and its control.
   `⌘K`'s **Change theme** becomes the theme for its appearance, and shows: in
   System, a theme of the other appearance switches the mode to it.
 
+Med paints its window in the chosen theme's color before it loads, so the
+first frame is never the browser's own white or black.
+
 ## Code
 
 The diff's layout (**Split** or **Unified**), **Wrap long lines**, **Comments

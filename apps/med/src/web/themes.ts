@@ -1621,6 +1621,9 @@ export const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 export const THEME_MODE_KEY = "med:theme-mode";
 export const THEME_LIGHT_KEY = "med:theme-light";
 export const THEME_DARK_KEY = "med:theme-dark";
+/** The mode and each appearance's frame color, which index.html paints before the
+ * app loads, so the first frame is not the browser's own white or black. */
+export const THEME_PAINT_KEY = "med:theme-paint";
 
 export interface ThemeSnapshot {
   active: Theme;
@@ -1672,6 +1675,11 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
     options.apply?.(snapshot.active);
     for (const listener of listeners) listener();
   }
+  const paint = (mode: ThemeMode, light: Theme, dark: Theme) =>
+    storage?.setItem(
+      THEME_PAINT_KEY,
+      JSON.stringify({ mode, light: light.palette.panel, dark: dark.palette.panel }),
+    );
   /** Saves the choices and shows the theme that they resolve to. */
   function choose(mode: ThemeMode, light: Theme, dark: Theme) {
     let error: string | null = null;
@@ -1682,6 +1690,7 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
       storage?.setItem(THEME_DARK_KEY, dark.id);
       // The theme on screen, for an older Med that reads only this key.
       storage?.setItem(THEME_STORAGE_KEY, theme.id);
+      paint(mode, light, dark);
     } catch {
       error = "Theme could not be saved. It applies to this session.";
     }
@@ -1723,6 +1732,7 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
         const storedDark = themes.find((t) => t.id === storage?.getItem(THEME_DARK_KEY));
         if (storedLight?.appearance === "light") light = storedLight;
         if (storedDark?.appearance === "dark") dark = storedDark;
+        paint(mode, light, dark);
       } catch {
         error = "Theme storage is unavailable. Changes apply to this session.";
       }

@@ -5,7 +5,9 @@ import { zedSyntax } from "../../src/web/zed-syntax";
 import {
   createThemeController,
   defaultTheme,
+  findTheme,
   themes,
+  THEME_PAINT_KEY,
   THEME_STORAGE_KEY,
   type SyntaxTheme,
 } from "../../src/web/themes";
@@ -64,6 +66,12 @@ describe("theme choices", () => {
       mode: "dark",
       active: { id: "tokyo-night" },
       light: { id: "vitesse-light" },
+    });
+    // index.html paints the frame from this before the app loads.
+    expect(JSON.parse(storage.getItem(THEME_PAINT_KEY)!)).toEqual({
+      mode: "dark",
+      light: findTheme("vitesse-light").palette.panel,
+      dark: findTheme("tokyo-night").palette.panel,
     });
     // The choices come back with Med.
     const again = createThemeController({ storage, system });
