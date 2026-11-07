@@ -96,21 +96,3 @@ export const sessionAdoptedSchema = z.object({
   session: sessionEntrySchema.optional(),
 });
 export type SessionAdopted = z.infer<typeof sessionAdoptedSchema>;
-
-/**
- * `GET /api/sessions/running`: an agent session that runs on this computer
- * now. Med's own show while they work on a turn; another process's while it
- * has the session open, as a terminal or the agent's app does.
- */
-export const runningSessionSchema = z.object({
-  agent: z.enum(["claude", "codex", "agy", "acp"]),
-  id: z.string(),
-  title: z.string(),
-  cwd: z.string().optional(),
-  /** Where it runs: in Med, a terminal, the Claude app, or another app. */
-  place: z.enum(["med", "terminal", "claude-app", "other-app"]),
-  /** The saved thread that has it. */
-  thread: z.string().optional(),
-});
-export type RunningSession = z.infer<typeof runningSessionSchema>;
-export const runningSessionsSchema = z.object({ sessions: z.array(runningSessionSchema) });

@@ -163,21 +163,14 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
 ### Running now
 
 The sidebar has no Running now section: a running session joins the session
-list as a tab. `GET /api/sessions/running` still lists the agent sessions that
-run on this computer, for no client yet: Med's own while they work on a turn,
-and Claude Code, Codex, and agy sessions that another process has open. Med
-reads Claude Code's process records (`~/.claude/sessions/<pid>.json`),
-Codex's thread locks, and agy's presence locks
-(`~/.gemini/antigravity-cli/presence/<id>.lock`), and counts a lock only
-while a process other than Med's agents has it open (`lsof`). Codex Desktop
-keeps every thread that it shows loaded, with its lock, so a Codex thread
-lists only while a turn is in progress: its rollout's last turn started
-(`task_started`) without a `task_complete` or `turn_aborted`, or, in a turn
-too long for the rollout's last 256 KB to show its start, the rollout
-changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`
-reads the last 256 KB, then the last 4 MiB). An idle `codex` in a terminal
-does not list either; Claude Code sessions list while their process runs.
-Codex's guardian reviews and subagents do not list. One with a thread opens it;
+list as a tab. Med tells a Claude Code, Codex, or agy session that another
+process has open from its lock: Claude Code's process records
+(`~/.claude/sessions/<pid>.json`), Codex's thread locks, and agy's presence
+locks (`~/.gemini/antigravity-cli/presence/<id>.lock`), each counted only
+while a process other than Med's agents has it open (`lsof`, in
+`agent-locks.ts`).
+Codex's guardian reviews and subagents stay out of the session list. A found
+session with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
 conversation a thread whose agent Med runs, from its transcript's history

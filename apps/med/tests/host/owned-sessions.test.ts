@@ -22,7 +22,6 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
-import type { RunningSession } from "../../src/shared/found-sessions";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { longProcess, processStart, writeProcessRecord } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
@@ -1460,7 +1459,7 @@ async function holdOpen(cwd: string, paths: string[]) {
   };
 }
 
-test("Running now lists the sessions that run in Med and elsewhere; an agy conversation continues in Med once its process ends, from its history", async () => {
+test("an agy conversation continues in Med once its process ends, from its history", async () => {
   const { api, home, repo, review, start, thread } = await fixture();
   const lines = (entries: object[]) =>
     entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
@@ -1593,28 +1592,6 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
     });
     await owned.until((state) => !!state.permission);
 
-    const running = async () =>
-      (await api<{ sessions: RunningSession[] }>("/api/sessions/running")).data.sessions;
-    expect(await running()).toEqual([
-      {
-        agent: "codex",
-        id: owned.id,
-        title: "Format durations",
-        cwd: repo,
-        place: "med",
-        thread: review.id,
-      },
-      {
-        agent: "claude",
-        id: claude,
-        title: "Tidy the duration helpers",
-        cwd: repo,
-        place: "terminal",
-      },
-      { agent: "codex", id: codex, title: "Port the parser", cwd: repo, place: "other-app" },
-      { agent: "agy", id: agy, title: "Name the files.", cwd: repo, place: "terminal" },
-    ]);
-
     // Continue in Med makes the agy conversation a thread at once, with its
     // history. agy has one writer, so a message waits for agy to end there.
     const adopt = () =>
@@ -1659,7 +1636,7 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
   }
 });
 
-test("Antigravity is off until the user turns it on: Med does not offer it, list it as running, or continue its conversations", async () => {
+test("Antigravity is off until the user turns it on: Med does not offer it or continue its conversations", async () => {
   const { api, home, repo, review } = await fixture({ agy: false });
   const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
   const terminal = await holdOpen(repo, [
@@ -1670,8 +1647,6 @@ test("Antigravity is off until the user turns it on: Med does not offer it, list
     expect(agents.data.agents.map((agent) => agent.id)).not.toContain("agy");
     expect((await api(`/api/reviews/${review.id}/owned`, { preset: "agy" })).status).toBe(404);
     expect((await api("/api/agents/agy/choices")).status).toBe(404);
-    const running = await api<{ sessions: RunningSession[] }>("/api/sessions/running");
-    expect(running.data.sessions.filter((session) => session.agent === "agy")).toEqual([]);
     const adopt = await api("/api/sessions/adopt", { agent: "agy", session: agy, repo });
     expect(adopt.status).toBe(404);
   } finally {

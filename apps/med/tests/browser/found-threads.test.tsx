@@ -7,7 +7,6 @@ import { createBrowseApi } from "../../src/web/data/browse";
 import type { Comparison } from "../../src/shared/protocol";
 import type { SavedCheckout } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
-import type { RunningSession } from "../../src/shared/found-sessions";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
 // Sessions that Med found by itself (src/host/found-sessions.ts) list as
@@ -149,7 +148,7 @@ const stream = (init: RequestInit | undefined, first?: string) =>
 
 /** A host with one repository and its glossary worktree. It lists the
  * threads that the test sets, and records the requests that change them. */
-function createHost(threads: Thread[], running: RunningSession[] = []) {
+function createHost(threads: Thread[]) {
   const posts: { path: string; body: unknown }[] = [];
   const sessionStreams: string[] = [];
   const reviews: { repo: string; comparison: Comparison }[] = [];
@@ -222,8 +221,6 @@ function createHost(threads: Thread[], running: RunningSession[] = []) {
       return Response.json(keptReview);
     }
     switch (url.pathname) {
-      case "/api/sessions/running":
-        return Response.json({ sessions: running });
       case "/api/threads/events":
         return stream(
           init,

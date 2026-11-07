@@ -95,7 +95,6 @@ import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore, type CommitLens } from "./saved-reviews";
-import { createSchedules } from "./schedules";
 import { createThreadTabs } from "./thread-tabs";
 import { createThreadService } from "./thread-service";
 import { createThreadSubagents } from "./thread-subagents";
@@ -118,7 +117,7 @@ import {
 } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
-import { codexTurnOpen, createFoundSessions } from "./found-sessions";
+import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
@@ -134,7 +133,6 @@ import {
   foundUpdateSchema,
   sessionAdoptSchema,
   sessionFindSchema,
-  type RunningSession,
   type SessionAdopt,
   type SessionAdopted,
 } from "../shared/found-sessions";
@@ -304,8 +302,6 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** Serve one local review process; Git operations never change the checkout. */
-/** How long an answer of Running now serves the pages that poll it. */
-const RUNNING_MS = 3000;
 
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   let repository: Repository;
@@ -407,22 +403,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     agy: options.agy ?? process.env.MED_AGY === "1",
   });
   await ownedSessions.restore();
-  // The Scheduled list: a session's jobs fire while its process runs, in Med
-  // or elsewhere.
-  const schedules = createSchedules({
-    async running(ids) {
-      const places = new Map<string, "med" | SessionPlace>();
-      const rest = ids.filter((id) => {
-        const runner = ownedSessions.get(id);
-        if (runner?.pid() === undefined || runner.dormant()) return true;
-        places.set(id, "med");
-        return false;
-      });
-      if (rest.length)
-        for (const [id, place] of await ownedSessions.elsewhere(rest, 1000)) places.set(id, place);
-      return places;
-    },
-  });
   /**
    * The review's Claude sessions that Med does not run now, or restored
    * without a process: those that another process runs, such as Claude Code
@@ -563,90 +543,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     codexNames: () => found.codexNames(),
     excluded: (agent, id) => questions.excludes(agent, id),
   });
-  /** Running now: Med's agents that work on a turn, then the sessions that
-   * other processes have open, each with its thread if one has it. Pages
-   * poll it, so an answer serves for a few seconds. */
-  let runningAnswer: { at: number; sessions: Promise<RunningSession[]> } | undefined;
-  const runningSessions = () => {
-    if (!runningAnswer || Date.now() - runningAnswer.at > RUNNING_MS) {
-      const sessions = readRunning();
-      runningAnswer = { at: Date.now(), sessions };
-      sessions.catch(() => (runningAnswer = undefined));
-    }
-    return runningAnswer.sessions;
-  };
-  const readRunning = async (): Promise<RunningSession[]> => {
-    const running = await ownedSessions.running();
-    const reviews = await savedReviews.list();
-    const named = await sessionThreads(reviews);
-    const titles = new Map(reviews.map((review) => [review.id, review.title]));
-    const infos = new Map(
-      (
-        await sessionSearch.exactly([
-          ...running.claude.map(({ id }) => ({ agent: "claude" as const, id })),
-          ...running.codex.map(({ id }) => ({ agent: "codex" as const, id })),
-        ])
-      ).map((info) => [`${info.agent}:${info.id}`, info]),
-    );
-    const thread = (id: string) => {
-      const found = named.get(id)?.id;
-      return found ? { thread: found } : {};
-    };
-    const sessions: RunningSession[] = running.med.map(({ session, kind, name }) => {
-      const saved = named.get(session.id)?.id;
-      return {
-        agent: kind,
-        id: session.id,
-        title: (saved && titles.get(saved)) ?? name,
-        cwd: session.cwd,
-        place: "med",
-        ...thread(session.id),
-      };
-    });
-    for (const { id, cwd, place } of running.claude) {
-      const info = infos.get(`claude:${id}`);
-      const where = info?.cwd ?? cwd;
-      sessions.push({
-        agent: "claude",
-        id,
-        title: info?.title ?? "New Claude Code session",
-        ...(where && { cwd: where }),
-        place,
-        ...thread(id),
-      });
-    }
-    // A guardian review or a subagent shows in its parent; a thread without
-    // a rollout has nothing to keep yet; and one that Codex Desktop only has
-    // loaded does not work.
-    const working = await Promise.all(
-      running.codex.map(async ({ id }) => {
-        const info = infos.get(`codex:${id}`);
-        return info && !info.automatic && (await codexTurnOpen(info.path)) ? info : undefined;
-      }),
-    );
-    for (const info of working) {
-      if (!info) continue;
-      const { id } = info;
-      sessions.push({
-        agent: "codex",
-        id,
-        title: info.title,
-        ...(info.cwd && { cwd: info.cwd }),
-        place: "other-app",
-        ...thread(id),
-      });
-    }
-    for (const { id, cwd, title } of running.agy)
-      sessions.push({
-        agent: "agy",
-        id,
-        title: title ?? "Antigravity conversation",
-        ...(cwd && { cwd }),
-        place: "terminal",
-        ...thread(id),
-      });
-    return sessions;
-  };
   /** The saved thread that names a session: by its ID, or for a session
    * that Med runs through ACP, by the agent's own ID. */
   const sessionThreads = async (reviews?: Awaited<ReturnType<typeof savedReviews.list>>) => {
@@ -1562,11 +1458,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               ? await sessionSearch.find(input.text ?? "", input.limit ?? 20)
               : (await sessionSearch.lookup(input.session)).slice(0, input.limit ?? 20);
           send({ sessions: await sessionEntries(sessions) });
-          return;
-        }
-        // The agent sessions that run now, in Med or elsewhere ("Running now").
-        if (url.pathname === "/api/sessions/running" && request.method === "GET") {
-          send({ sessions: await runningSessions() });
           return;
         }
         if (url.pathname === "/api/agents" && request.method === "GET") {
@@ -3440,12 +3331,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // Threads: open as a tab, close to history, reorder, and delete.
           if (url.pathname === "/api/threads" && request.method === "GET") {
             send(await threads.list());
-            return;
-          }
-          // The tabs' Claude Code schedules and the Claude app's scheduled
-          // tasks, read only (docs/SCHEDULES.md).
-          if (url.pathname === "/api/schedules" && request.method === "GET") {
-            send(await schedules.list((await threads.list()).threads));
             return;
           }
           if (url.pathname === "/api/threads/history" && request.method === "GET") {
