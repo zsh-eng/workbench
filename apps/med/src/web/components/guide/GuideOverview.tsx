@@ -45,7 +45,6 @@ export function GuideOverview({
   findings,
   openFindings = 0,
   since,
-  version,
   offers = [],
   repo,
   onSince,
@@ -73,8 +72,6 @@ export function GuideOverview({
   openFindings?: number;
   /** The files that changed since the reader's last review, from version 2. */
   since?: Since | null;
-  /** The shown version, which the reader can mark approved. */
-  version?: { number: number; approved: boolean; onApprove(approved: boolean): void };
   /** Practices that would help here, most useful first; one shows at a time. */
   offers?: readonly Offer[];
   /** The review's checkout, for the summary's images. */
@@ -166,24 +163,6 @@ export function GuideOverview({
           >
             All files
           </button>
-          {version && (
-            <button
-              type="button"
-              aria-pressed={version.approved}
-              onClick={() => version.onApprove(!version.approved)}
-              {...stylex.props(
-                ui.button,
-                ui.pressable,
-                styles.startButton,
-                version.approved && ui.active,
-              )}
-            >
-              <Icon name="check" size={13} />
-              {version.approved
-                ? `Approved version ${version.number}`
-                : `Approve version ${version.number}`}
-            </button>
-          )}
           <span {...stylex.props(styles.startMeta)}>
             {[
               sections.length > 0 &&

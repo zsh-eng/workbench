@@ -2634,8 +2634,8 @@ describe("review guide", () => {
   const streamFiles = () =>
     [...document.querySelectorAll("[data-stream-file]")].map((node) => node.textContent);
 
-  test("shows a version's proof first, what changed since the last review, its findings, and keeps an approval", async () => {
-    const { approvals } = await mountApp({
+  test("shows a version's proof first, what changed since the last review, and its findings", async () => {
+    await mountApp({
       savedReview: true,
       iterationBriefs: [
         "The first round.",
@@ -2702,14 +2702,6 @@ describe("review guide", () => {
     ).toBeTruthy();
     expect(overview.getByRole("complementary").elements()).toHaveLength(0);
 
-    // An approval is the reader's record for the version, and the version menu shows it.
-    const approve = overview.getByRole("button", { name: "Approve version 2" });
-    await approve.click();
-    await expect
-      .element(overview.getByRole("button", { name: "Approved version 2" }))
-      .toHaveAttribute("aria-pressed", "true");
-    expect(approvals()).toEqual([{ version: 2, at: expect.any(String) }]);
-
     // A finding opens its line in the Review's diff.
     await findings.getByRole("button", { name: /Callers still import the old name/ }).click();
     await expect.element(overview).not.toBeInTheDocument();
@@ -2723,15 +2715,6 @@ describe("review guide", () => {
         ),
       )
       .toBe(true);
-    // The version menu marks the approved version.
-    await page.getByRole("combobox", { name: "Review version" }).click();
-    await expect
-      .element(page.getByRole("option", { name: /^Version 2 · .*approved/ }))
-      .toBeVisible();
-    await expect
-      .element(page.getByRole("option", { name: /^Version 1 · / }))
-      .not.toHaveTextContent("approved");
-    await userEvent.keyboard("{Escape}");
   });
 
   test("shows a proof table whose columns share the width, breaking long commands at their separators, and counts its checks", async () => {
@@ -2827,10 +2810,9 @@ describe("review guide", () => {
     expect(overview.getByRole("heading", { name: "Proof", level: 2 }).elements()).toHaveLength(0);
   });
 
-  test("offers a practice where it would help, one at a time, and a dismissed one stays dismissed", async () => {
+  test("offers a practice where it would help, and a dismissed one stays dismissed", async () => {
     const guide: ReviewGuide = { segments: [{ title: "Rename", files: ["src/**"] }] };
     const overview = page.getByRole("region", { name: "Guide overview" });
-    const proofOffer = overview.getByRole("complementary", { name: "No proof with this version" });
     const explainOffer = overview.getByRole("complementary", { name: "No explanation yet" });
     await mountApp({
       savedReview: true,
@@ -2841,19 +2823,15 @@ describe("review guide", () => {
     // Without an explanation, the agent can be asked for one. The request
     // waits in the message box; the reader sends it.
     await expect.element(explainOffer).toBeVisible();
-    await expect.element(proofOffer).not.toBeInTheDocument();
     await explainOffer.getByRole("button", { name: "Ask the agent to explain" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
     await expect
       .element(panel.getByRole("button", { name: "Remove Explain this change" }))
       .toBeVisible();
     await explainOffer.getByRole("button", { name: "Dismiss" }).click();
-    // The next practice shows in its place: proof-first, to copy.
+    // A review without proof has no card for it: nothing takes its place.
     await expect.element(explainOffer).not.toBeInTheDocument();
-    await expect.element(proofOffer.getByRole("button", { name: "Copy skill" })).toBeVisible();
-    await proofOffer.getByRole("button", { name: "Dismiss" }).click();
-    await expect.element(proofOffer).not.toBeInTheDocument();
-    expect(localStorage.getItem("med:offer:proof-first")).toBe("dismissed");
+    expect(overview.getByRole("complementary").elements()).toHaveLength(0);
 
     // Dismissed offers stay dismissed in the next review.
     root?.unmount();

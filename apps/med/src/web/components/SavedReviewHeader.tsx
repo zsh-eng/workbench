@@ -85,8 +85,10 @@ export function SavedReviewHeader({
   const iterationOf = (id: string) =>
     iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
   // With one comparison in each iteration, the Notes' iteration keys choose it,
-  // and the header has no second picker.
+  // and the header has no second picker. The review's header shows no
+  // versions: a review opens on its latest hand-off.
   const pickTarget =
+    !compact &&
     pickVersion &&
     saved.targets.length > 1 &&
     !(
@@ -199,7 +201,7 @@ export function SavedReviewHeader({
       {pickTarget && (
         <select
           aria-label="Review version"
-          {...stylex.props(styles.select, compact && styles.compactSelect)}
+          {...stylex.props(styles.select)}
           value={state.savedTargetId ?? ""}
           onChange={(event) => {
             setNotice(null);
@@ -600,8 +602,6 @@ const styles = stylex.create({
     textDecoration: { default: "none", ":hover": "underline" },
   },
   grow: { flexGrow: 1 },
-  // In the review's header, the version gives the title and the pages room.
-  compactSelect: { maxWidth: 160 },
   select: {
     minWidth: 0,
     maxWidth: "min(280px, 30vw)",

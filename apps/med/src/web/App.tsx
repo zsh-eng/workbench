@@ -195,7 +195,6 @@ import {
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
 import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
-import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import {
   CommitHeader,
@@ -5191,23 +5190,6 @@ export function App({
           }),
       },
     });
-  if (!overviewProof)
-    overviewOffers.push({
-      id: "proof-first",
-      slot: "proof",
-      title: "No proof with this version",
-      text: "The proof-first practice asks the agent to list each check it ran with its result, and what the checks miss. Med shows them here.",
-      action: { kind: "copy", label: "Copy skill", text: proofFirstSkill },
-    });
-  const approveVersion = useCallback(
-    (version: number, approved: boolean) =>
-      void controller
-        .approveVersion(version, approved)
-        .catch((error: unknown) =>
-          showToast(error instanceof Error ? error.message : "Med could not save the approval."),
-        ),
-    [controller, showToast],
-  );
   const nextGuidePart = guideSection
     ? guideSections[guideSections.indexOf(guideSection) + 1]
     : guideScope.kind === "since"
@@ -6170,17 +6152,6 @@ export function App({
                     findings={reviewOutput}
                     openFindings={openFindings}
                     since={shownSince}
-                    version={
-                      state.savedReview
-                        ? {
-                            number: shownIteration ?? 1,
-                            approved: !!approvals?.some(
-                              (entry) => entry.version === (shownIteration ?? 1),
-                            ),
-                            onApprove: (approved) => approveVersion(shownIteration ?? 1, approved),
-                          }
-                        : undefined
-                    }
                     offers={overviewOffers}
                     repo={state.review?.repo}
                     onSince={(file) => {
