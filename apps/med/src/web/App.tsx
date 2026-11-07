@@ -346,10 +346,6 @@ const commandRank = (id: string) => {
   return rank < 0 ? commonCommands.length : rank;
 };
 
-/** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
-function shortRevision(revision: string) {
-  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
-}
 
 // The view settings outlast a restart, and every workspace and window shares
 // them (data/view-settings.ts).
@@ -1843,26 +1839,23 @@ export function App({
     () => new Map(shownGuideFiles.map((file) => [file.id, file])),
     [shownGuideFiles],
   );
+  // The Overview's line: where the change is, and how many files. Line counts
+  // and hashes show only in a file's own header.
   const guideMeta = useMemo(() => {
     if (!guideTarget) return "";
-    let additions = 0;
-    let deletions = 0;
-    for (const file of shownGuideFiles) {
-      additions += file.info.additions;
-      deletions += file.info.deletions;
-    }
     return [
       guideTarget.branch ?? guideTarget.repo.split("/").at(-1),
       guideTarget.captured
         ? guideTarget.label
-        : `${shortRevision(guideTarget.base)} → ${shortRevision(guideTarget.head)}`,
-      ...(shownGuideFiles.length
-        ? [
-            `+${additions.toLocaleString()} −${deletions.toLocaleString()}`,
-            `${shownGuideFiles.length} ${shownGuideFiles.length === 1 ? "file" : "files"}`,
-          ]
-        : []),
-    ].join(" · ");
+        : guideTarget.names
+          ? comparisonLabel(guideTarget.comparison, guideTarget.names).long
+          : undefined,
+      shownGuideFiles.length
+        ? `${shownGuideFiles.length} ${shownGuideFiles.length === 1 ? "file" : "files"}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }, [guideTarget, shownGuideFiles]);
   const guideAt = savedGuide?.updatedAt ?? state.savedReview?.createdAt ?? "";
   const guideAgent = useMemo(
