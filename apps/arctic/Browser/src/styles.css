@@ -523,6 +523,29 @@ img.favicon {
 .card[data-read] .card-title {
   color: color-mix(in srgb, var(--fg) 82%, var(--bg));
 }
+/* No text copy: the card recedes, so it is not opened by mistake. It waits
+   for every text record (data-copies), as a copy may only be on its way. */
+.no-text {
+  display: none;
+  color: var(--fg-3);
+}
+.grid[data-copies] .no-text {
+  display: contents;
+}
+.grid[data-copies] .card:not([data-copy]) > .card-title {
+  color: var(--fg-2);
+}
+.grid[data-copies] .card[data-read]:not([data-copy]) > .card-title {
+  color: color-mix(in srgb, var(--fg) 42%, var(--bg));
+}
+.grid[data-copies] .card:not([data-copy]) .cover img[data-loaded] {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.grid[data-layout="magazine"][data-copies] .card:not([data-copy]) .site-cover {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
 /* A text card: the article has no image, so its words take the space. */
 .card:not([data-image]) .card-line {
   margin-top: 0;

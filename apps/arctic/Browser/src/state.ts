@@ -60,6 +60,18 @@ export function useLinksRestored() {
   );
 }
 
+/**
+ * Whether the text records' first pull on this device has ended. Until then
+ * a link without a copy may only be waiting for its copy's record.
+ */
+export function useCopiesRestored() {
+  const session = useSession();
+  return useSyncExternalStore(
+    (listener) => session.subscribe(listener),
+    () => session.copiesRestored,
+  );
+}
+
 /** Each derivation's last value, per storage: one per record change. */
 const derived = new WeakMap<
   RecordStorage,

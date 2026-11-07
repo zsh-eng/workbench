@@ -49,6 +49,7 @@ import { useReservedPictures } from "./links";
 import type { SyncSummary } from "@zsh-eng/local-sync";
 import {
   useArticles,
+  useCopiesRestored,
   useRestoring,
   useSession,
   useStatusText,
@@ -133,6 +134,8 @@ export function Library({ folder }: { folder: Folder }) {
   // pull that stopped shows what arrived (docs/FIRST_SYNC.md).
   const restoring = useRestoring();
   const waiting = restoring && (syncing || articles.length === 0);
+  // A card without text recedes only once every text record is here.
+  const copiesRestored = useCopiesRestored();
 
   useLayoutEffect(() => {
     if (
@@ -245,7 +248,13 @@ export function Library({ folder }: { folder: Folder }) {
   const list = waiting ? (
     <Waiting layout={layout} />
   ) : visible.length > 0 ? (
-    <main className="grid" data-layout={layout} ref={grid} {...intent}>
+    <main
+      className="grid"
+      data-layout={layout}
+      data-copies={copiesRestored ? "" : undefined}
+      ref={grid}
+      {...intent}
+    >
       {layout === "magazine"
         ? cells.map((cell) =>
             cell.kind === "band" ? (
@@ -1020,11 +1029,17 @@ function Source({ article }: { article: Article }) {
     <span className="source">
       <Favicon src={article.favicon} host={article.host} />
       <span className="host">{article.host}</span>
-      {article.copy && (
+      {article.copy ? (
         <>
           <span className="dot">·</span>
           {minutes(article.copy.words)} min
         </>
+      ) : (
+        // Shown once every text record is here (styles.css).
+        <span className="no-text">
+          <span className="dot">·</span>
+          No text
+        </span>
       )}
       {article.favourite && (
         <Star size={12} className="star" aria-label="Favourite" />

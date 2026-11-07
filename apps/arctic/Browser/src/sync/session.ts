@@ -128,6 +128,8 @@ export class Session {
               this.restored();
               release();
             }
+            // The library marks links without text only after this.
+            if (channel === channels.content) this.emit();
           }
           // A push asks for the scope first; with nothing to send it is a
           // wasted request. An edit made from here on asks for another sync.
@@ -234,6 +236,14 @@ export class Session {
   get copies() {
     return this.channels.content.storage;
   }
+
+  /** The text records' first pull on this device has ended with every page. */
+  get copiesRestored() {
+    // Read from storage until true: it stays true.
+    return (this.copiesKnown ||=
+      !!this.channels.content.stateStore.read()?.bootstrapped);
+  }
+  private copiesKnown = false;
 
   get annotations() {
     return this.channels.annotations.storage;

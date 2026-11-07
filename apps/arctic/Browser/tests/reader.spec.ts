@@ -19,6 +19,25 @@ test.beforeEach(async ({ context }) => {
   );
 });
 
+test("a card without text says so once the text records are here", async ({
+  page,
+  context,
+}) => {
+  const floe = article("https://example.com/floe", { title: "A floe at dawn" });
+  const tundra = article("https://example.com/tundra", {
+    title: "The tundra in winter",
+  });
+  await phone(context.request).push([...floe.records, ...tundra.records]);
+  await addText(context.request, floe, paragraphs(12));
+
+  await page.goto("/");
+  const card = (title: string) =>
+    page.locator(".card", { has: page.locator(".card-title", { hasText: title }) });
+  await expect(card("A floe at dawn").locator(".source")).toContainText("1 min");
+  await expect(card("The tundra in winter").locator(".no-text")).toBeVisible();
+  await expect(card("A floe at dawn").locator(".no-text")).toHaveCount(0);
+});
+
 test("shows the cover image once when the text starts with it", async ({
   page,
   context,
