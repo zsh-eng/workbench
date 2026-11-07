@@ -7,12 +7,11 @@ saved links then work in new tabs of that browser. See
 
 A saved review keeps its diff when the agent makes more changes. An agent that
 names its task with a key adds a version for each round of work. The Review
-opens on the latest one and is marked new again; comments on earlier versions
-stay. The version menu above the diff names each version and its age. A
-version with more
-than one comparison, such as one for each repository, lists each one in the
-menu by its repository, and so does a commit that you commented on while
-browsing.
+opens on the latest one, on what is new since you looked, and is marked new
+again; comments on earlier versions stay. Med names no versions. A hand-off
+with more than one comparison, such as one for each repository, has a menu
+above the diff that lists each one by its repository, and so does a commit
+that you commented on while browsing.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
 line numbers, and nearby source, for any agent. **Send to Claude** or **Send to

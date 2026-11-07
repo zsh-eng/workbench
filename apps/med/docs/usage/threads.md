@@ -137,10 +137,9 @@ load it or read its agents until you open it again.
   what Med shows; the agent's session keeps its own folder.
 - **Review** is what the agent hands off (`med thread show`, or
   `med review create --key …`): its Guide or its diff.
-  Each hand-off is a new version. The row above the diff names the version
-  and its age, such as "Version 2 · 5 min ago"; with more than one version,
-  it is a menu of the versions, newest first. Git's comparisons are only in
-  **Changes**. In a thread with a Review, the **Changes** tab has no file
+  Each hand-off replaces the Review, which opens on what is new since you
+  looked; Med shows no version numbers. A hand-off of several checkouts has a
+  menu of them above the diff. Git's comparisons are only in **Changes**. In a thread with a Review, the **Changes** tab has no file
   count, so that the tabs keep their places. A thread opens on **Review**
   after a hand-off and on **Changes** before one. A hand-off that arrives
   while you read adds **Review** and does not move you. When the checkout changes after a version, a bar offers

@@ -116,18 +116,19 @@ version with none of them opens as today.
 1. **Proof** first, under the title: each check with its result, the media,
    and what the checks miss. Without written proof, the checks that the
    session ran in the turn that made this version (`turn.checks`).
-2. **Since your last review** (version 2 and later): the files that changed
+2. **New since you looked** (after the first hand-off): the files that changed
    since the last version that you approved, commented on, or opened
    (`POST /api/reviews/:id/read`), or else the version before, and
    the files no longer in the change. The host compares the captured texts;
    where the base moved too, it replays the earlier change on the new base
-   first (`git merge-file`), so a rebase alone changes nothing. **Since
-   version N** in the Guide's rail shows only these changes as a diff.
+   first (`git merge-file`), so a rebase alone changes nothing. **New since
+   you looked** in the Guide's rail shows only these changes as a diff, and a
+   later hand-off opens on it. The UI names no version numbers.
 3. **Findings**, with a count of the open ones in the Overview's start row.
    Each row opens its line.
-4. **Approve version N**, beside Start reviewing. The host keeps it for each
-   version (`POST /api/reviews/:id/approval`). The version menu marks
-   approved versions. An approval is a record for the user, not a gate.
+4. **Approvals** (`POST /api/reviews/:id/approval`) are kept for older
+   records and still move "since", but the Review has no Approve button:
+   opening a hand-off records where "since" starts.
 
 ## D. Suggestion pack
 

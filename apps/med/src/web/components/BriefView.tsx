@@ -104,10 +104,8 @@ export interface BriefViewProps {
   onUnpin?(id: string): void;
   /** Notes texts to render in the background, such as other iterations. */
   prerender?: readonly string[];
-  /** An agent's iterations that have notes, oldest first, and the shown one. */
-  iterations?: readonly { number: number; createdAt: string }[];
+  /** The shown iteration. */
   iteration?: number;
-  onIteration?(number: number): void;
   /** Notes of the open comparison; excerpts show those on their lines. */
   notes: readonly Note[];
   onMutateNote(mutation: NoteMutation): Promise<void>;
@@ -221,9 +219,7 @@ export default function BriefView({
   onStartNotes,
   onDeleteNotes,
   onUnpin,
-  iterations,
   iteration,
-  onIteration,
   notes,
   onMutateNote,
   comments = NO_COMMENTS,
@@ -665,13 +661,6 @@ export default function BriefView({
                 <Icon name="brief" size={14} />
                 Notes
               </span>
-              {iterations && iterations.length > 1 && (
-                <IterationKeys
-                  iterations={iterations}
-                  iteration={iteration}
-                  onIteration={onIteration}
-                />
-              )}
               {annotated && files.length > 0 && !!shown?.sections.length && (
                 <span
                   {...stylex.props(styles.coverage)}
@@ -1409,7 +1398,7 @@ function NoteHead({
         ? `Reply from ${agentName(source)}`
         : "Pinned reply"
       : briefFrom !== undefined
-        ? `Brief from version ${briefFrom}`
+        ? "Brief from an earlier hand-off"
         : "Brief";
   const [creating, setCreating] = useState<
     | { step: "ask"; asDraft: boolean }
@@ -1659,90 +1648,6 @@ function NoteRail({
   );
 }
 
-/** Keys for at most this many latest iterations; earlier ones open from a menu. */
-const RECENT_ITERATIONS = 6;
-/** The header's label, citation meter, and options button keep this much room. */
-const HEADER_ROOM = 210;
-const KEY_WIDTH = 24;
-
-/**
- * The agent's rounds as numbered keys; the shown one is filled. A long review
- * keeps the latest keys that fit and lists earlier rounds in a menu, so the
- * header keeps its width. The menu key shows an earlier round while it is shown.
- */
-function IterationKeys({
-  iterations,
-  iteration,
-  onIteration,
-}: {
-  iterations: readonly { number: number; createdAt: string }[];
-  iteration?: number;
-  onIteration?(number: number): void;
-}) {
-  // A narrow pane shows fewer keys, down to the menu alone.
-  const group = useRef<HTMLSpanElement>(null);
-  const [width, setWidth] = useState(Infinity);
-  useLayoutEffect(() => {
-    const header = group.current?.parentElement;
-    if (!header) return;
-    const measure = () => setWidth(header.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, []);
-  const fits = Math.max(
-    0,
-    Math.min(RECENT_ITERATIONS, Math.floor((width - HEADER_ROOM) / KEY_WIDTH)),
-  );
-  const recent =
-    iterations.length > fits + 1 ? iterations.slice(iterations.length - fits) : iterations;
-  const earlier = iterations.slice(0, iterations.length - recent.length);
-  const shownEarlier = earlier.find((entry) => entry.number === iteration);
-  const when = (entry: { createdAt: string }) =>
-    new Date(entry.createdAt).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  return (
-    <span ref={group} role="group" aria-label="Versions" {...stylex.props(styles.iterations)}>
-      {earlier.length > 0 && (
-        <ActionMenu
-          label={
-            shownEarlier ? `Version ${shownEarlier.number}, earlier versions` : "Earlier versions"
-          }
-          align="start"
-          trigger={[styles.iteration, styles.earlier, shownEarlier && styles.iterationOn]}
-          sections={[
-            earlier.toReversed().map((entry) => ({
-              label: `Version ${entry.number} · ${when(entry)}`,
-              checked: entry.number === iteration,
-              choice: true,
-              onClick: () => onIteration?.(entry.number),
-            })),
-          ]}
-        >
-          {shownEarlier?.number ?? "…"}
-          <Icon name="chevron" size={10} />
-        </ActionMenu>
-      )}
-      {recent.map((entry) => (
-        <button
-          key={entry.number}
-          type="button"
-          aria-pressed={entry.number === iteration}
-          aria-label={`Version ${entry.number}`}
-          title={`Version ${entry.number} · ${when(entry)}`}
-          onClick={() => onIteration?.(entry.number)}
-          {...stylex.props(styles.iteration, entry.number === iteration && styles.iterationOn)}
-        >
-          {entry.number}
-        </button>
-      ))}
-    </span>
-  );
-}
-
 const styles = stylex.create({
   empty: { color: tokens.muted, fontFamily: tokens.ui, fontSize: 13 },
   confirm: {
@@ -1801,38 +1706,6 @@ const styles = stylex.create({
   // In a narrow pane the coverage text shortens before the header overflows.
   coverage: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, color: tokens.faint },
   coverageText: { minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
-  iterations: {
-    display: "inline-flex",
-    flexShrink: 0,
-    gap: 2,
-    padding: 2,
-    borderRadius: `calc(7px * ${tokens.round})`,
-    backgroundColor: tokens.fill,
-  },
-  iteration: {
-    minWidth: 22,
-    height: 20,
-    paddingInline: 5,
-    borderWidth: 0,
-    borderRadius: `calc(5px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.faint, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    fontVariantNumeric: "tabular-nums",
-    cursor: "pointer",
-    outline: "none",
-    boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
-  },
-  earlier: { display: "inline-flex", alignItems: "center", gap: 1, paddingInlineEnd: 3 },
-  iterationOn: {
-    color: { default: tokens.text, ":hover": tokens.text },
-    backgroundColor: { default: tokens.raised, ":hover": tokens.raised },
-    boxShadow: {
-      default: `0 0 0 1px ${tokens.line}, 0 1px 2px #0000001a`,
-      ":focus-visible": `0 0 0 2px ${tokens.accentLine}`,
-    },
-  },
   meter: {
     display: "block",
     width: 40,

@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
+import { comparisonLabel } from "../../src/web/components/QuietChrome";
 import { SourcesView } from "../../src/web/components/SourcesPage";
 // The window's top row, as main.tsx loads it.
 import "../../src/web/components/TitleRow.css";
@@ -266,14 +267,10 @@ const shown = () =>
 const row = () =>
   shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ?? undefined;
 /** What the diff shows: in Changes the comparison (atop the page's sidebar,
- * or in the header while it hides), in Review the version (a select, or text
- * when there is one version). */
+ * or in the header while it hides), in Review the checkout, when it has
+ * several. */
 const comparison = () =>
-  shown()?.querySelector<HTMLElement>(
-    '[aria-label="Comparison"], [aria-label="Review version"], [data-choice-static]',
-  );
-/** A Review of one version: "Version 1" and its age. */
-const versionOne = /^Version 1 · (just now|\d+ (min|hr|day|days|mo|yr) ago)$/;
+  shown()?.querySelector<HTMLElement>('[aria-label="Comparison"], [aria-label="Review checkout"]');
 const openThread = async (title: string) => {
   const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
@@ -296,25 +293,22 @@ function hideTitleBar(height: number) {
   html.style.setProperty("--med-titlebar-right", "100px");
 }
 
-test("Review names its version and age, and says a range by the names saved with it, or by short object IDs", async () => {
+test("Review names no version, and one checkout leaves nothing to choose", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   // Live, the row says the working changes in full.
   await expect.poll(() => comparison()?.textContent).toBe("Working changes");
 
-  // A Review of one version: its number and age, as text with no menu. The
-  // range that it shows is in the tooltip, with no Git comparison to choose.
+  // A Review of one checkout: no menu, no version, no Git comparison.
   await openThread("Week view");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("week-target");
-  await expect.poll(() => comparison()?.textContent).toMatch(versionOne);
-  expect(comparison()?.tagName).not.toBe("BUTTON");
-  expect(comparison()?.title).toBe("repo · main · main → week-view");
-  // An older record has no names.
-  await openThread("Older range");
-  await expect.poll(() => comparison()?.title).toBe("repo · main · bbbbbbb → aaaaaaa");
-  // Object IDs on main: the branch's newest commits.
-  await openThread("Prediction model");
-  await expect.poll(() => comparison()?.title).toBe("repo · main · 2 commits on main");
+  await expect.poll(() => comparison()).toBeFalsy();
+  expect(row()!.textContent).not.toMatch(/Version \d/);
+  // A checkout menu says a range by the names saved with it, or by short
+  // object IDs in an older record, or as a branch's newest commits.
+  expect(comparisonLabel(range, saved.week!.names).long).toBe("main → week-view");
+  expect(comparisonLabel(range).long).toBe("bbbbbbb → aaaaaaa");
+  expect(comparisonLabel(range, saved.model!.names).long).toBe("2 commits on main");
 });
 
 test("the Commit tab's Stage all is in the review's row, and the tab does not name the branch again", async () => {
@@ -383,21 +377,20 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
     const label = value()?.textContent ?? "⋯";
     if (!seen.has(label)) seen.set(label, width);
   }
-  // Review's version gives way to the header's own controls, and goes in ⋯
-  // last of all.
-  expect([...seen.keys()].at(-1)).toBe("⋯");
+  // Review names no comparison at any width.
+  expect([...seen.keys()]).toEqual(["⋯"]);
 
-  // In ⋯, the comparison is the menu's first item: in Review, the version,
-  // which has nothing to choose; in Changes, the comparisons.
-  await page.viewport(seen.get("⋯")!, 800);
+  // In Changes, a narrow row puts the comparisons first in ⋯.
+  await page.getByRole("radio", { name: /^Changes/ }).click();
+  let narrow = 1280;
+  for (; narrow >= 600; narrow -= 20) {
+    await page.viewport(narrow, 800);
+    await frame();
+    if (!comparison()) break;
+  }
   await expect.poll(() => comparison()).toBeFalsy();
   const more = () =>
     [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
-  more().click();
-  await expect.element(page.getByRole("menuitem", { name: versionOne })).toBeDisabled();
-  expect(page.getByRole("menuitem", { name: "Working changes" }).query()).toBeNull();
-  await userEvent.keyboard("{Escape}");
-  await page.getByRole("radio", { name: /^Changes/ }).click();
   more().click();
   await page.getByRole("menuitem", { name: "Working changes" }).hover();
   await expect

@@ -374,8 +374,8 @@ export function useRowFit(
     const measure = () => {
       // A hidden workspace has no width; it keeps its fit for its return.
       if (!row.clientWidth || !context) return;
-      // The select's trigger, or the text that stands for one (ChoiceLabel).
-      const trigger = element.querySelector("button, [data-choice-static]");
+      // The select's trigger.
+      const trigger = element.querySelector("button");
       const value = trigger?.querySelector<HTMLElement>("[data-choice-value]");
       if (trigger && value) {
         const style = getComputedStyle(value);

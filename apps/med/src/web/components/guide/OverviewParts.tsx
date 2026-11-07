@@ -101,10 +101,10 @@ export function ProofPart({ proof }: { proof: OverviewProof }) {
 }
 
 const BASIS: Record<Since["basis"], string> = {
-  approved: "the version that you approved",
-  commented: "the version that you commented on",
-  viewed: "the version you last looked at",
-  previous: "the version before",
+  approved: "you approved it",
+  commented: "you commented",
+  viewed: "you last looked",
+  previous: "the hand-off before",
 };
 const CHANGE: Record<Since["files"][number]["change"], string> = {
   changed: "Changed",
@@ -123,7 +123,7 @@ export function SincePart({
   return (
     <section aria-label="Since your last review" {...stylex.props(styles.part)}>
       <h2 {...stylex.props(styles.label)}>
-        Since version {since.from}
+        New since you looked
         <span {...stylex.props(styles.count)}>
           {since.files.length} {since.files.length === 1 ? "file" : "files"}
         </span>

@@ -42,13 +42,7 @@ import {
 } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
-import {
-  ActionMenu,
-  ChoiceLabel,
-  ChoiceSelect,
-  CommandDialog,
-  type ReviewCommand,
-} from "./components/Controls";
+import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
 import { ReviewHeader, type ReviewPage } from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
@@ -1902,6 +1896,18 @@ export function App({
     if (guideTab && guideScope.kind === "since" && sinceFrom && state.savedSince !== sinceFrom)
       void controller.showSince(sinceFrom);
   }, [controller, guideTab, guideScope.kind, sinceFrom, state.savedSince]);
+  // A later hand-off opens on what is new since the reader last looked, once
+  // for each hand-off; the Overview stays a click away in the rail.
+  const freshKey =
+    guideTab && guideScope.kind === "overview" && sinceRow?.files && state.savedReview
+      ? `${state.savedReview.id} ${shownIteration}`
+      : null;
+  const openedFresh = useRef<string | null>(null);
+  useEffect(() => {
+    if (!freshKey || openedFresh.current === freshKey) return;
+    openedFresh.current = freshKey;
+    openGuide({ kind: "since" });
+  }, [freshKey, openGuide]);
   // j and k step through the segments.
   const stepGuide = useCallback(
     (delta: number) => {
@@ -2078,11 +2084,7 @@ export function App({
             pendingIteration.current = first;
             pendingSavedChanges.current = null;
             void controller.selectSavedTarget(first);
-            showToast(
-              refresh
-                ? `Refreshed the Review as version ${iteration.number}.`
-                : `Started the notes of version ${iteration.number}.`,
-            );
+            showToast(refresh ? "Refreshed the Review." : "Started new notes.");
           },
           (error: unknown) =>
             showToast(
@@ -3515,10 +3517,10 @@ export function App({
     undefined,
     state.activeBranch ? { name: state.activeBranch, head: liveHead } : undefined,
   );
-  // In Review, the row names the hand-off: its version and its age. The menu
-  // lists the versions, newest first, then the commits that you commented
-  // on. Git's comparisons are the Changes tab's. A version of several
-  // checkouts has an item for each.
+  // In Review, a hand-off of several checkouts has a menu of them, then the
+  // commits that you commented on. It shows no versions: the Review is the
+  // latest hand-off, and earlier ones stay only as its snapshots. Git's
+  // comparisons are the Changes page's.
   const reviewNow = useMinuteClock(reviewShown);
   const handoffs = state.savedReview ? handoffTargets(state.savedReview) : [];
   const versionOf = (target: SavedReviewTarget) =>
@@ -3546,27 +3548,21 @@ export function App({
   const versionChoices = reviewShown
     ? [
         ...versionHandoffs
-          .map((target, index) => ({ target, index, number: versionNumber(target) }))
-          .sort((a, b) => b.number - a.number || a.index - b.index)
-          .map(({ target, number }) => {
-            const places = versionHandoffs.filter(
-              (other) => versionNumber(other) === number,
-            ).length;
+          .filter(
+            (target) =>
+              versionNumber(target) === latestVersion || target.id === state.savedTargetId,
+          )
+          .map((target) => {
             const time = Date.parse(
               versionOf(target)?.createdAt ?? state.savedReview?.createdAt ?? "",
             );
             return {
               value: target.id,
               label: [
-                `Version ${number}`,
-                ...(places > 1 ? [target.repo.split(/[\\/]/).at(-1)!] : []),
+                target.repo.split(/[\\/]/).at(-1)!,
                 ...(Number.isFinite(time) ? [relativeTime(time, Math.max(reviewNow, time))] : []),
               ].join(" · "),
-              description: [
-                placeOf(target),
-                ...(number === latestVersion && latestVersion > 1 ? ["the latest version"] : []),
-                ...(approvals?.some((entry) => entry.version === number) ? ["approved"] : []),
-              ].join(" · "),
+              description: placeOf(target),
             };
           }),
         ...(state.savedReview?.targets ?? [])
@@ -3661,9 +3657,6 @@ export function App({
       );
   // The row's label: in full, or short in a narrow row (QuietChrome.tsx).
   const chosenLabel = comparisonChoices.find((choice) => choice.value === comparisonValue)?.label;
-  const shownVersion = state.savedTargetId
-    ? iterations.find((entry) => entry.targetIds.includes(state.savedTargetId!))?.number
-    : undefined;
   const comparisonText: ComparisonLabel = reviewShown
     ? {
         long: chosenLabel ?? "",
@@ -3671,7 +3664,7 @@ export function App({
         short:
           reviewCommit || shownTarget?.commentReviewId
             ? (chosenLabel ?? "")
-            : `Version ${shownVersion ?? 1}`,
+            : (chosenLabel?.split(" · ")[0] ?? ""),
       }
     : {
         // The branch's changes name the branch and its base.
@@ -5025,7 +5018,7 @@ export function App({
     overviewOffers.push({
       id: "round-limit",
       slot: "rounds",
-      title: `Version ${shownIteration}`,
+      title: `Round ${shownIteration}`,
       text: "A change that needs a fourth round often needs another approach. The round-limit practice asks the agent to stop after 3 rounds and rethink.",
       action: { kind: "copy", label: "Copy skill", text: roundLimitSkill },
     });
@@ -5304,12 +5297,13 @@ export function App({
   // On the Changes page, what the diff compares tops its sidebar; elsewhere,
   // and while the sidebar hides, it is in the header's row or in ⋯.
   const comparisonInRail = railShown && shownTab === "changes" && streamChrome;
+  // A Review of one checkout has nothing to choose, and shows nothing there.
+  // (Review has no compare actions.)
+  const comparisonShown = !reviewShown || comparisonChoices.length > 1;
   const comparisonFit = useRowFit(
     comparisonSlot,
-    streamChrome && !comparisonInRail ? comparisonText : null,
+    streamChrome && !comparisonInRail && comparisonShown ? comparisonText : null,
   );
-  // A Review of one version names it, with nothing to choose. (Review has no
-  // compare actions.)
   const stackRail = stack && reviewShown && (
     <StackRail
       stack={stack}
@@ -5329,25 +5323,19 @@ export function App({
       onRange={showLayers}
     />
   );
-  const comparisonSelect =
-    reviewShown && comparisonChoices.length <= 1 ? (
-      <ChoiceLabel
-        title={comparisonChoices[0]?.description ?? "Review version"}
-        text={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
-      />
-    ) : (
-      <ChoiceSelect
-        label={reviewShown ? "Review version" : "Comparison"}
-        value={comparisonValue}
-        choices={comparisonChoices}
-        onChange={chooseComparison}
-        actions={compareActions}
-        // One control says what the diff compares, and changes it.
-        triggerRef={comparisonTrigger}
-        trigger={styles.rowComparisonTrigger}
-        display={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
-      />
-    );
+  const comparisonSelect = comparisonShown && (
+    <ChoiceSelect
+      label={reviewShown ? "Review checkout" : "Comparison"}
+      value={comparisonValue}
+      choices={comparisonChoices}
+      onChange={chooseComparison}
+      actions={compareActions}
+      // One control says what the diff compares, and changes it.
+      triggerRef={comparisonTrigger}
+      trigger={styles.rowComparisonTrigger}
+      display={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
+    />
+  );
   const comparisonActionsElement = comparisonActionsShown && actionRepo && (
     <ComparisonActions
       key={`${actionRepo}:${actionHead}:${actionBranch}`}
@@ -5452,13 +5440,6 @@ export function App({
               }
             : undefined
         }
-        pickVersion={reviewShown && !streamChrome}
-        onTarget={(id) => {
-          pendingSavedChanges.current = id;
-          pendingIteration.current = null;
-          fileWorkspace.select("changes");
-          void controller.selectSavedTarget(id);
-        }}
       />
     );
   // The tabs stay while a workspace loads, so the branch switch in them does
@@ -5468,7 +5449,7 @@ export function App({
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
   const quietTrailing = (
     <>
-      {streamChrome && !comparisonInRail && (
+      {streamChrome && !comparisonInRail && comparisonShown && (
         <span
           ref={comparisonSlot}
           {...stylex.props(styles.rowComparison, comparisonFit === "menu" && styles.hiddenSurface)}
@@ -5578,7 +5559,6 @@ export function App({
         .join(" · ")
     : undefined;
   // The session side panel's Reviews card.
-  const reviewVersion = shownIteration ?? 1;
   const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
   const sessionLinks: ThreadLink[] = [
     ...(reviewAvailable
@@ -5587,9 +5567,9 @@ export function App({
             id: "review",
             icon: "guide" as const,
             label: "Review",
-            detail: approvals?.some((entry) => entry.version === reviewVersion)
-              ? `Version ${reviewVersion} · approved`
-              : `Version ${reviewVersion}`,
+            detail: sinceRow?.files
+              ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new since you looked`
+              : undefined,
             onOpen: () => {
               revealPane("review");
               selectTab("review");

@@ -200,13 +200,14 @@ function Elsewhere({ count, where, onWhole }: { count: number; where: string; on
 }
 
 const BASIS: Record<Since["basis"], string> = {
-  approved: "you approved",
-  commented: "you commented on",
-  viewed: "you last looked at",
-  previous: "before this one",
+  approved: "you approved it",
+  commented: "you commented",
+  viewed: "you last looked",
+  previous: "the hand-off before",
 };
 
-/** The head of "Since version N": only what changed since the reader's last review. */
+/** The head of "New since you looked": only what changed since the reader's
+ * last review. It names no versions. */
 export function SinceHeader({
   since,
   totals,
@@ -224,12 +225,8 @@ export function SinceHeader({
   const gone = since.files.filter((file) => file.change === "gone");
   return (
     <Frame
-      eyebrow={
-        <span {...stylex.props(styles.kind)}>
-          Since version {since.from} · the version {BASIS[since.basis]}
-        </span>
-      }
-      title={`What changed since version ${since.from}`}
+      eyebrow={<span {...stylex.props(styles.kind)}>New since you looked</span>}
+      title={`What changed since ${BASIS[since.basis]}`}
       meta={
         <>
           {totals.additions > 0 && <span {...stylex.props(ui.added)}>+{totals.additions}</span>}
@@ -241,8 +238,7 @@ export function SinceHeader({
       }
     >
       <p {...stylex.props(styles.body)}>
-        Each file shows from version {since.from} to version {since.to}. Your comments stay on their
-        lines.
+        Each file shows from that hand-off to this one. Your comments stay on their lines.
       </p>
       {!!since.moved?.length && (
         <p {...stylex.props(styles.unmatched)}>

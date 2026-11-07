@@ -57,7 +57,7 @@ export function GuideOverview({
   /** The version's findings, from its notes or guide (shared/review-output.ts). */
   findings?: Pick<ReviewOutput, "findings" | "counts" | "nothingToFix">;
   openFindings?: number;
-  /** The files that changed since the reader's last review, from version 2. */
+  /** The files that changed since the reader's last review, after the first hand-off. */
   since?: Since | null;
   /** Practices that would help here, most useful first; one shows at a time. */
   offers?: readonly Offer[];
@@ -100,7 +100,7 @@ export function GuideOverview({
             </span>
           )}
           {!agent && sections.length > 0 && <span>Guide</span>}
-          {from !== undefined && <span>· from version {from}</span>}
+          {from !== undefined && <span>· from an earlier hand-off</span>}
         </p>
         <h1 {...stylex.props(styles.title)}>{title}</h1>
         <p {...stylex.props(styles.meta)}>{meta}</p>

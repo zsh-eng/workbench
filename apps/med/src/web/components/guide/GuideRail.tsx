@@ -18,8 +18,8 @@ export interface GuideRailProps {
   top?: ReactNode;
   /** At the heading's end, such as the sidebar's hide button. */
   controls?: ReactNode;
-  /** What changed since the reader's last review, from version 2. */
-  since?: { from: number; files: number };
+  /** What changed since the reader's last review, after the first hand-off. */
+  since?: { files: number };
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -66,7 +66,7 @@ export const GuideRail = memo(function GuideRail({
           <button
             type="button"
             aria-current={scope.kind === "since" ? "page" : undefined}
-            aria-label={`Since version ${since.from}, ${since.files} ${since.files === 1 ? "file" : "files"} changed`}
+            aria-label={`New since you looked, ${since.files} ${since.files === 1 ? "file" : "files"} changed`}
             onClick={() => onScope({ kind: "since" })}
             {...stylex.props(
               styles.row,
@@ -75,7 +75,7 @@ export const GuideRail = memo(function GuideRail({
             )}
           >
             <Icon name="history" size={14} />
-            <span {...stylex.props(styles.title)}>Since version {since.from}</span>
+            <span {...stylex.props(styles.title)}>New since you looked</span>
             <span {...stylex.props(ui.grow)} />
             <span {...stylex.props(styles.count)}>{since.files}</span>
           </button>

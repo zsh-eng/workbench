@@ -549,8 +549,8 @@ export default function PullRequestView({
               <p {...stylex.props(styles.since)}>
                 <Icon name="history" size={12} />
                 <span {...stylex.props(ui.grow)}>
-                  {since.files} {since.files === 1 ? "file" : "files"} changed since version{" "}
-                  {since.from}, your last review.
+                  {since.files} {since.files === 1 ? "file" : "files"} changed since your last
+                  review.
                 </span>
                 <button type="button" {...stylex.props(ui.button)} onClick={since.onShow}>
                   Show only these changes

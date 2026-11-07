@@ -26,26 +26,29 @@ request split into small ones.
   cannot show. A comment that you add on a commit belongs to the version when
   the version still has that line, so the whole range shows it too. On a line
   that a later commit changed, it stays with that commit.
-- **Since version N.** From version 2, a row under **Overview** shows only
-  what changed since your last review (see
-  [later versions](#proof-findings-and-later-versions)). The diff goes from that
-  version's text to this one's, so your comments keep their lines; a comment on
-  a removed line is not possible there. In the file rail, a dot marks the
-  commits that are new since then.
-- **Move.** `j` and `k` step through the Overview, Since, and the segments.
+- **New since you looked.** After the first hand-off, a row under
+  **Overview** shows only what changed since your last review (see
+  [later hand-offs](#proof-findings-and-later-hand-offs)). The diff goes from
+  that hand-off's text to this one's, so your comments keep their lines; a
+  comment on a removed line is not possible there. In the file rail, a dot
+  marks the commits that are new since then.
+- **Move.** `j` and `k` step through the Overview, New since you looked, and
+  the segments.
 
 A review with nothing for the Overview (no guide, proof, or findings) opens on
 its whole diff.
 Agents pass a guide with [`--guide`](../AGENT_INTEGRATION.md#attach-a-guide).
 
-## Proof, findings, and later versions
+## Proof, findings, and later hand-offs
 
 The Overview also shows what a version's notes and guide summary say about
 it, in whatever format the agent or your own review skills wrote it
 ([review practices](../PRACTICES.md#b-read-review-output-from-any-source)). A
-Review opens on the Overview when its version has a guide, two or more
-commits, proof, or findings. A later version opens there too. Each part shows
-only when the version has it.
+Review opens on the Overview when its hand-off has a guide, proof, or
+findings. A later hand-off opens on what is new since you looked, with the
+Overview a click away in the rail. Med shows no version numbers: it keeps
+each hand-off's snapshot underneath, so comments stay on their lines and a
+rebase still diffs cleanly. Each part shows only when the hand-off has it.
 
 - **Proof.** First, under the title: each check with its result, the media,
   and **Not covered**, what the checks miss. A proof written as a table shows
@@ -57,11 +60,11 @@ only when the version has it.
   long paragraph stays in the summary too. Without written proof, the checks
   that the session ran in the turn that made the latest version show, marked
   "from the session's last turn".
-- **Since version N.** From version 2: the files that changed since your last
-  review, the last earlier version that you approved, commented on, or
-  opened, or else the version before. **Show only these changes**,
-  or a file, opens them as **Since version N** in the rail, which the
-  **Pull request** tab offers too. Med compares the text that each version
+- **New since you looked.** After the first hand-off: the files that changed
+  since your last review, the last earlier hand-off that you commented on or
+  opened, or else the one before. **Show only these changes**, or a file,
+  opens them as **New since you looked** in the rail, which the
+  **Pull request** tab offers too. Med compares the text that each hand-off
   saved, not Git history, so a rebase or a force push does not matter. When
   the base also moved, as after a rebase, Med replays the earlier change on
   the new base first: a file that changed only with its base is listed as
@@ -71,13 +74,10 @@ only when the version has it.
 - **Findings.** Items tagged Important, Nit, or Pre-existing, with the ones
   closed as Fixed, Intentional, or Won't fix and their reasons. The start row
   counts the open ones. Click a finding to open its line.
-- **Approve version N.** Beside **Start reviewing**. Med keeps the approval
-  for the version and marks it in the version menu. It is your record, not a
-  gate: nothing waits for it.
 - **Practices.** Where one would help, the Overview offers a review practice:
   **Ask the agent to explain** when there is no explanation, which puts the
   request in the session's message box for you to send; the proof-first skill
-  to copy when there is no proof; the round-limit skill from version 4. One
+  to copy when there is no proof; the round-limit skill from the fourth round. One
   shows at a time, and **Dismiss** hides it for good in this browser.
   `med skills suggest` lists all of them.
 

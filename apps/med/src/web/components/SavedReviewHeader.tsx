@@ -30,10 +30,7 @@ export function SavedReviewHeader({
   threadPlacement,
   codexReviews,
   findingPlacement,
-  pickVersion = false,
-  onTarget,
   sendTo,
-  notesPickIteration,
   compact = false,
   more = [],
   ref,
@@ -56,12 +53,6 @@ export function SavedReviewHeader({
   /** Codex reviews of the review's checkouts. */
   codexReviews?: CodexReviewState;
   findingPlacement?: FindingPlacement;
-  /** The Review shows without its diff, such as on the Guide's overview, so
-   * the header chooses the version. With the diff, its toolbar does. */
-  pickVersion?: boolean;
-  onTarget(id: string): void;
-  /** The Notes tab shows, and its iteration keys show each iteration's comparison. */
-  notesPickIteration?: boolean;
 }) {
   const saved = state.savedReview!;
   const header = useRef<HTMLElement>(null);
@@ -81,33 +72,7 @@ export function SavedReviewHeader({
     [busy, saved.commentCount, saved.revision],
   );
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
-  const iterations = saved.iterations ?? [];
-  const iterationOf = (id: string) =>
-    iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
-  // With one comparison in each iteration, the Notes' iteration keys choose it,
-  // and the header has no second picker. The review's header shows no
-  // versions: a review opens on its latest hand-off.
-  const pickTarget =
-    !compact &&
-    pickVersion &&
-    saved.targets.length > 1 &&
-    !(
-      notesPickIteration &&
-      iterations.length > 1 &&
-      iterations.every((iteration) => iteration.targetIds.length === 1) &&
-      saved.targets.every((entry) => iterationOf(entry.id))
-    );
-  const option = (entry: (typeof saved.targets)[number]) => (
-    <option key={entry.id} value={entry.id}>
-      {iterations.length > 1 && iterationOf(entry.id) ? `#${iterationOf(entry.id)} · ` : ""}
-      {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
-    </option>
-  );
-  const saving = target
-    ? iterationOf(target.id)
-      ? `Version ${iterationOf(target.id)} · ${target.label}`
-      : target.label
-    : "No Review yet";
+  const saving = target ? target.label : "No Review yet";
   // The workspace list keeps the short title; a PR's own title names it here.
   const heading = (saved.pullRequestUrl && saved.pullRequestTitle) || saved.title;
   const details = [
@@ -197,40 +162,6 @@ export function SavedReviewHeader({
           <span {...stylex.props(ui.added)}>+{saved.totals.additions.toLocaleString()}</span>
           <span {...stylex.props(ui.removed)}>−{saved.totals.deletions.toLocaleString()}</span>
         </span>
-      )}
-      {pickTarget && (
-        <select
-          aria-label="Review version"
-          {...stylex.props(styles.select)}
-          value={state.savedTargetId ?? ""}
-          onChange={(event) => {
-            setNotice(null);
-            onTarget(event.target.value);
-          }}
-        >
-          {!state.savedTargetId && <option value="">Select target</option>}
-          {iterations.length > 1 ? (
-            <>
-              {[...iterations].reverse().map((iteration) => (
-                <optgroup
-                  key={iteration.number}
-                  label={`Version ${iteration.number}${iteration === iterations.at(-1) ? " · latest" : ""}`}
-                >
-                  {saved.targets
-                    .filter((entry) => iteration.targetIds.includes(entry.id))
-                    .map(option)}
-                </optgroup>
-              ))}
-              {saved.targets.some((entry) => !iterationOf(entry.id)) && (
-                <optgroup label="Commented commits">
-                  {saved.targets.filter((entry) => !iterationOf(entry.id)).map(option)}
-                </optgroup>
-              )}
-            </>
-          ) : (
-            saved.targets.map(option)
-          )}
-        </select>
       )}
       <span {...stylex.props(styles.grow)} />
       {/* Beside the thread, Send shows when there are comments to send. */}

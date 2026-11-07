@@ -134,8 +134,9 @@ request covers it all.
 `--key` names the task, such as its branch. Create the review again with the
 same key after each round of work: Med adds a version to that review instead
 of a new workspace. The review is marked new again, and its new comparison and
-brief become current. Earlier versions stay in the version menu, and comments
-stay on their comparisons. Keys use letters, digits, and
+brief become current. The Review opens on what is new since the user last
+looked; earlier versions stay as snapshots, and comments stay on their
+comparisons. Keys use letters, digits, and
 `. / @ : + # _ -`. Without `--key`, `create` uses the branch's name, when the
 branch is not the repository's base branch, and prints it. `update --key`
 also takes the review's ID (`r_…`).
@@ -324,7 +325,7 @@ against the open target. A brief holds up to 100,000 characters.
 
 Med reads these sections of a brief, a pinned reply, or the guide's summary,
 and shows them on the Overview
-([proof, findings, and later versions](usage/guide.md#proof-findings-and-later-versions)):
+([proof, findings, and later hand-offs](usage/guide.md#proof-findings-and-later-hand-offs)):
 
 ```markdown
 ## Proof

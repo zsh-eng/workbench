@@ -401,7 +401,7 @@ test("Close on a found tab sends it to history, Delete hides its session, and th
     .toEqual({ path: "/api/found", body: { shown: false } });
 });
 
-test("a kept thread on a shared checkout shows its Changes, keeps its session's files on request, and shows each Review version that its agent hands off", async () => {
+test("a kept thread on a shared checkout shows its Changes, keeps its session's files on request, and shows the latest Review that its agent hands off", async () => {
   // The Changes page's sidebar shows, with the comparison at its top.
   await page.viewport(1800, 800);
   localStorage.setItem("med:changes-rail", "open");
@@ -466,27 +466,20 @@ test("a kept thread on a shared checkout shows its Changes, keeps its session's 
     .toHaveAttribute("aria-checked", "true");
   await review.click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v1");
-  // One version: its number and age as text. Review has no Git comparisons.
-  await expect.element(page.getByText(/^Version 1 · [45] min ago$/)).toBeVisible();
-  const version = page.getByRole("combobox", { name: "Review version" });
-  expect(version.query()).toBeNull();
+  // The Review names no version and has no Git comparisons: one checkout
+  // leaves nothing to choose.
+  const checkout = page.getByRole("combobox", { name: "Review checkout" });
+  expect(checkout.query()).toBeNull();
   expect(select.query()).toBeNull();
-  // A new version moves the Review that shows the latest one, and the row
-  // lists the versions, newest first.
+  expect(document.body.textContent).not.toMatch(/Version \d/);
+  // A new hand-off moves the Review to the latest one, with still nothing to
+  // choose: earlier hand-offs stay only as its snapshots.
   host.setKept(kept("r_kept", "README glossary", "/test/repo", 2));
   window.dispatchEvent(new CustomEvent("med:review-updated", { detail: { id: "r_kept" } }));
   await expect.poll(() => shown()?.dataset.reviewId).toBe("r_kept-v2");
-  // Its age shows where the row has room.
-  await expect.poll(() => version.query()?.textContent).toMatch(/^Version 2( · [45] min ago)?$/);
   await expect.element(review).toHaveAttribute("aria-checked", "true");
-  await version.click();
-  const options = page.getByRole("option");
-  await expect.poll(() => options.elements().length).toBe(2);
-  const [latest, first] = options.elements().map((option) => option.textContent ?? "");
-  expect(latest).toMatch(/^Version 2 · [45] min ago/);
-  expect(first).toMatch(/^Version 1 · (9|10) min ago/);
-  expect(`${latest}${first}`).not.toMatch(/changes/i);
-  await userEvent.keyboard("{Escape}");
+  expect(checkout.query()).toBeNull();
+  expect(document.body.textContent).not.toMatch(/Version \d/);
   // Changes keep the Git comparisons.
   await tabs.getByRole("radio", { name: "Changes", exact: true }).click();
   await select.click();

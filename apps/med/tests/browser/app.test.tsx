@@ -1106,10 +1106,10 @@ describe("graphical review", () => {
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
     for (const [index, name] of [
-      [0, /^Version 1 · repo · /],
-      [1, /^Version 1 · feature · /],
+      [0, /^repo · /],
+      [1, /^feature · /],
     ] as const) {
-      await page.getByRole("combobox", { name: "Review version" }).click();
+      await page.getByRole("combobox", { name: "Review checkout" }).click();
       await page.getByRole("option", { name }).click();
       await expect.poll(() => controller.getSnapshot().review?.id).toBe(`target-${index}`);
       await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
@@ -2687,7 +2687,7 @@ describe("review guide", () => {
     const since = overview.getByRole("region", { name: "Since your last review" });
     await expect
       .element(since)
-      .toMatchTextContent(/^Since version 12 filesWhat changed since the version before\./);
+      .toMatchTextContent(/^New since you looked2 filesWhat changed since the hand-off before\./);
     await expect.element(since.getByRole("button", { name: /Gone src\/old\.ts/ })).toBeDisabled();
     const findings = overview.getByRole("region", { name: "Findings" });
     await expect.element(findings).toMatchTextContent(/^Findings1 open/);
@@ -2962,7 +2962,7 @@ describe("review guide", () => {
 });
 
 describe("reading a version by commit and since the last review", () => {
-  test("Since version N shows only what changed, from the Overview and the rail, with the version's comments", async () => {
+  test("a later hand-off opens on what is new since you looked, which the Overview and the rail show again", async () => {
     await page.viewport(1500, 900);
     localStorage.setItem("med:changes-rail", "open");
     localStorage.setItem("med:guide-rail", "open");
@@ -2981,9 +2981,9 @@ describe("reading a version by commit and since the last review", () => {
     // Opening version 2 marks it read: the next version's "since" starts here.
     await expect.poll(readVersions).toEqual([2]);
     await expect.poll(() => controller.getSnapshot().savedReview?.readVersions).toEqual([2]);
-    await overview.getByRole("button", { name: "Show only these changes" }).click();
+    // It opens on only what changed, and names no version.
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
-    await expect.element(page.getByText("What changed since version 1")).toBeVisible();
+    await expect.element(page.getByText("What changed since you approved it")).toBeVisible();
     await expect
       .element(page.getByText("Changed only with the base, as after a rebase: src/beta.ts"))
       .toBeVisible();
@@ -2991,11 +2991,15 @@ describe("reading a version by commit and since the last review", () => {
     expect(savedReads).toContain("/api/reviews/saved/targets/target-1/review?since=1");
     expect(savedReads).toContain("/api/reviews/saved/targets/target-1/notes?since=1");
     const rail = page.getByRole("navigation", { name: "Guide" });
-    const row = rail.getByRole("button", { name: /^Since version 1, 1 file changed/ });
+    const row = rail.getByRole("button", { name: /^New since you looked, 1 file changed/ });
     await expect.element(row).toHaveAttribute("aria-current", "page");
-    // Another row of the rail shows the whole version again: nothing to switch back.
+    // Another row of the rail shows the whole version again, and it stays.
     await rail.getByRole("button", { name: "Overview" }).click();
     await expect.element(overview).toBeVisible();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBeNull();
+    await overview.getByRole("button", { name: "Show only these changes" }).click();
+    await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
+    await rail.getByRole("button", { name: "Overview" }).click();
     await expect.poll(() => controller.getSnapshot().savedSince).toBeNull();
     await row.click();
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
@@ -3022,15 +3026,13 @@ describe("reading a version by commit and since the last review", () => {
     });
     await userEvent.click(page.getByRole("radio", { name: "Pull request" }));
     const live = page.getByRole("region", { name: "Pull request" });
-    await expect
-      .element(live.getByText("1 file changed since version 1, your last review."))
-      .toBeVisible();
+    await expect.element(live.getByText("1 file changed since your last review.")).toBeVisible();
     await live.getByRole("button", { name: "Show only these changes" }).click();
     await expect.poll(() => controller.getSnapshot().savedSince).toBe(1);
     await expect
       .element(page.getByRole("radio", { name: "Review", exact: true }))
       .toHaveAttribute("aria-checked", "true");
-    await expect.element(page.getByText("What changed since version 1")).toBeVisible();
+    await expect.element(page.getByText("What changed since you commented")).toBeVisible();
   });
 
   test("a commit of the range shows the version's comments on its lines, and says how many it cannot show", async () => {
