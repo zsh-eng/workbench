@@ -24,6 +24,18 @@ export function isMedWait(call: ToolItem["call"]) {
   return typeof input?.command === "string" && MED_WAIT.test(input.command);
 }
 
+/** The skill's `med review create` or `update`: the agent hands off a review. */
+const MED_HANDOFF = /(?:^|[\s;&|(])(?:\S*\/)?med review (?:create|update)\b/;
+/** A hand-off, which the thread shows as a card that opens the review. */
+export function isMedHandoff(call: ToolItem["call"]) {
+  const input = call.rawInput as { command?: unknown } | undefined;
+  return (
+    call.status !== "failed" &&
+    typeof input?.command === "string" &&
+    MED_HANDOFF.test(input.command)
+  );
+}
+
 /** Tool calls, with the calls of their subagents. */
 const countCalls = (list: SessionItem[]): number =>
   list.reduce((sum, item) => sum + (item.kind === "tool" ? 1 + countCalls(item.items) : 0), 0);
@@ -128,6 +140,8 @@ export function fold(
         (unit.item.kind === "tool" &&
           !!unit.item.call.schedule &&
           unit.item.call.schedule.kind !== "cancel") ||
+        // A hand-off's card stays in view too, and opens its review.
+        (unit.item.kind === "tool" && isMedHandoff(unit.item.call)) ||
         (unit.item.kind === "notice" && unit.item.severity === "error"));
     const work = rest.filter((unit) => !shown(unit));
     if (!work.length || (live && end === list.length)) {

@@ -173,6 +173,7 @@ import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
 import { GuideStepper } from "./components/guide/GuideStepper";
+import { HandoffContext } from "./components/session/HandoffCard";
 import { ChangesRail } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
 import { layerRange, rangeOf, subscribeLayers, takeLayer, stackOf } from "./data/stack";
@@ -5552,6 +5553,23 @@ export function App({
         .filter(Boolean)
         .join(" · ")
     : undefined;
+  // A hand-off's card in the conversation opens the Review (HandoffCard.tsx).
+  const handoffTitle = reviewAvailable
+    ? (state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review")
+    : null;
+  const handoff = useMemo(
+    () =>
+      handoffTitle === null
+        ? null
+        : {
+            title: handoffTitle,
+            open: () => {
+              revealPane("review");
+              selectTab("review");
+            },
+          },
+    [handoffTitle, revealPane, selectTab],
+  );
   // The session side panel's Reviews card.
   const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
   const sessionLinks: ThreadLink[] = [
@@ -6538,7 +6556,9 @@ export function App({
   return (
     <PendingReviewContext.Provider value={pendingReview}>
       <CommentAgentContext.Provider value={commentAgent}>
-        <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+        <HandoffContext.Provider value={handoff}>
+          <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+        </HandoffContext.Provider>
       </CommentAgentContext.Provider>
     </PendingReviewContext.Provider>
   );

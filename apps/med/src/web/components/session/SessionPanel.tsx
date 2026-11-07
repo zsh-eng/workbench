@@ -133,11 +133,7 @@ function SessionMenu({
         <Icon name="chevron" size={12} />
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner
-          align="start"
-          sideOffset={6}
-          {...stylex.props(styles.menuPositioner)}
-        >
+        <Menu.Positioner align="start" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {sessions.length > 1 && (
               <>

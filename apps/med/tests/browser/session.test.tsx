@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
+import { HandoffContext } from "../../src/web/components/session/HandoffCard";
 import { SessionThread } from "../../src/web/components/session/SessionThread";
 import { estimateUnit, readMetrics } from "../../src/web/components/session/thread-heights";
 import { finalReplies, units as unitsOf } from "../../src/web/components/session/thread-model";
@@ -681,6 +682,65 @@ test("hidden work keeps each reply: the one before med review wait, and one that
   // The work itself folds.
   await expect.element(thread.getByText("Read the server log")).not.toBeInTheDocument();
   expect(thread.getByRole("button", { name: /^Worked for/ }).elements()).toHaveLength(2);
+});
+
+test("a hand-off is a card in the conversation that opens its review, and stays when the work folds", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const text = (value: string) => ({ type: "text" as const, text: value });
+  const run = (at: number, id: string, command: string, status: "in_progress" | "completed") => ({
+    at,
+    update: {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: id,
+      title: command,
+      kind: "execute" as const,
+      status,
+      rawInput: { command },
+    },
+  });
+  const store = longThread(0);
+  store.applyAll([
+    {
+      at: 0,
+      update: { sessionUpdate: "user_message_chunk" as const, content: text("Rename it.") },
+    },
+    run(1000, "build", "bun run build", "completed"),
+    run(2000, "handoff", "med review create --key rename --guide guide.json", "in_progress"),
+  ]);
+  let opened = 0;
+  const review = { title: "Rename the export", open: () => (opened += 1) };
+  const show = () =>
+    root!.render(
+      <HandoffContext.Provider value={review}>
+        <SessionThread snapshot={store.getSnapshot()} />
+      </HandoffContext.Provider>,
+    );
+  show();
+  const thread = page.getByRole("log", { name: "Session" });
+  // While the agent writes it, the card is dashed and does not open.
+  const writing = thread.getByRole("button", { name: "Handing off Rename the export" });
+  await expect.element(writing).toBeDisabled();
+  store.applyAll([
+    run(2000, "handoff", "med review create --key rename --guide guide.json", "completed"),
+    {
+      at: 3000,
+      update: {
+        sessionUpdate: "agent_message_chunk" as const,
+        messageId: "done",
+        content: text("The review is ready."),
+        _meta: { med: { endsTurn: true } },
+      },
+    },
+  ]);
+  show();
+  // The turn's work folds; the card stays, and opens the review.
+  await expect.element(thread.getByRole("button", { name: /^Worked for/ })).toBeVisible();
+  await expect.element(thread.getByText("bun run build")).not.toBeInTheDocument();
+  const card = thread.getByRole("button", { name: "Open the review: Rename the export" });
+  await expect.element(card).toBeVisible();
+  await card.click();
+  expect(opened).toBe(1);
 });
 
 test("[ and ] step through the prompts and replies of a focused thread", async () => {

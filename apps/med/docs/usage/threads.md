@@ -142,7 +142,10 @@ load it or read its agents until you open it again.
   menu of them above the diff. Git's comparisons are only in **Changes**. In a thread with a Review, the **Changes** tab has no file
   count, so that the tabs keep their places. A thread opens on **Review**
   after a hand-off and on **Changes** before one. A hand-off that arrives
-  while you read adds **Review** and does not move you. When the checkout changes after a version, a bar offers
+  while you read adds **Review** and does not move you. In the
+  conversation, each hand-off (`med review create`) is a card with Med's
+  mark that opens the Review; while the agent writes it, the card is dashed
+  and shimmers, and it stays in view when the turn's work folds. When the checkout changes after a version, a bar offers
   **Refresh review**, which saves the checkout again as a new version, and
   **Show Changes**. An older thread, which saved its checkout when it
   started, keeps that capture as version 1; an empty capture alone is not a
