@@ -126,8 +126,9 @@ out. Binary files count no lines.
 
 A review with an agent session sends comments to that session, so you do not
 paste them. **Send to Claude** (or **Send to Codex**) opens the Session pane,
-with your text and the comments that you have not sent. Select the comment
-count to choose comments. A GitHub comment's reply button, or **Add all to**
+with your text and the comments that you have not sent. They wait above the
+message box as one line: **Send 2 comments** sends them on their own, and the
+comment count chooses which. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
 When Med started the session and runs it, one comment can go on its own: hold

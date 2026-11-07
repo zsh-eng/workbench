@@ -4429,11 +4429,18 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Claude is waiting for your review")).toBeVisible();
     await expect.element(panel.getByText("Waiting for you")).toBeVisible();
 
+    // The comments wait above the message box as one line, to send on their own.
+    await expect.element(panel.getByRole("button", { name: "Send 2 comments" })).toBeVisible();
     // Choose one of the two comments, then write and send.
     await panel.getByRole("button", { name: "2 comments" }).click();
     await panel.getByRole("checkbox", { name: /beta\.ts:2/ }).click();
     await expect.element(panel.getByRole("button", { name: "1 of 2 comments" })).toBeVisible();
+    await expect.element(panel.getByRole("button", { name: "Send 1 comment" })).toBeVisible();
     await panel.getByRole("combobox", { name: "Message Claude" }).fill("Use minutes.");
+    // With a message, the box's own Send takes both.
+    await expect
+      .element(panel.getByRole("button", { name: "Send 1 comment" }))
+      .not.toBeInTheDocument();
     await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
 
     // The message and its comment show at once, before the host answers, and
@@ -4468,6 +4475,14 @@ describe("agent session", () => {
     await expect.element(panel.getByText("Sending…")).not.toBeInTheDocument();
     await expect.element(panel.getByText("Not sent", { exact: false })).not.toBeInTheDocument();
     expect(panel.getByText("Use minutes.").elements()).toHaveLength(1);
+
+    // The comment left over goes on its own, from its line.
+    await panel.getByRole("button", { name: "Send 1 comment" }).click();
+    await expect.poll(() => agentAnswers.length).toBe(1);
+    agentAnswers.shift()!();
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ sessionId: "s1", text: "", noteIds: ["n2"] });
   });
 
   test("a draft and the messages that Med did not take stay after a reload", async () => {

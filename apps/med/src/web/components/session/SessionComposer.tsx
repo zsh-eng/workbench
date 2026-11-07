@@ -514,6 +514,17 @@ export function SessionComposer({
                   : `${chosen.length} of ${drafts.length} comments`}
               </button>
             )}
+            {/* Comments wait here as one line, and go on their own. */}
+            {chosen.length > 0 && !text.trim() && !stopped && (
+              <button
+                type="button"
+                onClick={() => void send()}
+                {...stylex.props(styles.chip, styles.sendComments)}
+              >
+                Send {chosen.length} {chosen.length === 1 ? "comment" : "comments"}
+                <Icon name="arrowLeft" size={11} style={{ transform: "rotate(180deg)" }} />
+              </button>
+            )}
             {attachments.map((attachment) => (
               <span key={attachment.id} {...stylex.props(styles.chip, styles.chipOn)}>
                 <Icon name={attachment.icon ?? "github"} size={12} />
@@ -865,6 +876,12 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   chipOn: { backgroundColor: tokens.accentSoft, color: tokens.accent },
+  sendComments: {
+    marginInlineStart: "auto",
+    backgroundColor: { default: "transparent", ":hover": tokens.accentSoft },
+    color: tokens.accent,
+    fontWeight: 500,
+  },
   chipLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   chipRemove: {
     display: "inline-flex",
