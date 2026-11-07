@@ -14,11 +14,7 @@ import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
-import { openAttempts } from "../../data/attempts";
 import { readHistory } from "../../data/tabs";
-import { MAX_ATTEMPTS } from "../../../shared/attempts";
-import { AttemptRows, AttemptsHint, useAttempts } from "../attempts/NewAttempts";
-import { choiceStyles } from "./ChoiceRows";
 import { WhereToWork } from "./WhereToWork";
 
 const CLAUDE = "#d97757";
@@ -136,9 +132,6 @@ export function NewThread({
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
-  // Two or three attempts: each agent does the task in its own worktree.
-  const attempts = useAttempts(agents, agent, fetcher);
-  const several = attempts.count > 1;
   const [prompt, setPrompt] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   // @ names the repository's files, the vaults' notes, and other threads.
@@ -216,35 +209,19 @@ export function NewThread({
     setPicked(repositoryId);
     remember({ repositoryId });
   };
-  // Attempt A, or the thread's only agent.
-  const first = { agent, options, model, effort, efforts };
-  const chooseFirst = (next: AgentChoices & { preset?: string }) =>
+  const chooseAgent = (next: AgentChoices & { preset?: string }) =>
     remember(
       next.preset
         ? { preset: next.preset }
         : { agents: { ...choice.agents, [agent!.id]: { ...choice.agents?.[agent!.id], ...next } } },
     );
 
-  const ready = !!prompt.trim() && !!repository && !!agent && !busy && attempts.ready;
+  const ready = !!prompt.trim() && !!repository && !!agent && !busy;
   const start = async () => {
     if (!ready) return;
     setBusy(true);
     setError(null);
     try {
-      if (several) {
-        const started = await attempts.start(
-          {
-            repositoryId: repository.id,
-            prompt: await mentions.expand(prompt),
-            title: threadTitle(prompt),
-            first,
-          },
-          fetcher,
-        );
-        onStarted(started.reviews[0]!);
-        openAttempts(started.group, started.problem);
-        return;
-      }
       const result = await createApi(fetcher, readBrowserToken()).json(
         "/api/threads",
         z.object({ review: savedReviewSchema }),
@@ -274,7 +251,6 @@ export function NewThread({
   });
 
   const branch = prompt.trim() ? threadSlug(threadTitle(prompt)) : "a-new-branch";
-  const branches = ["a", "b", "c"].slice(0, attempts.count).map((letter) => `${branch}-${letter}`);
   const addFolder = () => {
     onCancel();
     history.pushState(null, "", "/sources");
@@ -363,103 +339,80 @@ export function NewThread({
               label="Where the agent works"
               trigger={styles.menu}
               sections={[
-                // Each attempt needs a worktree of its own.
-                several
-                  ? [
-                      {
-                        label: `New worktrees · ${branches.join(", ")}`,
-                        checked: true,
-                        choice: true,
-                        onClick: () => {},
-                      },
-                    ]
-                  : [
-                      {
-                        label: `New worktree · ${branch}`,
-                        checked: choice.worktree,
-                        choice: true,
-                        onClick: () => remember({ worktree: true }),
-                      },
-                      {
-                        label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
-                        checked: !choice.worktree,
-                        choice: true,
-                        onClick: () => remember({ worktree: false }),
-                      },
-                    ],
-                Array.from({ length: MAX_ATTEMPTS }, (_, index) => ({
-                  label: index ? `${index + 1} attempts` : "1 attempt",
-                  checked: attempts.count === index + 1,
-                  choice: true,
-                  onClick: () => attempts.setCount(index + 1),
-                })),
+                [
+                  {
+                    label: `New worktree · ${branch}`,
+                    checked: choice.worktree,
+                    choice: true,
+                    onClick: () => remember({ worktree: true }),
+                  },
+                  {
+                    label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
+                    checked: !choice.worktree,
+                    choice: true,
+                    onClick: () => remember({ worktree: false }),
+                  },
+                ],
               ]}
             >
-              <MenuLabel
-                icon="branch"
-                text={
-                  several
-                    ? `${attempts.count} worktrees`
-                    : choice.worktree
-                      ? "New worktree"
-                      : "Checkout"
-                }
-              />
+              <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
             </ActionMenu>
-            {agent && !several && (
+            {agent && (
               <ActionMenu
-                label="Agent and model"
+                label="Model"
                 trigger={styles.menu}
                 sections={[
-                  agents && agents.length > 1
-                    ? agents.map((entry) => ({
-                        label: entry.name,
-                        checked: entry.id === agent.id,
-                        choice: true,
-                        onClick: () => chooseFirst({ preset: entry.id }),
-                      }))
-                    : [],
                   (options?.model?.options ?? []).map((option) => ({
                     label: optionName(option),
                     checked: option.value === model,
                     choice: true,
-                    onClick: () => chooseFirst({ model: option.value }),
+                    onClick: () => chooseAgent({ model: option.value }),
                   })),
-                  effort
-                    ? efforts.map((option) => ({
-                        label: optionName(option),
-                        checked: option.value === effort,
-                        choice: true,
-                        onClick: () => chooseFirst({ effort: option.value }),
-                      }))
+                  agents && agents.length > 1
+                    ? [
+                        {
+                          label: `Agent · ${agent.name}`,
+                          sections: [
+                            agents.map((entry) => ({
+                              label: entry.name,
+                              checked: entry.id === agent.id,
+                              choice: true,
+                              onClick: () => chooseAgent({ preset: entry.id }),
+                            })),
+                          ],
+                        },
+                      ]
                     : [],
                 ]}
               >
                 <AgentLabel
                   kind={agent.kind}
                   model={modelName ? optionName(modelName) : agent.name}
-                  effort={effortName && optionName(effortName)}
                 />
               </ActionMenu>
             )}
+            {effort && (
+              <ActionMenu
+                label="Effort"
+                trigger={styles.menu}
+                sections={[
+                  efforts.map((option) => ({
+                    label: optionName(option),
+                    checked: option.value === effort,
+                    choice: true,
+                    onClick: () => chooseAgent({ effort: option.value }),
+                  })),
+                ]}
+              >
+                <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
+              </ActionMenu>
+            )}
           </div>
-          {agents && several && (
-            <div {...stylex.props(choiceStyles.sheet, styles.attempts)}>
-              <AttemptRows
-                attempts={attempts}
-                agents={agents}
-                first={first}
-                onFirst={chooseFirst}
-              />
-            </div>
-          )}
           <p {...stylex.props(styles.hint)} aria-live="polite">
             {error ? (
               <span {...stylex.props(styles.error)}>{error}</span>
             ) : busy ? (
               "Starting the agent…"
-            ) : several ? (
-              <AttemptsHint count={attempts.count} repository={repository?.name} />
             ) : null}
           </p>
         </div>
@@ -482,17 +435,21 @@ function MenuLabel({ icon, text }: { icon: IconName; text: string }) {
   );
 }
 
-/** The agent's mark in its colour, the model, then the effort in a quieter grey. */
-function AgentLabel({ kind, model, effort }: { kind: string; model: string; effort?: string }) {
+/** The agent's mark in its colour, then the model. */
+function AgentLabel({ kind, model }: { kind: string; model: string }) {
   return (
     <>
       <span {...stylex.props(styles.mark, kind === "claude" && styles.claude)}>
         <Icon name={kind === "claude" || kind === "codex" ? kind : "agent"} size={13} />
       </span>
       <span {...stylex.props(styles.text, styles.model)}>{model}</span>
-      {effort && <span {...stylex.props(styles.effort)}>{effort}</span>}
     </>
   );
+}
+
+/** The effort, as "High effort": a word alone would not say what it is. */
+function EffortLabel({ text }: { text: string }) {
+  return <span {...stylex.props(styles.text)}>{`${text} effort`}</span>;
 }
 
 const enter = stylex.keyframes({
@@ -515,8 +472,6 @@ const styles = stylex.create({
     flexDirection: "column",
     width: "min(680px, 100%)",
     height: "100%",
-    // The attempts' rows lay out by the column's width (ChoiceRows.tsx).
-    containerType: "inline-size",
     animationName: { default: enter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "220ms",
     animationTimingFunction: tokens.easeOut,
@@ -598,8 +553,6 @@ const styles = stylex.create({
   mark: { display: "flex", flexShrink: 0 },
   claude: { color: CLAUDE },
   model: { color: tokens.text },
-  effort: { flexShrink: 0, color: tokens.faint },
-  attempts: { marginTop: 8 },
   hint: {
     marginTop: 8,
     marginBottom: 0,

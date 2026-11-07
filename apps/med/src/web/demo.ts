@@ -439,6 +439,44 @@ function status(repo: string): WorkingStatus {
 
 type Handler = (url: URL, body: any, match: RegExpMatchArray) => unknown;
 const handlers: [method: string, path: RegExp, handler: Handler][] = [
+  // New thread's model and effort, as Claude Code offers them.
+  [
+    "GET",
+    /^\/api\/agents\/[^/]+\/choices$/,
+    () => ({
+      model: {
+        id: "model",
+        name: "Model",
+        category: "model",
+        value: "opus",
+        options: [
+          { value: "default", name: "Default (recommended)" },
+          { value: "opus", name: "Opus" },
+          { value: "sonnet", name: "Sonnet" },
+          { value: "haiku", name: "Haiku" },
+        ],
+      },
+      effort: {
+        id: "effort",
+        name: "Effort",
+        category: "effort",
+        value: "high",
+        options: [
+          { value: "default", name: "Default effort" },
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+          { value: "xhigh", name: "Extra high" },
+        ],
+      },
+      efforts: {
+        default: ["low", "medium", "high", "xhigh"],
+        opus: ["low", "medium", "high", "xhigh"],
+        sonnet: ["low", "medium", "high"],
+        haiku: [],
+      },
+    }),
+  ],
   [
     "POST",
     /^\/api\/reviews\/([^/]+)\/(?:targets|browsing)\/[^/]+\/notes$/,
