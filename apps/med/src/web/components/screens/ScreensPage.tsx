@@ -10,6 +10,8 @@ const WIDTH = 1440;
 const HEIGHT = 900;
 
 function frameUrl(screen: Screen, theme: string) {
+  if (screen.prototype)
+    return `/screens/prototype/${screen.prototype}?${new URLSearchParams({ theme })}`;
   const query = new URLSearchParams({
     recording: `/screens/${screen.recording}`,
     scene: screen.scene,

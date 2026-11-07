@@ -49,6 +49,7 @@ const Welcome = lazy(() => import("./components/welcome/Welcome"));
 const WorkspaceApp = memo(App);
 const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
 const ScreensPage = lazy(() => import("./components/screens/ScreensPage"));
+const Prototype = lazy(() => import("./components/screens/prototypes/Prototype"));
 
 /** The welcome replaces the app while it shows; leaving it starts the app. */
 function Root() {
@@ -69,6 +70,12 @@ function Root() {
     return (
       <Suspense fallback={null}>
         <ScreensPage />
+      </Suspense>
+    );
+  if (import.meta.env.DEV && location.pathname.startsWith("/screens/prototype/"))
+    return (
+      <Suspense fallback={null}>
+        <Prototype />
       </Suspense>
     );
   if (welcome)

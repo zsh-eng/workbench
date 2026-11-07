@@ -12,6 +12,9 @@ export interface Screen {
   scene: string;
   /** A recording in public/screens. */
   recording: string;
+  /** A design that Med does not have yet: the prototype that shows it
+   * (prototypes/Prototype.tsx), in place of the demo. */
+  prototype?: string;
 }
 
 export const screens: readonly Screen[] = [
@@ -63,6 +66,22 @@ export const screens: readonly Screen[] = [
     note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",
     scene: "settings",
     recording: "recording.json",
+  },
+  {
+    id: "ask-in-session",
+    label: "Prototype: ask in a file, in a session",
+    note: "Select lines in any file and press A. The question is a comment, and a fork of the session answers in its thread at once, so the session keeps working. Reply asks the same fork more; Send to Claude hands the thread to the session as a change to make.",
+    scene: "",
+    recording: "",
+    prototype: "ask-in-session",
+  },
+  {
+    id: "ask-in-workspace",
+    label: "Prototype: ask in a file, without a session",
+    note: "Outside a session, questions go to the repository's Questions session: one read-only Claude session per repository that Med keeps, so each answer builds on the last. Make a session starts a working session from the question.",
+    scene: "",
+    recording: "",
+    prototype: "ask-in-workspace",
   },
   {
     id: "notes",
