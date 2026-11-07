@@ -81,6 +81,21 @@ describe("theme choices", () => {
       active: { id: "tokyo-night" },
       light: { id: "vitesse-light" },
     });
+    // A theme that an older Med saved by itself is the choice.
+    storage.setItem(THEME_STORAGE_KEY, "graphite-light");
+    const older = createThemeController({ storage, system });
+    older.initialize();
+    expect(older.getSnapshot()).toMatchObject({
+      mode: "light",
+      active: { id: "graphite-light" },
+      dark: { id: "tokyo-night" },
+    });
+    // In System, the other appearance's theme is the system that changed.
+    older.setMode("system");
+    dark = true;
+    const followed = createThemeController({ storage, system });
+    followed.initialize();
+    expect(followed.getSnapshot()).toMatchObject({ mode: "system", active: { id: "tokyo-night" } });
   });
 
   test("keeps the session usable when browser storage fails", () => {

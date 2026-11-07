@@ -1732,6 +1732,17 @@ export function createThemeController(options: ThemeControllerOptions = {}) {
         const storedDark = themes.find((t) => t.id === storage?.getItem(THEME_DARK_KEY));
         if (storedLight?.appearance === "light") light = storedLight;
         if (storedDark?.appearance === "dark") dark = storedDark;
+        // Med writes the shown theme there too. A different one came from
+        // elsewhere, such as an older Med: it is the choice, as from the
+        // picker. In System, the other slot's theme is the system changing.
+        const shown = resolve(mode, light, dark);
+        const followed = mode === "system" && (single === light || single === dark);
+        if (stored && single !== shown && !followed) {
+          if (single.appearance === "light") light = single;
+          else dark = single;
+          if (!(mode === "system" && single.appearance === (systemDark() ? "dark" : "light")))
+            mode = single.appearance;
+        }
         paint(mode, light, dark);
       } catch {
         error = "Theme storage is unavailable. Changes apply to this session.";
