@@ -18,9 +18,8 @@ give must be free.
 When Med is out of date, an open page says so. **Restart** replaces a server
 that runs older code, and **Reload** loads a newer page. Med first checks that
 the new build starts; if it does not, the current server keeps running and the
-notice shows the error. The command palette has **Reload Med** and **Restart
-Med server and reload**. A server that you started with `med serve` asks you to
-restart it in its terminal.
+notice shows the error. A server that you started with `med serve` asks you
+to restart it in its terminal.
 
 ## Start at login
 

@@ -154,12 +154,14 @@ bun run dev:med /path/to/repository
 Open the Vite URL with the `#token=…` fragment printed by the API host. Vite
 proxies API requests to that host; production builds need no proxy.
 
-Open `/elements`, or **Open elements page** in the command palette, to inspect
+Open `/elements` to inspect
 Med's components on fixed sample data: palette, type, icons, controls, review
 parts, code color states, and a brief. It previews any theme without saving it,
 outlines or inspects elements, runs the Commit tab on a pretend repository,
 replays a recorded agent session, and runs the Session pane with a scripted
-agent.
+agent. `/screens`, in a dev server, shows whole windows the same way. In the
+browser console, `medRenderDiagnostics.download()` saves the last render
+events of the open page.
 
 To run the login service from Workbench's latest `main` on macOS, run
 `bun scripts/track-main.ts install`. It builds `main` in a separate worktree

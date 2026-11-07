@@ -195,7 +195,6 @@ import {
 } from "./data/guide";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
-import { requestServerRestart } from "./components/UpdateNotice";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
@@ -536,6 +535,15 @@ export function App({
   const [branchPickerNew, setBranchPickerNew] = useState(false);
   const workerPool = useWorkerPool();
   const [diagnostics] = useState(createRenderDiagnostics);
+  // Developers save the last render events from the console
+  // (`medRenderDiagnostics.download()`); ⌘K keeps to reviewing.
+  useEffect(() => {
+    const target = window as Window & { medRenderDiagnostics?: typeof diagnostics };
+    target.medRenderDiagnostics = diagnostics;
+    return () => {
+      if (target.medRenderDiagnostics === diagnostics) delete target.medRenderDiagnostics;
+    };
+  }, [diagnostics]);
   const [rawBrowseApi] = useState(
     () =>
       providedBrowseApi ?? createBrowseApi(globalThis.fetch.bind(globalThis), readBrowserToken()),
@@ -3822,11 +3830,6 @@ export function App({
         ]
       : []),
     {
-      id: "render-diagnostics",
-      label: "Download render diagnostics",
-      run: () => diagnostics.download(),
-    },
-    {
       id: "find-file-text",
       managesFocus: true,
       label: "Find text in current file",
@@ -3965,20 +3968,6 @@ export function App({
       label: "Show keyboard shortcuts",
       shortcut: "?",
       run: () => setHelpOpen(true),
-    },
-    {
-      id: "elements",
-      label: "Open elements page",
-      run: () => location.assign("/elements"),
-    },
-    ...(import.meta.env.DEV
-      ? [{ id: "screens", label: "Open screens page", run: () => location.assign("/screens") }]
-      : []),
-    { id: "reload", label: "Reload Med", run: () => location.reload() },
-    {
-      id: "restart-server",
-      label: "Restart Med server and reload",
-      run: requestServerRestart,
     },
     {
       id: "close-file",
