@@ -64,7 +64,7 @@ row names the agent and its state.
 - **Display** has the diff's layout (**Split** or **Unified**, `S`), **Wrap
   long lines** (`W`), **Comments in the diff** (`C`), and the code's text
   size. The keys work while it is open. **All code settings**, at its foot,
-  opens Settings › Code.
+  opens Settings at Code.
 - In Changes, what the diff compares tops the page's sidebar, and its menu
   also has **Base branch…** (for a branch
   without a worktree, **Compare against a branch…**) and **Compare two

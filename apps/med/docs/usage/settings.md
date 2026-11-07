@@ -1,8 +1,9 @@
 # Settings
 
 **Settings**, at the foot of the sidebar, opens Med's settings at
-`/settings`. Its sections are on the left, and each setting is a row: its name
-and what it does, and its control.
+`/settings`: one page of sections, in which each setting is a row with its
+name and what it does at the left and its control at the right. With nothing
+chosen, Med follows the system between **Pierre Light** and **Pierre Dark**.
 
 ## Appearance
 
@@ -20,19 +21,27 @@ first frame is never the browser's own white or black.
 
 The diff's layout (**Split** or **Unified**), **Wrap long lines**, **Comments
 in the diff**, and the code's **Text size**: the same settings as the review
-header's **Display**, whose **All code settings** opens this page.
+header's **Display**, whose **All code settings** opens this page at Code
+(`/settings/code`).
+
+## Files and sessions
+
+**Vim keys** in files, **Blame on the cursor's line**, the **Preview in Find
+file**, and what `⌘↩` does with **a message while the agent works**: send it
+at the agent's next step, or queue it for the turn's end (`⇧⌘↩` does the
+other).
 
 ## Sources
 
-**Sources** opens the registered repositories and notes vaults
+**Open Sources** opens the registered repositories and notes vaults
 (`/sources`).
 
 ## The settings file
 
 Every setting lives in `~/.config/med/settings.json` (or
 `$XDG_CONFIG_HOME/med/settings.json`), so an agent can change one by editing
-the file. Med applies a saved change at once, in every open window. Each
-settings page ends with the file's path and its part of the file. A choice
+the file. Med applies a saved change at once, in every open window. The page
+names the file at its top and shows what the file holds at its end. A choice
 in Med writes its key and keeps the others. A file that is not valid JSON,
 such as one mid-edit, keeps the settings that Med read last, and the page
 says why.
