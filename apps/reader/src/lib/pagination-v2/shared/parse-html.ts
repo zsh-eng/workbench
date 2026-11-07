@@ -718,6 +718,41 @@ function extractCellRuns(cell: Element): InlineExtractionResult {
   return { runs, trailingTargets };
 }
 
+/**
+ * True for a block whose text is only whitespace with at least one
+ * non-breaking space. Ordinary whitespace collapses away in a browser too, so
+ * only `&nbsp;` marks a line that the book means to show empty. A block with
+ * an image or other media in it is not blank.
+ */
+function isBlankLine(element: Element): boolean {
+  const text = element.textContent ?? "";
+  return (
+    text.includes("\u00a0") &&
+    text.trim().length === 0 &&
+    !element.querySelector(BLANK_LINE_CONTENT_SELECTOR)
+  );
+}
+
+const BLANK_LINE_CONTENT_SELECTOR = "img, svg, image, video, object, table, hr";
+
+/**
+ * True when the nearest earlier sibling, past whitespace and comments, is a
+ * blank line.
+ */
+function followsBlankLine(element: Element): boolean {
+  let previous = element.previousSibling;
+  while (
+    previous?.nodeType === Node.COMMENT_NODE ||
+    (previous?.nodeType === Node.TEXT_NODE && !previous.textContent?.trim())
+  )
+    previous = previous.previousSibling;
+  return (
+    previous instanceof Element &&
+    BLOCK_TAGS.has(previous.tagName.toLowerCase()) &&
+    isBlankLine(previous)
+  );
+}
+
 function isVisibleRun(run: InlineRun): boolean {
   return run.hardBreak === true || run.text.trim().length > 0;
 }
@@ -984,6 +1019,7 @@ function parseChapterHtmlInternal(
         blocks: [
           {
             type: "spacer",
+            kind: "rule",
             id: spacerId,
             ...(targetIds.length > 0 ? { targetIds } : {}),
             ...(pageBreakHints ? { pageBreakHints } : {}),
@@ -1005,10 +1041,11 @@ function parseChapterHtmlInternal(
         }
       }
 
+      const blockNumber = context.counter.value++;
       const block = createTextBlock(
         node,
         tag as BlockTag,
-        `text-${context.counter.value++}`,
+        `text-${blockNumber}`,
         targetIds,
         context.publisherStyleResolver,
         context.bookPageBreakHintResolver,
@@ -1022,6 +1059,30 @@ function parseChapterHtmlInternal(
       const childrenResult = walkChildBlocks();
       if (childrenResult.blocks.length > 0) {
         return childrenResult;
+      }
+
+      // A paragraph of only non-breaking spaces is a blank line that the book
+      // asked for, most often a scene break (Calibre writes two
+      // `<p>&nbsp;</p>`). A run of them is one gap: only the first becomes a
+      // spacer. It keeps the block number that the paragraph took, and the
+      // walk above has already counted its text, so later block ids and text
+      // offsets are the same as when the lines were dropped.
+      if (isBlankLine(node) && !followsBlankLine(node)) {
+        const spacerId = `spacer-${blockNumber}`;
+        recordBlockStart(context, spacerId, blockStart);
+        const spacerTargets = childrenResult.remainingTargets;
+        return {
+          blocks: [
+            {
+              type: "spacer",
+              kind: "blank-line",
+              id: spacerId,
+              ...(spacerTargets.length > 0 ? { targetIds: spacerTargets } : {}),
+              ...(pageBreakHints ? { pageBreakHints } : {}),
+            },
+          ],
+          remainingTargets: [],
+        };
       }
 
       return {

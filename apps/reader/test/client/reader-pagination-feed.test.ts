@@ -79,7 +79,7 @@ const entries = [
   { index: 0, spineItemId: "chapter", href: "chapter.xhtml", title: "Chapter" },
 ];
 const blocks: Block[] = Array.from({ length: 5 }, (_, i): Block[] => [
-  { type: "spacer", id: `page-${i}` },
+  { type: "spacer", kind: "rule", id: `page-${i}` },
   { type: "page-break", id: `break-${i}` },
 ]).flat();
 const initialLocation = {

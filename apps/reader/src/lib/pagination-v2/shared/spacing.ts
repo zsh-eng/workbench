@@ -93,6 +93,17 @@ function rhythmLinesToPixels(lines: number, theme: LayoutTheme): number {
   return getBodyLineHeight(theme) * lines;
 }
 
+/**
+ * The height of a book's blank line (a scene break). No block gap is added
+ * on either side of a spacer, so it holds the paragraph gap as well as one
+ * empty line. With book rhythm, paragraphs have no gap, and one whole line
+ * keeps the baselines on their grid.
+ */
+export function getBlankLineHeight(theme: LayoutTheme): number {
+  const paragraphGap = theme.bookRhythm ? 0 : theme.paragraphSpacingFactor;
+  return rhythmLinesToPixels(1 + paragraphGap, theme);
+}
+
 export function isHeadingTag(tag: string): boolean {
   return getHeadingTypography(tag) !== null;
 }

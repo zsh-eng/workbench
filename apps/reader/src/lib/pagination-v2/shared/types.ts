@@ -78,6 +78,12 @@ export interface ImageBlock {
 
 export interface SpacerBlock {
   type: "spacer";
+  /**
+   * `rule` is an `<hr>`. `blank-line` is a paragraph of only `&nbsp;`, most
+   * often a scene break; it is one line plus the paragraph gap, so it shows
+   * with spaced paragraphs as well as indented ones.
+   */
+  kind: "rule" | "blank-line";
   id: string;
   targetIds?: string[];
   pageBreakHints?: BookPageBreakHints;
@@ -260,6 +266,7 @@ export interface PreparedImageBlock {
 
 export interface PreparedSpacerBlock {
   type: "spacer";
+  kind: SpacerBlock["kind"];
   id: string;
   targetIds?: string[];
   pageBreakHints?: BookPageBreakHints;

@@ -13,6 +13,7 @@ import {
   shouldMoveTextBlockForPageBreakHints,
 } from "./layout-page-break-hints";
 import {
+  getBlankLineHeight,
   getBlockInsetLeft,
   getBlockSpacing,
   getBodyLineHeight,
@@ -497,6 +498,16 @@ export function layoutPages(
     return false;
   };
 
+  let lastContentIndex = preparedBlocks.length - 1;
+  while (lastContentIndex >= 0) {
+    const block = preparedBlocks[lastContentIndex];
+    const isContent =
+      block?.type !== "page-break" &&
+      !(block?.type === "spacer" && block.kind === "blank-line");
+    if (isContent) break;
+    lastContentIndex--;
+  }
+
   for (let blockIndex = 0; blockIndex < preparedBlocks.length; blockIndex++) {
     const block = preparedBlocks[blockIndex];
     if (!block) continue;
@@ -509,6 +520,24 @@ export function layoutPages(
     }
 
     startBlock(block);
+
+    // A book's blank line (a scene break) separates two passages on one page.
+    // At the top of a page or chapter, or after the last content, there is
+    // nothing to separate, so it is dropped. When it does not fit, the page
+    // turn is the break: the next passage starts a new page.
+    if (block.type === "spacer" && block.kind === "blank-line") {
+      if (current.slices.length === 0 || blockIndex > lastContentIndex) {
+        continue;
+      }
+      const height = getBlankLineHeight(theme);
+      if (height > safeHeight - current.usedHeight) {
+        pushPage();
+        continue;
+      }
+      addSpacer(block.id, height);
+      finishBlock(block, null, 0);
+      continue;
+    }
 
     if (block.type === "spacer") {
       addSpacer(block.id, theme.baseFontSizePx * 0.9);

@@ -66,7 +66,7 @@ function buildConfig(baseSizePx: number): PaginationConfig {
 }
 
 function buildBlocks(id: string): Block[] {
-  return [{ type: "spacer", id }];
+  return [{ type: "spacer", kind: "rule", id }];
 }
 
 function addChapter(chapterIndex: number): PaginationCommand {

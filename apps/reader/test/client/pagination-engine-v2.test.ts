@@ -70,14 +70,18 @@ const INTERNAL_LINK_JUMP_INTENT: SpreadIntent = {
 };
 
 function makeSpacerBlocks(chapterIndex: number): Block[] {
-  return [{ type: "spacer", id: `spacer-${chapterIndex}` }];
+  return [{ type: "spacer", kind: "rule", id: `spacer-${chapterIndex}` }];
 }
 
 function makeFixedPageBlocks(chapterIndex: number, pageCount: number): Block[] {
   const blocks: Block[] = [];
 
   for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-    blocks.push({ type: "spacer", id: `spacer-${chapterIndex}-${pageIndex}` });
+    blocks.push({
+      type: "spacer",
+      kind: "rule",
+      id: `spacer-${chapterIndex}-${pageIndex}`,
+    });
     if (pageIndex < pageCount - 1) {
       blocks.push({
         type: "page-break",
@@ -195,7 +199,7 @@ function makeSpacerSplitBlocks(): Block[] {
       intrinsicWidth: 600,
       intrinsicHeight: 855,
     },
-    { type: "spacer", id: "spacer-21" },
+    { type: "spacer", kind: "rule", id: "spacer-21" },
     { type: "page-break", id: "pb-after-spacer" },
   ];
 }
