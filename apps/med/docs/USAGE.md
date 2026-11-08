@@ -177,11 +177,11 @@ flowchart TD
 
 ## Prototypes
 
-The Screens page (`/screens`, in a development build) shows designs that
-aren't in the app yet, on made-up data. One is a single find bar for `⌘F` in
-a diff, `⌘F` in a file, and Vim's `/` and `?`.
+The Screens page (`/screens`, in a development build) shows designs on
+made-up data before they reach the app. The find bar started there: one bar
+for `⌘F` in a diff, `⌘F` in a file, and Vim's `/` and `?`, now in both.
 
-![The find bar prototype](screenshots/app/find-bar.webp)
+![The find bar, in a diff and in a file with Vim's /](screenshots/app/find-bar.webp)
 
 ## Pages
 

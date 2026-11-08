@@ -368,6 +368,12 @@ those messages as another session's, not as the user's.
   step" while the agent works, or "Waiting for Claude to take it".
   When the agent takes the message, it replaces the agent's own copy in the
   transcript, so the turn before keeps its reply and its "Worked for" row.
+- The message box, with the docks above it, floats over the thread's foot on
+  a fade (`SessionThread`'s `footer`). The thread scrolls under it, so its
+  scroll bar runs the pane's height; the box leaves the bar's 12 px column
+  clear, and the thread ends with a spacer as tall as the box, so its last
+  line clears it. The scroll bar is slim: a 4 px thumb on a clear track, 4 px
+  in from the edge (`.med-slim-scroll`).
 - The thread is a virtual list. Only the units within 1,200 px of the view
   render; spacers hold the height of the others. When less than 800 px stays
   rendered past an edge, the range moves in a task after the frame, so the
@@ -527,7 +533,8 @@ from the thread, so a task still scrolls the thread to its call),
 **Subagents** (the tabs over the thread move here the same way, as a list of
 rows with each subagent's state, so they never meet the panel's first card;
 the arrow keys go down and up the list),
-**Reviews** (the thread's Review, its Changes, and its pull request), and
+**Reviews** (each review that the session handed off, newest first, with
+the one on screen marked; then its live Changes and its pull request), and
 **Environment** (the checkout, its branch, and the agent with its model and
 what runs it). The thread's column has Claude Desktop's 768 pixel text
 measure (`session-styles.ts`). 900 pixels is a 540 pixel column, 30 pixels

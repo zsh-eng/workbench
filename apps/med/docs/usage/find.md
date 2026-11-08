@@ -143,9 +143,13 @@ browser address. Files take focus when they open, in Normal mode:
   `a'`, backtick), and brackets (`i(`, `a[`, `i{`, `ib`, `aB`). Counts such as
   `v2i(` and repeated objects expand outward. Brackets are text pairs, not
   syntax.
-- `/` and `?` search live, `n` and `N` step, and `*` and `#` search for the word
-  at the cursor. An uppercase letter makes a search case-sensitive. Enter
-  accepts; Escape cancels or clears highlights.
+- `/` and `?` open the find bar that the diff has, with `/` or `?` in place of
+  its search icon. It searches live from the cursor, with Match case, Whole
+  word, and Regular expression (`⌥C`, `⌥W`, `⌥R`) and a count. `↵` goes to the
+  match and back to the file; `Esc` closes the bar and puts the cursor back.
+  Then `n` and `N` step from the bar's query, and `*` and `#` find the word at
+  the cursor, whole. `⌘F` opens the same bar without Vim's mark; there `↵` and
+  `⇧↵` step.
 - `gd` finds declarations of the word at the cursor, first in the file, then
   in the project index. Several candidates open a picker. Ctags does not
   resolve types or imports as a language server does.

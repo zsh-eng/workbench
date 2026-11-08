@@ -24,6 +24,11 @@ shaded on the side where the panel is, is only for sidebars: the page's
 sidebar, the threads, and the session's side panel. Med keeps each choice: a
 pane's in the thread's layout, the others in the view settings.
 
+A page that covers the workspace, such as Settings or Sources, names itself,
+so in a browser tab it reaches the window's top, and **Show sidebar** sits in
+its corner while the sidebar hides. The installed app keeps the title band
+there for its window controls.
+
 | Pane or panel                           | Hide                                                                              | Show again                                                                 |
 | --------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                                      | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`        |
@@ -65,11 +70,11 @@ row names the agent and its state.
   agent's mark), the review's title after Med's mark, and its branch, which
   copies its name. Then what the diff compares, **Copy comments** with their
   number while the review has comments, **⋯** while a narrow header folds
-  something into it, **Display**, and the pages.
+  something into it, **Display** (an icon), and the pages.
 - The pages are **Review**, **Changes**, and **Commit**, or **Pull request**
   for a thread with one. The number keys `1` to `3` switch between them while
   the focus is not in a text field, the diff, or the session.
-- **Display** has a row for each choice, as Pierre lays its own out: the
+- **Display**, the sliders icon, has a row for each choice, as Pierre lays its own out: the
   diff's **Layout** (**Split** or **Unified**, two icons, `S`), **Wrap long
   lines** (`W`), **Comments in the diff** (`C`), the code's text size, and
   the **Theme**: Auto, which follows the system, Light, or Dark. The keys
@@ -82,14 +87,20 @@ row names the agent and its state.
   **Only this session's files**.
 - **⋯** holds only what a narrow header folds away: what the diff compares,
   and the pane's **Expand** and **Hide**. The rest is in `⌘K` and on its keys:
-  **Find in diffs** (`⌘F`), **Collapse all files**, **Push…**, **Refresh
+  **Find in diffs** (`⌘F`, the find bar below), **Collapse all files**, **Push…**, **Refresh
   review** (`R`), **Open working file** (`O`), the panes, and **Clear all
   comments**. Comments go to an agent from its session's message box.
 - At its end, the pane's **Expand** and **Hide the review**, while the session
   shows beside it. A header narrower than 520 pixels puts them in **⋯**.
 - A narrow header gives way in this order: what the diff compares (in
-  Review, or while Changes' sidebar hides) moves into **⋯**, **Display** keeps its icon, the title shortens to Med's mark, the
+  Review, or while Changes' sidebar hides) moves into **⋯**, the title shortens to Med's mark, the
   branch hides, and last the pages' names shorten.
+- **Find** (`⌘F`) is one bar at the top right, the same in the diff and in a
+  file: the query, **Match case** (`⌥C`), **Whole word** (`⌥W`), **Regular
+  expression** (`⌥R`), how many lines match and which shows, and Previous and
+  Next. Typing goes to the first match; `↵` and `⇧↵` step, as do `n` and `N`
+  in the diff, and `Esc` closes it. In a file, Vim's `/` and `?` open the same
+  bar ([Vim navigation](find.md#symbols-and-vim-navigation)).
 - There is no toolbar and no status bar. While the page reconnects to the
   server, a notice shows at the lower right of the workspace.
 

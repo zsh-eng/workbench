@@ -9,7 +9,9 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Command palette                        | `⌘K`            |
 | Find a file                            | `⌘⇧K`           |
 | Search file contents                   | `⌘⇧F`           |
-| Find in the diff                       | `⌘F`            |
+| Find in the diff or a file             | `⌘F`            |
+| Find in a file, in Vim                 | `/` / `?`       |
+| Find's case / whole word / expression  | `⌥C` `⌥W` `⌥R`  |
 | Open a repository                      | `⌘O`            |
 | Symbols in this file                   | `⌘⇧O`           |
 | Open a branch or worktree              | `⌘⇧G`           |
