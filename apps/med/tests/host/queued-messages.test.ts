@@ -182,3 +182,99 @@ test("Codex takes a message sent now in the turn that runs (steer), and a queued
   expect(await acp.pending()).toMatchObject([{ id: kept.id, queued: true, afterTurn: true }]);
   acp.queue.stop();
 });
+
+/** An inbox whose next reads wait for the test: `pending` holds what it
+ * read, and `deliverPending` waits before it takes the inbox's lock. */
+class HeldInbox extends AgentInbox {
+  holds: { pending?: Promise<void>; deliver?: Promise<void> } = {};
+  reached: { pending?: () => void; deliver?: () => void } = {};
+  override async pending(reviewId: string, sessionId: string) {
+    const found = await super.pending(reviewId, sessionId);
+    const hold = this.holds.pending;
+    this.holds.pending = undefined;
+    this.reached.pending?.();
+    await hold;
+    return found;
+  }
+  override async deliverPending(...args: Parameters<AgentInbox["deliverPending"]>) {
+    const hold = this.holds.deliver;
+    this.holds.deliver = undefined;
+    this.reached.deliver?.();
+    await hold;
+    return super.deliverPending(...args);
+  }
+}
+
+async function held() {
+  const directory = await mkdtemp(join(tmpdir(), "med-queued-"));
+  directories.push(directory);
+  const inbox = new HeldInbox(directory);
+  const agent = runner(false);
+  const queue = createQueuedMessages({ inbox, runner: () => agent.fake });
+  const store = (text: string, afterTurn: boolean) =>
+    inbox.send("r1", session("claude"), { text, noteIds: [], attachmentCount: 0 }, text, {
+      queued: true,
+      afterTurn,
+    });
+  /** The next read of `kind` waits; resolves when it gets there, with the
+   * function that lets it go on. */
+  const hold = (kind: "pending" | "deliver") => {
+    let go!: () => void;
+    inbox.holds[kind] = new Promise<void>((resolve) => (go = resolve));
+    return new Promise<() => void>((resolve) => {
+      inbox.reached[kind] = () => {
+        inbox.reached[kind] = undefined;
+        resolve(go);
+      };
+    });
+  };
+  return { inbox, agent, queue, store, hold, settled: () => queue.settled("r1", "s1") };
+}
+
+test("a message queued while a delivery ends still goes when the turn ends", async () => {
+  const { agent, queue, store, hold, settled } = await held();
+  await store("Check the hour.", false);
+  queue.watch("r1", "s1");
+  await settled();
+  // The tools start: the message sent now goes. The release's read of the
+  // inbox finds nothing left, and holds that answer.
+  const reached = hold("pending");
+  agent.set({ tools: true });
+  const go = await reached;
+  expect(agent.prompts).toEqual(["Check the hour."]);
+  // Meanwhile the user queues another for the turn's end.
+  await store("Then the docs.", true);
+  queue.watch("r1", "s1");
+  go();
+  await settled();
+  agent.set({ status: "idle", tools: false });
+  await settled();
+  expect(agent.prompts).toEqual(["Check the hour.", "Then the docs."]);
+  queue.stop();
+});
+
+test("a turn that begins while Med gives the waiting messages keeps the ones queued for its end", async () => {
+  const { agent, queue, store, hold, settled, inbox } = await held();
+  await store("Rename it.", true);
+  queue.watch("r1", "s1");
+  await settled();
+  // The turn ends; the release reads idle and waits for the inbox's lock.
+  const reached = hold("deliver");
+  agent.set({ status: "idle" });
+  const go = await reached;
+  // Meanwhile a new turn begins, and the user queues for its end.
+  agent.set({ status: "working" });
+  await store("Then the docs.", true);
+  queue.watch("r1", "s1");
+  go();
+  await settled();
+  expect(agent.prompts).toEqual([]);
+  expect((await inbox.messages("r1")).map((message) => message.delivery)).toEqual([
+    "pending",
+    "pending",
+  ]);
+  agent.set({ status: "idle" });
+  await settled();
+  expect(agent.prompts).toEqual(["Rename it.\n\n---\n\nThen the docs."]);
+  queue.stop();
+});
