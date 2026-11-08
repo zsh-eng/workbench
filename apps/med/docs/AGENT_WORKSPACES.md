@@ -231,6 +231,12 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
   a crashed tab loses none; the inbox file keeps it after that. When the host
   restarts, it watches each session with queued messages again; the agent's
   holder kept the turn running, so they go at its next step as before.
+- Two gaps remain (`docs/statecharts/FINDINGS.md`, bugs 13 and 14). The
+  inbox marks a message delivered when Med has written it to the agent's
+  input, not when the agent reads it, so **Stop**, or the process ending,
+  while the tools run loses a message sent now in that time, and the thread
+  still shows it as sent. And a host that stops between that write and the
+  inbox's own write gives the message again when it starts.
 
 ### Antigravity is off
 

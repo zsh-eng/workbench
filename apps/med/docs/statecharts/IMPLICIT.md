@@ -1,10 +1,11 @@
 # Implicit state machines
 
-Status, 8 November 2026: an inventory, read from the code, not modelled. Each
-entry is a flow whose states are spread over several flags or nullable fields
-instead of one value, so some combinations of them mean nothing, and the code
-must keep them from happening. [FINDINGS.md](FINDINGS.md) has the three flows
-already modelled in TLA+: editor drafts, the Commit tab, and sent comments.
+Status, 8 November 2026: an inventory, read from the code. Each entry is a
+flow whose states are spread over several flags or nullable fields instead of
+one value, so some combinations of them mean nothing, and the code must keep
+them from happening. [FINDINGS.md](FINDINGS.md) has the four flows modelled in
+TLA+: editor drafts, the Commit tab, sent comments, and the agent's queue
+(`AgentQueue.tla`, the first two rows below).
 
 How they were found: React state that is a boolean, a nullable value, or an
 empty string (four or more in one component), mutable flags in the host's
@@ -55,7 +56,10 @@ string meant for display.
 
 ## Next
 
-Model the agent process and its queue as one TLA+ spec before **Queue** reaches
-files and the desk: one session, two messages (one sent now, one after the
-turn), a turn that ends, an Esc, a stop, and a host restart. The property: each
-message reaches the agent exactly once, in order, or stays in the inbox.
+`AgentQueue.tla` models the agent process and its queue: one session, two
+messages (sent now or queued for the turn's end), a turn that ends, an Esc, a
+Stop, the process ending, and a host restart. It found four bugs
+(FINDINGS.md, bugs 13 to 16). Two are fixed. The other two need the agent to
+say which messages it read, so each message reaches it exactly once: decide
+that design before **Queue** reaches files and the desk. Ask and the pending
+review on GitHub are the rows left to model.
