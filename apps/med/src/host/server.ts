@@ -122,7 +122,16 @@ import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
-import { codeHostLink, createHostProbe, findEditors, launchEditor, type Editor } from "./open-in";
+import {
+  codeHosts,
+  createHostProbe,
+  findEditors,
+  launchEditor,
+  listedEditors,
+  openInLinks,
+  openInSettings,
+  type Editor,
+} from "./open-in";
 import { createSettingsFile, SETTING_KEY, settingsPath } from "./settings-file";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
@@ -1351,7 +1360,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const input = z
             .object({
               key: z.string().regex(SETTING_KEY),
-              value: z.union([z.string().max(200), z.number().finite(), z.boolean()]),
+              value: z.union([
+                z.string().max(200),
+                z.number().finite(),
+                z.boolean(),
+                z.array(z.string().max(200)).max(50),
+                z.record(z.string().max(200), z.string().max(1000)),
+              ]),
             })
             .parse(await readBody(request));
           send(await settingsFile.set(input.key, input.value));
@@ -3352,11 +3367,36 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }
           if (url.pathname === "/api/open-in" && request.method === "GET") {
             const checkout = await requireRepo(url.searchParams.get("repo"));
-            const [editors, host] = await Promise.all([
+            const settings = openInSettings((await settingsFile.snapshot()).settings);
+            const [editors, links] = await Promise.all([
               openInEditors(),
-              codeHostLink(checkout, openInIsGitHub),
+              openInLinks(checkout, settings, openInIsGitHub),
             ]);
-            send({ editors: editors.map(({ id, name }) => ({ id, name })), host });
+            send({
+              editors: listedEditors(editors, settings).map(({ id, name }) => ({ id, name })),
+              ...links,
+            });
+            return;
+          }
+          // For Settings: the code hosts of the sources' remotes, and every
+          // editor found, listed or not.
+          if (url.pathname === "/api/open-in/hosts" && request.method === "GET") {
+            const checkouts = registry
+              .snapshot()
+              .filter((entry) => !entry.error)
+              .map((entry) => entry.path);
+            const [hosts, editors] = await Promise.all([
+              codeHosts(checkouts, openInIsGitHub),
+              openInEditors(),
+            ]);
+            send({
+              hosts,
+              editors: editors.map(({ id, name, usage }) => ({
+                id,
+                name,
+                ...(usage && { usage }),
+              })),
+            });
             return;
           }
           if (url.pathname === "/api/open-in" && request.method === "POST") {

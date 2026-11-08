@@ -88,9 +88,10 @@ async function chooseLayout(layout: "Split" | "Unified") {
   await userEvent.keyboard("{Escape}");
 }
 /** Shows or hides the files sidebar from the review's ⋯ menu. */
+/** The Files pane opens and closes from ⌘K. */
 async function toggleFilesSidebar() {
-  await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitemcheckbox", { name: /^Files/ }).click();
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await page.getByRole("option", { name: /^(Show|Hide) files sidebar/ }).click();
 }
 /** Message drafts and outboxes that a test leaves in the browser. */
 function forgetDrafts() {
@@ -2416,15 +2417,38 @@ describe("graphical review", () => {
     await expect
       .poll(() => document.querySelector("[data-file-count]")?.getAttribute("data-file-count"))
       .toBe("2");
-    // Display ends with the way to every code setting.
+    // Display has a row for each choice: the layout and the theme are icons.
     const address = location.href;
     await page.getByRole("button", { name: "Display" }).click();
+    const display = page.getByRole("dialog", { name: "Display" });
+    await expect
+      .element(
+        display
+          .getByRole("radiogroup", { name: "Diff layout" })
+          .getByRole("radio", { name: "Unified" }),
+      )
+      .toBeVisible();
+    const themes = display.getByRole("radiogroup", { name: "Theme" });
+    await themes.getByRole("radio", { name: "Dark" }).click();
+    await expect.poll(() => document.documentElement.dataset.appearance).toBe("dark");
+    await themes.getByRole("radio", { name: "Light" }).click();
+    await expect.poll(() => document.documentElement.dataset.appearance).toBe("light");
+    await expect.element(themes.getByRole("radio", { name: "Light" })).toBeChecked();
+    await themes.getByRole("radio", { name: "Auto" }).click();
+    await expect.element(themes.getByRole("radio", { name: "Auto" })).toBeChecked();
+    // Display ends with the way to every code setting.
     await page
       .getByRole("dialog", { name: "Display" })
       .getByRole("button", { name: "All code settings" })
       .click();
     expect(location.pathname).toBe("/settings/code");
     await expect.element(page.getByRole("dialog", { name: "Display" })).not.toBeInTheDocument();
+    history.replaceState(null, "", address);
+    // ⌘K opens Settings at each section.
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Settings: Open in");
+    await page.getByRole("option", { name: /^Settings: Open in/ }).click();
+    expect(location.pathname).toBe("/settings/open-in");
     history.replaceState(null, "", address);
   });
 
@@ -3967,24 +3991,22 @@ describe("saved reviews", () => {
   });
 });
 
-test("collapses every file from the ⋯ menu, then expands them again", async () => {
+test("collapses every file from ⌘K, then expands them again", async () => {
   await mountApp();
   const header = (action: string, path: string) =>
     page.getByRole("button", { name: `${action} ${path}`, exact: true });
+  const command = async (name: string) => {
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await page.getByRole("option", { name: new RegExp(`^${name}`) }).click();
+  };
   await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
-  await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: /^View/ }).click();
-  await page.getByRole("menuitem", { name: /^Collapse all files/ }).click();
+  await command("Collapse all files");
   await expect.element(header("Expand", "src/alpha.ts")).toBeVisible();
   await expect.element(header("Expand", "src/beta.ts")).toBeVisible();
   // One open file is enough to collapse all again.
   await header("Expand", "src/beta.ts").click();
-  await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: /^View/ }).click();
-  await page.getByRole("menuitem", { name: /^Collapse all files/ }).click();
-  await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: /^View/ }).click();
-  await page.getByRole("menuitem", { name: /^Expand all files/ }).click();
+  await command("Collapse all files");
+  await command("Expand all files");
   await expect.element(header("Collapse", "src/alpha.ts")).toBeVisible();
   await expect.element(header("Collapse", "src/beta.ts")).toBeVisible();
 });
@@ -4441,17 +4463,22 @@ describe("agent session", () => {
     const { agentMessages, agentAnswers } = await mountApp({
       savedReview: true,
       answerAgentMessages: true,
+      notes: [
+        {
+          id: "n1",
+          path: "src/alpha.ts",
+          side: "new",
+          line: 1,
+          text: "Rename it.",
+          createdAt: "2026-09-19T00:00:00Z",
+          updatedAt: "2026-09-19T00:00:00Z",
+        },
+      ],
       session: `event: reset\ndata: ${JSON.stringify({ events: [reply(1000, "user_message_chunk", "Check the durations."), reply(5000, "agent_message_chunk", "They read in seconds.")], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      // The saved comment n1 is a draft too, as the host makes it one.
       inbox: {
         messages: [],
         drafts: [
-          {
-            id: "n1",
-            path: "src/alpha.ts",
-            line: 1,
-            text: "Rename it.",
-            replies: 0,
-          },
           {
             id: "n2",
             path: "src/beta.ts",
@@ -4462,7 +4489,9 @@ describe("agent session", () => {
         ],
       },
     });
-    await page.getByRole("button", { name: "Send comments to Claude" }).click();
+    // The comments go from the session's message box.
+    expect(page.getByRole("button", { name: /^Send comments to/ }).query()).toBeNull();
+    await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
     // Med resumes the session with the message: nothing else has it open.
     await expect.element(panel.getByText("Med resumes Claude with this message")).toBeVisible();
@@ -4473,6 +4502,13 @@ describe("agent session", () => {
     await panel.getByRole("button", { name: "2 comments" }).click();
     await panel.getByRole("checkbox", { name: /beta\.ts:2/ }).click();
     await expect.element(panel.getByRole("button", { name: "1 of 2 comments" })).toBeVisible();
+    // A comment's file and text show it at its line in the diff, from Commit.
+    await page.getByRole("radio", { name: "Commit" }).click();
+    await panel.getByRole("button", { name: /^alpha\.ts:1\s*Rename it\./ }).click();
+    // This review has no guide, so its diff is the Review page.
+    await expect
+      .element(page.getByRole("radio", { name: "Review" }))
+      .toHaveAttribute("aria-checked", "true");
     await expect.element(panel.getByRole("button", { name: "Send 1 comment" })).toBeVisible();
     await panel.getByRole("combobox", { name: "Message Claude" }).fill("Use minutes.");
     // With a message, the box's own Send takes both.
@@ -5244,8 +5280,8 @@ describe("ask about these lines", () => {
     await expect.element(card.getByRole("textbox", { name: "Edit note text" })).toHaveValue(text);
     await userEvent.keyboard("{Escape}");
 
-    // Send to Claude takes the comment as written.
-    await page.getByRole("button", { name: "Send comments to Claude" }).click();
+    // The session's message box takes the comment as written.
+    await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
     await expect
       .element(panel.getByRole("button", { name: "1 comment" }), { timeout: 5000 })

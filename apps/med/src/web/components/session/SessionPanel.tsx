@@ -346,6 +346,7 @@ export function SessionPanel({
   sessions,
   root,
   onOpenPath,
+  onOpenComment,
   fileRefs,
   onClose,
   onSideRoom,
@@ -405,6 +406,8 @@ export function SessionPanel({
   /** The repository's path, to open absolute links to its files. */
   root?: string;
   onOpenPath(path: string, line?: number): void;
+  /** Shows one of the review's comments at its line, from the message box. */
+  onOpenComment?(id: string): void;
   /** The checkout's files: paths in prompts and replies that name one link to it. */
   fileRefs?: FileRefs;
   onClose(): void;
@@ -900,7 +903,7 @@ export function SessionPanel({
         )}
         {controls ?? (
           <ToolButton
-            icon="panelLeft"
+            icon="minimize"
             label="Hide the session pane. The agent keeps working."
             shortcut="Mod+Shift+B"
             onClick={onClose}
@@ -959,6 +962,7 @@ export function SessionPanel({
                 onSend={send}
                 owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
                 restore={restore}
+                onOpenComment={onOpenComment}
                 onTakeBack={
                   queued.length
                     ? () =>

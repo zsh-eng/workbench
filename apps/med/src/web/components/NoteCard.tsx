@@ -580,7 +580,7 @@ const styles = stylex.create({
     maxWidth: 600,
     paddingBlock: 10,
     paddingInline: 12,
-    paddingBottom: 6,
+    paddingBottom: 8,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
@@ -627,12 +627,15 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  actions: { display: "flex", alignItems: "center", gap: 4, minHeight: 28, marginTop: 4 },
+  // The time's line: the actions that show on hover reach past it, so a
+  // thread keeps the same space between its messages.
+  actions: { display: "flex", alignItems: "center", gap: 4, height: 20, marginTop: 4 },
   meta: { color: tokens.faint, fontSize: 11, whiteSpace: "nowrap" },
   hint: { opacity: 0.7 },
   tools: {
     display: "inline-flex",
     gap: 2,
+    marginBlock: -3,
     marginInlineEnd: -6,
     opacity: {
       default: 0,
@@ -656,10 +659,10 @@ const styles = stylex.create({
     backgroundColor: tokens.text,
     opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
   },
-  // A reply hangs from what it answers, on a line down its side.
+  // A reply hangs from what it answers, on a line down its side that ends
+  // at its time.
   reply: {
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 10,
     marginInlineStart: 6,
     paddingInlineStart: 12,
     borderInlineStartWidth: 2,

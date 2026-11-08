@@ -83,7 +83,16 @@ const THEME_KEYS = new Set([THEME_MODE_KEY, THEME_LIGHT_KEY, THEME_DARK_KEY]);
 
 const snapshotSchema = z.object({
   path: z.string(),
-  settings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  settings: z.record(
+    z.string(),
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.array(z.string()),
+      z.record(z.string(), z.string()),
+    ]),
+  ),
   error: z.string().nullable(),
 });
 export type SettingsFile = z.infer<typeof snapshotSchema>;
@@ -203,6 +212,23 @@ export function startSettingsFile(fetcher: typeof fetch = fetch.bind(globalThis)
     stop();
     controller.abort();
   };
+}
+
+/** Writes one key that the page does not keep, such as Open in's, which
+ * Med reads on the host. */
+export async function writeSetting(
+  key: string,
+  value: SettingsFile["settings"][string],
+  fetcher: typeof fetch = fetch.bind(globalThis),
+) {
+  const api = createApi(fetcher, readBrowserToken());
+  publish(
+    await api.json("/api/settings", snapshotSchema, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    }),
+  );
 }
 
 /** A page's part of the file, as JSON. */

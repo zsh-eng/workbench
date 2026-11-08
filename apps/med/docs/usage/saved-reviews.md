@@ -14,13 +14,13 @@ above the diff that lists each one by its repository, and so does a commit
 that you commented on while browsing.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
-line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
-Codex** sends them to the review's own agent; see
+line numbers, and nearby source, for any agent. The review's own agent gets
+them from its session's message box; see
 [sending comments](review-changes.md#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
-Beside a thread, the review's header keeps its pages: **Send to** shows
-when there are comments to send, and **Copy comments**, **Clear all
-comments**, **Commands**, and **Files** are in its **⋯** menu.
+Beside a thread, the review's header keeps its pages and one action, **Copy
+comments** with their number; **Clear all comments** and **Files** are in
+`⌘K`.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
 the title for the time Med saved the review and its repository. Beside a

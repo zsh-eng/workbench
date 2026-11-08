@@ -1,8 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef, type ReactNode } from "react";
+import { MultiFileDiff } from "@pierre/diffs/react";
+import { useEffect, useMemo, useRef } from "react";
 import { CODE_SIZES, useViewSetting, viewSettings } from "../../data/view-settings";
 import { useDocumentTitle } from "../../data/document-title";
 import { useSettingsFile } from "../../data/settings-file";
+import { HIGHLIGHTER } from "../../pierre-theme";
 import { tokens } from "../../theme.stylex";
 import {
   THEME_MODES,
@@ -13,9 +15,12 @@ import {
   type ThemeMode,
 } from "../../themes";
 import { ChoiceSelect } from "../Controls";
+import { diffSurfaceStyle } from "../diff-surface";
+import { OpenInSettings } from "./OpenInSettings";
 import { Icon } from "../Icon";
+import { Row, Section, settingStyles, Switch, type SettingsSection } from "./SettingsParts";
 
-export type SettingsSection = "appearance" | "code";
+export type { SettingsSection };
 
 const MODE_LABELS: Record<ThemeMode, string> = {
   system: "System",
@@ -64,6 +69,7 @@ export function SettingsPage({
           </p>
           <Appearance />
           <Code />
+          <OpenInSettings />
           <Files />
           <Sources onSources={onSources} />
           {file && <FileSection file={file} />}
@@ -107,7 +113,7 @@ function Appearance() {
       </Row>
       <Row label="Light theme" note="In Light, and in System while the system is light.">
         <ChoiceSelect
-          trigger={styles.select}
+          trigger={settingStyles.select}
           label="Light theme"
           value={light.id}
           choices={choices("light")}
@@ -116,7 +122,7 @@ function Appearance() {
       </Row>
       <Row label="Dark theme" note="In Dark, and in System while the system is dark.">
         <ChoiceSelect
-          trigger={styles.select}
+          trigger={settingStyles.select}
           label="Dark theme"
           value={dark.id}
           choices={choices("dark")}
@@ -136,7 +142,7 @@ function Code() {
     <Section id="code" title="Code" note="How diffs and files show code.">
       <Row label="Diff layout" note="Split needs a review at least 760 pixels wide.">
         <ChoiceSelect
-          trigger={styles.select}
+          trigger={settingStyles.select}
           label="Diff layout"
           value={layout}
           choices={[
@@ -162,12 +168,15 @@ function Code() {
       </Row>
       <Row label="Text size" note="Of code in diffs and files.">
         <ChoiceSelect
-          trigger={styles.select}
+          trigger={settingStyles.select}
           label="Text size"
           value={size}
           choices={CODE_SIZES.map((value) => ({ value, label: `${value} px` }))}
           onChange={(value) => viewSettings.codeSize.set(value as (typeof CODE_SIZES)[number])}
         />
+      </Row>
+      <Row label="Preview" note="A change in your theme, with the choices above." block>
+        <DiffSample layout={layout} wrap={wrap === "on"} />
       </Row>
     </Section>
   );
@@ -182,6 +191,7 @@ function Files() {
     setting.set(value === "on" ? "off" : "on");
   return (
     <Section
+      id="files"
       title="Files and sessions"
       note="Editing files, finding them, and messages to an agent."
     >
@@ -204,7 +214,7 @@ function Files() {
       </Row>
       <Row label="A message while the agent works" note="⌘↩ does this; ⇧⌘↩ does the other.">
         <ChoiceSelect
-          trigger={styles.select}
+          trigger={settingStyles.select}
           label="A message while the agent works"
           value={followUp}
           choices={[
@@ -221,9 +231,9 @@ function Files() {
 function Sources({ onSources }: { onSources(): void }) {
   const pull = useViewSetting(viewSettings.pullBase);
   return (
-    <Section title="Sources" note="The repositories and folders that Med shows.">
+    <Section id="sources" title="Sources" note="The repositories and folders that Med shows.">
       <Row label="Repositories and folders">
-        <button type="button" onClick={onSources} {...stylex.props(styles.link)}>
+        <button type="button" onClick={onSources} {...stylex.props(settingStyles.link)}>
           Open Sources
         </button>
       </Row>
@@ -246,6 +256,7 @@ function FileSection({ file }: { file: NonNullable<ReturnType<typeof useSettings
   const text = JSON.stringify(file.settings, null, 2);
   return (
     <Section
+      id="file"
       title="Settings file"
       note="What the file holds now. Keys left out keep their defaults."
     >
@@ -261,64 +272,46 @@ function FileSection({ file }: { file: NonNullable<ReturnType<typeof useSettings
   );
 }
 
-function Section({
-  id,
-  title,
-  note,
-  children,
-}: {
-  id?: SettingsSection;
-  title: string;
-  note?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section aria-label={title} data-section={id} {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.sectionHead)}>
-        <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
-        {note && <p {...stylex.props(styles.sectionNote)}>{note}</p>}
-      </div>
-      <div {...stylex.props(styles.rows)}>{children}</div>
-    </section>
-  );
-}
+// A made-up change for the preview: a config that waits longer and retries.
+const SAMPLE_BEFORE = `const config = {
+  url: "api.acme.build",
+  timeout: 5000,
+  debug: true,
+};
+`;
+const SAMPLE_AFTER = `const config = {
+  url: "api.acme.build",
+  timeout: 8000,
+  retries: 2,
+};
+`;
 
-/** A setting: its label and note, and its control beside them, or under
- * them (`block`) when the control is wide. */
-function Row({
-  label,
-  note,
-  block = false,
-  children,
-}: {
-  label: string;
-  note?: string;
-  block?: boolean;
-  children: ReactNode;
-}) {
+/** A small diff as the review shows one: the theme on screen, its layout,
+ * wrap, and text size, so a choice shows at once. */
+function DiffSample({ layout, wrap }: { layout: "split" | "unified"; wrap: boolean }) {
+  const { active } = useTheme();
+  const options = useMemo(
+    () => ({
+      theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
+      themeType: active.appearance,
+      diffStyle: layout,
+      overflow: wrap ? ("wrap" as const) : ("scroll" as const),
+      diffIndicators: "bars" as const,
+      lineDiffType: "word-alt" as const,
+      disableFileHeader: true,
+    }),
+    [active, layout, wrap],
+  );
   return (
-    <div {...stylex.props(styles.row, block && styles.rowBlock)}>
-      <div {...stylex.props(styles.rowText)}>
-        <div {...stylex.props(styles.rowLabel)}>{label}</div>
-        {note && <div {...stylex.props(styles.rowNote)}>{note}</div>}
-      </div>
-      {children}
+    <div aria-label="A diff in your theme" role="img" {...stylex.props(styles.sample)}>
+      <MultiFileDiff
+        oldFile={{ name: "config.ts", contents: SAMPLE_BEFORE }}
+        newFile={{ name: "config.ts", contents: SAMPLE_AFTER }}
+        options={options}
+        style={diffSurfaceStyle as never}
+      />
     </div>
-  );
-}
-
-function Switch({ label, on, toggle }: { label: string; on: boolean; toggle(): void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label={label}
-      aria-checked={on}
-      onClick={toggle}
-      {...stylex.props(styles.switch, on && styles.switchOn)}
-    >
-      <span {...stylex.props(styles.knob, on && styles.knobOn)} />
-    </button>
   );
 }
 
@@ -402,62 +395,6 @@ const styles = stylex.create({
   },
   intro: { margin: 0, marginTop: 8, color: tokens.muted, fontSize: 15, lineHeight: 1.5 },
   path: { fontFamily: tokens.code, fontSize: 13, color: tokens.text },
-  section: { marginTop: 44 },
-  sectionHead: { marginBottom: 14 },
-  sectionTitle: { margin: 0, fontSize: 17, fontWeight: 550, letterSpacing: "-0.012em" },
-  sectionNote: { margin: 0, marginTop: 4, color: tokens.muted, fontSize: 14 },
-  rows: {
-    marginInline: -20,
-    paddingInline: 20,
-    borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: `color-mix(in srgb, ${tokens.text} 3.5%, transparent)`,
-  },
-  row: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 24,
-    boxSizing: "border-box",
-    minHeight: 64,
-    paddingBlock: 12,
-    borderTopWidth: { default: 1, ":first-child": 0 },
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
-  rowBlock: { flexDirection: "column", alignItems: "stretch", gap: 14, paddingBlock: 16 },
-  rowText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
-  rowLabel: { fontSize: 14, fontWeight: 500 },
-  rowNote: { color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
-  link: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    flexShrink: 0,
-    height: 30,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderRadius: tokens.buttonRound,
-    backgroundColor: { default: tokens.fill, ":hover": tokens.fillStrong },
-    color: tokens.text,
-    font: "inherit",
-    fontSize: 13,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
-  // A select's trigger: a quiet bordered button that ends at the text's edge.
-  select: {
-    flexShrink: 0,
-    height: 32,
-    paddingInlineStart: 12,
-    paddingInlineEnd: 8,
-    gap: 8,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.line,
-    borderRadius: `calc(8px * ${tokens.round})`,
-    backgroundColor: { default: tokens.canvas, ":hover": tokens.hover },
-    fontSize: 13,
-  },
   fileError: { margin: 0, paddingTop: 14, color: tokens.red, fontSize: 13 },
   fileText: {
     margin: 0,
@@ -467,6 +404,12 @@ const styles = stylex.create({
     fontSize: 12.5,
     lineHeight: 1.6,
     overflowX: "auto",
+  },
+  sample: {
+    overflow: "hidden",
+    borderRadius: `calc(8px * ${tokens.round})`,
+    boxShadow: `0 0 0 1px ${tokens.line}`,
+    backgroundColor: tokens.canvas,
   },
   modes: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 },
   mode: {
@@ -521,33 +464,4 @@ const styles = stylex.create({
   swatchShort: { width: "45%" },
   swatchColors: (background: string) => ({ backgroundColor: background }),
   swatchInk: (color: string, opacity: number) => ({ backgroundColor: color, opacity }),
-  switch: {
-    position: "relative",
-    flexShrink: 0,
-    width: 34,
-    height: 20,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: 10,
-    backgroundColor: tokens.lineStrong,
-    cursor: "pointer",
-    transitionProperty: "background-color",
-    transitionDuration: "120ms",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: 2,
-  },
-  switchOn: { backgroundColor: tokens.accent },
-  knob: {
-    position: "absolute",
-    top: 2,
-    left: 2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    boxShadow: "0 1px 2px #0003",
-    transitionProperty: "transform",
-    transitionDuration: "120ms",
-  },
-  knobOn: { transform: "translateX(14px)" },
 });

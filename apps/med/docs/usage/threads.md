@@ -207,11 +207,10 @@ background shells and agents. It follows the session live.
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions, **Show work**, **Turns**, and a new session with each
   installed agent.
-- The button at the pane's top right hides the pane (`⌘⇧B`). It does not stop
+- **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
   shows its state. **Show agent session**, with the agent's mark at the start
-  of the review's row, **Agent session** in the review's **⋯** menu, or `⌘⇧B`
-  again, shows the pane.
+  of the review's row, `⌘K`, or `⌘⇧B` again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
   to a prompt from **Turns**.
 - A finished turn shows its prompt and final reply; its other work folds into

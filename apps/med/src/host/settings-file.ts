@@ -7,8 +7,9 @@ import { basename, dirname, join } from "node:path";
 // it; Med applies a saved change at once. docs/usage/settings.md describes
 // each key.
 
-/** A setting's value: a word, a number, or a switch. */
-export type SettingValue = string | number | boolean;
+/** A setting's value: a word, a number, a switch, a list of words such as
+ * `openIn.editors`, or words by name such as `openIn.links`. */
+export type SettingValue = string | number | boolean | string[] | Record<string, string>;
 export type Settings = Record<string, SettingValue>;
 
 /** `$XDG_CONFIG_HOME/med/settings.json`, or `~/.config/med/settings.json`. */
@@ -20,7 +21,14 @@ export function settingsPath(env: NodeJS.ProcessEnv = process.env) {
 export const SETTING_KEY = /^[a-z][A-Za-z]*\.[a-z][A-Za-z]*$/;
 
 const isValue = (value: unknown): value is SettingValue =>
-  typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+  typeof value === "string" ||
+  typeof value === "number" ||
+  typeof value === "boolean" ||
+  (Array.isArray(value) && value.every((entry) => typeof entry === "string")) ||
+  (!!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string"));
 
 /**
  * The settings file: what it holds, a write of one key, and a watch that

@@ -1,4 +1,5 @@
 import type { Thread } from "../../shared/threads";
+import { openSettings } from "./settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -1628,10 +1629,7 @@ export function WorkspaceHost({
                                 setNewThread(true);
                               }}
                               onHide={toggleSidebar}
-                              onSettings={() => {
-                                history.pushState(null, "", "/settings");
-                                window.dispatchEvent(new PopStateEvent("popstate"));
-                              }}
+                              onSettings={() => openSettings()}
                               onArchive={(thread) =>
                                 void closeTabs([thread], { removeWorktree: false })
                               }

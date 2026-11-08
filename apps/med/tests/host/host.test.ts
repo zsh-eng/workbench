@@ -494,6 +494,7 @@ describe("HTTP boundary", () => {
     expect(await links()).toEqual({
       editors: [{ id: "zed", name: "Zed" }],
       host: { name: "github.acme.build", push: true },
+      links: [],
     });
     git(repo, "update-ref", "refs/remotes/origin/feature/tides", "HEAD");
     git(repo, "branch", "-q", "--set-upstream-to=origin/feature/tides");
@@ -504,6 +505,55 @@ describe("HTTP boundary", () => {
     // A host that is not GitHub has no link.
     git(repo, "remote", "set-url", "origin", "https://git.example.org/acme/trailhead.git");
     expect((await links()).host).toBeNull();
+
+    // Settings choose its kind, and add Sourcegraph, other links, and the
+    // editors to list.
+    const put = (key: string, value: unknown) =>
+      fetch(`${base}/api/settings`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ key, value }),
+      });
+    for (const [key, value] of [
+      ["openIn.hosts", { "git.example.org": "gitlab" }],
+      ["openIn.sourcegraph", "https://sourcegraph.acme.build/"],
+      [
+        "openIn.links",
+        {
+          Blame: "https://blame.acme.build/{owner}/{repo}/{ref}/{path}#{line}",
+          Search: "https://search.acme.build/?q={repo}",
+        },
+      ],
+      ["openIn.editors", ["zed", "vim"]],
+    ] as const)
+      expect((await put(key, value)).status).toBe(200);
+    expect(await links()).toEqual({
+      editors: [{ id: "zed", name: "Zed" }],
+      host: {
+        name: "git.example.org",
+        base: "https://git.example.org/acme/trailhead/-/blob/feature/tides",
+      },
+      links: [
+        {
+          name: "Sourcegraph",
+          template:
+            "https://sourcegraph.acme.build/git.example.org/acme/trailhead@feature/tides/-/blob/{path}?L{line}",
+        },
+        {
+          name: "Blame",
+          template: "https://blame.acme.build/acme/trailhead/feature/tides/{path}#{line}",
+        },
+        { name: "Search", template: "https://search.acme.build/?q=trailhead" },
+      ],
+    });
+    // Off leaves a host out.
+    await put("openIn.hosts", { "git.example.org": "off" });
+    expect((await links()).host).toBeNull();
+    // Settings lists the sources' code hosts, and every editor found.
+    expect(await (await fetch(`${base}/api/open-in/hosts`, { headers })).json()).toEqual({
+      hosts: [{ host: "git.example.org", repositories: 1, github: false }],
+      editors: [{ id: "zed", name: "Zed" }],
+    });
 
     const open = (body: object) =>
       fetch(`${base}/api/open-in`, { method: "POST", headers, body: JSON.stringify(body) });

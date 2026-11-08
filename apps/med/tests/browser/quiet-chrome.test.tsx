@@ -461,7 +461,7 @@ const changesSidebar = () => visible('nav[aria-label="Files and commits"]');
 const hideChanged = page.getByRole("button", { name: "Hide changed files" });
 const showChanged = page.getByRole("button", { name: "Show changed files" });
 
-test("the Changes page's sidebar hides from its heading, comes back by the header's button, ⌘⌥B, ⌘K, and ⋯, and stays as chosen after a restart", async () => {
+test("the Changes page's sidebar hides from its heading, comes back by the header's button, ⌘⌥B, and ⌘K, and stays as chosen after a restart", async () => {
   await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -485,16 +485,12 @@ test("the Changes page's sidebar hides from its heading, comes back by the heade
   await expect.poll(changesSidebar).toBeTruthy();
   await expect.element(showChanged).not.toBeInTheDocument();
 
-  // ⌘⌥B, ⌘K, and ⋯ show it too.
+  // ⌘⌥B and ⌘K show it too; ⋯ holds only what a narrow row folds.
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
   await expect.poll(changesSidebar).toBeUndefined();
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Show changed files");
   await page.getByRole("option", { name: /^Show changed files/ }).click();
-  await expect.poll(changesSidebar).toBeTruthy();
-  await hideChanged.click();
-  [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!.click();
-  await page.getByRole("menuitemcheckbox", { name: /^Changed files/ }).click();
   await expect.poll(changesSidebar).toBeTruthy();
 
   // Hidden, it stays hidden when Med opens again.
@@ -572,11 +568,14 @@ test("the review has Expand and Hide in its header, in ⋯ when the row is narro
   await showReview.click();
   await expect.poll(review).toBeTruthy();
 
-  // Hiding the session while the review hides shows the review: the
-  // workspace keeps a pane.
+  // While the review hides, the session is the whole workspace: its header
+  // has Show review, as words, and no Hide. ⌘⇧B hides it and shows the
+  // review, so the workspace keeps a pane.
   await page.getByRole("button", { name: "Hide the review" }).click();
   await expect.poll(review).toBeUndefined();
-  await page.getByRole("button", { name: /^Hide the session pane/ }).click();
+  await expect.element(showReview).toHaveTextContent("Show review");
+  expect(page.getByRole("button", { name: /^Hide the session pane/ }).query()).toBeNull();
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   await expect.poll(review).toBeTruthy();
   await expect.poll(session).toBeUndefined();
   expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
@@ -648,17 +647,15 @@ test("the sidebar moves the session pane and its side panel in one frame, as wid
   expect(shownAgain).toEqual([hidden[1], start]);
 });
 
-test("Push… waits for the remotes, with the reason in its tooltip", async () => {
+test("Push… waits for the remotes, with the reason beside it in ⌘K", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const more = () =>
-    [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
-  more().click();
-  const push = page.getByRole("menuitem", { name: "Push…" });
+  // ⋯ holds only what a narrow row folds; Push is in ⌘K.
+  expect(row()!.querySelector('[aria-label="More actions"]')).toBeNull();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  const push = page.getByRole("option", { name: /^Push to remote…/ });
   await expect.element(push).toHaveAttribute("aria-disabled", "true");
-  await expect.element(push).toHaveAttribute("aria-description", "Reading the remotes…");
-  await push.hover();
-  await expect.element(page.getByRole("tooltip", { name: "Reading the remotes…" })).toBeVisible();
+  await expect.element(push).toHaveAccessibleDescription("Reading the remotes…");
 
   releaseRemotes();
   await expect.element(push).not.toHaveAttribute("aria-disabled", "true");

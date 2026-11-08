@@ -152,12 +152,15 @@ export function SessionComposer({
   draftKey,
   restore,
   onTakeBack,
+  onOpenComment,
 }: {
   /** Text that comes back into the box, such as a queued message to edit;
    * each nonce comes once, before what the box holds. */
   restore?: { text: string; nonce: number };
   /** ↑ in the empty box takes back the queued messages, as in Claude Code. */
   onTakeBack?(): void;
+  /** Shows a comment at its line in the review. */
+  onOpenComment?(id: string): void;
   /** Keeps the unsent text in the browser under this key, across a reload. */
   draftKey?: string;
   /** Where a Claude session runs, when Med does not run it: in a terminal or
@@ -550,26 +553,32 @@ export function SessionComposer({
                   : draft.endLine && draft.endLine !== draft.line
                     ? `:${draft.line}–${draft.endLine}`
                     : `:${draft.line}`;
+              const name = `${draft.path.split("/").at(-1)}${lines}`;
               return (
-                <li key={draft.id}>
-                  <label {...stylex.props(styles.draft)}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        const next = new Set(left);
-                        if (on) next.add(draft.id);
-                        else next.delete(draft.id);
-                        setLeft(next);
-                      }}
-                      {...stylex.props(styles.check)}
-                    />
-                    <span {...stylex.props(styles.draftPath)}>
-                      {draft.path.split("/").at(-1)}
-                      {lines}
-                    </span>
+                <li key={draft.id} {...stylex.props(styles.draft)}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Send the comment on ${name}`}
+                    checked={on}
+                    onChange={() => {
+                      const next = new Set(left);
+                      if (on) next.add(draft.id);
+                      else next.delete(draft.id);
+                      setLeft(next);
+                    }}
+                    {...stylex.props(styles.check)}
+                  />
+                  {/* The comment itself opens at its line in the review. */}
+                  <button
+                    type="button"
+                    disabled={!onOpenComment}
+                    onClick={() => onOpenComment?.(draft.id)}
+                    {...tooltip(onOpenComment ? "Show in the review" : undefined)}
+                    {...stylex.props(styles.draftOpen)}
+                  >
+                    <span {...stylex.props(styles.draftPath)}>{name}</span>
                     <span {...stylex.props(styles.draftText)}>{draft.text}</span>
-                  </label>
+                  </button>
                 </li>
               );
             })}
@@ -890,14 +899,30 @@ const styles = stylex.create({
   },
   draft: {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 7,
-    paddingBlock: 3,
     color: tokens.muted,
     fontSize: 12,
-    cursor: "pointer",
   },
-  check: { margin: 0, accentColor: tokens.accent, transform: "translateY(1px)" },
+  draftOpen: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 7,
+    flex: "1",
+    minWidth: 0,
+    marginInlineStart: -4,
+    paddingBlock: 3,
+    paddingInline: 4,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
+    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
+    font: "inherit",
+    textAlign: "start",
+    cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  check: { flexShrink: 0, margin: 0, accentColor: tokens.accent, cursor: "pointer" },
   draftPath: { flexShrink: 0, color: tokens.text, fontFamily: tokens.code, fontSize: 11 },
   draftText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   input: {

@@ -125,10 +125,10 @@ out. Binary files count no lines.
 ### Send comments to the agent
 
 A review with an agent session sends comments to that session, so you do not
-paste them. **Send to Claude** (or **Send to Codex**) opens the Session pane,
-with your text and the comments that you have not sent. They wait above the
-message box as one line: **Send 2 comments** sends them on their own, and the
-comment count chooses which. A GitHub comment's reply button, or **Add all to**
+paste them. The session's message box holds your text and the comments that
+you have not sent. They wait above it as one line: **Send 2 comments** sends
+them on their own, and the comment count opens the list, where a checkbox
+chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
 When Med started the session and runs it, one comment can go on its own: hold
@@ -152,8 +152,9 @@ Med sends only to a session that it runs:
   them into the session there
   ([messages to adopted sessions](../SESSIONS.md#messages-to-adopted-sessions)).
 
-**Copy comments** (in the review's header, or ⌘K) copies every comment as the
-same text that a message holds, for any agent. Copying marks nothing sent.
+**Copy comments** (the copy button with the comments' number in the review's
+header, or ⌘K) copies every comment as the same text that a message holds,
+for any agent. Copying marks nothing sent.
 
 The thread shows each sent message as taken, or queued while the agent works.
 A sent comment leaves the drafts until you edit it or reply to it. Each message keeps the version of

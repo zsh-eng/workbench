@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -183,4 +183,89 @@ test("Settings shows the light theme, the dark one, or the system's choice, with
   await expect.poll(() => html.dataset.appearance).toBe(dark ? "dark" : "light");
   expect(localStorage.getItem(THEME_MODE_KEY)).toBe("system");
   await expect.element(modes.getByRole("radio", { name: "System" })).toBeChecked();
+});
+
+test("Settings › Open in lists the sources' code hosts and this Mac's editors, and writes their keys", async () => {
+  const writes: { key: string; value: unknown }[] = [];
+  const settings: Record<string, unknown> = {};
+  const fetches = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), location.href);
+    if (url.pathname === "/api/open-in/hosts")
+      return Response.json({
+        hosts: [
+          { host: "github.acme.build", repositories: 31, github: true },
+          { host: "git.acme.build", repositories: 2, github: false },
+        ],
+        editors: [
+          { id: "vscode", name: "VS Code", usage: "code -g file:line" },
+          { id: "zed", name: "Zed", usage: "zed file:line" },
+        ],
+      });
+    if (url.pathname === "/api/settings" && init?.method === "PUT") {
+      const body = JSON.parse(String(init.body)) as { key: string; value: unknown };
+      writes.push(body);
+      settings[body.key] = body.value;
+      return Response.json({ path: "/tmp/med/settings.json", settings, error: null });
+    }
+    return Response.json({ error: { message: "Not in this test." } }, { status: 404 });
+  });
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
+  root.render(<SettingsPage onSources={() => {}} />);
+  const section = page.getByRole("region", { name: "Open in", exact: true });
+  await expect.element(section.getByText("github.acme.build", { exact: true })).toBeVisible();
+  await expect
+    .element(section.getByText(/^GitHub Enterprise, found through its API · 31 repositories/))
+    .toBeVisible();
+  await expect
+    .element(section.getByText(/^Not recognised, so Open in leaves it out until you choose/))
+    .toBeVisible();
+
+  // A host that Med does not recognise is left out until you choose its kind.
+  await section.getByRole("combobox", { name: "Kind of git.acme.build" }).click();
+  await page.getByRole("option", { name: "GitLab" }).click();
+  await expect
+    .poll(() => writes.at(-1))
+    .toEqual({
+      key: "openIn.hosts",
+      value: { "git.acme.build": "gitlab" },
+    });
+
+  // Sourcegraph's address saves on Enter, without its last slash.
+  const address = section.getByRole("textbox", { name: "Sourcegraph address" });
+  await address.fill("https://sourcegraph.acme.build/");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .poll(() => writes.at(-1))
+    .toEqual({
+      key: "openIn.sourcegraph",
+      value: "https://sourcegraph.acme.build",
+    });
+
+  // Make default puts an editor first; a switch leaves one out.
+  await section.getByRole("button", { name: "Make default" }).click();
+  await expect
+    .poll(() => writes.at(-1))
+    .toEqual({ key: "openIn.editors", value: ["zed", "vscode"] });
+  await section.getByRole("switch", { name: "VS Code in Open in" }).click();
+  await expect.poll(() => writes.at(-1)).toEqual({ key: "openIn.editors", value: ["zed"] });
+
+  // Another link: a name, and a template with the file's place.
+  await section.getByRole("textbox", { name: "Link name" }).fill("Blame");
+  await section
+    .getByRole("textbox", { name: "Link template" })
+    .fill("https://blame.acme.build/{repo}/{ref}/{path}#L{line}");
+  await section.getByRole("button", { name: "Add", exact: true }).click();
+  await expect
+    .poll(() => writes.at(-1))
+    .toEqual({
+      key: "openIn.links",
+      value: { Blame: "https://blame.acme.build/{repo}/{ref}/{path}#L{line}" },
+    });
+  await expect.element(section.getByRole("button", { name: "Remove Blame" })).toBeVisible();
+
+  // Code's preview is a diff in the theme on screen.
+  await expect.element(page.getByRole("img", { name: "A diff in your theme" })).toBeInTheDocument();
+  fetches.mockRestore();
 });

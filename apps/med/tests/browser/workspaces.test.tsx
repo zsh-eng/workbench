@@ -732,29 +732,33 @@ test("a thread with its session on screen shows its session first, and its diff 
   expect(status()).toBe("ready");
 });
 
-test("the notice after Clear shows under the ⋯ button, on one line, wider than the button", async () => {
+test("the notice after Clear shows under the header's end, on one line, wider than Copy comments", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   host.setThreads([thread("commented")]);
   await page.getByRole("button", { name: /^Commented review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("commented-target");
-  const more = page.getByRole("button", { name: "More actions", exact: true });
-  await more.click();
-  await page.getByRole("menuitem", { name: "Clear all comments…" }).click();
+  // The header keeps one action, Copy comments; Clear is in ⌘K.
+  const copy = page.getByRole("button", { name: "Copy comments", exact: true });
+  await expect.element(copy).toBeVisible();
+  const button = copy.element().getBoundingClientRect();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("option", { name: /^Clear all comments…/ }).click();
   await page.getByRole("button", { name: "Confirm clear" }).click();
   const notice = page.getByRole("status").filter({ hasText: "Comments cleared" });
   await expect.element(notice).toBeVisible();
   const box = notice.element().getBoundingClientRect();
-  const button = more.element().getBoundingClientRect();
   expect(box.height).toBeLessThan(44);
   expect(box.width).toBeGreaterThan(100);
-  // Under the button, in view: not at the page's end.
+  // Under the header, in view: not at the page's end.
   expect(box.top).toBeGreaterThanOrEqual(button.bottom);
   expect(box.top - button.bottom).toBeLessThan(40);
+  // With no comments left, there is nothing to copy.
+  await expect.element(copy).not.toBeInTheDocument();
 });
 
-test("the review's header names the review, keeps rare actions in ⋯, and there is no toolbar or status bar", async () => {
+test("the review's header names the review, keeps its actions in ⌘K, and there is no toolbar or status bar", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -779,23 +783,16 @@ test("the review's header names the review, keeps rare actions in ⋯, and there
   await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
   expect(page.getByRole("button", { name: "View options", exact: true }).query()).toBeNull();
   expect(statusBar()).toBe(false);
-  // The ⋯ menu has the review's rarer actions; View has the rail and folding.
-  await page.getByRole("button", { name: "More actions", exact: true }).click();
-  for (const name of ["Copy comments", "Clear all comments…", "Find in diffs", "Commands"])
-    await expect
-      .element(page.getByRole("menuitem", { name: new RegExp(`^${name}`) }))
-      .toBeVisible();
-  await expect
-    .element(page.getByRole("menuitemcheckbox", { name: /^Agent session/ }))
-    .toBeChecked();
-  await page.getByRole("menuitem", { name: "View", exact: true }).click();
-  await expect.element(page.getByRole("menuitem", { name: /^Collapse all files/ })).toBeVisible();
-  // Escape closes the submenu, then the menu.
-  await userEvent.keyboard("{Escape}{Escape}");
-  await expect.element(page.getByRole("menu").first()).not.toBeInTheDocument();
-  // ⌘K has the comparison's choices, and no other chrome to choose.
+  // No Send: comments go to the agent from its session. ⌘K has the review's
+  // actions (⋯ holds only what a narrow row folds; see quiet-chrome).
+  expect(page.getByRole("button", { name: /^Send comments to/ }).query()).toBeNull();
   await userEvent.keyboard("{Control>}k{/Control}");
   const search = page.getByRole("combobox", { name: "Search commands" });
+  for (const name of ["Hide agent session", "Find in diff contents", "Open Settings"]) {
+    await search.fill(name);
+    await expect.element(page.getByRole("option", { name: new RegExp(`^${name}`) })).toBeVisible();
+  }
+  // ⌘K has the comparison's choices, and no other chrome to choose.
   await search.fill("Compare against");
   await expect
     .element(page.getByRole("option", { name: /^Compare against a base branch/ }))

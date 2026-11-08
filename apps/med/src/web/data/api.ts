@@ -79,7 +79,8 @@ export const branchCommitsSchema = z.object({
   more: z.boolean(),
 });
 export const revealSchema = z.object({ revealed: z.literal(true) });
-/** Open in's editors and the code host's page of the checkout's branch. */
+/** Open in's editors, the code host's page of the checkout's branch, and
+ * the settings' other links, each with {path} and {line} to fill. */
 export const openInSchema = z.object({
   editors: z.array(z.object({ id: z.string(), name: z.string() })),
   host: z
@@ -88,8 +89,22 @@ export const openInSchema = z.object({
       z.object({ name: z.string(), push: z.literal(true) }),
     ])
     .nullable(),
+  links: z
+    .array(
+      z.union([
+        z.object({ name: z.string(), template: z.string() }),
+        z.object({ name: z.string(), push: z.literal(true) }),
+      ]),
+    )
+    .default([]),
 });
 export type OpenInLinks = z.infer<typeof openInSchema>;
+/** For Settings: the sources' code hosts, and every editor found. */
+export const openInHostsSchema = z.object({
+  hosts: z.array(z.object({ host: z.string(), repositories: z.number(), github: z.boolean() })),
+  editors: z.array(z.object({ id: z.string(), name: z.string(), usage: z.string().optional() })),
+});
+export type OpenInHosts = z.infer<typeof openInHostsSchema>;
 const pullRequestCommentSchema = z.object({
   id: z.number(),
   author: z.string(),

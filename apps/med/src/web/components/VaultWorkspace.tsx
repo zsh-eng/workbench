@@ -24,6 +24,7 @@ import { ThemePicker } from "./ThemePicker";
 import { Icon } from "./Icon";
 import { SourcesPage, type Source } from "./SourcesPage";
 import { SettingsPage, type SettingsSection } from "./settings/SettingsPage";
+import { settingsCommands } from "./settings/settings-commands";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
@@ -43,12 +44,13 @@ interface VaultTab {
 /** Open notes, and their bytes, that the vault's row holds. */
 const TAB_LIMIT = 24;
 const TAB_BYTES = 32 * 1024 * 1024;
-const settingsSection = (): SettingsSection | null =>
-  location.pathname === "/settings" || location.pathname === "/settings/appearance"
-    ? "appearance"
-    : location.pathname === "/settings/code"
-      ? "code"
-      : null;
+const SECTIONS: SettingsSection[] = ["appearance", "code", "open-in", "files", "sources", "file"];
+/** The part of Settings that the address opens: /settings, or /settings/open-in. */
+const settingsSection = (): SettingsSection | null => {
+  if (location.pathname === "/settings") return "appearance";
+  const part = /^\/settings\/([a-z-]+)\/?$/.exec(location.pathname)?.[1];
+  return SECTIONS.find((section) => section === part) ?? null;
+};
 const route = () => ({
   visible:
     location.pathname === "/sources" ||
@@ -419,6 +421,7 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       label: "Change theme",
       run: () => setThemes(true),
     },
+    ...settingsCommands(),
     {
       id: "preview",
       label: "Read or edit the note's source",

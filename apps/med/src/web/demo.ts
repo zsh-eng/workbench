@@ -436,7 +436,36 @@ function status(repo: string): WorkingStatus {
 }
 
 type Handler = (url: URL, body: any, match: RegExpMatchArray) => unknown;
+// The settings file, kept in the page: Settings writes it, and Open in reads it.
+const demoSettings: Record<string, unknown> = {};
+
 const handlers: [method: string, path: RegExp, handler: Handler][] = [
+  // Settings › Open in: Trailhead's code hosts, and the editors on this Mac.
+  [
+    "GET",
+    /^\/api\/open-in\/hosts$/,
+    () => ({
+      hosts: [
+        { host: "github.acme.build", repositories: 31, github: true },
+        { host: "github.com", repositories: 14, github: true },
+        { host: "git.acme.build", repositories: 2, github: false },
+      ],
+      editors: [
+        { id: "vscode", name: "VS Code", usage: "code -g file:line" },
+        { id: "cursor", name: "Cursor", usage: "cursor -g file:line" },
+        { id: "zed", name: "Zed", usage: "zed file:line" },
+        { id: "idea", name: "IntelliJ IDEA", usage: "idea --line line file" },
+      ],
+    }),
+  ],
+  [
+    "PUT",
+    /^\/api\/settings$/,
+    (_url, body) => {
+      demoSettings[body.key] = body.value;
+      return { path: "~/.config/med/settings.json", settings: { ...demoSettings }, error: null };
+    },
+  ],
   // New thread's model and effort, as Claude Code offers them.
   [
     "GET",

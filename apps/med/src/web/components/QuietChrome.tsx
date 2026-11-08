@@ -6,175 +6,68 @@ import type { ReviewControllerSnapshot } from "../data/controller";
 import { tokens } from "../theme.stylex";
 import type { Choice, MenuAction, MenuEntry } from "./Controls";
 
-interface Toggle {
-  on: boolean;
-  toggle(): void;
-}
-
-/** What the review's ⋯ menu can do; a missing entry has no item. */
+/** What a narrow review row folds into its ⋯ menu; a missing entry has no
+ * item. */
 export interface QuietMenuActions {
-  /** The diff shows: its find, its view, push, and refresh. */
-  diff?: {
-    find(): void;
-    layout: { mode: "split" | "unified"; canSplit: boolean; set(mode: "split" | "unified"): void };
-    comments: Toggle;
-    wrap: Toggle;
-    collapse?: { collapsed: boolean; toggle(): void };
-    /** `blocked` says why Push… cannot open yet, such as remotes that Med
-     * still reads. */
-    push?: { blocked?: string; open(): void };
-    refresh: { disabled: boolean; run(): void };
-    /** The comparison, when the row has no room for it. */
-    comparison?: {
-      label: string;
-      value: string;
-      choices: Choice[];
-      select(value: string): void;
-      /** A `checked` action is a toggle, such as Only this session's files. */
-      actions: { label: string; checked?: boolean; onSelect(): void }[];
-    };
+  /** The comparison, when the row has no room for it. */
+  comparison?: {
+    label: string;
+    value: string;
+    choices: Choice[];
+    select(value: string): void;
+    /** A `checked` action is a toggle, such as Only this session's files. */
+    actions: { label: string; checked?: boolean; onSelect(): void }[];
   };
-  workingFile?: { label: string; open(): void };
-  /** The page's sidebar: Changes' changed files, or Review's guide. */
-  sidebar?: Toggle & { label: string };
-  session?: Toggle;
-  files?: Toggle;
   /** The pane's own Expand and Hide, when its row has no room for them. */
   pane?: { label: string; zoomed: boolean; zoom?(): void; hide?(): void };
-  openBranch?: () => void;
-  commands(): void;
-  shortcuts(): void;
 }
 
 /**
- * Quiet chrome's ⋯ menu: the toolbar's view options in a View submenu, the
- * buttons that left the review's rows, and the panes. It fits in its popup
- * without a scroll. A pane that opens or closes closes the menu; a view
- * option keeps it open.
+ * Quiet chrome's ⋯ menu holds only what a narrow row folds away: what the
+ * diff compares, and the pane's Expand and Hide. The rest is in ⌘K and on
+ * its keys, and Copy comments has its own button. With nothing folded, the
+ * row has no ⋯.
  *
  * It is a hook so that the React Compiler knows that it does not call the
  * actions during render: the menu calls them when you choose an item.
  */
 export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
-  const { diff } = actions;
   const item = (entry: MenuAction | false | undefined) => (entry ? [entry] : []);
-  const comparison = diff?.comparison;
+  const { comparison, pane } = actions;
   return [
-    diff
-      ? [
-          // Named by what the diff shows, as the row's control is. With
-          // nothing to choose, it only says what the diff shows.
-          ...(comparison && comparison.choices.length <= 1 && !comparison.actions.length
-            ? [{ label: comparison.label, disabled: true, onClick: () => {} }]
-            : comparison
-              ? [
-                  {
-                    label: comparison.label,
-                    sections: [
-                      comparison.choices.map((choice) => ({
-                        label: choice.label,
-                        checked: choice.value === comparison.value,
-                        choice: true,
-                        onClick: () => comparison.select(choice.value),
-                      })),
-                      comparison.actions.map((action) => ({
-                        label: action.label,
-                        ...(action.checked !== undefined && { checked: action.checked }),
-                        onClick: action.onSelect,
-                      })),
-                    ],
-                  },
-                ]
-              : []),
-          { label: "Find in diffs", shortcut: "Mod+F", letter: "f", onClick: diff.find },
-          {
-            label: "View",
-            sections: [
-              [
-                ...item(
-                  diff.collapse && {
-                    label: diff.collapse.collapsed ? "Expand all files" : "Collapse all files",
-                    onClick: diff.collapse.toggle,
-                  },
-                ),
+    // Named by what the diff shows, as the row's control is. With nothing to
+    // choose, it only says what the diff shows.
+    comparison && comparison.choices.length <= 1 && !comparison.actions.length
+      ? [{ label: comparison.label, disabled: true, onClick: () => {} }]
+      : comparison
+        ? [
+            {
+              label: comparison.label,
+              sections: [
+                comparison.choices.map((choice) => ({
+                  label: choice.label,
+                  checked: choice.value === comparison.value,
+                  choice: true,
+                  onClick: () => comparison.select(choice.value),
+                })),
+                comparison.actions.map((action) => ({
+                  label: action.label,
+                  ...(action.checked !== undefined && { checked: action.checked }),
+                  onClick: action.onSelect,
+                })),
               ],
-            ],
-          },
-        ]
-      : [],
-    [
-      ...item(
-        actions.workingFile && {
-          label: actions.workingFile.label,
-          letter: "o",
-          onClick: actions.workingFile.open,
-        },
-      ),
-      ...item(
-        actions.sidebar && {
-          label: actions.sidebar.label,
-          shortcut: "Mod+Alt+B",
-          checked: actions.sidebar.on,
-          choice: true,
-          onClick: actions.sidebar.toggle,
-        },
-      ),
-      ...item(
-        actions.session && {
-          label: "Agent session",
-          shortcut: "Mod+Shift+B",
-          checked: actions.session.on,
-          choice: true,
-          onClick: actions.session.toggle,
-        },
-      ),
-      ...item(
-        actions.files && {
-          label: "Files",
-          checked: actions.files.on,
-          choice: true,
-          onClick: actions.files.toggle,
-        },
-      ),
-      ...item(
-        actions.pane?.zoom && {
-          label: actions.pane.zoomed ? "Restore the other panes" : `Expand ${actions.pane.label}`,
-          shortcut: "Mod+E",
-          onClick: actions.pane.zoom,
-        },
-      ),
-      ...item(
-        actions.pane?.hide && { label: `Hide ${actions.pane.label}`, onClick: actions.pane.hide },
-      ),
-      ...item(
-        actions.openBranch && {
-          label: "Open branch or worktree…",
-          shortcut: "Mod+Shift+G",
-          onClick: actions.openBranch,
-        },
-      ),
-    ],
-    diff
-      ? [
-          ...item(
-            diff.push && {
-              label: "Push…",
-              disabled: !!diff.push.blocked,
-              hint: diff.push.blocked,
-              onClick: diff.push.open,
             },
-          ),
-          {
-            label: "Refresh review",
-            letter: "r",
-            disabled: diff.refresh.disabled,
-            onClick: diff.refresh.run,
-          },
-        ]
-      : [],
+          ]
+        : [],
     [
-      { label: "Commands", shortcut: "Mod+K", onClick: actions.commands },
-      { label: "Keyboard shortcuts", shortcut: "?", onClick: actions.shortcuts },
+      ...item(
+        pane?.zoom && {
+          label: pane.zoomed ? "Restore the other panes" : `Expand ${pane.label}`,
+          shortcut: "Mod+E",
+          onClick: pane.zoom,
+        },
+      ),
+      ...item(pane?.hide && { label: `Hide ${pane.label}`, onClick: pane.hide }),
     ],
   ];
 }

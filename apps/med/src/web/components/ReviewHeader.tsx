@@ -2,6 +2,8 @@ import * as stylex from "@stylexjs/stylex";
 import { Popover } from "@base-ui/react/popover";
 import { useEffect, useState, type ReactNode } from "react";
 import { CODE_SIZES, type CodeSize } from "../data/view-settings";
+import { themeController, useTheme, type ThemeMode } from "../themes";
+import { openSettings } from "./settings/settings-commands";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { paneHandle } from "./PaneTree";
@@ -152,20 +154,28 @@ function BranchLabel({ branch }: { branch: string }) {
   );
 }
 
-/** The Display button and its options. While it is open, S, W, and C flip
- * the layout, wrapping, and comments. */
+const MODES: { mode: ThemeMode; label: string; icon: IconName }[] = [
+  { mode: "system", label: "Auto", icon: "theme" },
+  { mode: "light", label: "Light", icon: "sun" },
+  { mode: "dark", label: "Dark", icon: "moon" },
+];
+
+/** The Display button and its options, a name and its control on each row,
+ * as Pierre lays its own out. While it is open, S, W, and C flip the
+ * layout, wrapping, and comments. */
 function DisplayButton({ options }: { options: DisplayOptions }) {
   const [open, setOpen] = useState(false);
   const { layout, wrap, comments, size } = options;
   const at = CODE_SIZES.indexOf(size.value);
+  const theme = useTheme();
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         aria-label="Display"
-        {...tooltip("Split, wrap, comments, and text size")}
+        {...tooltip("Layout, wrap, comments, text size, and theme")}
         {...stylex.props(ui.button, ui.pressable, styles.display)}
       >
-        <Icon name="selector" size={14} />
+        <Icon name="display" size={14} />
         <span {...stylex.props(styles.displayLabel)}>Display</span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -184,28 +194,35 @@ function DisplayButton({ options }: { options: DisplayOptions }) {
             }}
             {...stylex.props(ui.popup, ui.pop, styles.popup)}
           >
-            <div {...stylex.props(styles.line)}>
+            <div {...stylex.props(styles.line, styles.row)}>
+              <span {...stylex.props(styles.grow)}>Layout</span>
               <div role="radiogroup" aria-label="Diff layout" {...stylex.props(styles.segment)}>
-                {(["split", "unified"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="radio"
-                    aria-checked={layout.mode === mode}
-                    disabled={mode === "split" && !layout.canSplit}
-                    title={
-                      mode === "split" && !layout.canSplit ? "Split needs a wider pane" : undefined
-                    }
-                    onClick={() => layout.set(mode)}
-                    {...stylex.props(ui.button, styles.half, layout.mode === mode && styles.pageOn)}
-                  >
-                    {mode === "split" ? "Split" : "Unified"}
-                  </button>
-                ))}
+                {(["split", "unified"] as const).map((mode) => {
+                  const name = mode === "split" ? "Split" : "Unified";
+                  const blocked = mode === "split" && !layout.canSplit;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="radio"
+                      aria-label={name}
+                      aria-checked={layout.mode === mode}
+                      disabled={blocked}
+                      {...tooltip(blocked ? "Split needs a wider pane" : name)}
+                      onClick={() => layout.set(mode)}
+                      {...stylex.props(
+                        ui.button,
+                        styles.half,
+                        layout.mode === mode && styles.pageOn,
+                      )}
+                    >
+                      <Icon name={mode} size={15} />
+                    </button>
+                  );
+                })}
               </div>
               <kbd {...stylex.props(styles.key)}>S</kbd>
             </div>
-            <span role="separator" {...stylex.props(styles.separator)} />
             <Toggle label="Wrap long lines" letter="W" on={wrap.on} toggle={wrap.toggle} />
             <Toggle
               label="Comments in the diff"
@@ -239,13 +256,39 @@ function DisplayButton({ options }: { options: DisplayOptions }) {
               <kbd {...stylex.props(styles.key)} />
             </div>
             <span role="separator" {...stylex.props(styles.separator)} />
-            {/* Settings › Code has these, plus theme, font, and the file view's. */}
+            <div {...stylex.props(styles.line, styles.row)}>
+              <span {...stylex.props(styles.grow)}>Theme</span>
+              <div role="radiogroup" aria-label="Theme" {...stylex.props(styles.segment)}>
+                {MODES.map(({ mode, label, icon }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-label={label}
+                    aria-checked={theme.mode === mode}
+                    {...tooltip(
+                      mode === "system"
+                        ? `Auto: ${theme.light.label} or ${theme.dark.label}, as the system is`
+                        : mode === "light"
+                          ? theme.light.label
+                          : theme.dark.label,
+                    )}
+                    onClick={() => themeController.setMode(mode)}
+                    {...stylex.props(ui.button, styles.half, theme.mode === mode && styles.pageOn)}
+                  >
+                    <Icon name={icon} size={15} />
+                  </button>
+                ))}
+              </div>
+              <kbd {...stylex.props(styles.key)} />
+            </div>
+            <span role="separator" {...stylex.props(styles.separator)} />
+            {/* Settings › Code has these; Appearance has the themes. */}
             <button
               type="button"
               onClick={() => {
                 setOpen(false);
-                history.pushState(null, "", "/settings/code");
-                window.dispatchEvent(new PopStateEvent("popstate"));
+                openSettings("code");
               }}
               {...stylex.props(
                 ui.button,
@@ -368,12 +411,10 @@ const styles = stylex.create({
   line: { display: "flex", alignItems: "center", gap: 10, paddingInline: 8 },
   row: { width: "100%", height: 34, fontSize: 13, color: tokens.text },
   toggle: { justifyContent: "flex-start", borderRadius: `calc(7px * ${tokens.round})` },
+  // Icons side by side; the chosen one is filled.
   segment: {
-    flex: "1",
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
+    display: "flex",
     gap: 2,
-    marginBlock: 4,
     padding: 2,
     borderRadius: `calc(9px * ${tokens.round})`,
     boxShadow: `inset 0 0 0 1px ${tokens.line}`,
@@ -381,10 +422,12 @@ const styles = stylex.create({
   },
   half: {
     justifyContent: "center",
+    width: 30,
+    minWidth: 30,
     height: 24,
+    paddingInline: 0,
     borderRadius: `calc(7px * ${tokens.round})`,
     color: tokens.muted,
-    fontSize: 12.5,
   },
   separator: { display: "block", height: 1, marginBlock: 4, backgroundColor: tokens.line },
   more: { color: { default: tokens.muted, ":hover": tokens.text } },

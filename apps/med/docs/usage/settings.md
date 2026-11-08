@@ -1,9 +1,11 @@
 # Settings
 
-**Settings**, at the foot of the sidebar, opens Med's settings at
-`/settings`: one page of sections, in which each setting is a row with its
-name and what it does at the left and its control at the right. With nothing
-chosen, Med follows the system between **Pierre Light** and **Pierre Dark**.
+**Settings**, at the foot of the sidebar, or **Open Settings** in `⌘K`, opens
+Med's settings at `/settings`: one page of sections, in which each setting is
+a row with its name and what it does at the left and its control at the
+right. `⌘K` also opens each section, such as **Settings: Open in**
+(`/settings/open-in`). With nothing chosen, Med follows the system between
+**Pierre Light** and **Pierre Dark**.
 
 ## Appearance
 
@@ -22,7 +24,32 @@ first frame is never the browser's own white or black.
 The diff's layout (**Split** or **Unified**), **Wrap long lines**, **Comments
 in the diff**, and the code's **Text size**: the same settings as the review
 header's **Display**, whose **All code settings** opens this page at Code
-(`/settings/code`).
+(`/settings/code`). **Preview**, at the section's end, is a small made-up
+change as a review shows it: the theme on screen, with these choices, so a
+change of theme or of a setting shows at once.
+
+## Open in
+
+Where a file's **Open in** sends its line. Med fills this section from your
+repositories' remotes and from this Mac.
+
+- **Code hosts**: each host of the sources' remotes, with how many
+  repositories use it. github.com is GitHub; another host that answers as
+  GitHub does is GitHub Enterprise. A host that Med does not recognise is
+  left out of Open in until you choose its kind: **GitHub**, **GitLab**, or
+  **Leave out**.
+- **Sourcegraph**: your instance's address. Open in then has **Sourcegraph**,
+  at the same line: the address, then the host, the repository, and the
+  branch.
+- **Editors**: VS Code, Cursor, Zed, and IntelliJ IDEA, where Med finds them
+  on the PATH or in Applications. A switch lists one in Open in, and **Make
+  default** puts one first.
+- **Other links**: a name and a template for any other tool that takes a
+  file and a line, with `{host}`, `{owner}`, `{repo}`, `{ref}`, `{path}`, and
+  `{line}`.
+
+A link that names the branch waits for a push: while the branch is not
+pushed, Open in says **Push to open on** the host or link.
 
 ## Files and sessions
 
@@ -51,9 +78,9 @@ says why.
 A Med with another state folder (`--state-dir`), such as a trial or a test,
 keeps its own `settings.json` in that folder, so it never changes your Med.
 
-Med also keeps each setting in the browser's storage for its address, as it
-does the other [view settings](layout.md#view-settings), and the two stay the
-same. A choice from before the file goes to it once, the first time Med reads
+Med also keeps each setting but Open in's in the browser's storage for its
+address, as it does the other [view settings](layout.md#view-settings), and
+the two stay the same. Med reads Open in's on its server. A choice from before the file goes to it once, the first time Med reads
 the file.
 
 | Key                     | Values                                                     | Default          |
@@ -70,6 +97,10 @@ the file.
 | `files.findPreview`     | `true` or `false`: the preview in Find file                | `true`           |
 | `session.followUp`      | `"now"` or `"queue"`: what `⌘↩` does while the agent works | `"now"`          |
 | `sources.pullBase`      | `true` or `false`: pull each repository's base branch      | `true`           |
+| `openIn.hosts`          | a host's kind by host: `"github"`, `"gitlab"`, or `"off"`  | `{}`             |
+| `openIn.sourcegraph`    | your Sourcegraph's address, or `""` for none               | `""`             |
+| `openIn.editors`        | the editors to list, in order, such as `["vscode", "zed"]` | each one found   |
+| `openIn.links`          | other links by name, each a template                       | `{}`             |
 
 A key that Med does not know, or a value that its key does not take, changes
 nothing.

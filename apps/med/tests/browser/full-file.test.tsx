@@ -1987,7 +1987,7 @@ test("colors Groovy and Gradle files with the Groovy grammar", async () => {
   await expect.poll(() => color("'med'")).toContain("#9ecbff");
 });
 
-test("Open in lists the code host at the file's line, the editors, and the paths, each with a letter", async () => {
+test("Open in lists the code host and Sourcegraph at the file's line, the editors, and the paths, each with a letter", async () => {
   const opened: unknown[] = [];
   const notes: string[] = [];
   const windows = vi.spyOn(window, "open").mockReturnValue(null);
@@ -2005,6 +2005,13 @@ test("Open in lists the code host at the file's line, the editors, and the paths
           name: "github.acme.build",
           base: "https://github.acme.build/acme/trailhead/blob/feature/tides",
         },
+        links: [
+          {
+            name: "Sourcegraph",
+            template:
+              "https://sourcegraph.acme.build/github.acme.build/acme/trailhead@feature/tides/-/blob/{path}?L{line}",
+          },
+        ],
       }),
       open: async (...args: unknown[]) => void opened.push(args),
     },
@@ -2017,6 +2024,7 @@ test("Open in lists the code host at the file's line, the editors, and the paths
   const names = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent);
   expect(names).toEqual([
     "github.acme.build",
+    "Sourcegraph",
     "VS Code",
     "Zed",
     "Reveal in Finder",
@@ -2027,6 +2035,13 @@ test("Open in lists the code host at the file's line, the editors, and the paths
   await item("github.acme.build").click();
   expect(windows).toHaveBeenCalledWith(
     "https://github.acme.build/acme/trailhead/blob/feature/tides/src/trail%20notes.ts#L1",
+    "_blank",
+    "noopener",
+  );
+  await page.getByRole("button", { name: "Open in" }).click();
+  await item("Sourcegraph").click();
+  expect(windows).toHaveBeenLastCalledWith(
+    "https://sourcegraph.acme.build/github.acme.build/acme/trailhead@feature/tides/-/blob/src/trail%20notes.ts?L1",
     "_blank",
     "noopener",
   );
@@ -2049,7 +2064,11 @@ test("Open in says Push to open while the branch has no page on its host", async
     reveal: async () => {},
     notify: () => {},
     openIn: {
-      links: async () => ({ editors: [], host: { name: "github.com", push: true as const } }),
+      links: async () => ({
+        editors: [],
+        host: { name: "github.com", push: true as const },
+        links: [{ name: "Sourcegraph", push: true as const }],
+      }),
       open: async () => {},
     },
   };
@@ -2063,6 +2082,9 @@ test("Open in says Push to open while the branch has no page on its host", async
   await page.getByRole("button", { name: "Open in" }).click();
   await expect
     .element(page.getByRole("menuitem", { name: "Push to open on github.com" }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect
+    .element(page.getByRole("menuitem", { name: "Push to open on Sourcegraph" }))
     .toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByRole("menuitem", { name: "Copy link" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");

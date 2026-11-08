@@ -6,8 +6,9 @@ import type { ReviewController, ReviewControllerSnapshot } from "../data/control
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
 import { ActionMenu, type MenuEntry } from "./Controls";
+import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
-import { Icon, type IconName } from "./Icon";
+import { Icon, iconPath } from "./Icon";
 import {
   CodexReviewPanel,
   PullRequestPanel,
@@ -30,22 +31,20 @@ export function SavedReviewHeader({
   threadPlacement,
   codexReviews,
   findingPlacement,
-  sendTo,
   compact = false,
   more = [],
   ref,
 }: {
   /**
-   * The thread beside it names the review, so the header leaves the name out,
-   * and its actions go in one menu with `more`, as a title bar keeps few.
+   * The thread beside it names the review, so the header leaves the name out
+   * and keeps one action, Copy comments: comments go to an agent from its
+   * session, and the rest is in ⌘K. `more` holds what a narrow row folds.
    */
   compact?: boolean;
-  /** The review pane's own actions, in groups after the compact header's own. */
+  /** What a narrow row folds into ⋯, such as its comparison. */
   more?: MenuEntry[][];
   ref?: Ref<SavedReviewActions>;
   controller: ReviewController;
-  /** The agent session that comments can go to, and how to open its message. */
-  sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
   state: ReviewControllerSnapshot;
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
@@ -164,55 +163,15 @@ export function SavedReviewHeader({
         </span>
       )}
       <span {...stylex.props(styles.grow)} />
-      {/* Beside the thread, Send shows when there are comments to send. */}
-      {sendTo && (!compact || sendTo.drafts > 0) && (
-        <button
-          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label={`Send comments to ${sendTo.name}`}
-          title="Write to the agent with your comments"
-          onClick={sendTo.open}
-        >
-          {!compact && <Icon name={sendTo.icon} size={14} />}
-          <span {...stylex.props(!compact && styles.desktop)}>Send to {sendTo.name}</span>
-          {sendTo.drafts > 0 && <span {...stylex.props(styles.count)}>{sendTo.drafts}</span>}
-        </button>
-      )}
-      {compact && (
-        <ActionMenu
-          label="More actions"
-          trigger={[ui.button, ui.iconButton, styles.fixed]}
-          sections={[
-            [
-              {
-                label:
-                  saved.commentCount > 0
-                    ? `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`
-                    : "Copy comments",
-                disabled: busy || saved.commentCount === 0,
-                onClick: () =>
-                  void run("copy", async () => {
-                    const comments = await controller.copyFeedback();
-                    setCopied({ count: comments.count });
-                    return `Copied ${comments.count} ${comments.count === 1 ? "comment" : "comments"}`;
-                  }),
-              },
-              {
-                label: "Clear all comments…",
-                disabled: busy || saved.commentCount === 0,
-                onClick: () => setClearRevision(saved.revision),
-              },
-            ],
-            ...more,
-          ]}
-        >
-          <Icon name="more" size={15} />
-        </ActionMenu>
-      )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
-      {!compact && (
+      {(!compact || saved.commentCount > 0) && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
           aria-label="Copy comments"
+          {...(compact &&
+            tooltip(
+              `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`,
+            ))}
           data-copied={copied !== null}
           disabled={operation === "clear" || saved.commentCount === 0}
           aria-disabled={busy || saved.commentCount === 0}
@@ -225,9 +184,18 @@ export function SavedReviewHeader({
           }
         >
           <CopyCommentsIcon copied={copied !== null} />
-          <span {...stylex.props(styles.desktop)}>Copy comments</span>
-          <span>{saved.commentCount}</span>
+          {!compact && <span {...stylex.props(styles.desktop)}>Copy comments</span>}
+          <span {...stylex.props(styles.count)}>{saved.commentCount}</span>
         </button>
+      )}
+      {compact && more.some((section) => section.length > 0) && (
+        <ActionMenu
+          label="More actions"
+          trigger={[ui.button, ui.iconButton, styles.fixed]}
+          sections={more}
+        >
+          <Icon name="more" size={15} />
+        </ActionMenu>
       )}
       <Popover.Root
         open={clearRevision !== null}
@@ -248,7 +216,7 @@ export function SavedReviewHeader({
         )}
         <Popover.Portal>
           <Popover.Positioner
-            // From the menu, the question opens below the header's end.
+            // From ⌘K, the question opens below the header's end.
             anchor={compact ? header : undefined}
             align="end"
             sideOffset={5}
@@ -309,27 +277,29 @@ export function SavedReviewHeader({
   );
 }
 
-/** Both shapes stay mounted so the SVG can transition in place without a layout change. */
+/** Both shapes stay mounted so the SVG can transition in place without a
+ * layout change. Copy is the app's copy icon; the check draws over it. */
 function CopyCommentsIcon({ copied }: { copied: boolean }) {
   return (
     <svg
       width="14"
       height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      viewBox="0 0 256 256"
       aria-hidden="true"
       {...stylex.props(styles.copyIcon)}
     >
-      <g {...stylex.props(styles.copyShape, copied && styles.copyHidden)}>
-        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-      </g>
       <path
-        d="m4 12 5 5 11-11"
+        d={iconPath("copy")}
+        fill="currentColor"
+        {...stylex.props(styles.copyShape, copied && styles.copyHidden)}
+      />
+      <path
+        d="M40 136l56 56L216 72"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="20"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         pathLength="1"
         {...stylex.props(styles.checkShape, copied && styles.checkVisible)}
       />
@@ -433,7 +403,7 @@ const styles = stylex.create({
   copyShape: {
     opacity: 1,
     transform: "scale(1)",
-    transformOrigin: "12px 12px",
+    transformOrigin: "128px 128px",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: "ease-in-out",
     transitionDuration: {

@@ -2,6 +2,7 @@ import { useDocumentTitle } from "./data/document-title";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
 import { ToolButton } from "./components/ToolButton";
+import { settingsCommands } from "./components/settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -236,10 +237,10 @@ function preloadPanes() {
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
 /** The review hides while the session shows beside it; its pages, a file,
  * or Show review bring it back. */
-const REVIEW_HIDE = { label: "Hide the review", icon: "panelRight" } as const;
+const REVIEW_HIDE = { label: "Hide the review", icon: "minimize" } as const;
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
-  icon: "panelLeft",
+  icon: "minimize",
   shortcut: "Mod+Shift+B",
 } as const;
 const SessionPanel = lazy(() =>
@@ -973,15 +974,21 @@ export function App({
     () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
     [reviewVisible, sessionVisible, closePane, showPane],
   );
-  /** The session's header: Show review while the review is hidden. */
-  const withShowReview = (controls: ReactNode) => (
-    <>
-      {!reviewVisible && (
-        <ToolButton label="Show review" icon="panelRight" onClick={() => showPane("review")} />
-      )}
-      {controls}
-    </>
-  );
+  /** The session's header. While the review is hidden, the session is the
+   * whole workspace: it has Show review, as words, and no Hide, which would
+   * only show the review in its place. */
+  const withShowReview = (controls: ReactNode) =>
+    reviewVisible ? (
+      controls
+    ) : (
+      <button
+        type="button"
+        {...stylex.props(ui.button, ui.pressable)}
+        onClick={() => showPane("review")}
+      >
+        Show review
+      </button>
+    );
   useEffect(() => {
     if (!workspaceId) return;
     const take = () => {
@@ -2165,6 +2172,21 @@ export function App({
       );
     },
     [controller, reveal, revealLine],
+  );
+  /** Shows one of the review's comments at its line in Changes, from the
+   * session's message box. */
+  const openComment = useCallback(
+    (id: string) => {
+      const note = notes.find((entry) => entry.id === id);
+      const snapshot = controller.getSnapshot();
+      const file = note && snapshot.files.find((entry) => entry.path === note.path);
+      if (!note || !file) return;
+      if (!reviewVisible) showPane("review");
+      if (!snapshot.visibleFiles.some((entry) => entry.id === file.id)) controller.setFilter("");
+      const line = noteLine(file.metadata, note);
+      revealLine(file.id, line, line, note.side === "old" ? "deletions" : "additions");
+    },
+    [notes, controller, reviewVisible, showPane, revealLine],
   );
   /** Shows a GitHub thread at its line, from the Pull request tab. */
   const showPullThread = useCallback(
@@ -4309,6 +4331,7 @@ export function App({
       label: "Change theme",
       run: () => setThemePickerOpen(true),
     },
+    ...settingsCommands(),
     {
       id: "refresh",
       label: "Refresh current review and history",
@@ -4356,6 +4379,7 @@ export function App({
             managesFocus: true,
             label: "Push to remote…",
             disabled: !!pushBlocked,
+            ...(pushBlocked && { hint: pushBlocked }),
             run: openPush,
           },
         ]
@@ -5441,41 +5465,16 @@ export function App({
     />
   );
   const quietSections = useQuietMenu({
-    diff: streamChrome
-      ? {
-          find: openFind,
-          layout: { mode, canSplit: roomy, set: setMode },
-          comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
-          wrap: { on: wrap, toggle: () => setWrap(!wrap) },
-          collapse:
-            files.length > 1 ? { collapsed: allCollapsed, toggle: toggleAllFiles } : undefined,
-          push: comparisonActionsShown ? { blocked: pushBlocked, open: openPush } : undefined,
-          refresh: { disabled: state.status === "loading", run: () => void controller.refresh() },
-          comparison:
-            comparisonFit === "menu"
-              ? {
-                  label: comparisonText.long,
-                  value: comparisonValue,
-                  choices: comparisonChoices,
-                  select: chooseComparison,
-                  actions: compareActions,
-                }
-              : undefined,
-        }
-      : undefined,
-    workingFile:
-      streamChrome && selectedFile && browseSource
+    comparison:
+      streamChrome && comparisonFit === "menu"
         ? {
-            label: browseSource.kind === "worktree" ? "Open working file" : "Open snapshot file",
-            open: () => openWorkingFile(selectedFile.path),
+            label: comparisonText.long,
+            value: comparisonValue,
+            choices: comparisonChoices,
+            select: chooseComparison,
+            actions: compareActions,
           }
         : undefined,
-    sidebar:
-      changesRail || guideRail
-        ? { label: guideRail ? "Guide" : "Changed files", on: railOpen, toggle: toggleRail }
-        : undefined,
-    session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
-    files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
     pane: paneControlsFit
       ? undefined
       : {
@@ -5484,11 +5483,8 @@ export function App({
           zoom: panes.open.length > 1 ? () => panes.toggleZoom("review") : undefined,
           hide: sessionVisible ? () => closePane("review") : undefined,
         },
-    openBranch:
-      !state.savedReview && gitAvailable && shell ? () => openBranchPicker(false) : undefined,
-    commands: () => setCommandsOpen(true),
-    shortcuts: () => setHelpOpen(true),
   });
+  const quietFolded = quietSections.some((section) => section.length > 0);
   const savedHeader = (compact: boolean) =>
     state.savedReview && (
       <SavedReviewHeader
@@ -5501,18 +5497,6 @@ export function App({
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
         findingPlacement={codexFindings.placement}
-        // It opens the session: while the session shows, its message box
-        // holds the comments to send.
-        sendTo={
-          replyAgent && !sessionVisible
-            ? {
-                name: replyAgent,
-                icon: leadIcon,
-                drafts: agentInbox.state?.drafts.length ?? 0,
-                open: () => showPane("session"),
-              }
-            : undefined
-        }
       />
     );
   // The tabs stay while a workspace loads, so the branch switch in them does
@@ -5552,17 +5536,17 @@ export function App({
       {!shell && state.savedReview?.pullRequestUrl && (
         <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
       )}
-      {state.savedReview ? (
-        savedHeader(true)
-      ) : (
-        <ActionMenu
-          label="More actions"
-          trigger={[ui.button, ui.iconButton]}
-          sections={quietSections}
-        >
-          <Icon name="more" size={15} />
-        </ActionMenu>
-      )}
+      {state.savedReview
+        ? savedHeader(true)
+        : quietFolded && (
+            <ActionMenu
+              label="More actions"
+              trigger={[ui.button, ui.iconButton]}
+              sections={quietSections}
+            >
+              <Icon name="more" size={15} />
+            </ActionMenu>
+          )}
     </>
   );
   const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
@@ -5748,6 +5732,7 @@ export function App({
                       setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
                     }
                     onOpenPath={openFromPane}
+                    onOpenComment={openComment}
                     fileRefs={fileRefs}
                     onClose={hideSession}
                     onSideRoom={setSessionSideRoom}
