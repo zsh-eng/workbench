@@ -1031,8 +1031,9 @@ const styles = stylex.create({
     color: tokens.muted,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
-  // The menu's label starts under the checkout's name in the title band.
-  quietHeader: { gap: 6, paddingInlineStart: 8 },
+  // The menu's label starts under the checkout's name in the title band, at
+  // the thread's text edge.
+  quietHeader: { gap: 6, paddingInlineStart: 14 },
   grow: { flex: "1" },
   leadTrigger: {
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },

@@ -88,17 +88,18 @@ export const rowStyles = stylex.create({
  * wide, Claude Desktop's default transcript measure
  * (`--max-content-width: var(--chat-column-measure, 768px)` in its styles of
  * October 2026; its wider settings are 960 and 1280), and the column adds the
- * thread's 18 pixel sides. That holds about 116 characters of the thread's
+ * thread's 22 pixel sides. That holds about 116 characters of the thread's
  * 14.5 pixel prose in the sans themes (READING.thread in themes.ts). A narrower pane, or one with the side panel,
  * narrows the column. The room beside the column stays empty: a pane cannot
  * have a maximum width in Med's layout, whose splits are shares of the
  * window (pane-tree.ts).
  */
-const COLUMN = 804; // 768 + 2 × 18
+const COLUMN = 812; // 768 + 2 × 22
 export const column = stylex.create({
   /** The thread's content, with its sides inside the column. */
   thread: { boxSizing: "border-box", width: "100%", maxWidth: COLUMN, marginInline: "auto" },
   /** A card or bar under the thread: 12 pixels in from the column's sides,
-   * as from the pane's sides in a narrow pane. */
+   * as from the pane's sides in a narrow pane, so with its 10 pixel padding
+   * its text keeps to the thread's edge, as a card in Settings does. */
   bar: { marginInline: `max(12px, calc((100% - ${COLUMN}px) / 2 + 12px))` },
 });

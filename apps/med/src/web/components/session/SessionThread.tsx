@@ -2147,10 +2147,13 @@ const styles = stylex.create({
     overflowAnchor: "none",
     overscrollBehavior: "contain",
   },
+  // The text's edge: each reply, tool row, and card's text keeps to it, and
+  // cards, prompts, and the message box reach 10 pixels past it, as the
+  // cards in Settings do.
   content: {
     position: "relative",
     paddingBlock: 20,
-    paddingInline: 18,
+    paddingInline: 22,
   },
   unsettled: { visibility: "hidden" },
   edge: { display: "flex", justifyContent: "center", paddingBottom: 6 },
@@ -2158,7 +2161,7 @@ const styles = stylex.create({
   probe: {
     position: "absolute",
     top: 0,
-    insetInline: 18,
+    insetInline: 22,
     height: 0,
     overflow: "hidden",
     visibility: "hidden",
@@ -2208,10 +2211,12 @@ const styles = stylex.create({
     gap: 4,
     marginBlock: 10,
   },
+  // Its text ends at the thread's edge; the bubble reaches past it.
   user: {
     maxWidth: "86%",
+    marginInlineEnd: -10,
     paddingBlock: 9,
-    paddingInline: 13,
+    paddingInline: 10,
     borderRadius: `calc(12px * ${tokens.round})`,
     backgroundColor: tokens.fill,
     color: tokens.text,

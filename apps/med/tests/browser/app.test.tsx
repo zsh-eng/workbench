@@ -4424,8 +4424,8 @@ describe("agent session", () => {
     expect(localStorage.getItem("med:session-panel")).toBe("closed");
     await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
     // Without it, the column is Claude Desktop's 768 pixels of text and the
-    // thread's 18 pixel sides.
-    await expect.poll(box).toBeCloseTo(768 + 36 - 24, 0);
+    // thread's 22 pixel sides.
+    await expect.poll(box).toBeCloseTo(768 + 44 - 24, 0);
     await userEvent.keyboard("{Control>}{Alt>}{Shift>}b{/Shift}{/Alt}{/Control}");
     await expect.element(side).toBeVisible();
     expect(localStorage.getItem("med:session-panel")).toBe("auto");
