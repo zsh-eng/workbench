@@ -83,7 +83,8 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await expect(page.locator(".reader-sheet-backdrop")).toHaveCount(0);
 
-  // A taller tab raises the sheet's top edge, and the page stays in view.
+  // The sheet fits its tab: the shorter Theme tab lowers its top edge, and
+  // the page stays in view.
   const top = () =>
     settings.evaluate(
       (element) =>
@@ -92,7 +93,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
   const typeTop = await top();
   expect(typeTop).toBeGreaterThan(844 / 4);
   await settings.getByRole("tab", { name: "Theme" }).click();
-  await expect.poll(top).toBeLessThan(typeTop - 40);
+  await expect.poll(top).toBeGreaterThan(typeTop + 40);
   await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await waitForSheetToRest(settings);
   await settings.getByRole("tab", { name: "Type" }).click();

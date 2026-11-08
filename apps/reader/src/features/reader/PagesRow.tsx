@@ -1,4 +1,9 @@
 import {
+  ROW_SEGMENTED_GROUP,
+  ROW_SEGMENTED_ITEM,
+  SettingsRow,
+} from "@/components/appearance/settings-layout";
+import {
   SegmentedToggleGroup,
   SegmentedToggleGroupItem,
 } from "@/components/ui/segmented-controls";
@@ -8,9 +13,6 @@ import {
   usePagesPreference,
   type PagesPreference,
 } from "./pages-preference";
-
-const itemClassName =
-  "h-9 flex-1 gap-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[pressed]:text-foreground";
 
 const OPTIONS: { value: PagesPreference; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -24,41 +26,46 @@ const FALLBACK_REASON: Record<Exclude<TwoPagesFit, "fits">, string> = {
 };
 
 /**
- * Appearance → Layout row, in paginated mode: Auto shows two pages where
+ * Appearance → Page row, in paginated mode: Auto shows two pages where
  * each has room (a landscape tablet, a wide window), One and Two choose.
- * Two falls back to one page where two cannot fit, and says why.
+ * In the Reader, Two falls back to one page where two cannot fit, and says
+ * why; Settings, away from a book, says what Auto does.
  */
-export function PagesRow({ twoPages }: { twoPages: TwoPagesFit }) {
+export function PagesRow({
+  twoPages,
+  description,
+}: {
+  twoPages?: TwoPagesFit;
+  description?: string;
+}) {
   const value = usePagesPreference();
+  const fallback =
+    value === "two" && twoPages && twoPages !== "fits"
+      ? FALLBACK_REASON[twoPages]
+      : undefined;
   return (
-    <div className="space-y-2" data-pages-row={value}>
-      <h4 className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-        Pages
-      </h4>
-      <SegmentedToggleGroup
-        aria-label="Pages"
-        value={value}
-        onValueChange={(next) => {
-          const chosen = OPTIONS.find((option) => option.value === next);
-          if (chosen) setPagesPreference(chosen.value);
-        }}
-        className="flex w-full rounded-full bg-secondary/40 p-1"
-      >
-        {OPTIONS.map((option) => (
-          <SegmentedToggleGroupItem
-            key={option.value}
-            value={option.value}
-            className={itemClassName}
-          >
-            {option.label}
-          </SegmentedToggleGroupItem>
-        ))}
-      </SegmentedToggleGroup>
-      {value === "two" && twoPages !== "fits" && (
-        <p className="text-xs text-muted-foreground">
-          {FALLBACK_REASON[twoPages]}
-        </p>
-      )}
+    <div data-pages-row={value}>
+      <SettingsRow label="Pages" description={fallback ?? description}>
+        <SegmentedToggleGroup
+          aria-label="Pages"
+          value={value}
+          onValueChange={(next) => {
+            const chosen = OPTIONS.find((option) => option.value === next);
+            if (chosen) setPagesPreference(chosen.value);
+          }}
+          className={ROW_SEGMENTED_GROUP}
+        >
+          {OPTIONS.map((option) => (
+            <SegmentedToggleGroupItem
+              key={option.value}
+              value={option.value}
+              className={ROW_SEGMENTED_ITEM}
+            >
+              {option.label}
+            </SegmentedToggleGroupItem>
+          ))}
+        </SegmentedToggleGroup>
+      </SettingsRow>
     </div>
   );
 }

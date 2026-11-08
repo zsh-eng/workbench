@@ -31,7 +31,7 @@ function Toggle({
 }) {
   const id = useId();
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center justify-between gap-4 py-3">
       <label
         htmlFor={id}
         className="cursor-pointer text-sm font-medium text-foreground"
@@ -54,7 +54,7 @@ export function PaperRow() {
   const update = (change: Partial<PaperPreference>) =>
     setPaperPreference(change);
   return (
-    <div className="space-y-3" data-paper-row={paper.pageTurn}>
+    <div className="space-y-3 py-3" data-paper-row={paper.pageTurn}>
       <div className="flex items-center gap-2">
         <h4 className={labelClassName}>Page turn</h4>
         <span className="rounded-full border border-border/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">

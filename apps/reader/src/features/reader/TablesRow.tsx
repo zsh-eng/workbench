@@ -31,7 +31,7 @@ export function TablesRow() {
   // What the Reader shows, `?tables=` included.
   const mode = getReaderTablesMode();
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 py-3">
       <div className="flex items-center gap-2">
         <h4 className={labelClassName}>Tables</h4>
         <span className="rounded-full border border-border/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">

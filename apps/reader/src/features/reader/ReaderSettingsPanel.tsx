@@ -1,5 +1,20 @@
-import { ThemePanel } from "@/features/reader/shared/ReaderSettings/ThemePanel";
-import { TypographyPanel } from "@/features/reader/shared/ReaderSettings/TypographyPanel";
+import {
+  PaperChoices,
+  PaperModeTiles,
+} from "@/components/appearance/Paper";
+import {
+  BookStylesRows,
+  JustifyRow,
+  LineSpacingRow,
+  PageSwitchRows,
+  ReadingFontChoices,
+  TextSizeRow,
+} from "@/components/appearance/ReadingControls";
+import {
+  SettingsGroup,
+  SettingsSection,
+} from "@/components/appearance/settings-layout";
+import { TypeSample } from "@/components/appearance/TypeSample";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   SegmentedTabs,
@@ -85,32 +100,109 @@ export function ReaderSettingsPanel({
         viewportClassName="overflow-x-hidden [mask-image:none] [-webkit-mask-image:none]"
         contentClassName="min-w-0 max-w-full overflow-x-hidden pb-4"
       >
+        {/* Type stays short, so the page shows above the sheet while the
+            face and size change; the book's own styles go with the page. */}
         <SegmentedTabsContent value="type" className="mt-0">
-          <TypographyPanel
-            settings={settings}
-            onUpdateSettings={onUpdateSettings}
-            section="type"
-            showContentWidthControl={false}
-          />
+          <TypeGroup settings={settings} onUpdateSettings={onUpdateSettings} />
         </SegmentedTabsContent>
-        <SegmentedTabsContent value="layout" className="mt-0 space-y-6">
-          {layoutControl}
-          <TypographyPanel
+        <SegmentedTabsContent value="layout" className="mt-0 space-y-5">
+          <PageGroup
             settings={settings}
             onUpdateSettings={onUpdateSettings}
-            section="layout"
-            showContentWidthControl={false}
+            layoutControl={layoutControl}
+          />
+          <BookStylesGroup
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
           />
         </SegmentedTabsContent>
         <SegmentedTabsContent value="theme" className="mt-0">
-          <ThemePanel settings={settings} onUpdateSettings={onUpdateSettings} />
+          <PaperGroup />
         </SegmentedTabsContent>
       </ScrollArea>
     </SegmentedTabs>
   );
 }
 
-/** Desktop settings use one continuous list because the sidebar has height. */
+interface GroupProps {
+  settings: ReaderSettings;
+  onUpdateSettings: (settings: Partial<ReaderSettings>) => void;
+}
+
+function PaperGroup() {
+  return (
+    <SettingsSection compact title="Paper">
+      <SettingsGroup compact>
+        <div className="py-3">
+          <PaperModeTiles compact />
+        </div>
+        <PaperChoices compact />
+      </SettingsGroup>
+    </SettingsSection>
+  );
+}
+
+function TypeGroup({ settings, onUpdateSettings }: GroupProps) {
+  return (
+    <SettingsSection compact title="Type">
+      <SettingsGroup compact>
+        <ReadingFontChoices
+          compact
+          value={settings.fontFamily}
+          onChange={(fontFamily) => onUpdateSettings({ fontFamily })}
+        />
+        <TextSizeRow settings={settings} onUpdateSettings={onUpdateSettings} />
+        <LineSpacingRow
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+        <JustifyRow
+          compact
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      </SettingsGroup>
+    </SettingsSection>
+  );
+}
+
+function PageGroup({
+  settings,
+  onUpdateSettings,
+  layoutControl,
+}: GroupProps & { layoutControl?: ReactNode }) {
+  return (
+    <SettingsSection compact title="Page">
+      <SettingsGroup compact>
+        {layoutControl}
+        <PageSwitchRows
+          compact
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      </SettingsGroup>
+    </SettingsSection>
+  );
+}
+
+function BookStylesGroup({ settings, onUpdateSettings }: GroupProps) {
+  return (
+    <SettingsSection compact title="The book's own styles">
+      <SettingsGroup compact>
+        <BookStylesRows
+          compact
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      </SettingsGroup>
+    </SettingsSection>
+  );
+}
+
+/**
+ * Desktop settings: a sample page pinned under the tabs, set as the books
+ * are, and every setting in one list that scrolls beneath it.
+ */
 export function ReaderSettingsList({
   settings,
   onUpdateSettings,
@@ -124,28 +216,30 @@ export function ReaderSettingsList({
         className,
       )}
     >
+      <div className="relative z-10 shrink-0 px-3 pt-1">
+        <TypeSample settings={settings} variant="panel" className="h-52" />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-full h-4 bg-gradient-to-b from-background/90 to-transparent"
+        />
+      </div>
       <ScrollArea
         className="min-h-0 w-full max-w-full flex-1"
         viewportClassName="overflow-x-hidden [mask-image:none] [-webkit-mask-image:none]"
         contentClassName="min-w-0 max-w-full overflow-x-hidden"
       >
-        <div className="space-y-7 px-4 py-3">
-          <TypographyPanel
+        <div className="space-y-5 px-3 pt-4 pb-4">
+          <PaperGroup />
+          <TypeGroup settings={settings} onUpdateSettings={onUpdateSettings} />
+          <PageGroup
             settings={settings}
             onUpdateSettings={onUpdateSettings}
-            section="type"
-            showContentWidthControl={false}
+            layoutControl={layoutControl}
           />
-          <div className="h-px bg-border/60" aria-hidden="true" />
-          {layoutControl}
-          <TypographyPanel
+          <BookStylesGroup
             settings={settings}
             onUpdateSettings={onUpdateSettings}
-            section="layout"
-            showContentWidthControl={false}
           />
-          <div className="h-px bg-border/60" aria-hidden="true" />
-          <ThemePanel settings={settings} onUpdateSettings={onUpdateSettings} />
         </div>
       </ScrollArea>
     </div>

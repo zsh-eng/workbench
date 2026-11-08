@@ -136,25 +136,29 @@ test.describe("Reader settings on a phone", () => {
     await expect(
       page.getByRole("button", { name: "Lora", pressed: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "System", exact: true }).click();
-    await expect(
-      page.getByText("Appearance changes weren’t saved.", { exact: true }),
-    ).toHaveCount(1);
-    await expect(
-      page.getByRole("button", { name: "System", pressed: true }),
-    ).toBeVisible();
-    await page.getByRole("tab", { name: "Layout" }).click();
-    // The sheet grows to fit the tab on its spring; tap once it rests.
-    await waitForSheetToRest(settings);
     const justify = page.getByRole("switch", { name: "Justify", exact: true });
     await justify.click();
     await expect(justify).toBeChecked();
     await page.getByRole("tab", { name: "Theme" }).click();
+    // The sheet fits the tab on its spring; tap once it rests.
     await waitForSheetToRest(settings);
-    await page.getByRole("button", { name: "Night", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Match system", exact: true })
+      .click();
     await expect(
-      page.getByRole("button", { name: "Night", pressed: true }),
+      page.getByText("Appearance changes weren’t saved.", { exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Match system", pressed: true }),
     ).toBeVisible();
+    // Match system keeps the day paper on screen by day; Dark shows the night.
+    await page
+      .getByRole("button", { name: "Night paper", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Night paper", pressed: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Dark", exact: true }).click();
     await expect(page.locator("html")).toHaveClass(/night/);
     await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
   });
