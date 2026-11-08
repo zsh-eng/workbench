@@ -2,6 +2,7 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { PlaceNav, type AppPlace } from "@/components/AppNavigation";
 import {
   APP_HEADER_BUTTON,
+  APP_HEADER_GAP,
   APP_HEADER_ICON,
   APP_HEADER_TOP,
   APP_PAGE_FRAME,
@@ -143,7 +144,9 @@ export function PlaceHeader({
           "sticky top-[-0.5rem] z-30 bg-background md:top-[-2.25rem]",
       )}
     >
-      <div className="flex h-10 items-center justify-between gap-3">
+      {/* The row is as tall as its controls, so none reaches above the
+          header's top space, where the activity island floats. */}
+      <div className="flex h-10 items-center justify-between gap-3 md:h-11">
         <div className="relative h-10 min-w-0 flex-1">
           <AnimatePresence initial={false}>
             {searching ? (
@@ -202,7 +205,7 @@ export function PlaceHeader({
             )}
           </AnimatePresence>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 md:gap-1.5">
+        <div className={cn("flex shrink-0 items-center", APP_HEADER_GAP)}>
           {status}
           {/* One button opens and closes the search and keeps its place, so
               the row beside it does not move. Its meaning changes in place:
@@ -236,7 +239,10 @@ export function PlaceHeader({
             </span>
           </button>
           {actions}
-          <AccountMenu />
+          {/* The account stands a little apart from the page's tools. */}
+          <div className="flex md:ml-1.5">
+            <AccountMenu />
+          </div>
         </div>
       </div>
     </header>

@@ -2,6 +2,7 @@ import { useAppShellReady } from "@/components/AppShell";
 import { AddBookIcon } from "@/components/AddBookIcon";
 import {
   APP_HEADER_BUTTON,
+  APP_HEADER_GAP,
   APP_HEADER_ICON,
   APP_HEADER_PRIMARY,
   APP_PAGE_FRAME,
@@ -399,7 +400,7 @@ export function Library() {
     >
       {/* An open book is wide and short, so it is drawn a size up to
           stand as tall as the other icons. */}
-      <AddBookIcon className="size-[18px] md:size-5" />
+      <AddBookIcon className="size-[18px] md:size-6" />
     </button>
   );
 
@@ -521,7 +522,9 @@ export function Library() {
           </>
         }
         actions={
-          <div className="flex items-center gap-0.5 max-md:hidden md:gap-1.5">
+          <div
+            className={cn("flex items-center max-md:hidden", APP_HEADER_GAP)}
+          >
             {addBooks}
             {viewMenu}
           </div>
