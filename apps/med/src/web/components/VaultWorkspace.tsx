@@ -25,6 +25,9 @@ import { Icon } from "./Icon";
 import { SourcesPage, type Source } from "./SourcesPage";
 import { SettingsPage, type SettingsSection } from "./settings/SettingsPage";
 import { settingsCommands } from "./settings/settings-commands";
+import { OPEN_PULL_EVENT, PULLS_PATH, PullRequestsPage, type OpenPull } from "./PullRequestsPage";
+import { readPullInbox } from "../data/pull-inbox";
+import { useAgentPresets } from "../data/owned-session";
 import { ui } from "../theme.stylex";
 import "./VaultWorkspace.css";
 import { visibleElement } from "../data/palette-focus";
@@ -54,17 +57,20 @@ const settingsSection = (): SettingsSection | null => {
 const route = () => ({
   visible:
     location.pathname === "/sources" ||
+    location.pathname === PULLS_PATH ||
     location.pathname.startsWith("/vault/") ||
     settingsSection() !== null,
   settings: settingsSection(),
+  pulls: location.pathname === PULLS_PATH,
   id: location.pathname.startsWith("/vault/") ? decodeURIComponent(location.pathname.slice(7)) : "",
   file: new URLSearchParams(location.search).get("file") ?? "",
 });
 
-/** The vault, sources, and settings pages. The review stays mounted beneath
+/** The vault, sources, settings, and pull requests pages. The review stays mounted beneath
  * them, so returning to it keeps its place. */
 export function VaultWorkspace({ children }: { children: ReactNode }) {
   const [locationState, setLocationState] = useState(route);
+  const pullAgents = useAgentPresets(locationState.pulls);
   const [reviewMounted, setReviewMounted] = useState(() => !route().visible);
   if (!locationState.visible && !reviewMounted) setReviewMounted(true);
   // The threads mount beneath these pages once the browser is idle, so the
@@ -519,7 +525,17 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
       {review}
       <div className="med-vault" data-standalone-files>
         {error && locationState.id && notice}
-        {locationState.settings ? (
+        {locationState.pulls ? (
+          <PullRequestsPage
+            load={readPullInbox}
+            agents={pullAgents?.filter((agent) => agent.available)}
+            onOpenPull={(url, agent) =>
+              window.dispatchEvent(
+                new CustomEvent<OpenPull>(OPEN_PULL_EVENT, { detail: { url, agent } }),
+              )
+            }
+          />
+        ) : locationState.settings ? (
           <SettingsPage
             section={locationState.settings === "appearance" ? undefined : locationState.settings}
             onSources={() => navigate("/sources")}

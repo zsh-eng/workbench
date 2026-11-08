@@ -224,6 +224,7 @@ const vaultPath = (pathname: string) => /^\/vault\/([^/]+)/.exec(pathname)?.[1];
 /** Addresses that cover the workspaces without choosing one. */
 export const overlayAddress = (pathname: string) =>
   pathname === "/sources" ||
+  pathname === "/pulls" ||
   pathname === "/settings" ||
   pathname.startsWith("/settings/") ||
   pathname === "/welcome" ||

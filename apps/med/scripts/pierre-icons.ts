@@ -72,6 +72,18 @@ const ICONS: Record<string, string | [string, number]> = {
   expandAll: "Chevrons",
   ask: "Question",
   minimize: "Minus",
+  commentAdd: "CommentAdd",
+  filter: "Filter",
+  approved: "Approved",
+  inReview: "InReview",
+  checkCircle: "CheckCircle",
+  ciFailed: "CiFailed",
+  inProgress: "InProgress",
+  draft: "Draft",
+  conflict: "Conflict",
+  merged: "Merged",
+  superagent: "Sparkles",
+  inbox: "Inbox",
 };
 
 const repo = process.argv[2];

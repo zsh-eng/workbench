@@ -49,9 +49,7 @@ import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
-import { readPullInbox } from "../data/pull-inbox";
-import { useAgentPresets } from "../data/owned-session";
-import { PullRequestsDialog, type PullInboxLoader } from "./PullRequestsDialog";
+import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
   needsYou,
@@ -693,13 +691,6 @@ export function WorkspaceHost({
     [rememberFocus, store],
   );
   const [pullErrors, setPullErrors] = useState<ReadonlyMap<string, string>>(new Map());
-  // The pull requests sheet, and the agents that can review one.
-  const [pullsOpen, setPullsOpen] = useState(false);
-  const pullAgents = useAgentPresets(pullsOpen, fetcher);
-  const loadPullInbox = useCallback<PullInboxLoader>(
-    (all, refresh, signal) => readPullInbox(all, refresh, signal, fetcher),
-    [fetcher],
-  );
   const beginPull = useCallback(
     (id: string, url: string, agent?: string) => {
       setPullErrors((current) => {
@@ -764,7 +755,7 @@ export function WorkspaceHost({
       },
       openPullRequests() {
         rememberFocus();
-        setPullsOpen(true);
+        openPullRequests();
       },
       retryPull(id) {
         const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
@@ -786,6 +777,15 @@ export function WorkspaceHost({
     }),
     [beginPull, fetcher, rememberFocus, show, store],
   );
+  // The pull requests page opens a row through the workspaces.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const { url, agent } = (event as CustomEvent<OpenPull>).detail;
+      actions.openPull(url, agent);
+    };
+    window.addEventListener(OPEN_PULL_EVENT, open);
+    return () => window.removeEventListener(OPEN_PULL_EVENT, open);
+  }, [actions]);
   // A pull request's workspace takes the title once the host reads it, and
   // becomes the review's workspace once the review is saved.
   const settlePull = useCallback(
@@ -1718,7 +1718,7 @@ export function WorkspaceHost({
                               onSettings={() => openSettings()}
                               onPullRequests={() => {
                                 setOverlay(false);
-                                setPullsOpen(true);
+                                openPullRequests();
                               }}
                               onArchive={(thread) =>
                                 void closeTabs([thread], { removeWorktree: false })
@@ -1831,13 +1831,6 @@ export function WorkspaceHost({
                   </ShellContext>
                 </PullErrors>
               </HostFetch>
-              <PullRequestsDialog
-                open={pullsOpen}
-                onOpenChange={setPullsOpen}
-                load={loadPullInbox}
-                onOpenPull={(url, agent) => actions.openPull(url, agent)}
-                agents={pullAgents?.filter((agent) => agent.available)}
-              />
               {switcher && (
                 <WorkspaceSwitcher
                   snapshot={snapshot}
