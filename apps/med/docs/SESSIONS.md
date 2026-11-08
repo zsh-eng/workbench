@@ -233,8 +233,7 @@ Claude Code session that Med did not start. A message to it
   (`OwnedSessions.resume`: `claude -p --resume <id>` with `stream-json`) and
   sends the message as its next prompt. Med keeps its record in
   `owned-sessions.json`, so it resumes after a restart too, and the thread
-  shows the turn live. Before the send, the message box says "Med resumes
-  Claude with this message".
+  shows the turn live.
 - **Another process runs it**, such as Claude Code in a terminal or in the
   Claude app. Med cannot type there, and two writers would mix one
   transcript, so Med sends nothing: the host answers `409 session-elsewhere`.

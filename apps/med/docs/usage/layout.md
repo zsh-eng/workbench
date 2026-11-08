@@ -9,12 +9,12 @@ own layout.
 Each page of the review has its own sidebar: Review's guide, and Changes' changed
 files, with what the diff compares at its top. Its hide button is at its
 heading's end, `⌘⌥B` hides and shows it, and a hidden sidebar leaves a button
-at the start of the review's header. Each page keeps its own choice. The
+at the start of the review's second row. Each page keeps its own choice. The
 Commit page keeps its files, with the message and Push, beside the diff.
 
 Every pane and panel hides, and the review hides while the session shows
 beside it, so the workspace always keeps a pane. A thread's **Session** leaves a
-button at the start of the review's header while it is hidden, with its
+button at the start of the review's second row while it is hidden, with its
 agent's mark. A hidden review leaves **Show review** in the session's header,
 in place of the session's own **Hide**, since the session is then the whole
 workspace. **Files**, which you open yourself, opens again from `⌘K`. A
@@ -73,15 +73,22 @@ discards its question and answer unless you keep them as a comment, and the
 
 ## The review's header
 
-The review has one header, and each thing shows once: the sidebar names the
-thread (the title band does while the sidebar is hidden), and the session's
+The review's header has two rows, and each thing shows once: the session's
 row names the agent and its state.
 
-- From the start: the session's button while the session is hidden (with its
-  agent's mark), the review's title after Med's mark, and its branch, which
-  copies its name. Then what the diff compares, **Copy comments** with their
-  number while the review has comments, **⋯** while a narrow header folds
-  something into it, **Display** (an icon), and the pages.
+- The title row names the review, after Med's mark (or its pull request),
+  and holds what acts on all of it: **Copy comments** with their number while
+  the review has comments, **⋯**, and **Display** (an icon). Where the review
+  reaches the window's top right, the title row goes up into the title band:
+  beside the session it covers the band above the review, with the line
+  between the panes running up through it, and the band's start keeps the
+  checkout; alone, the review's title leads the band, and the checkout
+  follows it, quieter. Elsewhere the title row is the header's first row,
+  with the branch, which copies its name.
+- The second row lines up with the session's header: the session's button
+  while the session is hidden (with its agent's mark), the page's sidebar's
+  button while it hides, the pages, what the page compares or steps through,
+  then the pane's **Expand** and **Hide**.
 - The pages are **Review**, **Changes**, and **Commit**, or **Pull request**
   for a thread with one. The number keys `1` to `3` switch between them while
   the focus is not in a text field, the diff, or the session.

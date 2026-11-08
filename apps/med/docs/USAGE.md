@@ -71,8 +71,10 @@ The review has three pages, `1`–`3`:
 | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | ![Display: layout, wrap, comments, text size, theme](screenshots/app/display.webp) | ![Code hosts, Sourcegraph, editors, and links](screenshots/app/settings-open-in.webp) |
 
-The review's header keeps one action, **Copy comments**, with their number;
-the rest is in `⌘K`, Settings and each of its sections too. Every pane's
+The review's title row keeps one action, **Copy comments**, with their
+number, and goes up into the title band where the review reaches the
+window's top right; the rest is in `⌘K`, Settings and each of its sections
+too. Every pane's
 header has **Expand** (`⌘E`) and **Hide** (a line). The review hides while the
 session shows beside it; the session's header then has **Show review**.
 
