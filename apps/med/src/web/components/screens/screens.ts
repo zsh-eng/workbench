@@ -61,6 +61,13 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "file-comments",
+    label: "Comment in a file",
+    note: "In a thread, gc or the + beside a line comments on the lines of any file, in the editor too. Send to Claude gives the comment to the agent now, Queue after its turn; the agent answers under it and resolves it, and Reopen opens it again. ga asks about the lines instead.",
+    scene: "files",
+    recording: "recording.json",
+  },
+  {
     id: "settings",
     label: "Settings",
     note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",
