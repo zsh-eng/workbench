@@ -169,6 +169,8 @@ tick at its gap. Blue bars mark working-file additions and replacements. Hover
 a marker for its comparison.
 
 Markers use the selected comparison only when its captured text matches the
-file on screen; otherwise they compare live content with HEAD. **Open before**
-and **Open after** show the exact commit versions. A stale view drops its
-markers until you refresh.
+file on screen; otherwise they compare live content with HEAD. **Open before
+version of current file** and **Open after version of current file**, in
+`⌘K`, show the exact commit versions. A stale view drops its markers until you
+refresh: **Refresh contents** in its notice, or **Refresh current file** in
+`⌘K`.

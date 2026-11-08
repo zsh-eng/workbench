@@ -24,15 +24,21 @@ shaded on the side where the panel is, is only for sidebars: the page's
 sidebar, the threads, and the session's side panel. Med keeps each choice: a
 pane's in the thread's layout, the others in the view settings.
 
+The panes are flat, as in Claude's desktop app: they meet edge to edge, with a
+1 px line between them, on the same color as every page in the window (New
+thread, a vault, Settings, Sources). The sidebar has its own color and a line
+at its edge. A file's tabs are plain rectangles, a line between each; the
+current one has the file's color and joins it.
+
 The window's top row, the title band and the sidebar's **New**, is a tight
-32 px in a browser tab, under the browser's own bar. In the installed app
-with its title bar hidden, the row is the title bar's strip, as tall as the
-platform makes it, and the sidebar's first row starts after the window
-controls. A page that covers the workspace, such as Settings or Sources,
-names itself, so in a browser tab it reaches the window's top, and **Show
-sidebar** sits in its corner while the sidebar hides. The installed app keeps
-the title band there for its window controls. New thread, and a vault's
-files, are cards like the panes, apart from the sidebar.
+36 px in a browser tab, under the browser's own bar. The panes start at its
+foot, below its line, so its title is centred in the room above them. In the
+installed app with its title bar hidden, the row is the title bar's strip, as
+tall as the platform makes it, and the sidebar's first row starts after the
+window controls. A page that covers the workspace, such as Settings or
+Sources, names itself, so in a browser tab it reaches the window's top, and
+**Show sidebar** sits in its top left corner while the sidebar hides. The
+installed app keeps the title band there for its window controls.
 
 | Pane or panel                           | Hide                                                                              | Show again                                                                 |
 | --------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |

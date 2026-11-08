@@ -52,8 +52,8 @@ server, so use `med service install` to start the server at login. Each port is
 a separate app.
 
 The title bar's hide button gives Med the whole window. The branch and the
-sidebar toggle move up beside the window controls, and the review card's first
-row rises between them as the card's tab; side panes start below it. With
+sidebar toggle move up beside the window controls, in Med's top row, and the
+panes start below it. With
 branch tabs open, the branch tabs head the window instead. Empty parts of the
 top row move the window. Show the title bar again from the same place. Chrome
 reads this from Med's manifest at a later launch; reinstall the app to get it
@@ -61,11 +61,11 @@ at once.
 
 Med's top row then takes the height of the strip that the system keeps for
 the window controls (38 pixels on macOS), so its controls and title sit on the
-same centre line as the traffic lights. A card that heads the window, such as
-Sources, has 24 pixel controls in its tab, the size of Chrome's own buttons
-beside it. On a strip lower than 38 pixels, as on Windows and Linux, the tab
-keeps its 38 pixel shape, so its controls sit a little below the window
-controls' centre line. In a browser tab the row is 40 pixels.
+same centre line as the traffic lights. A page that heads the window, such as
+Sources, puts its header in that strip, clear of the window controls. On a
+strip lower than 38 pixels, as on Windows and Linux, the header keeps 38
+pixels, so its controls sit a little below the window controls' centre line.
+In a browser tab the row is 36 pixels.
 
 ## Sources
 
