@@ -20,6 +20,8 @@ export const DEFAULT_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
     lineHeight: 1.5,
     fontFamily: "iowan",
     theme: "light",
+    dayTheme: "light",
+    nightTheme: "dark",
     textAlign: "left",
     contentWidth: "medium",
     publisherBookStylingEnabled: false,

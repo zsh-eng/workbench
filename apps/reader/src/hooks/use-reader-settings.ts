@@ -2,11 +2,18 @@ import { getRuntimeStorage } from "@/features/sync-lab/runtime";
 import { matchLaunchScreens } from "@/lib/launch-screens";
 import { toReadingFontId } from "@/lib/reading-fonts";
 import {
+  isDayPaper,
+  isNightPaper,
+  paperFor,
+  readPapers,
+} from "@/lib/reader-papers";
+import {
   READER_FONT_SIZE_DEFAULT_PX,
   READER_FONT_SIZE_MAX_PX,
   READER_FONT_SIZE_MIN_PX,
   THEME_CLASSES,
   type ReaderSettings,
+  type ReaderTheme,
 } from "@/types/reader.types";
 import {
   createContext,
@@ -34,6 +41,8 @@ const DEFAULT_SETTINGS = {
   lineHeight: 1.5,
   fontFamily: "lora",
   theme: "light",
+  dayTheme: "light",
+  nightTheme: "dark",
   textAlign: "left",
   contentWidth: "narrow",
   publisherBookStylingEnabled: false,
@@ -93,6 +102,7 @@ function normalizeFontSize(fontSize: unknown): number {
 function normalizeReaderSettings(settings: ReaderSettings): ReaderSettings {
   return {
     ...settings,
+    ...readPapers(settings),
     fontSize: normalizeFontSize(settings.fontSize),
     fontFamily: toReadingFontId(
       settings.fontFamily,
@@ -101,19 +111,7 @@ function normalizeReaderSettings(settings: ReaderSettings): ReaderSettings {
   };
 }
 
-function isDarkReaderTheme(theme: ReaderSettings["theme"]): boolean {
-  return theme === "dark" || theme === "night" || theme === "flexoki-dark";
-}
-
-function resolveAppearanceTheme(
-  currentTheme: ReaderSettings["theme"],
-  useDarkTheme: boolean,
-): ReaderSettings["theme"] {
-  const useFlexoki = currentTheme.startsWith("flexoki");
-  if (useFlexoki) return useDarkTheme ? "flexoki-dark" : "flexoki-light";
-  if (currentTheme === "night") return useDarkTheme ? "night" : "light";
-  return useDarkTheme ? "dark" : "light";
-}
+const isDarkReaderTheme = isNightPaper;
 
 function isAppearanceMode(value: string | null): value is AppearanceMode {
   return value === "light" || value === "dark" || value === "system";
@@ -125,6 +123,11 @@ interface ReaderSettingsContextValue {
   resetSettings: () => void;
   appearanceMode: AppearanceMode;
   setAppearanceMode: (appearanceMode: AppearanceMode) => void;
+  /**
+   * Choose the day or the night paper. Light and Dark turn to the side the
+   * paper is for, so it shows; Match system keeps following the device.
+   */
+  choosePaper: (paper: ReaderTheme) => void;
 }
 
 const ReaderSettingsContext = createContext<ReaderSettingsContextValue | null>(
@@ -167,10 +170,13 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
         return readDefaultTextAlign(DEFAULT_SETTINGS);
       }
 
+      const saved = JSON.parse(item);
       return readDefaultTextAlign(
         normalizeReaderSettings({
           ...DEFAULT_SETTINGS,
-          ...JSON.parse(item),
+          ...saved,
+          // Settings saved before day and night papers carry one theme.
+          ...readPapers(saved ?? {}),
         }),
       );
     } catch (error) {
@@ -271,7 +277,7 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
       if (!settingsReadFailed.current) settingsChanged.current = true;
       setSettings((previousSettings) => ({
         ...previousSettings,
-        theme: resolveAppearanceTheme(previousSettings.theme, useDarkTheme),
+        theme: paperFor(previousSettings, useDarkTheme),
       }));
     };
 
@@ -287,13 +293,24 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSettings = useCallback((newSettings: Partial<ReaderSettings>) => {
     settingsChanged.current = true;
-    setSettings((prev) =>
-      normalizeReaderSettings({
+    setSettings((prev) => {
+      const next = normalizeReaderSettings({
         ...prev,
         ...newSettings,
         ...(newSettings.textAlign ? { textAlignChosen: true } : {}),
-      }),
-    );
+      });
+      // A theme set directly becomes its side's paper.
+      if (isNightPaper(newSettings.theme)) {
+        return { ...next, nightTheme: newSettings.theme };
+      }
+      if (isDayPaper(newSettings.theme)) {
+        return { ...next, dayTheme: newSettings.theme };
+      }
+      if (newSettings.dayTheme || newSettings.nightTheme) {
+        return { ...next, theme: paperFor(next, isNightPaper(prev.theme)) };
+      }
+      return next;
+    });
 
     if (newSettings.theme) {
       appearanceChanged.current = true;
@@ -314,9 +331,34 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
     setAppearanceModeState(nextAppearance);
     setSettings((previousSettings) => ({
       ...previousSettings,
-      theme: resolveAppearanceTheme(previousSettings.theme, useDarkTheme),
+      theme: paperFor(previousSettings, useDarkTheme),
     }));
   }, []);
+
+  const choosePaper = useCallback(
+    (paper: ReaderTheme) => {
+      const night = isNightPaper(paper);
+      const following = appearanceMode === "system";
+      settingsChanged.current = true;
+      setSettings((previousSettings) => {
+        const next = {
+          ...previousSettings,
+          ...(night
+            ? { nightTheme: paper as ReaderSettings["nightTheme"] }
+            : { dayTheme: paper as ReaderSettings["dayTheme"] }),
+        };
+        const showNight = following
+          ? isNightPaper(previousSettings.theme)
+          : night;
+        return { ...next, theme: paperFor(next, showNight) };
+      });
+      if (!following) {
+        appearanceChanged.current = true;
+        setAppearanceModeState(night ? "dark" : "light");
+      }
+    },
+    [appearanceMode],
+  );
 
   const resetSettings = useCallback(() => {
     settingsChanged.current = true;
@@ -332,9 +374,11 @@ export function ReaderSettingsProvider({ children }: { children: ReactNode }) {
       resetSettings,
       appearanceMode,
       setAppearanceMode,
+      choosePaper,
     }),
     [
       appearanceMode,
+      choosePaper,
       resetSettings,
       setAppearanceMode,
       settings,

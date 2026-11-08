@@ -56,6 +56,8 @@ const SAMPLE_SETTINGS: ReaderSettings = {
   lineHeight: 1.6,
   fontFamily: "lora",
   theme: "light",
+  dayTheme: "light",
+  nightTheme: "dark",
   textAlign: "left",
   contentWidth: "narrow",
   publisherBookStylingEnabled: false,

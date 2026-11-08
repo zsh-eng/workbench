@@ -541,18 +541,29 @@
               : DEFAULT_THEME;
           const appearance = localStorage.getItem(APPEARANCE_STORAGE_KEY);
           if (appearance === "system") {
+            // The day and night papers (src/lib/reader-papers.ts), or the
+            // pair an older build's single theme stood for.
             const useDarkTheme = matchMedia(
               "(prefers-color-scheme: dark)",
             ).matches;
-            const useFlexoki = theme.startsWith("flexoki");
-            const useNight = theme === "night";
-            if (useFlexoki) {
-              theme = useDarkTheme ? "flexoki-dark" : "flexoki-light";
-            } else if (useNight) {
-              theme = useDarkTheme ? "night" : "light";
-            } else {
-              theme = useDarkTheme ? "dark" : "light";
-            }
+            const flexoki = theme.startsWith("flexoki");
+            const dayTheme = ["light", "flexoki-light"].includes(
+              settings?.dayTheme,
+            )
+              ? settings.dayTheme
+              : flexoki
+                ? "flexoki-light"
+                : "light";
+            const nightTheme = ["dark", "night", "flexoki-dark"].includes(
+              settings?.nightTheme,
+            )
+              ? settings.nightTheme
+              : flexoki
+                ? "flexoki-dark"
+                : theme === "night"
+                  ? "night"
+                  : "dark";
+            theme = useDarkTheme ? nightTheme : dayTheme;
           }
           document.documentElement.classList.add(theme);
           document

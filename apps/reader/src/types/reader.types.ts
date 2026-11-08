@@ -49,6 +49,14 @@ export const THEME_CLASSES = [
 ] as const;
 export type ReaderTheme = (typeof THEME_CLASSES)[number];
 
+/** The papers Light uses, and Match system by day. */
+export const DAY_PAPERS = ["light", "flexoki-light"] as const;
+export type DayPaper = (typeof DAY_PAPERS)[number];
+
+/** The papers Dark uses, and Match system by night. */
+export const NIGHT_PAPERS = ["dark", "night", "flexoki-dark"] as const;
+export type NightPaper = (typeof NIGHT_PAPERS)[number];
+
 import type { FontFamily } from "@/lib/reading-fonts";
 
 export type { FontFamily };
@@ -94,7 +102,10 @@ export interface ReaderSettings {
   fontSize: number; // base font size in pixels, e.g. 18
   lineHeight: number; // multiplier, e.g. 1.5
   fontFamily: FontFamily;
+  /** The paper on screen now: the day or the night paper, as the mode says. */
   theme: ReaderTheme;
+  dayTheme: DayPaper;
+  nightTheme: NightPaper;
   textAlign: TextAlign;
   /** The reader chose this alignment; otherwise left is the device's default. */
   textAlignChosen?: boolean;
