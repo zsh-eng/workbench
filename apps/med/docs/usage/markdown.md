@@ -28,6 +28,21 @@ for its fonts.
   characters and 500 edges. An invalid diagram keeps its source with a notice,
   and invalid math stays visible.
 
+## Copy
+
+- **Copy page** (above the text) copies the file's Markdown as written, with
+  unsaved edits.
+- A table's **Copy** button shows while the pointer is on it. It copies the
+  table's Markdown, and the table itself for editors and spreadsheets that
+  paste one, without a quote's or a list's `>` or indent.
+- Right-click an image for **Copy image** (as PNG), its address or path, and
+  **Open image in new tab**. A remote image that does not allow reading copies
+  as its address.
+- Right-click a diagram for **Copy image**: a PNG at twice its size, on its
+  background. **Copy SVG** keeps its colors and fonts, so it draws the same
+  elsewhere; **Copy Mermaid source** copies the code inside its fence.
+- Text keeps the browser's own right-click menu.
+
 Try [the reading queue design note](../examples/reading-queue.md).
 
 ## Images and videos

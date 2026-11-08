@@ -1011,6 +1011,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
               {props.sourceLabel.replace(/^Working files\b/, "Working file")}
             </span>
           )}
+          <CopyPageButton text={markdownModel.getText} />
           {props.openIn && !draft?.editing && (
             <OpenInMenu
               actions={props.openIn.actions}
@@ -1056,3 +1057,32 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     </div>
   );
 });
+
+/** The note's Markdown, as written, to paste into a chat or another note. */
+function CopyPageButton({ text }: { text(): string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 1500);
+    return () => clearTimeout(timer);
+  }, [state]);
+  return (
+    <ToolButton
+      label={
+        state === "copied"
+          ? "Copied"
+          : state === "failed"
+            ? "Copying needs clipboard access"
+            : "Copy page as Markdown"
+      }
+      aria-label="Copy page"
+      icon={state === "copied" ? "check" : "copy"}
+      onClick={() =>
+        void navigator.clipboard.writeText(text()).then(
+          () => setState("copied"),
+          () => setState("failed"),
+        )
+      }
+    />
+  );
+}
