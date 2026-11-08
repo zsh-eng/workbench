@@ -12,7 +12,7 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 6px 6px 6px;
+  padding: 0 6px 6px;
 }
 /* A card like the file's, so the files read apart from the app's sidebar. */
 .med-vault-sidebar {

@@ -4385,12 +4385,13 @@ describe("agent session", () => {
     const side = pane.getByRole("complementary", { name: "Session details" });
     await expect.element(side).toBeVisible();
     // Beside the panel, the thread's column takes the room that is left: the
-    // message box is that room less its 12 pixel sides.
+    // message box is that room less its 12 pixel sides and the thread's
+    // 12 pixel scroll bar, which it leaves in view.
     const box = () =>
       pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
     const room = () =>
       pane.element().getBoundingClientRect().width - side.element().getBoundingClientRect().width;
-    await expect.poll(box).toBeCloseTo(room() - 24, 0);
+    await expect.poll(box).toBeCloseTo(room() - 36, 0);
     const context = side.getByRole("region", { name: "Context" });
     await expect.element(context).toMatchTextContent(/^Context31%/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();

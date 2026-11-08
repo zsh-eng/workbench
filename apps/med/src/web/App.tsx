@@ -6769,8 +6769,9 @@ const styles = stylex.create({
     paddingInline: 6,
     paddingBottom: 6,
   },
-  // Without the strip, the frame's own inset is the top margin.
-  workspaceTop: { paddingTop: 6 },
+  // Without the strip, the panes start at the title row's foot: the row is
+  // the room above them, so its title is centred in that room.
+  workspaceTop: { paddingTop: 0 },
   main: {
     position: "relative",
     minWidth: 0,
