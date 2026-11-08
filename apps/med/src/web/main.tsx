@@ -42,6 +42,9 @@ const poolOptions = {
 const highlighterOptions = {
   theme: themeController.getSnapshot().active.pierreTheme,
   preferredHighlighter: HIGHLIGHTER,
+  // Each token in a diff is its own element, so a name that the pointer rests
+  // on can show its definition (SymbolHover.tsx).
+  useTokenTransformer: true,
 };
 const Welcome = lazy(() => import("./components/welcome/Welcome"));
 // The workspace list renders its views again on every switch. A review renders

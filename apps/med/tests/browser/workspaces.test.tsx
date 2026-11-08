@@ -748,17 +748,21 @@ test("a thread with its session on screen shows its session first, and its diff 
   expect(status()).toBe("ready");
 });
 
-test("the notice after Clear shows under the header's end, on one line, wider than Copy comments", async () => {
+test("the notice after Clear shows under the header's end, on one line, wider than All comments", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   host.setThreads([thread("commented")]);
   await page.getByRole("button", { name: /^Commented review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("commented-target");
-  // The header keeps one action, Copy comments; Clear is in ⌘K.
-  const copy = page.getByRole("button", { name: "Copy comments", exact: true });
-  await expect.element(copy).toBeVisible();
-  const button = copy.element().getBoundingClientRect();
+  // The header keeps one action, All comments, with Copy in its panel; Clear
+  // is in ⌘K.
+  const all = page.getByRole("button", { name: "All comments", exact: true });
+  await expect.element(all).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Copy comments", exact: true }))
+    .not.toBeInTheDocument();
+  const button = all.element().getBoundingClientRect();
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("option", { name: /^Clear all comments…/ }).click();
   await page.getByRole("button", { name: "Confirm clear" }).click();
@@ -770,8 +774,13 @@ test("the notice after Clear shows under the header's end, on one line, wider th
   // Under the header, in view: not at the page's end.
   expect(box.top).toBeGreaterThanOrEqual(button.bottom);
   expect(box.top - button.bottom).toBeLessThan(40);
-  // With no comments left, there is nothing to copy.
-  await expect.element(copy).not.toBeInTheDocument();
+  // With no comments left, the button has no count, and its panel nothing to copy.
+  await expect.element(all).toHaveTextContent("");
+  await all.click();
+  await expect.element(page.getByText("No comments yet")).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Copy comments", exact: true }))
+    .not.toBeInTheDocument();
 });
 
 test("the review's header names the review, keeps its actions in ⌘K, and there is no toolbar or status bar", async () => {

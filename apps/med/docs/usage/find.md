@@ -160,7 +160,9 @@ browser address. Files take focus when they open, in Normal mode:
   finds them; it shows up to three, and the card's file and line open one.
   The card stays while the pointer is on it; `Esc`, a key, or a click
   elsewhere puts it away. It reads the comment above the declaration (or a
-  Python docstring under it), not types.
+  Python docstring under it), not types. In a diff, the pointer resting on a
+  name shows the same card: for a removed line, from the old side's commit;
+  otherwise from the new side.
 - `''` returns to the line of the previous jump, and two backticks to its exact
   column; repeat to swap. `ma`–`mz` set marks, and `'a` or backtick-`a` go to
   them. Marks and jumps reset when the file reloads.

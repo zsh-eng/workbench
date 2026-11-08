@@ -154,6 +154,7 @@ import {
 } from "./data/pending-review";
 import { placeThreads } from "./data/pull-request";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
+import { listComments, type ListedComment } from "./data/listed-comments";
 import {
   PullRequestTitle,
   SavedReviewHeader,
@@ -189,9 +190,19 @@ import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
 import type { SymbolDefinition, SymbolSearch } from "../shared/symbols";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./components/SymbolHover";
+
+/** A token that the pointer entered, as Pierre gives it; a diff's has a side. */
+interface DiffTokenEvent {
+  side?: "deletions" | "additions";
+  lineNumber: number;
+  lineCharStart: number;
+  tokenText: string;
+  tokenElement: HTMLElement;
+}
 import { matchReviewFile, parseBriefHref } from "./data/brief";
 import { questionExcerpt, useQuestion } from "./data/questions";
-import { MAX_QUESTION_LINES, questionComment } from "../shared/questions";
+import { MAX_QUESTION_LINES, questionComment, questionPrompt } from "../shared/questions";
 import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
@@ -2252,6 +2263,25 @@ export function App({
     },
     [notes, controller, reviewVisible, showPane, revealLine],
   );
+  // All comments, in the review's header: the diff's and the files'.
+  const savedFileComments = state.savedReview?.fileComments;
+  const draftIds = inboxState?.drafts;
+  const listedComments = useMemo(
+    () =>
+      listComments(
+        notes,
+        savedFileComments ?? [],
+        new Set(draftIds?.map((draft) => draft.id) ?? []),
+      ),
+    [notes, savedFileComments, draftIds],
+  );
+  const openListedComment = useCallback(
+    (comment: ListedComment) => {
+      if (comment.kind === "diff") openComment(comment.id);
+      else openFromPane(comment.path, comment.line);
+    },
+    [openComment, openFromPane],
+  );
   /** Shows a GitHub thread at its line, from the Pull request tab. */
   const showPullThread = useCallback(
     (thread: PullRequestThread) => {
@@ -2489,6 +2519,29 @@ export function App({
     items,
   ]);
 
+  // A name in the diff that the pointer rests on shows its definition, read
+  // at the side's version: the base commit for deletions, the head commit or
+  // the working tree for additions. A place in the diff names the file and
+  // the side's version, then the name's line and column.
+  const diffHoverReview = state.review;
+  const diffHoverSource = useMemo<SymbolHoverSource | undefined>(() => {
+    const review = diffHoverReview;
+    const hover = browseApi.hover;
+    if (!review || !hover || state.session?.repository.git === false) return undefined;
+    const placeOf = (at: string) => JSON.parse(at) as [BrowseSource, string, number, number];
+    return {
+      key: JSON.stringify(["diff", review.id, review.base, review.head]),
+      load(name, signal, at) {
+        const [source, path] = placeOf(at);
+        return hover(source, path, "", name, signal);
+      },
+      scopeOf: (at) => JSON.stringify(placeOf(at).slice(0, 2)),
+      open: openDefinition,
+    };
+  }, [diffHoverReview, browseApi, state.session?.repository.git, openDefinition]);
+  const diffHover = useSymbolHover(diffHoverSource);
+  const { enter: diffHoverEnter, leave: diffHoverLeave } = diffHover;
+  const diffHovering = !!diffHoverSource;
   const options = useMemo<CodeViewReactOptions<Annotation, undefined>>(
     () => ({
       theme: activeTheme.pierreTheme,
@@ -2511,6 +2564,42 @@ export function App({
           ?.querySelector("[data-utility-button]")
           ?.setAttribute("aria-label", "Add note to line");
       },
+      ...(diffHovering
+        ? {
+            // CodeView hands the token callbacks to each diff itself, so the
+            // diffs mark their tokens only when asked.
+            useTokenTransformer: true,
+            onTokenEnter(token: DiffTokenEvent, _event: PointerEvent, context: { type: string }) {
+              const review = controller.getSnapshot().review;
+              const name = hoverName(token.tokenText);
+              if (
+                !name ||
+                !review ||
+                !token.side ||
+                context.type !== "diff" ||
+                !("item" in context)
+              )
+                return diffHoverLeave();
+              const file = (context as { item: { fileDiff: FileDiffMetadata } }).item.fileDiff;
+              const old = token.side === "deletions";
+              const oid = old ? review.base : review.head;
+              const commit = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid);
+              if (old && !commit) return diffHoverLeave();
+              const source: BrowseSource = commit
+                ? { kind: "commit", repo: review.repo, oid }
+                : { kind: "worktree", repo: review.repo };
+              const path = old ? (file.prevName ?? file.name) : file.name;
+              diffHoverEnter(
+                JSON.stringify([source, path, token.lineNumber, token.lineCharStart]),
+                name,
+                () => token.tokenElement.getBoundingClientRect(),
+              );
+            },
+            onTokenLeave() {
+              diffHoverLeave();
+            },
+          }
+        : {}),
       onLineSelectionEnd(range, context) {
         if (!draft || context.type !== "diff") return;
         if (!range || (range.endSide && range.side !== range.endSide)) {
@@ -2595,7 +2684,20 @@ export function App({
           );
       },
     }),
-    [controller, theme, activeTheme, mode, wrap, reviewId, diagnostics, draft, findHighlights],
+    [
+      controller,
+      theme,
+      activeTheme,
+      mode,
+      wrap,
+      reviewId,
+      diagnostics,
+      draft,
+      findHighlights,
+      diffHovering,
+      diffHoverEnter,
+      diffHoverLeave,
+    ],
   );
 
   // Find in the diff: each line that matches, in the order the diff reads.
@@ -2796,6 +2898,27 @@ export function App({
     closePaneTo("question", questionLayout.current);
     questionLayout.current = null;
   }, [discardQuestion, closePaneTo]);
+  // A question goes to the thread itself while its agent, which Med runs,
+  // waits: the answer stays in its context, and costs no fork. While the
+  // agent works, a fork answers at once, as before (data/questions.ts).
+  const askInThread = !!commentAgent && !!leadSession && !agentWorking;
+  const sendQuestion = useCallback(
+    async (text: string) => {
+      const view = question.view;
+      if (!view || !askInThread || !leadSession) return question.send(text);
+      await sendAgentMessage({
+        id: crypto.randomUUID(),
+        sessionId: leadSession.id,
+        text: `A question; answer it, and change nothing yet.\n\n${questionPrompt(text, view.target.excerpt)}`,
+        noteIds: [],
+        attachments: [],
+        images: [],
+      });
+      closeQuestion();
+      showPane("session");
+    },
+    [askInThread, leadSession, question, sendAgentMessage, closeQuestion, showPane],
+  );
   /** Saves the question and its answer as a comment on the lines, through
    * the review's comments, and closes the question. */
   const questionView = question.view;
@@ -5715,6 +5838,8 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
+        comments={listedComments}
+        onOpenComment={openListedComment}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
@@ -6202,7 +6327,7 @@ export function App({
                   key={questionView.key}
                   view={questionView}
                   controls={controls}
-                  onSend={(text) => void question.send(text)}
+                  onSend={(text) => void sendQuestion(text)}
                   onStop={() => void question.stop()}
                   onKeep={keepQuestion}
                   root={state.review?.repo}
@@ -6600,6 +6725,7 @@ export function App({
                         </button>
                       </div>
                     )}
+                    {diffHover.element}
                     {items.length > 0 ? (
                       <ReviewCodeView
                         key={`${streamScope}:${state.review?.id}`}

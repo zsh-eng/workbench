@@ -382,7 +382,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       { source: input.source, path: input.path, identity: input.identity, query: input.name },
       signal,
     );
-    if (local.identity !== input.identity)
+    // A diff's side names no identity: its version is the commit's, or the
+    // working tree's now.
+    if (input.identity && local.identity !== input.identity)
       return { ...base, unavailable: local.unavailable ?? "This file changed." };
     let found = exact(local);
     let unavailable = local.unavailable;

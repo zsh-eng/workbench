@@ -6,7 +6,8 @@ import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { CommentEditor, CommentText } from "./NoteCard";
-import { ShortcutKeys } from "./ShortcutKeys";
+import { tooltip } from "./ToolButton";
+import "./FileComments.css";
 
 // Comments on lines of a file, not of a change (`gc`). As on a page that
 // people comment on with Claude: a comment waits until you send it, goes to
@@ -66,6 +67,7 @@ export function FileCommentBox({
       setBusy(null);
     }
   };
+  const disabled = !text.trim() || !!busy;
   return (
     <form
       ref={form}
@@ -78,16 +80,13 @@ export function FileCommentBox({
         void submit(agent ? "send" : "keep");
       }}
     >
-      <p {...stylex.props(styles.head)}>
-        <span>Comment on {lines(line, endLine)}</span>
-      </p>
       <textarea
         ref={input}
         value={text}
         readOnly={!!busy}
-        rows={2}
+        rows={1}
         aria-label="Comment text"
-        placeholder={agent ? `What should ${agent.name} change or explain?` : "Add a comment…"}
+        placeholder={agent ? `Comment for ${agent.name}` : "Comment"}
         onChange={(event) => {
           setText(event.target.value);
           onTextChange?.(event.target.value);
@@ -114,58 +113,53 @@ export function FileCommentBox({
           {error}
         </p>
       )}
-      <div {...stylex.props(styles.actions)}>
-        {agent ? (
-          <>
-            <button
-              type="submit"
-              disabled={!text.trim() || !!busy}
-              {...stylex.props(ui.button, styles.primary)}
-            >
-              <Icon name={agent.mark} size={13} />
-              {busy === "send" ? "Sending…" : `Send to ${agent.name}`}
-              <ShortcutKeys value="⌘↵" />
-            </button>
-            <button
-              type="button"
-              disabled={!text.trim() || !!busy}
-              onClick={() => void submit("queue")}
-              {...stylex.props(ui.button, styles.small)}
-            >
-              Queue <ShortcutKeys value="⌥↵" />
-            </button>
-            <button
-              type="button"
-              disabled={!text.trim() || !!busy}
-              onClick={() => void submit("keep")}
-              {...stylex.props(ui.button, styles.small)}
-            >
-              Add to message
-            </button>
-          </>
-        ) : (
-          <button
-            type="submit"
-            disabled={!text.trim() || !!busy}
-            {...stylex.props(ui.button, styles.primary)}
-          >
-            Add to message <ShortcutKeys value="⌘↵" />
-          </button>
-        )}
+      <div {...stylex.props(styles.bar)}>
         <button
           type="button"
           disabled={!!busy}
+          aria-label="Cancel"
+          {...tooltip("Cancel", "Esc")}
           onClick={onCancel}
-          {...stylex.props(ui.button, styles.small, styles.quiet)}
+          {...stylex.props(ui.button, ui.iconButton, styles.icon)}
         >
-          Cancel
+          <Icon name="close" size={13} />
+        </button>
+        <span {...stylex.props(styles.grow)} />
+        {agent && (
+          <>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Add to message"
+              {...tooltip("Add to message")}
+              onClick={() => void submit("keep")}
+              {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+            >
+              <Icon name="commentAdd" size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Queue"
+              {...tooltip("After its turn", "⌥↵")}
+              onClick={() => void submit("queue")}
+              {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+            >
+              <Icon name="clock" size={14} />
+            </button>
+          </>
+        )}
+        <button
+          type="submit"
+          disabled={disabled}
+          aria-label={agent ? `Send to ${agent.name}` : "Add to message"}
+          aria-busy={busy !== null}
+          {...tooltip(agent ? `Send to ${agent.name}` : "Add to message", "⌘↵")}
+          {...stylex.props(ui.button, styles.send)}
+        >
+          <Icon name={agent ? "arrowUp" : "commentAdd"} size={13} />
         </button>
       </div>
-      <p {...stylex.props(styles.hint)}>
-        {agent
-          ? `Send reaches ${agent.name} now, or at its next step while it works. Queue waits for its turn to end. Add to message keeps it with the thread's other comments.`
-          : "It waits in the thread's message box with the other comments, to send or copy."}
-      </p>
     </form>
   );
 }
@@ -213,36 +207,85 @@ export function FileCommentThread({
   };
   const end = comment.endLine ?? comment.line;
   const resolver = comment.resolved?.by ? agentName(comment.resolved.by) : "you";
+  const sendable = unsent && !comment.resolved && agent;
   return (
     <article
       data-comment-card
       data-file-comment={comment.id}
       data-resolved={comment.resolved ? "" : undefined}
       aria-label={`Comment on ${lines(comment.line, end)}`}
-      {...stylex.props(styles.card, comment.resolved && styles.resolved)}
+      {...stylex.props(styles.card, styles.thread, comment.resolved && styles.resolved)}
     >
-      {comment.resolved && (
-        <p {...stylex.props(styles.resolvedLine)}>
-          <Icon name="check" size={13} />
-          <span>Resolved by {resolver}</span>
-          <When at={comment.resolved.at} />
-        </p>
-      )}
+      <div data-comment-actions="" {...stylex.props(styles.actions)}>
+        {!replying && (
+          <button
+            type="button"
+            aria-label="Reply"
+            {...tooltip("Reply")}
+            onClick={() => setReplying(true)}
+            {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+          >
+            <Icon name="reply" size={13} />
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={comment.resolved ? "Reopen" : "Resolve"}
+          {...tooltip(comment.resolved ? "Reopen" : "Resolve")}
+          onClick={() =>
+            void run(() =>
+              onMutate(comment.resolved ? { reopen: comment.id } : { resolve: comment.id }),
+            )
+          }
+          {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+        >
+          <Icon name={comment.resolved ? "refresh" : "check"} size={13} />
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          aria-label="Delete comment"
+          {...tooltip("Delete")}
+          onClick={() => void run(() => onMutate({ remove: comment.id }))}
+          {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+        >
+          <Icon name="trash" size={13} />
+        </button>
+      </div>
       <div {...stylex.props(styles.message)}>
-        <CommentText text={comment.text} />
         <p {...stylex.props(styles.byline)}>
-          <span>You</span>
+          <span {...stylex.props(styles.who)}>You</span>
           <When at={comment.createdAt} />
-          {!unsent && !comment.resolved && agent && <span>· sent to {agent.name}</span>}
+          {comment.resolved ? (
+            <span {...stylex.props(styles.done)}>
+              <Icon name="check" size={12} />
+              {`Resolved by ${resolver}`}
+            </span>
+          ) : (
+            !unsent &&
+            agent && (
+              <span
+                aria-label={`Sent to ${agent.name}`}
+                {...tooltip(`Sent to ${agent.name}`)}
+                {...stylex.props(styles.sent)}
+              >
+                <Icon name={agent.mark} size={11} />
+              </span>
+            )
+          )}
         </p>
+        <CommentText text={comment.text} />
       </div>
       {comment.replies.map((reply) => (
         <div key={reply.id} {...stylex.props(styles.reply)}>
-          <p {...stylex.props(styles.replier)}>
+          <p {...stylex.props(styles.byline)}>
             {reply.author && (
               <Icon name={reply.author.agent === "acp" ? "agent" : reply.author.agent} size={12} />
             )}
-            {reply.author ? agentName(reply.author) : "You"}
+            <span {...stylex.props(styles.who)}>
+              {reply.author ? agentName(reply.author) : "You"}
+            </span>
             <When at={reply.createdAt} />
           </p>
           <CommentText text={reply.text} />
@@ -264,61 +307,36 @@ export function FileCommentThread({
           {error}
         </p>
       )}
-      <div {...stylex.props(styles.actions)}>
-        {unsent && !comment.resolved && agent && (
+      {sendable && (
+        <div {...stylex.props(styles.bar)}>
+          <span {...stylex.props(styles.grow)} />
           <button
             type="button"
             disabled={busy}
+            aria-label={`Send to ${agent.name}`}
+            {...tooltip(`Send to ${agent.name}`)}
             onClick={() => void run(() => onSend("send"))}
-            {...stylex.props(ui.button, styles.primary)}
+            {...stylex.props(ui.button, styles.send)}
           >
-            <Icon name={agent.mark} size={13} />
-            Send to {agent.name}
+            <Icon name="arrowUp" size={13} />
           </button>
-        )}
-        {!replying && (
-          <button
-            type="button"
-            onClick={() => setReplying(true)}
-            {...stylex.props(ui.button, styles.small)}
-          >
-            Reply
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() =>
-            void run(() =>
-              onMutate(comment.resolved ? { reopen: comment.id } : { resolve: comment.id }),
-            )
-          }
-          {...stylex.props(ui.button, styles.small)}
-        >
-          {comment.resolved ? "Reopen" : "Resolve"}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          aria-label="Delete comment"
-          onClick={() => void run(() => onMutate({ remove: comment.id }))}
-          {...stylex.props(ui.button, styles.small, styles.quiet)}
-        >
-          <Icon name="trash" size={13} />
-        </button>
-      </div>
+        </div>
+      )}
     </article>
   );
 }
 
+// Quiet, as a comment on a page: the text, who and when, and the actions
+// at the card's top right while the pointer or the focus is on it.
 const styles = stylex.create({
   card: {
+    position: "relative",
     boxSizing: "border-box",
     display: "grid",
-    gap: 6,
-    marginBlock: 6,
+    gap: 8,
+    marginBlock: 8,
     marginInline: 10,
-    maxWidth: 620,
+    maxWidth: 560,
     paddingBlock: 10,
     paddingInline: 12,
     borderWidth: 1,
@@ -326,35 +344,25 @@ const styles = stylex.create({
     borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
     borderRadius: `calc(10px * ${tokens.round})`,
     color: tokens.text,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.raised,
+    boxShadow: "0 1px 2px #0000000f",
     fontFamily: tokens.ui,
     fontSize: 13,
     lineHeight: "20px",
     whiteSpace: "normal",
   },
-  resolved: { backgroundColor: tokens.canvas },
-  resolvedLine: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    margin: 0,
-    color: tokens.green,
-    fontSize: 12,
-    fontWeight: 550,
-  },
-  head: { margin: 0, color: tokens.muted, fontSize: 12 },
+  thread: { paddingTop: 8 },
+  resolved: { backgroundColor: tokens.canvas, boxShadow: "none" },
   textarea: {
     boxSizing: "border-box",
     width: "100%",
-    minHeight: 48,
-    resize: "vertical",
-    paddingBlock: 6,
-    paddingInline: 8,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.line,
-    borderRadius: `calc(7px * ${tokens.round})`,
-    backgroundColor: tokens.canvas,
+    minHeight: 40,
+    resize: "none",
+    fieldSizing: "content",
+    maxHeight: 240,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 13,
@@ -362,48 +370,52 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  actions: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  primary: {
-    minHeight: 26,
-    paddingBlock: 2,
-    paddingInline: 10,
-    gap: 6,
-    fontSize: 12,
-    fontWeight: 550,
-    color: tokens.canvas,
-    backgroundColor: tokens.text,
-    opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
+  bar: { display: "flex", alignItems: "center", gap: 2, marginInline: -4, marginBottom: -2 },
+  grow: { flex: "1" },
+  icon: { width: 26, height: 26, color: tokens.muted },
+  send: {
+    justifyContent: "center",
+    width: 26,
+    height: 26,
+    marginInlineStart: 4,
+    padding: 0,
+    borderRadius: 13,
+    color: tokens.primaryText,
+    backgroundColor: tokens.primary,
+    opacity: { default: 1, ":hover": 0.85, ":disabled": 0.3 },
   },
-  small: { minHeight: 26, paddingBlock: 2, gap: 6, fontSize: 12 },
-  quiet: { color: tokens.muted },
-  hint: { margin: 0, color: tokens.faint, fontSize: 11, lineHeight: "16px" },
+  // Over the card's top right, shown while the card is pointed at or focused
+  // (FileEditor.css).
+  actions: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    display: "flex",
+    gap: 0,
+    borderRadius: `calc(8px * ${tokens.round})`,
+    backgroundColor: tokens.raised,
+  },
   message: { display: "grid", gap: 2 },
   byline: {
     display: "flex",
     alignItems: "center",
     gap: 6,
+    minHeight: 20,
     margin: 0,
     color: tokens.faint,
-    fontSize: 11,
+    fontSize: 12,
   },
-  meta: { color: tokens.faint, fontSize: 11, fontWeight: 400, whiteSpace: "nowrap" },
+  who: { color: tokens.muted, fontWeight: 550 },
+  sent: { display: "inline-flex", color: tokens.faint },
+  done: { display: "inline-flex", alignItems: "center", gap: 4, color: tokens.green },
+  meta: { color: tokens.faint, fontSize: 12, fontWeight: 400, whiteSpace: "nowrap" },
   reply: {
     display: "grid",
     gap: 2,
-    marginInlineStart: 6,
     paddingInlineStart: 12,
     borderInlineStartWidth: 2,
     borderInlineStartStyle: "solid",
-    borderInlineStartColor: tokens.lineStrong,
+    borderInlineStartColor: tokens.line,
   },
-  replier: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    margin: 0,
-    color: tokens.muted,
-    fontSize: 12,
-    fontWeight: 550,
-  },
-  error: { margin: 0, color: tokens.red, fontSize: 11 },
+  error: { margin: 0, color: tokens.red, fontSize: 12 },
 });

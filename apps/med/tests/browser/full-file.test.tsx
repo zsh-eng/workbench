@@ -2284,7 +2284,11 @@ test("a name's card shows its definition, from the pointer or K, and opens it", 
   expect(text).toContain("export const retries = 3;");
   expect(text).toContain("How often a request goes again, as fetch does.");
   expect(card.element().querySelector("code")?.textContent).toBe("fetch");
-  expect(hover.loadHover).toHaveBeenCalledWith("retries", expect.any(AbortSignal));
+  expect(hover.loadHover).toHaveBeenCalledWith(
+    "retries",
+    expect.any(AbortSignal),
+    expect.any(String),
+  );
   await userEvent.click(card.getByRole("button", { name: "limits.ts:3" }));
   expect(hover.onOpenDefinition).toHaveBeenCalledWith(hover.definition);
   await expect.element(card).not.toBeInTheDocument();

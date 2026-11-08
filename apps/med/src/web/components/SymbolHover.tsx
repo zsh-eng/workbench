@@ -39,7 +39,11 @@ export function hoverName(text: string) {
 export interface SymbolHoverSource {
   /** Distinguishes one file's version from another's, for the cache. */
   key: string;
-  load(name: string, signal: AbortSignal): Promise<SymbolHover>;
+  /** `at` is the place that `enter` named, such as a diff's file and side. */
+  load(name: string, signal: AbortSignal, at: string): Promise<SymbolHover>;
+  /** The part of a place that the definitions depend on, for the cache: a
+   * view of several files names the file. */
+  scopeOf?(at: string): string;
   /** Opens a definition, as `gd` does. */
   open(definition: SymbolDefinition): void;
 }
@@ -83,10 +87,10 @@ export function useSymbolHover(source: SymbolHoverSource | undefined) {
     request.current?.abort();
     const abort = new AbortController();
     request.current = abort;
-    const key = JSON.stringify([from.key, name]);
+    const key = JSON.stringify([from.key, name, from.scopeOf?.(at) ?? ""]);
     let loading = cache.get(key);
     if (!loading) {
-      loading = from.load(name, abort.signal);
+      loading = from.load(name, abort.signal, at);
       cache.set(key, loading);
       if (cache.size > 200) cache.delete(cache.keys().next().value!);
       // A failed or stopped read is not kept.

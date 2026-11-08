@@ -5,8 +5,9 @@ import type { PullRequestSummary } from "../../shared/protocol";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
+import { CommentsButton } from "./CommentsPanel";
+import type { ListedComment } from "../data/listed-comments";
 import { Icon, IconShapes } from "./Icon";
 import {
   CodexReviewPanel,
@@ -31,12 +32,17 @@ export function SavedReviewHeader({
   codexReviews,
   findingPlacement,
   compact = false,
+  comments,
+  onOpenComment,
   ref,
 }: {
+  /** The thread's comments for All comments, and where one opens. */
+  comments?: readonly ListedComment[];
+  onOpenComment?(comment: ListedComment): void;
   /**
    * The thread beside it names the review, so the header leaves the name out
-   * and keeps one action, Copy comments: comments go to an agent from its
-   * session, and the rest is in ⌘K.
+   * and keeps one action, All comments, which copies them too: comments go
+   * to an agent from its session, and the rest is in ⌘K.
    */
   compact?: boolean;
   ref?: Ref<SavedReviewActions>;
@@ -159,15 +165,26 @@ export function SavedReviewHeader({
         </span>
       )}
       <span {...stylex.props(styles.grow)} />
+      {comments && onOpenComment && (
+        <CommentsButton
+          comments={comments}
+          onOpen={onOpenComment}
+          onCopy={
+            busy || saved.commentCount === 0
+              ? undefined
+              : () =>
+                  void run("copy", async () => {
+                    const comments = await controller.copyFeedback();
+                    setCopied({ count: comments.count });
+                  })
+          }
+        />
+      )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
-      {(!compact || saved.commentCount > 0) && (
+      {!compact && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
           aria-label="Copy comments"
-          {...(compact &&
-            tooltip(
-              `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`,
-            ))}
           data-copied={copied !== null}
           disabled={operation === "clear" || saved.commentCount === 0}
           aria-disabled={busy || saved.commentCount === 0}
@@ -180,7 +197,7 @@ export function SavedReviewHeader({
           }
         >
           <CopyCommentsIcon copied={copied !== null} />
-          {!compact && <span {...stylex.props(styles.desktop)}>Copy comments</span>}
+          <span {...stylex.props(styles.desktop)}>Copy comments</span>
           <span {...stylex.props(styles.count)}>{saved.commentCount}</span>
         </button>
       )}
