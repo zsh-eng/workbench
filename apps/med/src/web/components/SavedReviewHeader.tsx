@@ -7,7 +7,7 @@ import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
 import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
-import { Icon, iconPath } from "./Icon";
+import { Icon, IconShapes } from "./Icon";
 import {
   CodexReviewPanel,
   PullRequestPanel,
@@ -271,20 +271,18 @@ function CopyCommentsIcon({ copied }: { copied: boolean }) {
     <svg
       width="14"
       height="14"
-      viewBox="0 0 256 256"
+      viewBox="0 0 16 16"
       aria-hidden="true"
       {...stylex.props(styles.copyIcon)}
     >
+      <g fill="currentColor" {...stylex.props(styles.copyShape, copied && styles.copyHidden)}>
+        <IconShapes name="copy" />
+      </g>
       <path
-        d={iconPath("copy")}
-        fill="currentColor"
-        {...stylex.props(styles.copyShape, copied && styles.copyHidden)}
-      />
-      <path
-        d="M40 136l56 56L216 72"
+        d="M2.5 8.5l3.5 3.5L13.5 4.5"
         fill="none"
         stroke="currentColor"
-        strokeWidth="20"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength="1"
@@ -390,7 +388,7 @@ const styles = stylex.create({
   copyShape: {
     opacity: 1,
     transform: "scale(1)",
-    transformOrigin: "128px 128px",
+    transformOrigin: "8px 8px",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: "ease-in-out",
     transitionDuration: {
