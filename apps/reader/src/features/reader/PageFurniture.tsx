@@ -9,11 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import {
-  FOLIO_FIGURE_SCALE,
-  getFurnitureGap,
-  planPageFurniture,
-} from "./page-furniture-layout";
+import { getFurnitureGap, planPageFurniture } from "./page-furniture-layout";
 
 /** What a page's running title and number say, and where they go. */
 interface PageFurnitureContent {
@@ -110,9 +106,10 @@ interface PageFurnitureProps {
 /**
  * The running titles and page numbers of a spread, placed by
  * `planPageFurniture` half a line clear of the text. They are set in the
- * book's own type and ink: titles in spaced small capitals at the text's
- * size, numbers cut to the small capitals' height on the same baseline.
- * They belong to the spread, so they turn with the page. The reader's bars
+ * book's own type, size and ink, as the printed books Reader learns from set
+ * them: titles in italic, numbers in old-style figures where the face has
+ * them (Iowan; Reader's bundled faces fall back to lining figures). They
+ * belong to the spread, so they turn with the page. The reader's bars
  * cover these rows, so each row hides while its bar shows
  * (`data-reader-bar-shown`, App.css) with no re-render.
  */
@@ -149,9 +146,7 @@ export function PageFurniture({
     fontSize: `${fontSizePx}px`,
   };
   const figureStyle: CSSProperties = {
-    fontSize: `${Math.round(fontSizePx * FOLIO_FIGURE_SCALE)}px`,
-    letterSpacing: "0.05em",
-    fontVariantNumeric: "lining-nums tabular-nums",
+    fontVariantNumeric: "oldstyle-nums proportional-nums",
   };
   const numberOf = (slot: SpreadSlot) =>
     content.showNumbers &&
@@ -194,7 +189,7 @@ export function PageFurniture({
                   outerLeft ? number : null,
                   "w-[3em] shrink-0 text-left",
                 )}
-                <p className="m-0 min-w-0 flex-1 truncate text-center tracking-[0.1em] [font-variant-caps:all-small-caps]">
+                <p className="m-0 min-w-0 flex-1 truncate text-center italic">
                   {title}
                 </p>
                 {figure(

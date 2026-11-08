@@ -139,12 +139,19 @@ describe("a page's running title and number", () => {
     expect(footNumbers).toEqual(["12"]);
   });
 
-  it("set titles in small capitals and numbers to their height, in the text's ink", () => {
+  it("set titles in italic and numbers in old-style figures, at the text's size and in its ink", () => {
     const { head, foot } = renderFurniture(spreadOf(page(12, 4), page(13, 5)));
     const title = head!.querySelector("p")!;
     const number = foot!.querySelector("span")!;
-    expect(title.className).toContain("all-small-caps");
-    expect(number.style.fontSize).toBe("13px");
+    expect(title.className).toContain("italic");
+    expect(title.className).not.toContain("small-caps");
+    expect(head!.style.fontSize).toBe("18px");
+    expect(foot!.style.fontSize).toBe("18px");
+    expect(number.style.fontSize).toBe("");
+    expect(number.style.letterSpacing).toBe("");
+    expect(number.style.fontVariantNumeric).toBe(
+      "oldstyle-nums proportional-nums",
+    );
     expect(head!.className).toContain("text-foreground");
     // Half a line clear of the text: above its first line, below its last.
     expect(head!.style.top).toBe(`${56 - 13 - 26}px`);

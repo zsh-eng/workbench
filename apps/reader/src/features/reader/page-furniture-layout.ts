@@ -44,9 +44,3 @@ export function getFurnitureRowHeight(lineHeight: number): number {
 export function getFurnitureGap(lineHeight: number): number {
   return Math.round(lineHeight / 2);
 }
-
-/**
- * Small capitals stand about 0.7 of a capital's height, so page numbers are
- * cut to match the titles' size and weight.
- */
-export const FOLIO_FIGURE_SCALE = 0.72;
