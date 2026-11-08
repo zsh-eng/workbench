@@ -2,6 +2,7 @@ import { useDebugEnabled } from "@/lib/debug-preference";
 import { HighlightToolbarContainer } from "@/features/reader/shared/HighlightToolbarContainer";
 import { useInputBehavior } from "@/features/reader/hooks/use-input-behavior";
 import { useCompactWindow } from "@/hooks/use-compact-window";
+import { useReaderSettings } from "@/hooks/use-reader-settings";
 import { useDeviceClass } from "@workbench/elements/size-class";
 import { useToast } from "@/hooks/use-toast";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -80,6 +81,7 @@ export function Reader() {
   const isMobile = useCompactWindow();
   const isTablet = useDeviceClass() === "tablet";
   const pagesPreference = usePagesPreference();
+  const { settings: readerSettings } = useReaderSettings();
   const { toast } = useToast();
   const [noteComposerPresent, setNoteComposerPresent] = useState(false);
   const [noteDraftPresent, setNoteDraftPresent] = useState(false);
@@ -138,6 +140,13 @@ export function Reader() {
     isMobile,
     isTablet,
     pages: pagesPreference,
+    // The page's height follows the type and its title and number rows.
+    type: {
+      fontSizePx: readerSettings.fontSize,
+      lineHeight: readerSettings.lineHeight,
+      showNumbers: readerSettings.showPageNumbers,
+      showTitles: readerSettings.showRunningTitles,
+    },
   });
   const isReaderStageMeasured =
     isStageMeasured && stageSlotElement?.dataset.readerStageSlot === "content";
@@ -545,11 +554,11 @@ export function Reader() {
                   {scrollMode.showSpreadStage && (
                     <PageFurnitureProvider
                       book={book}
+                      isTablet={isTablet}
+                      showTitles={sessionState.settings.showRunningTitles}
+                      showNumbers={sessionState.settings.showPageNumbers}
                       // Numbers settle once every chapter is counted.
-                      showFolios={
-                        sessionState.settings.showPageNumbers &&
-                        sessionState.pagination.status === "ready"
-                      }
+                      numbersReady={sessionState.pagination.status === "ready"}
                     >
                       <div
                         className="absolute inset-0"

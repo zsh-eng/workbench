@@ -12,6 +12,7 @@ import {
   type SpreadConfig,
   type SpreadIntent,
 } from "@/lib/pagination-v2";
+import { BOOK_LEADING_SCALE } from "@/lib/pagination-v2/shared/spacing";
 import type { Highlight } from "@/types/highlight";
 import { getReadingFont } from "@/lib/reading-fonts";
 import type { FontFamily, ReaderSettings } from "@/types/reader.types";
@@ -79,12 +80,6 @@ interface UseReaderCoreResult {
   ) => ChapterCanonicalText | null;
   resumeBackgroundLoad: () => void;
 }
-
-/**
- * Two pages make a shorter line than one, which needs less leading. This
- * scales the reader's Line height rather than replacing it.
- */
-const BOOK_LEADING_SCALE = 0.95;
 
 export function buildPaginationConfig(
   settings: Pick<

@@ -112,6 +112,8 @@ export function SpreadView({
         paddingRightPx={paddingRightPx}
         textHeightPx={getPageTextHeight(paginationConfig)}
         fontFamily={paginationConfig.fontConfig.bodyFamily}
+        fontSizePx={paginationConfig.layoutTheme.baseFontSizePx}
+        lineHeightPx={getBodyLineHeight(paginationConfig.layoutTheme)}
       />
       {/* Pages clip only vertically. Glyph ink can extend past the text
           column, such as a line-initial "j" or a line-final italic "f", and

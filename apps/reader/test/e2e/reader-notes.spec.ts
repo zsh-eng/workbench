@@ -645,8 +645,16 @@ test.describe("Highlight note capture", () => {
       window.getSelection()!.removeAllRanges();
       window.getSelection()!.addRange(range);
     });
+    // The range's own text: the selection's adds a line between paragraphs.
     await expect
-      .poll(() => page.evaluate(() => window.getSelection()?.toString().length))
+      .poll(() =>
+        page.evaluate(() => {
+          const selection = window.getSelection();
+          return selection?.rangeCount
+            ? selection.getRangeAt(0).toString().length
+            : 0;
+        }),
+      )
       .toBe(300);
     await page.evaluate(() =>
       document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })),

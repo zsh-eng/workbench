@@ -2,26 +2,47 @@ import type { Book } from "@/lib/db";
 import type { ResolvedSpread } from "@/lib/pagination-v2/types";
 import { getContentsLabelFromSpine } from "@/lib/toc-utils";
 import { cn } from "@/lib/utils";
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import {
+  FOLIO_FIGURE_SCALE,
+  getFurnitureGap,
+  planPageFurniture,
+} from "./page-furniture-layout";
 
-/** What a page's running head and folio say. */
+/** What a page's running title and number say, and where they go. */
 interface PageFurnitureContent {
   bookTitle: string;
   /** The contents' label for each chapter; never one made up from a file. */
   chapterTitles: readonly (string | undefined)[];
-  showFolios: boolean;
+  isTablet: boolean;
+  showTitles: boolean;
+  showNumbers: boolean;
+  /** Numbers wait for every chapter to be counted, as they change till then. */
+  numbersReady: boolean;
 }
 
 const PageFurnitureContext = createContext<PageFurnitureContent | null>(null);
 
-/** Spreads inside this have a running head and folio; a preview has neither. */
+/** Spreads inside this have running titles and numbers; a preview has none. */
 export function PageFurnitureProvider({
   book,
-  showFolios,
+  isTablet,
+  showTitles,
+  showNumbers,
+  numbersReady,
   children,
 }: {
   book: Book;
-  showFolios: boolean;
+  isTablet: boolean;
+  showTitles: boolean;
+  showNumbers: boolean;
+  numbersReady: boolean;
   children: ReactNode;
 }) {
   const content = useMemo(
@@ -30,9 +51,12 @@ export function PageFurnitureProvider({
       chapterTitles: book.spine.map((_, index) =>
         getContentsLabelFromSpine(book, index),
       ),
-      showFolios,
+      isTablet,
+      showTitles,
+      showNumbers,
+      numbersReady,
     }),
-    [book, showFolios],
+    [book, isTablet, showTitles, showNumbers, numbersReady],
   );
   return (
     <PageFurnitureContext.Provider value={content}>
@@ -41,10 +65,8 @@ export function PageFurnitureProvider({
   );
 }
 
-type SpreadPage = Extract<
-  ResolvedSpread["slots"][number],
-  { kind: "page" }
->["page"];
+type SpreadSlot = ResolvedSpread["slots"][number];
+type SpreadPage = Extract<SpreadSlot, { kind: "page" }>["page"];
 
 /** Text or a table on the page: a cover or a full-page plate stays bare. */
 function hasReadingText(page: SpreadPage): boolean {
@@ -54,27 +76,22 @@ function hasReadingText(page: SpreadPage): boolean {
 }
 
 /**
- * As in a printed book: the book's title over a left-hand page, the chapter's
- * over a right-hand page or a single page, and nothing over a chapter's
- * opening, which has its own title.
+ * As in a printed book: the book's title over the left-hand page, the
+ * chapter's over the right-hand page, and nothing over a chapter's opening,
+ * which has its own title.
  */
-function getRunningHead(
+function getRunningTitle(
   page: SpreadPage,
   slotIndex: number,
-  columns: number,
   content: PageFurnitureContent,
 ): string | null {
   if (page.currentPageInChapter === 1) return null;
-  const chapterTitle = content.chapterTitles[page.chapterIndex];
-  if (columns > 1 && slotIndex === 0) return content.bookTitle;
-  return chapterTitle || content.bookTitle;
+  if (slotIndex === 0) return content.bookTitle;
+  return content.chapterTitles[page.chapterIndex] || content.bookTitle;
 }
 
-/** Sits against the text, so the head and folio read as part of the page. */
-const TEXT_DISTANCE_PX = 10;
-
-const RAIL_CLASS =
-  "pointer-events-none absolute inset-x-0 grid select-none text-[11px] leading-[14px] text-muted-foreground/80 transition-opacity duration-150 ease-out motion-reduce:transition-none";
+const ROW_CLASS =
+  "pointer-events-none absolute inset-x-0 grid select-none text-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none";
 
 interface PageFurnitureProps {
   spread: ResolvedSpread;
@@ -86,13 +103,18 @@ interface PageFurnitureProps {
   /** Where the page's text ends, below `paddingTopPx`. */
   textHeightPx: number;
   fontFamily: string;
+  fontSizePx: number;
+  lineHeightPx: number;
 }
 
 /**
- * The running head and folio of each page in a spread, in its margins. They
- * belong to the spread, so they turn with the page, and take no room from
- * the text. The reader's own bars cover these margins, so each row hides
- * while its bar shows (`data-reader-bar-shown`, App.css) with no re-render.
+ * The running titles and page numbers of a spread, placed by
+ * `planPageFurniture` half a line clear of the text. They are set in the
+ * book's own type and ink: titles in spaced small capitals at the text's
+ * size, numbers cut to the small capitals' height on the same baseline.
+ * They belong to the spread, so they turn with the page. The reader's bars
+ * cover these rows, so each row hides while its bar shows
+ * (`data-reader-bar-shown`, App.css) with no re-render.
  */
 export function PageFurniture({
   spread,
@@ -103,76 +125,99 @@ export function PageFurniture({
   paddingRightPx,
   textHeightPx,
   fontFamily,
+  fontSizePx,
+  lineHeightPx,
 }: PageFurnitureProps) {
   const content = useContext(PageFurnitureContext);
   if (!content) return null;
 
-  const rowStyle = {
+  const plan = planPageFurniture({
+    columns,
+    isTablet: content.isTablet,
+    showTitles: content.showTitles,
+    showNumbers: content.showNumbers,
+  });
+  const gap = getFurnitureGap(lineHeightPx);
+  const rowStyle: CSSProperties = {
     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
     columnGap: `${columnGapPx}px`,
     paddingLeft: `${paddingLeftPx}px`,
     paddingRight: `${paddingRightPx}px`,
+    height: `${lineHeightPx}px`,
+    lineHeight: `${lineHeightPx}px`,
     fontFamily,
+    fontSize: `${fontSizePx}px`,
   };
+  const figureStyle: CSSProperties = {
+    fontSize: `${Math.round(fontSizePx * FOLIO_FIGURE_SCALE)}px`,
+    letterSpacing: "0.05em",
+    fontVariantNumeric: "lining-nums tabular-nums",
+  };
+  const numberOf = (slot: SpreadSlot) =>
+    content.showNumbers &&
+    content.numbersReady &&
+    slot.kind === "page" &&
+    hasReadingText(slot.page)
+      ? slot.page.currentPage
+      : null;
+  const figure = (number: number | null, className: string) => (
+    <span
+      data-reader-folio={number ?? undefined}
+      className={className}
+      style={figureStyle}
+    >
+      {number}
+    </span>
+  );
 
   return (
     <div aria-hidden="true" data-reader-page-furniture>
-      <div
-        className={cn(RAIL_CLASS, "reader-running-heads tracking-[0.08em]")}
-        style={{
-          ...rowStyle,
-          top: 0,
-          height: `${paddingTopPx}px`,
-          paddingBottom: `${TEXT_DISTANCE_PX}px`,
-          alignItems: "end",
-        }}
-      >
-        {spread.slots.map((slot) => {
-          const head =
-            slot.kind === "page" && hasReadingText(slot.page)
-              ? getRunningHead(slot.page, slot.slotIndex, columns, content)
-              : null;
-          return (
-            <p
-              key={slot.slotIndex}
-              className="m-0 truncate text-center [font-variant-caps:all-small-caps]"
-            >
-              {head}
+      {plan.headRow && (
+        <div
+          className={cn(ROW_CLASS, "reader-running-heads")}
+          style={{ ...rowStyle, top: `${paddingTopPx - gap - lineHeightPx}px` }}
+        >
+          {spread.slots.map((slot) => {
+            const title =
+              plan.titles && slot.kind === "page" && hasReadingText(slot.page)
+                ? getRunningTitle(slot.page, slot.slotIndex, content)
+                : null;
+            const number = plan.numbersAtHead ? numberOf(slot) : null;
+            const outerLeft = slot.slotIndex === 0;
+            // Equal sides keep the title centred over its page.
+            return (
+              <div
+                key={slot.slotIndex}
+                className="flex min-w-0 items-baseline"
+              >
+                {figure(
+                  outerLeft ? number : null,
+                  "w-[3em] shrink-0 text-left",
+                )}
+                <p className="m-0 min-w-0 flex-1 truncate text-center tracking-[0.1em] [font-variant-caps:all-small-caps]">
+                  {title}
+                </p>
+                {figure(
+                  outerLeft ? null : number,
+                  "w-[3em] shrink-0 text-right",
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {plan.footRow && (
+        <div
+          className={cn(ROW_CLASS, "reader-folios")}
+          style={{ ...rowStyle, top: `${paddingTopPx + textHeightPx + gap}px` }}
+        >
+          {spread.slots.map((slot) => (
+            <p key={slot.slotIndex} className="m-0 text-center">
+              {figure(numberOf(slot), "")}
             </p>
-          );
-        })}
-      </div>
-      <div
-        className={cn(RAIL_CLASS, "reader-folios tabular-nums")}
-        style={{
-          ...rowStyle,
-          top: `${paddingTopPx + textHeightPx + TEXT_DISTANCE_PX}px`,
-          alignItems: "start",
-        }}
-      >
-        {spread.slots.map((slot) => (
-          <p
-            key={slot.slotIndex}
-            data-reader-folio={
-              slot.kind === "page" ? slot.page.currentPage : undefined
-            }
-            className={cn(
-              "m-0",
-              columns === 1
-                ? "text-center"
-                : slot.slotIndex === 0
-                  ? "text-left"
-                  : "text-right",
-            )}
-          >
-            {content.showFolios &&
-            slot.kind === "page" &&
-            hasReadingText(slot.page)
-              ? slot.page.currentPage
-              : null}
-          </p>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -62,6 +62,7 @@ const SAMPLE_SETTINGS: ReaderSettings = {
   matchPublisherBodyTextSize: false,
   pageAnimationsEnabled: true,
   showPageNumbers: true,
+  showRunningTitles: true,
 };
 
 /** Time for a sheet to close, then for the tools to settle before a page. */

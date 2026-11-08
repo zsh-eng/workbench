@@ -85,6 +85,12 @@ function getHeadingTypography(tag: string): HeadingTypographySpec | null {
   }
 }
 
+/**
+ * Two pages make a shorter line than one, which needs less leading. This
+ * scales the reader's Line height rather than replacing it.
+ */
+export const BOOK_LEADING_SCALE = 0.95;
+
 export function getBodyLineHeight(theme: LayoutTheme): number {
   return Math.round(theme.baseFontSizePx * theme.lineHeightFactor);
 }

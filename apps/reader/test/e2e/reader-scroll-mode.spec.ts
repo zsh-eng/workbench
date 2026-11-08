@@ -232,13 +232,15 @@ test("Scroll mode saves paged highlight offsets and snaps back to the passage's 
   const selectedText = await selectInRows(page, target.pageIndex);
   await page.getByRole("button", { name: "Highlight with yellow" }).tap();
 
+  // The saved text is the book's own, whose line breaks the page shows as
+  // spaces.
   await expect
     .poll(async () =>
-      (await savedHighlights(page, localBook.id)).map(
-        (highlight) => highlight.selectedText,
+      (await savedHighlights(page, localBook.id)).map((highlight) =>
+        normalized(highlight.selectedText),
       ),
     )
-    .toEqual([selectedText]);
+    .toEqual([normalized(selectedText)]);
   const [highlight] = await savedHighlights(page, localBook.id);
   // The column is redecorated from the stored offsets, as pages are.
   await expect(

@@ -26,6 +26,7 @@ export const DEFAULT_READER_DIAGNOSTIC_PROFILE: ReaderDiagnosticProfile = {
     matchPublisherBodyTextSize: false,
     pageAnimationsEnabled: true,
     showPageNumbers: true,
+    showRunningTitles: true,
   },
   paragraphSpacingFactor: DEFAULT_PARAGRAPH_SPACING,
 };

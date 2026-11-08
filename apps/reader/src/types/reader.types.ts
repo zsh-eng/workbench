@@ -103,6 +103,8 @@ export interface ReaderSettings {
   matchPublisherBodyTextSize: boolean;
   pageAnimationsEnabled: boolean;
   showPageNumbers: boolean;
+  /** A running title over each of two pages; one page never has one. */
+  showRunningTitles: boolean;
 }
 
 export const EPUB_HIGHLIGHT_CLASS = "epub-highlight";

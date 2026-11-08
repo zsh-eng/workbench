@@ -77,7 +77,7 @@ async function choosePages(page: Page, pages: "Auto" | "One" | "Two") {
   return row;
 }
 
-test("A page's running head and folio turn with it and yield to the bars", async ({
+test("A spread's titles and numbers share a line above the text, turn with it and yield to the bars", async ({
   page,
   localBook,
 }) => {
@@ -97,18 +97,22 @@ test("A page's running head and folio turn with it and yield to the bars", async
   await expect(header).toHaveCount(0);
 
   const heads = page.locator(`${CURRENT_SPREAD} .reader-running-heads`);
-  const folios = page.locator(`${CURRENT_SPREAD} .reader-folios`);
   await expect(heads).toHaveCSS("opacity", "1");
-  await expect(folios).toHaveCSS("opacity", "1");
   await expect(heads.locator("p").first()).toContainText(/Alice/i);
   await expect(heads.locator("p").last()).toContainText(/Chapter/i);
+  // A tablet's numbers sit at the outer corners of the titles' line.
   await expect
     .poll(async () =>
-      (await folios.locator("p").allTextContents()).map((text) => text.trim()),
+      (await heads.locator("[data-reader-folio]").allTextContents()).map(
+        (text) => text.trim(),
+      ),
     )
     .toEqual(await currentPages(page));
+  await expect(page.locator(`${CURRENT_SPREAD} .reader-folios`)).toHaveCount(
+    0,
+  );
 
-  // Above the text's first line and below its last, so nothing overlaps.
+  // Above the text's first line, on one baseline, so nothing overlaps.
   const boxes = await page
     .locator(`${CURRENT_SPREAD} [data-reader-page-slot="0"]`)
     .evaluate((slot) => {
@@ -116,25 +120,27 @@ test("A page's running head and folio turn with it and yield to the bars", async
         ...slot.querySelectorAll("p[data-reader-page-slice] > span"),
       ];
       const spread = slot.closest("[data-reader-spread-layer]")!;
+      const title = spread.querySelector(".reader-running-heads p")!;
+      const number = spread.querySelector(
+        ".reader-running-heads [data-reader-folio]",
+      )!;
       return {
         top: lines[0]!.getBoundingClientRect().top,
-        bottom: lines.at(-1)!.parentElement!.getBoundingClientRect().bottom,
-        head: spread
-          .querySelector(".reader-running-heads p")!
-          .getBoundingClientRect().bottom,
-        folio: spread.querySelector(".reader-folios p")!.getBoundingClientRect()
-          .top,
+        title: title.getBoundingClientRect().bottom,
+        number: number.getBoundingClientRect().bottom,
+        numberLeft: number.getBoundingClientRect().left,
+        textLeft: slot.getBoundingClientRect().left,
       };
     });
-  expect(boxes.head).toBeLessThanOrEqual(boxes.top);
-  expect(boxes.folio).toBeGreaterThanOrEqual(boxes.bottom);
+  expect(boxes.title).toBeLessThanOrEqual(boxes.top);
+  expect(boxes.number).toBeLessThanOrEqual(boxes.top);
+  expect(Math.abs(boxes.numberLeft - boxes.textLeft)).toBeLessThan(2);
 
-  // The bars cover these margins: both rows hide, and the text stays put.
+  // The header covers this row: it hides, and the text stays put.
   const textBefore = await spreadText(page);
   await toggleChrome();
   await expect(header).toHaveCount(1);
   await expect(heads).toHaveCSS("opacity", "0");
-  await expect(folios).toHaveCSS("opacity", "0");
   expect(await spreadText(page)).toBe(textBefore);
 
   await toggleChrome();

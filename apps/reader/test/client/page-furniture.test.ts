@@ -55,7 +55,13 @@ function spreadOf(...pages: (ReturnType<typeof page> | null)[]) {
 
 function renderFurniture(
   spread: ResolvedSpread,
-  { showFolios = true, provided = true } = {},
+  {
+    isTablet = false,
+    showTitles = true,
+    showNumbers = true,
+    numbersReady = true,
+    provided = true,
+  } = {},
 ) {
   const furniture = createElement(PageFurniture, {
     spread,
@@ -66,74 +72,136 @@ function renderFurniture(
     paddingRightPx: 24,
     textHeightPx: 500,
     fontFamily: "serif",
+    fontSizePx: 18,
+    lineHeightPx: 26,
   });
   const { container } = render(
     provided
       ? createElement(
           PageFurnitureProvider,
-          { book: BOOK, showFolios },
+          { book: BOOK, isTablet, showTitles, showNumbers, numbersReady },
           furniture,
         )
       : furniture,
   );
-  const texts = (selector: string) =>
-    [...container.querySelectorAll(`${selector} > p`)].map(
-      (element) => element.textContent,
-    );
+  const head = container.querySelector<HTMLElement>(".reader-running-heads");
+  const foot = container.querySelector<HTMLElement>(".reader-folios");
+  const textsOf = (row: Element | null, selector: string) =>
+    row
+      ? [...row.querySelectorAll(selector)].map(
+          (element) => element.textContent,
+        )
+      : null;
   return {
     container,
-    heads: texts(".reader-running-heads"),
-    folios: texts(".reader-folios"),
+    head,
+    foot,
+    titles: textsOf(head, "p"),
+    /** Each page's number on the title row, from its outer corner. */
+    headNumbers: head
+      ? [...head.children].map((cell, index) =>
+          index === 0
+            ? cell.firstElementChild!.textContent
+            : cell.lastElementChild!.textContent,
+        )
+      : null,
+    footNumbers: textsOf(foot, "p"),
   };
 }
 
 afterEach(cleanup);
 
-describe("a page's running head and folio", () => {
-  it("title the left page with the book and the right with the chapter", () => {
-    const { heads, folios } = renderFurniture(
+describe("a page's running title and number", () => {
+  it("on a computer, title the left page with the book and the right with the chapter, and number them below", () => {
+    const { titles, headNumbers, footNumbers } = renderFurniture(
       spreadOf(page(12, 4), page(13, 5)),
     );
-    expect(heads).toEqual(["The Book", "One"]);
-    expect(folios).toEqual(["12", "13"]);
+    expect(titles).toEqual(["The Book", "One"]);
+    expect(headNumbers).toEqual(["", ""]);
+    expect(footNumbers).toEqual(["12", "13"]);
   });
 
-  it("title a single page with the chapter", () => {
-    expect(renderFurniture(spreadOf(page(12, 4))).heads).toEqual(["One"]);
+  it("on a tablet, number two pages at the outer corners on the titles' line", () => {
+    const { titles, headNumbers, foot } = renderFurniture(
+      spreadOf(page(12, 4), page(13, 5)),
+      { isTablet: true },
+    );
+    expect(titles).toEqual(["The Book", "One"]);
+    expect(headNumbers).toEqual(["12", "13"]);
+    expect(foot).toBeNull();
   });
 
-  it("leave a chapter's opening without a head, which has its own title", () => {
-    const { heads, folios } = renderFurniture(spreadOf(page(9, 1)));
-    expect(heads).toEqual([""]);
-    expect(folios).toEqual(["9"]);
+  it("give one page its number at the foot and no title", () => {
+    const { head, footNumbers } = renderFurniture(spreadOf(page(12, 4)), {
+      isTablet: true,
+    });
+    expect(head).toBeNull();
+    expect(footNumbers).toEqual(["12"]);
+  });
+
+  it("set titles in small capitals and numbers to their height, in the text's ink", () => {
+    const { head, foot } = renderFurniture(spreadOf(page(12, 4), page(13, 5)));
+    const title = head!.querySelector("p")!;
+    const number = foot!.querySelector("span")!;
+    expect(title.className).toContain("all-small-caps");
+    expect(number.style.fontSize).toBe("13px");
+    expect(head!.className).toContain("text-foreground");
+    // Half a line clear of the text: above its first line, below its last.
+    expect(head!.style.top).toBe(`${56 - 13 - 26}px`);
+    expect(foot!.style.top).toBe(`${56 + 500 + 13}px`);
+  });
+
+  it("leave a chapter's opening without a title, which has its own", () => {
+    const { titles, footNumbers } = renderFurniture(
+      spreadOf(page(9, 1), page(10, 2)),
+    );
+    expect(titles).toEqual(["", "One"]);
+    expect(footNumbers).toEqual(["9", "10"]);
   });
 
   it("fall back to the book for a file the contents does not list", () => {
-    const { heads } = renderFurniture(
-      spreadOf(page(30, 3, { chapterIndex: 1 })),
+    const { titles } = renderFurniture(
+      spreadOf(page(29, 2, { chapterIndex: 1 }), page(30, 3, { chapterIndex: 1 })),
     );
-    expect(heads).toEqual(["The Book"]);
+    expect(titles).toEqual(["The Book", "The Book"]);
   });
 
   it("leave a cover bare", () => {
     const cover = page(1, 1, { content: [{ type: "image" }] });
-    const { heads, folios } = renderFurniture(spreadOf(cover));
-    expect(heads).toEqual([""]);
-    expect(folios).toEqual([""]);
+    const { titles, footNumbers } = renderFurniture(spreadOf(cover, page(2, 2)));
+    expect(titles).toEqual(["", "One"]);
+    expect(footNumbers).toEqual(["", "2"]);
   });
 
   it("leave the empty side of a spread empty", () => {
-    const { heads, folios } = renderFurniture(spreadOf(page(12, 4), null));
-    expect(heads).toEqual(["The Book", ""]);
-    expect(folios).toEqual(["12", ""]);
+    const { titles, footNumbers } = renderFurniture(
+      spreadOf(page(12, 4), null),
+    );
+    expect(titles).toEqual(["The Book", ""]);
+    expect(footNumbers).toEqual(["12", ""]);
   });
 
-  it("hide the number until the book's pages are counted", () => {
-    const { heads, folios } = renderFurniture(spreadOf(page(12, 4)), {
-      showFolios: false,
+  it("hide the numbers until the book's pages are counted", () => {
+    const { titles, footNumbers } = renderFurniture(
+      spreadOf(page(12, 4), page(13, 5)),
+      { numbersReady: false },
+    );
+    expect(titles).toEqual(["The Book", "One"]);
+    expect(footNumbers).toEqual(["", ""]);
+  });
+
+  it("follow Titles on two pages and Page numbers", () => {
+    const spread = spreadOf(page(12, 4), page(13, 5));
+    expect(renderFurniture(spread, { showTitles: false }).head).toBeNull();
+    cleanup();
+    const tablet = renderFurniture(spread, {
+      isTablet: true,
+      showTitles: false,
     });
-    expect(heads).toEqual(["One"]);
-    expect(folios).toEqual([""]);
+    expect(tablet.titles).toEqual(["", ""]);
+    expect(tablet.headNumbers).toEqual(["12", "13"]);
+    cleanup();
+    expect(renderFurniture(spread, { showNumbers: false }).foot).toBeNull();
   });
 
   it("stay off a spread outside the Reader", () => {

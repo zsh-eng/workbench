@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS = {
   matchPublisherBodyTextSize: false,
   pageAnimationsEnabled: true,
   showPageNumbers: true,
+  showRunningTitles: true,
 } satisfies ReaderSettings;
 
 const THEME_TRANSITION_DURATION_MS = 0;

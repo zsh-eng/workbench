@@ -46,6 +46,7 @@ export function TypographyPanel({
   const publisherBodySizeSwitchId = useId();
   const pageAnimationsSwitchId = useId();
   const pageNumbersSwitchId = useId();
+  const runningTitlesSwitchId = useId();
   const justifySwitchId = useId();
 
   return (
@@ -80,6 +81,21 @@ export function TypographyPanel({
               checked={settings.showPageNumbers}
               onCheckedChange={(showPageNumbers) =>
                 onUpdateSettings({ showPageNumbers })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <label
+              htmlFor={runningTitlesSwitchId}
+              className="cursor-pointer text-sm font-medium text-foreground"
+            >
+              Titles on two pages
+            </label>
+            <Switch
+              id={runningTitlesSwitchId}
+              checked={settings.showRunningTitles}
+              onCheckedChange={(showRunningTitles) =>
+                onUpdateSettings({ showRunningTitles })
               }
             />
           </div>
