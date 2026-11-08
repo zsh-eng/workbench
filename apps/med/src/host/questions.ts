@@ -32,7 +32,13 @@ import { userHome } from "./service/discover";
 // thread's agent, and the answer streams to the reader only. Claude Code
 // answers in a fork of the lead session (`--resume <id> --fork-session`) in
 // plan mode: the fork reads the thread's context and writes its own
-// transcript, and the lead's transcript does not change. Codex answers in a
+// transcript, and the lead's transcript does not change. The next question
+// in the thread goes on in the same fork while the lead has not moved and
+// the fork's cache is warm (the spare), so it writes only the new question
+// to the cache: a new plan-mode fork writes a new plan-mode reminder, about
+// 2,000 tokens. Plan mode stays: taking tools away with --disallowedTools
+// changes the tool list at the head of the prompt, and the fork then reads
+// none of the thread's cache. Codex answers in a
 // fork (`codex exec fork`) when its CLI has one, else in a new read-only
 // session that gets the question and the excerpt only. Med adds no system
 // prompt and no other text.
@@ -58,6 +64,9 @@ const MAX_FORKS = 1000;
 const MAX_FORK_BYTES = 64 * 1024 * 1024;
 /** A fork from before a restart is removed only when it has not changed for this long. */
 const SETTLED_MS = 2 * 60_000;
+/** A thread's spare fork answers its next question for this long after its
+ * last answer, within Claude Code's one-hour cache. */
+const SPARE_MS = 55 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const forkSchema = z.object({
@@ -85,6 +94,21 @@ export interface QuestionHost {
   /** Where Med keeps the forks' IDs. */
   forksFile?: string;
   home?: () => string;
+  /** How long a spare fork waits for the next question; SPARE_MS. */
+  spareMs?: number;
+}
+
+/** A thread's last fork, which its next question resumes when nothing that
+ * the fork read has changed: the lead's transcript, the model, and the effort. */
+interface Spare {
+  fork: Fork;
+  /** The lead's transcript when the fork read it: its size and time. */
+  mark: string;
+  model?: string;
+  effort?: string;
+  /** A question runs in it now. */
+  busy: boolean;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface Run {
@@ -208,6 +232,8 @@ export class Questions {
   private forks = new Map<string, Fork>();
   private writing: Promise<void> = Promise.resolve();
   private codexForks = new Map<string, Promise<boolean>>();
+  /** Each Claude thread's spare fork, by the lead session's ID. */
+  private spares = new Map<string, Spare>();
   private home: () => string;
 
   constructor(private host: QuestionHost) {
@@ -430,16 +456,27 @@ export class Questions {
     // The fork uses the thread's model and effort, so it reads the cached context.
     const model = usable(choices.model) ?? (await lastModel("claude", transcript));
     const effort = usable(choices.effort);
-    // Med names the fork, so it leaves the fork out before the fork writes.
-    const forkId = randomUUID();
+    const info = await stat(transcript).catch(() => undefined);
+    const read = { mark: info ? `${info.size}:${info.mtimeMs}` : "", model, effort };
+    const spare = this.spares.get(lead.id);
+    const reused =
+      !!spare &&
+      !spare.busy &&
+      spare.mark === read.mark &&
+      spare.model === model &&
+      spare.effort === effort &&
+      spare.fork.cwd === lead.cwd &&
+      !!(await findTranscript({ agent: "claude", id: spare.fork.id }, this.home()));
+    if (reused) spare.busy = true;
+    // Med names a new fork, so it leaves the fork out before the fork writes.
+    const forkId = reused ? spare.fork.id : randomUUID();
+    const fork: Fork = { agent: "claude", id: forkId, cwd: lead.cwd, at: Date.now() };
+    let named = true;
     const args = [
       ...agent.args,
       "-p",
       "--resume",
-      lead.id,
-      "--fork-session",
-      "--session-id",
-      forkId,
+      ...(reused ? [forkId] : [lead.id, "--fork-session", "--session-id", forkId]),
       "--permission-mode",
       "plan",
       "--output-format",
@@ -450,7 +487,7 @@ export class Questions {
       ...(effort ? ["--effort", effort] : []),
     ];
     let current = "";
-    return this.start(
+    const state = await this.start(
       { agent: "claude", context: "thread" },
       agent.command,
       args,
@@ -462,13 +499,15 @@ export class Questions {
         switch (message.type) {
           case "system":
             if (message.subtype !== "init") return;
-            if (typeof message.session_id === "string" && message.session_id !== forkId)
+            if (typeof message.session_id === "string" && message.session_id !== forkId) {
+              named = false;
               void this.remember(run, {
                 agent: "claude",
                 id: message.session_id,
                 cwd: lead.cwd,
                 at: Date.now(),
               });
+            }
             this.update(run, { status: "answering" });
             return;
           case "stream_event": {
@@ -522,8 +561,16 @@ export class Questions {
           }
         }
       },
-      [{ agent: "claude", id: forkId, cwd: lead.cwd, at: Date.now() }],
+      [fork],
+    ).catch((error: unknown) => {
+      if (reused) spare.busy = false;
+      throw error;
+    });
+    const run = this.runs.get(state.id);
+    void run?.exited?.then(() =>
+      this.settleSpare(lead.id, fork, read, reused, named && run.state.status === "done"),
     );
+    return state;
   }
 
   /** Whether this Codex CLI has `codex exec fork`. An older one reads
@@ -653,12 +700,66 @@ export class Questions {
     this.runs.delete(id);
     for (const listener of run.listeners) listener();
     run.listeners.clear();
-    for (const fork of run.forks) await this.removeFork(fork);
+    for (const fork of run.forks) await this.release(fork);
     return true;
+  }
+
+  /** Removes a fork's transcript once no question and no spare holds it. */
+  private async release(fork: Fork) {
+    const held = (other: Fork) => other.agent === fork.agent && other.id === fork.id;
+    if ([...this.spares.values()].some((spare) => held(spare.fork))) return;
+    if ([...this.runs.values()].some((run) => run.forks.some(held))) return;
+    await this.removeFork(fork);
+  }
+
+  /** The spare goes when no question has come for SPARE_MS. */
+  private arm(lead: string, spare: Spare) {
+    clearTimeout(spare.timer);
+    spare.timer = setTimeout(() => {
+      if (this.spares.get(lead) !== spare || spare.busy) return;
+      this.spares.delete(lead);
+      void this.release(spare.fork);
+    }, this.host.spareMs ?? SPARE_MS);
+    spare.timer.unref?.();
+  }
+
+  /** After a Claude question's run: a new fork that answered becomes the
+   * thread's spare, and the spare it replaces goes once no question holds it.
+   * A spare whose question failed goes too. */
+  private settleSpare(
+    lead: string,
+    fork: Fork,
+    read: Omit<Spare, "fork" | "busy" | "timer">,
+    reused: boolean,
+    answered: boolean,
+  ) {
+    const current = this.spares.get(lead);
+    if (reused) {
+      if (current?.fork.id !== fork.id) return;
+      current.busy = false;
+      if (answered) this.arm(lead, current);
+      else {
+        clearTimeout(current.timer);
+        this.spares.delete(lead);
+        void this.release(fork);
+      }
+      return;
+    }
+    if (!answered) return;
+    if (current && current.fork.id !== fork.id) {
+      clearTimeout(current.timer);
+      this.spares.delete(lead);
+      void this.release(current.fork);
+    }
+    const spare: Spare = { fork, ...read, busy: false };
+    this.spares.set(lead, spare);
+    this.arm(lead, spare);
   }
 
   /** Ends every run as the host closes; their forks go at the next start. */
   async stopAll() {
+    for (const spare of this.spares.values()) clearTimeout(spare.timer);
+    this.spares.clear();
     await Promise.all(
       [...this.runs.entries()].map(async ([id, run]) => {
         clearTimeout(run.idle);

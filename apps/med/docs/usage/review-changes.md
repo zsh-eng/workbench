@@ -28,7 +28,11 @@ the thread does not get the question or the answer. Escape or **Stop** ends the
 answer. **Keep as comment** adds the question and the answer as a comment on
 the lines. **Close** discards them; Med keeps no copy of the question or the
 answer. A review has one question at a time, and Ask waits while an answer
-comes. A Codex thread is
+comes. The next question goes on in the same fork, which has the earlier
+questions too, while the thread's agent has not taken a turn since, its model
+and effort are the same, and less than 55 minutes have passed: the fork then
+reads Claude Code's cache and writes only the new question. Otherwise Med
+makes a new fork, and removes the old fork's transcript. A Codex thread is
 asked in the same way when Codex has `codex exec fork`; an older Codex answers
 from the lines only, and the pane says so.
 
