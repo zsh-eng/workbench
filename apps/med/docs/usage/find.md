@@ -28,8 +28,10 @@ one. `⌘`-click opens a file in the background. A middle click on a tab closes
 it. A workspace holds 24 file tabs; when the row is full, a new file takes the
 place of the oldest tab without an unsaved draft.
 
-Right-click a file in a tree or tab for **Reveal in Finder**, **Copy path**,
-and **Copy relative path**.
+Right-click a file in a tree or tab for **Open on GitHub** (the code host's
+page of the branch, once it is pushed), **Open in Sourcegraph** and the other
+links of Settings › Open in, then **Reveal in Finder**, **Copy path**, and
+**Copy relative path**.
 
 **Open in**, above a working-tree file, opens it elsewhere at the cursor's
 line, each item with a letter while the menu is open:

@@ -27,10 +27,11 @@ pane's in the thread's layout, the others in the view settings.
 The panes are flat, as in Claude's desktop app: they meet edge to edge, with a
 1 px line between them, on the same color as every page in the window (New
 thread, a vault, Settings, Sources). The sidebar has its own color and a line
-at its edge. A file's tabs are plain rectangles, a line between each; the
-current one has the file's color and joins it.
+at its edge. A file's tabs are plain rectangles, a line between each, with
+the file's language icon as the file tree draws it; the current one has the
+file's color and joins it.
 
-The window's top row, the title band and the sidebar's **New**, is a tight
+The window's top row, the title band and the sidebar's **New thread**, is a tight
 36 px in a browser tab, under the browser's own bar. The panes start at its
 foot, below its line, so its title is centred in the room above them. In the
 installed app with its title bar hidden, the row is the title bar's strip, as
@@ -82,13 +83,17 @@ row names the agent and its state.
   reaches the window's top right, the title row goes up into the title band:
   beside the session it covers the band above the review, with the line
   between the panes running up through it, and the band's start keeps the
-  checkout; alone, the review's title leads the band, and the checkout
-  follows it, quieter. Elsewhere the title row is the header's first row,
-  with the branch, which copies its name.
+  checkout. Elsewhere the title row is the header's first row, with the
+  branch, which copies its name.
 - The second row lines up with the session's header: the session's button
   while the session is hidden (with its agent's mark), the page's sidebar's
-  button while it hides, the pages, what the page compares or steps through,
-  then the pane's **Expand** and **Hide**.
+  button while it hides (the changed files' tree, or the guide's signpost),
+  what the page compares or steps through, the comparison's **+/−** totals
+  on Review and Changes, then the pages and the pane's **Expand** and
+  **Hide**.
+- Where the review fills the window, its header is one row, in the title
+  band: the session's button and the title lead it, the checkout follows,
+  quieter, and the second row's parts and the title row's actions end it.
 - The pages are **Review**, **Changes**, and **Commit**, or **Pull request**
   for a thread with one. The number keys `1` to `3` switch between them while
   the focus is not in a text field, the diff, or the session.

@@ -12,8 +12,8 @@ side panel's **Reviews** lists them all, newest first, and opens each one;
 **Archive** on the row archives them all. `⌘1`–`⌘9` open the session at that place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
 when something is new since you looked, amber when the work stopped. While the
-agent works, its name dims under a passing light. **New** at the top starts a
-thread, and **Settings** is at the foot.
+agent works, its name dims under a passing light. **New thread**, a row at
+the top, starts a thread, and **Settings** is at the foot.
 
 Tabs stay loaded and Med follows their agents. History is cold: Med does not
 load it or read its agents until you open it again.
@@ -117,7 +117,7 @@ load it or read its agents until you open it again.
   its agent's title again.
 - **Settings**, at the foot of the sidebar, opens the Sources page for now:
   the registered repositories and vaults.
-- `⌘B`, or the button beside **New**, shows or hides the sidebar. In a window narrower than 760 pixels, the
+- `⌘B`, or the button beside **New thread**, shows or hides the sidebar. In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
 
 ## A thread's pane
@@ -160,7 +160,10 @@ load it or read its agents until you open it again.
   while you read adds **Review** and does not move you. In the
   conversation, each hand-off (`med review create`) is a card with Med's
   mark that opens the Review; while the agent writes it, the card is dashed
-  and shimmers, and it stays in view when the turn's work folds. When the checkout changes after a version, a bar offers
+  and shimmers, and it stays in view when the turn's work folds. A reply's
+  link to a review in Med, such as the agent's **Review changes here**, is
+  the review's card too. A file that a reply names is a link with the file's
+  language icon. When the checkout changes after a version, a bar offers
   **Refresh review**, which saves the checkout again as a new version, and
   **Show Changes**. An older thread, which saved its checkout when it
   started, keeps that capture as version 1; an empty capture alone is not a

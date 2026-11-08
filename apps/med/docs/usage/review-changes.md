@@ -15,8 +15,9 @@
 To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
 keeps your line breaks; `$HOME` and `$3` stay text, and only `$$` starts math.
-**Edit** shows the text as you wrote it, and the agent gets that text. Hover the **+/−** totals to split them into code, tests, docs,
-config and data, and generated files.
+**Edit** shows the text as you wrote it, and the agent gets that text. Hover
+the **+/−** totals in the review's header to split them into code, tests,
+docs, config and data, and generated files.
 
 To ask the thread's agent about lines, select line numbers in Review, Changes,
 or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
