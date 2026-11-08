@@ -17,12 +17,15 @@ import { ContextBlock, dollars, modelName, SpendBlock, type ShownContext } from 
  * side panel. */
 export const SIDE_PANEL_MIN_PANE = 900;
 
-/** A row of the Reviews card: a part of the thread's review, or its pull request. */
+/** A row of the Reviews card: one of the reviews that the session handed
+ * off, the live changes, or the pull request. */
 export interface ThreadLink {
   id: string;
   icon: IconName;
   label: string;
   detail?: string;
+  /** The review on screen, among the session's several. */
+  current?: boolean;
   /** Opens it in Med; or `href` opens a page. */
   onOpen?(): void;
   href?: string;
@@ -101,6 +104,7 @@ function Row({
   detail,
   onOpen,
   href,
+  current = false,
   title = label,
 }: Omit<ThreadLink, "id"> & { title?: string }) {
   const body = (
@@ -126,12 +130,23 @@ function Row({
     );
   if (onOpen)
     return (
-      <button type="button" onClick={onOpen} {...stylex.props(styles.row, styles.link)}>
+      <button
+        type="button"
+        aria-current={current || undefined}
+        onClick={onOpen}
+        {...stylex.props(styles.row, styles.link, current && styles.current)}
+      >
         {body}
       </button>
     );
   return <div {...stylex.props(styles.row)}>{body}</div>;
 }
+
+/** A scroller's props with the slim scroll bar (SessionThread.css). */
+export const slim = (props: ReturnType<typeof stylex.props>, more = "") => ({
+  ...props,
+  className: `${props.className ?? ""} med-slim-scroll ${more}`.trim(),
+});
 
 export function SessionSidePanel({
   usage,
@@ -153,7 +168,7 @@ export function SessionSidePanel({
   const percent =
     context && context.window ? `${Math.round((context.used / context.window) * 100)}%` : undefined;
   return (
-    <aside aria-label="Session details" {...stylex.props(styles.panel)}>
+    <aside aria-label="Session details" {...slim(stylex.props(styles.panel))}>
       {context && (
         <SidePanelCard label="Context" figure={percent}>
           <ContextBlock context={context} />
@@ -217,7 +232,6 @@ const styles = stylex.create({
     width: 300,
     minHeight: 0,
     overflowY: "auto",
-    scrollbarWidth: "thin",
     paddingTop: 12,
     paddingBottom: 16,
     paddingInlineEnd: 12,
@@ -272,6 +286,7 @@ const styles = stylex.create({
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
+  current: { backgroundColor: { default: tokens.fill, ":hover": tokens.fill }, fontWeight: 500 },
   rowIcon: { display: "inline-flex", flexShrink: 0, color: tokens.faint },
   rowLabel: { flexShrink: 1 },
   rowDetail: {

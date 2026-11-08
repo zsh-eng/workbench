@@ -11,11 +11,14 @@ export function Section({
   id,
   title,
   note,
+  grouped = false,
   children,
 }: {
   id?: SettingsSection;
   title: string;
   note?: string;
+  /** Its children are Groups, each a card of its own under a small heading. */
+  grouped?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -24,8 +27,18 @@ export function Section({
         <h2 {...stylex.props(settingStyles.sectionTitle)}>{title}</h2>
         {note && <p {...stylex.props(settingStyles.sectionNote)}>{note}</p>}
       </div>
-      <div {...stylex.props(settingStyles.rows)}>{children}</div>
+      {grouped ? children : <div {...stylex.props(settingStyles.rows)}>{children}</div>}
     </section>
+  );
+}
+
+/** A section's group of rows: its heading above, then its own card. */
+export function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div role="group" aria-label={title} {...stylex.props(settingStyles.group)}>
+      <h3 {...stylex.props(settingStyles.groupTitle)}>{title}</h3>
+      <div {...stylex.props(settingStyles.rows)}>{children}</div>
+    </div>
   );
 }
 
@@ -73,6 +86,8 @@ export const settingStyles = stylex.create({
   sectionHead: { marginBottom: 14 },
   sectionTitle: { margin: 0, fontSize: 17, fontWeight: 550, letterSpacing: "-0.012em" },
   sectionNote: { margin: 0, marginTop: 4, color: tokens.muted, fontSize: 14 },
+  group: { marginBottom: { default: 24, ":last-child": 0 } },
+  groupTitle: { margin: 0, marginBottom: 8, color: tokens.muted, fontSize: 13, fontWeight: 500 },
   rows: {
     marginInline: -20,
     paddingInline: 20,

@@ -10,6 +10,12 @@ export interface FindOptions {
   regexp: boolean;
 }
 
+export const NO_FIND_OPTIONS: FindOptions = {
+  caseSensitive: false,
+  wholeWord: false,
+  regexp: false,
+};
+
 /** Where the matches are: the current one of how many, or why there are none. */
 export type FindCount = { current: number; total: number } | { error: string };
 

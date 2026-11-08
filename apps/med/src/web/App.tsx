@@ -71,6 +71,7 @@ import {
   useShell,
   useTabCommands,
   useThread,
+  useSessionReviews,
   useThreadReader,
   useThreadState,
   useWorkspace,
@@ -103,6 +104,9 @@ import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/Sea
 import { subscribeFileOpens, takeFileOpen, takeSearchOpen } from "./data/file-opens";
 import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
 import { useTurnRecap } from "./data/turn-recap";
+import { shortAge } from "./data/threads";
+import { FindBar, NO_FIND_OPTIONS, type FindOptions } from "./components/FindBar";
+import { findPattern } from "./data/search-highlights";
 import { SymbolPicker } from "./components/SymbolPicker";
 import {
   FullFileView,
@@ -1050,7 +1054,9 @@ export function App({
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
   const [find, setFind] = useState("");
-  const [findIndex, setFindIndex] = useState(0);
+  const [findOptions, setFindOptions] = useState<FindOptions>(NO_FIND_OPTIONS);
+  // The match that shows, from 0; -1 before the first.
+  const [findIndex, setFindIndex] = useState(-1);
   const findHighlights = useMemo(
     () => createDiffFindHighlights("med-diff-find", "med-diff-find-current"),
     [],
@@ -2534,44 +2540,56 @@ export function App({
     [controller, theme, activeTheme, mode, wrap, reviewId, diagnostics, draft, findHighlights],
   );
 
-  const hits = useMemo(() => {
-    if (!find) return [];
-    const query = find.toLowerCase();
-    const result: {
-      id: string;
-      side: "additions" | "deletions";
-      line: number;
-    }[] = [];
-    for (const file of streamFiles) {
-      const metadata = file.metadata;
-      if (!metadata) continue;
-      for (const hunk of metadata.hunks) {
-        let found = false;
-        for (const side of ["additions", "deletions"] as const) {
-          const source = side === "additions" ? metadata.additionLines : metadata.deletionLines;
-          const index = side === "additions" ? hunk.additionLineIndex : hunk.deletionLineIndex;
-          const count = side === "additions" ? hunk.additionCount : hunk.deletionCount;
-          const start = side === "additions" ? hunk.additionStart : hunk.deletionStart;
-          for (let offset = 0; offset < count; offset++)
-            if (source[index + offset]?.toLowerCase().includes(query)) {
-              result.push({ id: file.id, side, line: start + offset });
-              found = true;
-              break;
+  // Find in the diff: each line that matches, in the order the diff reads.
+  // A line that both sides have counts once, on the new side.
+  const findMatcher = useMemo(() => findPattern(find, findOptions), [find, findOptions]);
+  const hitsOf = useCallback(
+    (matcher: ReturnType<typeof findPattern>) => {
+      if (!(matcher instanceof RegExp)) return [];
+      const result: {
+        id: string;
+        side: "additions" | "deletions";
+        line: number;
+      }[] = [];
+      const pattern = new RegExp(matcher.source, matcher.flags);
+      const matches = (text: string | undefined) => {
+        pattern.lastIndex = 0;
+        return !!text && [...text.matchAll(pattern)].some((match) => match[0].length > 0);
+      };
+      for (const file of streamFiles) {
+        const metadata = file.metadata;
+        if (!metadata) continue;
+        for (const hunk of metadata.hunks) {
+          const lines = (side: "additions" | "deletions", index: number, count: number) => {
+            const source = side === "additions" ? metadata.additionLines : metadata.deletionLines;
+            const first = side === "additions" ? hunk.additionLineIndex : hunk.deletionLineIndex;
+            const start = side === "additions" ? hunk.additionStart : hunk.deletionStart;
+            for (let at = index; at < index + count && result.length < 1000; at++)
+              if (matches(source[at])) result.push({ id: file.id, side, line: start + at - first });
+          };
+          for (const block of hunk.hunkContent) {
+            if (block.type === "context") lines("additions", block.additionLineIndex, block.lines);
+            else {
+              lines("deletions", block.deletionLineIndex, block.deletions);
+              lines("additions", block.additionLineIndex, block.additions);
             }
-          if (found) break;
+          }
         }
       }
-    }
-    return result;
-  }, [streamFiles, find]);
+      return result;
+    },
+    [streamFiles],
+  );
+  const hits = useMemo(() => hitsOf(findMatcher), [hitsOf, findMatcher]);
   useEffect(() => {
     const hit = findOpen ? hits[findIndex] : undefined;
     const path = hit && streamFiles.find((file) => file.id === hit.id)?.path;
     findHighlights.set(
       findOpen ? find : "",
       hit && path ? { path, side: hit.side, line: hit.line } : null,
+      findOptions,
     );
-  }, [findHighlights, findOpen, find, hits, findIndex, streamFiles]);
+  }, [findHighlights, findOpen, find, findOptions, hits, findIndex, streamFiles]);
   const jumpHit = useCallback(
     (index: number) => {
       if (!hits.length) return;
@@ -2582,6 +2600,21 @@ export function App({
     },
     [hits, revealLine],
   );
+  /** The next match, or the previous one; before any, the first or the last. */
+  const stepHit = useCallback(
+    (direction: 1 | -1) =>
+      jumpHit(findIndex < 0 ? (direction > 0 ? 0 : -1) : findIndex + direction),
+    [jumpHit, findIndex],
+  );
+  /** A new query or option: the diff goes to its first match, as typing in a
+   * find bar does. */
+  const findAgain = (query: string, options: FindOptions) => {
+    setFind(query);
+    setFindOptions(options);
+    const first = hitsOf(findPattern(query, options))[0];
+    setFindIndex(first ? 0 : -1);
+    if (first) revealLine(first.id, first.line, first.line, first.side);
+  };
   const startNote = useCallback(() => {
     if (!selection) return;
     const file = streamFiles.find((entry) => entry.id === selection.id);
@@ -3105,11 +3138,11 @@ export function App({
       } else if (event.key === "n" && find) {
         event.preventDefault();
         event.stopPropagation();
-        jumpHit(findIndex + 1);
+        stepHit(1);
       } else if (event.key === "N" && find) {
         event.preventDefault();
         event.stopPropagation();
-        jumpHit(findIndex - 1);
+        stepHit(-1);
       } else if (event.key === "c" && selection) {
         // Without this, the key that opens the composer is typed into it.
         event.preventDefault();
@@ -3144,8 +3177,7 @@ export function App({
     openFind,
     navigateHunk,
     find,
-    findIndex,
-    jumpHit,
+    stepHit,
     selection,
     startNote,
     askThread,
@@ -4024,14 +4056,14 @@ export function App({
       label: "Next diff search match",
       shortcut: "n",
       disabled: !find || !!activeFile,
-      run: () => jumpHit(findIndex + 1),
+      run: () => stepHit(1),
     },
     {
       id: "previous-match",
       label: "Previous diff search match",
       shortcut: "N",
       disabled: !find || !!activeFile,
-      run: () => jumpHit(findIndex - 1),
+      run: () => stepHit(-1),
     },
     {
       id: "commands",
@@ -5635,6 +5667,8 @@ export function App({
         .join(" · ")
     : undefined;
   // A hand-off's card in the conversation opens the Review (HandoffCard.tsx).
+  const siblingReviews = useSessionReviews(state.savedReview?.id);
+  const reviewsClock = useMinuteClock(siblingReviews.length > 1);
   const handoffTitle = reviewAvailable
     ? (state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review")
     : null;
@@ -5651,25 +5685,52 @@ export function App({
           },
     [handoffTitle, revealPane, selectTab],
   );
-  // The session side panel's Reviews card.
+  // The session side panel's Reviews card: each review that the session
+  // handed off, newest first, this one among them; then the live changes.
   const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
-  const sessionLinks: ThreadLink[] = [
-    ...(reviewAvailable
-      ? [
-          {
-            id: "review",
-            icon: "guide" as const,
-            label: "Review",
-            detail: sinceRow?.files
-              ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new since you looked`
-              : undefined,
-            onOpen: () => {
-              revealPane("review");
-              selectTab("review");
-            },
+  const ownReview: ThreadLink[] = reviewAvailable
+    ? [
+        {
+          id: "review",
+          icon: "guide" as const,
+          label: state.savedReview?.title ?? "Review",
+          current: siblingReviews.length > 1,
+          detail: sinceRow?.files
+            ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
+            : undefined,
+          onOpen: () => {
+            revealPane("review");
+            selectTab("review");
           },
-        ]
-      : []),
+        },
+      ]
+    : [];
+  const sessionLinks: ThreadLink[] = [
+    ...(siblingReviews.length > 1
+      ? siblingReviews.flatMap((thread): ThreadLink[] =>
+          thread.id === state.savedReview?.id
+            ? ownReview
+            : [
+                {
+                  id: `review-${thread.id}`,
+                  icon: "guide",
+                  label: thread.title,
+                  detail: shortAge(thread.updatedAt, reviewsClock),
+                  onOpen: () => {
+                    if (!workspace) return;
+                    const target = {
+                      kind: "review" as const,
+                      reviewId: thread.id,
+                      title: thread.title,
+                    };
+                    const existing = workspace.match(target);
+                    if (existing) workspace.activate(existing);
+                    else workspace.open(target);
+                  },
+                },
+              ],
+        )
+      : ownReview),
     {
       id: "changes",
       icon: "diff",
@@ -6148,65 +6209,24 @@ export function App({
                   ))}
                   <div ref={streamRef} {...stylex.props(styles.stream)}>
                     {findOpen && (
-                      <div {...stylex.props(styles.findWidget)}>
-                        <Icon name="search" size={14} />
-                        <input
-                          ref={findRef}
-                          value={find}
-                          onChange={(event) => {
-                            setFind(event.target.value);
-                            setFindIndex(0);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                            }
-                            if (event.key === "Escape") {
-                              event.stopPropagation();
-                              setFindOpen(false);
-                            }
-                          }}
-                          aria-label="Find in diff contents"
-                          placeholder="Find in changed hunks"
-                          {...stylex.props(styles.findInput)}
-                        />
-                        <span
-                          {...stylex.props(
-                            styles.findCount,
-                            !!find && !hits.length && styles.findEmpty,
-                          )}
-                        >
-                          {find
-                            ? hits.length
-                              ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                              : "No matches"
-                            : ""}
-                        </span>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Previous match"
-                          disabled={!hits.length}
-                          onClick={() => jumpHit(findIndex - 1)}
-                        >
-                          <Icon name="arrowUp" size={14} />
-                        </button>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Next match"
-                          disabled={!hits.length}
-                          onClick={() => jumpHit(findIndex + 1)}
-                        >
-                          <Icon name="arrowDown" size={14} />
-                        </button>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Close find"
-                          onClick={() => setFindOpen(false)}
-                        >
-                          <Icon name="close" size={14} />
-                        </button>
-                      </div>
+                      <FindBar
+                        inputRef={findRef}
+                        query={find}
+                        onQuery={(query) => findAgain(query, findOptions)}
+                        options={findOptions}
+                        onOptions={(options) => findAgain(find, options)}
+                        count={
+                          !find
+                            ? null
+                            : findMatcher && !(findMatcher instanceof RegExp)
+                              ? findMatcher
+                              : { current: findIndex + 1, total: hits.length }
+                        }
+                        onNext={() => stepHit(1)}
+                        onPrevious={() => stepHit(-1)}
+                        onClose={() => setFindOpen(false)}
+                        placeholder="Find in changes"
+                      />
                     )}
                     {selection && (
                       <div
@@ -6922,50 +6942,6 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
   },
-  findWidget: {
-    position: "absolute",
-    top: 8,
-    right: 16,
-    zIndex: 20,
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    height: 36,
-    boxSizing: "border-box",
-    paddingInlineStart: 10,
-    paddingInlineEnd: 4,
-    borderRadius: `calc(9px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    boxShadow: tokens.shadow,
-    color: tokens.faint,
-  },
-  findInput: {
-    width: 220,
-    height: 28,
-    marginInlineStart: 6,
-    borderWidth: 0,
-    outline: "none",
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-    "::placeholder": { color: tokens.faint },
-  },
-  findCount: {
-    whiteSpace: "nowrap",
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    minWidth: 76,
-    paddingInlineEnd: 4,
-    textAlign: "end",
-    color: tokens.muted,
-    fontVariantNumeric: "tabular-nums",
-  },
-  findEmpty: { color: tokens.red },
-  findButton: { width: 26, minWidth: 26, minHeight: 26, height: 26 },
   notice: {
     display: "flex",
     alignItems: "center",

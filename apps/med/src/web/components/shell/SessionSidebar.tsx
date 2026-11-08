@@ -4,7 +4,7 @@ import { memo, useRef, useState, type KeyboardEvent, type ReactNode } from "reac
 import type { Thread } from "../../../shared/threads";
 import { resumeCommand } from "../../data/workspaces";
 import type { ReadState } from "../../data/tabs";
-import { needsYou, tabOrder } from "../../data/threads";
+import { needsYou, tabOrder, type SessionRow } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { RenameField } from "./RenameField";
@@ -60,14 +60,16 @@ export function SessionSidebar({
   onRename(thread: Thread, name: string): void;
   onPin(thread: Thread, pinned: boolean): void;
 }) {
-  const ordered = tabOrder(threads);
+  const ordered = tabOrder(threads, current);
   const pinned = ordered.filter((thread) => thread.pinned);
   const recent = ordered.filter((thread) => !thread.pinned);
-  const row = (thread: Thread) => (
+  const row = (thread: SessionRow) => (
     <SessionRow
       key={thread.id}
       thread={thread}
-      current={!newThread && thread.id === current}
+      current={
+        !newThread && (thread.id === current || (!!current && !!thread.members?.includes(current)))
+      }
       unread={read.isUnread(thread)}
       editing={renaming === thread.id}
       actions={{
@@ -80,7 +82,13 @@ export function SessionSidebar({
         },
         pin: () => onPin(thread, !thread.pinned),
         unread: (unread) => read.setUnread(thread, unread),
-        archive: () => onArchive(thread),
+        // Archiving the session archives each review it handed off.
+        archive: () => {
+          for (const member of thread.members ?? [thread.id]) {
+            const each = threads.find((entry) => entry.id === member);
+            if (each) onArchive(each);
+          }
+        },
         delete: () => onDelete(thread),
       }}
     />

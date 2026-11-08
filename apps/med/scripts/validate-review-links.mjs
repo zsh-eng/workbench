@@ -156,6 +156,16 @@ try {
   const answerGh = () =>
     fakeGh.answer([
       { args: ["pr", "view"], stdout: prResult },
+      // The Pull request page also reads the checks, and what is left of
+      // GitHub's limits.
+      { args: ["pr", "checks"], stdout: [] },
+      {
+        args: ["api", "rate_limit"],
+        stdout: {
+          core: { limit: 5000, remaining: 4800, reset: 1793590000 },
+          graphql: { limit: 5000, remaining: 4900, reset: 1793590000 },
+        },
+      },
       {
         args: ["api", pull],
         stdout: `${JSON.stringify({ head: prResult.headRefOid, number: 42, title: prResult.title, author: "reviewer", state: "open", draft: false, merged: false })}\n`,
@@ -308,33 +318,32 @@ try {
   const page = await context.newPage();
   await page.goto(reviewUrl);
   await page.waitForFunction(() => document.title === "Agent handoff validation");
-  // The header names the pull request by its own title; the tab keeps the review's.
-  assert.equal(
-    await page
-      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
-      .getAttribute("href"),
-    "https://github.com/example/repo/pull/42",
-  );
+  // A thread with a pull request has its page beside Review, Changes, and Commit.
+  const pages = page.getByRole("radiogroup", { name: "Page" }).filter({ visible: true });
+  await pages.getByRole("radio", { name: "Pull request", exact: true }).waitFor();
   await page.getByRole("region", { name: "Saved review" }).waitFor();
   await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   assert.equal(new URL(page.url()).hash, "");
   const header = page.getByRole("region", { name: "Saved review" });
-  await header.getByText("Faster lookups", { exact: true }).waitFor();
-  // The host reads the pull request's comments from gh's fixed answers.
-  const prComments = header
-    .getByRole("button", { name: "3 pull request comments", exact: true })
-    .filter({ visible: true });
-  await prComments.waitFor();
-  // A path in a GitHub comment that names a file of the review is a link to
-  // it; a path that names none stays text.
-  await prComments.click();
-  const conversation = page.getByRole("dialog").filter({ hasText: "Ready for review." });
+  // The host reads the pull request's comments from gh's fixed answers. A path
+  // in a GitHub comment that names a file of the review is a link to it; a
+  // path that names none stays text.
+  await pages.getByRole("radio", { name: "Pull request", exact: true }).click();
+  const conversation = page
+    .getByRole("region", { name: "Pull request", exact: true })
+    .filter({ hasText: "Ready for review." });
   await conversation.getByRole("link", { name: "Open same.ts at L1", exact: true }).waitFor();
   assert.equal(await conversation.getByRole("link", { name: /gone/ }).count(), 0);
+  // Comments go on the hand-off, on the Review page.
+  await pages.getByRole("radio", { name: "Review", exact: true }).click();
+  await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
+  // The diff's layout is in Display.
+  await page
+    .getByRole("button", { name: "Display", exact: true })
+    .filter({ visible: true })
+    .click();
+  await page.getByRole("dialog", { name: "Display" }).getByRole("radio", { name: "Split" }).click();
   await page.keyboard.press("Escape");
-  await conversation.waitFor({ state: "hidden" });
-  assert.equal(await page.getByRole("button", { name: "Push", exact: true }).isEnabled(), false);
-  await page.getByRole("button", { name: "Split", exact: true }).click();
   // Select the changed line itself. A hover-only gutter button can disappear
   // when the renderer updates after browser focus or source loading.
   await page
@@ -364,26 +373,9 @@ try {
   });
   await page.reload();
   await page.waitForFunction(() => document.title === "Agent handoff validation");
-  assert.equal(
-    await page
-      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
-      .getAttribute("href"),
-    "https://github.com/example/repo/pull/42",
-  );
   await page.waitForFunction(() =>
     window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
   );
-  await header
-    .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
-    .waitFor();
-  assert.equal(
-    await header
-      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
-      .locator("svg")
-      .count(),
-    2,
-  );
-  await header.screenshot({ path: "/private/tmp/med-review-scope.png" });
   const copyButton = header.getByRole("button", { name: "Copy comments", exact: true });
   await copyButton.hover();
   const restingCopyWidth = (await copyButton.boundingBox()).width;
@@ -399,15 +391,13 @@ try {
       window.shown('button[aria-label="Copy comments"]')?.getAttribute("data-copied") === "true",
   );
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  // Each comment is a heading with its short ID and where it is, then its
+  // hunk and words; the text ends with how to answer one.
+  assert.match(clipboard, /^# Comments on the review "/);
+  assert.equal(clipboard.match(/\n## [0-9a-f]{6} · same\.ts:2 /g)?.length, 2, clipboard);
   for (const expected of [
-    "# Diff comments:",
-    "## User Comment 1",
-    "## User Comment 2",
-    "File: same.ts",
-    "Side: R",
-    "Lines: 2",
-    "Diff hunk:",
-    "Comment:",
+    "```diff",
+    "med reply ",
     "Frontend feedback from the browser",
     "Backend feedback across repositories",
     "frontendAfter",
@@ -419,9 +409,6 @@ try {
     assert.ok(clipboard.includes(expected), `Feedback must include ${expected}`);
 
   // Copy state must remain in place, including when the external clipboard is slow.
-  const clearButton = header.getByRole("button", { name: "Clear all comments", exact: true });
-  // One row, level with the sidebar's identity row.
-  assert.equal((await header.boundingBox()).height, 38);
   // A settling press transition can round to identity while still moving.
   await page.waitForFunction(() => {
     const button = window.shown('[aria-label="Copy comments"]');
@@ -432,9 +419,6 @@ try {
     );
   });
   const copyBounds = await copyButton.boundingBox();
-  const clearBounds = await clearButton.boundingBox();
-  assert.ok(clearBounds.x > copyBounds.x + copyBounds.width);
-  assert.equal(clearBounds.y, copyBounds.y);
   assert.equal(await copyButton.getAttribute("title"), null);
   await page.waitForFunction(
     () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "false",
@@ -455,11 +439,7 @@ try {
   await copyButton.hover();
   const appearance = () =>
     header.evaluate((element) =>
-      [
-        ...element.querySelectorAll(
-          '[aria-label="Copy comments"], [aria-label="Clear all comments"]',
-        ),
-      ].map((button) => {
+      [...element.querySelectorAll('[aria-label="Copy comments"]')].map((button) => {
         const style = getComputedStyle(button);
         return {
           color: style.color,
@@ -476,7 +456,6 @@ try {
   await copyButton.click();
   await page.waitForFunction(() => typeof window.releaseClipboard === "function");
   assert.deepEqual(await appearance(), beforeCopy);
-  assert.equal(await clearButton.evaluate((button) => button.disabled), false);
   await page.evaluate(() => window.releaseClipboard());
   await page.waitForFunction(
     () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "true",
@@ -488,8 +467,12 @@ try {
     };
   });
   await copyButton.click();
-  await header.getByRole("alert").filter({ hasText: "Clipboard unavailable" }).waitFor();
+  const failed = header.getByRole("alert").filter({ hasText: "Clipboard unavailable" });
+  await failed.waitFor();
   assert.equal(await copyButton.getAttribute("data-copied"), "false");
+  // An error stays until it is dismissed.
+  await failed.getByRole("button", { name: "Dismiss message" }).click();
+  await failed.waitFor({ state: "detached" });
   await page.evaluate(() => window.restoreClipboard());
 
   // Browse a commit outside the initial snapshot, then return and copy all scopes.
@@ -523,10 +506,13 @@ try {
   await page.waitForFunction(() =>
     window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
-  await header
-    .getByRole("group", { name: "Whole review: 2 lines added, 2 lines deleted", exact: true })
-    .waitFor();
-  await page.getByRole("button", { name: "Push", exact: true }).click();
+  // Push is in the command palette.
+  await page.keyboard.press("Meta+k");
+  await page
+    .getByRole("dialog")
+    .getByRole("combobox", { name: "Search commands" })
+    .fill("Push to remote");
+  await page.keyboard.press("Enter");
   assert.equal(
     await page.getByRole("combobox", { name: "Destination branch" }).inputValue(),
     "main",
@@ -540,7 +526,13 @@ try {
     git(bareRemote, "rev-parse", "refs/heads/review/browser-validation"),
     git(repositories[0], "rev-parse", "HEAD"),
   );
-  await page.getByRole("button", { name: "Compare against base branch" }).click();
+  // What the diff compares tops Changes' sidebar; its menu compares against a branch.
+  await page
+    .getByRole("combobox", { name: "Comparison" })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await page.getByRole("option", { name: /^(Base branch|Compare against a branch)…/ }).click();
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("no-such-branch");
   await page.getByText("No matching branches.", { exact: true }).waitFor();
   await page.getByRole("textbox", { name: "Filter comparison branches" }).fill("main");
@@ -549,15 +541,8 @@ try {
   await page.waitForFunction(
     () => window.shown('[data-review-status="ready"]')?.getAttribute("data-file-count") === "1",
   );
-  assert.match(
-    await page
-      .getByRole("button", { name: "Compare against base branch" })
-      .filter({ visible: true })
-      .innerText(),
-    /Base\s*main/,
-  );
-  // The base branch comparison shows in Changes; the Review tab shows the hand-off again.
-  await page.getByRole("tab", { name: "Review", exact: true }).filter({ visible: true }).click();
+  // The base branch comparison shows in Changes; the Review page shows the hand-off again.
+  await page.getByRole("radio", { name: "Review", exact: true }).filter({ visible: true }).click();
   await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
   await copyButton.click();
   await page.waitForFunction(async () =>
@@ -581,12 +566,6 @@ try {
   assert.ok(!source.new.includes("changedAfterCapture"));
   await page.reload();
   await page.waitForFunction(() => document.title === "Agent handoff validation");
-  assert.equal(
-    await page
-      .getByRole("link", { name: "Open pull request: Faster lookups", exact: true })
-      .getAttribute("href"),
-    "https://github.com/example/repo/pull/42",
-  );
   await page.waitForFunction(() =>
     window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
   );
@@ -594,27 +573,22 @@ try {
     .getByRole("article")
     .getByText("Frontend feedback from the browser", { exact: true })
     .waitFor();
-  await page
-    .getByRole("combobox", { name: "Review version", exact: true })
-    .filter({ visible: true })
-    .click();
-  // Each version lists one target for each repository: "Version 1 · backend · just now".
-  await page
-    .getByRole("option", {
-      name: new RegExp(`^Version \\d+ · ${second.repo.split("/").at(-1)} · `),
-    })
-    .click();
-  await page.getByText("Backend feedback across repositories", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Clear all comments", exact: true }).click();
+  // Clear all comments is in the command palette, and asks first.
+  const clearAll = async () => {
+    await page.keyboard.press("Meta+k");
+    await page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Search commands" })
+      .fill("Clear all comments");
+    await page.keyboard.press("Enter");
+  };
+  await clearAll();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal((await api(`/api/reviews/${id}/feedback`)).count, 3);
-  await page.getByRole("button", { name: "Clear all comments", exact: true }).click();
+  await clearAll();
   await page.getByRole("button", { name: "Confirm clear", exact: true }).click();
-  await header.getByText("Comments cleared", { exact: true }).waitFor();
-  assert.equal(
-    await header.getByRole("button", { name: "Copy comments", exact: true }).isEnabled(),
-    false,
-  );
+  // With no comments left, the header has nothing to copy.
+  await page.waitForFunction(() => !window.shown('button[aria-label="Copy comments"]'));
   assert.equal((await api(`/api/reviews/${id}/feedback`)).count, 0);
   const otherComments = await api(`/api/reviews/${other.id}/feedback`);
   assert.equal(otherComments.count, 1);
@@ -629,7 +603,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "PR metadata inference and exact-head guard; custom browser title and clickable PR; pull request comments from a fake gh; built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
+        "PR metadata inference and exact-head guard; custom browser title and the Pull request page; pull request comments from a fake gh; built CLI discovery and multi-repo snapshot manifest; token-free link and new-tab cookie auth; UI comments on saved and browsed commits; stable copy controls through delayed and rejected clipboard writes; UI push to temporary bare remote and merge-base dropdown; copied cross-repo and cross-tab source context; same-port restart and frozen snapshots; persistent comments; cancel and confirm clear",
       repositories: 2,
       commentsCopied: 3,
       ghCalls: ghCalls.length,

@@ -865,6 +865,55 @@ export function SessionPanel({
     />
   );
 
+  // The message box, or what stands in its place, at the pane's foot: over
+  // the thread's foot while the thread shows (SessionThread's footer).
+  const bottom = (
+    <>
+      {inbox && session.agent === "acp" && !ownedState ? (
+        // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
+        <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
+          {agent} stopped with the Med host. Start a new session to continue.
+        </p>
+      ) : (
+        inbox && (
+          <SessionComposer
+            key={session.id}
+            draftKey={`${reviewId}/${session.id}`}
+            agent={session.agent}
+            name={agent}
+            presence={presence}
+            onContinue={onContinue && (() => onContinue(session.id))}
+            drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
+            attachments={attachments}
+            onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+            onSend={send}
+            owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+            restore={restore}
+            onOpenComment={onOpenComment}
+            onTakeBack={
+              queued.length
+                ? () =>
+                    takeBack(
+                      queued.map((message) => message.id),
+                      true,
+                    )
+                : undefined
+            }
+            notice={
+              takeNote && (
+                <p {...stylex.props(styles.note, takeNote.error && styles.takeError)}>
+                  {takeNote.text}
+                </p>
+              )
+            }
+            mentions={mentions}
+            onMentionsWanted={onMentionsWanted}
+          />
+        )
+      )}
+      {!inbox && footer}
+    </>
+  );
   return (
     <section
       ref={panel}
@@ -937,54 +986,13 @@ export function SessionPanel({
                       ) : undefined
                     }
                     onOpenLink={openLink}
+                    footer={bottom}
                   />
                 </FileRefsContext.Provider>
               </ReplyActionsContext.Provider>
             </div>
           )}
-          {inbox && session.agent === "acp" && !ownedState ? (
-            // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
-            <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
-              {agent} stopped with the Med host. Start a new session to continue.
-            </p>
-          ) : (
-            inbox && (
-              <SessionComposer
-                key={session.id}
-                draftKey={`${reviewId}/${session.id}`}
-                agent={session.agent}
-                name={agent}
-                presence={presence}
-                onContinue={onContinue && (() => onContinue(session.id))}
-                drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
-                attachments={attachments}
-                onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
-                onSend={send}
-                owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
-                restore={restore}
-                onOpenComment={onOpenComment}
-                onTakeBack={
-                  queued.length
-                    ? () =>
-                        takeBack(
-                          queued.map((message) => message.id),
-                          true,
-                        )
-                    : undefined
-                }
-                notice={
-                  takeNote && (
-                    <p {...stylex.props(styles.note, takeNote.error && styles.takeError)}>
-                      {takeNote.text}
-                    </p>
-                  )
-                }
-                mentions={mentions}
-                onMentionsWanted={onMentionsWanted}
-              />
-            )
-          )}
-          {!inbox && footer}
+          {state.status === "missing" && !ownedState && bottom}
         </div>
         {side && (
           <SessionSidePanel

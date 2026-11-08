@@ -5,7 +5,7 @@ import { readBrowserToken } from "../../data/auth";
 import { useSettingsFile, writeSetting } from "../../data/settings-file";
 import { tokens } from "../../theme.stylex";
 import { ChoiceSelect } from "../Controls";
-import { Row, Section, settingStyles, Switch } from "./SettingsParts";
+import { Group, Row, Section, settingStyles, Switch } from "./SettingsParts";
 
 // Open in's settings: the kind of each code host in the sources' remotes,
 // Sourcegraph's address, the editors to list, and other links. Med reads
@@ -65,138 +65,140 @@ export function OpenInSettings() {
       id="open-in"
       title="Open in"
       note="Where Open in sends a file's line. Med reads the code hosts from your repositories' remotes, and finds the editors on this Mac."
+      grouped
     >
       {error && (
         <p role="alert" {...stylex.props(styles.error)}>
           {error}
         </p>
       )}
-      <Group title="Code hosts" />
-      {!found && <Row label="Reading your remotes…" />}
-      {found && found.hosts.length === 0 && (
-        <Row label="No code hosts yet" note="A repository with a remote adds its host here." />
-      )}
-      {found?.hosts.map((entry) => {
-        const chosen = hosts[entry.host] as Kind | undefined;
-        const count = `${entry.repositories} ${entry.repositories === 1 ? "repository" : "repositories"}`;
-        const note = chosen
-          ? `${KINDS.find((kind) => kind.value === chosen)?.label ?? chosen} · ${count}`
-          : entry.github
-            ? `${entry.host === "github.com" ? "GitHub" : "GitHub Enterprise, found through its API"} · ${count}`
-            : `Not recognised, so Open in leaves it out until you choose · ${count}`;
-        return (
-          <Row key={entry.host} label={entry.host} note={note}>
-            <ChoiceSelect
-              trigger={settingStyles.select}
-              label={`Kind of ${entry.host}`}
-              value={chosen ?? (entry.github ? "github" : "")}
-              display={chosen || entry.github ? undefined : "Choose"}
-              choices={KINDS}
-              onChange={(value) => write("openIn.hosts", { ...hosts, [entry.host]: value })}
-            />
-          </Row>
-        );
-      })}
-      <Group title="Code search" />
-      <Row
-        label="Sourcegraph"
-        note="Adds Sourcegraph to Open in, at the same line: its address, then the host, repository, and branch."
-      >
-        <AddressField
-          label="Sourcegraph address"
-          placeholder="https://sourcegraph.example.com"
-          value={
-            typeof settings["openIn.sourcegraph"] === "string" ? settings["openIn.sourcegraph"] : ""
-          }
-          onSave={(value) => write("openIn.sourcegraph", value)}
-        />
-      </Row>
-      <Group title="Editors" />
-      {found && editors.length === 0 && (
-        <Row
-          label="No editors found"
-          note="Med looks for VS Code, Cursor, Zed, and IntelliJ IDEA, on your PATH and in Applications."
-        />
-      )}
-      {/* In Open in's order, the default first, then the ones left out. */}
-      {[...editors]
-        .sort((a, b) => rank(a.id) - rank(b.id))
-        .map((editor) => {
-          const index = shown.indexOf(editor.id);
+      <Group title="Code hosts">
+        {!found && <Row label="Reading your remotes…" />}
+        {found && found.hosts.length === 0 && (
+          <Row label="No code hosts yet" note="A repository with a remote adds its host here." />
+        )}
+        {found?.hosts.map((entry) => {
+          const chosen = hosts[entry.host] as Kind | undefined;
+          const count = `${entry.repositories} ${entry.repositories === 1 ? "repository" : "repositories"}`;
+          const note = chosen
+            ? `${KINDS.find((kind) => kind.value === chosen)?.label ?? chosen} · ${count}`
+            : entry.github
+              ? `${entry.host === "github.com" ? "GitHub" : "GitHub Enterprise, found through its API"} · ${count}`
+              : `Not recognised, so Open in leaves it out until you choose · ${count}`;
           return (
-            <Row
-              key={editor.id}
-              label={editor.name}
-              note={[index === 0 ? "Default" : "", editor.usage ? `Opens with ${editor.usage}` : ""]
-                .filter(Boolean)
-                .join(" · ")}
-            >
-              <span {...stylex.props(styles.controls)}>
-                {index > 0 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      write("openIn.editors", [
-                        editor.id,
-                        ...shown.filter((id) => id !== editor.id),
-                      ])
-                    }
-                    {...stylex.props(settingStyles.link)}
-                  >
-                    Make default
-                  </button>
-                )}
-                <Switch
-                  label={`${editor.name} in Open in`}
-                  on={index >= 0}
-                  toggle={() =>
-                    write(
-                      "openIn.editors",
-                      index >= 0 ? shown.filter((id) => id !== editor.id) : [...shown, editor.id],
-                    )
-                  }
-                />
-              </span>
+            <Row key={entry.host} label={entry.host} note={note}>
+              <ChoiceSelect
+                trigger={settingStyles.select}
+                label={`Kind of ${entry.host}`}
+                value={chosen ?? (entry.github ? "github" : "")}
+                display={chosen || entry.github ? undefined : "Choose"}
+                choices={KINDS}
+                onChange={(value) => write("openIn.hosts", { ...hosts, [entry.host]: value })}
+              />
             </Row>
           );
         })}
-      <Group title="Other links" />
-      {Object.entries(links).map(([name, template]) => (
-        <Row key={name} label={name} note={template}>
-          <button
-            type="button"
-            aria-label={`Remove ${name}`}
-            onClick={() => {
-              const next = { ...links };
-              delete next[name];
-              write("openIn.links", next);
-            }}
-            {...stylex.props(settingStyles.link)}
-          >
-            Remove
-          </button>
+      </Group>
+      <Group title="Code search">
+        <Row
+          label="Sourcegraph"
+          note="Adds Sourcegraph to Open in, at the same line: its address, then the host, repository, and branch."
+        >
+          <AddressField
+            label="Sourcegraph address"
+            placeholder="https://sourcegraph.example.com"
+            value={
+              typeof settings["openIn.sourcegraph"] === "string"
+                ? settings["openIn.sourcegraph"]
+                : ""
+            }
+            onSave={(value) => write("openIn.sourcegraph", value)}
+          />
         </Row>
-      ))}
-      <Row
-        label="Add a link"
-        note={`For any tool that takes a file and a line: a template with ${PLACES}.`}
-        block
-      >
-        <NewLink
-          taken={(name) => name in links}
-          onAdd={(name, template) => write("openIn.links", { ...links, [name]: template })}
-        />
-      </Row>
+      </Group>
+      <Group title="Editors">
+        {!found && <Row label="Looking for editors…" />}
+        {found && editors.length === 0 && (
+          <Row
+            label="No editors found"
+            note="Med looks for VS Code, Cursor, Zed, and IntelliJ IDEA, on your PATH and in Applications."
+          />
+        )}
+        {/* In Open in's order, the default first, then the ones left out. */}
+        {[...editors]
+          .sort((a, b) => rank(a.id) - rank(b.id))
+          .map((editor) => {
+            const index = shown.indexOf(editor.id);
+            return (
+              <Row
+                key={editor.id}
+                label={editor.name}
+                note={[
+                  index === 0 ? "Default" : "",
+                  editor.usage ? `Opens with ${editor.usage}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              >
+                <span {...stylex.props(styles.controls)}>
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        write("openIn.editors", [
+                          editor.id,
+                          ...shown.filter((id) => id !== editor.id),
+                        ])
+                      }
+                      {...stylex.props(settingStyles.link)}
+                    >
+                      Make default
+                    </button>
+                  )}
+                  <Switch
+                    label={`${editor.name} in Open in`}
+                    on={index >= 0}
+                    toggle={() =>
+                      write(
+                        "openIn.editors",
+                        index >= 0 ? shown.filter((id) => id !== editor.id) : [...shown, editor.id],
+                      )
+                    }
+                  />
+                </span>
+              </Row>
+            );
+          })}
+      </Group>
+      <Group title="Other links">
+        {Object.entries(links).map(([name, template]) => (
+          <Row key={name} label={name} note={template}>
+            <button
+              type="button"
+              aria-label={`Remove ${name}`}
+              onClick={() => {
+                const next = { ...links };
+                delete next[name];
+                write("openIn.links", next);
+              }}
+              {...stylex.props(settingStyles.link)}
+            >
+              Remove
+            </button>
+          </Row>
+        ))}
+        <Row
+          label="Add a link"
+          note={`For any tool that takes a file and a line: a template with ${PLACES}.`}
+          block
+        >
+          <NewLink
+            taken={(name) => name in links}
+            onAdd={(name, template) => write("openIn.links", { ...links, [name]: template })}
+          />
+        </Row>
+      </Group>
     </Section>
-  );
-}
-
-/** A heading inside the section's card, above its rows. */
-function Group({ title }: { title: string }) {
-  return (
-    <div role="heading" aria-level={3} {...stylex.props(styles.group)}>
-      {title}
-    </div>
   );
 }
 
@@ -292,17 +294,7 @@ function NewLink({
 }
 
 const styles = stylex.create({
-  group: {
-    paddingTop: { default: 14, ":first-child": 12 },
-    paddingBottom: 2,
-    borderTopWidth: { default: 1, ":first-child": 0 },
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-    color: tokens.muted,
-    fontSize: 12,
-    fontWeight: 500,
-  },
-  error: { margin: 0, paddingTop: 12, color: tokens.red, fontSize: 13 },
+  error: { margin: 0, marginBottom: 12, color: tokens.red, fontSize: 13 },
   controls: { display: "inline-flex", alignItems: "center", gap: 12, flexShrink: 0 },
   input: {
     boxSizing: "border-box",

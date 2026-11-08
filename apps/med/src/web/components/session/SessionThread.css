@@ -138,3 +138,33 @@
   outline: 1.5px solid color-mix(in srgb, var(--med-accent) 45%, transparent);
   outline-offset: -2px;
 }
+
+/* A slim scroll bar for the thread and its side panel: a 4 pixel thumb, 4
+   pixels in from the pane's edge, on a clear track. Chrome draws these only
+   while scrollbar-width and scrollbar-color are unset. */
+.med-slim-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.med-slim-scroll::-webkit-scrollbar-track,
+.med-slim-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.med-slim-scroll::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 4px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--med-text) 16%, transparent);
+}
+.med-slim-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--med-text) 26%, transparent);
+}
+.med-slim-scroll::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--med-text) 36%, transparent);
+}
+
+/* The footer's fade lets clicks through to the thread; its parts take them. */
+[data-thread-footer] > * {
+  pointer-events: auto;
+}

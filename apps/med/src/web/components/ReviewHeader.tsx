@@ -172,11 +172,10 @@ function DisplayButton({ options }: { options: DisplayOptions }) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         aria-label="Display"
-        {...tooltip("Layout, wrap, comments, text size, and theme")}
+        {...tooltip("Display: layout, wrap, comments, text size, and theme")}
         {...stylex.props(ui.button, ui.pressable, styles.display)}
       >
-        <Icon name="display" size={14} />
-        <span {...stylex.props(styles.displayLabel)}>Display</span>
+        <Icon name="display" size={15} />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner align="end" sideOffset={6} {...stylex.props(styles.positioner)}>
@@ -348,7 +347,7 @@ const styles = stylex.create({
     paddingInline: 8,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     color: tokens.text,
-    // A narrow row keeps Display's icon and drops its word.
+    // A narrow row hides the branch (styles.branch).
     containerType: "inline-size",
   },
   session: { color: tokens.muted },
@@ -383,8 +382,7 @@ const styles = stylex.create({
     fontSize: 12,
   },
   grow: { flex: "1", minWidth: 0 },
-  display: { gap: 6, height: 28, marginInlineEnd: 6, paddingInline: 8, color: tokens.muted },
-  displayLabel: { display: { default: "inline", "@container (max-width: 640px)": "none" } },
+  display: { width: 28, height: 28, marginInlineEnd: 6, color: tokens.muted },
   // The pages' names shorten last, once the title is down to its mark.
   pages: {
     display: "flex",

@@ -29,6 +29,7 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
+import { findInFile, findPanelTheme } from "./editor-find";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { getFiletypeFromFileName } from "@pierre/diffs";
 import { resolveSyntaxTheme, HIGHLIGHTER } from "../pierre-theme";
@@ -559,6 +560,7 @@ export default function FileEditor({
         };
       }),
       vim(),
+      findInFile(),
       history(),
       colors,
       cited,
@@ -649,7 +651,7 @@ export default function FileEditor({
             textDecoration: `underline 2px ${code.matchBorder}`,
             textUnderlineOffset: "3px",
           },
-          ".cm-panels": { backgroundColor: active.palette.panel, color: active.palette.text },
+          ...findPanelTheme,
           "&.cm-focused": { outline: "none" },
         },
         { dark: active.appearance === "dark" },

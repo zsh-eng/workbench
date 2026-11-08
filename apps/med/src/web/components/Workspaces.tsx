@@ -50,7 +50,14 @@ import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
-import { needsYou, NO_THREADS, shortAge, tabOrder, useThreads } from "../data/threads";
+import {
+  needsYou,
+  NO_THREADS,
+  sessionGroups,
+  shortAge,
+  tabOrder,
+  useThreads,
+} from "../data/threads";
 import {
   isFoundThread,
   threadInput,
@@ -71,6 +78,8 @@ import {
 } from "../data/tabs";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
+import { ToolButton } from "./ToolButton";
+import { useTitleBarOverlay } from "../data/title-bar";
 import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
 import { SessionSidebar } from "./shell/SessionSidebar";
 import { NewThread } from "./shell/NewThread";
@@ -335,6 +344,29 @@ export function useThreadState(reviewId: string | undefined) {
 export function useThread(id: string | undefined) {
   const store = use(Threads);
   return useSyncExternalStore(store.subscribe, () => store.get().get(id ?? ""));
+}
+
+/** The reviews that this thread's agent session handed off, itself among
+ * them, newest first: the threads that share one of its sessions. */
+export function useSessionReviews(id: string | undefined): readonly Thread[] {
+  const store = use(Threads);
+  // A key of what the list shows, so the reader renders again only when it changes.
+  const key = useSyncExternalStore(store.subscribe, () => {
+    const group = sessionGroups(store.list()).find((each) =>
+      each.some((thread) => thread.id === id),
+    );
+    return group && group.length > 1
+      ? JSON.stringify(group.map((thread) => [thread.id, thread.title, thread.branch]))
+      : "";
+  });
+  return useMemo(() => {
+    if (!key) return [];
+    const threads = store.get();
+    return (JSON.parse(key) as [string][]).flatMap(([each]) => {
+      const thread = threads.get(each);
+      return thread ? [thread] : [];
+    });
+  }, [key, store]);
 }
 
 /** Reads the window's threads, the most recently changed first, when called.
@@ -1066,10 +1098,17 @@ export function WorkspaceHost({
   // The band names the workspace on screen; none while a page covers them.
   const covered = newThread || !!overlayAddress(pathname);
   const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
+  // A page such as Settings names itself, so in a browser tab the band would
+  // hold only Show sidebar: the page takes the band's height, and the button
+  // sits in its corner. The installed app keeps the band for the window
+  // controls.
+  const drawsTitleBar = useTitleBarOverlay();
+  const pageTop = !newThread && !!overlayAddress(pathname) && !drawsTitleBar;
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread = newThread || overlayAddress(pathname) ? null : (activeThread ?? null);
   const read = useReadState(tabs, currentThread);
+
   const currentRef = useRef(currentThread);
   // When each tab was last on screen, or first listed in this window.
   const lastShown = useRef(new Map<string, number>());
@@ -1301,7 +1340,7 @@ export function WorkspaceHost({
    * this test chooses. False when there is none. */
   const nextTab = useCallback(
     (wanted: (thread: Thread) => boolean) => {
-      const list = tabOrder(tabsRef.current);
+      const list = tabOrder(tabsRef.current, currentRef.current);
       const start = list.findIndex((thread) => thread.id === currentRef.current);
       for (let step = 1; step <= list.length; step++) {
         const thread = list[(start + step) % list.length]!;
@@ -1351,7 +1390,7 @@ export function WorkspaceHost({
         return;
       }
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-      const thread = digit && tabOrder(tabsRef.current)[Number(digit) - 1];
+      const thread = digit && tabOrder(tabsRef.current, currentRef.current)[Number(digit) - 1];
       if (!thread) return;
       take();
       openTab(thread);
@@ -1675,27 +1714,42 @@ export function WorkspaceHost({
                         </>
                       )}
                       <div {...stylex.props(styles.shellMain)}>
-                        <WorkspaceBar
-                          context={
-                            covered ? undefined : barContext(activeEntry, threadList ?? null)
-                          }
-                          slots={band.slots}
-                          titled={band.titled}
-                          showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
-                          needs={showsSidebar ? 0 : needs}
-                          rename={
-                            barThread && {
-                              thread: barThread,
-                              editing: !showsSidebar && renaming === barThread.id,
-                              start: () => setRenaming(barThread.id),
-                              done: (name) => {
-                                setRenaming(null);
-                                if (name !== null) void renameTo(barThread, name);
-                              },
+                        {!pageTop && (
+                          <WorkspaceBar
+                            context={
+                              covered ? undefined : barContext(activeEntry, threadList ?? null)
                             }
-                          }
-                        />
+                            slots={band.slots}
+                            titled={band.titled}
+                            showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                            needs={showsSidebar ? 0 : needs}
+                            rename={
+                              barThread && {
+                                thread: barThread,
+                                editing: !showsSidebar && renaming === barThread.id,
+                                start: () => setRenaming(barThread.id),
+                                done: (name) => {
+                                  setRenaming(null);
+                                  if (name !== null) void renameTo(barThread, name);
+                                },
+                              }
+                            }
+                          />
+                        )}
                         <div {...stylex.props(styles.shellViews)}>
+                          {pageTop && (!showsSidebar || narrow) && (
+                            <span {...stylex.props(styles.pageToggle)}>
+                              <ToolButton
+                                label={
+                                  needs > 0 ? `Show sidebar · ${needs} needs you` : "Show sidebar"
+                                }
+                                shortcut="Mod+B"
+                                icon="panelLeft"
+                                dot={needs > 0}
+                                onClick={toggleSidebar}
+                              />
+                            </span>
+                          )}
                           <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
                             <Band value={band.value}>
                               <Warm value={warm}>{children}</Warm>
@@ -2912,6 +2966,8 @@ const styles = stylex.create({
     backgroundColor: "#00000040",
   },
   shellLayer: { position: "absolute", inset: 0 },
+  // Show sidebar in the corner of a page's card, such as Settings.
+  pageToggle: { position: "absolute", zIndex: 2, top: 12, left: 12 },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.

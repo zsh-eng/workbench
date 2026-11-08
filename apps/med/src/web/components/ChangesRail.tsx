@@ -83,8 +83,8 @@ export function ChangesRail({
   );
 }
 
-/** A range's or a branch's commits, above its files. A range of one commit
- * lists none. */
+/** A range's or a branch's commits, above its files; a range of one commit
+ * lists it too, so the sidebar always says what the changes hold. */
 export function RangeCommits({
   commits,
   moreCommits,
@@ -95,7 +95,7 @@ export function RangeCommits({
   onWhole,
   fresh,
 }: CommitProps) {
-  if (commits.length < 2) return null;
+  if (!commits.length) return null;
   return (
     <div {...stylex.props(styles.commits)}>
       <RailCommits

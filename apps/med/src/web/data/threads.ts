@@ -68,12 +68,59 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
   return list;
 }
 
+/** A row of the sidebar: one agent session, by the thread that stands for
+ * it, and the IDs of all its threads when it handed off several reviews. */
+export type SessionRow = Thread & { members?: readonly string[] };
+
+/** The threads that share an agent session, together, each list newest
+ * first. One session often hands off several reviews, one for each branch or
+ * part of its task, and the sidebar lists sessions (docs/usage/threads.md). */
+export function sessionGroups(threads: readonly Thread[]): Thread[][] {
+  const parent = threads.map((_, at) => at);
+  const root = (at: number): number => (parent[at] === at ? at : (parent[at] = root(parent[at]!)));
+  const owner = new Map<string, number>();
+  threads.forEach((thread, at) => {
+    for (const session of thread.sessions ?? []) {
+      const other = owner.get(session.id);
+      if (other === undefined) owner.set(session.id, at);
+      else parent[root(at)] = root(other);
+    }
+  });
+  const groups = new Map<number, Thread[]>();
+  threads.forEach((thread, at) => {
+    const key = root(at);
+    groups.set(key, [...(groups.get(key) ?? []), thread]);
+  });
+  return [...groups.values()].map((group) => group.toSorted((a, b) => b.updatedAt - a.updatedAt));
+}
+
+/** One row for each session: the thread on screen when it is one of the
+ * session's, else a pinned one, else the newest. The row has the session's
+ * newest activity. */
+export function sessionRows(threads: readonly Thread[], current?: string | null): SessionRow[] {
+  return sessionGroups(threads).map((group) => {
+    if (group.length === 1) return group[0]!;
+    const lead =
+      group.find((thread) => thread.id === current) ??
+      group.find((thread) => thread.pinned) ??
+      group[0]!;
+    return {
+      ...lead,
+      updatedAt: Math.max(...group.map((thread) => thread.updatedAt)),
+      members: group.map((thread) => thread.id),
+    };
+  });
+}
+
 /** The sessions in the sidebar's order, which ⌘1–⌘9 follow: the pinned ones
  * in the order they were pinned, then the others, newest activity first. */
-export const tabOrder = (threads: readonly Thread[]) => [
-  ...threads.filter((thread) => thread.pinned).toSorted((a, b) => a.pinned! - b.pinned!),
-  ...threads.filter((thread) => !thread.pinned).toSorted((a, b) => b.updatedAt - a.updatedAt),
-];
+export const tabOrder = (threads: readonly Thread[], current?: string | null): SessionRow[] => {
+  const rows = sessionRows(threads, current);
+  return [
+    ...rows.filter((thread) => thread.pinned).toSorted((a, b) => a.pinned! - b.pinned!),
+    ...rows.filter((thread) => !thread.pinned).toSorted((a, b) => b.updatedAt - a.updatedAt),
+  ];
+};
 
 /** The user sent a message from Med after the turn ended. */
 const answered = (thread: Thread) =>

@@ -1,4 +1,4 @@
-import { searchRanges } from "./search-highlights";
+import { searchRanges, type SearchHighlightOptions } from "./search-highlights";
 
 export interface DiffFindTarget {
   path: string;
@@ -14,6 +14,7 @@ export interface DiffFindTarget {
 export function createDiffFindHighlights(matchName: string, currentName: string) {
   const hosts = new Map<HTMLElement, string>();
   let query = "";
+  let options: SearchHighlightOptions = {};
   let target: DiffFindTarget | null = null;
   const clear = () => {
     CSS.highlights?.delete(matchName);
@@ -39,9 +40,11 @@ export function createDiffFindHighlights(matchName: string, currentName: string)
     for (const [host, path] of hosts) {
       const root = host.shadowRoot;
       if (!root) continue;
-      all.push(...searchRanges(root.querySelectorAll("[data-line]"), query, {}, 1000 - all.length));
+      all.push(
+        ...searchRanges(root.querySelectorAll("[data-line]"), query, options, 1000 - all.length),
+      );
       const hit = target?.path === path ? row(root, target) : null;
-      if (hit) current = searchRanges([hit], query);
+      if (hit) current = searchRanges([hit], query, options);
       if (all.length >= 1000) break;
     }
     if (all.length) CSS.highlights.set(matchName, new Highlight(...all));
@@ -64,9 +67,14 @@ export function createDiffFindHighlights(matchName: string, currentName: string)
       else hosts.delete(host);
       if (query) schedule();
     },
-    set(nextQuery: string, nextTarget: DiffFindTarget | null) {
+    set(
+      nextQuery: string,
+      nextTarget: DiffFindTarget | null,
+      nextOptions: SearchHighlightOptions = {},
+    ) {
       query = nextQuery;
       target = nextTarget;
+      options = nextOptions;
       schedule();
     },
     dispose() {

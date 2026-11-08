@@ -1,14 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import { defaultKeymap } from "@codemirror/commands";
-import {
-  closeSearchPanel,
-  getSearchQuery,
-  openSearchPanel,
-  search,
-  SearchQuery,
-  setSearchQuery,
-} from "@codemirror/search";
+import { SearchQuery, setSearchQuery } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
 import {
   Decoration,
@@ -22,38 +15,31 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
-import { vim, Vim, type CodeMirror } from "@replit/codemirror-vim";
+import { vim } from "@replit/codemirror-vim";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
 import { codeColors, highlightRules } from "../../../code-colors";
 import { searchRanges } from "../../../data/search-highlights";
 import { HIGHLIGHTER } from "../../../pierre-theme";
 import { tokens } from "../../../theme.stylex";
 import { useTheme, type Theme } from "../../../themes";
 import { diffSurfaceStyle } from "../../diff-surface";
-import { FindBar, type FindCount, type FindOptions } from "../../FindBar";
+import { FindBar, NO_FIND_OPTIONS, type FindCount } from "../../FindBar";
+import { findInFile, findPanelTheme, jump, openFind } from "../../editor-find";
 import { SessionSidebar } from "../../shell/SessionSidebar";
 import { FILTERS_PATH, FILTERS_TS, FILTERS_TS_BEFORE, sidebarThreads } from "./fixtures";
 
 // Prototype: one find bar for the diff and for files. ⌘F in the diff, ⌘F in
 // a file, and Vim's / and ? there open the same bar, with Match case, Whole
 // word, Regular expression, and a count of the matches. In a file it is
-// CodeMirror's own search panel, drawn by FindBar, so CodeMirror still finds
-// and highlights; Vim's n and N go on from the bar's query.
-
-interface Opened {
-  mark?: "/" | "?";
-  origin: number;
-}
-
-const NO_OPTIONS: FindOptions = { caseSensitive: false, wholeWord: false, regexp: false };
+// CodeMirror's own search panel, drawn by FindBar (editor-find.tsx), so
+// CodeMirror still finds and highlights; Vim's n and N go on from the bar's
+// query. The app's diff and editor now have it; this screen shows both.
 
 /** The diff's find: Med's highlights over Pierre's rows, as in the review. */
 function DiffWithFind() {
   const { active } = useTheme();
   const [query, setQuery] = useState("filters");
-  const [options, setOptions] = useState(NO_OPTIONS);
+  const [options, setOptions] = useState(NO_FIND_OPTIONS);
   const [index, setIndex] = useState(1);
   const [hosts] = useState(() => new Set<HTMLElement>());
   const [rendered, setRendered] = useState(0);
@@ -165,161 +151,12 @@ function tokenColors(theme: Theme) {
   ];
 }
 
-/**
- * The bar as CodeMirror's search panel: CodeMirror keeps the query, finds,
- * and highlights; FindBar draws the panel. `mark` says Vim opened it.
- */
-function findPanel(view: EditorView, opened: Opened) {
-  const dom = document.createElement("div");
-  dom.className = "med-find-panel";
-  const root = createRoot(dom);
-  const count = (): FindCount | null => {
-    const query = getSearchQuery(view.state);
-    if (!query.search) return null;
-    if (!query.valid) return { error: "Not a valid pattern" };
-    const { from, to } = view.state.selection.main;
-    let total = 0;
-    let current = 0;
-    const cursor = query.getCursor(view.state);
-    for (let next = cursor.next(); !next.done && total < 1000; next = cursor.next()) {
-      total++;
-      // The cursor on a match's start, as Vim leaves it, or the match selected.
-      if (next.value.from === from && (next.value.to === to || from === to)) current = total;
-    }
-    return { current, total };
-  };
-  const render = () => {
-    const query = getSearchQuery(view.state);
-    const set = (change: Partial<FindOptions> & { search?: string }) =>
-      view.dispatch({
-        effects: setSearchQuery.of(
-          new SearchQuery({
-            search: query.search,
-            caseSensitive: query.caseSensitive,
-            wholeWord: query.wholeWord,
-            regexp: query.regexp,
-            ...change,
-          }),
-        ),
-      });
-    const back = opened.mark === "?";
-    root.render(
-      <FindBar
-        query={query.search}
-        // As you type, the cursor goes to the first match from where the
-        // search started, as Vim's incsearch does.
-        onQuery={(search) => {
-          set({ search });
-          jump(view, back, back ? opened.origin + 1 : opened.origin - 1);
-        }}
-        options={{
-          caseSensitive: query.caseSensitive,
-          wholeWord: query.wholeWord,
-          regexp: query.regexp,
-        }}
-        onOptions={(options) => set(options)}
-        count={count()}
-        onNext={() => jump(view, back)}
-        onPrevious={() => jump(view, !back)}
-        // In Vim, Enter goes to the match and back to the file.
-        onSubmit={
-          opened.mark
-            ? () => {
-                jump(view, back);
-                closeSearchPanel(view);
-                view.focus();
-              }
-            : undefined
-        }
-        onClose={() => {
-          closeSearchPanel(view);
-          view.focus();
-        }}
-        placeholder="Find in file"
-        mark={opened.mark}
-      />,
-    );
-  };
-  return {
-    dom,
-    top: true,
-    // CodeMirror focuses the field as the panel mounts, so the bar renders
-    // at once; the query shows selected, to type over.
-    mount: () => {
-      flushSync(render);
-      dom.querySelector("input")?.select();
-    },
-    update: render,
-    destroy: () => setTimeout(() => root.unmount()),
-  };
-}
-
-/**
- * Moves the cursor to the start of the next match, or the previous one, and
- * wraps around. A cursor, not a selection: a selection would put Vim in
- * Visual mode, where n and N are Vim's own.
- */
-function jump(view: EditorView, back: boolean, from = view.state.selection.main.head) {
-  const query = getSearchQuery(view.state);
-  if (!query.search || !query.valid) return;
-  const starts: number[] = [];
-  const cursor = query.getCursor(view.state);
-  for (let next = cursor.next(); !next.done && starts.length < 1000; next = cursor.next())
-    starts.push(next.value.from);
-  const target = back
-    ? ([...starts].reverse().find((start) => start < from) ?? starts.at(-1))
-    : (starts.find((start) => start > from) ?? starts[0]);
-  if (target !== undefined) view.dispatch({ selection: { anchor: target }, scrollIntoView: true });
-}
-
-/** How the panel last opened, by ⌘F or by Vim's / or ?, and where. */
-const openedBy = new WeakMap<EditorView, Opened>();
-const openFind = (view: EditorView, mark?: "/" | "?") => {
-  const opened = openedBy.get(view)!;
-  opened.mark = mark;
-  opened.origin = view.state.selection.main.head;
-  closeSearchPanel(view);
-  // Vim's / and ? start with an empty query, as Vim's prompt does.
-  if (mark) {
-    const query = getSearchQuery(view.state);
-    view.dispatch({
-      effects: setSearchQuery.of(
-        new SearchQuery({
-          search: "",
-          caseSensitive: query.caseSensitive,
-          wholeWord: query.wholeWord,
-          regexp: query.regexp,
-        }),
-      ),
-    });
-  }
-  openSearchPanel(view);
-};
-// Vim's / and ? open the bar; n and N go on from its query, the way that
-// the bar's search went.
-const viewOf = (cm: CodeMirror) => cm.cm6 as EditorView;
-Vim.defineAction("medFindForward", (cm) => openFind(viewOf(cm), "/"));
-Vim.defineAction("medFindBack", (cm) => openFind(viewOf(cm), "?"));
-Vim.defineAction("medFindNext", (cm) => {
-  const view = viewOf(cm);
-  jump(view, openedBy.get(view)?.mark === "?");
-});
-Vim.defineAction("medFindPrevious", (cm) => {
-  const view = viewOf(cm);
-  jump(view, openedBy.get(view)?.mark !== "?");
-});
-Vim.mapCommand("/", "action", "medFindForward", {}, { context: "normal" });
-Vim.mapCommand("?", "action", "medFindBack", {}, { context: "normal" });
-Vim.mapCommand("n", "action", "medFindNext", {}, { context: "normal" });
-Vim.mapCommand("N", "action", "medFindPrevious", {}, { context: "normal" });
-
 /** A file in CodeMirror with Vim, opened on Vim's / with a query typed. */
 function FileWithFind() {
   const { active } = useTheme();
   const parent = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const code = codeColors(active);
-    const opened: Opened = { origin: 0 };
     const view = new EditorView({
       parent: parent.current!,
       state: EditorState.create({
@@ -329,11 +166,8 @@ function FileWithFind() {
           lineNumbers(),
           drawSelection(),
           highlightActiveLine(),
-          search({ top: true, createPanel: (editor) => findPanel(editor, opened) }),
-          keymap.of([
-            { key: "Mod-f", run: (editor) => (openFind(editor), true) },
-            ...defaultKeymap,
-          ]),
+          findInFile(),
+          keymap.of(defaultKeymap),
           tokenColors(active),
           EditorView.theme(
             {
@@ -365,9 +199,7 @@ function FileWithFind() {
                 textDecoration: `underline 2px ${code.matchBorder}`,
                 textUnderlineOffset: "3px",
               },
-              // The bar floats at the top right, over the code, as in the diff.
-              ".cm-panels": { backgroundColor: "transparent", border: "none" },
-              ".cm-panels-top": { borderBottom: "none", height: 0, overflow: "visible" },
+              ...findPanelTheme,
               ".cm-fat-cursor": { background: active.palette.accent },
               "&.cm-focused": { outline: "none" },
             },
@@ -376,7 +208,6 @@ function FileWithFind() {
         ],
       }),
     });
-    openedBy.set(view, opened);
     // The screen: Vim's / with "label" typed, on its second match.
     view.dispatch({ selection: { anchor: view.state.doc.line(20).from } });
     openFind(view, "/");

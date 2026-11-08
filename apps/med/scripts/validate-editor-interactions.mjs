@@ -97,7 +97,10 @@ try {
     await page.keyboard.press("Alt+KeyW");
     await tabs.getByRole("tab", { name: /sample.ts/ }).waitFor({ state: "hidden", timeout: 3000 });
     assert.equal(
-      await tabs.getByRole("tab", { name: "Changes", exact: true }).getAttribute("aria-selected"),
+      await page
+        .getByRole("radio", { name: "Changes", exact: true })
+        .filter({ visible: true })
+        .getAttribute("aria-checked"),
       "true",
     );
     await page.goto(fileUrl);
@@ -173,13 +176,25 @@ try {
     "keep named register private",
   );
   // Mouse word selection must paint the same selection layer and seed search.
-  const word = editor
+  // The word's place in the first line, whether or not the highlighter
+  // wraps it in its own element.
+  const word = await editor
     .locator(".cm-line")
     .first()
-    .locator("span")
-    .filter({ hasText: /^selectionTarget$/ })
-    .first();
-  await word.dblclick();
+    .evaluate((line) => {
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent.indexOf("selectionTarget");
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + "selectionTarget".length);
+        const box = range.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }
+      throw new Error("No selectionTarget in the first line");
+    });
+  await page.mouse.dblclick(word.x, word.y);
   assert.equal(await page.evaluate(() => getSelection()?.toString()), "selectionTarget");
   await highlight.waitFor();
   await page.keyboard.press("Control+Shift+f");

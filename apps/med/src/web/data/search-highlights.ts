@@ -2,6 +2,28 @@ const MAX_MATCHES = 1000;
 export interface SearchHighlightOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
+  /** The query is a regular expression. */
+  regexp?: boolean;
+}
+
+/** The pattern that finds `query`, with the find bar's options; why there is
+ * none when the query is not a valid regular expression; null when empty. */
+export function findPattern(
+  query: string,
+  options: SearchHighlightOptions = {},
+): RegExp | { error: string } | null {
+  if (!query) return null;
+  const source = options.regexp ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    return new RegExp(
+      options.wholeWord
+        ? `(?<![\\p{L}\\p{N}\\p{M}_])(?:${source})(?![\\p{L}\\p{N}\\p{M}_])`
+        : source,
+      options.caseSensitive ? "gu" : "giu",
+    );
+  } catch {
+    return { error: "Not a valid pattern" };
+  }
 }
 
 /** Ranges of `query` in Pierre line rows, at most `limit` of them. */
@@ -13,11 +35,8 @@ export function searchRanges(
 ): Range[] {
   const ranges: Range[] = [];
   if (!query.trim()) return ranges;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    options.wholeWord ? `(?<![\\p{L}\\p{N}\\p{M}_])${escaped}(?![\\p{L}\\p{N}\\p{M}_])` : escaped,
-    options.caseSensitive ? "gu" : "giu",
-  );
+  const pattern = findPattern(query, options);
+  if (!(pattern instanceof RegExp)) return ranges;
   for (const row of rows) {
     // These are only the virtualizer's mounted lines, never the whole file.
     const text = row.textContent ?? "";
@@ -35,6 +54,8 @@ export function searchRanges(
     for (const match of matches) {
       const start = match.index;
       const end = start + match[0].length;
+      // A pattern such as a* also matches nothing, which shows nothing.
+      if (end === start) continue;
       while (cursor < nodes.length && nodes[cursor]!.end <= start) cursor++;
       let last = cursor;
       while (last < nodes.length && nodes[last]!.end < end) last++;

@@ -1453,7 +1453,7 @@ describe("graphical review", () => {
     (document.activeElement as HTMLElement | null)?.blur();
     key({ key: "/", code: "Slash" });
     await expect.element(page.getByRole("textbox", { name: "Edit src/alpha.ts" })).toBeVisible();
-    await expect.poll(() => document.activeElement?.closest(".cm-vim-panel")).not.toBeNull();
+    await expect.poll(() => document.activeElement?.closest(".med-find-panel")).not.toBeNull();
     key({ key: "Escape", code: "Escape" }, document.activeElement!);
     key({ key: "£", code: "Digit3", altKey: true }, editor.element());
     await selected("beta.ts");
@@ -1942,19 +1942,30 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
-    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
+    // Typing goes to the first matching line.
+    await expect.element(page.getByText("1 of 2", { exact: true })).toBeVisible();
     // Every match is marked; the current hit's matches are marked on top.
     await expect.poll(() => CSS.highlights.get("med-diff-find")?.size ?? 0).toBeGreaterThan(1);
     await expect
       .poll(() => [...(CSS.highlights.get("med-diff-find-current") ?? [])].map(String))
       .toContain("after");
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("2 of 2", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("1 of 2", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
-    await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("2 of 2", { exact: true })).toBeVisible();
+    // Match case finds none; a regular expression finds them again.
+    await page.getByRole("button", { name: "Match case" }).click();
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("AFTER");
+    await expect.element(page.getByText("No results", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Match case" }).click();
+    await page.getByRole("button", { name: "Regular expression" }).click();
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("aft(er");
+    await expect.element(page.getByText("Not a valid pattern", { exact: true })).toBeVisible();
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("af+ter");
+    await expect.element(page.getByText("1 of 2", { exact: true })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => CSS.highlights.has("med-diff-find")).toBe(false);
   });
@@ -1986,8 +1997,9 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("needle");
-    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    // Each line counts, on both sides of a change: two lines are four matches.
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("needle");
+    await expect.element(page.getByText("1 of 4", { exact: true })).toBeVisible();
     const stream = page.getByRole("main", { name: "Continuous review" }).element();
     const line = (text: string) => {
       for (const host of document.querySelectorAll("diffs-container")) {
@@ -2012,11 +2024,15 @@ describe("graphical review", () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(near()).toBe(true);
     };
+    // The first match is in the collapsed file, which opens for it.
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByText("2 / 2 hunks", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("2 of 4", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByText("3 of 4", { exact: true })).toBeVisible();
     await centered("needleLater");
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByText("1 / 2 hunks", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByText("1 of 4", { exact: true })).toBeVisible();
     await expect
       .element(
         page.getByRole("button", {
@@ -2285,7 +2301,7 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
     await page.getByRole("button", { name: "Next match" }).click();
     await page.getByRole("button", { name: "Add note", exact: true }).click();
     await page
@@ -2324,7 +2340,7 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
     await page.getByRole("button", { name: "Next match" }).click();
     await page.getByRole("button", { name: "Add note", exact: true }).click();
     await page.getByRole("textbox", { name: "Review note text" }).fill("First saved comment");
@@ -2360,7 +2376,7 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
     await page.getByRole("button", { name: "Next match" }).click();
     await page.getByRole("button", { name: "Add note", exact: true }).click();
     await page.getByRole("textbox", { name: "Review note text" }).fill("Recover this comment");
@@ -2394,7 +2410,7 @@ describe("graphical review", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
     await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
     await page.getByRole("option", { name: /Find in diff contents/ }).click();
-    await page.getByRole("textbox", { name: "Find in diff contents" }).fill("after");
+    await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
     await page.getByRole("button", { name: "Next match" }).click();
     await page.getByRole("button", { name: "Add note", exact: true }).click();
     await page.getByRole("textbox", { name: "Review note text" }).fill("Keep my draft");

@@ -209,7 +209,7 @@ try {
   await page.keyboard.press("o");
   await page.keyboard.type("// retained draft");
   await page.keyboard.press("Escape");
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).filter({ visible: true }).click();
   await page.getByRole("tab", { name: /http2.ts/ }).click();
   await editor.waitFor();
   assert.ok((await editor.textContent()).includes("retained draft"));
@@ -233,7 +233,10 @@ try {
   await writeFile(join(output, "typing.trace.json"), trace);
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
-  await page.getByRole("tab", { name: "Changes", exact: true }).waitFor();
+  await page
+    .getByRole("radio", { name: "Changes", exact: true })
+    .filter({ visible: true })
+    .waitFor();
   assert.equal(await page.getByRole("tab", { name: /http2.ts/ }).count(), 0);
   assert.deepEqual(errors, []);
   const sorted = [...frames].sort((a, b) => a - b);

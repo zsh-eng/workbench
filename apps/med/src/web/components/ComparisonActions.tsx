@@ -365,8 +365,9 @@ const styles = stylex.create({
     gap: 0,
     maxHeight: 380,
     overflowY: "auto",
-    minWidth: 260,
-    maxWidth: 460,
+    // As wide as the Changes sidebar: the hint wraps, a long name ends in "…".
+    width: 264,
+    maxWidth: "calc(100vw - 24px)",
   },
   backdrop: { zIndex: 110 },
   dialog: {

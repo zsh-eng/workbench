@@ -327,7 +327,22 @@ function threadList(): ThreadList {
       },
     }),
   };
-  return { threads: [thread], repositories };
+  // In the session scene the agent also handed off an earlier review, so the
+  // side panel's Reviews lists two and the sidebar shows the session once.
+  const earlier: ThreadList["threads"][number] | undefined =
+    scene === "session" && saved.sessions
+      ? {
+          id: "r_demo_parser",
+          title: "Parse trail filters",
+          createdAt: saved.createdAt,
+          updatedAt: Date.parse(saved.createdAt) - 50 * 60_000,
+          ...(repository && { repository }),
+          ...(target && { checkout: target.repo }),
+          ...(target?.branch && { branch: target.branch }),
+          sessions: saved.sessions,
+        }
+      : undefined;
+  return { threads: earlier ? [thread, earlier] : [thread], repositories };
 }
 
 /** The thread list's stream: the list now, and again when the agent's state

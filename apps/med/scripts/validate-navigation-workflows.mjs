@@ -252,7 +252,7 @@ try {
   // Slash belongs to the diff, and to text inputs while a palette is open.
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
   await page.keyboard.press("/");
-  const find = page.getByRole("textbox", { name: "Find in diff contents" });
+  const find = page.getByRole("textbox", { name: "Find in changes" });
   await find.waitFor();
   await find.fill("working");
   await page.keyboard.press("Escape");
