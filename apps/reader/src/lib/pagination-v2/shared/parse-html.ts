@@ -62,6 +62,7 @@ import {
   type PublisherStyleResolver,
 } from "./publisher-styles";
 import { normalizePublisherBodyFontScale } from "./publisher-body-scale";
+import { removePublisherPageMargin } from "./publisher-page-margin";
 import type {
   Block,
   BookPageBreakHints,
@@ -1288,15 +1289,18 @@ function parseChapterHtmlInternal(
   if (options.publisherBookStylingEnabled) {
     attachPublisherFontFaces(result.blocks, options.publisherFontFaces);
   }
+  const styledBlocks = options.publisherBookStylingEnabled
+    ? removePublisherPageMargin(result.blocks)
+    : result.blocks;
   const blocks =
     options.publisherBookStylingEnabled &&
     options.matchPublisherBodyTextSize &&
     options.publisherBodyFontScale
       ? normalizePublisherBodyFontScale(
-          result.blocks,
+          styledBlocks,
           options.publisherBodyFontScale,
         )
-      : result.blocks;
+      : styledBlocks;
 
   return {
     blocks,

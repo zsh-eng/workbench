@@ -29,6 +29,10 @@ export {
   normalizePublisherBodyFontScale,
 } from "./shared/publisher-body-scale";
 export {
+  inferPublisherPageMargin,
+  removePublisherPageMargin,
+} from "./shared/publisher-page-margin";
+export {
   DEFAULT_PARAGRAPH_SPACING,
   getBlockSpacing,
   getLineHeight,
