@@ -59,6 +59,12 @@ interface Recording {
 
 const params = new URLSearchParams(location.search);
 const scene = params.get("scene") ?? "review";
+// An experiment for the design board: panels with straight lines between
+// them and no gaps (flat-panels.css). It must be set before the app loads.
+if (params.get("panels") === "flat") {
+  document.documentElement.dataset.panels = "flat";
+  await import("./flat-panels.css");
+}
 // The notes vault and the review's timeline have recordings of their own.
 // The Screens page names its own recordings (public/screens).
 const file =

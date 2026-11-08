@@ -3336,7 +3336,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               await threads.rename(id, threadNameSchema.parse(body ?? {}).name);
               send({ ok: true });
             } else if (action === "pin") {
-              await threads.pin(id, threadPinSchema.parse(body ?? {}).pinned);
+              const pin = threadPinSchema.parse(body ?? {});
+              await threads.pin(id, pin.pinned, pin.at);
               send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.

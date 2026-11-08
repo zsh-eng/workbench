@@ -212,7 +212,11 @@ export const threadClosedSchema = z.object({ closed: z.boolean() });
 /** `POST /api/threads/:id/name`: a name for the thread, which Med keeps (not
  * the agent). An empty name gives the thread its agent's title again. */
 export const threadNameSchema = z.object({ name: z.string().max(120) });
-export const threadPinSchema = z.object({ pinned: z.boolean() });
+export const threadPinSchema = z.object({
+  pinned: z.boolean(),
+  /** Its place among the pins, from 0; without it, under the others. */
+  at: z.number().int().min(0).optional(),
+});
 
 /** A new thread: the task, where the agent works, and which agent. */
 export const threadStartSchema = z.object({

@@ -245,11 +245,17 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
     },
     /** The pinned threads, in the reader's order. */
     pins: (): readonly string[] => state.pins ?? [],
-    /** Pins the thread under the others, or unpins it. False when nothing changed. */
-    setPinned(id: string, pinned: boolean) {
+    /** Pins the thread at `at` among the pins (under the others without it),
+     * moves a pinned one there, or unpins it. False when nothing changed. */
+    setPinned(id: string, pinned: boolean, at?: number) {
       const pins = state.pins ?? [];
-      if (pins.includes(id) === pinned) return false;
-      state.pins = pinned ? [...pins, id] : pins.filter((entry) => entry !== id);
+      const others = pins.filter((entry) => entry !== id);
+      const next = pinned
+        ? others.toSpliced(Math.min(Math.max(at ?? others.length, 0), others.length), 0, id)
+        : others;
+      if (next.length === pins.length && next.every((entry, index) => entry === pins[index]))
+        return false;
+      state.pins = next;
       changed();
       return true;
     },

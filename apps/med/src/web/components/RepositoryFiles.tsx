@@ -215,7 +215,8 @@ const styles = stylex.create({
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.panel,
+    // The card it sits in gives the color.
+    backgroundColor: "transparent",
     color: tokens.text,
     fontFamily: tokens.ui,
     overflow: "hidden",

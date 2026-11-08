@@ -1298,9 +1298,9 @@ export function WorkspaceHost({
   const [renaming, setRenaming] = useState<string | null>(null);
   if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
   const pinTo = useCallback(
-    async (thread: Thread, pinned: boolean) => {
+    async (thread: Thread, pinned: boolean, at?: number) => {
       try {
-        await pinThread(thread.id, pinned, fetcher);
+        await pinThread(thread.id, pinned, fetcher, at);
       } catch (error) {
         setNotice({
           problem: true,
@@ -1679,7 +1679,7 @@ export function WorkspaceHost({
                               }}
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
-                              onPin={(thread, pinned) => void pinTo(thread, pinned)}
+                              onPin={(thread, pinned, at) => void pinTo(thread, pinned, at)}
                             />
                           </aside>
                           {!narrow && (
@@ -1713,7 +1713,7 @@ export function WorkspaceHost({
                           )}
                         </>
                       )}
-                      <div {...stylex.props(styles.shellMain)}>
+                      <div data-shell-main="" {...stylex.props(styles.shellMain)}>
                         {!pageTop && (
                           <WorkspaceBar
                             context={

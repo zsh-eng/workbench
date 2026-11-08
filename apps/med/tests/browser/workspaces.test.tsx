@@ -220,7 +220,7 @@ function createHost() {
       setThreads([last, ...threads]);
       return Response.json({ thread: { ...last, open: true } });
     }
-    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name)$/.exec(url.pathname);
+    const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name|pin)$/.exec(url.pathname);
     if (action && init?.method === "POST") {
       const [, id, verb] = action;
       const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
@@ -239,6 +239,22 @@ function createHost() {
         past = past.filter((entry) => entry.id !== id);
         if (tab) setThreads(threads.filter((entry) => entry !== tab));
         return Response.json({ deleted: true });
+      }
+      // As the host pins a thread: at its place among the pins, or under them.
+      if (verb === "pin") {
+        const pins = threads
+          .filter((entry) => entry.pinned && entry.id !== id)
+          .toSorted((a, b) => a.pinned! - b.pinned!)
+          .map((entry) => entry.id);
+        if (body.pinned) pins.splice(typeof body.at === "number" ? body.at : pins.length, 0, id!);
+        setThreads(
+          threads.map((entry) => {
+            const { pinned: _, ...rest } = entry;
+            const place = pins.indexOf(entry.id);
+            return place < 0 ? rest : { ...rest, pinned: place + 1 };
+          }),
+        );
+        return Response.json({ ok: true });
       }
       // As the host names a thread: an empty name gives the agent's title back.
       if (verb === "name") {
@@ -1120,6 +1136,94 @@ test("a tab's menu copies its resume command, marks it unread, and closes it", a
   await ask.getByRole("button", { name: "Delete" }).click();
   await expect.poll(threadRows).toEqual([]);
   expect(host.threadRequests.at(-1)).toEqual({ path: "/api/threads/second/delete", body: {} });
+});
+
+test("a row drags into Pinned, to a place among the pins, and out again; its menu moves a pin", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const now = Date.now();
+  host.setThreads([
+    thread("agent", { updatedAt: now - 1000 }),
+    thread("second", { updatedAt: now - 2000 }),
+    thread("third", { updatedAt: now - 3000 }),
+  ]);
+  await expect.poll(threadRows).toEqual(["Agent review", "Second review", "Third review"]);
+  const section = (name: string) =>
+    [
+      ...document.querySelectorAll<HTMLElement>(`section[aria-label="${name}"] [data-session-row]`),
+    ].map((row) => row.querySelector("button")?.title);
+  const button = (title: string) =>
+    document.querySelector<HTMLElement>(`[data-session-row] button[title="${title}"]`)!;
+  const middle = (element: Element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  };
+  const settle = () => new Promise((done) => setTimeout(done, 60));
+  const pinnedArea = () =>
+    document.querySelector('section[aria-label="Pinned"]')!.getBoundingClientRect();
+  /** Presses a row, and moves the pointer in steps to wherever `to` says. */
+  const drag = async (title: string, to: () => number, release = true) => {
+    const start = middle(button(title));
+    const at = (y: number) => ({ clientX: start.x, clientY: y, bubbles: true, pointerId: 1 });
+    button(title).dispatchEvent(new PointerEvent("pointerdown", { ...at(start.y), button: 0 }));
+    document.dispatchEvent(new PointerEvent("pointermove", at(start.y + 8)));
+    // The list makes room as the drag starts; the target is read after.
+    await settle();
+    document.dispatchEvent(new PointerEvent("pointermove", at(to())));
+    await settle();
+    document.dispatchEvent(new PointerEvent("pointermove", at(to())));
+    await settle();
+    if (release) document.dispatchEvent(new PointerEvent("pointerup", at(to())));
+  };
+  const pins = () => host.threadRequests.filter((request) => request.path.endsWith("/pin"));
+
+  // With no pins, Pinned shows while a row drags, to drop into.
+  await drag("Third review", () => pinnedArea().bottom - 8);
+  await expect
+    .poll(() => pins().at(-1))
+    .toEqual({ path: "/api/threads/third/pin", body: { pinned: true, at: 0 } });
+  await expect.poll(() => section("Pinned")).toEqual(["Third review"]);
+  expect(section("Recent")).toEqual(["Agent review", "Second review"]);
+  // The press was a drag: it opened nothing.
+  expect(threadRows().some((row) => row.endsWith("(current)") && row.startsWith("Third"))).toBe(
+    false,
+  );
+
+  // Above the first pin's middle is the first place.
+  await drag("Agent review", () => button("Third review").getBoundingClientRect().top + 4);
+  await expect
+    .poll(() => pins().at(-1))
+    .toEqual({ path: "/api/threads/agent/pin", body: { pinned: true, at: 0 } });
+  await expect.poll(() => section("Pinned")).toEqual(["Agent review", "Third review"]);
+
+  // The menu moves a pin one place, as a drag would.
+  await button("Third review").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  await expect.element(page.getByRole("menuitem", { name: "Move down" })).not.toBeInTheDocument();
+  await page.getByRole("menuitem", { name: "Move up" }).click();
+  await expect
+    .poll(() => pins().at(-1))
+    .toEqual({ path: "/api/threads/third/pin", body: { pinned: true, at: 0 } });
+  await expect.poll(() => section("Pinned")).toEqual(["Third review", "Agent review"]);
+
+  // Esc puts the row back, and pins nothing.
+  const before = pins().length;
+  await drag("Second review", () => middle(button("Third review")).y, false);
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  expect(pins().length).toBe(before);
+  await expect.poll(() => section("Recent")).toEqual(["Second review"]);
+
+  // Below Pinned is Recent: the row goes back to its place by activity.
+  await drag(
+    "Agent review",
+    () => section("Recent").length && middle(button("Second review")).y + 20,
+  );
+  await expect
+    .poll(() => pins().at(-1))
+    .toEqual({ path: "/api/threads/agent/pin", body: { pinned: false } });
+  await expect.poll(() => section("Recent")).toEqual(["Agent review", "Second review"]);
+  expect(section("Pinned")).toEqual(["Third review"]);
 });
 
 test("a new thread starts its agent in a new worktree and opens", async () => {

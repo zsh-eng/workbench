@@ -39,8 +39,10 @@ import { resizeLine } from "./ColumnResize";
 import { Icon, type IconName } from "./Icon";
 import { ToolButton } from "./ToolButton";
 
-/** The room between panes and around them, in pixels. */
-export const PANE_GAP = 6;
+/** The room between panes and around them, in pixels. The design board's
+ * flat panels (demo.html?panels=flat, flat-panels.css) have a 1-pixel line. */
+export const PANE_GAP =
+  typeof document !== "undefined" && document.documentElement.dataset.panels === "flat" ? 1 : 6;
 const STORAGE = "med:panes:v1:";
 const KEYBOARD_STEP = 24;
 

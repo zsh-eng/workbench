@@ -280,6 +280,26 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
   await restart();
   expect(await pinned()).toEqual(["Offline tides", "Forgiving station search"]);
 
+  // A pin takes a place among the others, as a drag in the sidebar drops it,
+  // and a pinned thread moves to another place.
+  const third = await save("Harbour webcams");
+  expect((await api(`/api/threads/${third.id}/pin`, { pinned: true, at: 0 })).status).toBe(200);
+  const order = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads
+      .filter((thread) => thread.pinned)
+      .toSorted((a, b) => a.pinned! - b.pinned!)
+      .map((thread) => thread.title);
+  expect(await order()).toEqual(["Harbour webcams", "Offline tides", "Forgiving station search"]);
+  expect((await api(`/api/threads/${third.id}/pin`, { pinned: true, at: 2 })).status).toBe(200);
+  expect(await order()).toEqual(["Offline tides", "Forgiving station search", "Harbour webcams"]);
+  // A place past the end is the end.
+  expect((await api(`/api/threads/${second.id}/pin`, { pinned: true, at: 9 })).status).toBe(200);
+  expect(await order()).toEqual(["Forgiving station search", "Harbour webcams", "Offline tides"]);
+  expect((await api(`/api/threads/${third.id}/pin`, { pinned: true, at: -1 })).status).toBe(400);
+  expect((await api(`/api/threads/${third.id}/pin`, { pinned: false })).status).toBe(200);
+  expect((await api(`/api/threads/${second.id}/pin`, { pinned: true, at: 0 })).status).toBe(200);
+  expect(await order()).toEqual(["Offline tides", "Forgiving station search"]);
+
   // A closed thread keeps its pin; unpinning takes it off.
   expect((await api(`/api/threads/${second.id}/close`, {})).status).toBe(200);
   expect((await history()).map((thread) => [thread.title, thread.pinned])).toEqual([

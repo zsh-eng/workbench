@@ -586,12 +586,13 @@ export function createThreadService(options: ThreadServiceOptions) {
       await tabs.save();
     },
 
-    /** Pins a thread under the other pins, or unpins it. */
-    async pin(id: string, pinned: boolean) {
+    /** Pins a thread at `at` among the pins (under the others without it),
+     * moves a pinned one there, or unpins it. */
+    async pin(id: string, pinned: boolean, at?: number) {
       await reviewIndex();
       if (!tabs.known(id))
         throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
-      if (tabs.setPinned(id, pinned)) await tabs.save();
+      if (tabs.setPinned(id, pinned, at)) await tabs.save();
     },
 
     /**

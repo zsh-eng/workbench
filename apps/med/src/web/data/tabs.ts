@@ -49,8 +49,14 @@ export const renameThread = (id: string, name: string, fetcher: typeof fetch) =>
   api(fetcher).json(`/api/threads/${id}/name`, z.object({ ok: z.boolean() }), post({ name }));
 
 /** Pins a thread under the other pins, or unpins it. */
-export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch) =>
-  api(fetcher).json(`/api/threads/${id}/pin`, z.object({ ok: z.boolean() }), post({ pinned }));
+/** Pins a thread at `at` among the pins (from 0; under the others without
+ * it), moves a pinned one there, or unpins it. */
+export const pinThread = (id: string, pinned: boolean, fetcher: typeof fetch, at?: number) =>
+  api(fetcher).json(
+    `/api/threads/${id}/pin`,
+    z.object({ ok: z.boolean() }),
+    post({ pinned, ...(at !== undefined && { at }) }),
+  );
 
 /** Puts the thread on top of `onto`'s stack (docs/STACKS.md); `onto` stays. */
 export const groupThread = (id: string, onto: string, fetcher: typeof fetch) =>
