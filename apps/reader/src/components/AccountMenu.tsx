@@ -199,7 +199,7 @@ export function AccountMenu() {
   if (isAuthLoading) {
     return (
       <span className="grid size-10 place-items-center md:size-9">
-        <Skeleton className="size-7 rounded-full" />
+        <Skeleton className="size-7 rounded-full md:size-8" />
       </span>
     );
   }
@@ -221,14 +221,17 @@ export function AccountMenu() {
           className={cn(APP_HEADER_BUTTON, "relative")}
         >
           {hasAccount && user ? (
-            <Avatar className="size-7">
+            <Avatar className="size-7 ring-1 ring-foreground/10 md:size-8">
               <AvatarImage src={user.image || undefined} alt="" />
-              <AvatarFallback className="text-[11px]">
+              <AvatarFallback className="text-[11px] md:text-[12px]">
                 {getUserInitials(user.name)}
               </AvatarFallback>
             </Avatar>
           ) : (
-            <CircleUser className="size-[18px]" strokeWidth={1.7} />
+            <CircleUser
+              className="size-[18px] md:size-[22px]"
+              strokeWidth={1.6}
+            />
           )}
           {showSyncAttention && (
             <span

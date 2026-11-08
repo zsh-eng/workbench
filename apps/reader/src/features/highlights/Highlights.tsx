@@ -1,5 +1,6 @@
 import {
   APP_HEADER_BUTTON,
+  APP_HEADER_ICON,
   APP_PAGE_FRAME,
 } from "@/components/app-header-styles";
 import { PlaceHeader, usePlaceSearch } from "@/components/PlaceHeader";
@@ -401,7 +402,7 @@ export function Highlights() {
         title="Order"
         className={APP_HEADER_BUTTON}
       >
-        <SlidersHorizontal className="size-4" strokeWidth={1.6} />
+        <SlidersHorizontal className={APP_HEADER_ICON} strokeWidth={1.6} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuGroup>

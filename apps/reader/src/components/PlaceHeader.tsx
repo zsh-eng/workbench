@@ -2,6 +2,7 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { PlaceNav, type AppPlace } from "@/components/AppNavigation";
 import {
   APP_HEADER_BUTTON,
+  APP_HEADER_ICON,
   APP_HEADER_TOP,
   APP_PAGE_FRAME,
   APP_TITLE_TYPE,
@@ -201,7 +202,7 @@ export function PlaceHeader({
             )}
           </AnimatePresence>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 md:gap-1.5">
           {status}
           {/* One button opens and closes the search and keeps its place, so
               the row beside it does not move. Its meaning changes in place:
@@ -213,7 +214,12 @@ export function PlaceHeader({
             onClick={() => (searching ? setSearch(null) : openSearch())}
             className={APP_HEADER_BUTTON}
           >
-            <span className="relative grid size-4 place-items-center">
+            <span
+              className={cn(
+                "relative grid place-items-center",
+                APP_HEADER_ICON,
+              )}
+            >
               <AnimatePresence initial={false}>
                 <motion.span
                   key={searching ? "close" : "search"}
@@ -221,9 +227,9 @@ export function PlaceHeader({
                   {...GLYPH_FADE}
                 >
                   {searching ? (
-                    <X className="size-4" strokeWidth={1.6} />
+                    <X className={APP_HEADER_ICON} strokeWidth={1.6} />
                   ) : (
-                    <Search className="size-4" strokeWidth={1.7} />
+                    <Search className={APP_HEADER_ICON} strokeWidth={1.6} />
                   )}
                 </motion.span>
               </AnimatePresence>

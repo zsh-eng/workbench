@@ -11,6 +11,20 @@ export const APP_HEADER_TOP =
 export const APP_TITLE_TYPE =
   "font-serif text-[22px] leading-none tracking-[-0.01em] md:text-[30px]";
 
-/** Header controls: 40 px targets on a phone, 36 px with a pointer. */
+/**
+ * Header controls: 40 px targets on a phone, 36 px with a pointer. The ink
+ * sits between the titles you are not on and the one you are, so the tools
+ * hold their own beside the large serif.
+ */
 export const APP_HEADER_BUTTON =
-  "grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[popup-open]:bg-foreground/[0.05] data-[popup-open]:text-foreground disabled:pointer-events-none disabled:opacity-40 md:size-9";
+  "grid size-10 shrink-0 place-items-center rounded-full text-foreground/70 outline-none transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[popup-open]:bg-foreground/[0.05] data-[popup-open]:text-foreground disabled:pointer-events-none disabled:opacity-40 md:size-9";
+
+/** A header control's icon: half its target, like the titles' x-height. */
+export const APP_HEADER_ICON = "size-4 md:size-[18px]";
+
+/**
+ * The page's main action, such as Add books: the same target, filled beside
+ * the titles. On a phone it sits plain among the filters.
+ */
+export const APP_HEADER_PRIMARY =
+  "md:bg-foreground/[0.07] md:text-foreground md:hover:bg-foreground/[0.11]";

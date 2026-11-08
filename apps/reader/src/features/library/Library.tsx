@@ -1,6 +1,9 @@
 import { useAppShellReady } from "@/components/AppShell";
+import { AddBookIcon } from "@/components/AddBookIcon";
 import {
   APP_HEADER_BUTTON,
+  APP_HEADER_ICON,
+  APP_HEADER_PRIMARY,
   APP_PAGE_FRAME,
 } from "@/components/app-header-styles";
 import { PlaceHeader, usePlaceSearch } from "@/components/PlaceHeader";
@@ -383,30 +386,22 @@ export function Library() {
     await importFiles(event.dataTransfer.files);
   };
 
-  const addBooks = (compact: boolean) =>
-    compact ? (
-      <button
-        type="button"
-        aria-label="Add books"
-        title="Add books"
-        disabled={isProcessing}
-        onClick={openFilePicker}
-        className={APP_HEADER_BUTTON}
-      >
-        <Plus className="size-[18px]" strokeWidth={1.7} />
-      </button>
-    ) : (
-      <button
-        type="button"
-        title="Add EPUB files, or drop them anywhere on this page"
-        disabled={isProcessing}
-        onClick={openFilePicker}
-        className="flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
-      >
-        <Plus className="size-3.5" strokeWidth={1.8} />
-        Add books
-      </button>
-    );
+  // The page's main action: an icon in a filled circle, the same size as the
+  // other tools, so the row reads as one set beside the titles.
+  const addBooks = (
+    <button
+      type="button"
+      aria-label="Add books"
+      title="Add books"
+      disabled={isProcessing}
+      onClick={openFilePicker}
+      className={cn(APP_HEADER_BUTTON, APP_HEADER_PRIMARY)}
+    >
+      {/* An open book is wide and short, so it is drawn a size up to
+          stand as tall as the other icons. */}
+      <AddBookIcon className="size-[18px] md:size-5" />
+    </button>
+  );
 
   const viewMenu = (
     <DropdownMenu>
@@ -415,7 +410,7 @@ export function Library() {
         title="Sort and layout"
         className={APP_HEADER_BUTTON}
       >
-        <SlidersHorizontal className="size-4" strokeWidth={1.6} />
+        <SlidersHorizontal className={APP_HEADER_ICON} strokeWidth={1.6} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
@@ -480,7 +475,7 @@ export function Library() {
       title="Design ideas"
       className={APP_HEADER_BUTTON}
     >
-      <Lightbulb className="size-4" strokeWidth={1.6} />
+      <Lightbulb className={APP_HEADER_ICON} strokeWidth={1.6} />
     </Link>
   );
 
@@ -513,12 +508,21 @@ export function Library() {
         count={`${found.length} of ${data?.books.length ?? 0}`}
         onSubmit={openFirstMatch}
         status={
-          <LibraryActivity place="header" books={data?.books.length ?? 0} />
+          <>
+            <LibraryActivity place="header" books={data?.books.length ?? 0} />
+            {/* Design ideas comes and goes with debug mode, so it waits
+                before Search with the activity glyph, and Search, Add
+                books, Sort and layout and the account keep their places. */}
+            {designIdeas && (
+              <div className="flex items-center max-md:hidden">
+                {designIdeas}
+              </div>
+            )}
+          </>
         }
         actions={
-          <div className="flex items-center gap-0.5 max-md:hidden">
-            {designIdeas}
-            {addBooks(false)}
+          <div className="flex items-center gap-0.5 max-md:hidden md:gap-1.5">
+            {addBooks}
             {viewMenu}
           </div>
         }
@@ -626,7 +630,7 @@ export function Library() {
               <div className="flex shrink-0 items-center md:hidden">
                 <LibraryActivity place="row" books={data?.books.length ?? 0} />
                 {designIdeas}
-                {addBooks(true)}
+                {addBooks}
                 {viewMenu}
               </div>
             </div>
