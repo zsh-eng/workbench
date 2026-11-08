@@ -80,6 +80,7 @@ export function WorkspaceBar({
   rename,
   slots,
   titled = false,
+  covered = false,
 }: {
   context?: BarContext;
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
@@ -90,17 +91,22 @@ export function WorkspaceBar({
    * while the sidebar hides. */
   rename?: { thread: Thread; editing: boolean; start(): void; done(name: string | null): void };
   /** Where the workspace on screen puts its own title (InTitleBand): `lead`
-   * before the checkout, `trail` at the band's end. */
-  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement> };
+   * before the checkout, `trail` at the band's end, and `cover`, a pane's own
+   * row over the band's end, above the pane. */
+  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement>; cover: Ref<HTMLSpanElement> };
   /** The workspace's own title leads the band, such as a thread's pull
    * request: the checkout follows it, quieter, and goes in a narrow band. */
   titled?: boolean;
+  /** A pane's row covers the band's end, such as the review's title beside
+   * the session: it names the thread, so the band does not. */
+  covered?: boolean;
 }) {
-  const title = showSidebar && !titled && context?.kind === "checkout" ? context.title : undefined;
+  const title =
+    showSidebar && !titled && !covered && context?.kind === "checkout" ? context.title : undefined;
   return (
     <header
       aria-label="Workspace"
-      className={`med-title-row ${stylex.props(styles.bar, showSidebar && styles.afterControls).className ?? ""}`}
+      className={`med-title-row ${stylex.props(styles.bar, showSidebar && styles.afterControls, covered && styles.covered).className ?? ""}`}
     >
       {showSidebar && (
         <ToolButton
@@ -138,6 +144,7 @@ export function WorkspaceBar({
         </span>
       )}
       <span ref={slots?.trail} {...stylex.props(styles.trail, !titled && styles.empty)} />
+      <span ref={slots?.cover} {...stylex.props(styles.cover, !covered && styles.empty)} />
     </header>
   );
 }
@@ -218,6 +225,16 @@ const styles = stylex.create({
   },
   // Past the window controls, where the sidebar would otherwise start.
   afterControls: { paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 8px)" },
+  // The covering row reaches the band's end, or the window controls there.
+  covered: { paddingInlineEnd: "var(--med-titlebar-right)" },
+  // A pane's row over the band's end (InTitleBand's cover): it sets its own
+  // width, the pane's, and the band's start gives way.
+  cover: {
+    display: "flex",
+    flexShrink: 0,
+    alignSelf: "stretch",
+    marginInlineStart: "auto",
+  },
   checkout: {
     display: "inline-flex",
     alignItems: "center",

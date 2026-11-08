@@ -281,44 +281,75 @@ export function useTabCommands(): ReviewCommand[] {
 interface TitleBand {
   lead: HTMLElement | null;
   trail: HTMLElement | null;
+  cover: HTMLElement | null;
   workspace: string | null;
-  /** The workspace's title leads the band until the returned function runs. */
-  claim(): () => void;
+  /** The workspace's title leads the band, or a pane's row covers its end,
+   * until the returned function runs. */
+  claim(kind: "lead" | "cover"): () => void;
 }
 const Band = createContext<TitleBand | null>(null);
 
 /**
  * A workspace's own title in the window's title band, while the workspace is
  * on screen: `lead` before its checkout, which then follows quieter, and
- * `trail` at the band's end. The portal keeps the workspace's context, so
- * its controls work as in the workspace. Outside the shell, nothing shows.
+ * `trail` at the band's end. Or `cover`: a pane's own row over the band's end,
+ * above the pane, as the review's title row beside the session. The portal
+ * keeps the workspace's context, so its controls work as in the workspace.
+ * Outside the shell, nothing shows.
  */
-export function InTitleBand({ lead, trail }: { lead: ReactNode; trail?: ReactNode }) {
+export function InTitleBand({
+  lead,
+  trail,
+  cover,
+}: {
+  lead?: ReactNode;
+  trail?: ReactNode;
+  cover?: ReactNode;
+}) {
   const band = use(Band);
   const id = use(Current);
   const shown = !!band?.workspace && band.workspace === id;
   const claim = band?.claim;
-  useLayoutEffect(() => (shown && claim ? claim() : undefined), [shown, claim]);
+  const kind = cover ? "cover" : lead ? "lead" : null;
+  useLayoutEffect(() => (shown && claim && kind ? claim(kind) : undefined), [shown, claim, kind]);
   if (!shown) return null;
   return (
     <>
-      {band.lead && createPortal(lead, band.lead)}
+      {lead && band.lead && createPortal(lead, band.lead)}
       {trail && band.trail && createPortal(trail, band.trail)}
+      {cover && band.cover && createPortal(cover, band.cover)}
     </>
   );
 }
 
-/** The title band's slots, and whether a workspace's title leads it. */
+/** Whether the title band shows this workspace: InTitleBand's portals render. */
+export function useInTitleBand() {
+  const band = use(Band);
+  const id = use(Current);
+  return !!band?.workspace && band.workspace === id;
+}
+
+/** The title band's slots, and whether a workspace's title leads it or a
+ * pane's row covers its end. */
 function useTitleBand(workspace: string | null) {
   const [lead, setLead] = useState<HTMLElement | null>(null);
   const [trail, setTrail] = useState<HTMLElement | null>(null);
-  const [claims, setClaims] = useState(0);
-  const claim = useCallback(() => {
-    setClaims((count) => count + 1);
-    return () => setClaims((count) => count - 1);
+  const [cover, setCover] = useState<HTMLElement | null>(null);
+  const [claims, setClaims] = useState({ lead: 0, cover: 0 });
+  const claim = useCallback((kind: "lead" | "cover") => {
+    setClaims((count) => ({ ...count, [kind]: count[kind] + 1 }));
+    return () => setClaims((count) => ({ ...count, [kind]: count[kind] - 1 }));
   }, []);
-  const value = useMemo(() => ({ lead, trail, workspace, claim }), [lead, trail, workspace, claim]);
-  return { value, slots: { lead: setLead, trail: setTrail }, titled: claims > 0 };
+  const value = useMemo(
+    () => ({ lead, trail, cover, workspace, claim }),
+    [lead, trail, cover, workspace, claim],
+  );
+  return {
+    value,
+    slots: { lead: setLead, trail: setTrail, cover: setCover },
+    titled: claims.lead > 0,
+    covered: claims.cover > 0,
+  };
 }
 
 /** Whether this workspace is the one on screen. One that renders out of
@@ -1721,6 +1752,7 @@ export function WorkspaceHost({
                             }
                             slots={band.slots}
                             titled={band.titled}
+                            covered={band.covered}
                             showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
                             needs={showsSidebar ? 0 : needs}
                             rename={

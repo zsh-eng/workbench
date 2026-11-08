@@ -27,87 +27,148 @@ export interface DisplayOptions {
 const CLAUDE = "#d97757";
 
 /**
- * The review's header: the session's toggle with its agent's mark, the
- * review's title with Med's mark, its branch, then Display and the page
- * switch. `trail` holds the controls that have no other place yet.
+ * The review's header, in two rows. The title row names the review and holds
+ * what acts on all of it: Copy comments, ⋯, and Display (ReviewTitleRow).
+ * Where the review reaches the window's top right, that row is in the title
+ * band above it, and this header is the second row only: the toggles of the
+ * session and the review's sidebar and the page's own controls, then the
+ * pages and the pane's controls at its end, where they keep their places.
  */
 export function ReviewHeader({
   session,
-  title,
-  reviewed,
-  branch,
+  identity,
   lead,
-  trail,
-  display,
   pages,
   page,
   onPage,
+  tools,
+  more,
   controls,
 }: {
   session?: { agent: IconName; shown: boolean; toggle(): void };
-  title: string;
-  /** A saved review, which starts its title with Med's mark. */
-  reviewed: boolean;
-  branch?: string;
+  /** The title row, when the title band does not hold it. */
+  identity?: ReactNode;
+  /** The review's sidebar's toggle, while the sidebar hides. */
   lead?: ReactNode;
-  trail?: ReactNode;
-  display?: DisplayOptions;
   pages: readonly ReviewPage[];
   /** The page on screen; null while a file shows. */
   page: string | null;
   onPage(value: string): void;
+  /** The page's own controls, after the toggles. */
+  tools?: ReactNode;
+  /** ⋯, with what the row folds away when narrow, before the pages. */
+  more?: ReactNode;
   /** The pane's own controls, at the row's end. */
   controls?: ReactNode;
 }) {
   return (
-    <header aria-label="Review header" {...paneHandle} {...stylex.props(styles.bar)}>
-      {session && (
-        <button
-          type="button"
-          aria-label={session.shown ? "Hide agent session" : "Show agent session"}
-          aria-pressed={session.shown}
-          data-pane-show="session"
-          {...tooltip(session.shown ? "Hide agent session" : "Show agent session", "Mod+Shift+B")}
-          onClick={session.toggle}
-          {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.session)}
-        >
-          <span {...stylex.props(session.agent === "claude" && styles.claude)}>
-            <Icon name={session.agent} size={15} />
-          </span>
-        </button>
-      )}
-      {lead}
-      <h2 {...stylex.props(styles.title, reviewed && styles.marked)} title={title}>
-        {reviewed && <MedMark />}
-        <span data-truncates="" {...stylex.props(styles.name)}>
-          {title}
-        </span>
-      </h2>
-      {branch && <BranchLabel branch={branch} />}
-      <span data-row-grow="" {...stylex.props(styles.grow)} />
-      {trail}
-      {display && <DisplayButton options={display} />}
-      {pages.length > 1 && (
-        <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
-          {pages.map((entry, index) => (
-            <button
-              key={entry.value}
-              type="button"
-              role="radio"
-              aria-checked={page === entry.value}
-              {...tooltip(entry.label, String(index + 1))}
-              onClick={() => onPage(entry.value)}
-              {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
-            >
-              <span data-truncates="" {...stylex.props(styles.name)}>
-                {entry.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      {controls}
+    <header aria-label="Review header" {...paneHandle} {...stylex.props(styles.header)}>
+      {identity}
+      <div {...stylex.props(styles.bar)}>
+        {session && (
+          <button
+            type="button"
+            aria-label={session.shown ? "Hide agent session" : "Show agent session"}
+            aria-pressed={session.shown}
+            data-pane-show="session"
+            {...tooltip(session.shown ? "Hide agent session" : "Show agent session", "Mod+Shift+B")}
+            onClick={session.toggle}
+            {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.session)}
+          >
+            <span {...stylex.props(session.agent === "claude" && styles.claude)}>
+              <Icon name={session.agent} size={15} />
+            </span>
+          </button>
+        )}
+        {lead}
+        {tools}
+        <span data-row-grow="" {...stylex.props(styles.grow)} />
+        {more}
+        {pages.length > 1 && (
+          <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
+            {pages.map((entry, index) => (
+              <button
+                key={entry.value}
+                type="button"
+                role="radio"
+                aria-checked={page === entry.value}
+                {...tooltip(entry.label, String(index + 1))}
+                onClick={() => onPage(entry.value)}
+                {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
+              >
+                <span data-truncates="" {...stylex.props(styles.name)}>
+                  {entry.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {controls}
+      </div>
     </header>
+  );
+}
+
+/** The review's title, with Med's mark when it is a saved review. */
+export function ReviewTitle({ title, reviewed }: { title: string; reviewed: boolean }) {
+  return (
+    <h2 {...stylex.props(styles.title, reviewed && styles.marked)} title={title}>
+      {reviewed && <MedMark />}
+      <span data-truncates="" {...stylex.props(styles.name)}>
+        {title}
+      </span>
+    </h2>
+  );
+}
+
+/** What acts on the whole review, then Display: at the title row's end. */
+export function ReviewActions({
+  actions,
+  display,
+}: {
+  actions?: ReactNode;
+  display?: DisplayOptions;
+}) {
+  return (
+    <span {...stylex.props(styles.actions)}>
+      {actions}
+      {display && <DisplayButton options={display} />}
+    </span>
+  );
+}
+
+/**
+ * The review's title row: its title, its branch, then ReviewActions. In the
+ * title band it covers the band above the review, `width` wide, with the
+ * line between the panes running up its start; in the pane it is the
+ * header's first row.
+ */
+export function ReviewTitleRow({
+  name,
+  branch,
+  actions,
+  display,
+  width,
+}: {
+  name: ReactNode;
+  branch?: string;
+  actions?: ReactNode;
+  display?: DisplayOptions;
+  /** In the title band: the width it covers, from the line between the panes. */
+  width?: number;
+}) {
+  return (
+    <div
+      {...stylex.props(
+        styles.titleRow,
+        width === undefined ? styles.inPane : [styles.inBand, styles.width(width)],
+      )}
+    >
+      {name}
+      {branch && <BranchLabel branch={branch} />}
+      <span {...stylex.props(styles.grow)} />
+      <ReviewActions actions={actions} display={display} />
+    </div>
   );
 }
 
@@ -337,6 +398,7 @@ function Toggle({
 }
 
 const styles = stylex.create({
+  header: { display: "flex", flexDirection: "column", flex: "none", minWidth: 0 },
   bar: {
     display: "flex",
     alignItems: "center",
@@ -347,20 +409,46 @@ const styles = stylex.create({
     paddingInline: 8,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     color: tokens.text,
-    // A narrow row hides the branch (styles.branch).
+  },
+  // A narrow row hides the branch (styles.branch).
+  titleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    minWidth: 0,
+    color: tokens.text,
     containerType: "inline-size",
   },
+  // As tall as the title band, so the rows line up across the panes.
+  inPane: {
+    flex: "none",
+    height: "var(--med-top-row)",
+    paddingInline: 8,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
+  },
+  // It ends where window controls at the band's end start, as on Windows and
+  // Linux (the band keeps their room); the line between the panes runs up
+  // its start.
+  inBand: {
+    flexShrink: 0,
+    boxSizing: "border-box",
+    height: "100%",
+    paddingInlineStart: 8,
+    paddingInlineEnd: "max(calc(8px - var(--med-titlebar-right)), 4px)",
+    boxShadow: `inset 1px 0 0 ${tokens.line}`,
+  },
+  width: (width: number) => ({ width: `calc(${width}px - var(--med-titlebar-right))` }),
+  actions: { display: "flex", alignItems: "center", flexShrink: 0, gap: 2 },
   session: { color: tokens.muted },
   claude: { display: "flex", color: CLAUDE },
-  // The trail's comparison moves into ⋯ first (see QuietChrome's rowRoom);
-  // then the branch and the title shorten, so the row never overflows.
+  // The branch hides first, then the title shortens, so the row never
+  // overflows. No cap in percent: in the title band its box is its own size.
   title: {
     display: "flex",
     alignItems: "center",
     flexShrink: 1,
     gap: 7,
     minWidth: 0,
-    maxWidth: "45%",
     margin: 0,
     paddingInline: 6,
     fontSize: 13.5,

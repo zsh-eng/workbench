@@ -3868,8 +3868,11 @@ describe("saved reviews", () => {
         reviews: [{ ...comment(41, "jordan", ""), state: "APPROVED" }],
       },
     });
-    // The header names the review; the browser tab keeps its title too.
-    await expect.element(page.getByRole("heading", { name: "Agent review" })).toBeVisible();
+    // The title row names the review by its pull request; the browser tab
+    // keeps the review's title.
+    await expect
+      .element(page.getByRole("link", { name: /^Open pull request #\d+: / }))
+      .toBeVisible();
     expect(document.title).toBe("Agent review");
     // The thread on the pull request head shows on its line.
     const thread = page.getByRole("article", { name: "GitHub thread by mira at R1" });
@@ -4515,8 +4518,6 @@ describe("agent session", () => {
     expect(page.getByRole("button", { name: /^Send comments to/ }).query()).toBeNull();
     await page.getByRole("button", { name: "Show agent session" }).click();
     const panel = page.getByRole("region", { name: "Agent session" });
-    // Med resumes the session with the message: nothing else has it open.
-    await expect.element(panel.getByText("Med resumes Claude with this message")).toBeVisible();
 
     // The comments wait above the message box as one line, to send on their own.
     await expect.element(panel.getByRole("button", { name: "Send 2 comments" })).toBeVisible();

@@ -788,13 +788,14 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   const statusBar = () =>
     [...document.querySelectorAll("[data-connection]")].some((dot) => dot.checkVisibility());
 
-  // The band names the branch, the review's header the review, and the
-  // session's header only its agent. No toolbar or status bar.
+  // The band's start names the branch; above the review, the band holds the
+  // review's title row; the session's header names only its agent. No
+  // toolbar or status bar.
   await expect
     .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
     .toBeVisible();
   await expect
-    .element(page.getByRole("heading", { level: 2, name: "Talk review", exact: true }))
+    .element(band.getByRole("heading", { level: 2, name: "Talk review", exact: true }))
     .toBeVisible();
   await expect.element(session.getByText("Talk review")).not.toBeInTheDocument();
   expect(page.getByRole("button", { name: "View options", exact: true }).query()).toBeNull();
@@ -816,11 +817,12 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   await search.fill("chrome");
   await expect.element(page.getByRole("option", { name: /full chrome/ })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
-  // With the sidebar hidden, the band names the thread.
+  // The review's title row names the thread, so the band names it once,
+  // with the sidebar hidden or shown.
   await userEvent.keyboard("{Control>}b{/Control}");
   await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
   await userEvent.keyboard("{Control>}b{/Control}");
-  await expect.element(band.getByText("Talk review", { exact: true })).not.toBeInTheDocument();
+  await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
 });
 
 test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it in history", async () => {

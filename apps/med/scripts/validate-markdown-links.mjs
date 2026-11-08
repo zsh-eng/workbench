@@ -90,13 +90,12 @@ try {
     await page.getByRole("link", { name: "Samples", exact: true }).waitFor();
   };
   await showPreview();
-  // Quiet chrome keeps the files pane's toggle in ⋯; ⌘⇧B toggles the agent
-  // session.
+  // The files pane opens from ⌘K; ⌘⇧B toggles the agent session.
+  await page.keyboard.press("Meta+k");
   await page
-    .getByRole("button", { name: "More actions", exact: true })
-    .filter({ visible: true })
-    .click();
-  await page.getByRole("menuitemcheckbox", { name: "Files", exact: true }).click();
+    .getByRole("combobox", { name: "Search commands", exact: true })
+    .fill("Show files sidebar");
+  await page.getByRole("option", { name: /^Show files sidebar/ }).click();
   const filesSidebar = page.getByRole("region", { name: "Workspace files", exact: true });
   await filesSidebar.waitFor();
   const sidebarBox = await filesSidebar.boundingBox();

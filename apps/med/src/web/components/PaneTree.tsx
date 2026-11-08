@@ -63,8 +63,20 @@ export interface PaneSpec {
   /** The close button, when closing only hides what the pane shows, such as
    * an agent's session that keeps working: its name, icon, and shortcut. */
   hide?: { label: string; icon: IconName; shortcut?: string };
-  /** The pane with its header; `controls` go at the header's end. */
-  render(controls: ReactNode): ReactNode;
+  /** The pane with its header; `controls` go at the header's end. `place`
+   * says where the pane is on screen, or null while it is hidden or behind. */
+  render(controls: ReactNode, place: PanePlace | null): ReactNode;
+}
+
+/** Where a pane on screen is: which of the tree's edges it reaches, its left
+ * side, and the tree's width. A pane at the top right can take the room in
+ * the window's title band above it, as the review's title does. */
+export interface PanePlace {
+  top: boolean;
+  left: boolean;
+  right: boolean;
+  x: number;
+  treeWidth: number;
 }
 
 function read(key: string) {
@@ -758,6 +770,15 @@ export function PaneTree({
                   pane.onClose ? pane.onClose : pane.fixed ? undefined : () => state.close(pane.id)
                 }
               />,
+              shown && !behind && rect
+                ? {
+                    top: rect.y <= 0,
+                    left: rect.x <= 0,
+                    right: rect.x + rect.width >= box.width - 0.5,
+                    x: rect.x,
+                    treeWidth: box.width,
+                  }
+                : null,
             )}
           </section>
         );

@@ -702,8 +702,9 @@ export function SessionComposer({
               ))}
             </div>
           ) : (
+            // Empty until a send fails; it keeps the buttons at the end.
             <span role="status" {...stylex.props(styles.status, error !== null && styles.error)}>
-              {error ?? `Med resumes ${name} with this message`}
+              {error}
             </span>
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}

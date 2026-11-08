@@ -214,7 +214,10 @@ try {
   await editor.waitFor();
   assert.ok((await editor.textContent()).includes("retained draft"));
   await writeFile(join(repo, path), source + "\n// agent change\n");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The header has no Save: Vim's :w saves, as ⌘S does.
+  await editor.focus();
+  await page.keyboard.type(":w");
+  await page.keyboard.press("Enter");
   await page.getByRole("alert").filter({ hasText: "changed on disk" }).waitFor();
   assert.ok((await editor.textContent()).includes("retained draft"));
   assert.equal(await readFile(join(repo, path), "utf8"), source + "\n// agent change\n");
@@ -231,7 +234,10 @@ try {
   }
   await cdp.send("IO.close", { handle: stream });
   await writeFile(join(output, "typing.trace.json"), trace);
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  // The header has no Close: Vim's :q closes, as the tab's × does.
+  await editor.focus();
+  await page.keyboard.type(":q");
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
   await page
     .getByRole("radio", { name: "Changes", exact: true })

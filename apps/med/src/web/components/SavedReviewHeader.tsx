@@ -5,7 +5,6 @@ import type { PullRequestSummary } from "../../shared/protocol";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { ActionMenu, type MenuEntry } from "./Controls";
 import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
 import { Icon, iconPath } from "./Icon";
@@ -32,17 +31,14 @@ export function SavedReviewHeader({
   codexReviews,
   findingPlacement,
   compact = false,
-  more = [],
   ref,
 }: {
   /**
    * The thread beside it names the review, so the header leaves the name out
    * and keeps one action, Copy comments: comments go to an agent from its
-   * session, and the rest is in ⌘K. `more` holds what a narrow row folds.
+   * session, and the rest is in ⌘K.
    */
   compact?: boolean;
-  /** What a narrow row folds into ⋯, such as its comparison. */
-  more?: MenuEntry[][];
   ref?: Ref<SavedReviewActions>;
   controller: ReviewController;
   state: ReviewControllerSnapshot;
@@ -187,15 +183,6 @@ export function SavedReviewHeader({
           {!compact && <span {...stylex.props(styles.desktop)}>Copy comments</span>}
           <span {...stylex.props(styles.count)}>{saved.commentCount}</span>
         </button>
-      )}
-      {compact && more.some((section) => section.length > 0) && (
-        <ActionMenu
-          label="More actions"
-          trigger={[ui.button, ui.iconButton, styles.fixed]}
-          sections={more}
-        >
-          <Icon name="more" size={15} />
-        </ActionMenu>
       )}
       <Popover.Root
         open={clearRevision !== null}

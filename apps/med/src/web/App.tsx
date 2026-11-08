@@ -45,7 +45,14 @@ import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
 import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
 import { DiffStat } from "./components/DiffStat";
-import { ReviewHeader, type ReviewPage } from "./components/ReviewHeader";
+import {
+  ReviewActions,
+  ReviewHeader,
+  ReviewTitle,
+  ReviewTitleRow,
+  type DisplayOptions,
+  type ReviewPage,
+} from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
 import { DependencyCard } from "./components/DependencyCard";
@@ -66,6 +73,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   InTitleBand,
+  useInTitleBand,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
@@ -97,7 +105,13 @@ import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import { PaneTree, usePaneTree, type PaneSpec } from "./components/PaneTree";
+import {
+  PANE_GAP,
+  PaneTree,
+  usePaneTree,
+  type PanePlace,
+  type PaneSpec,
+} from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/SearchView";
@@ -429,6 +443,8 @@ export function App({
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const shell = useShell();
+  // The window's title band shows this workspace: the review's title can go up into it.
+  const bandShown = useInTitleBand();
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
@@ -5508,7 +5524,6 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
-        more={compact ? quietSections : undefined}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
@@ -5531,7 +5546,8 @@ export function App({
       onStep={stepGuide}
     />
   );
-  const quietTrailing = (
+  // The page's own controls, in the header's second row after the pages.
+  const pageTools = (
     <>
       {guideStepper}
       {streamChrome && !comparisonInRail && comparisonShown && (
@@ -5548,25 +5564,94 @@ export function App({
         <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
       )}
       {comparisonActionsElement}
-      {/* Without the window's shell, no title band holds the pull request's comments. */}
-      {!shell && state.savedReview?.pullRequestUrl && (
-        <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
-      )}
-      {state.savedReview
-        ? savedHeader(true)
-        : quietFolded && (
-            <ActionMenu
-              label="More actions"
-              trigger={[ui.button, ui.iconButton]}
-              sections={quietSections}
-            >
-              <Icon name="more" size={15} />
-            </ActionMenu>
-          )}
     </>
   );
+  // What acts on the whole review, in its title row: the pull request's
+  // comments, then Copy comments.
+  const reviewActions = (
+    <>
+      {state.savedReview?.pullRequestUrl && (
+        <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
+      )}
+      {savedHeader(true)}
+    </>
+  );
+  // ⋯: what the second row folds away when narrow, before its pages.
+  const rowMore = quietFolded && (
+    <ActionMenu label="More actions" trigger={[ui.button, ui.iconButton]} sections={quietSections}>
+      <Icon name="more" size={15} />
+    </ActionMenu>
+  );
+  // The review's name: its pull request's, when it has one.
+  const pullName = shownLayer?.pullRequestUrl ? (
+    <PullRequestTitle
+      url={shownLayer.pullRequestUrl}
+      title={shownLayer.pullRequestTitle ?? shownLayer.title}
+    />
+  ) : (
+    state.savedReview?.pullRequestUrl && (
+      <PullRequestTitle
+        url={state.savedReview.pullRequestUrl}
+        title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+        pull={pullRequest.data?.pull}
+      />
+    )
+  );
   const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
-  const mainHeader = (controls: ReactNode) => (
+  const display: DisplayOptions = {
+    layout: { mode, canSplit: roomy, set: setMode },
+    wrap: { on: wrap, toggle: () => setWrap(!wrap) },
+    comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
+    size: { value: codeSize, set: (size) => viewSettings.codeSize.set(size) },
+  };
+  const reviewName = pullName || (
+    <ReviewTitle
+      reviewed={!!state.savedReview}
+      title={
+        state.savedReview
+          ? (threadName ?? state.savedReview.title)
+          : (state.session?.repository.path.split("/").at(-1) ?? "Changes")
+      }
+    />
+  );
+  // The review's title row goes up into the window's title band where the
+  // review reaches the band: over the band's end beside another pane, when
+  // its column has room for the row, or leading the band alone. Elsewhere it
+  // is the header's first row.
+  const mainHeader = (controls: ReactNode, place: PanePlace | null) => {
+    const band =
+      bandShown && place?.top && place.right
+        ? place.left
+          ? "lead"
+          : place.treeWidth - place.x >= BAND_ROW_MIN
+            ? "cover"
+            : null
+        : null;
+    return (
+      <>
+        {band === "lead" && (
+          <InTitleBand
+            lead={reviewName}
+            trail={<ReviewActions actions={reviewActions} display={display} />}
+          />
+        )}
+        {band === "cover" && place && (
+          <InTitleBand
+            cover={
+              <ReviewTitleRow
+                name={reviewName}
+                actions={reviewActions}
+                display={display}
+                width={place.treeWidth - place.x + PANE_GAP}
+              />
+            }
+          />
+        )}
+        {mainHeaderRows(controls, band === null)}
+      </>
+    );
+  };
+  const mainHeaderRows = (controls: ReactNode, titled: boolean) => (
     <>
       <ReviewHeader
         session={
@@ -5574,23 +5659,23 @@ export function App({
             ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
             : undefined
         }
-        reviewed={!!state.savedReview}
-        title={
-          state.savedReview
-            ? (threadName ?? state.savedReview.title)
-            : (state.session?.repository.path.split("/").at(-1) ?? "Changes")
-        }
-        branch={
-          identityShown ? undefined : (threadTarget?.branch ?? state.activeBranch ?? undefined)
+        identity={
+          titled && (
+            <ReviewTitleRow
+              name={reviewName}
+              branch={
+                identityShown
+                  ? undefined
+                  : (threadTarget?.branch ?? state.activeBranch ?? undefined)
+              }
+              actions={reviewActions}
+              display={display}
+            />
+          )
         }
         lead={leading}
-        trail={quietTrailing}
-        display={{
-          layout: { mode, canSplit: roomy, set: setMode },
-          wrap: { on: wrap, toggle: () => setWrap(!wrap) },
-          comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
-          size: { value: codeSize, set: (size) => viewSettings.codeSize.set(size) },
-        }}
+        tools={pageTools}
+        more={rowMore}
         pages={plainHeader ? [] : reviewPages}
         page={shownPage}
         onPage={selectTab}
@@ -5953,10 +6038,10 @@ export function App({
       hide: REVIEW_HIDE,
       // The review hides only beside another pane.
       ...(sessionVisible && { onClose: () => closePane("review") }),
-      render: (controls: ReactNode) => (
+      render: (controls: ReactNode, place: PanePlace | null) => (
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
           {linkError}
-          {mainHeader(controls)}
+          {mainHeader(controls, place)}
           {state.status === "loading" && (
             <span role="presentation" {...stylex.props(styles.loadingTrack, styles.rowLoading)}>
               <span {...stylex.props(styles.loadingBar)} />
@@ -6510,28 +6595,16 @@ export function App({
       >
         {!workspace && <BranchStrip model={branches} />}
         {branchPicker}
-        {/* A stack's band names the shown layer's pull request. */}
-        {shownLayer?.pullRequestUrl && (
+        {/* While the review hides, the band still names its pull request (a
+            stack's: the shown layer's); otherwise its title row does. */}
+        {!reviewVisible && pullName && (
           <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={shownLayer.pullRequestUrl}
-                title={shownLayer.pullRequestTitle ?? shownLayer.title}
-              />
-            }
-          />
-        )}
-        {state.savedReview?.pullRequestUrl && !shownLayer?.pullRequestUrl && (
-          <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={state.savedReview.pullRequestUrl}
-                title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-                pull={pullRequest.data?.pull}
-              />
-            }
+            lead={pullName}
             trail={
-              <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
+              !shownLayer?.pullRequestUrl &&
+              state.savedReview?.pullRequestUrl && (
+                <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
+              )
             }
           />
         )}
@@ -6683,6 +6756,10 @@ const toastRise = stylex.keyframes({
   from: { opacity: 0, transform: "translate(-50%, 8px)" },
   to: { opacity: 1, transform: "translate(-50%, 0)" },
 });
+/** The narrowest review column whose title row goes up into the title band:
+ * room for its actions, and window controls at the band's end. */
+const BAND_ROW_MIN = 360;
+
 const styles = stylex.create({
   // The workspace fills its place in the window's shell.
   app: {

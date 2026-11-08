@@ -230,16 +230,21 @@ try {
   await page.locator(".cm-content").focus();
   await page.keyboard.type("gg0iDraft from Med\n");
   await page.keyboard.press("Escape");
+  // The unsaved dot is beside the tab's name, in the same tab strip.
   await page
-    .getByRole("tab", { name: /Nested.md/ })
+    .getByRole("tablist", { name: "Open files" })
     .getByLabel("Unsaved changes", { exact: true })
+    .first()
     .waitFor();
   await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Save or discard" }).waitFor();
   await tree.getByRole("treeitem", { name: "Target.md", exact: true }).click();
   await page.getByRole("tab", { name: /Nested.md/ }).click();
   assert.match(await page.locator(".cm-content").innerText(), /Draft from Med/);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The header has no Save: Vim's :w saves, as ⌘S does.
+  await page.locator(".cm-content").focus();
+  await page.keyboard.type(":w");
+  await page.keyboard.press("Enter");
   await until(async () =>
     (await readFile(join(vault, "Notes", "Nested.md"), "utf8")).startsWith("Draft from Med\n"),
   );
