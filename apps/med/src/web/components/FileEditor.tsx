@@ -686,6 +686,13 @@ export default function FileEditor({
         });
       },
     });
+    // A key that waits for more, such as g, z, or a count, keeps the block
+    // cursor; as in Vim, only an operator (d, c, y…) that waits for its motion
+    // draws the half block, which the cursor takes from a pending status.
+    cm.on("vim-keypress", () => {
+      const vim = cm.state.vim as { status?: string; inputState?: { operator?: unknown } };
+      if (vim && !vim.inputState?.operator) vim.status = "";
+    });
     // Vim signals before executing the operator. Observe its completed yank in
     // the same input task; register 0 changes even when yanking identical text.
     cm.on("vim-command-done", () => {
