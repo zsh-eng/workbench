@@ -25,7 +25,6 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Toggle the page's sidebar / side panel | `⌘⌥B` / `⌘⌥⇧B`  |
 | Next permission mode (message)         | `⇧Tab`          |
 | New thread                             | `⌥N`            |
-| Previous / next attempt                | `←` / `→`       |
 | Focus the next pane                    | `⌘⌥←`           |
 | Move the focused pane                  | `⌘⌥⇧←`          |
 | Zoom the focused pane                  | `⌘E`            |

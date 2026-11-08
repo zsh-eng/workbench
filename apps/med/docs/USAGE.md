@@ -7,6 +7,10 @@ on `127.0.0.1:6330`. Your code, reviews, and comments stay on your Mac.
 
 ![The agent's session beside the review of its change](screenshots/app/window.webp)
 
+[Med's user flows](USER_FLOWS.md) walks through the everyday paths: a
+change and its review, asking for changes, stacked pull requests, questions
+about code, pull requests, files and notes, and how agents use Med.
+
 ## The words
 
 - A **source** is a repository, or a vault of Markdown notes, that you added
