@@ -29,7 +29,7 @@ type SearchSession = {
 };
 export type FileNavigationCommand = (key: string, control?: boolean) => void;
 /** Imperative cursor painting keeps movement out of React and Pierre tokenization. */
-export function useFileVim({
+export function useFileVim<Annotation = undefined>({
   text,
   identity,
   enabled,
@@ -40,11 +40,12 @@ export function useFileVim({
   onNavigationReady,
   onDefinition,
   onPosition,
+  onAnnotate,
 }: {
   text: string;
   identity: string;
   enabled: boolean;
-  viewer: RefObject<CodeViewHandle<undefined, undefined> | null>;
+  viewer: RefObject<CodeViewHandle<Annotation, undefined> | null>;
   line?: number;
   column?: number;
   /** A new value jumps to `line` again. */
@@ -52,7 +53,13 @@ export function useFileVim({
   onNavigationReady?: (command: FileNavigationCommand | null) => void;
   onDefinition?: (name: string) => void;
   onPosition?: (line: number, reason: "cursor") => void;
+  /** `gc` or `ga`: the lines, from 1, of the selection or else the cursor. */
+  onAnnotate?: (kind: "comment" | "ask", line: number, endLine: number) => void;
 }) {
+  const annotateListener = useRef(onAnnotate);
+  useLayoutEffect(() => {
+    annotateListener.current = onAnnotate;
+  }, [onAnnotate]);
   const positionListener = useRef(onPosition);
   useLayoutEffect(() => {
     positionListener.current = onPosition;
@@ -372,6 +379,19 @@ export function useFileVim({
     event.preventDefault();
     setCopyState({ file: commandFile, message: "Copied selection", error: false });
   };
+  // The visual lines, else the cursor's; the selection ends as the box opens.
+  const annotate = useCallback(
+    (kind: "comment" | "ask") => {
+      const range = model.visualRange;
+      const start = range ? range.startLine : model.line;
+      const end = range ? range.endLine : model.line;
+      cancelCopies();
+      model.clearVisual();
+      paint();
+      annotateListener.current?.(kind, start + 1, end + 1);
+    },
+    [model, paint, cancelCopies],
+  );
   const command = useCallback<FileNavigationCommand>(
     (key, control = false) => {
       active.current = true;
@@ -391,6 +411,7 @@ export function useFileVim({
       }
       if (result.lineCommand) beginLineCommand();
       if (result.definition !== undefined) onDefinition?.(result.definition);
+      if (result.annotate) annotate(result.annotate);
       if (result.handled && !result.copy) {
         cancelCopies();
         setCopyState(null);
@@ -407,6 +428,7 @@ export function useFileVim({
       copySelection,
       cancelCopies,
       onDefinition,
+      annotate,
     ],
   );
   useLayoutEffect(() => {
@@ -495,6 +517,7 @@ export function useFileVim({
     }
     if (result.lineCommand) beginLineCommand();
     if (result.definition !== undefined) onDefinition?.(result.definition);
+    if (result.annotate) annotate(result.annotate);
     if (result.copy) void copySelection();
     else {
       cancelCopies();

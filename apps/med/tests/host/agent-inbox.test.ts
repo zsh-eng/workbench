@@ -196,3 +196,84 @@ test("a comment on a passage of the Notes counts, and copies with its quote", as
   expect(removed.briefComments).toBeUndefined();
   expect(removed.commentCount).toBe(1);
 });
+
+test("a comment on a file goes to the agent with its lines, and the agent's reply can resolve it", async () => {
+  const { api, repo, saved, commentId } = await fixture();
+  const comment = (mutation: unknown) => api(`/api/reviews/${saved.id}/file-comments`, mutation);
+  const add = {
+    source: { kind: "worktree", repo },
+    path: "src/queue.ts",
+    line: 3,
+    endLine: 4,
+    quote: "if (item.attempts > MAX) {\n  return null;",
+    text: "Park it in the dead-letter list instead.",
+  };
+  const commented = (await comment({ add })).data as SavedReview;
+  expect(commented.fileComments).toMatchObject([{ ...add, replies: [] }]);
+  expect(commented.commentCount).toBe(2);
+  const id = commented.fileComments![0]!.id;
+  // More lines than a comment takes.
+  expect((await comment({ add: { ...add, line: 1, endLine: 401 } })).status).toBe(400);
+
+  // Unsent, it waits in the message box with the review's comments.
+  const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
+  expect((await inbox()).drafts).toMatchObject([
+    { id: commentId, path: "summary.ts" },
+    { id, path: "src/queue.ts", line: 3, endLine: 4, text: add.text, replies: 0 },
+  ]);
+  const feedback = (await api(`/api/reviews/${saved.id}/feedback`)).data as {
+    text: string;
+    count: number;
+  };
+  expect(feedback.count).toBe(2);
+  const short = id.slice(0, 6);
+  expect(feedback.text).toContain(
+    `## ${short} · src/queue.ts:3-4 (a file, not the review's change; in the working tree of repo)\n\`\`\`\n3 | if (item.attempts > MAX) {\n4 |   return null;\n\`\`\`\n\nPark it in the dead-letter list instead.`,
+  );
+  expect(feedback.text).toContain(`med reply ${short} --resolve`);
+
+  // `med reply` finds the review by the comment's first characters.
+  const found = (await api(`/api/comments/${short}`)).data as { reviews: { id: string }[] };
+  expect(found.reviews.map((review) => review.id)).toEqual([saved.id]);
+  // Only a comment on a file resolves.
+  expect(
+    (
+      await api(`/api/reviews/${saved.id}/agent/reply`, {
+        commentId,
+        text: "Done.",
+        resolve: true,
+      })
+    ).status,
+  ).toBe(409);
+  const replied = await api(`/api/reviews/${saved.id}/agent/reply`, {
+    commentId: short,
+    text: "Moved it to the dead-letter list.",
+    resolve: true,
+  });
+  expect(replied.status).toBe(200);
+  const answered = (await api(`/api/reviews/${saved.id}`)).data as SavedReview;
+  expect(answered.fileComments![0]).toMatchObject({
+    replies: [{ text: "Moved it to the dead-letter list.", author: { agent: "codex" } }],
+    resolved: { by: { agent: "codex" } },
+  });
+  expect(answered.commentCount).toBe(3);
+  // Resolved, it leaves the message box and the copied comments.
+  expect((await inbox()).drafts.map((draft) => draft.id)).toEqual([commentId]);
+  expect(
+    ((await api(`/api/reviews/${saved.id}/feedback`)).data as { text: string }).text,
+  ).not.toContain(short);
+
+  // The user opens it again, and a reply of theirs makes it a draft to send.
+  await comment({ reopen: id });
+  const reopened = (await comment({ reply: { id, text: "Also log it once." } }))
+    .data as SavedReview;
+  expect(reopened.fileComments![0]!.resolved).toBeUndefined();
+  expect(reopened.fileComments![0]!.replies.map((reply) => reply.text)).toEqual([
+    "Moved it to the dead-letter list.",
+    "Also log it once.",
+  ]);
+  expect((await inbox()).drafts.map((draft) => draft.id)).toEqual([commentId, id]);
+  const removed = (await comment({ remove: id })).data as SavedReview;
+  expect(removed.fileComments).toBeUndefined();
+  expect(removed.commentCount).toBe(1);
+});

@@ -95,6 +95,11 @@ To answer one in its thread, where the user reads it (a question they asked on
 a line, or why you left a change out), run `med reply 6f1c9e <<'END'` with the
 answer, then `END`. Your final message still says what you did.
 
+A comment whose heading says "a file, not the review's change" is on a file
+in the thread's checkout. Do what it asks, then answer with
+`med reply <id> --resolve` and what you did; the user can open it again. Hand
+off a review only if the user asks, or if the change is one to review.
+
 ## Threads and sessions
 
 `med thread list | open | close`, and `med thread find` / `adopt` to bring an

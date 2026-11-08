@@ -114,8 +114,12 @@ Use a reply for a question the user asked on a line, or to say why you left a
 change out; your final message still says what you did. Med finds the review
 by the comment, trying the thread's review (MED_THREAD_KEY) first; --key names
 the review when the ID is in more than one. med review reply is the same.
-Options: --text <text|->, --key <key>, --session <agent:id>, --port <port>,
---state-dir <path>`;
+
+A comment on a file (its heading says "a file, not the review's change") has
+no next review version to show what you did. Add --resolve when you have done
+what it asks; the reply says what you did, and the user can open it again.
+Options: --text <text|->, --key <key>, --resolve, --session <agent:id>,
+--port <port>, --state-dir <path>`;
 
 /**
  * Takes `--paths a b c` (and `--paths=a`) out of the arguments: the words
@@ -195,6 +199,8 @@ export interface ReviewCommand {
     commentId: string;
     text: string;
     session?: AgentSession;
+    /** A comment on a file is done. */
+    resolve?: boolean;
   };
   /** For update: the review's key and its new details. With `paths`, a new
    * version shows those files' uncommitted changes in `repo` (or the
@@ -349,6 +355,7 @@ export async function parseReviewCommand(
       json: { type: "boolean" },
       comment: { type: "string" },
       text: { type: "string" },
+      resolve: { type: "boolean" },
     },
   });
   // The Claude Code session that runs this command, and why Med left it out.
@@ -385,6 +392,8 @@ export async function parseReviewCommand(
     throw new UsageError("Use --json with create or repos.");
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
     throw new UsageError("Use --generated with create, or with update --paths.");
+  if (values.resolve && positionals[0] !== "reply")
+    throw new UsageError("Use --resolve with reply.");
   if (positionals[0] === "reply") {
     const [, id = values.comment, ...words] = positionals;
     if (!id)
@@ -421,6 +430,7 @@ export async function parseReviewCommand(
         commentId: id.toLowerCase(),
         text,
         ...(session && { session }),
+        ...(values.resolve && { resolve: true }),
       },
     };
   }
@@ -1006,12 +1016,13 @@ async function replyToComment(
   connection: RunningConnection,
   fetcher: typeof fetch,
 ) {
-  const { key, threadKey, commentId, text, session } = reply;
+  const { key, threadKey, commentId, text, session, resolve } = reply;
   const send = (id: string) =>
     request(connection, `/api/reviews/${id}/agent/reply`, fetcher, {
       commentId,
       text,
       ...(session && { session: { agent: session.agent, id: session.id } }),
+      ...(resolve && { resolve: true }),
     });
   if (key) {
     await send((await reviewByKey(connection, key, fetcher)).id);

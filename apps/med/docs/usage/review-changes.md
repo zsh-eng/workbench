@@ -166,6 +166,23 @@ A sent comment leaves the drafts until you edit it or reply to it. Each message 
 each comment that it sent, from the same read as the agent's text, so an
 edit while Med sends stays a draft.
 
+### Comment on a file
+
+In a thread, you can comment on any file that you open, not only on the
+change: press `gc` on a line, or on lines selected in Visual mode, or click
+the **+** beside a line. The box opens under the lines. **Send to** the
+agent, such as **Send to Claude** (`⌘↵`), sends it now, or at the agent's
+next step while it works; **Queue** (`⌥↵`) waits for its turn to end; **Add
+to message** keeps it with the thread's other comments. The comment stays under its last line, as on a page
+that people comment on together. The agent gets the file's path, the lines
+as they were, and your text; it answers in the comment's thread
+(`med reply <id>`) and, when it has done what you asked, resolves it
+(`med reply <id> --resolve`). A resolved comment says who resolved it;
+**Reopen** opens it again, and so does your reply. `ga` asks the agent about
+the lines instead, in the **Question** pane, as **Ask** does in a diff. A
+comment covers at most 400 lines. Without a session that Med runs, the
+comment waits in the message box, to send or copy with the others.
+
 ## Full-file change markers
 
 A whole file opened from a diff marks added lines with green gutter bars and

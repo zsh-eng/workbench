@@ -167,6 +167,7 @@ import type { SessionEvent } from "../shared/agent-session";
 import {
   pinMutationSchema,
   briefCommentMutationSchema,
+  fileCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
   savedReviewDetailsSchema,
@@ -1624,7 +1625,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               }
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
-            const { briefComments, sessions, revision } = await savedReviews.get(reviewId);
+            const { briefComments, fileComments, sessions, revision } =
+              await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
@@ -1651,6 +1653,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   text: comment.text,
                   replies: 0,
                 })),
+                ...(fileComments ?? [])
+                  .filter((comment) => !comment.resolved && unsent(comment))
+                  .map((comment) => ({
+                    id: comment.id,
+                    path: comment.path,
+                    line: comment.line,
+                    ...(comment.endLine ? { endLine: comment.endLine } : {}),
+                    text: comment.text,
+                    replies: comment.replies.length,
+                  })),
               ],
             };
           };
@@ -1859,6 +1871,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
                   })
                   .optional(),
+                /** A comment on a file is done (`med reply --resolve`). */
+                resolve: z.boolean().optional(),
               })
               .parse(await readBody(request));
             const session =
@@ -1876,7 +1890,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               : input.session
                 ? { agent: input.session.agent, sessionId: input.session.id }
                 : { agent: "acp" as const };
-            const note = await savedReviews.reply(reviewId, input.commentId, input.text, author);
+            const note = await savedReviews.reply(
+              reviewId,
+              input.commentId,
+              input.text,
+              author,
+              undefined,
+              { resolve: input.resolve },
+            );
             // Open pages read the comments again.
             inbox.touch(reviewId);
             send({ note });
@@ -2483,7 +2504,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|file-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2748,6 +2769,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   input.part,
                 ),
               );
+              return;
+            }
+            if (request.method === "POST" && action === "file-comments") {
+              const input = fileCommentMutationSchema.parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.commentFile(id!, input, assertRequestAccess));
+              inbox.touch(id!);
               return;
             }
             if (request.method === "POST" && action === "brief-comments") {

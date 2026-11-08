@@ -129,6 +129,7 @@ import {
   FullFileView,
   preloadFileEditor,
   type BeginFileSymbolPreview,
+  type FileComments,
 } from "./components/FullFileView";
 import { preloadable } from "./components/preloadable";
 import { FileViewTabs } from "./components/FileViewTabs";
@@ -190,7 +191,7 @@ import { findDefinitions } from "./data/definitions";
 import type { SymbolSearch } from "../shared/symbols";
 import { matchReviewFile, parseBriefHref } from "./data/brief";
 import { questionExcerpt, useQuestion } from "./data/questions";
-import { questionComment } from "../shared/questions";
+import { MAX_QUESTION_LINES, questionComment } from "../shared/questions";
 import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
@@ -2728,6 +2729,46 @@ export function App({
     paneRoot,
     mainElement,
   ]);
+  // `ga` in a file: the same pane, about the file's lines as they are.
+  const askAboutFile = useCallback(
+    (
+      source: BrowseSource,
+      path: string,
+      lines: { line: number; endLine: number; text: string[] },
+    ) => {
+      if (!askThread || !askAgent) return;
+      const end = Math.min(lines.endLine, lines.line + MAX_QUESTION_LINES - 1);
+      const text = lines.text.slice(0, end - lines.line + 1);
+      const where =
+        source.kind === "commit" ? `at commit ${source.oid.slice(0, 12)}` : "in the working tree";
+      const opened = openQuestion({
+        thread: askThread,
+        agent: askAgent,
+        reviewId: undefined,
+        note: { path, side: "new", line: lines.line, endLine: end },
+        file: { source, path, line: lines.line, endLine: end, quote: text.join("\n") },
+        excerpt: {
+          path,
+          side: "new",
+          start: lines.line,
+          end,
+          where,
+          lines: text.map((line, index) => ({
+            number: lines.line + index,
+            mark: " ",
+            text: line.slice(0, 4000),
+          })),
+        },
+      });
+      if (!opened) return;
+      if (!paneOpen("question")) questionLayout.current = paneRoot;
+      const place = PANE_PLACES.question!;
+      const row = mainElement?.closest("[data-pane-tree]")?.clientWidth ?? 0;
+      const share = row ? Math.min(0.5, Math.max(place.share, QUESTION_WIDTH / row)) : place.share;
+      showInTree("question", { ...place, share });
+    },
+    [askThread, askAgent, openQuestion, showInTree, paneOpen, paneRoot, mainElement],
+  );
   const closeQuestion = useCallback(() => {
     discardQuestion();
     closePaneTo("question", questionLayout.current);
@@ -2739,6 +2780,21 @@ export function App({
   const keepQuestion = useCallback(async () => {
     const view = questionView;
     if (!view?.asked || !view.state?.answer.trim()) return;
+    if (view.target.file) {
+      try {
+        await controller.commentFile({
+          add: {
+            ...view.target.file,
+            text: questionComment(view.asked, view.target.agent, view.state.answer),
+          },
+        });
+      } catch (error) {
+        failQuestion(error instanceof Error ? error.message : "Could not save the comment.");
+        return;
+      }
+      closeQuestion();
+      return;
+    }
     if (controller.getSnapshot().review?.id !== view.target.reviewId) {
       failQuestion(
         "The review shows other changes now. Show these lines again to keep the answer.",
@@ -2760,6 +2816,69 @@ export function App({
     setShowNotes(true);
     closeQuestion();
   }, [questionView, controller, failQuestion, closeQuestion]);
+  // Comments on the open file's lines go to the thread's agent as the
+  // review's comments do: they wait in the message box until sent, and the
+  // agent answers and resolves them in their threads (FileComments.tsx).
+  const savedThread = state.savedReview;
+  const activeFileSource = activeFile?.source;
+  const activeFilePath = activeFile?.path;
+  const fileComments = useMemo<FileComments | undefined>(() => {
+    if (!savedThread || activeFilePath === undefined || !activeFileSource) return undefined;
+    if (activeFileSource.kind === "vault") return undefined;
+    const source = activeFileSource;
+    const same = (other: BrowseSource) =>
+      other.kind === source.kind &&
+      other.repo === source.repo &&
+      (other.kind !== "commit" || (source.kind === "commit" && other.oid === source.oid));
+    const send = async (id: string, how: "send" | "queue") => {
+      if (!leadSession) throw new Error("This thread has no agent to send to.");
+      await sendAgentMessage({
+        id: crypto.randomUUID(),
+        sessionId: leadSession.id,
+        text: "",
+        noteIds: [id],
+        attachments: [],
+        images: [],
+        ...(how === "queue" ? { afterTurn: true } : {}),
+      });
+    };
+    return {
+      threads: (savedThread.fileComments ?? []).filter(
+        (comment) => comment.path === activeFilePath && same(comment.source),
+      ),
+      unsent: new Set(inboxState?.drafts.map((draft) => draft.id) ?? []),
+      agent: commentAgent ? { name: commentAgent.name, mark: commentAgent.mark } : null,
+      async add(lines, text, how) {
+        const before = new Set(
+          (controller.getSnapshot().savedReview?.fileComments ?? []).map((comment) => comment.id),
+        );
+        const next = await controller.commentFile({
+          add: { source, path: activeFilePath, ...lines, text },
+        });
+        const added = next?.fileComments?.find((comment) => !before.has(comment.id));
+        if (how !== "keep" && added) await send(added.id, how);
+      },
+      async mutate(mutation) {
+        await controller.commentFile(mutation);
+      },
+      send,
+      ...(askThread && askAgent
+        ? { ask: (lines) => askAboutFile(source, activeFilePath, lines) }
+        : {}),
+    };
+  }, [
+    savedThread,
+    activeFileSource,
+    activeFilePath,
+    leadSession,
+    sendAgentMessage,
+    inboxState,
+    commentAgent,
+    controller,
+    askThread,
+    askAgent,
+    askAboutFile,
+  ]);
   // A layout kept from before a reload names a question that is gone.
   const questionShown = panes.isOpen("question");
   useEffect(() => {
@@ -3975,6 +4094,22 @@ export function App({
       disabled: !activeFile || fileState.file?.kind !== "text",
       run: () => runFileNavigation(keys, control),
     })),
+    {
+      id: "vim-file-comment",
+      managesFocus: true,
+      label: "Comment on the file's line or selected lines, for the agent",
+      shortcut: "gc",
+      disabled: !fileComments || fileState.file?.kind !== "text",
+      run: () => runFileNavigation("gc"),
+    },
+    {
+      id: "vim-file-ask",
+      managesFocus: true,
+      label: "Ask the agent about the file's line or selected lines",
+      shortcut: "ga",
+      disabled: !fileComments?.ask || fileState.file?.kind !== "text",
+      run: () => runFileNavigation("ga"),
+    },
     {
       id: "file-symbols",
       managesFocus: true,
@@ -6592,6 +6727,7 @@ export function App({
             {activeFile && (
               <FullFileView
                 editor={fileEditor}
+                comments={fileComments}
                 file={fileState.file}
                 // A vault's file names its vault: the workspace names only its checkout.
                 path={

@@ -1,4 +1,5 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
+import type { FileCommentInput } from "../../shared/saved-review";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAX_QUESTION_LINES,
@@ -46,6 +47,9 @@ export interface QuestionTarget {
   /** The review whose comments Keep adds to. */
   reviewId: string | undefined;
   note: { path: string; side: "old" | "new"; line: number; endLine: number };
+  /** A question about a file's lines, not a change's: Keep makes a comment on
+   * the file (FileComments.tsx). */
+  file?: Omit<FileCommentInput, "text">;
   excerpt: QuestionExcerpt;
 }
 

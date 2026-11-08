@@ -25,7 +25,7 @@
   white-space: nowrap;
   flex: 1;
 }
-.med-editor button {
+.med-editor button:not(.med-editor-comment button) {
   color: inherit;
   background: transparent;
   border: 1px solid var(--edit-border);
@@ -33,10 +33,10 @@
   padding: 3px 9px;
   cursor: pointer;
 }
-.med-editor button:active {
+.med-editor button:not(.med-editor-comment button):active {
   transform: scale(0.96);
 }
-.med-editor button:disabled {
+.med-editor button:not(.med-editor-comment button):disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -190,4 +190,24 @@
 .med-editor .cm-editor[data-scrolling] .cm-fat-cursor,
 .med-editor .cm-editor[data-scrolling] .cm-cursor {
   transition: none;
+}
+
+/* A comment on the file, or the box to write one, under its last line. */
+.med-editor-comment {
+  padding: 2px 0;
+  cursor: auto;
+}
+/* The + beside a line opens a comment on it, or on the lines selected. */
+.med-editor-comment-gutter .cm-gutterElement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--edit-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.med-editor-comment-gutter .cm-gutterElement:hover {
+  opacity: 1;
+  color: var(--edit-fg);
 }

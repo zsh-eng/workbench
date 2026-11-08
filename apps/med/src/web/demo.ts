@@ -68,6 +68,80 @@ const recording: Recording = await fetch(new URL(file, document.baseURI)).then((
   response.json(),
 );
 if (scene === "replies") answerComment(recording);
+if (scene === "files") commentedFile(recording);
+
+/** Med runs the thread's session, so a comment goes to it from the comment. */
+function ownSessions(recording: Recording) {
+  const rewrite = (text: string, change: (value: any) => void) =>
+    text.replace(/^data: (.*)$/gm, (_line, json: string) => {
+      const value = JSON.parse(json);
+      change(value);
+      return `data: ${JSON.stringify(value)}`;
+    });
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET") continue;
+    const path = entry.url.split("?")[0]!;
+    if (!/\/agent(\/events)?$/.test(path)) continue;
+    const own = (state: AgentInboxState) => {
+      const review = recording.entries.find(
+        (other) => other.method === "GET" && /^\/api\/reviews\/r_[a-f0-9]+$/.test(other.url),
+      );
+      const sessions = review ? (JSON.parse(review.text) as SavedReview).sessions : undefined;
+      state.owned = [
+        ...new Set([
+          ...state.messages.map((message) => message.sessionId),
+          ...(sessions ?? []).map((session) => session.id),
+        ]),
+      ];
+    };
+    if (path.endsWith("/events")) {
+      entry.text = rewrite(entry.text, own);
+      for (const chunk of entry.chunks ?? []) chunk.text = rewrite(chunk.text, own);
+    } else {
+      const state = JSON.parse(entry.text) as AgentInboxState;
+      own(state);
+      entry.text = JSON.stringify(state);
+    }
+  }
+}
+
+/**
+ * The files scene: a comment on lines of a file that the agent answered and
+ * resolved (`med reply --resolve`), and Med runs the agent's session.
+ */
+function commentedFile(recording: Recording) {
+  ownSessions(recording);
+  const at = (minutes: number) => new Date(recording.recordedAt - minutes * 60_000).toISOString();
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET" || !/^\/api\/reviews\/r_[a-f0-9]+$/.test(entry.url)) continue;
+    const saved = JSON.parse(entry.text) as SavedReview;
+    saved.fileComments = [
+      {
+        id: "f11e0c00-0000-4000-8000-000000000001",
+        source: { kind: "worktree", repo: "/work/trailhead" },
+        path: "src/search/query.ts",
+        line: 18,
+        endLine: 22,
+        quote:
+          '  return value\n    .normalize("NFD")\n    .replace(/[\\u0300-\\u036f]/g, "")\n    .toLowerCase()\n    .trim();',
+        text: "This runs on every keystroke for every trail. Normalize the names once, when the trails load.",
+        createdAt: at(14),
+        updatedAt: at(14),
+        replies: [
+          {
+            id: "f11e0c00-0000-4000-8000-000000000002",
+            text: "Done: the index keeps each trail's normalized name, built once in `loadTrails`, and the search compares against it. The 2,400-trail fixture filters in 3 ms instead of 41.",
+            author: { agent: "claude" },
+            createdAt: at(9),
+          },
+        ],
+        resolved: { at: at(9), by: { agent: "claude" } },
+      },
+    ];
+    saved.commentCount += 2;
+    entry.text = JSON.stringify(saved);
+  }
+}
 
 /**
  * The replies scene: Med runs the agent's session, and the agent has
@@ -616,6 +690,71 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
     },
   ],
   [
+    "POST",
+    /^\/api\/reviews\/([^/]+)\/file-comments$/,
+    (_url, body, [, id]) => {
+      const now = new Date().toISOString();
+      const saved = changeReview(id!, (saved) => {
+        const comments = saved.fileComments ?? [];
+        const find = (target: string) => comments.find((item) => item.id === target);
+        if ("add" in body) {
+          comments.push({
+            ...body.add,
+            id: crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+            replies: [],
+          });
+          saved.commentCount += 1;
+        } else if ("edit" in body) {
+          const comment = find(body.edit.id);
+          if (comment) Object.assign(comment, { text: body.edit.text, updatedAt: now });
+        } else if ("reply" in body) {
+          const comment = find(body.reply.id);
+          comment?.replies.push({ id: crypto.randomUUID(), text: body.reply.text, createdAt: now });
+          if (comment) {
+            comment.updatedAt = now;
+            delete comment.resolved;
+          }
+          saved.commentCount += 1;
+        } else if ("resolve" in body) {
+          const comment = find(body.resolve);
+          if (comment) comment.resolved = { at: now };
+        } else if ("reopen" in body) {
+          const comment = find(body.reopen);
+          if (comment) delete comment.resolved;
+        } else {
+          const index = comments.findIndex((item) => item.id === body.remove);
+          if (index >= 0) {
+            saved.commentCount -= 1 + comments[index]!.replies.length;
+            comments.splice(index, 1);
+          }
+        }
+        saved.fileComments = comments;
+      });
+      const state = inbox(id!);
+      const files = new Set((saved.fileComments ?? []).map((comment) => comment.id));
+      const sent = new Set(state.messages.flatMap((message) => message.noteIds));
+      setInbox(id!, {
+        ...state,
+        drafts: [
+          ...state.drafts.filter((draft) => !files.has(draft.id)),
+          ...(saved.fileComments ?? [])
+            .filter((comment) => !comment.resolved && !sent.has(comment.id))
+            .map((comment) => ({
+              id: comment.id,
+              path: comment.path,
+              line: comment.line,
+              ...(comment.endLine ? { endLine: comment.endLine } : {}),
+              text: comment.text,
+              replies: comment.replies.length,
+            })),
+        ],
+      });
+      return saved;
+    },
+  ],
+  [
     "GET",
     /^\/api\/reviews\/([^/]+)\/feedback$/,
     (_url, _body, [, id]) => {
@@ -1042,6 +1181,38 @@ const scenes: Record<string, () => Promise<void>> = {
       await until(() => marks("unstage").length > count);
     }
   },
+  // A file in the thread: a comment that the agent resolved, and a new one
+  // that `gc` opened under the lines that Visual mode selected.
+  async files() {
+    await review({ sidebar: false, session: true }, "Review");
+    dispatchEvent(
+      new KeyboardEvent("keydown", { key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
+    );
+    await until(() => visible("input[aria-label='Find file']"));
+    const find = visible("input[aria-label='Find file']") as HTMLInputElement;
+    await type(find, "query.ts", 0);
+    await until(() =>
+      all<HTMLElement>("[role='option']").some((node) => node.textContent?.includes("query.ts")),
+    );
+    find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    // A file of the worktree opens in the editor, where Vim takes the keys.
+    const content = () => visible("section[aria-label='File editor'] .cm-content");
+    await until(() => content() && visible("[data-file-comment]"));
+    const [{ EditorView }, { Vim, getCM }] = await Promise.all([
+      import("@codemirror/view"),
+      import("@replit/codemirror-vim"),
+    ]);
+    const editor = EditorView.findFromDOM(content()!)!;
+    editor.focus();
+    const cm = getCM(editor)!;
+    for (const key of "36GVjgc") Vim.handleKey(cm, key, "user");
+    await until(() => visible("[data-file-comment-box] textarea"));
+    await type(
+      visible("[data-file-comment-box] textarea") as HTMLTextAreaElement,
+      "Accept miles too, as under:8mi, and convert them to km here.",
+      0,
+    );
+  },
   // A note in the vault, as it reads.
   async notes() {
     // The file tree renders in its own shadow root. A click selects the
@@ -1072,6 +1243,7 @@ const parts: Record<string, () => HTMLElement | undefined> = {
       ? (visible("[aria-label='Changed files']")?.parentElement ?? undefined)
       : visible("[role='tabpanel'][aria-label='Commit']"),
   notes: () => visible("#vault-file-panel"),
+  files: () => visible("section[aria-label='Full file']"),
 };
 // The Screens page shows the whole window (`?full`).
 const find = params.has("full") ? undefined : parts[scene];
