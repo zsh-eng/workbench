@@ -63,8 +63,15 @@ export const screens: readonly Screen[] = [
   {
     id: "file-comments",
     label: "Comment in a file",
-    note: "In a thread, gc or the + beside a line comments on the lines of any file, in the editor too. Send to Claude gives the comment to the agent now, Queue after its turn; the agent answers under it and resolves it, and Reopen opens it again. ga asks about the lines instead.",
+    note: "gc, or the + beside a line, comments on any file's lines. The arrow sends it to the agent now, the clock after its turn; the agent answers under it and resolves it. Its actions show on hover. ga asks about the lines instead.",
     scene: "files",
+    recording: "recording.json",
+  },
+  {
+    id: "comments",
+    label: "All comments",
+    note: "The header's comment button lists the thread's comments, on the diff and on files, newest first, with the open ones' count. A dot marks one not sent yet; the filter shows the resolved ones; a comment opens at its lines.",
+    scene: "comments",
     recording: "recording.json",
   },
   {
@@ -75,10 +82,24 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "diff-hover",
+    label: "A name's definition, in the diff",
+    note: "In the diff too, the pointer resting on a name shows its definition: from the old side's commit for a removed line, from the new side otherwise.",
+    scene: "diff-hover",
+    recording: "recording.json",
+  },
+  {
     id: "pulls",
     label: "Pull requests",
-    note: "Every open pull request that involves you: what waits on you first, then yours, with a stack as one row. Read from GitHub with gh when it opens, on focus, and every five minutes; a row opens in a worktree with its review, or with Claude reviewing it.",
+    note: "A page, as Settings is: the open pull requests that wait on you, then yours, a stack as one row. j and k move, ↵ opens it in a worktree, ⌘↵ with Claude reviewing it, ⌥↵ on GitHub. Read from GitHub with gh on open, on focus, and every five minutes.",
     scene: "pulls",
+    recording: "recording.json",
+  },
+  {
+    id: "superagent",
+    label: "Superagent",
+    note: "One thread that sees the others, on top of the sidebar: ask it where things stand, or to pass a direction to a thread (med thread send). Opus at high effort, which the thread's picker changes; Med briefs it once, the first time.",
+    scene: "superagent",
     recording: "recording.json",
   },
   {
@@ -91,7 +112,7 @@ export const screens: readonly Screen[] = [
   {
     id: "ask-in-session",
     label: "Prototype: ask in a file, in a session",
-    note: "Select lines in any file and press A. The question is a comment, and a fork of the session answers in its thread at once, so the session keeps working. Reply asks the same fork more; Send to Claude hands the thread to the session as a change to make.",
+    note: "Select lines in any file and press ga. While the agent waits, the question goes to its own thread, which answers it there. While it works, a fork of the session answers at once, so the work goes on; Reply asks the fork more.",
     scene: "",
     recording: "",
     prototype: "ask-in-session",

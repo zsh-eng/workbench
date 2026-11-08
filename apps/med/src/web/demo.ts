@@ -72,7 +72,7 @@ const recording: Recording = await fetch(new URL(file, document.baseURI)).then((
   response.json(),
 );
 if (scene === "replies") answerComment(recording);
-if (scene === "files") commentedFile(recording);
+if (scene === "files" || scene === "comments") commentedFile(recording);
 
 /** Med runs the thread's session, so a comment goes to it from the comment. */
 function ownSessions(recording: Recording) {
@@ -420,7 +420,23 @@ function threadList(): ThreadList {
           sessions: saved.sessions,
         }
       : undefined;
-  return { threads: earlier ? [thread, earlier] : [thread], repositories };
+  // In the superagent scene, the Superagent's thread is on top of the sidebar.
+  const superagent: ThreadList["threads"][number] | undefined =
+    scene === "superagent"
+      ? {
+          id: "r_demo_superagent",
+          title: "Superagent",
+          createdAt: saved.createdAt,
+          updatedAt: Date.parse(saved.createdAt) + 60_000,
+          superagent: true,
+          agent: "claude",
+          state: "idle",
+        }
+      : undefined;
+  return {
+    threads: [...(superagent ? [superagent] : []), thread, ...(earlier ? [earlier] : [])],
+    repositories,
+  };
 }
 
 /** The thread list's stream: the list now, and again when the agent's state
@@ -1362,6 +1378,52 @@ const scenes: Record<string, () => Promise<void>> = {
     await until(() => editor.state.doc.lineAt(editor.state.selection.main.head).number === 14);
     Vim.handleKey(cm, "K", "user");
     await until(() => visible("[data-symbol-hover]"));
+  },
+  // All comments, from the header: the diff's comment, with the file's
+  // resolved one on request.
+  async comments() {
+    await review({ sidebar: false, session: true }, "Review");
+    await allFiles();
+    await until(() => visible("button[aria-label='All comments']"));
+    visible("button[aria-label='All comments']")!.click();
+    await until(() => visible("ul[aria-label='Comments'] li"));
+    (visible("button[aria-label='Show resolved']") as HTMLButtonElement | undefined)?.click();
+  },
+  // A name's definition in the diff, as the pointer rests on it.
+  async "diff-hover"() {
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
+    const token = () => {
+      for (const host of all<HTMLElement>("diffs-container"))
+        for (const node of host.shadowRoot?.querySelectorAll<HTMLElement>("[data-char]") ?? [])
+          if (node.textContent === "parseQuery" && node.checkVisibility()) return node;
+      return undefined;
+    };
+    await until(token);
+    token()!.scrollIntoView({ block: "center" });
+    await pause(200);
+    const box = token()!.getBoundingClientRect();
+    token()!.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse",
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+    await until(() => visible("[data-symbol-hover]"));
+  },
+  // The Superagent's thread, on top of the sidebar.
+  async superagent() {
+    await review({ sidebar: true, session: true }, "Review");
+    await until(() =>
+      all<HTMLButtonElement>("nav[aria-label='Sessions'] button").some((node) =>
+        node.textContent?.includes("Superagent"),
+      ),
+    );
   },
   // Open pull requests that wait on you, and yours.
   async pulls() {
