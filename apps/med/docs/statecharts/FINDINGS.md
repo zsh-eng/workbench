@@ -23,6 +23,10 @@ These were read in the code, not modelled:
 - Panes and layout.
 - Saved-review files. They are written atomically under a lock.
 - The note write queue. It has race tests.
+
+[IMPLICIT.md](IMPLICIT.md) lists the other flows whose state is spread over
+several flags, and which of them to model next.
+
 - The page's outbox. Each message has an ID, and the host sends it once.
 - Push. It pushes an exact commit, and the host checks HEAD.
 
