@@ -121,6 +121,15 @@ interface Run {
   idle?: ReturnType<typeof setTimeout>;
 }
 
+/** How long a question, or a close, waits for an answered question's
+ * process to exit. */
+const SETTLE_WAIT_MS = 3_000;
+const settledWithin = (settled: Promise<unknown>) =>
+  Promise.race([
+    settled.catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, SETTLE_WAIT_MS).unref?.()),
+  ]);
+
 const lastLines = (text: string) => text.trim().split("\n").slice(-3).join("\n").slice(-600);
 const usable = (value: string | undefined) => (value && value !== "default" ? value : undefined);
 
@@ -234,6 +243,9 @@ export class Questions {
   private codexForks = new Map<string, Promise<boolean>>();
   /** Each Claude thread's spare fork, by the lead session's ID. */
   private spares = new Map<string, Spare>();
+  /** A question's fork becomes the spare once its process exits, a moment
+   * after the answer: until then, by thread. */
+  private settling = new Map<string, { run: Run; settled: Promise<void> }>();
   private home: () => string;
 
   constructor(private host: QuestionHost) {
@@ -453,6 +465,10 @@ export class Questions {
         "The thread has no transcript yet. Ask after its agent's first reply.",
         409,
       );
+    // A question asked as the last one's answer arrives waits for its fork.
+    const last = this.settling.get(lead.id);
+    if (last && last.run.state.status !== "starting" && last.run.state.status !== "answering")
+      await settledWithin(last.settled);
     // The fork uses the thread's model and effort, so it reads the cached context.
     const model = usable(choices.model) ?? (await lastModel("claude", transcript));
     const effort = usable(choices.effort);
@@ -567,9 +583,16 @@ export class Questions {
       throw error;
     });
     const run = this.runs.get(state.id);
-    void run?.exited?.then(() =>
+    const settled = run?.exited?.then(() =>
       this.settleSpare(lead.id, fork, read, reused, named && run.state.status === "done"),
     );
+    if (run && settled) {
+      const entry = { run, settled };
+      this.settling.set(lead.id, entry);
+      void settled.finally(() => {
+        if (this.settling.get(lead.id) === entry) this.settling.delete(lead.id);
+      });
+    }
     return state;
   }
 
@@ -696,6 +719,9 @@ export class Questions {
     const run = this.runs.get(id);
     if (!run) return false;
     clearTimeout(run.idle);
+    // An answered question's process exits by itself a moment later, and its
+    // fork becomes the spare; only one still answering is stopped.
+    if (run.child && run.state.status === "done" && run.exited) await settledWithin(run.exited);
     if (run.child) await this.stop(id).catch(() => {});
     this.runs.delete(id);
     for (const listener of run.listeners) listener();

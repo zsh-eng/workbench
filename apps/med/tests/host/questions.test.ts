@@ -238,7 +238,8 @@ test("the next question goes on in the spare fork until the lead moves, and the 
       .filter((name) => name.endsWith(".jsonl"))
       .map((name) => name.replace(/\.jsonl$/, ""))
       .filter((name) => name !== LEAD);
-  const first = await ask(`found-claude-${LEAD}`, "Why minutes?");
+  // Its process exits a moment after the answer; the next question waits for it.
+  const first = await ask(`found-claude-${LEAD}`, "Why minutes? Linger");
   await (await watch(first.data.id)).until((state) => state.status === "done");
   const [spare] = await forks();
   await api("/api/questions/close", { id: first.data.id });
