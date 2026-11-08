@@ -4169,6 +4169,13 @@ export function App({
       run: () => openBranchPicker(false, true),
     },
     {
+      id: "pull-requests",
+      managesFocus: true,
+      label: "Pull requests…",
+      disabled: !workspace,
+      run: () => workspace?.openPullRequests(),
+    },
+    {
       id: "open-branch",
       managesFocus: true,
       label: threadPicker ? "Move thread to a branch or worktree" : "Open branch or worktree",

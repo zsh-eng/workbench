@@ -7,6 +7,7 @@ import type { RegisteredRepository } from "../shared/protocol";
 import type { PullAddress, PullJob, PullStep } from "../shared/pull-workspace";
 import type { SavedReview } from "../shared/saved-review";
 import { HostError } from "./runtime/errors";
+import { remoteSlug } from "./pull-inbox";
 import { runProcess } from "./runtime/process";
 
 /** What a pull request job needs from the host. */
@@ -32,14 +33,6 @@ const pullRequestSchema = z.object({
   headRefName: z.string().min(1),
   headRefOid: z.string().regex(/^[0-9a-f]{40,64}$/),
 });
-
-/** A Git remote address as host/owner/name, such as github.com/acme/trails. */
-const remoteSlug = (address: string) =>
-  address
-    .toLowerCase()
-    .replace(/^(?:ssh:\/\/)?git@([^:/]+)[:/]/, "$1/")
-    .replace(/^https?:\/\/(?:[^@/]+@)?/, "")
-    .replace(/\.git$/, "");
 
 /** A path as people read it, with ~ for the home folder. */
 const shown = (path: string) =>

@@ -91,6 +91,7 @@ import {
   type SymbolSearch,
 } from "../shared/symbols";
 import { definitionText } from "../shared/definition-text";
+import { PullInboxReader } from "./pull-inbox";
 import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { BasePulls } from "./repository/base-pull";
@@ -872,6 +873,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     },
   });
   const pullStreams = new Set<ServerResponse>();
+  const pullInbox = new PullInboxReader({
+    repositories: () => registry.snapshot(),
+    gh: options.gh ?? { command: "gh", args: [] },
+  });
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
@@ -1377,6 +1382,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             abort.signal,
             has,
           ).catch(() => response.end());
+          return;
+        }
+        // The pull requests page: open ones that wait on you, and yours.
+        if (url.pathname === "/api/pull-requests" && request.method === "GET") {
+          send(
+            await pullInbox.read(
+              url.searchParams.get("all") === "1",
+              url.searchParams.get("refresh") === "1",
+            ),
+          );
           return;
         }
         // A pull request that opens as a workspace, and its progress.

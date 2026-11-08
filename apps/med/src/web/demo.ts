@@ -24,6 +24,7 @@ import type { SavedReview } from "../shared/saved-review";
 import type { BrowseRead } from "../shared/browse";
 import type { SymbolHoverRequest } from "../shared/symbols";
 import { definitionText } from "../shared/definition-text";
+import type { PullInbox, PullInboxRow } from "../shared/pull-inbox";
 import type { ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
 
@@ -531,6 +532,85 @@ type Handler = (url: URL, body: any, match: RegExpMatchArray) => unknown;
 // The settings file, kept in the page: Settings writes it, and Open in reads it.
 const demoSettings: Record<string, unknown> = {};
 
+/** Open pull requests on an invented GitHub, as the pull requests page reads them. */
+function pullInbox(all: boolean): PullInbox {
+  const hours = (count: number) => new Date(Date.now() - count * 3_600_000).toISOString();
+  const pull = (
+    repository: string,
+    number: number,
+    title: string,
+    author: string,
+    age: number,
+    change: Partial<PullInboxRow> = {},
+  ): PullInboxRow => ({
+    url: `https://github.com/${repository}/pull/${number}`,
+    number,
+    title,
+    repository,
+    author,
+    createdAt: hours(age + 30),
+    updatedAt: hours(age),
+    draft: false,
+    review: "required",
+    checks: "pass",
+    conflicts: false,
+    additions: 120,
+    deletions: 18,
+    ...change,
+  });
+  return {
+    viewer: "you",
+    scope: all ? "all" : "registered",
+    repositories: all ? [] : ["acme/elevation", "acme/trailhead"],
+    readAt: new Date(Date.now() - 60_000).toISOString(),
+    waiting: [
+      pull("acme/trailhead", 418, "Cache map tiles by zoom level", "maya", 3, {
+        why: "review requested",
+        additions: 340,
+        deletions: 51,
+      }),
+      pull("acme/trailhead", 419, "Show elevation on the trail card", "ines", 26, {
+        why: "review requested of acme/maps",
+        checks: "pending",
+        additions: 64,
+        deletions: 9,
+      }),
+      pull("acme/trailhead", 412, "Retry the upload queue with backoff", "you", 5, {
+        why: "changes requested",
+        review: "changes-requested",
+        checks: "fail",
+        additions: 128,
+        deletions: 40,
+      }),
+    ],
+    yours: [
+      pull("acme/trailhead", 420, "Search filters: chips in the search bar", "you", 1, {
+        additions: 212,
+        deletions: 33,
+        stack: [
+          {
+            url: "https://github.com/acme/trailhead/pull/421",
+            number: 421,
+            title: "Search filters: clear all",
+          },
+        ],
+      }),
+      pull("acme/elevation", 77, "Bump the elevation API client", "you", 50, {
+        review: "approved",
+        additions: 14,
+        deletions: 14,
+      }),
+      pull("acme/trailhead", 405, "Offline packs for saved trails", "you", 120, {
+        draft: true,
+        review: "none",
+        checks: "none",
+        additions: 860,
+        deletions: 120,
+      }),
+    ],
+  };
+}
+
 const handlers: [method: string, path: RegExp, handler: Handler][] = [
   // Settings › Open in: Trailhead's code hosts, and the editors on this Mac.
   [
@@ -692,6 +772,8 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
       return saved;
     },
   ],
+  // The pull requests page, from an invented GitHub.
+  ["GET", /^\/api\/pull-requests$/, (url) => pullInbox(url.searchParams.get("all") === "1")],
   // A hover finds a name's declaration in the files that the recording read,
   // the hovered file first, as Med's index would.
   [
@@ -1280,6 +1362,17 @@ const scenes: Record<string, () => Promise<void>> = {
     await until(() => editor.state.doc.lineAt(editor.state.selection.main.head).number === 14);
     Vim.handleKey(cm, "K", "user");
     await until(() => visible("[data-symbol-hover]"));
+  },
+  // Open pull requests that wait on you, and yours.
+  async pulls() {
+    await review({ sidebar: true, session: true }, "Review");
+    const button = () =>
+      all<HTMLButtonElement>("nav[aria-label='Sessions'] button").find(
+        (node) => node.textContent === "Pull requests",
+      );
+    await until(button);
+    button()!.click();
+    await until(() => visible("[role='listbox'][aria-label='Pull requests'] [role='option']"));
   },
   // A note in the vault, as it reads.
   async notes() {

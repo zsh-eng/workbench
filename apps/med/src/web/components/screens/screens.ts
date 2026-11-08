@@ -75,6 +75,13 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "pulls",
+    label: "Pull requests",
+    note: "Every open pull request that involves you: what waits on you first, then yours, with a stack as one row. Read from GitHub with gh when it opens, on focus, and every five minutes; a row opens in a worktree with its review, or with Claude reviewing it.",
+    scene: "pulls",
+    recording: "recording.json",
+  },
+  {
     id: "settings",
     label: "Settings",
     note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",

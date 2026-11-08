@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -213,4 +213,87 @@ test("a pasted pull request link opens in a worktree with its review and an agen
   expect(reopened.at(-1)!.steps.find((step) => step.id === "worktree")?.label).toBe(
     "Make a worktree",
   );
+});
+
+test("the pull requests page searches GitHub in the registered repositories' remotes, or in all of it", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med pull inbox ")));
+  directories.push(directory);
+  const repo = join(directory, "trailhead");
+  await mkdir(repo);
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "remote", "add", "origin", "git@github.com:acme/trailhead.git");
+  const log = join(directory, "gh.log");
+  const node = (number: number, author: string) => ({
+    url: `https://github.com/acme/trailhead/pull/${number}`,
+    number,
+    title: `Change ${number}`,
+    isDraft: false,
+    createdAt: "2026-11-01T00:00:00Z",
+    updatedAt: "2026-11-02T00:00:00Z",
+    additions: 3,
+    deletions: 1,
+    headRefName: `topic-${number}`,
+    baseRefName: "main",
+    reviewDecision: "REVIEW_REQUIRED",
+    mergeable: "MERGEABLE",
+    author: { login: author },
+    repository: { nameWithOwner: "acme/trailhead" },
+    commits: { nodes: [] },
+    reviewRequests: { nodes: [{ requestedReviewer: { __typename: "User", login: "you" } }] },
+  });
+  vi.stubEnv("FAKE_GH_LOG", log);
+  vi.stubEnv(
+    "FAKE_GH_SEARCH",
+    // An issue in the results is not a pull request, and is left out.
+    JSON.stringify({
+      review: [node(418, "maya"), { title: "An issue" }],
+      author: [node(420, "you")],
+    }),
+  );
+  vi.stubEnv("MED_HOME_DIR", join(directory, "home"));
+  const host = await startHost({
+    repo,
+    stateDir: join(directory, "state"),
+    port: 0,
+    gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
+  });
+  hosts.push(host);
+  const read = async (query = "") =>
+    (await (
+      await fetch(`http://127.0.0.1:${host.port}/api/pull-requests${query}`, {
+        headers: { authorization: `Bearer ${host.token}` },
+      })
+    ).json()) as {
+      scope: string;
+      repositories: string[];
+      waiting: { number: number; why?: string }[];
+      yours: { number: number }[];
+    };
+  const searches = async () =>
+    (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => (JSON.parse(line) as string[]).find((arg) => arg.startsWith("q=")));
+  const inbox = await read();
+  expect(inbox).toMatchObject({
+    scope: "registered",
+    repositories: ["acme/trailhead"],
+    waiting: [{ number: 418, why: "review requested" }],
+    yours: [{ number: 420 }],
+  });
+  expect((await searches()).sort()).toEqual([
+    "q=is:pr is:open archived:false author:@me repo:acme/trailhead",
+    "q=is:pr is:open archived:false review-requested:@me repo:acme/trailhead",
+  ]);
+  // A read stays a minute, unless the page asks again.
+  await read();
+  expect(await searches()).toHaveLength(2);
+  await read("?refresh=1");
+  expect(await searches()).toHaveLength(4);
+  // All of GitHub has no repository qualifiers.
+  expect((await read("?all=1")).scope).toBe("all");
+  expect((await searches()).slice(-2).sort()).toEqual([
+    "q=is:pr is:open archived:false author:@me",
+    "q=is:pr is:open archived:false review-requested:@me",
+  ]);
 });

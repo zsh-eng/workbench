@@ -49,6 +49,9 @@ import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
+import { readPullInbox } from "../data/pull-inbox";
+import { useAgentPresets } from "../data/owned-session";
+import { PullRequestsDialog, type PullInboxLoader } from "./PullRequestsDialog";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
   needsYou,
@@ -142,6 +145,8 @@ interface WorkspaceActions {
   openPull(url: string, agent?: string): void;
   /** Asks the host again for a pull request that it could not open. */
   retryPull(id: string): void;
+  /** Shows the open pull requests that wait on you, and yours. */
+  openPullRequests(): void;
   /** Removes the workspace's linked worktree, then closes each workspace in
    * it. Rejects with Git's reason when Git keeps the worktree. */
   removeWorktree(id: string): Promise<void>;
@@ -688,6 +693,13 @@ export function WorkspaceHost({
     [rememberFocus, store],
   );
   const [pullErrors, setPullErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  // The pull requests sheet, and the agents that can review one.
+  const [pullsOpen, setPullsOpen] = useState(false);
+  const pullAgents = useAgentPresets(pullsOpen, fetcher);
+  const loadPullInbox = useCallback<PullInboxLoader>(
+    (all, refresh, signal) => readPullInbox(all, refresh, signal, fetcher),
+    [fetcher],
+  );
   const beginPull = useCallback(
     (id: string, url: string, agent?: string) => {
       setPullErrors((current) => {
@@ -749,6 +761,10 @@ export function WorkspaceHost({
         const id = store.open(input, false);
         show(id);
         beginPull(id, address.url, agent);
+      },
+      openPullRequests() {
+        rememberFocus();
+        setPullsOpen(true);
       },
       retryPull(id) {
         const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
@@ -1700,6 +1716,10 @@ export function WorkspaceHost({
                               }}
                               onHide={toggleSidebar}
                               onSettings={() => openSettings()}
+                              onPullRequests={() => {
+                                setOverlay(false);
+                                setPullsOpen(true);
+                              }}
                               onArchive={(thread) =>
                                 void closeTabs([thread], { removeWorktree: false })
                               }
@@ -1811,6 +1831,13 @@ export function WorkspaceHost({
                   </ShellContext>
                 </PullErrors>
               </HostFetch>
+              <PullRequestsDialog
+                open={pullsOpen}
+                onOpenChange={setPullsOpen}
+                load={loadPullInbox}
+                onOpenPull={(url, agent) => actions.openPull(url, agent)}
+                agents={pullAgents?.filter((agent) => agent.available)}
+              />
               {switcher && (
                 <WorkspaceSwitcher
                   snapshot={snapshot}

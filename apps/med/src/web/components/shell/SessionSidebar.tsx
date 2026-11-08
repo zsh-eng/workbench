@@ -57,6 +57,7 @@ export function SessionSidebar({
   onNewThread,
   onHide,
   onSettings,
+  onPullRequests,
   onArchive,
   onDelete,
   onPrefetch,
@@ -80,6 +81,8 @@ export function SessionSidebar({
   onNewThread(): void;
   onHide(): void;
   onSettings(): void;
+  /** Shows the open pull requests that wait on you, and yours. */
+  onPullRequests?(): void;
   onArchive(thread: Thread): void;
   onDelete(thread: Thread): void;
   /** Reads a session ahead of a click, while the pointer rests on its row. */
@@ -337,6 +340,16 @@ export function SessionSidebar({
         </div>
       )}
       {notice}
+      {onPullRequests && (
+        <button
+          type="button"
+          onClick={onPullRequests}
+          {...stylex.props(styles.row, styles.settings)}
+        >
+          <Icon name="pullRequest" size={15} />
+          <span {...stylex.props(styles.name)}>Pull requests</span>
+        </button>
+      )}
       <button type="button" onClick={onSettings} {...stylex.props(styles.row, styles.settings)}>
         <Icon name="settings" size={15} />
         <span {...stylex.props(styles.name)}>Settings</span>

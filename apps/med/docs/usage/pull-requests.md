@@ -20,6 +20,24 @@ right-click the workspace and choose **Close and remove worktree**. Med runs
 `git worktree remove` without `--force`, so it keeps a worktree with changes,
 a working agent, or a commit on no branch. The branch stays.
 
+**Pull requests**, at the foot of the sidebar or in the command palette,
+lists every open pull request that involves you, in two parts. **Waiting on
+you** has review requests for you or your teams, then your own pull requests
+with changes requested, failing checks, or conflicts. **Yours** has the rest
+of your open ones: draft, in review, approved. Your pull requests that stack,
+each on the head branch of the one before, are one row from the base, such
+as #420 → #421. Each row has the title, the repository and number, the
+author, when it last changed, the review and checks, and the size. `↵` opens
+it in a worktree with its review, as a pasted link does; `⌘↵` also starts
+Claude there to review it; `⌥↵`, or the GitHub button, opens it on GitHub.
+
+Med finds them with two GitHub searches through your `gh` sign-in
+(`review-requested:@me` and `author:@me`), limited to the GitHub repositories
+that your registered repositories' remotes name; **All of GitHub** drops that
+limit. It reads when the list opens, when the window gets focus, and every
+five minutes while the list shows; nothing reads in the background. It merges
+and approves nothing, and reads only github.com.
+
 In a terminal, `med pr checkout 333` runs `gh pr checkout 333`, fetches the
 base branch, and opens a saved review from the merge base to the head. It
 passes options such as `--force` and `--branch` to `gh`, and `--no-open` prints
