@@ -10,7 +10,6 @@ import type { OwnedState } from "../../src/shared/owned-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { runReviewCommand } from "../../src/cli/review";
 import {
   longProcess,
   openSession,
@@ -51,7 +50,7 @@ const git = (cwd: string, args: string[]) =>
   });
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
+async function fixture() {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med adopted send ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -97,8 +96,6 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
     repos: [repo],
     stateDir,
     port: 0,
-    heldCheckMs,
-    agentAckMs: 300,
     agents: async () => [
       {
         id: "claude",
@@ -131,14 +128,21 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
   const id = adopted.data.id;
   const review = async () => (await api<SavedReview>(`/api/reviews/${id}`)).data;
   const inbox = async () => (await api<AgentInboxState>(`/api/reviews/${id}/agent`)).data;
-  const send = async (text: string) => {
+  const send = async (text: string, sessionId = session) => {
     const sent = await api<{ message: AgentMessage; state: AgentInboxState }>(
       `/api/reviews/${id}/agent/messages`,
-      { sessionId: session, text, noteIds: [] },
+      { sessionId, text, noteIds: [] },
     );
     expect(sent.status).toBe(200);
     return sent.data;
   };
+  /** A message that Med refuses, with its error. */
+  const refused = async (text: string) =>
+    api<{ error: { code: string; message: string } }>(`/api/reviews/${id}/agent/messages`, {
+      sessionId: session,
+      text,
+      noteIds: [],
+    });
   // What the fake Claude Code got, by session: its arguments and its transcript.
   const fakeProject = join(home, ".claude", "projects", "-fake-repo");
   const started = (sessionId: string) => existsSync(join(fakeProject, `${sessionId}.args.json`));
@@ -162,20 +166,6 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
     (await records(sessionId))
       .filter((record) => record.type === "user")
       .map((record) => String(record.message.content));
-  /** A `med review wait` that the terminal session runs. */
-  const wait = async () => {
-    const printed: string[] = [];
-    const { key } = await review();
-    await runReviewCommand(
-      ["wait", "--key", key!, "--state-dir", stateDir, "--port", String(host.port)],
-      {
-        print: (text) => printed.push(text),
-        environment: { CLAUDE_CODE_SESSION_ID: session },
-        home,
-      },
-    );
-    return printed.join("\n");
-  };
   /** Claude Code with the session open, in a terminal by default. */
   const terminal = async (entrypoint?: string | null) => {
     const opened = await openSession(home, session, entrypoint);
@@ -198,10 +188,10 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
     review,
     inbox,
     send,
+    refused,
     started,
     args,
     prompts,
-    wait,
     terminal,
     where,
     restart,
@@ -209,7 +199,7 @@ async function fixture({ heldCheckMs }: { heldCheckMs: number }) {
 }
 
 test("Med reads Claude Code's process records: a live process that started then runs the session; a dead or reused pid does not; a record that Med cannot read counts", async () => {
-  const { home, terminal, where } = await fixture({ heldCheckMs: 60_000 });
+  const { home, terminal, where } = await fixture();
   const records = join(home, ".claude", "sessions");
   await expect.poll(where, { timeout: 5000 }).toBe("resumable");
 
@@ -250,7 +240,7 @@ test("Med reads Claude Code's process records: a live process that started then 
 });
 
 test("the record's entrypoint says where the session is open: a terminal, the Claude app, or another app", async () => {
-  const { home, terminal, where } = await fixture({ heldCheckMs: 60_000 });
+  const { home, terminal, where } = await fixture();
   const records = join(home, ".claude", "sessions");
   const kinds: [entrypoint: string | null, place: SessionPlace][] = [
     ["cli", "terminal"],
@@ -274,32 +264,24 @@ test("the record's entrypoint says where the session is open: a terminal, the Cl
   await expect.poll(where, { timeout: 5000 }).toBe("other-app");
 });
 
-test("a message to an adopted session that no process runs resumes it in Med, with the messages that waited before it, in order", async () => {
-  const { api, id, send, inbox, args, prompts, started, terminal, restart } = await fixture({
-    heldCheckMs: 60_000,
-  });
-  // While the terminal runs the session, two messages wait.
+test("Med does not send to a session that a terminal has open; once it closes, a message resumes the session in Med", async () => {
+  const { api, id, send, refused, inbox, args, prompts, started, terminal, restart } =
+    await fixture();
+  // While the terminal runs the session, Med sends nothing and keeps nothing.
   const open = await terminal();
-  expect((await send("First, keep the export.")).message.delivery).toBe("pending");
-  const second = await send("Second, round to minutes.");
-  expect(second.message.delivery).toBe("pending");
-  expect(second.state.elsewhere).toEqual({ [session]: "terminal" });
+  const blocked = await refused("Round to minutes.");
+  expect(blocked.status).toBe(409);
+  expect(blocked.data.error.code).toBe("session-elsewhere");
+  expect((await inbox()).messages).toEqual([]);
+  expect((await inbox()).elsewhere).toEqual({ [session]: "terminal" });
   expect(started(session)).toBe(false);
 
-  // The terminal closed; the next message resumes the session with all three.
+  // The terminal closed: the next message resumes the session.
   await open.end();
-  const third = await send("Third, check the summary.");
-  expect(third.message.delivery).toBe("delivered");
-  expect(third.state.messages.map((message) => message.delivery)).toEqual([
-    "delivered",
-    "delivered",
-    "delivered",
-  ]);
+  const sent = await send("Check the summary.");
+  expect(sent.message.delivery).toBe("delivered");
   expect(await args(session)).toEqual(expect.arrayContaining(["--resume", session]));
-  await vi.waitFor(async () => expect(await prompts(session)).toHaveLength(1));
-  expect((await prompts(session))[0]).toBe(
-    "First, keep the export.\n\n---\n\nSecond, round to minutes.\n\n---\n\nThird, check the summary.",
-  );
+  await vi.waitFor(async () => expect(await prompts(session)).toEqual(["Check the summary."]));
   // Med runs the session now, as one that it started.
   const owned = await api<OwnedState>(`/api/reviews/${id}/owned/${session}`);
   expect(owned.status).toBe(200);
@@ -312,53 +294,10 @@ test("a message to an adopted session that no process runs resumes it in Med, wi
   expect(back.data.status).toBe("idle");
 });
 
-test("a message waits while a terminal runs the session, and Med sends it once when the terminal closes", async () => {
-  const { send, inbox, args, prompts, started, terminal } = await fixture({ heldCheckMs: 100 });
-  const open = await terminal();
-  const sent = await send("Use minutes.");
-  expect(sent.message.delivery).toBe("pending");
-  expect(sent.state.elsewhere).toEqual({ [session]: "terminal" });
-  // Med checks the process while the message waits; it does not start a second one.
-  await pause(500);
-  expect(started(session)).toBe(false);
-  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["pending"]);
-
-  await open.end();
-  await vi.waitFor(
-    async () =>
-      expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]),
-    { timeout: 5000 },
-  );
-  expect(await args(session)).toEqual(expect.arrayContaining(["--resume", session]));
-  await vi.waitFor(async () => expect(await prompts(session)).toEqual(["Use minutes."]));
-  // Later checks find nothing to send.
-  await pause(500);
-  expect(await prompts(session)).toEqual(["Use minutes."]);
-});
-
-test("med review wait in the terminal takes a waiting message first, and Med does not send it again", async () => {
-  const { send, inbox, wait, started, terminal } = await fixture({ heldCheckMs: 100 });
-  const open = await terminal();
-  expect((await send("Rename it.")).message.delivery).toBe("pending");
-  expect(await wait()).toContain("Rename it.");
-  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
-  // This session takes messages with med review wait: the composer does not
-  // say that Med cannot type there.
-  expect((await inbox()).elsewhere).toEqual({});
-
-  await open.end();
-  await pause(600);
-  expect(started(session)).toBe(false);
-  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
-});
-
-test("Continue in Med forks the session; the thread follows the fork, and the waiting messages go to it", async () => {
+test("Continue in Med forks the session; the thread follows the fork, which takes the next message", async () => {
   const { api, id, original, send, inbox, review, args, prompts, started, terminal } =
-    await fixture({
-      heldCheckMs: 60_000,
-    });
+    await fixture();
   const open = await terminal();
-  expect((await send("Try the other format.")).message.delivery).toBe("pending");
   const before = await readFile(original, "utf8");
 
   const continued = await api<{ review: SavedReview; state: OwnedState }>(
@@ -374,13 +313,11 @@ test("Continue in Med forks the session; the thread follows the fork, and the wa
   expect(await args(fork)).toEqual(
     expect.arrayContaining(["--resume", session, "--fork-session", "--session-id", fork]),
   );
-  // The fork starts from the session's history, with the message as its prompt.
+  // The fork starts from the session's history and takes the next message.
+  expect((await send("Try the other format.", fork)).message.delivery).toBe("delivered");
   await vi.waitFor(async () =>
     expect(await prompts(fork)).toEqual(["Format the durations.", "Try the other format."]),
   );
-  expect((await inbox()).messages).toMatchObject([
-    { sessionId: fork, text: "Try the other format.", delivery: "delivered" },
-  ]);
   // The terminal keeps its session as it was.
   expect(await readFile(original, "utf8")).toBe(before);
   expect(started(session)).toBe(false);

@@ -5,7 +5,6 @@ import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { Comparison } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -167,7 +166,6 @@ const clearStorage = () => {
 beforeEach(async () => {
   await page.viewport(1280, 800);
   clearStorage();
-  setChromeMode("quiet", false);
 });
 afterEach(() => {
   unmount();
@@ -206,12 +204,13 @@ const shown = () =>
 const tooltip = () => document.querySelector('[role="tooltip"]')?.textContent ?? null;
 /** Moves the pointer off every control, and waits for the tooltip to close. */
 async function away() {
-  await userEvent.hover(page.getByRole("tab", { name: /^Changes/ }));
+  // The review's title has no tooltip of its own.
+  await userEvent.hover(page.getByRole("heading", { level: 2 }).last());
   await expect.poll(tooltip).toBeNull();
 }
 async function openThread() {
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rotate refresh tokens/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("guide-target");
@@ -219,7 +218,7 @@ async function openThread() {
 /** The thread's live Changes. */
 async function openChanges() {
   await openThread();
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("live-working");
 }
 /** A row of the Changed files pane's tree, in its shadow root. */
@@ -232,7 +231,7 @@ const treeRow = (path: string) => {
   return rows.nth(index);
 };
 
-test("a cut file name shows its path in the tooltip, a whole one shows none; full chrome's status bar names the file under the pointer", async () => {
+test("a cut file name shows its path in the tooltip, a whole one shows none", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await treeRow(long).hover();
@@ -241,22 +240,12 @@ test("a cut file name shows its path in the tooltip, a whole one shows none; ful
   await treeRow(short).hover();
   await new Promise((resolve) => setTimeout(resolve, 800));
   expect(tooltip()).toBeNull();
-
-  // Full chrome's status bar says the path of the file under the pointer.
-  setChromeMode("full", false);
-  const status = () =>
-    [...document.querySelectorAll("footer")].find((footer) => footer.checkVisibility());
-  await expect.poll(() => status()).toBeTruthy();
-  await away();
-  await treeRow(long).hover();
-  await expect.poll(() => status()?.textContent).toContain(long);
 });
 
 test("a thread's file list resizes with the pointer and the keys, resets on a double-click, and keeps its width", async () => {
   render();
   await openChanges();
-  // Without the Changed files pane, the review lists its files in a column.
-  await page.getByRole("button", { name: /^Hide changed files/i }).click();
+  // The Changes page lists its files in a column, its sidebar.
   const rail = page.getByRole("navigation", { name: "Files and commits" });
   await expect.element(rail).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize the file list" });
@@ -306,7 +295,10 @@ test("a thread's file list resizes with the pointer and the keys, resets on a do
 test("a Guide segment's title wraps to two lines; a longer one shows whole in the tooltip", async () => {
   render();
   await openThread();
-  await page.getByRole("button", { name: /^01\s*Move the refresh token/ }).click();
+  await page
+    .getByRole("region", { name: "Guide overview" })
+    .getByRole("button", { name: /^Start reviewing/ })
+    .click();
   const guide = page.getByRole("navigation", { name: "Guide" });
   const segments = guide.getByRole("list", { name: "Segments" });
   const first = segments.getByRole("button", { name: /^1\. Move the refresh token/ });

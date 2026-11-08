@@ -100,7 +100,7 @@ function fixture(
     shown = { query, matchCase };
     view.render(
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         <SearchView

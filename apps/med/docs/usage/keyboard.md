@@ -2,47 +2,46 @@
 
 Press `?` for the shortcuts of where you are: Review, File, Editor, or Pickers.
 Type to search every context by action or key, such as `close`, `zz`, or `⌘K`;
-Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃; `⌘⌃B` is macOS only, since Ctrl+Alt+B is the rail's.
+Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, and Ctrl+Alt for ⌘⌃.
 
-| Action                           | Shortcut       |
-| -------------------------------- | -------------- |
-| Command palette                  | `⌘K`           |
-| Find a file                      | `⌘⇧K`          |
-| Search file contents             | `⌘⇧F`          |
-| Find in the diff                 | `⌘F`           |
-| Symbols in this file             | `⌘O`           |
-| Symbols in the project           | `⌘⇧O`          |
-| Open a branch or worktree        | `⌘⇧G`          |
-| Open tab 1–9                     | `⌘1`–`⌘9`      |
-| Next tab that needs you          | `⌘0`           |
-| Close tab / reopen closed tab    | `⌘⌥W` / `⌘⌥T`  |
-| Move the focused tab             | `⌥↑` / `⌥↓`    |
-| Layer above / below in a stack   | `⌥↑` / `⌥↓`    |
-| Switch, or search history        | `⌃Tab`         |
-| Toggle the sidebar / session     | `⌘B` / `⌘⇧B`   |
-| Toggle the changed files (macOS) | `⌘⌃B`          |
-| Toggle the rail / side panel     | `⌘⌥B` / `⌘⌥⇧B` |
-| Next permission mode (message)   | `⇧Tab`         |
-| New thread                       | `⌥N`           |
-| Previous / next attempt          | `←` / `→`      |
-| Focus the next pane              | `⌘⌥←`          |
-| Move the focused pane            | `⌘⌥⇧←`         |
-| Zoom the focused pane            | `⌘E`           |
-| Balance the panes                | `⌘⌃=`          |
-| Zen mode                         | `⌥Z`           |
-| Comment on selected lines        | `c`            |
-| Ask about selected lines         | `a`            |
-| Next / previous guide segment    | `j` / `k`      |
-| Mark the top file viewed         | `v`            |
-| Mark the segment viewed, go on   | `⇧V`           |
-| Next / previous excerpt or reply | `]` / `[`      |
-| Resume search                    | `⌥R`           |
-| Show tab 1–8 / the last tab      | `⌥1`–`⌥9`      |
-| Previous / next tab              | `⌘⇧[` / `⌘⇧]`  |
-| Toggle gutter blame              | `⌥B`           |
-| Close the file or Search         | `⌥W`           |
-| Close all files in the workspace | `⌥⇧W`          |
-| Close other files                | `⌥⇧O`          |
+| Action                                 | Shortcut        |
+| -------------------------------------- | --------------- |
+| Command palette                        | `⌘K`            |
+| Find a file                            | `⌘⇧K`           |
+| Search file contents                   | `⌘⇧F`           |
+| Find in the diff or a file             | `⌘F`            |
+| Find in a file, in Vim                 | `/` / `?`       |
+| Find's case / whole word / expression  | `⌥C` `⌥W` `⌥R`  |
+| Open a repository                      | `⌘O`            |
+| Symbols in this file                   | `⌘⇧O`           |
+| Open a branch or worktree              | `⌘⇧G`           |
+| Open tab 1–9                           | `⌘1`–`⌘9`       |
+| Next tab that needs you                | `⌘0`            |
+| Close tab / reopen closed tab          | `⌘⌥W` / `⌘⌥T`   |
+| Move the focused tab                   | `⌥↑` / `⌥↓`     |
+| Layer above / below in a stack         | `⌥↑` / `⌥↓`     |
+| Switch, or search history              | `⌃Tab`          |
+| Toggle the sidebar / session           | `⌘B` / `⌘⇧B`    |
+| Toggle the page's sidebar / side panel | `⌘⌥B` / `⌘⌥⇧B`  |
+| Next permission mode (message)         | `⇧Tab`          |
+| New thread                             | `⌥N`            |
+| Previous / next attempt                | `←` / `→`       |
+| Focus the next pane                    | `⌘⌥←`           |
+| Move the focused pane                  | `⌘⌥⇧←`          |
+| Zoom the focused pane                  | `⌘E`            |
+| Balance the panes                      | `⌘⌃=`           |
+| Review / Changes / Commit page         | `1` / `2` / `3` |
+| Comment on selected lines              | `c`             |
+| Ask about selected lines               | `a`             |
+| Next / previous guide segment          | `j` / `k`       |
+| Next / previous excerpt or reply       | `]` / `[`       |
+| Resume search                          | `⌥R`            |
+| Show tab 1–8 / the last tab            | `⌥1`–`⌥9`       |
+| Previous / next tab                    | `⌘⇧[` / `⌘⇧]`   |
+| Toggle gutter blame                    | `⌥B`            |
+| Close the file or Search               | `⌥W`            |
+| Close all files in the workspace       | `⌥⇧W`           |
+| Close other files                      | `⌥⇧O`           |
 
 Close actions keep the Changes tab and other workspaces. Tab numbers count the
 Review, Notes, Changes, Commit, and Search tabs with the file tabs. A browser can take some

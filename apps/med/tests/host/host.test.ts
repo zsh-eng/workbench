@@ -8,6 +8,7 @@ import { runProcess } from "../../src/host/runtime/process";
 import { loadHistory, listBranches, listWorktrees } from "../../src/host/repository/history";
 import { ReviewService, parseRawDiff } from "../../src/host/repository/review";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { parseRemote } from "../../src/host/open-in";
 import { NoteService } from "../../src/host/notes";
 
 const temporary: string[] = [];
@@ -465,6 +466,184 @@ describe("HTTP boundary", () => {
     expect((await reveal("missing.txt")).status).toBe(404);
     expect(revealed).toEqual([join(await realpath(repo), "file.txt")]);
   });
+  test("Open in links the branch's page on its code host and opens editors at a line", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    git(repo, "checkout", "-q", "-b", "feature/tides");
+    git(repo, "remote", "add", "origin", "git@github.acme.build:acme/trailhead.git");
+    const launched: string[][] = [];
+    const zed = {
+      id: "zed",
+      name: "Zed",
+      command: "/test/zed",
+      args: (file: string, line: number) => [`${file}:${line}`],
+    };
+    const host = await startHost({
+      repo,
+      openIn: {
+        editors: async () => [zed],
+        isGitHub: async (name) => name === "github.acme.build",
+        launch: (editor, file, line) => launched.push([editor.id, file, String(line)]),
+      },
+    });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    const links = async () => (await fetch(`${base}/api/open-in`, { headers })).json();
+    // A branch that is not pushed has no page yet.
+    expect(await links()).toEqual({
+      editors: [{ id: "zed", name: "Zed" }],
+      host: { name: "github.acme.build", push: true },
+      links: [],
+    });
+    git(repo, "update-ref", "refs/remotes/origin/feature/tides", "HEAD");
+    git(repo, "branch", "-q", "--set-upstream-to=origin/feature/tides");
+    expect((await links()).host).toEqual({
+      name: "github.acme.build",
+      base: "https://github.acme.build/acme/trailhead/blob/feature/tides",
+    });
+    // A host that is not GitHub has no link.
+    git(repo, "remote", "set-url", "origin", "https://git.example.org/acme/trailhead.git");
+    expect((await links()).host).toBeNull();
+
+    // Settings choose its kind, and add Sourcegraph, other links, and the
+    // editors to list.
+    const put = (key: string, value: unknown) =>
+      fetch(`${base}/api/settings`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ key, value }),
+      });
+    for (const [key, value] of [
+      ["openIn.hosts", { "git.example.org": "gitlab" }],
+      ["openIn.sourcegraph", "https://sourcegraph.acme.build/"],
+      [
+        "openIn.links",
+        {
+          Blame: "https://blame.acme.build/{owner}/{repo}/{ref}/{path}#{line}",
+          Search: "https://search.acme.build/?q={repo}",
+        },
+      ],
+      ["openIn.editors", ["zed", "vim"]],
+    ] as const)
+      expect((await put(key, value)).status).toBe(200);
+    expect(await links()).toEqual({
+      editors: [{ id: "zed", name: "Zed" }],
+      host: {
+        name: "git.example.org",
+        base: "https://git.example.org/acme/trailhead/-/blob/feature/tides",
+      },
+      links: [
+        {
+          name: "Sourcegraph",
+          template:
+            "https://sourcegraph.acme.build/git.example.org/acme/trailhead@feature/tides/-/blob/{path}?L{line}",
+        },
+        {
+          name: "Blame",
+          template: "https://blame.acme.build/acme/trailhead/feature/tides/{path}#{line}",
+        },
+        { name: "Search", template: "https://search.acme.build/?q=trailhead" },
+      ],
+    });
+    // Off leaves a host out.
+    await put("openIn.hosts", { "git.example.org": "off" });
+    expect((await links()).host).toBeNull();
+    // Settings lists the sources' code hosts, and every editor found.
+    expect(await (await fetch(`${base}/api/open-in/hosts`, { headers })).json()).toEqual({
+      hosts: [{ host: "git.example.org", repositories: 1, github: false }],
+      editors: [{ id: "zed", name: "Zed" }],
+    });
+
+    const open = (body: object) =>
+      fetch(`${base}/api/open-in`, { method: "POST", headers, body: JSON.stringify(body) });
+    expect((await open({ path: "file.txt", line: 3, editor: "zed" })).status).toBe(200);
+    expect((await open({ path: "../outside.txt", editor: "zed" })).status).toBe(403);
+    expect((await open({ path: "file.txt", editor: "vim" })).status).toBe(404);
+    expect(launched).toEqual([["zed", join(await realpath(repo), "file.txt"), "3"]]);
+  });
+  test("a Med with another state folder keeps its settings in that folder", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const stateDir = await realpath(await mkdtemp(join(tmpdir(), "med-trial-")));
+    temporary.push(stateDir);
+    const host = await startHost({ repo, stateDir });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    const put = await fetch(`${base}/api/settings`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ key: "diffs.wrap", value: true }),
+    });
+    expect(await put.json()).toMatchObject({ path: join(stateDir, "settings.json") });
+    expect(JSON.parse(await readFile(join(stateDir, "settings.json"), "utf8"))).toEqual({
+      "diffs.wrap": true,
+    });
+  });
+  test("the settings file: Med reads it, writes one key, and sends an agent's save at once", async () => {
+    const repo = await repository();
+    await commit(repo, "one\n", "first");
+    const folder = await mkdtemp(join(tmpdir(), "med-settings-"));
+    const path = join(folder, "med", "settings.json");
+    const host = await startHost({ repo, settingsPath: path });
+    hosts.push(host);
+    const base = `http://127.0.0.1:${host.port}`;
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    // No file yet: no settings.
+    expect(await (await fetch(`${base}/api/settings`, { headers })).json()).toEqual({
+      path,
+      settings: {},
+      error: null,
+    });
+    const put = (body: object) =>
+      fetch(`${base}/api/settings`, { method: "PUT", headers, body: JSON.stringify(body) });
+    expect((await put({ key: "diffs.layout", value: "unified" })).status).toBe(200);
+    expect((await put({ key: "diffs.wrap", value: true })).status).toBe(200);
+    expect((await put({ key: "not a key", value: 1 })).status).toBe(400);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      "diffs.layout": "unified",
+      "diffs.wrap": true,
+    });
+    // An agent's save arrives on the stream.
+    const abort = new AbortController();
+    const stream = await fetch(`${base}/api/settings/events`, { headers, signal: abort.signal });
+    const reader = stream.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = "";
+    const until = async (text: string) => {
+      while (!received.includes(text)) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value);
+      }
+    };
+    await until('"diffs.wrap":true');
+    await writeFile(path, JSON.stringify({ "diffs.layout": "split", "code.textSize": 14 }));
+    await until('"code.textSize":14');
+    expect(received).toContain('"diffs.layout":"split"');
+    abort.abort();
+    // A file mid-edit keeps what Med read last, and says why.
+    await writeFile(path, "{ broken");
+    await expect
+      .poll(async () => (await (await fetch(`${base}/api/settings`, { headers })).json()).error)
+      .toMatch(/could not read/);
+    expect((await (await fetch(`${base}/api/settings`, { headers })).json()).settings).toEqual({
+      "diffs.layout": "split",
+      "code.textSize": 14,
+    });
+    await rm(folder, { recursive: true, force: true });
+  });
+  test("reads a remote's host, owner and repository from its address", () => {
+    for (const url of [
+      "git@github.com:acme/trailhead.git",
+      "ssh://git@github.com:22/acme/trailhead.git",
+      "https://github.com/acme/trailhead",
+      "https://token@github.com/acme/trailhead.git/",
+    ])
+      expect(parseRemote(url)).toEqual({ host: "github.com", owner: "acme", repo: "trailhead" });
+    expect(parseRemote("/srv/git/trailhead.git")).toBeNull();
+  });
   test("reads a commit's body, co-authors, and size for the history card", async () => {
     const repo = await repository();
     await commit(repo, "one\ntwo\n", "first");
@@ -585,7 +764,22 @@ describe("HTTP boundary", () => {
     expect(await (await fetch(`http://127.0.0.1:${host.port}/elements`)).text()).toBe(
       "<title>Review</title>",
     );
-    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    // So is Settings, also after a reload there.
+    expect(await (await fetch(`http://127.0.0.1:${host.port}/settings`)).text()).toBe(
+      "<title>Review</title>",
+    );
+    const policy = response.headers.get("content-security-policy");
+    expect(policy).toContain("frame-ancestors 'none'");
+    // Pierre's highlighter compiles its WebAssembly as it loads.
+    expect(policy).toContain("script-src 'self' 'wasm-unsafe-eval';");
+  });
+  test("index.html has no inline script, which script-src 'self' would block", async () => {
+    const html = await readFile(resolve("index.html"), "utf8");
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+    expect(
+      scripts.map(([, attributes, body]) => [/\bsrc="\//.test(attributes!), body!.trim()]),
+    ).toEqual(scripts.map(() => [true, ""]));
+    expect(scripts.length).toBe(2);
   });
   test("serves the install manifest and its icons without a token", async () => {
     const repo = await repository();

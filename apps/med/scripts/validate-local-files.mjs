@@ -176,7 +176,8 @@ try {
   await page.getByRole("region", { name: "File editor", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Edit", exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Done", exact: true }).count(), 0);
-  assert.match(await page.locator(".med-editor-mode").textContent(), /^(Vim · )?NORMAL$/);
+  // Vim starts in Normal mode: its block cursor, not a text caret.
+  await page.locator(".cm-fat-cursor").first().waitFor({ state: "attached" });
   assert.equal(await page.locator("#review-sidebar").count(), 0);
   await page.waitForFunction(() =>
     document.querySelector(".cm-activeLine")?.textContent.startsWith("public final class"),
@@ -195,7 +196,7 @@ try {
   await page.getByRole("button", { name: "Theme", exact: true }).click();
   await page.getByRole("combobox", { name: "Search themes" }).pressSequentially("night");
   assert.equal(await page.getByRole("combobox", { name: "Search themes" }).inputValue(), "night");
-  assert.match(await page.locator(".med-editor-mode").textContent(), /^(Vim · )?NORMAL$/);
+  await page.locator(".cm-fat-cursor").first().waitFor({ state: "attached" });
   await page.keyboard.press("Escape");
   const viewHeight = await page
     .locator(".med-editor-header")
@@ -293,14 +294,25 @@ try {
   await page.evaluate(() => localStorage.setItem("med:theme:v1", "graphite-light"));
   await page.goto(`${origin}/review/${review.id}`);
   await page.getByTitle("Open full file · ReadingQueue.java", { exact: true }).click();
-  await page.getByRole("button", { name: "Open after", exact: true }).click();
+  // The file's header has no Open before or after; ⌘K does, once the file is
+  // in the editor.
+  await page
+    .locator(".cm-content")
+    .filter({ hasText: "public final class ReadingQueue" })
+    .waitFor();
+  const command = async (name) => {
+    await page.keyboard.press("Meta+k");
+    await page.getByRole("combobox", { name: "Search commands", exact: true }).fill(name);
+    await page.getByRole("option", { name: new RegExp(`^${name}`) }).click();
+  };
+  await command("Open after version of current file");
   const marker = (kind) => page.locator(`[data-med-change="${kind}"]`);
   await marker("added").first().waitFor();
   await marker("deleted").first().waitFor();
   await page.screenshot({ path: join(output, "comparison-gutter-light.png") });
   // The markers remain attached to code rows after scrolling and changing sides.
   const afterCount = await marker("added").count();
-  await page.getByRole("button", { name: "Open before", exact: true }).click();
+  await command("Open before version of current file");
   await marker("deleted").first().waitFor();
   await page.evaluate(() => localStorage.setItem("med:theme:v1", "tokyo-night"));
   const workingLink = new URL("/file", origin);

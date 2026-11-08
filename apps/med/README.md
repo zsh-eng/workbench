@@ -18,7 +18,7 @@ _Bun and med · Vitesse Light_
 
 ## Find and read code
 
-Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Twinkleplop supplies syntax colours, including local Java, C++, Go, Rust, and Swift support; Groovy and Gradle files use the Java colours. Files without a supported grammar remain readable as plain text. See [highlighting parity and performance](docs/validation/JAVA_CPP_HIGHLIGHTING.md) for measured results and known differences from Shiki.
+Find files or search committed code with a preview. Open files in tabs, jump to symbols, and inspect line blame. Keyboard shortcuts and Vim navigation are built in. Pierre's WebAssembly highlighter colours 152 languages; anything else stays readable as plain text.
 
 ![Bun file search with matching paths and a code preview in Vitesse Dark](docs/screenshots/bun-search-vitesse-dark.png)
 
@@ -28,7 +28,7 @@ _Bun · Vitesse Dark_
 
 Open an agent's review link, leave line comments, then copy comments from all its repositories back to the agent. Comments appear immediately and stay attached to the captured code.
 
-The agent can split its change into a [Guide](docs/usage/guide.md): a summary, then segments that you read one at a time, each with only its files and the agent's comments. Mark files viewed as you go, or read a range one commit at a time.
+The agent can split its change into a [Guide](docs/usage/guide.md): a summary, then segments that you read one at a time, each with only its files and the agent's comments. The file list also opens a range one commit at a time. A later version opens on what is new since you last looked.
 
 ![Saved med review with a multiline comment and Copy comments controls in Rosé Pine Dawn](docs/screenshots/med-comments-rose-pine-dawn.png)
 
@@ -125,8 +125,7 @@ See the [usage guide](docs/USAGE.md) for all shortcuts, search setup, and limits
 
 | Project                                                            | Use in med                                             |
 | ------------------------------------------------------------------ | ------------------------------------------------------ |
-| [Pierre Diffs and Trees](https://github.com/pierrecomputer/pierre) | Code and diff rendering; file trees                    |
-| [Twinkleplop](https://github.com/pngwn/twinkleplop)                | Syntax highlighting                                    |
+| [Pierre Diffs and Trees](https://github.com/pierrecomputer/pierre) | Code and diff rendering, syntax highlighting; trees    |
 | [Base UI](https://base-ui.com/)                                    | UI controls and dialogs                                |
 | [Universal Ctags](https://github.com/universal-ctags/ctags)        | Symbol extraction                                      |
 | [Zoekt](https://github.com/sourcegraph/zoekt)                      | Indexed search across committed branches               |
@@ -155,12 +154,14 @@ bun run dev:med /path/to/repository
 Open the Vite URL with the `#token=…` fragment printed by the API host. Vite
 proxies API requests to that host; production builds need no proxy.
 
-Open `/elements`, or **Open elements page** in the command palette, to inspect
+Open `/elements` to inspect
 Med's components on fixed sample data: palette, type, icons, controls, review
 parts, code color states, and a brief. It previews any theme without saving it,
 outlines or inspects elements, runs the Commit tab on a pretend repository,
 replays a recorded agent session, and runs the Session pane with a scripted
-agent.
+agent. `/screens`, in a dev server, shows whole windows the same way. In the
+browser console, `medRenderDiagnostics.download()` saves the last render
+events of the open page.
 
 To run the login service from Workbench's latest `main` on macOS, run
 `bun scripts/track-main.ts install`. It builds `main` in a separate worktree

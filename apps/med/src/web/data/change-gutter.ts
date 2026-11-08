@@ -32,6 +32,11 @@ export function createChangeGutter() {
         marker.dataset.medChange = range.kind;
         marker.dataset.changeLine = String(line);
         if (range.edge) marker.dataset.changeEdge = range.edge;
+        // A run's lines join into one bar, round only at its ends.
+        else {
+          if (range.start === line) marker.dataset.changeStart = "";
+          if (range.end === line) marker.dataset.changeEnd = "";
+        }
         marker.title = `${range.kind === "working" ? "Working change" : range.kind === "added" ? "Added" : "Deleted"} · ${changes!.label}`;
         marker.setAttribute("aria-label", marker.title);
         cell.append(marker);

@@ -1,13 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
-import type { SavedCommit } from "../../../shared/review-guide";
 import type { ReviewOutput } from "../../../shared/review-output";
 import type { Since } from "../../../shared/saved-review";
-import { AREA_LABELS, firstSentence, type GuideScope, type GuideSection } from "../../data/guide";
-import { relativeTime } from "../../data/relative-time";
+import type { GuideScope, GuideSection } from "../../data/guide";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { clippedTooltip } from "../ToolButton";
 import { GuideMarkdown } from "./GuideMarkdown";
 import {
   dismissOffer,
@@ -19,14 +16,11 @@ import {
   type Offer,
   type OverviewProof,
 } from "./OverviewParts";
-import { Progress } from "./Progress";
-
-const pad = (value: number) => String(value).padStart(2, "0");
 
 /**
  * The Guide's first page: the proof, what changed and why, what changed since
- * the reader's last review, the findings, then the segments to read and the
- * range's commits. Each row opens its part of the diff. A part that the
+ * the reader's last review, and the findings. It does not repeat the
+ * segments, which the rail lists. A part that the
  * version does not have does not show.
  */
 export function GuideOverview({
@@ -36,16 +30,10 @@ export function GuideOverview({
   from,
   agent,
   sections,
-  commits,
-  moreCommits,
-  viewed,
-  total,
-  done,
   proof,
   findings,
   openFindings = 0,
   since,
-  version,
   offers = [],
   repo,
   onSince,
@@ -61,20 +49,13 @@ export function GuideOverview({
   from?: number;
   agent: { name: string; mark: IconName } | null;
   sections: readonly GuideSection[];
-  commits: readonly SavedCommit[];
-  moreCommits?: boolean;
-  viewed: ReadonlySet<string>;
-  total: number;
-  done: number;
   /** The version's proof, or the checks that its session ran. */
   proof?: OverviewProof;
   /** The version's findings, from its notes or guide (shared/review-output.ts). */
   findings?: Pick<ReviewOutput, "findings" | "counts" | "nothingToFix">;
   openFindings?: number;
-  /** The files that changed since the reader's last review, from version 2. */
+  /** The files that changed since the reader's last review, after the first hand-off. */
   since?: Since | null;
-  /** The shown version, which the reader can mark approved. */
-  version?: { number: number; approved: boolean; onApprove(approved: boolean): void };
   /** Practices that would help here, most useful first; one shows at a time. */
   offers?: readonly Offer[];
   /** The review's checkout, for the summary's images. */
@@ -86,9 +67,7 @@ export function GuideOverview({
   onWhole(): void;
   onOpenLink(href: string): void;
 }) {
-  const [now] = useState(Date.now);
-  const next =
-    sections.find((section) => section.fileIds.some((id) => !viewed.has(id))) ?? sections[0];
+  const next = sections[0];
   const comments = sections.reduce((sum, section) => sum + section.notes.length, 0);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
     () => new Set(offers.filter((offer) => offerDismissed(offer.id)).map((offer) => offer.id)),
@@ -118,7 +97,7 @@ export function GuideOverview({
             </span>
           )}
           {!agent && sections.length > 0 && <span>Guide</span>}
-          {from !== undefined && <span>· from version {from}</span>}
+          {from !== undefined && <span>· from an earlier hand-off</span>}
         </p>
         <h1 {...stylex.props(styles.title)}>{title}</h1>
         <p {...stylex.props(styles.meta)}>{meta}</p>
@@ -129,61 +108,25 @@ export function GuideOverview({
           </div>
         ) : offer?.slot === "explainer" ? (
           offerIn("explainer")
-        ) : (
-          !sections.length &&
-          commits.length > 0 && (
-            <p {...stylex.props(styles.quiet)}>
-              This review has no guide. Read it one commit at a time, or all at once.
-            </p>
-          )
-        )}
+        ) : null}
         <div {...stylex.props(styles.start)}>
-          {(next || commits.length > 0) && (
+          {next && (
             <button
               type="button"
-              onClick={() =>
-                onScope(
-                  next
-                    ? { kind: "segment", key: next.key }
-                    : { kind: "commit", id: commits[0]!.id },
-                )
-              }
+              onClick={() => onScope({ kind: "segment", key: next.key })}
               {...stylex.props(ui.button, ui.primary, ui.pressable, styles.startButton)}
             >
-              {done > 0 && done < total ? "Continue" : "Start reviewing"}
+              Start reviewing
               <Icon name="arrowLeft" size={13} style={{ transform: "rotate(180deg)" }} />
             </button>
           )}
           <button
             type="button"
             onClick={onWhole}
-            {...stylex.props(
-              ui.button,
-              !next && !commits.length && ui.primary,
-              ui.pressable,
-              styles.startButton,
-            )}
+            {...stylex.props(ui.button, !next && ui.primary, ui.pressable, styles.startButton)}
           >
             All files
           </button>
-          {version && (
-            <button
-              type="button"
-              aria-pressed={version.approved}
-              onClick={() => version.onApprove(!version.approved)}
-              {...stylex.props(
-                ui.button,
-                ui.pressable,
-                styles.startButton,
-                version.approved && ui.active,
-              )}
-            >
-              <Icon name="check" size={13} />
-              {version.approved
-                ? `Approved version ${version.number}`
-                : `Approve version ${version.number}`}
-            </button>
-          )}
           <span {...stylex.props(styles.startMeta)}>
             {[
               sections.length > 0 &&
@@ -191,12 +134,8 @@ export function GuideOverview({
               sections.length > 0 &&
                 comments > 0 &&
                 `${comments} ${comments === 1 ? "comment" : "comments"}`,
-              sections.length === 0 &&
-                commits.length > 0 &&
-                `${commits.length}${moreCommits ? "+" : ""} ${commits.length === 1 ? "commit" : "commits"}`,
               openFindings > 0 &&
                 `${openFindings} open ${openFindings === 1 ? "finding" : "findings"}`,
-              total > 0 && `${done} of ${total} files viewed`,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -205,98 +144,6 @@ export function GuideOverview({
         {since && <SincePart since={since} onOpen={onSince} />}
         {offerIn("rounds")}
         {hasFindings && <FindingsPart output={findings} open={openFindings} onOpen={onOpenLink} />}
-        {sections.length > 0 && (
-          <>
-            <h2 {...stylex.props(styles.label)}>Segments</h2>
-            <ol {...stylex.props(styles.list)}>
-              {sections.map((section) => {
-                const seen = section.fileIds.filter((id) => viewed.has(id)).length;
-                const sentence = firstSentence(section.summary);
-                return (
-                  <li key={section.key}>
-                    <button
-                      type="button"
-                      onClick={() => onScope({ kind: "segment", key: section.key })}
-                      {...clippedTooltip(section.title)}
-                      {...stylex.props(styles.card)}
-                    >
-                      <span {...stylex.props(styles.number, section.automatic && styles.auto)}>
-                        {section.automatic ? "··" : pad(section.number)}
-                      </span>
-                      <span {...stylex.props(styles.cardBody)}>
-                        <span data-clip="lines" {...stylex.props(styles.cardTitle)}>
-                          {section.title}
-                        </span>
-                        <span {...stylex.props(styles.cardMeta)}>
-                          {section.critical && (
-                            <span {...stylex.props(styles.critical)}>
-                              <Icon name="alert" size={11} />
-                              Needs care
-                            </span>
-                          )}
-                          {section.area && (
-                            <span {...stylex.props(styles.kind)}>{AREA_LABELS[section.area]}</span>
-                          )}
-                          {section.additions > 0 && (
-                            <span {...stylex.props(ui.added)}>+{section.additions}</span>
-                          )}
-                          {section.deletions > 0 && (
-                            <span {...stylex.props(ui.removed)}>−{section.deletions}</span>
-                          )}
-                          <span>
-                            {section.fileIds.length}{" "}
-                            {section.fileIds.length === 1 ? "file" : "files"}
-                          </span>
-                          {section.notes.length > 0 && (
-                            <span {...stylex.props(styles.notes)}>
-                              <Icon name="note" size={11} />
-                              {section.notes.length}
-                            </span>
-                          )}
-                        </span>
-                        {sentence && <span {...stylex.props(styles.sentence)}>{sentence}</span>}
-                      </span>
-                      <span {...stylex.props(styles.progress)}>
-                        <Progress value={seen} total={section.fileIds.length} />
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </>
-        )}
-        {commits.length > 0 && (
-          <>
-            <h2 {...stylex.props(styles.label)}>
-              Commits
-              <span {...stylex.props(styles.labelCount)}>
-                {commits.length}
-                {moreCommits ? "+" : ""}
-              </span>
-            </h2>
-            <ol {...stylex.props(styles.list)}>
-              {commits.map((commit) => (
-                <li key={commit.id}>
-                  <button
-                    type="button"
-                    onClick={() => onScope({ kind: "commit", id: commit.id })}
-                    {...clippedTooltip(commit.subject)}
-                    {...stylex.props(styles.commit)}
-                  >
-                    <span {...stylex.props(styles.sha)}>{commit.id.slice(0, 7)}</span>
-                    <span data-clip="" {...stylex.props(styles.subject)}>
-                      {commit.subject}
-                    </span>
-                    <span {...stylex.props(styles.when)}>
-                      {commit.author} · {relativeTime(commit.timestamp, now)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </>
-        )}
       </div>
     </section>
   );
@@ -352,140 +199,8 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
   },
   summary: { marginTop: 26 },
-  quiet: { marginTop: 22, marginBottom: 0, color: tokens.muted, fontSize: 14, lineHeight: 1.6 },
   start: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 14, marginTop: 28 },
   startButton: { minHeight: 32, paddingInline: 14, gap: 8, fontSize: 12.5 },
   startMeta: { color: tokens.faint, fontSize: 12 },
-  label: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 44,
-    marginBottom: 8,
-    color: tokens.labelColor,
-    fontFamily: tokens.ui,
-    fontSize: tokens.labelSize,
-    fontWeight: tokens.labelWeight,
-    letterSpacing: tokens.labelTracking,
-    textTransform: tokens.labelCase,
-  },
-  labelCount: { color: tokens.faint, fontFamily: tokens.code, fontSize: 10.5 },
-  list: {
-    listStyle: "none",
-    margin: 0,
-    padding: 0,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
-  },
-  card: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 14,
-    width: "100%",
-    boxSizing: "border-box",
-    paddingBlock: 14,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    textAlign: "left",
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: -2,
-    transitionProperty: "background-color",
-    transitionDuration: "120ms",
-  },
-  number: {
-    flexShrink: 0,
-    width: 20,
-    paddingTop: 2,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 12,
-    fontVariantNumeric: "tabular-nums",
-  },
-  auto: { letterSpacing: "0.1em" },
-  cardBody: { display: "flex", flexDirection: "column", gap: 5, flex: "1", minWidth: 0 },
   // Two lines at most; a longer title shows whole in the tooltip.
-  cardTitle: {
-    display: "-webkit-box",
-    WebkitBoxOrient: "vertical",
-    WebkitLineClamp: 2,
-    overflow: "hidden",
-    overflowWrap: "anywhere",
-    fontSize: 14,
-    fontWeight: 550,
-    lineHeight: 1.35,
-    letterSpacing: "-0.005em",
-  },
-  cardMeta: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
-    color: tokens.faint,
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    fontVariantNumeric: "tabular-nums",
-  },
-  kind: {
-    fontFamily: tokens.ui,
-    fontSize: 10,
-    fontWeight: 500,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-  },
-  notes: { display: "inline-flex", alignItems: "center", gap: 3, color: tokens.accent },
-  critical: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    color: tokens.warning,
-    fontFamily: tokens.ui,
-    fontSize: 10.5,
-    fontWeight: 500,
-  },
-  sentence: { color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
-  progress: { display: "flex", paddingTop: 2 },
-  commit: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 12,
-    width: "100%",
-    boxSizing: "border-box",
-    minHeight: 38,
-    paddingBlock: 9,
-    paddingInline: 10,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    textAlign: "left",
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-    outlineOffset: -2,
-  },
-  sha: { flexShrink: 0, color: tokens.faint, fontFamily: tokens.code, fontSize: 11 },
-  subject: {
-    flex: "1",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 13,
-  },
-  when: {
-    display: { default: "inline", "@container (max-width: 520px)": "none" },
-    flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11.5,
-  },
 });

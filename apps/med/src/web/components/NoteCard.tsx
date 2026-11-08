@@ -4,6 +4,7 @@ import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode
 import { CommentRefsContext, FileRefsContext } from "./FileRefs";
 import type { GuideCommentRef, Note, NoteInput, NoteMutation } from "../../shared/protocol";
 import { onGitHub, PendingReviewContext } from "../data/pending-review";
+import { CommentAgentContext, noteAuthor } from "../data/comment-agent";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -315,6 +316,25 @@ function ThreadMessage({
   const github = useContext(PendingReviewContext);
   const [sending, setSending] = useState<"posting" | "posted" | null>(null);
   const posted = onGitHub(github?.comments, note) ? "posted" : sending;
+  // The agent that Med runs takes the comment from here. A reply goes with
+  // its thread.
+  const agent = useContext(CommentAgentContext);
+  const toAgent = agent && !reply && !note.parentId && !note.author ? agent : null;
+  const [handing, setHanding] = useState(false);
+  const handed = !!toAgent?.sent(note.id);
+  const sendToAgent = async () => {
+    if (!toAgent || handing || handed) return;
+    setHanding(true);
+    setError("");
+    try {
+      await toAgent.send(note.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `${toAgent.name} did not get the comment.`);
+    } finally {
+      setHanding(false);
+    }
+  };
+  const author = note.author && noteAuthor(note.author);
   const postToGitHub =
     github?.targetId &&
     !reply &&
@@ -348,7 +368,13 @@ function ThreadMessage({
   };
   return (
     <div {...stylex.props(reply && styles.reply, stylex.defaultMarker())}>
-      {note.resolution && note.resolution !== "active" && (
+      {author && (
+        <p {...stylex.props(styles.replier)}>
+          <Icon name={author.mark} size={12} />
+          {author.name}
+        </p>
+      )}
+      {note.resolution && note.resolution !== "active" && !note.author && (
         <p {...stylex.props(styles.stale)}>
           {note.resolution === "orphaned"
             ? "Original location no longer exists. Note preserved for review."
@@ -386,8 +412,23 @@ function ThreadMessage({
           <CommentText text={note.text} onOpenLink={onOpenLink} />
           <div {...stylex.props(styles.actions)}>
             <Timestamp note={note} />
+            {toAgent && handed && (
+              <span {...stylex.props(styles.meta)}>· Sent to {toAgent.name}</span>
+            )}
             <span {...stylex.props(ui.grow)} />
             <span {...stylex.props(styles.tools)}>
+              {toAgent && !handed && (
+                <button
+                  type="button"
+                  title={`Send to ${toAgent.name}`}
+                  aria-label={`Send to ${toAgent.name}`}
+                  aria-busy={handing}
+                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                  onClick={() => void sendToAgent()}
+                >
+                  <Icon name={toAgent.mark} size={14} />
+                </button>
+              )}
               {postToGitHub && (
                 <button
                   type="button"
@@ -420,19 +461,21 @@ function ThreadMessage({
                   <Icon name="reply" size={14} />
                 </button>
               )}
-              <button
-                type="button"
-                title="Edit"
-                {...stylex.props(ui.button, ui.iconButton, styles.tool)}
-                aria-label={reply ? "Edit reply" : "Edit"}
-                onClick={() => {
-                  editSession.current++;
-                  setEditText(note.text);
-                  setEditing(true);
-                }}
-              >
-                <Icon name="edit" size={14} />
-              </button>
+              {!note.author && (
+                <button
+                  type="button"
+                  title="Edit"
+                  {...stylex.props(ui.button, ui.iconButton, styles.tool)}
+                  aria-label={reply ? "Edit reply" : "Edit"}
+                  onClick={() => {
+                    editSession.current++;
+                    setEditText(note.text);
+                    setEditing(true);
+                  }}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 title="Delete"
@@ -537,7 +580,7 @@ const styles = stylex.create({
     maxWidth: 600,
     paddingBlock: 10,
     paddingInline: 12,
-    paddingBottom: 6,
+    paddingBottom: 8,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: tokens.line, ":focus-within": tokens.lineStrong },
@@ -584,12 +627,15 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  actions: { display: "flex", alignItems: "center", gap: 4, minHeight: 28, marginTop: 4 },
+  // The time's line: the actions that show on hover reach past it, so a
+  // thread keeps the same space between its messages.
+  actions: { display: "flex", alignItems: "center", gap: 4, height: 20, marginTop: 4 },
   meta: { color: tokens.faint, fontSize: 11, whiteSpace: "nowrap" },
   hint: { opacity: 0.7 },
   tools: {
     display: "inline-flex",
     gap: 2,
+    marginBlock: -3,
     marginInlineEnd: -6,
     opacity: {
       default: 0,
@@ -613,10 +659,10 @@ const styles = stylex.create({
     backgroundColor: tokens.text,
     opacity: { default: 1, ":hover": 0.85, ":disabled": 0.35 },
   },
-  // A reply hangs from what it answers, on a line down its side.
+  // A reply hangs from what it answers, on a line down its side that ends
+  // at its time.
   reply: {
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 10,
     marginInlineStart: 6,
     paddingInlineStart: 12,
     borderInlineStartWidth: 2,

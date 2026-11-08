@@ -73,9 +73,9 @@ flowchart TB
 
 | Responsibility                               | Implementation                                                                         |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Diff rendering, line virtualization, context | `@pierre/diffs` 1.4.3, patched at build time; one CodeView, no second virtualizer      |
+| Diff rendering, line virtualization, context | `@pierre/diffs` 1.6.4; one CodeView, no second virtualizer                             |
 | File trees                                   | `@pierre/trees`                                                                        |
-| Syntax tokens                                | Twinkleplop and Med's own grammars ([syntax highlighting](#syntax-highlighting))       |
+| Syntax tokens                                | `@pierre/highlights` ([syntax highlighting](#syntax-highlighting))                     |
 | Editing                                      | CodeMirror 6 and `@replit/codemirror-vim`, loaded on demand                            |
 | Selectors, menus, dialogs, tooltips          | `@base-ui/react`                                                                       |
 | Layout, themes, focus, density               | StyleX and a small CSS reset                                                           |
@@ -101,38 +101,14 @@ formats; TypeScript and Vitest check. The lockfile pins all versions.
 
 ## Syntax highlighting
 
-Twinkleplop gives tokens to the worker and main-thread paths. Med has its own
-grammars for Java, C++, XML, JSON, JSONC, Go, Rust, and Swift in
-`src/web/highlighting/languages/`. The Go, Rust, and Swift scanners give the
-scope stacks of the TextMate grammars that Shiki uses;
-[upstream/GRAMMARS.md](upstream/GRAMMARS.md) records their sources and licenses.
-`languages.ts` loads each grammar on demand and adds the root scope, such as
-`source.json`, to scanners that give scope stacks. `scopeOverrides` maps
-Twinkleplop's CSS token kinds to the scopes that Shiki uses. The adapter
-(`src/web/highlighting/adapter.ts`) reads each token's scope stack, changes
-UTF-16 ranges to Pierre's HAST, and adds word-change decorations and theme
-colors. It resolves theme rules as vscode-textmate does, with parent and child
-(`>`) selectors and their specificity. Twinkleplop grammars give one scope per
-token kind, so parent selectors seldom match them. Markdown fences load their
-embedded grammars. Unsupported languages use plain text.
-`bun run test:highlighting` compares Med's grammars with Shiki through Pierre.
-Go, Rust, and Swift use Shiki's Oniguruma engine as the reference, because its
-JavaScript engine misreads some Swift comments and fails on some Go files.
-
-`tools/pierre-highlighter.ts` patches Pierre 1.4.3 at build time and rejects
-another version or a missing source boundary. Pierre keeps the worker queue,
-cache, diff layout, and line transforms. Full-file workers tokenize the whole
-source and send styled text runs with a shared style table. The pool builds a
-line's HAST only when the renderer asks for it, and rejects obsolete results
-before it decodes them. Diff results keep Pierre's wire format.
-
-The normal build has no Shiki tokenizer or grammar modules. Theme data, theme
-normalization, and Pierre's token transform stay as transitive Shiki
-dependencies. The build fails when emitted chunks contain a Shiki engine or
-grammar module. A Pierre upgrade needs a new integration audit.
-`MED_HIGHLIGHTER=shiki bun run build:web` builds the comparison baseline with
-Pierre's original engine. See
-[the integration and video comparison](docs/validation/HIGHLIGHTER_INTEGRATION.md).
+Pierre's own highlighter, `@pierre/highlights`, colours every view: diffs and
+files through `@pierre/diffs` (`preferredHighlighter: "highlights"` on the
+worker pool in `main.tsx`), and Markdown code fences and the file editor
+through `src/web/highlighting/highlighter.ts`, which asks Pierre's shared
+highlighter for tokens. It is written in WebAssembly, needs no grammar
+downloads, knows 152 languages, and reads Shiki's themes, so Med's themes
+(`pierre-theme.ts`) colour code the same way in every view. A language it
+does not know reads as plain text.
 
 A file read resolves the language during I/O and starts bounded highlighting
 when the response arrives, before React mounts the view. The viewer joins that
@@ -730,7 +706,7 @@ limited.** KaTeX loads only for math, with trust disabled and expansion
 limits. Pele draws Mermaid diagrams near the viewport, and each diagram type
 loads on demand. Diagram links and images are off. Diagram colors are CSS
 variables that MarkdownPreview.css maps to theme tokens, so a theme change does
-not draw again. Code fences use the Twinkleplop adapter.
+not draw again. Code fences use Pierre's highlighter.
 
 Image requests accept only supported image types up to 8 MiB, with exact
 document grants or registered repository access. Standalone images stay in the
@@ -809,6 +785,5 @@ merge editing, and branch changes other than the Commit tab are out of scope.
 Measurements: [file browsing](docs/validation/FILE_BROWSING.md),
 [interactions](docs/validation/INTERACTIONS.md),
 [file opening](docs/validation/FILE_OPENING_SECOND_PASS.md),
-[highlighting](docs/validation/HIGHLIGHTER_INTEGRATION.md),
 [vault index](docs/validation/VAULT_INDEX.md), and
 [media](docs/validation/MEDIA.md).

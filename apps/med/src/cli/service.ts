@@ -246,6 +246,7 @@ export async function serve(stateDir: string, port: number) {
       cli: ownCommand(),
       // Another Med lists only its own threads, until the reader shows the rest.
       foundSessions: resolve(stateDir) === defaultStateDirectory(),
+      basePull: resolve(stateDir) === defaultStateDirectory(),
     });
     manager.port = host.port;
     let closing = false;

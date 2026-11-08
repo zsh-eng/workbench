@@ -29,8 +29,10 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
+import { findInFile, findPanelTheme } from "./editor-find";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
-import { getFiletypeFromFileName, resolveTheme } from "@pierre/diffs";
+import { getFiletypeFromFileName } from "@pierre/diffs";
+import { resolveSyntaxTheme, HIGHLIGHTER } from "../pierre-theme";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import { useTheme } from "../themes";
 import { codeColors } from "../code-colors";
@@ -47,7 +49,6 @@ import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
 import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
-import { useQuietChrome } from "../data/chrome";
 import { fileTitle } from "./QuietChrome";
 import "./FileEditor.css";
 
@@ -218,6 +219,7 @@ function DiskChanges({ path, before, after }: { path: string; before: FileRead; 
   const options = useMemo(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle: "unified" as const,
       overflow: "wrap" as const,
@@ -268,7 +270,6 @@ export default function FileEditor({
   const view = useRef<EditorView | null>(null);
   const jumpPulse = useRef<Animation | null>(null);
   const [mode, setMode] = useState("NORMAL");
-  const quiet = useQuietChrome();
   const [confirm, setConfirm] = useState(false);
   const [syntaxError, setSyntaxError] = useState("");
   const [clipboardError, setClipboardError] = useState("");
@@ -514,7 +515,7 @@ export default function FileEditor({
     let sequence = 0,
       stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let theme: Awaited<ReturnType<typeof resolveTheme>> | undefined;
+    let theme: Awaited<ReturnType<typeof resolveSyntaxTheme>> | undefined;
     const schedule = (immediate = false) => {
       clearTimeout(timer);
       const id = ++sequence;
@@ -559,6 +560,7 @@ export default function FileEditor({
         };
       }),
       vim(),
+      findInFile(),
       history(),
       colors,
       cited,
@@ -649,7 +651,7 @@ export default function FileEditor({
             textDecoration: `underline 2px ${code.matchBorder}`,
             textUnderlineOffset: "3px",
           },
-          ".cm-panels": { backgroundColor: active.palette.panel, color: active.palette.text },
+          ...findPanelTheme,
           "&.cm-focused": { outline: "none" },
         },
         { dark: active.appearance === "dark" },
@@ -780,7 +782,7 @@ export default function FileEditor({
     };
     worker.onerror = () =>
       setSyntaxError("Syntax colors unavailable; editing and saving still work.");
-    void resolveTheme(active.pierreTheme)
+    void resolveSyntaxTheme(active.pierreTheme)
       .then((result) => {
         if (!stopped) {
           theme = result;
@@ -845,27 +847,9 @@ export default function FileEditor({
           title={draft.dirty ? "Unsaved changes" : "Saved"}
           style={{ color: draft.dirty ? active.palette.warning : active.palette.muted }}
         />
-        <span
-          className="med-editor-path"
-          title={fileTitle(draft.file.path, draft.file.size, quiet)}
-        >
+        <span className="med-editor-path" title={fileTitle(draft.file.path, draft.file.size)}>
           {context.path ?? draft.file.path}
         </span>
-        {/* Quiet chrome has no status bar to say "Editing file · Vim". */}
-        <span
-          className="med-editor-mode"
-          aria-live="polite"
-          title={quiet ? "Editing file · Vim" : undefined}
-        >
-          {quiet ? `Vim · ${mode}` : mode}
-        </span>
-        <ToolButton
-          label="Save"
-          icon="save"
-          shortcut="⌘ S"
-          onClick={() => void save()}
-          disabled={!draft.dirty || draft.saving}
-        />
         {context.loadBlame && (
           <ToolButton
             label={draft.dirty ? "Blame updates after saving" : "Toggle Git blame"}
@@ -879,24 +863,7 @@ export default function FileEditor({
             }}
           />
         )}
-        {context.onOpenBefore && <button onClick={context.onOpenBefore}>Open before</button>}
-        {context.onOpenAfter && <button onClick={context.onOpenAfter}>Open after</button>}
-        {context.refreshAvailable !== false && (
-          <ToolButton
-            label="Refresh file"
-            icon="refresh"
-            onClick={context.onRefresh}
-            disabled={draft.dirty || draft.saving}
-          />
-        )}
         {previewControl}
-        <ToolButton
-          label="Close file"
-          shortcut=":q"
-          icon="close"
-          onClick={close}
-          disabled={draft.saving}
-        />
       </header>
       {draft.error && !conflict && (
         <div role="alert" className="med-editor-message">

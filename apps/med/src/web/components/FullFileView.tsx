@@ -1,5 +1,7 @@
 import { MediaFileView } from "./MediaView";
 import { ToolButton } from "./ToolButton";
+import { OpenInMenu } from "./OpenInMenu";
+import type { PathActions, PathTarget } from "./PathMenu";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -26,6 +28,7 @@ import {
 import { createMarkdownModel, type MarkdownModel } from "../markdown/model";
 import "./MarkdownPreview.css";
 import { preloadable } from "./preloadable";
+import { useSyntaxSupport } from "../highlighting/support";
 import { createEditorDrafts, type EditorDrafts } from "../data/editor-drafts";
 import { isBrowseFile, type FileRead as BrowseRead, type FileWrite } from "../../shared/local-file";
 import type { BlameLoader, CommitLoader } from "../data/blame";
@@ -38,7 +41,6 @@ import { Icon } from "./Icon";
 import { useFileVim, type FileNavigationCommand } from "../data/use-file-vim";
 import { pierreFile } from "../data/file-prefetch";
 import { getFiletypeFromFileName } from "@pierre/diffs";
-import { supportedLanguage } from "../highlighting/languages";
 import { createSearchHighlights } from "../data/search-highlights";
 import { BlameTooltips } from "./BlameTooltips";
 import type { FileChanges } from "../../shared/file-changes";
@@ -46,8 +48,8 @@ import { createChangeGutter } from "../data/change-gutter";
 import { createBlameGutter } from "../data/blame-gutter";
 import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
-import { useQuietChrome } from "../data/chrome";
 import { fileTitle } from "./QuietChrome";
+import { HIGHLIGHTER } from "../pierre-theme";
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -90,13 +92,14 @@ export interface FullFileViewProps {
   /** Shows the cursor line's author and age after its text. Default: true. */
   lineBlame?: boolean;
   loadCommit?: CommitLoader;
+  /** Read the file again, when the workspace changed it. */
   onRefresh(): void;
-  refreshAvailable?: boolean;
+  /** Vim's :q in the editor. */
   onClose?(): void;
-  onOpenBefore?(): void;
-  onOpenAfter?(): void;
   onOpenFile?(path: string, line?: number): void;
   onEdit?(): void;
+  /** Open in, for a working-tree file: its code host, editors, and paths. */
+  openIn?: { actions: PathActions; target: PathTarget & { repo: string } };
   editor?: {
     drafts: EditorDrafts;
     key: string;
@@ -145,20 +148,19 @@ function ReadOnlyFileView({
   lineBlame = true,
   loadCommit,
   onRefresh,
-  refreshAvailable = true,
-  onClose,
-  onOpenBefore,
-  onOpenAfter,
   onEdit,
+  openIn,
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
   const { active } = useTheme();
-  const quiet = useQuietChrome();
   const sourceCursorAt = useRef(0);
   const cursorLine = useRef((_line: number) => {});
+  // The cursor's line, where Open in opens the file.
+  const lastLine = useRef(line ?? 1);
   const followCursor = useCallback(
     (line: number) => {
       sourceCursorAt.current = performance.now();
+      lastLine.current = line;
       cursorLine.current(line);
       onSourcePosition?.(line, "cursor");
     },
@@ -350,10 +352,7 @@ function ReadOnlyFileView({
   }, [file, stale, loading, loadChanges, changes]);
   const plain = !!file?.plain;
   const language = getFiletypeFromFileName(file?.path ?? "");
-  const unsupportedSyntax =
-    import.meta.env.MED_HIGHLIGHTER !== "shiki" &&
-    language !== "text" &&
-    !supportedLanguage(language);
+  const unsupportedSyntax = useSyntaxSupport(language) === false;
   const items = useMemo<CodeViewItem<undefined>[]>(() => {
     if (file?.kind !== "text" || typeof file.text !== "string") return [];
     return [
@@ -388,6 +387,7 @@ function ReadOnlyFileView({
   const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       overflow: "scroll",
       disableFileHeader: true,
@@ -482,11 +482,11 @@ function ReadOnlyFileView({
       data-file-plain={plain}
     >
       {!compact && (
-        <header data-lift-row="" {...stylex.props(styles.header)}>
+        <header {...stylex.props(styles.header)}>
           <Icon name="file" size={15} />
           <span
             {...stylex.props(styles.path)}
-            title={displayPath && fileTitle(displayPath, file?.size, quiet)}
+            title={displayPath && fileTitle(displayPath, file?.size)}
           >
             {displayPath}
           </span>
@@ -521,26 +521,14 @@ function ReadOnlyFileView({
               onClick={() => setBlameOpen(!blameOpen)}
             />
           )}
-          {onOpenBefore && (
-            <button {...stylex.props(ui.button)} onClick={onOpenBefore}>
-              Open before
-            </button>
-          )}
-          {onOpenAfter && (
-            <button {...stylex.props(ui.button)} onClick={onOpenAfter}>
-              Open after
-            </button>
-          )}
-          {refreshAvailable && (
-            <ToolButton
-              label="Refresh file"
-              icon="refresh"
-              disabled={loading}
-              onClick={onRefresh}
+          {openIn && (
+            <OpenInMenu
+              actions={openIn.actions}
+              target={openIn.target}
+              line={() => lastLine.current}
             />
           )}
           {previewControl}
-          {onClose && <ToolButton label="Close file" icon="close" onClick={onClose} />}
         </header>
       )}
       {stale && !loading && (
@@ -603,8 +591,8 @@ function ReadOnlyFileView({
                 style={
                   {
                     "--diffs-font-family": tokens.code,
-                    "--diffs-font-size": "12px",
-                    "--diffs-line-height": "20px",
+                    "--diffs-font-size": "var(--med-code-size, 12px)",
+                    "--diffs-line-height": "var(--med-code-line, 20px)",
                     "--diffs-bg-context-override": tokens.canvas,
                     "--diffs-bg-context-gutter-override": tokens.canvas,
                     ...codeSurfaceStyle,
@@ -875,7 +863,6 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
   useSyncExternalStore(store.subscribe, store.getSnapshot);
   const draft = props.editor ? store.get(props.editor.key) : undefined;
   const [editError, setEditError] = useState("");
-  const quiet = useQuietChrome();
   const markdown =
     !props.compact &&
     props.file?.kind === "text" &&
@@ -1005,10 +992,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     return (
       <div ref={reader} className="med-markdown-reader">
         {/* The header matches the source view's, so nothing moves as the views change. */}
-        <header
-          data-lift-row={draft?.editing ? "editor" : ""}
-          {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}
-        >
+        <header {...stylex.props(styles.header, draft?.editing && styles.editorHeader)}>
           {draft?.editing ? (
             <span
               role="img"
@@ -1019,10 +1003,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
           ) : (
             <Icon name="file" size={15} />
           )}
-          <span
-            {...stylex.props(styles.path)}
-            title={fileTitle(props.file.path, props.file.size, quiet)}
-          >
+          <span {...stylex.props(styles.path)} title={fileTitle(props.file.path, props.file.size)}>
             {props.path ?? props.file.path}
           </span>
           {!draft?.editing && (
@@ -1030,16 +1011,14 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
               {props.sourceLabel.replace(/^Working files\b/, "Working file")}
             </span>
           )}
-          {props.refreshAvailable && (
-            <ToolButton
-              label="Refresh file"
-              icon="refresh"
-              disabled={!!draft?.dirty}
-              onClick={props.onRefresh}
+          {props.openIn && !draft?.editing && (
+            <OpenInMenu
+              actions={props.openIn.actions}
+              target={props.openIn.target}
+              line={() => props.line ?? 1}
             />
           )}
           {previewControl}
-          {props.onClose && <ToolButton label="Close file" icon="close" onClick={props.onClose} />}
         </header>
         <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
           <MarkdownPreview

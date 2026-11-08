@@ -10,7 +10,9 @@ import { Icon, type IconName } from "../Icon";
 import { formatDuration } from "./Elapsed";
 import { motion, rowStyles } from "./session-styles";
 import { ScheduleCard } from "./ScheduleCard";
-import { isMedWait } from "./thread-model";
+import { HandoffCard } from "./HandoffCard";
+import { isMedHandoff, isMedWait } from "./thread-model";
+import { HIGHLIGHTER } from "../../pierre-theme";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type DiffContent = Extract<ToolCallContent, { type: "diff" }>;
@@ -121,9 +123,12 @@ export const ToolCall = memo(function ToolCall({
   /** Renders a subagent's thread inside the call that started it. */
   renderThread(items: SessionItem[]): ReactNode;
 }) {
-  // A schedule tool's call is a card of what it schedules (ScheduleCard.tsx).
+  // A schedule tool's call is a card of what it schedules (ScheduleCard.tsx),
+  // and a hand-off's a card that opens its review (HandoffCard.tsx).
   return item.call.schedule ? (
     <ScheduleCard item={item} />
+  ) : isMedHandoff(item.call) ? (
+    <HandoffCard item={item} />
   ) : (
     <ToolRow item={item} renderThread={renderThread} />
   );
@@ -278,6 +283,7 @@ function RenderedDiff({ diff }: { diff: DiffContent }) {
   const options = useMemo(
     () => ({
       theme: active.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
       diffStyle: "unified" as const,
       overflow: "wrap" as const,

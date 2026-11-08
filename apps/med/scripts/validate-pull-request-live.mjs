@@ -1,4 +1,4 @@
-// The Pull request tab in each state of a pull request: the built Med and a
+// The Pull request page in each state of a pull request: the built Med and a
 // real browser on a fake gh (scripts/fake-gh.mjs), with gh's output as real
 // GitHub gives it (tests/fixtures/gh/live-pull-requests.mjs). A draft opens as
 // a pull request, and the tab becomes the live view. Med writes nothing to
@@ -142,7 +142,7 @@ try {
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(`${origin}/review/${id}${hash}`);
     await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
-    await page.getByRole("tab", { name: "Pull request" }).click();
+    await page.getByRole("radio", { name: "Pull request" }).click();
     return { page, view: page.getByRole("region", { name: "Pull request", exact: true }) };
   };
   const words = (view, text) => view.getByText(text, { exact: true }).first().waitFor();
@@ -160,23 +160,26 @@ try {
   {
     const { page, view } = await open(reviews.get(52));
     await view.getByRole("heading", { name: "Retry failed calls in the queue worker" }).waitFor();
-    await words(view, "Pull request #52");
-    await words(view, "main ← feat/retry");
-    await words(view, "bug");
+    // One line on who merges what.
+    await words(view, "mira wants to merge feat/retry into main");
+    await words(view, "#52");
     await words(view, "Blocked: changes requested.");
     await words(view, "3 commits behind main.");
     const checks = view.getByRole("region", { name: "Checks" });
-    await words(checks, "4 failed, 4 passed, 1 skipped");
-    // Failures first, and a check on two triggers twice, each with its trigger.
-    const names = await checks
-      .locator("li")
-      .evaluateAll((rows) => rows.map((row) => row.textContent));
-    assert.match(names[0], /deploy\/preview/);
-    assert.match(names[1], /build.*Timed out.*1h 00m/s);
-    assert.match(names[2], /e2e.*CI · push.*Failed/s);
-    assert.match(names[3], /test \(ubuntu\).*2m 49s/s);
-    assert.equal(names.filter((name) => /e2e.*CI · pull_request/s.test(name)).length, 1);
-    assert.equal(names.length, 9);
+    const names = () =>
+      checks.locator("li").evaluateAll((rows) => rows.map((row) => row.textContent));
+    // Failures show, in order; the checks that passed are a count, until asked.
+    const failed = await names();
+    assert.equal(failed.length, 4);
+    assert.match(failed[0], /deploy\/preview/);
+    assert.match(failed[1], /build.*Timed out.*1h 00m/s);
+    assert.match(failed[2], /e2e.*CI · push.*Failed/s);
+    assert.match(failed[3], /test \(ubuntu\).*2m 49s/s);
+    await checks.getByRole("button", { name: "Checks: 4 passed, 1 skipped" }).click();
+    // A check on two triggers is there twice, each with its trigger.
+    const all = await names();
+    assert.equal(all.filter((name) => /e2e.*CI · pull_request/s.test(name)).length, 1);
+    assert.equal(all.length, 9);
     // A status's link is a web link or none.
     assert.equal(await checks.getByRole("link", { name: "Open security/scan" }).count(), 0);
     assert.equal(
@@ -204,21 +207,21 @@ try {
     assert.doesNotMatch(await log.innerText(), /Run tests\t|##\[|2026-11-01T/);
     await shoot("failing-log-dark-wide", page, view);
 
-    // A thread links to its line in the Review's diff.
-    await view
-      .getByRole("region", { name: "Code comments" })
-      .getByRole("button", { name: "Show queue.ts:R12 in the diff" })
-      .click();
+    // A thread, in the one timeline, links to its line in the Review's diff.
+    const conversation = view.getByRole("region", { name: "Conversation" });
+    await conversation.getByRole("button", { name: "Show queue.ts:R12 in the diff" }).click();
     await page
       .locator('[data-pull-request-thread="101"]')
       .filter({ visible: true })
       .first()
       .waitFor();
-    await page.getByRole("tab", { name: "Pull request" }).click();
-    // Thread that GitHub calls outdated says so, and has no link.
-    const code = view.getByRole("region", { name: "Code comments" });
-    await words(code, "Outdated on GitHub.");
-    assert.equal(await code.getByRole("button", { name: /gone\.ts/ }).count(), 0);
+    await page.getByRole("radio", { name: "Pull request" }).click();
+    // A thread that GitHub calls outdated is one line, and has no link.
+    await words(conversation, "lee on src/gone.ts, outdated");
+    assert.equal(
+      await conversation.getByRole("button", { name: /gone\.ts.* in the diff$/ }).count(),
+      0,
+    );
     await page.context().close();
   }
 
@@ -227,8 +230,14 @@ try {
     const { page, view } = await open(reviews.get(51));
     await words(view, "Draft");
     await words(view, "A draft: it cannot merge until it is ready.");
-    await words(view.getByRole("region", { name: "Checks" }), "2 running, 1 passed");
-    await words(view, "main ← feat/budget");
+    // Running checks show; the one that passed is a count.
+    const checks = view.getByRole("region", { name: "Checks" });
+    assert.equal(await checks.locator("li").count(), 2);
+    await checks.getByRole("button", { name: "Checks: 1 passed" }).waitFor();
+    await view
+      .getByText(/ wants to merge feat\/budget into main$/)
+      .first()
+      .waitFor();
     // A task list and code from its Markdown.
     await view.getByText("bun test src/queue").waitFor();
     assert.equal(await view.locator('input[type="checkbox"]').count(), 2);
@@ -252,7 +261,10 @@ try {
     const { page, view } = await open(reviews.get(54));
     await words(view, "Conflicts with main.");
     await words(view, "12 commits behind main.");
-    await words(view, "main ← rae:drain");
+    await view
+      .getByText(/ wants to merge rae:drain into main$/)
+      .first()
+      .waitFor();
     await words(view, "Requested");
     await page.context().close();
   }
@@ -281,7 +293,7 @@ try {
       .getByRole("alertdialog", { name: "Create pull request" })
       .getByRole("button", { name: "Create" })
       .click();
-    await words(view, "Pull request #51");
+    await words(view, "#51");
     await words(view, "A draft: it cannot merge until it is ready.");
     assert.equal(await page.getByText("Pull request draft · revision 1").count(), 0);
     await view.getByRole("button", { name: "Draft", exact: true }).click();

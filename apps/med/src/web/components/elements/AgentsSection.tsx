@@ -3,9 +3,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AgentPreset, OwnedState } from "../../../shared/owned-session";
 import type { AgentInbox } from "../../data/agent-inbox";
 import type { Thread } from "../../../shared/threads";
-import type { WorkspaceSnapshot } from "../../data/workspaces";
 import { tokens } from "../../theme.stylex";
-import { ThreadSidebar, type SidebarSource } from "../shell/ThreadSidebar";
+import { SessionSidebar } from "../shell/SessionSidebar";
 import { PermissionCard, SessionComposer } from "../session/SessionComposer";
 import { SessionPanel, SessionStart } from "../session/SessionPanel";
 import { createDemoAgent, createLongSession, demoAgents } from "./owned-fixture";
@@ -125,17 +124,6 @@ const THREADS: Thread[] = [
     state: "idle",
   },
 ];
-const SOURCES: SidebarSource[] = [
-  { kind: "repository", id: "trail", name: "trail-notes", path: "/work/trail-notes" },
-  { kind: "repository", id: "site", name: "club-site", path: "/work/club-site" },
-  { kind: "vault", id: "notes", name: "Club notes" },
-];
-const SNAPSHOT: WorkspaceSnapshot = {
-  workspaces: [{ id: "w1", kind: "review", reviewId: "r1", title: "Weeks in relative times" }],
-  active: "w1",
-  recent: ["w1"],
-};
-
 /** The real Session pane on a session of 600 turns. */
 function LongSession() {
   const [long] = useState(createLongSession);
@@ -159,7 +147,6 @@ function Still({ state }: { state: OwnedState }) {
       <SessionComposer
         agent="claude"
         name="Claude"
-        waiting={false}
         drafts={[]}
         attachments={[]}
         onRemoveAttachment={() => {}}
@@ -216,21 +203,34 @@ export function AgentsSection() {
         </div>
       </Specimen>
       <Specimen
-        title="Thread list"
-        note="Every thread, by repository: a turning arc while its agent works, a pulsing dot when it needs you, and a dot when a turn ended while you looked elsewhere. Each row names its branch and its changed lines."
+        title="Session list"
+        note="One row per session, pinned first, then newest activity. The name dims under a passing light while the agent works; an accent dot means news since you looked, an amber one that the work stopped."
         span="half"
         padded={false}
       >
         <div {...stylex.props(styles.sidebar)}>
-          <ThreadSidebar
+          <SessionSidebar
             threads={THREADS}
-            sources={SOURCES}
-            snapshot={SNAPSHOT}
+            current="r1"
+            read={{
+              isUnread: (thread) => thread.state === "waiting",
+              setUnread() {},
+              isSubagentUnread: () => false,
+              seeSubagent() {},
+            }}
             loaded
+            newThread={false}
+            renaming={null}
             onOpen={() => {}}
             onNewThread={() => {}}
             onHide={() => {}}
-            onSources={() => {}}
+            onSettings={() => {}}
+            onArchive={() => {}}
+            onDelete={() => {}}
+            onPrefetch={() => {}}
+            onRenaming={() => {}}
+            onRename={() => {}}
+            onPin={() => {}}
           />
         </div>
       </Specimen>

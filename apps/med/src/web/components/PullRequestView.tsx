@@ -17,12 +17,13 @@ import {
 } from "../data/live-pull-request";
 import { fileRefOf } from "../data/file-refs";
 import type { ThreadPlacement } from "../data/pull-request";
-import { relativeTime, useMinuteClock } from "../data/relative-time";
+import { useMinuteClock } from "../data/relative-time";
 import { renderBrief, renderedBrief } from "../markdown/brief-render";
 import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import type { MarkdownResult } from "../markdown/model";
 import { scrollPaneTo } from "../markdown/scroll";
 import { tokens, ui } from "../theme.stylex";
+import { Fold } from "./Fold";
 import { useTheme } from "../themes";
 import { DiagramBlock } from "./DiagramBlock";
 import { Icon, type IconName } from "./Icon";
@@ -40,8 +41,14 @@ import "./MarkdownPreview.css";
 import "./PullRequestView.css";
 
 /** Passed and skipped checks fold behind one line beyond this many. */
-const FOLD_CHECKS = 5;
 
+/** "lee wants to merge feature into main". */
+const MERGE_VERBS: Record<LivePullRequest["state"], string> = {
+  open: "wants to merge",
+  draft: "wants to merge",
+  merged: "merged",
+  closed: "wanted to merge",
+};
 const STATE_WORDS: Record<LivePullRequest["state"], string> = {
   open: "Open",
   draft: "Draft",
@@ -342,48 +349,36 @@ function Checks({
   const [all, setAll] = useState(false);
   const urgent = checks.filter(({ outcome }) => outcome !== "passed" && outcome !== "skipped");
   const rest = checks.slice(urgent.length);
-  const folded = rest.length > FOLD_CHECKS && !all;
+  // A failing or running check shows; those that passed are a count.
   return (
-    <section aria-label="Checks" {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.heading)}>
-        <h3 {...stylex.props(ui.label, styles.flat)}>Checks</h3>
-        <span {...stylex.props(styles.count)}>{checkCounts(checks)}</span>
-      </div>
+    <section aria-label="Checks" {...stylex.props(styles.part)}>
       {checks.length ? (
         <ul {...stylex.props(styles.list)}>
-          {(folded ? urgent : checks).map((check) => (
+          {(all ? checks : urgent).map((check) => (
             <CheckRow key={check.id} check={check} now={now} loadLog={loadLog} />
           ))}
         </ul>
       ) : (
         <p {...stylex.props(styles.note)}>No checks on this commit.</p>
       )}
-      {rest.length > FOLD_CHECKS && (
+      {rest.length > 0 && (
         <button
           type="button"
           aria-expanded={all}
-          {...stylex.props(styles.logToggle)}
+          {...stylex.props(styles.passed)}
           onClick={() => setAll(!all)}
         >
-          {all ? "Show fewer checks" : `Show ${checkCounts(rest)}`}
+          <Icon name="check" size={13} />
+          {all ? "Hide the checks that passed" : `Checks: ${checkCounts(rest)}`}
         </button>
       )}
     </section>
   );
 }
 
-function Merge({ pull, now }: { pull: LivePullRequest; now: number }) {
-  const ended = pull.merge.endedAt ? Date.parse(pull.merge.endedAt) : Number.NaN;
+function Merge({ pull }: { pull: LivePullRequest }) {
   return (
-    <section aria-label="Merge" {...stylex.props(styles.section, styles.first)}>
-      <div {...stylex.props(styles.heading)}>
-        <h3 {...stylex.props(ui.label, styles.flat)}>Merge</h3>
-        {!Number.isNaN(ended) && (
-          <time dateTime={pull.merge.endedAt} {...stylex.props(styles.count)}>
-            {relativeTime(ended, Math.max(now, ended))}
-          </time>
-        )}
-      </div>
+    <section aria-label="Merge" {...stylex.props(styles.part, styles.first)}>
       <ul {...stylex.props(styles.list)}>
         {mergeLines(pull).map(({ tone, text }) => (
           <li key={text} {...stylex.props(styles.mergeLine)}>
@@ -397,11 +392,9 @@ function Merge({ pull, now }: { pull: LivePullRequest; now: number }) {
 }
 
 function Reviewers({ pull }: { pull: LivePullRequest }) {
+  if (!pull.reviewers.length) return null;
   return (
-    <section aria-label="Reviewers" {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.heading)}>
-        <h3 {...stylex.props(ui.label, styles.flat)}>Reviewers</h3>
-      </div>
+    <section aria-label="Reviewers" {...stylex.props(styles.part)}>
       {pull.reviewers.length ? (
         <ul {...stylex.props(styles.list)}>
           {pull.reviewers.map((reviewer) => (
@@ -443,7 +436,6 @@ export default function PullRequestView({
   onShowDraft,
   left,
   onDismissLeft,
-  since,
 }: {
   reviewId: string;
   url: string;
@@ -463,8 +455,6 @@ export default function PullRequestView({
   /** The local images that Create left out, for the reader to add on GitHub. */
   left?: readonly string[];
   onDismissLeft?(): void;
-  /** What changed since the reader's last review, from version 2 of the review. */
-  since?: { from: number; files: number; onShow(): void };
 }) {
   const onScreen = useWorkspaceShown();
   const {
@@ -481,36 +471,19 @@ export default function PullRequestView({
     refresh();
   }, [refreshes, refresh]);
   const shownTitle = pull?.title ?? comments.data?.pull?.title ?? title;
-  const read = pull
-    ? `Read ${relativeTime(pull.fetchedAt, Math.max(now, pull.fetchedAt))}`
-    : undefined;
   return (
     <section aria-label="Pull request" {...stylex.props(styles.root)}>
       <div className="med-md-scroll med-pull-scroll">
         <div className="med-pull">
           <header className="med-pull-head">
-            <div {...stylex.props(styles.bar)}>
-              <span {...stylex.props(styles.barLabel)}>
-                <Icon name="pullRequest" size={12} />
-                Pull request{pull ? ` #${pull.number}` : ""}
-              </span>
-              <span {...stylex.props(ui.truncate)}>{loading ? "Reading…" : read}</span>
+            <div {...stylex.props(styles.titleRow)}>
+              <h1 className="med-pull-title">{shownTitle}</h1>
               <span {...stylex.props(styles.actions)}>
                 {onShowDraft && (
                   <button type="button" {...stylex.props(ui.button)} onClick={onShowDraft}>
                     Draft
                   </button>
                 )}
-                <button
-                  type="button"
-                  aria-label="Read the pull request again"
-                  aria-busy={loading}
-                  {...stylex.props(ui.button, ui.pressable)}
-                  onClick={refresh}
-                >
-                  <Icon name="refresh" size={12} />
-                  Refresh
-                </button>
                 <a
                   href={url}
                   target="_blank"
@@ -522,44 +495,31 @@ export default function PullRequestView({
                 </a>
               </span>
             </div>
-            <h1 className="med-pull-title">{shownTitle}</h1>
             {pull && (
-              <div {...stylex.props(styles.meta)}>
+              <p {...stylex.props(styles.meta)}>
                 <span {...stylex.props(styles.pullState, states[pull.state])}>
                   {STATE_WORDS[pull.state]}
                 </span>
-                <span {...stylex.props(styles.refs)}>
-                  {pull.base} ← {pull.head}
+                <span>
+                  {pull.author} {MERGE_VERBS[pull.state]}{" "}
+                  <code {...stylex.props(styles.refs)}>{pull.head}</code> into{" "}
+                  <code {...stylex.props(styles.refs)}>{pull.base}</code>
                 </span>
-                <span>{pull.author}</span>
-                {pull.labels.map((label) => (
-                  <span key={label.name} {...stylex.props(styles.label)}>
-                    {label.color && (
-                      <span
-                        aria-hidden="true"
-                        {...stylex.props(styles.dot, styles.labelDot(`#${label.color}`))}
-                      />
-                    )}
-                    {label.name}
-                  </span>
-                ))}
-              </div>
-            )}
-            {since && (
-              <p {...stylex.props(styles.since)}>
-                <Icon name="history" size={12} />
-                <span {...stylex.props(ui.grow)}>
-                  {since.files} {since.files === 1 ? "file" : "files"} changed since version{" "}
-                  {since.from}, your last review.
-                </span>
-                <button type="button" {...stylex.props(ui.button)} onClick={since.onShow}>
-                  Show only these changes
-                </button>
+                <span {...stylex.props(styles.number)}>#{pull.number}</span>
               </p>
             )}
             {error && (
               <p role="alert" {...stylex.props(styles.problem)}>
-                {pull ? `${error} This is what Med read last.` : error}
+                {pull ? `${error} This is what Med read last.` : error}{" "}
+                <button
+                  type="button"
+                  aria-label="Read the pull request again"
+                  aria-busy={loading}
+                  {...stylex.props(styles.retry)}
+                  onClick={refresh}
+                >
+                  Try again
+                </button>
               </p>
             )}
             {pull && lowBudget(pull) && (
@@ -584,18 +544,27 @@ export default function PullRequestView({
               </p>
             )}
           </header>
+          {/* One box: only what stands between the pull request and merging. */}
           {pull && (
-            <aside className="med-pull-side" aria-label="Status">
-              <Merge pull={pull} now={now} />
-              <Checks checks={pull.checks} now={Math.max(now, pull.fetchedAt)} loadLog={loadLog} />
-              <Reviewers pull={pull} />
-            </aside>
+            <div className="med-pull-side">
+              <section aria-label="Status" {...stylex.props(styles.status)}>
+                <Merge pull={pull} />
+                <Checks
+                  checks={pull.checks}
+                  now={Math.max(now, pull.fetchedAt)}
+                  loadLog={loadLog}
+                />
+                <Reviewers pull={pull} />
+              </section>
+            </div>
           )}
           <div className="med-pull-main">
             {!pull && !error && <p {...stylex.props(styles.note)}>Reading the pull request…</p>}
             {pull &&
               (pull.body.trim() ? (
-                <Description body={pull.body} reviewId={reviewId} root={root} />
+                <Fold>
+                  <Description body={pull.body} reviewId={reviewId} root={root} />
+                </Fold>
               ) : (
                 <p {...stylex.props(styles.note)}>No description.</p>
               ))}
@@ -652,19 +621,54 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 13,
   },
-  bar: {
-    display: "flex",
-    flexWrap: "wrap",
+  // The title, and beside it the way to GitHub.
+  titleRow: { display: "flex", alignItems: "flex-start", gap: 12 },
+  actions: {
+    display: "inline-flex",
     alignItems: "center",
-    gap: 12,
-    minHeight: 28,
-    fontSize: 12,
-    lineHeight: 1.4,
-    color: tokens.faint,
+    flexShrink: 0,
+    gap: 2,
+    marginTop: 16,
+    marginInlineStart: "auto",
   },
-  barLabel: { display: "inline-flex", alignItems: "center", gap: 6, color: tokens.muted },
-  // Stay together, on the row's right, however the row wraps.
-  actions: { display: "inline-flex", alignItems: "center", gap: 2, marginInlineStart: "auto" },
+  number: { color: tokens.faint, fontVariantNumeric: "tabular-nums" },
+  retry: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.accent, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    cursor: "pointer",
+  },
+  status: {
+    display: "flex",
+    flexDirection: "column",
+    paddingBlock: 4,
+    paddingInline: 14,
+    borderRadius: `calc(10px * ${tokens.round})`,
+    boxShadow: `inset 0 0 0 1px ${tokens.line}`,
+  },
+  // A part of the status box, ruled off from the one above.
+  part: {
+    paddingBlock: 8,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: tokens.line,
+  },
+  passed: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    minHeight: 24,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: tokens.muted, ":hover": tokens.text },
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    cursor: "pointer",
+  },
   outLink: { textDecoration: "none" },
   meta: {
     display: "flex",
@@ -685,24 +689,9 @@ const styles = stylex.create({
     lineHeight: "20px",
   },
   refs: { fontFamily: tokens.code, fontSize: 12, overflowWrap: "anywhere" },
-  label: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12 },
-  // A ring, as a label's own colour can be the page's.
-  labelDot: (color: string) => ({
-    backgroundColor: color,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
-  }),
   dot: { flexShrink: 0, width: 7, height: 7, borderRadius: "50%" },
   problem: { marginBlock: 8, color: tokens.red, fontSize: 12.5, lineHeight: 1.5 },
   note: { marginBlock: 6, color: tokens.muted, fontSize: 12.5, lineHeight: 1.5 },
-  since: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginBlock: 10,
-    color: tokens.muted,
-    fontSize: 12.5,
-    lineHeight: 1.5,
-  },
   notice: {
     display: "flex",
     alignItems: "center",
@@ -716,11 +705,7 @@ const styles = stylex.create({
     fontSize: 12.5,
     lineHeight: 1.5,
   },
-  section: { marginTop: 22 },
-  first: { marginTop: 0 },
-  heading: { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 },
-  flat: { margin: 0 },
-  count: { color: tokens.faint, fontSize: 11.5, fontVariantNumeric: "tabular-nums" },
+  first: { borderTopWidth: 0 },
   list: { margin: 0, padding: 0, listStyle: "none" },
   mergeLine: {
     display: "flex",

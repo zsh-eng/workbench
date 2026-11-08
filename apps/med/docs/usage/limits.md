@@ -36,7 +36,6 @@
 
 Measurements: [Zoekt search](../validation/ZOEKT.md) and
 [its integration](../validation/ZOEKT_INTEGRATION.md),
-[highlighting](../validation/HIGHLIGHTER_INTEGRATION.md),
 [everyday interactions](../validation/INTERACTIONS.md),
 [symbol search](../validation/SYMBOL_SEARCH.md), and
 [Vim navigation](../validation/VIM_NAVIGATION.md).

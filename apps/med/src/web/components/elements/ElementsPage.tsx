@@ -18,7 +18,6 @@ import { ReviewSection } from "./ReviewSection";
 import { SessionSection } from "./SessionSection";
 import { SourcesSection } from "./SourcesSection";
 import { StatesSection } from "./StatesSection";
-import { StreamsSection } from "./StreamsSection";
 import { StageContext } from "./Specimen";
 import "./ElementsPage.css";
 
@@ -33,7 +32,6 @@ const sections = [
   { id: "session", label: "Agent session" },
   { id: "agents", label: "Agents" },
   { id: "agent-states", label: "Agent states" },
-  { id: "streams", label: "Streams" },
   { id: "pull-requests", label: "Pull requests" },
   { id: "commit", label: "Commit flow" },
 ] as const;
@@ -158,7 +156,6 @@ export default function ElementsPage() {
             <SessionSection />
             <AgentsSection />
             <StatesSection />
-            <StreamsSection />
             <PullSection />
             <CommitSection />
           </StageContext.Provider>

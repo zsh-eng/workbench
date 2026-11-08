@@ -62,14 +62,6 @@ can list a task that is on, with its next time.
   of its turn's work ("Cancelled Oct 26 at 17:50"), not a card. A session-only
   job says **Ends with its session**. A prompt that a schedule enqueued shows
   as "A scheduled prompt ran", and starts its turn.
-- **Scheduled list.** The sidebar's Scheduled section lists only the jobs
-  that will fire: the tabs' jobs whose session's process runs, in Med or
-  elsewhere, and that are not cancelled, expired, fired, or past their time.
-  Each shows its thread, schedule, prompt, and where its process runs. A job
-  whose session ended, and every job that ended, stays in its thread's cards
-  only. When no job will fire there is no section, not "Scheduled 0". The
-  section reads every 30 seconds and on focus, also while it is closed, to
-  know whether to show. `GET /api/schedules` serves it
-  (`src/host/schedules.ts`): it finds each transcript once, reads it once,
-  then from where it stopped, and parses only the lines that name a schedule
-  tool.
+- **Scheduled list.** The sidebar has no Scheduled section, and Med lists
+  no jobs apart from their threads: a session that will wake says so in its
+  thread's cards, and a job that ended stays there.

@@ -232,11 +232,15 @@ function SymbolPickerContents({
               <span {...stylex.props(styles.scope)} title={sourceLabel}>
                 {sourceLabel}
               </span>
-              {onModeChange && mode === "project" && (
+              {onModeChange && (
                 <div {...stylex.props(styles.modes)}>
                   <button
-                    {...stylex.props(ui.button, styles.mode)}
-                    aria-pressed={false}
+                    {...stylex.props(
+                      ui.button,
+                      styles.mode,
+                      mode === "file" && styles.selectedMode,
+                    )}
+                    aria-pressed={mode === "file"}
                     onClick={() => onModeChange("file")}
                   >
                     File

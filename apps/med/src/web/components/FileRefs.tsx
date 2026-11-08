@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useMemo } from "react";
+import { createContext, Fragment, useContext, useMemo, type CSSProperties } from "react";
 import {
   decorateFileRefs,
   lineLabel,
@@ -10,6 +10,7 @@ import {
   type RefOptions,
 } from "../data/file-refs";
 import type { MarkdownBlock } from "../markdown/model";
+import { fileIcon } from "../data/file-icons";
 import "./FileRefs.css";
 
 /** What file references in a thread link to: the checkout's files, and how
@@ -76,6 +77,7 @@ export function LinkedText({ text }: { text: string }) {
 export function FileRefLink({ fileRef, label }: { fileRef: FileRef; label: string }) {
   const refs = useFileRefs();
   const lines = lineLabel(fileRef);
+  const icon = fileIcon(fileRef.path);
   return (
     <button
       type="button"
@@ -90,6 +92,14 @@ export function FileRefLink({ fileRef, label }: { fileRef: FileRef; label: strin
         refs?.open(fileRef, event.metaKey || event.ctrlKey);
       }}
     >
+      <svg
+        className="med-file-ref-icon"
+        aria-hidden="true"
+        viewBox={icon.viewBox}
+        style={{ color: icon.color, "--trees-file-icon-color": icon.color } as CSSProperties}
+      >
+        <use href={`#${icon.name}`} />
+      </svg>
       <span className="med-file-ref-name">{label}</span>
       {lines && <span className="med-file-ref-lines">{lines}</span>}
     </button>

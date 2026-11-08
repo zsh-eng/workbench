@@ -89,6 +89,18 @@ describe("Claude Code transcripts", () => {
     expect(idle.indexOf(true, 1)).toBe(claude.trim().split("\n").length - 2);
   });
 
+  test("a tail that starts on a line with no time starts at its first dated update", () => {
+    const dated = claude.split("\n").filter((line) => line.includes('"type":"assistant"'));
+    const lines = [
+      JSON.stringify({ type: "custom-title", customTitle: "Search filters" }),
+      ...dated,
+    ];
+    const reader = createClaudeTranscriptReader();
+    const store = createSessionStore();
+    for (const line of lines) for (const event of reader.line(line)) store.apply(event);
+    expect(store.getSnapshot().startedAt).toBe(Date.parse(JSON.parse(dated[0]!).timestamp));
+  });
+
   test("background work, subagents, plans, and compaction attach to their calls", () => {
     const at = (second: number) => `2026-10-10T09:00:${String(second).padStart(2, "0")}.000Z`;
     const lines = [

@@ -7,11 +7,12 @@ import { initializeTheme, themeController } from "./themes";
 import { VaultWorkspace } from "./components/VaultWorkspace";
 import { LocalFiles } from "./components/LocalFiles";
 import { App } from "./App";
-import { PierreThemeSync } from "./pierre-theme";
+import { CodeSizeSync, HIGHLIGHTER, PierreThemeSync } from "./pierre-theme";
 import { AppTooltip } from "./components/ToolButton";
 import { UpdateNotice } from "./components/UpdateNotice";
 import { WorkspaceHost, WorkspaceViews } from "./components/Workspaces";
 import { authorizeBrowser } from "./data/auth";
+import { startSettingsFile } from "./data/settings-file";
 import { watchTitleBar } from "./data/title-bar";
 import { rememberWelcome, routeFirstRun, WELCOME_PATH } from "./data/setup";
 import { createPatchParser } from "./workers/client";
@@ -30,18 +31,25 @@ watchTitleBar();
 await authorizeBrowser().catch(() => {});
 await routeFirstRun();
 initializeTheme();
+// The settings file and the page's settings stay the same while it is open.
+startSettingsFile();
 const controllerOptions = {};
 const poolOptions = {
   workerFactory: () => new PierreWorker(),
   poolSize: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1)),
   totalASTLRUCacheSize: 80,
 };
-const highlighterOptions = { theme: themeController.getSnapshot().active.pierreTheme };
+const highlighterOptions = {
+  theme: themeController.getSnapshot().active.pierreTheme,
+  preferredHighlighter: HIGHLIGHTER,
+};
 const Welcome = lazy(() => import("./components/welcome/Welcome"));
 // The workspace list renders its views again on every switch. A review renders
 // again only for its own state, so showing a hidden one does not render it.
 const WorkspaceApp = memo(App);
 const ElementsPage = lazy(() => import("./components/elements/ElementsPage"));
+const ScreensPage = lazy(() => import("./components/screens/ScreensPage"));
+const Prototype = lazy(() => import("./components/screens/prototypes/Prototype"));
 
 /** The welcome replaces the app while it shows; leaving it starts the app. */
 function Root() {
@@ -55,6 +63,19 @@ function Root() {
     return (
       <Suspense fallback={null}>
         <ElementsPage />
+      </Suspense>
+    );
+  // A design tool, like Storybook: its frames need the dev server's demo page.
+  if (import.meta.env.DEV && location.pathname === "/screens")
+    return (
+      <Suspense fallback={null}>
+        <ScreensPage />
+      </Suspense>
+    );
+  if (import.meta.env.DEV && location.pathname.startsWith("/screens/prototype/"))
+    return (
+      <Suspense fallback={null}>
+        <Prototype />
       </Suspense>
     );
   if (welcome)
@@ -89,6 +110,7 @@ createRoot(root).render(
     <Tooltip.Provider delay={400} closeDelay={80} timeout={500}>
       <div className="med-titlebar-band" aria-hidden="true" />
       <PierreThemeSync />
+      <CodeSizeSync />
       <UpdateNotice />
       <AppTooltip />
       <Root />

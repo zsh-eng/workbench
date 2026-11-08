@@ -139,7 +139,7 @@ async function mountFile(
   root.render(
     syntaxSource ? (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         {app}
@@ -230,7 +230,7 @@ test("symbol palette previews in the current file and Escape restores cursor and
   )!;
   await expect.poll(() => scroller.scrollTop).toBeGreaterThan(0);
   const scrollTop = scroller.scrollTop;
-  shortcut("o");
+  shortcut("o", true);
   await expect.element(page.getByRole("option", { name: /example80/ })).toBeVisible();
   await expect.element(pane).toHaveAttribute("data-vim-line", "80");
   expect(document.querySelector('[aria-label="Symbol preview"]')).toBeNull();
@@ -248,7 +248,7 @@ test("symbol palette previews in the current file and Escape restores cursor and
   await userEvent.keyboard("''");
   await expect.element(pane).toHaveAttribute("data-vim-line", "1");
   await userEvent.keyboard("72G");
-  shortcut("o");
+  shortcut("o", true);
   await expect
     .element(page.getByRole("option", { name: /example80/ }))
     .toHaveAttribute("aria-selected", "true");
@@ -266,7 +266,7 @@ test("opening files focuses Vim and a diff filename opens the full file", async 
   await expect.poll(() => document.activeElement).toBe(pane.element());
   await userEvent.keyboard("j");
   await expect.element(pane).toHaveAttribute("data-vim-line", "2");
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   await page.getByRole("link", { name: "main.ts", exact: true }).click();
   await expect.poll(() => document.activeElement).toBe(pane.element());
   await userEvent.keyboard("j");
@@ -297,7 +297,7 @@ test("file symbols retain a selected query and Enter accepts without reloading t
     exact: true,
     includeHidden: true,
   });
-  shortcut("o");
+  shortcut("o", true);
   const input = page.getByRole("combobox", { name: "Find symbol in file" });
   await input.fill("example80");
   await expect.element(pane).toHaveAttribute("data-vim-line", "80");
@@ -305,7 +305,7 @@ test("file symbols retain a selected query and Enter accepts without reloading t
   await expect.poll(() => document.activeElement).toBe(pane.element());
   await userEvent.keyboard("j");
   await expect.element(pane).toHaveAttribute("data-vim-line", "81");
-  shortcut("o");
+  shortcut("o", true);
   await expect.element(input).toHaveValue("example80");
   await expect.poll(() => (input.element() as HTMLInputElement).selectionEnd).toBe(9);
   await expect.poll(() => (input.element() as HTMLInputElement).selectionStart).toBe(0);
@@ -370,7 +370,7 @@ test("reopening a highlighted working file shows its current contents", async ()
   await expect
     .poll(() => new Set(tokens().map((token) => getComputedStyle(token).color)).size)
     .toBeGreaterThan(2);
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   source = 'export const revised = "fresh";';
   await page.getByRole("tab", { name: "main.ts", exact: true }).click();
   await expect
@@ -403,7 +403,7 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
   await expect
     .element(page.getByRole("img", { name: "Unsaved changes", exact: true }))
     .toBeVisible();
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   await page.getByRole("tab", { name: /main.ts/ }).click();
   await expect.element(editor).toHaveTextContent("const total = 1;");
   await userEvent.keyboard("u");
@@ -414,7 +414,7 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
   await userEvent.keyboard(":w{Enter}");
   await expect.poll(() => source).toBe("const total = 1;\r\n");
   await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await userEvent.keyboard(":q{Enter}");
   await expect.element(editor).not.toBeInTheDocument();
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
   await expect.element(editor).toHaveTextContent("const total = 1;");
@@ -435,7 +435,7 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwdraft{Escape}");
   source = "const agent = 2;";
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect
     .element(page.getByRole("region", { name: "Changes on disk" }).getByRole("status"))
     .toMatchTextContent(
@@ -443,10 +443,11 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
     );
   await expect.element(editor).toHaveTextContent("const draft = 1;");
   expect(source).toBe("const agent = 2;");
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await userEvent.keyboard(":q{Enter}");
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect.element(editor).toHaveTextContent("const draft = 1;");
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await editor.click();
+  await userEvent.keyboard(":q{Enter}");
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
   await expect.element(editor).not.toBeInTheDocument();
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
@@ -503,7 +504,7 @@ test("a draft whose file changed on disk shows the change, then keeps your versi
   // An agent writes the file. The save stops, and the editor shows what the
   // agent changed, next to the draft.
   source = "const agent = 2;";
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect.element(changes.getByText("const agent = 2;")).toBeInTheDocument();
   await expect.element(changes.getByText("const count = 1;")).toBeInTheDocument();
   await expect.element(editor).toHaveTextContent("const draft = 1;");
@@ -555,7 +556,7 @@ test("a change on disk while a save is on its way still shows after the save", a
   const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwdraft{Escape}");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
   await expect
     .element(page.getByRole("status").filter({ hasText: "The file changed on disk" }))
@@ -578,7 +579,7 @@ test("files start in Normal mode and a clean reopen uses fresh contents", async 
   await expect.element(editor).toHaveTextContent("const freshcount = 1;");
   await userEvent.keyboard("u");
   await expect.element(editor).toHaveTextContent("const count = 1;");
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   source = "const external = 2;";
   await page.getByRole("tab", { name: "main.ts", exact: true }).click();
   await expect.element(editor).toHaveTextContent(source);

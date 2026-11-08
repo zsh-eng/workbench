@@ -5,9 +5,9 @@ import type { PullRequestSummary } from "../../shared/protocol";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { ActionMenu, type MenuEntry } from "./Controls";
+import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
-import { Icon, type IconName } from "./Icon";
+import { Icon, iconPath } from "./Icon";
 import {
   CodexReviewPanel,
   PullRequestPanel,
@@ -30,28 +30,17 @@ export function SavedReviewHeader({
   threadPlacement,
   codexReviews,
   findingPlacement,
-  pickVersion = false,
-  onTarget,
-  sendTo,
-  notesPickIteration,
   compact = false,
-  quiet = false,
-  more = [],
   ref,
 }: {
-  /** Quiet chrome: the pull request's comments count in words. */
-  quiet?: boolean;
   /**
-   * The thread beside it names the review, so the header leaves the name out,
-   * and its actions go in one menu with `more`, as a title bar keeps few.
+   * The thread beside it names the review, so the header leaves the name out
+   * and keeps one action, Copy comments: comments go to an agent from its
+   * session, and the rest is in ⌘K.
    */
   compact?: boolean;
-  /** The review pane's own actions, in groups after the compact header's own. */
-  more?: MenuEntry[][];
   ref?: Ref<SavedReviewActions>;
   controller: ReviewController;
-  /** The agent session that comments can go to, and how to open its message. */
-  sendTo?: { name: string; icon: IconName; drafts: number; open(): void };
   state: ReviewControllerSnapshot;
   /** GitHub comments, when the review has a pull request. */
   pullRequest?: PullRequestState;
@@ -59,12 +48,6 @@ export function SavedReviewHeader({
   /** Codex reviews of the review's checkouts. */
   codexReviews?: CodexReviewState;
   findingPlacement?: FindingPlacement;
-  /** The Review shows without its diff, such as on the Guide's overview, so
-   * the header chooses the version. With the diff, its toolbar does. */
-  pickVersion?: boolean;
-  onTarget(id: string): void;
-  /** The Notes tab shows, and its iteration keys show each iteration's comparison. */
-  notesPickIteration?: boolean;
 }) {
   const saved = state.savedReview!;
   const header = useRef<HTMLElement>(null);
@@ -84,31 +67,7 @@ export function SavedReviewHeader({
     [busy, saved.commentCount, saved.revision],
   );
   const target = saved.targets.find((entry) => entry.id === state.savedTargetId);
-  const iterations = saved.iterations ?? [];
-  const iterationOf = (id: string) =>
-    iterations.find((iteration) => iteration.targetIds.includes(id))?.number;
-  // With one comparison in each iteration, the Notes' iteration keys choose it,
-  // and the header has no second picker.
-  const pickTarget =
-    pickVersion &&
-    saved.targets.length > 1 &&
-    !(
-      notesPickIteration &&
-      iterations.length > 1 &&
-      iterations.every((iteration) => iteration.targetIds.length === 1) &&
-      saved.targets.every((entry) => iterationOf(entry.id))
-    );
-  const option = (entry: (typeof saved.targets)[number]) => (
-    <option key={entry.id} value={entry.id}>
-      {iterations.length > 1 && iterationOf(entry.id) ? `#${iterationOf(entry.id)} · ` : ""}
-      {entry.repo.split(/[\\/]/).at(-1)} · {entry.branch ?? "detached"} · {entry.label}
-    </option>
-  );
-  const saving = target
-    ? iterationOf(target.id)
-      ? `Version ${iterationOf(target.id)} · ${target.label}`
-      : target.label
-    : "No Review yet";
+  const saving = target ? target.label : "No Review yet";
   // The workspace list keeps the short title; a PR's own title names it here.
   const heading = (saved.pullRequestUrl && saved.pullRequestTitle) || saved.title;
   const details = [
@@ -173,7 +132,7 @@ export function SavedReviewHeader({
         </span>
       )}
       {!compact && saved.pullRequestUrl && pullRequest && threadPlacement && (
-        <PullRequestPanel state={pullRequest} placement={threadPlacement} words={quiet} />
+        <PullRequestPanel state={pullRequest} placement={threadPlacement} />
       )}
       {codexReviews && findingPlacement && (codexReviews.runs?.length || codexReviews.error) && (
         <CodexReviewPanel state={codexReviews} placement={findingPlacement} />
@@ -199,90 +158,16 @@ export function SavedReviewHeader({
           <span {...stylex.props(ui.removed)}>−{saved.totals.deletions.toLocaleString()}</span>
         </span>
       )}
-      {pickTarget && (
-        <select
-          aria-label="Review version"
-          {...stylex.props(styles.select)}
-          value={state.savedTargetId ?? ""}
-          onChange={(event) => {
-            setNotice(null);
-            onTarget(event.target.value);
-          }}
-        >
-          {!state.savedTargetId && <option value="">Select target</option>}
-          {iterations.length > 1 ? (
-            <>
-              {[...iterations].reverse().map((iteration) => (
-                <optgroup
-                  key={iteration.number}
-                  label={`Version ${iteration.number}${iteration === iterations.at(-1) ? " · latest" : ""}`}
-                >
-                  {saved.targets
-                    .filter((entry) => iteration.targetIds.includes(entry.id))
-                    .map(option)}
-                </optgroup>
-              ))}
-              {saved.targets.some((entry) => !iterationOf(entry.id)) && (
-                <optgroup label="Commented commits">
-                  {saved.targets.filter((entry) => !iterationOf(entry.id)).map(option)}
-                </optgroup>
-              )}
-            </>
-          ) : (
-            saved.targets.map(option)
-          )}
-        </select>
-      )}
       <span {...stylex.props(styles.grow)} />
-      {/* Beside the thread, Send shows when there are comments to send. */}
-      {sendTo && (!compact || sendTo.drafts > 0) && (
-        <button
-          {...stylex.props(ui.button, ui.pressable, styles.fixed)}
-          aria-label={`Send comments to ${sendTo.name}`}
-          title="Write to the agent with your comments"
-          onClick={sendTo.open}
-        >
-          {!compact && <Icon name={sendTo.icon} size={14} />}
-          <span {...stylex.props(!compact && styles.desktop)}>Send to {sendTo.name}</span>
-          {sendTo.drafts > 0 && <span {...stylex.props(styles.count)}>{sendTo.drafts}</span>}
-        </button>
-      )}
-      {compact && (
-        <ActionMenu
-          label="More actions"
-          trigger={[ui.button, ui.iconButton, styles.fixed]}
-          sections={[
-            [
-              {
-                label:
-                  saved.commentCount > 0
-                    ? `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`
-                    : "Copy comments",
-                disabled: busy || saved.commentCount === 0,
-                onClick: () =>
-                  void run("copy", async () => {
-                    const comments = await controller.copyFeedback();
-                    setCopied({ count: comments.count });
-                    return `Copied ${comments.count} ${comments.count === 1 ? "comment" : "comments"}`;
-                  }),
-              },
-              {
-                label: "Clear all comments…",
-                disabled: busy || saved.commentCount === 0,
-                onClick: () => setClearRevision(saved.revision),
-              },
-            ],
-            ...more,
-          ]}
-        >
-          <Icon name="more" size={15} />
-        </ActionMenu>
-      )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
-      {!compact && (
+      {(!compact || saved.commentCount > 0) && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
           aria-label="Copy comments"
+          {...(compact &&
+            tooltip(
+              `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`,
+            ))}
           data-copied={copied !== null}
           disabled={operation === "clear" || saved.commentCount === 0}
           aria-disabled={busy || saved.commentCount === 0}
@@ -295,8 +180,8 @@ export function SavedReviewHeader({
           }
         >
           <CopyCommentsIcon copied={copied !== null} />
-          <span {...stylex.props(styles.desktop)}>Copy comments</span>
-          <span>{saved.commentCount}</span>
+          {!compact && <span {...stylex.props(styles.desktop)}>Copy comments</span>}
+          <span {...stylex.props(styles.count)}>{saved.commentCount}</span>
         </button>
       )}
       <Popover.Root
@@ -318,7 +203,7 @@ export function SavedReviewHeader({
         )}
         <Popover.Portal>
           <Popover.Positioner
-            // From the menu, the question opens below the header's end.
+            // From ⌘K, the question opens below the header's end.
             anchor={compact ? header : undefined}
             align="end"
             sideOffset={5}
@@ -379,27 +264,29 @@ export function SavedReviewHeader({
   );
 }
 
-/** Both shapes stay mounted so the SVG can transition in place without a layout change. */
+/** Both shapes stay mounted so the SVG can transition in place without a
+ * layout change. Copy is the app's copy icon; the check draws over it. */
 function CopyCommentsIcon({ copied }: { copied: boolean }) {
   return (
     <svg
       width="14"
       height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      viewBox="0 0 256 256"
       aria-hidden="true"
       {...stylex.props(styles.copyIcon)}
     >
-      <g {...stylex.props(styles.copyShape, copied && styles.copyHidden)}>
-        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-      </g>
       <path
-        d="m4 12 5 5 11-11"
+        d={iconPath("copy")}
+        fill="currentColor"
+        {...stylex.props(styles.copyShape, copied && styles.copyHidden)}
+      />
+      <path
+        d="M40 136l56 56L216 72"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="20"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         pathLength="1"
         {...stylex.props(styles.checkShape, copied && styles.checkVisible)}
       />
@@ -503,7 +390,7 @@ const styles = stylex.create({
   copyShape: {
     opacity: 1,
     transform: "scale(1)",
-    transformOrigin: "12px 12px",
+    transformOrigin: "128px 128px",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: "ease-in-out",
     transitionDuration: {
@@ -544,7 +431,8 @@ const styles = stylex.create({
     minHeight: 0,
     paddingInline: 0,
     borderBottomWidth: 0,
-    flexShrink: 1,
+    // Its buttons keep their room; the review's title shortens instead.
+    flexShrink: 0,
   },
   header: {
     position: "relative",

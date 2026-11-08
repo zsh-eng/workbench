@@ -7,9 +7,11 @@ named and black-hole registers keep their Vim behavior. Med's shortcuts come
 before Vim's, except on macOS: Control+B, Control+F, and Control+O reach Vim,
 because Command runs Med's shortcuts.
 
-`:w`, `⌘S`, or **Save** writes the file; `:wq` saves, then closes if the save
-succeeds. A hollow dot means saved and a filled dot means unsaved. Closing
-unsaved text asks you to **Discard draft** or **Keep editing**. Saving does not
+`:w` or `⌘S` writes the file; `:wq` saves, then closes if the save succeeds;
+`:q`, or the tab's ×, closes it. The file's header keeps only its path, its
+saved dot, and blame: a hollow dot means saved and a filled dot means
+unsaved. Closing unsaved text asks you to **Discard draft** or **Keep
+editing**. Saving does not
 stage or commit; use the [Commit tab](#commit-and-push). Blame hides while a
 draft is unsaved.
 

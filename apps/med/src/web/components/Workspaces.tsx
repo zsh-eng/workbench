@@ -1,4 +1,5 @@
 import type { Thread } from "../../shared/threads";
+import { openSettings } from "./settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -50,9 +51,9 @@ import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
-  groupThreads,
   needsYou,
   NO_THREADS,
+  sessionGroups,
   shortAge,
   tabOrder,
   useThreads,
@@ -67,35 +68,25 @@ import { foundThreadId } from "../../shared/found-sessions";
 import {
   closeThread,
   deleteThread,
-  groupThread,
   landed,
   openThread,
-  orderThreads,
   readHistory,
   reopenThread,
   renameThread,
-  requestSubagentOpen,
-  setThreadShape,
-  ungroupThread,
+  pinThread,
   useReadState,
 } from "../data/tabs";
-import { requestLayer } from "../data/stack";
-import { ScheduledSection } from "./shell/ScheduledSection";
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
-import {
-  NoticeBar,
-  ThreadSidebar,
-  type SidebarSource,
-  type TabNotice,
-} from "./shell/ThreadSidebar";
+import { ToolButton } from "./ToolButton";
+import { useTitleBarOverlay } from "../data/title-bar";
+import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
+import { SessionSidebar } from "./shell/SessionSidebar";
 import { NewThread } from "./shell/NewThread";
 import { SEARCH_OPEN_EVENT, type SearchOpen } from "./SearchView";
 import { requestFileOpen, requestSearchOpen } from "../data/file-opens";
 import { prefetchSavedReview } from "../data/controller";
 import { onInput, QUIET_MS, whenFree, whenIdle } from "../data/idle";
-import { AttemptsHost } from "./attempts/AttemptsHost";
-import { attemptsGroupOf, useAttemptsAddress } from "../data/attempts";
 import {
   chooseNotify,
   needsCount,
@@ -231,7 +222,6 @@ interface TabActions {
   openHistory(): void;
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
-  move(threadId: string, by: -1 | 1): void;
   /** Shows the name field of the thread. */
   rename(threadId: string): void;
   /** Turns the notifications for tabs that need the reader on or off. */
@@ -241,8 +231,8 @@ interface TabActions {
 const Tabs = createContext<TabActions | null>(null);
 
 /** The palette's commands for tabs: close this workspace's tab, reopen a
- * closed one, open one from history, go to the next that needs you, move
- * this tab, and notifications. Outside a window with tabs, none. */
+ * closed one, open one from history, go to the next that needs you, rename
+ * it, and notifications. Outside a window with tabs, none. */
 export function useTabCommands(): ReviewCommand[] {
   const tabs = use(Tabs);
   const thread = workspaceThread(use(Entry) ?? undefined);
@@ -277,18 +267,6 @@ export function useTabCommands(): ReviewCommand[] {
         run: run(tabs.rename),
       },
       {
-        id: "tab-up",
-        label: "Move tab up",
-        disabled: !isTab,
-        run: run((id) => tabs.move(id, -1)),
-      },
-      {
-        id: "tab-down",
-        label: "Move tab down",
-        disabled: !isTab,
-        run: run((id) => tabs.move(id, 1)),
-      },
-      {
         id: "notify-needs-you",
         label: notifying
           ? "Stop notifying me when a tab needs you"
@@ -303,44 +281,75 @@ export function useTabCommands(): ReviewCommand[] {
 interface TitleBand {
   lead: HTMLElement | null;
   trail: HTMLElement | null;
+  cover: HTMLElement | null;
   workspace: string | null;
-  /** The workspace's title leads the band until the returned function runs. */
-  claim(): () => void;
+  /** The workspace's title leads the band, or a pane's row covers its end,
+   * until the returned function runs. */
+  claim(kind: "lead" | "cover"): () => void;
 }
 const Band = createContext<TitleBand | null>(null);
 
 /**
  * A workspace's own title in the window's title band, while the workspace is
  * on screen: `lead` before its checkout, which then follows quieter, and
- * `trail` at the band's end. The portal keeps the workspace's context, so
- * its controls work as in the workspace. Outside the shell, nothing shows.
+ * `trail` at the band's end. Or `cover`: a pane's own row over the band's end,
+ * above the pane, as the review's title row beside the session. The portal
+ * keeps the workspace's context, so its controls work as in the workspace.
+ * Outside the shell, nothing shows.
  */
-export function InTitleBand({ lead, trail }: { lead: ReactNode; trail?: ReactNode }) {
+export function InTitleBand({
+  lead,
+  trail,
+  cover,
+}: {
+  lead?: ReactNode;
+  trail?: ReactNode;
+  cover?: ReactNode;
+}) {
   const band = use(Band);
   const id = use(Current);
   const shown = !!band?.workspace && band.workspace === id;
   const claim = band?.claim;
-  useLayoutEffect(() => (shown && claim ? claim() : undefined), [shown, claim]);
+  const kind = cover ? "cover" : lead ? "lead" : null;
+  useLayoutEffect(() => (shown && claim && kind ? claim(kind) : undefined), [shown, claim, kind]);
   if (!shown) return null;
   return (
     <>
-      {band.lead && createPortal(lead, band.lead)}
+      {lead && band.lead && createPortal(lead, band.lead)}
       {trail && band.trail && createPortal(trail, band.trail)}
+      {cover && band.cover && createPortal(cover, band.cover)}
     </>
   );
 }
 
-/** The title band's slots, and whether a workspace's title leads it. */
+/** Whether the title band shows this workspace: InTitleBand's portals render. */
+export function useInTitleBand() {
+  const band = use(Band);
+  const id = use(Current);
+  return !!band?.workspace && band.workspace === id;
+}
+
+/** The title band's slots, and whether a workspace's title leads it or a
+ * pane's row covers its end. */
 function useTitleBand(workspace: string | null) {
   const [lead, setLead] = useState<HTMLElement | null>(null);
   const [trail, setTrail] = useState<HTMLElement | null>(null);
-  const [claims, setClaims] = useState(0);
-  const claim = useCallback(() => {
-    setClaims((count) => count + 1);
-    return () => setClaims((count) => count - 1);
+  const [cover, setCover] = useState<HTMLElement | null>(null);
+  const [claims, setClaims] = useState({ lead: 0, cover: 0 });
+  const claim = useCallback((kind: "lead" | "cover") => {
+    setClaims((count) => ({ ...count, [kind]: count[kind] + 1 }));
+    return () => setClaims((count) => ({ ...count, [kind]: count[kind] - 1 }));
   }, []);
-  const value = useMemo(() => ({ lead, trail, workspace, claim }), [lead, trail, workspace, claim]);
-  return { value, slots: { lead: setLead, trail: setTrail }, titled: claims > 0 };
+  const value = useMemo(
+    () => ({ lead, trail, cover, workspace, claim }),
+    [lead, trail, cover, workspace, claim],
+  );
+  return {
+    value,
+    slots: { lead: setLead, trail: setTrail, cover: setCover },
+    titled: claims.lead > 0,
+    covered: claims.cover > 0,
+  };
 }
 
 /** Whether this workspace is the one on screen. One that renders out of
@@ -366,6 +375,29 @@ export function useThreadState(reviewId: string | undefined) {
 export function useThread(id: string | undefined) {
   const store = use(Threads);
   return useSyncExternalStore(store.subscribe, () => store.get().get(id ?? ""));
+}
+
+/** The reviews that this thread's agent session handed off, itself among
+ * them, newest first: the threads that share one of its sessions. */
+export function useSessionReviews(id: string | undefined): readonly Thread[] {
+  const store = use(Threads);
+  // A key of what the list shows, so the reader renders again only when it changes.
+  const key = useSyncExternalStore(store.subscribe, () => {
+    const group = sessionGroups(store.list()).find((each) =>
+      each.some((thread) => thread.id === id),
+    );
+    return group && group.length > 1
+      ? JSON.stringify(group.map((thread) => [thread.id, thread.title, thread.branch]))
+      : "";
+  });
+  return useMemo(() => {
+    if (!key) return [];
+    const threads = store.get();
+    return (JSON.parse(key) as [string][]).flatMap(([each]) => {
+      const thread = threads.get(each);
+      return thread ? [thread] : [];
+    });
+  }, [key, store]);
 }
 
 /** Reads the window's threads, the most recently changed first, when called.
@@ -1032,24 +1064,10 @@ export function WorkspaceHost({
     const still = [...closing].filter((id) => threadList.threads.some((entry) => entry.id === id));
     if (still.length !== closing.size) setClosing(new Set(still));
   }
-  // An order that the reader chose, until the host's list has it.
-  const [ordered, setOrdered] = useState<readonly string[] | null>(null);
-  if (ordered && threadList) {
-    const listed = threadList.threads.flatMap((entry) =>
-      ordered.includes(entry.id) ? [entry.id] : [],
-    );
-    const mine = ordered.filter((id) => listed.includes(id));
-    if (listed.every((id, index) => id === mine[index])) setOrdered(null);
-  }
   const tabs = useMemo(() => {
-    let list = threadList?.threads ?? [];
-    if (closing.size) list = list.filter((entry) => !closing.has(entry.id));
-    if (ordered) {
-      const place = new Map(ordered.map((id, index) => [id, index]));
-      list = list.toSorted((a, b) => (place.get(a.id) ?? -1) - (place.get(b.id) ?? -1));
-    }
-    return list;
-  }, [threadList, closing, ordered]);
+    const list = threadList?.threads ?? [];
+    return closing.size ? list.filter((entry) => !closing.has(entry.id)) : list;
+  }, [threadList, closing]);
   const tabsRef = useRef(tabs);
   useLayoutEffect(() => {
     tabsRef.current = tabs;
@@ -1063,22 +1081,6 @@ export function WorkspaceHost({
   );
   const [threads] = useState(createThreadStore);
   useLayoutEffect(() => threads.set(statuses), [threads, statuses]);
-  // A vault is one more repository: one list, by name.
-  const sources = useMemo<SidebarSource[]>(
-    () =>
-      [
-        ...(threadList?.repositories ?? []).map((repository) => ({
-          kind: "repository" as const,
-          ...repository,
-        })),
-        ...snapshot.workspaces.flatMap((workspace) =>
-          workspace.kind === "vault"
-            ? [{ kind: "vault" as const, id: workspace.sourceId, name: workspace.title ?? "Vault" }]
-            : [],
-        ),
-      ].sort(byName),
-    [threadList, snapshot.workspaces],
-  );
   // Each window keeps its sidebar: read once, not followed (view-settings.ts).
   const [sidebarVisible, setSidebarVisible] = useState(
     () => viewSettings.sidebar.get() === "shown",
@@ -1120,7 +1122,6 @@ export function WorkspaceHost({
 
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
-  const attemptsPage = useAttemptsAddress();
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
@@ -1128,11 +1129,17 @@ export function WorkspaceHost({
   // The band names the workspace on screen; none while a page covers them.
   const covered = newThread || !!overlayAddress(pathname);
   const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
+  // A page such as Settings names itself, so in a browser tab the band would
+  // hold only Show sidebar: the page takes the band's height, and the button
+  // sits in its corner. The installed app keeps the band for the window
+  // controls.
+  const drawsTitleBar = useTitleBarOverlay();
+  const pageTop = !newThread && !!overlayAddress(pathname) && !drawsTitleBar;
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
-  const currentThread =
-    newThread || attemptsPage || overlayAddress(pathname) ? null : (activeThread ?? null);
+  const currentThread = newThread || overlayAddress(pathname) ? null : (activeThread ?? null);
   const read = useReadState(tabs, currentThread);
+
   const currentRef = useRef(currentThread);
   // When each tab was last on screen, or first listed in this window.
   const lastShown = useRef(new Map<string, number>());
@@ -1186,31 +1193,6 @@ export function WorkspaceHost({
       setClosing((value) => new Set([...value].filter((id) => !list.some((t) => t.id === id)))),
     [],
   );
-  /** Opens tabs again at their places, and shows the one that was on screen. */
-  const reopenTabs = useCallback(
-    async (list: readonly Thread[], shown?: Thread) => {
-      setNotice(null);
-      const now = Date.now();
-      for (const thread of list) {
-        kept.current.add(thread.id);
-        lastShown.current.set(thread.id, now);
-        opening.current.add(thread.id);
-      }
-      forget(list);
-      if (shown) openTab(shown);
-      const results = await Promise.allSettled(
-        list.map((thread) => openThread(thread.id, true, fetcher)),
-      );
-      const failed = results.findIndex((result) => result.status === "rejected");
-      if (failed < 0) return;
-      for (const thread of list) opening.current.delete(thread.id);
-      setNotice({
-        problem: true,
-        text: `Could not open “${list[failed]!.title}”. ${reason(results[failed]!)}`.trim(),
-      });
-    },
-    [fetcher, forget, openTab],
-  );
   /** Asks before a close that leaves unsaved drafts. They stay in the
    * window and in the browser's storage, so the question is a reminder. */
   const confirmClose = useCallback(
@@ -1261,19 +1243,9 @@ export function WorkspaceHost({
         });
         return;
       }
-      const title = list[0]!.title;
-      setNotice({
-        text: details.auto
-          ? list.length === 1
-            ? `Closed “${title}”: its work has landed.`
-            : `Closed ${list.length} tabs whose work has landed.`
-          : details.removeWorktree
-            ? `Closed “${title}” and removed its worktree.`
-            : `Closed “${title}”.`,
-        actions: [{ label: "Undo", run: () => void reopenTabs(list, shown) }],
-      });
+      // Archived: ⌘⌥T, ⌃Tab and history bring it back, so no notice.
     },
-    [closeView, fetcher, forget, openTab, reopenTabs],
+    [closeView, fetcher, forget, openTab],
   );
   /** Closes tabs. A close that you ask for checks for unsaved drafts first;
    * one that Med makes, as for landed work, does not. */
@@ -1356,6 +1328,19 @@ export function WorkspaceHost({
   // while the sidebar hides.
   const [renaming, setRenaming] = useState<string | null>(null);
   if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
+  const pinTo = useCallback(
+    async (thread: Thread, pinned: boolean, at?: number) => {
+      try {
+        await pinThread(thread.id, pinned, fetcher, at);
+      } catch (error) {
+        setNotice({
+          problem: true,
+          text: `Could not ${pinned ? "pin" : "unpin"} “${thread.title}”. ${errorText(error, "")}`.trim(),
+        });
+      }
+    },
+    [fetcher],
+  );
   /** Names a thread. An empty name, or its agent's own title, gives it its
    * agent's title again. */
   const renameTo = useCallback(
@@ -1382,86 +1367,11 @@ export function WorkspaceHost({
     },
     [fetcher],
   );
-  /** Puts a thread on top of another's stack (docs/STACKS.md). Its tab closes;
-   * the stack's tab shows when the thread was on screen. */
-  const stackTab = useCallback(
-    async (thread: Thread, onto: Thread) => {
-      try {
-        await groupThread(thread.id, onto.id, fetcher);
-        const shown = currentRef.current === thread.id;
-        closeView(thread);
-        if (shown) openTab(onto);
-        setNotice({
-          text: `Stacked “${thread.title}” on “${onto.title}”. Ungroup it from the stack's menu.`,
-        });
-      } catch (error) {
-        setNotice({
-          problem: true,
-          text: `Could not stack “${thread.title}”. ${errorText(error, "")}`.trim(),
-        });
-      }
-    },
-    [fetcher, closeView, openTab],
-  );
-  const ungroupTab = useCallback(
-    async (thread: Thread) => {
-      try {
-        const made = await ungroupThread(thread.id, fetcher);
-        setNotice({
-          text: `“${thread.title}” is ${made.length + 1} threads again, one for each part.`,
-        });
-      } catch (error) {
-        setNotice({
-          problem: true,
-          text: `Could not ungroup “${thread.title}”. ${errorText(error, "")}`.trim(),
-        });
-      }
-    },
-    [fetcher],
-  );
-  const shapeTab = useCallback(
-    async (thread: Thread, shape: "stack" | "set") => {
-      try {
-        await setThreadShape(thread.id, shape, fetcher);
-      } catch (error) {
-        setNotice({ problem: true, text: errorText(error, "Could not change the thread.") });
-      }
-    },
-    [fetcher],
-  );
-  /** Puts one repository's tabs in this order; the other tabs keep their places. */
-  const reorderGroup = useCallback(
-    (group: readonly string[]) => {
-      const all = tabsRef.current.map((thread) => thread.id);
-      const slots = all.flatMap((id, index) => (group.includes(id) ? [index] : []));
-      const next = [...all];
-      slots.forEach((slot, index) => (next[slot] = group[index]!));
-      if (next.every((id, index) => id === all[index])) return;
-      setOrdered(next);
-      void orderThreads(next, fetcher).catch(() => setOrdered(null));
-    },
-    [fetcher],
-  );
-  const moveTab = useCallback(
-    (thread: Thread, by: -1 | 1) => {
-      const group = groupThreads(tabsRef.current).find((entry) =>
-        entry.threads.some((member) => member.id === thread.id),
-      );
-      if (!group) return;
-      const ids = group.threads.map((member) => member.id);
-      const from = ids.indexOf(thread.id);
-      const to = from + by;
-      if (to < 0 || to >= ids.length) return;
-      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
-      reorderGroup(ids);
-    },
-    [reorderGroup],
-  );
   /** Shows the next tab after the one on screen, in the sidebar's order, that
    * this test chooses. False when there is none. */
   const nextTab = useCallback(
     (wanted: (thread: Thread) => boolean) => {
-      const list = tabOrder(tabsRef.current);
+      const list = tabOrder(tabsRef.current, currentRef.current);
       const start = list.findIndex((thread) => thread.id === currentRef.current);
       for (let step = 1; step <= list.length; step++) {
         const thread = list[(start + step) % list.length]!;
@@ -1511,7 +1421,7 @@ export function WorkspaceHost({
         return;
       }
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1];
-      const thread = digit && tabOrder(tabsRef.current)[Number(digit) - 1];
+      const thread = digit && tabOrder(tabsRef.current, currentRef.current)[Number(digit) - 1];
       if (!thread) return;
       take();
       openTab(thread);
@@ -1607,9 +1517,9 @@ export function WorkspaceHost({
   useLayoutEffect(() => {
     for (const listener of tabListeners) listener();
   }, [tabListeners, tabs]);
-  const latest = useRef({ closeTabs, reopenLast, nextAttention, moveTab });
+  const latest = useRef({ closeTabs, reopenLast, nextAttention });
   useLayoutEffect(() => {
-    latest.current = { closeTabs, reopenLast, nextAttention, moveTab };
+    latest.current = { closeTabs, reopenLast, nextAttention };
   });
   const tabActions = useMemo<TabActions>(() => {
     const find = (id: string | undefined) =>
@@ -1626,10 +1536,6 @@ export function WorkspaceHost({
         setSwitcher({ held: false, reverse: false, history: true });
       },
       next: () => void latest.current.nextAttention(),
-      move(id, by) {
-        const thread = find(id);
-        if (thread) latest.current.moveTab(thread, by);
-      },
       rename(id) {
         if (find(id)) setRenaming(id);
       },
@@ -1732,8 +1638,6 @@ export function WorkspaceHost({
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.shiftKey) return;
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "b") return;
-      // ⌘⌃B is the review's Changed files pane, not the sidebar.
-      if (event.metaKey && event.ctrlKey) return;
       if ((event.target as HTMLElement).closest?.(".cm-editor") && event.ctrlKey) return;
       event.preventDefault();
       toggleSidebar();
@@ -1778,68 +1682,35 @@ export function WorkspaceHost({
                               narrow ? styles.shellOverlay : styles.width(sidebarWidth),
                             )}
                           >
-                            <ThreadSidebar
+                            <SessionSidebar
                               threads={tabs}
-                              sources={sources}
-                              snapshot={snapshot}
-                              loaded={!!threadList}
-                              current={currentThread}
+                              current={currentThread ?? null}
                               read={read}
+                              loaded={!!threadList}
                               notice={noticeBar}
-                              onOpen={(input) => {
-                                setNewThread(false);
+                              newThread={newThread}
+                              renaming={renaming}
+                              onOpen={(thread) => {
                                 setOverlay(false);
-                                actions.open(input);
-                              }}
-                              onOpenThread={openTab}
-                              onOpenSubagent={(thread, subagent) => {
-                                read.seeSubagent(subagent);
                                 openTab(thread);
-                                requestSubagentOpen(
-                                  store.match(threadInput(thread)) ?? threadWorkspaceId(thread),
-                                  subagent.id,
-                                );
                               }}
                               onNewThread={() => {
                                 setOverlay(false);
                                 setNewThread(true);
                               }}
-                              newThread={newThread}
                               onHide={toggleSidebar}
-                              onSources={() => {
-                                history.pushState(null, "", "/sources");
-                                window.dispatchEvent(new PopStateEvent("popstate"));
-                              }}
-                              onClose={(thread, removeWorktree) =>
-                                void closeTabs([thread], { removeWorktree })
+                              onSettings={() => openSettings()}
+                              onArchive={(thread) =>
+                                void closeTabs([thread], { removeWorktree: false })
                               }
                               onDelete={confirmDelete}
-                              onReorder={reorderGroup}
-                              onMove={moveTab}
-                              onNext={(kind) => nextTab(kind === "needs" ? needsYou : isWorking)}
                               onPrefetch={(thread) => {
                                 readThread(thread);
                                 setPointed(threadWorkspaceId(thread));
                               }}
-                              renaming={renaming}
                               onRenaming={(thread) => setRenaming(thread?.id ?? null)}
                               onRename={(thread, name) => void renameTo(thread, name)}
-                              onGroup={(thread, onto) => void stackTab(thread, onto)}
-                              onUngroup={(thread) => void ungroupTab(thread)}
-                              onShape={(thread, shape) => void shapeTab(thread, shape)}
-                              onOpenPart={(thread, part) => {
-                                requestLayer(thread.id, part);
-                                openTab(thread);
-                              }}
-                              scheduled={
-                                <ScheduledSection
-                                  fetcher={fetcher}
-                                  onOpenThread={(id) => {
-                                    const thread = tabsRef.current.find((entry) => entry.id === id);
-                                    if (thread) openTab(thread);
-                                  }}
-                                />
-                              }
+                              onPin={(thread, pinned, at) => void pinTo(thread, pinned, at)}
                             />
                           </aside>
                           {!narrow && (
@@ -1873,43 +1744,50 @@ export function WorkspaceHost({
                           )}
                         </>
                       )}
-                      <div {...stylex.props(styles.shellMain)}>
-                        <WorkspaceBar
-                          context={
-                            covered ? undefined : barContext(activeEntry, threadList ?? null)
-                          }
-                          slots={band.slots}
-                          titled={band.titled}
-                          showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
-                          needs={showsSidebar ? 0 : needs}
-                          rename={
-                            barThread && {
-                              thread: barThread,
-                              editing: !showsSidebar && renaming === barThread.id,
-                              start: () => setRenaming(barThread.id),
-                              done: (name) => {
-                                setRenaming(null);
-                                if (name !== null) void renameTo(barThread, name);
-                              },
+                      <div data-shell-main="" {...stylex.props(styles.shellMain)}>
+                        {!pageTop && (
+                          <WorkspaceBar
+                            context={
+                              covered ? undefined : barContext(activeEntry, threadList ?? null)
                             }
-                          }
-                        />
+                            slots={band.slots}
+                            titled={band.titled}
+                            covered={band.covered}
+                            showSidebar={!showsSidebar || narrow ? toggleSidebar : undefined}
+                            needs={showsSidebar ? 0 : needs}
+                            rename={
+                              barThread && {
+                                thread: barThread,
+                                editing: !showsSidebar && renaming === barThread.id,
+                                start: () => setRenaming(barThread.id),
+                                done: (name) => {
+                                  setRenaming(null);
+                                  if (name !== null) void renameTo(barThread, name);
+                                },
+                              }
+                            }
+                          />
+                        )}
                         <div {...stylex.props(styles.shellViews)}>
-                          <div
-                            inert={newThread || !!attemptsGroupOf(pathname) || undefined}
-                            {...stylex.props(styles.shellLayer)}
-                          >
+                          {pageTop && (!showsSidebar || narrow) && (
+                            <span {...stylex.props(styles.pageToggle)}>
+                              <ToolButton
+                                label={
+                                  needs > 0 ? `Show sidebar · ${needs} needs you` : "Show sidebar"
+                                }
+                                shortcut="Mod+B"
+                                icon="panelLeft"
+                                dot={needs > 0}
+                                onClick={toggleSidebar}
+                              />
+                            </span>
+                          )}
+                          <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
                             <Band value={band.value}>
                               <Warm value={warm}>{children}</Warm>
                             </Band>
                           </div>
                           {!showsSidebar && noticeBar}
-                          <AttemptsHost
-                            threads={tabs}
-                            fetcher={fetcher}
-                            actions={actions}
-                            onLeave={() => show(store.getSnapshot().active, true)}
-                          />
                           {newThread && (
                             <NewThread
                               list={threadList}
@@ -3053,11 +2931,13 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   width: (width: number) => ({ width }),
+  // The sidebar on the panel's color, with a line at its edge.
   shellSidebar: {
     display: "flex",
     flexShrink: 0,
     minWidth: 0,
     minHeight: 0,
+    boxShadow: `inset -1px 0 0 ${tokens.line}`,
   },
   shellGutter: {
     position: "relative",
@@ -3097,6 +2977,7 @@ const styles = stylex.create({
     flex: "1",
     minWidth: 0,
     minHeight: 0,
+    backgroundColor: tokens.canvas,
   },
   shellViews: {
     position: "relative",
@@ -3120,6 +3001,14 @@ const styles = stylex.create({
     backgroundColor: "#00000040",
   },
   shellLayer: { position: "absolute", inset: 0 },
+  // Show sidebar in the corner of a page of its own, such as Settings, where
+  // the title row's would be.
+  pageToggle: {
+    position: "absolute",
+    zIndex: 2,
+    top: "calc(var(--med-top-row) / 2 - 14px)",
+    left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
+  },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.

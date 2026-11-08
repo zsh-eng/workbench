@@ -31,8 +31,8 @@ export function pierreKeepAlive(): Plugin {
       const pkg = JSON.parse(
         readFileSync(new URL("../package.json", import.meta.resolve("@pierre/diffs")), "utf8"),
       );
-      if (pkg.version !== "1.4.3")
-        throw new Error("Re-audit the CodeView keep-alive patch before upgrading Pierre 1.4.3");
+      if (pkg.version !== "1.6.4")
+        throw new Error("Re-audit the CodeView keep-alive patch before upgrading Pierre 1.6.4");
     },
     transform(source, id) {
       const path = id.split("?")[0]!;

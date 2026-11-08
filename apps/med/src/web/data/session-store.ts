@@ -211,7 +211,9 @@ export function createSessionStore() {
     const thread = parent && where.has(parent) ? parent : ROOT;
     snapshot = {
       ...snapshot,
-      startedAt: snapshot.startedAt ?? at,
+      // A transcript's tail can start on a line with no time, such as its
+      // title; the session starts at its first dated update.
+      startedAt: snapshot.startedAt ?? (at > 0 ? at : undefined),
       updatedAt: Math.max(snapshot.updatedAt ?? at, at),
     };
     switch (update.sessionUpdate) {

@@ -1,9 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionItem } from "../../data/session-store";
 import { tokens } from "../../theme.stylex";
 import { Icon } from "../Icon";
-import { ZenContext } from "../ZenExit";
 import { Elapsed } from "./Elapsed";
 import { useViewSwitch, viewSettings } from "../../data/view-settings";
 import { column, motion, rowStyles } from "./session-styles";
@@ -137,7 +136,6 @@ export function BackgroundDock({
   const [open, setOpen] = useViewSwitch(viewSettings.backgroundTasks, "open", "closed");
   const [hidden, setHidden] = useState(() => readIds(HIDDEN));
   const [seen, setSeen] = useState(() => readIds(SEEN));
-  const zen = useContext(ZenContext);
   const all = useMemo(() => backgroundTasks(items), [items]);
   const done = useDone(all);
   let since = 0;
@@ -149,9 +147,9 @@ export function BackgroundDock({
       (failed(item) && (item.endedAt ?? item.at) >= since && !seen.includes(idOf(item))),
   );
   const ids = tasks.map(idOf);
-  // Zen leaves the waiting to the session's status. A hidden dock comes back
+  // A hidden dock leaves the waiting to the session's status. It comes back
   // for a new task, or for a failure that the reader has not seen.
-  if (zen || tasks.every((item) => hidden.includes(idOf(item)) && !failed(item))) return null;
+  if (tasks.every((item) => hidden.includes(idOf(item)) && !failed(item))) return null;
   const see = (list: string[]) => {
     if (list.every((id) => seen.includes(id))) return;
     const next = [...new Set([...list, ...seen])].slice(0, 200);

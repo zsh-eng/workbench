@@ -56,7 +56,7 @@ export const agentStatusSchema = z.object({
   sessionId: z.string(),
   agent: z.enum(["claude", "codex", "acp"]),
   name: z.string().optional(),
-  /** waiting: a permission request, or `med review wait`. */
+  /** waiting: a permission request. */
   state: z.enum(["working", "waiting", "idle"]),
   /** The time of the session's last update, in milliseconds. */
   updatedAt: z.number(),

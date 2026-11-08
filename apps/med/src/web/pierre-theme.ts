@@ -1,58 +1,61 @@
-import { registerCustomTheme, resolveTheme } from "@pierre/diffs";
+import { registerCustomTheme, resolveTheme, setCustomExtension } from "@pierre/diffs";
 import { useWorkerPool } from "@pierre/diffs/react";
 import { useEffect } from "react";
-import { themes, useTheme, type SyntaxTheme, type Theme } from "./themes";
+import { codeLineHeight, useViewSetting, viewSettings } from "./data/view-settings";
+import { themes, useTheme, type Theme } from "./themes";
+import { zedSyntax } from "./zed-syntax";
 
-/** A Shiki theme from Med's scope rules, for themes without a bundled build. */
-function syntaxTheme(theme: Theme, syntax: SyntaxTheme) {
-  const settings = [
-    { settings: { foreground: syntax.foreground, background: theme.palette.canvas } },
-    ...syntax.rules.map((rule) => ({
-      scope: rule.scope,
-      settings: { foreground: rule.color, fontStyle: rule.style },
-    })),
-  ];
+/** Pierre's WebAssembly highlighter, `@pierre/highlights`: every view and
+ * worker uses it, so code reads the same in a diff, a file, and Markdown. */
+export const HIGHLIGHTER = "highlights" as const;
+
+/**
+ * Med's themes as Zed themes, the format of Pierre's highlighter. A theme
+ * whose syntax Pierre bundles keeps that palette as Pierre builds it; one
+ * written for Med maps its TextMate rules to the highlighter's captures. Both
+ * take Med's canvas and Git colors, so code sits on the shell's surface.
+ */
+async function zedTheme(theme: Theme) {
+  const base =
+    typeof theme.syntax === "string"
+      ? (await resolveTheme(theme.syntax, HIGHLIGHTER)).zed!
+      : undefined;
+  const style = base?.style ?? {};
+  const { canvas, green, red, accent } = theme.palette;
   return {
     name: theme.pierreTheme,
-    type: theme.appearance,
-    fg: syntax.foreground,
-    bg: theme.palette.canvas,
-    colors: {},
-    settings,
-    tokenColors: settings,
+    appearance: theme.appearance,
+    style: {
+      ...style,
+      background: canvas,
+      "editor.background": canvas,
+      "editor.foreground":
+        typeof theme.syntax === "string"
+          ? (style["editor.foreground"] ?? style.text ?? theme.palette.text)
+          : theme.syntax.foreground,
+      created: green,
+      deleted: red,
+      modified: accent,
+      "terminal.ansi.green": green,
+      "terminal.ansi.red": red,
+      "terminal.ansi.blue": accent,
+      syntax: typeof theme.syntax === "string" ? style.syntax : zedSyntax(theme.syntax),
+    },
   };
 }
 
-// Registered themes cross Pierre's shadow boundary and are sent to its workers.
-// Keep each upstream syntax palette; map editor surfaces and Git indicators to
-// the same semantic palette as the shell. Load definitions only when requested.
-for (const theme of themes) {
-  registerCustomTheme(theme.pierreTheme, async () => {
-    const base =
-      typeof theme.syntax === "string"
-        ? await resolveTheme(theme.syntax)
-        : syntaxTheme(theme, theme.syntax);
-    const { canvas, text, green, red, accent } = theme.palette;
-    return {
-      ...base,
-      name: theme.pierreTheme,
-      type: theme.appearance,
-      bg: canvas,
-      fg: text,
-      colors: {
-        ...base.colors,
-        "editor.background": canvas,
-        "editor.foreground": text,
-        "terminal.ansiGreen": green,
-        "terminal.ansiRed": red,
-        "terminal.ansiBlue": accent,
-        "gitDecoration.addedResourceForeground": green,
-        "gitDecoration.deletedResourceForeground": red,
-        "gitDecoration.modifiedResourceForeground": accent,
-      },
-    };
-  });
-}
+// Registered themes cross Pierre's shadow boundary and are sent to its
+// workers. Load definitions only when requested.
+for (const theme of themes)
+  registerCustomTheme(theme.pierreTheme, () => zedTheme(theme) as never, "zed");
+
+// Gradle build scripts are Groovy, which Pierre's highlighter knows, but
+// Pierre's file types do not name them.
+setCustomExtension("gradle", "groovy");
+
+/** Resolves a Med theme for Med's own workers (Markdown, the file editor):
+ * a worker cannot load one, so it receives the theme whole. */
+export const resolveSyntaxTheme = (name: string) => resolveTheme(name, HIGHLIGHTER);
 
 /** Keep the existing pool and its renderers in sync with live theme previews. */
 export function PierreThemeSync() {
@@ -66,5 +69,17 @@ export function PierreThemeSync() {
       console.error("Could not apply the syntax theme", error);
     });
   }, [pool, active.pierreTheme]);
+  return null;
+}
+
+/** The code's text size (Display, and Settings), as the variables that every
+ * diff and file reads: `--med-code-size` and its line height. */
+export function CodeSizeSync() {
+  const size = Number(useViewSetting(viewSettings.codeSize));
+  useEffect(() => {
+    const root = document.documentElement.style;
+    root.setProperty("--med-code-size", `${size}px`);
+    root.setProperty("--med-code-line", `${codeLineHeight(size)}px`);
+  }, [size]);
   return null;
 }

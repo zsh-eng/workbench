@@ -1,4 +1,5 @@
 import { useMemo, useSyncExternalStore, type SetStateAction } from "react";
+import { noteStored } from "./stored-settings";
 
 /**
  * The reader's view settings: how the diff, the files, the session, and the
@@ -14,7 +15,7 @@ import { useMemo, useSyncExternalStore, type SetStateAction } from "react";
  *
  * `useViewSetting` shares a setting with every workspace and window that
  * shows it: a change in another window arrives as a storage event. A setting
- * that each window keeps for itself, such as the sidebar or zen mode, reads
+ * that each window keeps for itself, such as the sidebar, reads
  * `get` once and writes with `set`. docs/usage/layout.md lists the settings and
  * where the others, such as pane layouts, are kept.
  */
@@ -55,6 +56,7 @@ function viewSetting<T extends string>(
         try {
           localStorage.setItem(key, value);
           page = undefined;
+          noteStored(key, value);
         } catch {
           /* The choice holds for this page. */
         }
@@ -76,23 +78,29 @@ function viewSetting<T extends string>(
   };
 }
 
+/** The code's text sizes in diffs and files, in pixels. */
+export const CODE_SIZES = ["11", "11.5", "12", "12.5", "13", "14", "15", "16"] as const;
+export type CodeSize = (typeof CODE_SIZES)[number];
+/** The text size's line height: 20 px for 12 px text, in proportion. */
+export const codeLineHeight = (size: number) => Math.round((size * 5) / 3);
+
 export const viewSettings = {
+  /** The code's text size in diffs and files (CODE_SIZES). */
+  codeSize: viewSetting("med:code-size", "12", CODE_SIZES),
   /** Split or unified diffs; a review narrower than 760 px shows unified ones. */
   diffLayout: viewSetting("med:mode", "split", ["split", "unified"]),
   /** Wrap long lines in diffs. */
   wrap: viewSetting("med:wrap", "off", ["on", "off"]),
   /** Comments in the diff. Writing or opening a comment shows them again. */
   comments: viewSetting("med:comments", "shown", ["shown", "hidden"]),
-  /** The rail beside Review and Changes: the Guide, or the files and
-   * commits. "auto" shows it in a wide review; a choice holds in any width.
-   * The key is the one that the files rail had before the Guide's joined it. */
-  reviewRail: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
+  /** Each page's sidebar: Changes' changed files and Review's guide. "auto"
+   * shows it in a wide review; a choice holds in any width. */
+  changesSidebar: viewSetting("med:changes-rail", "auto", ["auto", "open", "closed"]),
+  guideSidebar: viewSetting("med:guide-rail", "auto", ["auto", "open", "closed"]),
   /** Vim keys in files. */
   vim: viewSetting("med:vim", "on", ["on", "off"]),
   /** The blame of the cursor's line in files. */
   lineBlame: viewSetting("med:line-blame", "on", ["on", "off"]),
-  /** Quiet or full chrome (chrome.ts). */
-  chrome: viewSetting("med:chrome:v1", "quiet", ["quiet", "full"]),
   /** The preview beside Find file's results. */
   filePreview: viewSetting("med:picker-preview", "on", ["on", "off"]),
   /** The work of finished turns in a session, folded into one row or shown. */
@@ -102,12 +110,12 @@ export const viewSettings = {
   /** What ⌘↩ does with a message while the agent works: send it now, at the
    * agent's next step, or queue it for the turn's end. ⇧⌘↩ does the other. */
   followUp: viewSetting("med:follow-up", "now", ["now", "queue"]),
+  /** Whether the host pulls each repository's base branch now and then. */
+  pullBase: viewSetting("med:pull-base", "on", ["on", "off"]),
   /** The background tasks dock under a session. */
   backgroundTasks: viewSetting("med:background", "open", ["open", "closed"]),
   /** Each window's sidebar, read when the window opens. */
   sidebar: viewSetting("med:sidebar", "shown", ["shown", "hidden"]),
-  /** Each workspace's zen mode, read when the workspace opens. */
-  zen: viewSetting("med:zen", "off", ["on", "off"]),
 } as const;
 
 /** A setting's value, shared with the other workspaces and windows. */

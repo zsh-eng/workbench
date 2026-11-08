@@ -119,8 +119,9 @@ try {
     await page.keyboard.press("Tab");
     await page.keyboard.up("Control");
   };
+  // The review's pages are a radio group in its header.
   const selectedTab = (name) =>
-    page.getByRole("tab", { name, exact: true, selected: true }).filter({ visible: true });
+    page.getByRole("radio", { name, exact: true, checked: true }).filter({ visible: true });
   await page.goto(url);
   await shows("frontend", "main");
 
@@ -146,7 +147,7 @@ try {
   await shows("backend", "main");
   assert.equal(await review("frontend").count(), 0);
   // Each workspace keeps its own tab while the other is on screen.
-  await page.getByRole("tab", { name: "Commit", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("radio", { name: "Commit", exact: true }).filter({ visible: true }).click();
   await selectedTab("Commit").waitFor();
   await switchWorkspace();
   await shows("frontend", "main");
@@ -244,16 +245,15 @@ try {
   assert.deepEqual(await post("/api/windows/review", { id: handoff.id }), { windows: 1 });
   for (const window of [page, other])
     await window
-      .getByRole("navigation", { name: "Threads" })
-      .getByRole("button", { name: /^Agent handoff .*, new$/ })
+      .getByRole("navigation", { name: "Sessions" })
+      .getByRole("button", { name: "Agent handoff New since you looked" })
       .waitFor();
   // A click makes this window the one used last.
-  await page.getByRole("tab", { name: "Changes", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).filter({ visible: true }).click();
   assert.deepEqual(await post("/api/windows/review", { id: handoff.id, open: true }), {
     windows: 1,
   });
   await page.waitForURL(`**/review/${handoff.id}`);
-  await page.getByRole("region", { name: "Saved review", exact: true }).waitFor();
   await review("frontend").waitFor();
   assert.ok(!other.url().includes("/review/"));
   await other.close();

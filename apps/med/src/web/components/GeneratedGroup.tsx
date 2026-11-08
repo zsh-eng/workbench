@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { GENERATED_LABELS, type GeneratedKind } from "../../shared/generated";
-import { tokens, ui } from "../theme.stylex";
-import { DiffStat } from "./DiffStat";
+import { tokens } from "../theme.stylex";
 import { Icon } from "./Icon";
 
 /** One generated file of the group (docs/GENERATED.md). */
@@ -19,7 +18,6 @@ export interface GeneratedRow {
   source?: { id: string; path: string };
   /** Something to check: a hand edit, or a lockfile without its manifest. */
   warning?: string;
-  viewed: boolean;
 }
 
 /** Rows that the folded group lists; the rest are counted. */
@@ -35,18 +33,12 @@ export function GeneratedGroup({
   open,
   onToggle,
   onReveal,
-  onViewed,
 }: {
   rows: readonly GeneratedRow[];
   open: boolean;
   onToggle(): void;
   onReveal(id: string): void;
-  /** Marks every generated file; absent where viewed marks do not apply. */
-  onViewed?(ids: string[], viewed: boolean): void;
 }) {
-  const additions = rows.reduce((sum, row) => sum + row.additions, 0);
-  const deletions = rows.reduce((sum, row) => sum + row.deletions, 0);
-  const allViewed = rows.every((row) => row.viewed);
   const warnings = rows.filter((row) => row.warning).length;
   return (
     <section aria-label="Generated files" data-generated-group={open ? "open" : "folded"}>
@@ -71,33 +63,6 @@ export function GeneratedGroup({
             {warnings} to check
           </span>
         )}
-        <span {...stylex.props(ui.grow)} />
-        <span {...stylex.props(styles.stats)}>
-          <span {...stylex.props(ui.added)}>+{additions.toLocaleString()}</span>
-          <span {...stylex.props(ui.removed)}>−{deletions.toLocaleString()}</span>
-          <DiffStat additions={additions} deletions={deletions} />
-        </span>
-        {onViewed && (
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={allViewed}
-            aria-label="Viewed all generated files"
-            title={allViewed ? "All generated files viewed" : "Mark every generated file viewed"}
-            onClick={() =>
-              onViewed(
-                rows.map((row) => row.id),
-                !allViewed,
-              )
-            }
-            {...stylex.props(styles.viewed)}
-          >
-            <span {...stylex.props(styles.box, allViewed && styles.boxOn)}>
-              {allViewed && <Icon name="check" size={10} />}
-            </span>
-            Viewed
-          </button>
-        )}
       </div>
       {!open && (
         <ul {...stylex.props(styles.list)}>
@@ -114,9 +79,7 @@ export function GeneratedGroup({
                   {...stylex.props(styles.path)}
                 >
                   <span {...stylex.props(styles.directory)}>{row.path.slice(0, slash)}</span>
-                  <span {...stylex.props(styles.name, row.viewed && styles.viewedName)}>
-                    {row.path.slice(slash)}
-                  </span>
+                  <span {...stylex.props(styles.name)}>{row.path.slice(slash)}</span>
                 </button>
                 <span {...stylex.props(styles.details)}>
                   <span {...stylex.props(styles.kind)}>{GENERATED_LABELS[row.kind]}</span>
@@ -143,10 +106,6 @@ export function GeneratedGroup({
                       {row.warning}
                     </span>
                   )}
-                </span>
-                <span {...stylex.props(styles.rowStats)}>
-                  <span {...stylex.props(ui.added)}>+{row.additions.toLocaleString()}</span>
-                  <span {...stylex.props(ui.removed)}>−{row.deletions.toLocaleString()}</span>
                 </span>
               </li>
             );
@@ -209,46 +168,6 @@ const styles = stylex.create({
     color: tokens.warning,
     fontSize: 11.5,
   },
-  stats: {
-    position: "relative",
-    pointerEvents: "none",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    fontFamily: tokens.code,
-    fontSize: 11,
-  },
-  viewed: {
-    position: "relative",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    height: 24,
-    marginInlineStart: 4,
-    paddingInline: 7,
-    borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.faint, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    cursor: "pointer",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
-  box: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 13,
-    height: 13,
-    boxSizing: "border-box",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    color: tokens.canvas,
-  },
-  boxOn: { borderColor: tokens.green, backgroundColor: tokens.green },
   list: {
     margin: 0,
     paddingBlock: 4,
@@ -289,7 +208,6 @@ const styles = stylex.create({
   },
   directory: { color: tokens.muted, overflow: "hidden", textOverflow: "ellipsis" },
   name: { fontWeight: 550, flexShrink: 0 },
-  viewedName: { color: tokens.muted, fontWeight: 450 },
   details: {
     display: "inline-flex",
     flexWrap: "wrap",
@@ -317,12 +235,5 @@ const styles = stylex.create({
     textUnderlineOffset: 3,
   },
   warning: { display: "inline-flex", alignItems: "center", gap: 4, color: tokens.warning },
-  rowStats: {
-    display: "inline-flex",
-    gap: 6,
-    marginInlineStart: "auto",
-    fontFamily: tokens.code,
-    fontSize: 11,
-  },
   more: { paddingBlock: 6, paddingInlineStart: 30, color: tokens.faint },
 });

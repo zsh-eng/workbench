@@ -15,8 +15,9 @@
 To comment, drag the gutter **+** across lines, or select line numbers and
 press `c`. A comment shows its Markdown rendered, such as code and lists, and
 keeps your line breaks; `$HOME` and `$3` stay text, and only `$$` starts math.
-**Edit** shows the text as you wrote it, and the agent gets that text. Hover the **+/−** totals to split them into code, tests, docs,
-config and data, and generated files.
+**Edit** shows the text as you wrote it, and the agent gets that text. Hover
+the **+/−** totals in the review's header to split them into code, tests,
+docs, config and data, and generated files.
 
 To ask the thread's agent about lines, select line numbers in Review, Changes,
 or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
@@ -49,9 +50,7 @@ group's row to add the files to the stream. Choosing a generated file in
 Changed files, a search, or a link opens the group. In Changed files, the
 generated files are in a second tree under a folded **Generated** row.
 
-A generated file counts as viewed when its source is viewed, for example a
-`bun.lock` when you mark its `package.json`. The group's check marks all of
-them. Two warnings show on a generated file: **Edited by hand**, when an agent
+Two warnings show on a generated file: **Edited by hand**, when an agent
 session of the thread edited it directly, and **No manifest changed**, for a
 lockfile without a changed manifest (correct after `bun update`).
 
@@ -127,42 +126,39 @@ out. Binary files count no lines.
 ### Send comments to the agent
 
 A review with an agent session sends comments to that session, so you do not
-paste them. **Send to Claude** (or **Send to Codex**) opens the Session pane,
-with your text and the comments that you have not sent. Select the comment
-count to choose comments. A GitHub comment's reply button, or **Add all to**
+paste them. The session's message box holds your text and the comments that
+you have not sent. They wait above it as one line: **Send 2 comments** sends
+them on their own, and the comment count opens the list, where a checkbox
+chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
-- **A session that Med started** in a thread gets the message as a new turn.
-  It does not run `med review wait`; in such a session, the command exits at
-  once. `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
-- **Claude Code** in a terminal or app takes the message with
-  `med review wait --key <task>`, which the skill runs in the background after
-  it creates the review. The command
-  waits with no time limit, prints the message, and ends; Claude Code then
-  wakes the agent. The pane shows **Waiting for you** while the agent waits. A
-  message sent earlier stays in Med until the agent waits. The command confirms
-  each message that it prints; a message that no wait confirms within 10
-  seconds, as when the waiting process stopped, goes to the next wait. When
-  the Claude Code process ends with messages still waiting, Med resumes the
-  session and sends them. A wait in a Claude Code session that the review
-  does not have, such as after `/clear`, adds that session to the review, so
-  the pane can send to it. Outside Claude Code, as in Codex or a subagent,
-  the command fails at once: nothing would send it a message.
-- **A Claude Code session that no process runs**, such as an adopted one
-  after its terminal closed, resumes in Med with the message as its next
-  turn, and Med runs it from then on. A session open in a terminal or another
-  app that does not run `med review wait` gets its messages when that session
-  ends, or in a fork with **Continue in Med**
-  ([messages to adopted sessions](../SESSIONS.md#messages-to-adopted-sessions)).
-- **Codex**: a thread that no process has open resumes in Med, through
-  Codex's app-server, and Med runs it from then on. One that Codex Desktop or
-  a terminal has open gets the message in its queue (`codex queue`), and its
-  next turn reads it first, as a user message. Med finds `codex` on the PATH,
-  in the ChatGPT app, or at `MED_CODEX_PATH`.
+When Med started the session and runs it, one comment can go on its own: hold
+the pointer over it and select the agent's mark (**Send to Claude**). The
+comment then says **Sent to Claude** until you change it or reply. The agent
+can answer a comment in its thread (`med reply <id>`): its answer shows
+under your comment with the agent's name, and leaves the comment sent. Reply
+to it as to any comment; your reply makes the thread unsent again.
 
-The thread shows each sent message as waiting (for the agent, or for its
-session in a terminal or another app to close), taken, or queued. A sent comment leaves the
-drafts until you edit it or reply to it. Each message keeps the version of
+Med sends only to a session that it runs:
+
+- **A session that Med started** in a thread gets the message as a new turn.
+  `MED_THREAD_KEY` and `MED_THREAD_REPO` give its `--key` and `--repo`.
+- **A session that no process runs**, such as Claude Code or Codex after its
+  terminal closed, resumes in Med with the message as its next turn, and Med
+  runs it from then on. Med finds `codex` on the PATH, in the ChatGPT app, or
+  at `MED_CODEX_PATH`.
+- **A session open in a terminal or another app** is for reading in Med. Its
+  message box is shut, and one line says where it is open. **Continue in
+  Med** forks it into a session that Med runs; or **Copy comments** and paste
+  them into the session there
+  ([messages to adopted sessions](../SESSIONS.md#messages-to-adopted-sessions)).
+
+**Copy comments** (the copy button with the comments' number in the review's
+header, or ⌘K) copies every comment as the same text that a message holds,
+for any agent. Copying marks nothing sent.
+
+The thread shows each sent message as taken, or queued while the agent works.
+A sent comment leaves the drafts until you edit it or reply to it. Each message keeps the version of
 each comment that it sent, from the same read as the agent's text, so an
 edit while Med sends stays a draft.
 
@@ -174,6 +170,8 @@ tick at its gap. Blue bars mark working-file additions and replacements. Hover
 a marker for its comparison.
 
 Markers use the selected comparison only when its captured text matches the
-file on screen; otherwise they compare live content with HEAD. **Open before**
-and **Open after** show the exact commit versions. A stale view drops its
-markers until you refresh.
+file on screen; otherwise they compare live content with HEAD. **Open before
+version of current file** and **Open after version of current file**, in
+`⌘K`, show the exact commit versions. A stale view drops its markers until you
+refresh: **Refresh contents** in its notice, or **Refresh current file** in
+`⌘K`.

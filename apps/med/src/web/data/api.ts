@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { generatedMarkSchema } from "../../shared/generated";
-import { apiErrorMessage, comparisonSchema, guideCommentRefSchema } from "../../shared/protocol";
+import {
+  apiErrorMessage,
+  comparisonSchema,
+  guideCommentRefSchema,
+  noteAuthorSchema,
+} from "../../shared/protocol";
 import { savedCommitSchema } from "../../shared/review-guide";
 import type { RouteContract } from "../../shared/routes";
 import { browserFetch, liveStream } from "./live";
@@ -74,6 +79,32 @@ export const branchCommitsSchema = z.object({
   more: z.boolean(),
 });
 export const revealSchema = z.object({ revealed: z.literal(true) });
+/** Open in's editors, the code host's page of the checkout's branch, and
+ * the settings' other links, each with {path} and {line} to fill. */
+export const openInSchema = z.object({
+  editors: z.array(z.object({ id: z.string(), name: z.string() })),
+  host: z
+    .union([
+      z.object({ name: z.string(), base: z.string().url() }),
+      z.object({ name: z.string(), push: z.literal(true) }),
+    ])
+    .nullable(),
+  links: z
+    .array(
+      z.union([
+        z.object({ name: z.string(), template: z.string() }),
+        z.object({ name: z.string(), push: z.literal(true) }),
+      ]),
+    )
+    .default([]),
+});
+export type OpenInLinks = z.infer<typeof openInSchema>;
+/** For Settings: the sources' code hosts, and every editor found. */
+export const openInHostsSchema = z.object({
+  hosts: z.array(z.object({ host: z.string(), repositories: z.number(), github: z.boolean() })),
+  editors: z.array(z.object({ id: z.string(), name: z.string(), usage: z.string().optional() })),
+});
+export type OpenInHosts = z.infer<typeof openInHostsSchema>;
 const pullRequestCommentSchema = z.object({
   id: z.number(),
   author: z.string(),
@@ -198,6 +229,7 @@ export const notesSchema = z.object({
       createdAt: z.string(),
       updatedAt: z.string(),
       resolution: z.enum(["active", "stale", "orphaned"]).optional(),
+      author: noteAuthorSchema.optional(),
     }),
   ),
   hidden: z.number().int().nonnegative().optional(),

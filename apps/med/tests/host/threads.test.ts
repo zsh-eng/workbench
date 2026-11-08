@@ -276,9 +276,4 @@ test("a thread's agent hands off its work as the setup instructions say, with no
   expect(saved.iterations![0]!.guide?.segments.map((segment) => segment.title)).toEqual([
     "Best result",
   ]);
-
-  // Med sends the user's messages itself, so wait ends at once.
-  printed.length = 0;
-  await run(["wait"]);
-  expect(printed.join("\n")).toContain("Do not run med review wait in this session.");
 });

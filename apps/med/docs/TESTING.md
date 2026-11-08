@@ -65,13 +65,6 @@ callback-only comparison tests, direct Vim/time-helper tests, and trivial
 store/state/accessor assertions. Keep regression intent when moving a test;
 do not use a lower test count as the goal.
 
-## Language rendering parity
-
-`bun run test:highlighting` compares production Java/C++ file and diff output
-against pinned Shiki. `bun run compare:highlighting --fixtures-only` adds browser
-screenshots. See [the parity and performance guide](validation/JAVA_CPP_HIGHLIGHTING.md)
-for the larger corpus, exact mismatch reports, and production UI benchmarks.
-
 ## File-opening performance
 
 `node scripts/benchmark-language-ui.mjs --native-only` builds and measures the

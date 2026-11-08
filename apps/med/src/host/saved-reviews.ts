@@ -18,14 +18,15 @@ import { z } from "zod";
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import type { SentComment } from "../shared/agent-inbox";
 import { ByteLru } from "../shared/byte-lru";
-import { attemptRefSchema } from "../shared/attempts";
 import { generatedMarkSchema } from "../shared/generated";
 import { normalizeDiffMetadataPaths } from "../shared/hunk/diffPaths";
 import {
   comparisonSchema,
+  noteAuthorSchema,
   noteInputSchema,
   noteMutationSchema,
   type Note,
+  type NoteAuthor,
   type NoteMutation,
   type NoteState,
   type ReviewResponse,
@@ -71,6 +72,7 @@ import {
   type SavedCheckout,
   type CapturedReviewTarget,
   threadCheckout,
+  agentName,
 } from "../shared/saved-review";
 import {
   guideError,
@@ -129,6 +131,7 @@ const noteSchema = noteInputSchema.extend({
   createdAt: text,
   updatedAt: text,
   resolution: z.enum(["active", "stale", "orphaned"]).optional(),
+  author: noteAuthorSchema.optional(),
 });
 const targetSchema = z.object({
   id: z.string().regex(TARGET_ID),
@@ -202,7 +205,6 @@ const savedSchema = z.object({
   targets: z.array(targetSchema).max(128),
   checkout: savedCheckoutSchema.optional(),
   archivedAt: text.optional(),
-  group: attemptRefSchema.optional(),
 });
 const recordSchema = z.object({
   version: z.literal(1),
@@ -264,7 +266,7 @@ function patchSections(patch: string) {
   for (const section of patch.split(/(?=^diff --git )/m)) {
     if (!section.startsWith("diff --git ")) continue;
     try {
-      const file = parsePatchFiles(section, undefined, true)[0]?.files[0];
+      const file = parsePatchFiles(section, { throwOnError: true })[0]?.files[0];
       if (file) sections.set(normalizeDiffMetadataPaths(file).name, section);
     } catch {
       /* A part that does not parse shows nothing. */
@@ -453,6 +455,8 @@ export class SavedReviewStore {
   // status streams read every review often; a description is small, and a
   // record can take megabytes to parse.
   private described = new Map<string, { identity: string; review: SavedReview }>();
+  /** Each review's comment IDs, by the file's identity, for `reviewsWithComment`. */
+  private commentIds = new Map<string, { identity: string; ids: string[] }>();
   /** Recent comparisons of a target with an earlier version (`delta`). */
   /** What changed since an earlier version, by target: at most 8, and 32 MiB. */
   private deltas = new ByteLru<Delta>(32 * 1024 * 1024, 8);
@@ -812,7 +816,6 @@ export class SavedReviewStore {
       if (
         joinable &&
         !input.parts &&
-        !input.group &&
         results.length === 1 &&
         results[0]!.review.comparison.kind === "range"
       ) {
@@ -833,7 +836,6 @@ export class SavedReviewStore {
             ? { brief: { text: input.brief, updatedAt: new Date().toISOString() } }
             : {}),
           ...(input.guide ? { guide: savedGuide(input.guide) } : {}),
-          ...(input.group ? { group: input.group } : {}),
           ...(checkout ? { checkout } : {}),
           createdAt: new Date().toISOString(),
           revision: 0,
@@ -983,7 +985,7 @@ export class SavedReviewStore {
     const sessions = new Set((input.sessions ?? []).map((entry) => `${entry.agent}:${entry.id}`));
     const candidates: { id: string; at: "top" | "bottom"; time: number }[] = [];
     for (const summary of await this.listUnlocked()) {
-      if (!joinable(summary.id) || summary.group) continue;
+      if (!joinable(summary.id)) continue;
       const shared = (summary.sessions ?? []).some((entry) =>
         sessions.has(`${entry.agent}:${entry.id}`),
       );
@@ -1181,8 +1183,7 @@ export class SavedReviewStore {
   /**
    * A new version of a stack or a set. A hand-off with parts replaces them
    * all; one comparison with a part's key replaces that part only. A part
-   * whose comparison did not change keeps its target, so its comments and
-   * viewed marks stay.
+   * whose comparison did not change keeps its target, so its comments stay.
    */
   private async iterateParts(
     record: SavedRecord,
@@ -1449,7 +1450,7 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
-  /** Record that the reader read a version: they marked a file of it viewed.
+  /** Record that the reader read a version: they opened it.
    * "Since" then starts from it, as from an approved version. */
   markRead(id: string, version: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
@@ -1582,7 +1583,6 @@ export class SavedReviewStore {
           continue;
         } else from = replayed;
       }
-      // The new side keeps the version's blob, so a viewed mark stays the same.
       const blob = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(whole.section)?.[1];
       let section = await textPatch(file.path, from, source.new);
       if (blob) section = section.replace(/^(index [0-9a-f]+\.\.)[0-9a-f]+/m, `$1${blob}`);
@@ -1620,8 +1620,8 @@ export class SavedReviewStore {
 
   /**
    * The files of a version that changed since the reader's last review: the
-   * last earlier version that they approved, commented on, or marked a file
-   * viewed in, or else the one before. Undefined before version 2.
+   * last earlier version that they approved, commented on, or opened, or else
+   * the one before. Undefined before version 2.
    */
   async since(id: string, version?: number): Promise<Since | undefined> {
     const record = await this.serial(() => this.read(id));
@@ -1885,6 +1885,36 @@ export class SavedReviewStore {
     return reviews;
   }
 
+  /**
+   * The reviews with a comment whose ID starts with `prefix`, newest first:
+   * `med reply` finds the review by the comment's short ID.
+   */
+  async reviewsWithComment(prefix: string): Promise<string[]> {
+    const names = await readdir(this.directory).catch(() => [] as string[]);
+    const found: { id: string; at: number }[] = [];
+    for (const name of names) {
+      const id = /^(r_[a-f0-9]{24})\.json$/.exec(name)?.[1];
+      if (!id) continue;
+      const info = await stat(this.file(id)).catch(() => undefined);
+      if (!info) continue;
+      const identity = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+      let known = this.commentIds.get(id);
+      if (known?.identity !== identity) {
+        const ids = await this.read(id).then(
+          (record) =>
+            record.captures.flatMap((target) => target.notes.notes.map((note) => note.id)),
+          () => undefined,
+        );
+        if (!ids) continue;
+        known = { identity, ids };
+        this.commentIds.set(id, known);
+      }
+      if (known.ids.some((noteId) => noteId.startsWith(prefix)))
+        found.push({ id, at: info.mtimeMs });
+    }
+    return found.sort((a, b) => b.at - a.at).map((entry) => entry.id);
+  }
+
   /** Every saved review's description. A review that cannot be read is left out. */
   async list(): Promise<(SavedReview & { modifiedAt: number })[]> {
     const names = await readdir(this.directory).catch(() => [] as string[]);
@@ -2083,8 +2113,6 @@ export class SavedReviewStore {
       if (sourceId === ontoId)
         throw new HostError("parts-unsupported", "Choose another thread to group with.", 400);
       const [source, onto] = [await this.read(sourceId, true), await this.read(ontoId, true)];
-      if (source.saved.group || onto.saved.group)
-        throw new HostError("parts-unsupported", "Attempts cannot join a stack.", 409);
       const layers = currentLayers(source.saved);
       if (!layers.length)
         throw new HostError("saved-review-empty", "That thread has no Review to add.", 409);
@@ -2542,10 +2570,78 @@ export class SavedReviewStore {
           .map((note) => ({
             ...note,
             updatedAt: threadVersion(target.notes.notes, note),
-            replies: target.notes.notes.filter((item) => item.parentId === note.id).length,
+            replies: target.notes.notes.filter((item) => item.parentId === note.id && !item.author)
+              .length,
           })),
       );
     });
+  }
+
+  /**
+   * An agent's answer to a comment on a line, under it in the comment's
+   * thread (`med review reply`). A reply's ID answers its thread.
+   */
+  reply(
+    id: string,
+    commentId: string,
+    text: string,
+    author: NoteAuthor,
+    beforeCommit?: () => void,
+  ): Promise<Note> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const wanted = commentId.toLowerCase();
+      const named = (other: string) =>
+        other === wanted || (wanted.length >= 6 && other.startsWith(wanted));
+      const matches = record.captures.flatMap((target) =>
+        target.notes.notes.filter((note) => named(note.id)).map((note) => ({ target, note })),
+      );
+      const found =
+        matches.find((match) => match.note.id === wanted) ??
+        (matches.length === 1 ? matches[0] : undefined);
+      if (matches.length > 1 && !found)
+        throw new HostError(
+          "comment-ambiguous",
+          "More than one comment of this review has an ID that starts so. Give more of the ID.",
+          409,
+        );
+      if (!found) {
+        const passage = record.saved.briefComments?.some((comment) => named(comment.id));
+        throw new HostError(
+          "note-not-found",
+          passage
+            ? "That comment is on the Notes, which take no replies. Answer it in your message."
+            : "This review has no comment with that ID.",
+          404,
+        );
+      }
+      if (record.saved.commentCount >= MAX_NOTES)
+        throw new HostError("too-many-notes", "A saved review can contain at most 500 notes.", 413);
+      const parent = found.note.parentId
+        ? found.target.notes.notes.find((note) => note.id === found.note.parentId)!
+        : found.note;
+      validateReviewNoteText(text);
+      const now = new Date().toISOString();
+      const note: Note = {
+        path: parent.path,
+        side: parent.side,
+        line: parent.line,
+        ...(parent.endLine ? { endLine: parent.endLine } : {}),
+        text,
+        parentId: parent.id,
+        id: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+        resolution: parent.resolution ?? "active",
+        author,
+      };
+      found.target.notes.notes.push(note);
+      found.target.notes.revision++;
+      record.saved.revision++;
+      record.saved.commentCount = countComments(record);
+      await this.write(record, beforeCommit);
+      return note;
+    }, beforeCommit);
   }
 
   /** The comments as text for an agent; `include` limits it to those threads. */
@@ -2581,16 +2677,14 @@ export class SavedReviewStore {
           output.push(part);
         }
       };
-      appendText(
-        "# Diff comments:",
-        "",
-        `Review: ${record.saved.title}`,
-        `Review ID: ${id}`,
-        `Captured: ${record.saved.createdAt}`,
-        "",
-      );
+      appendText(`# Comments on the review "${record.saved.title}"`, "");
+      // Each thread goes by the shortest start of its ID, from 6 characters,
+      // that no other comment of the review shares (`med reply` takes it).
+      const ids = record.captures.flatMap((target) => target.notes.notes.map((note) => note.id));
+      const several = new Set(record.saved.targets.map((target) => target.repo)).size > 1;
       const repositories = new Set<string>();
       let index = 0;
+      let example: string | undefined;
       for (const target of record.captures) {
         const threads = target.notes.notes.filter(
           (note) => !note.parentId && (!include || include.has(note.id)),
@@ -2600,13 +2694,13 @@ export class SavedReviewStore {
         repositories.add(info.repositoryId);
         let parsed: FileDiffMetadata[] = [];
         try {
-          parsed = parsePatchFiles(target.review.patch, undefined, true)
+          parsed = parsePatchFiles(target.review.patch, { throwOnError: true })
             .flatMap((patch) => patch.files)
             .map(normalizeDiffMetadataPaths);
         } catch {
           // A captured source excerpt remains usable if an older patch cannot be parsed.
         }
-        const appendCode = (label: string, language: string, lines: Iterable<string>) => {
+        const appendCode = (label: string | null, language: string, lines: Iterable<string>) => {
           const snippet: string[] = [];
           let snippetBytes = 0;
           let longest = 2;
@@ -2617,36 +2711,35 @@ export class SavedReviewStore {
             for (const match of line.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
           }
           const fence = "`".repeat(longest + 1);
-          appendText(label, `${fence}${language}`, snippet.join("\n"), fence);
+          appendText(...(label ? [label] : []), `${fence}${language}`, snippet.join("\n"), fence);
         };
-        const append = (note: Note, parentNumber?: number) => {
-          const number = ++index;
+        const append = (note: Note) => {
+          index++;
+          const id = shortCommentId(note.id, ids);
+          example ??= id;
           const file = target.review.files.find((item) => item.path === note.path)!;
           const path = note.side === "old" ? (file.previousPath ?? note.path) : note.path;
           const end = note.endLine ?? note.line;
+          const about = [
+            note.side === "old" ? "before the change" : "",
+            file.previousPath
+              ? note.side === "old"
+                ? `renamed to ${file.path}`
+                : `renamed from ${file.previousPath}`
+              : "",
+            several ? `in ${info.repo}` : "",
+          ].filter(Boolean);
           appendText(
-            `## User Comment ${number}`,
-            `File: ${path}`,
-            `Workspace: ${info.repo}`,
-            `Side: ${note.side === "old" ? "L" : "R"}`,
-            `Lines: ${note.line === end ? note.line : `${note.line}-${end}`}`,
-            `Comparison: ${info.base} → ${info.head}`,
-            `Comparison kind: ${info.comparison.kind}`,
-            `Captured working state: ${info.captured ? "yes" : "no"}`,
-            `Repository ID: ${info.repositoryId}`,
-            `Target ID: ${info.id}`,
-            `Comment ID: ${note.id}`,
+            `## ${id} · ${path}:${note.line === end ? note.line : `${note.line}-${end}`}${about.length ? ` (${about.join(", ")})` : ""}`,
           );
-          if (parentNumber) appendText(`Reply to: User Comment ${parentNumber}`);
           if (note.guideComment)
             appendText(
-              `Reply to: ${note.guideComment.author}'s comment in the guide`,
+              `In reply to ${note.guideComment.author}'s comment in the guide:`,
               ...note.guideComment.text.split("\n").map((line) => `> ${line}`),
             );
-          if (file.previousPath) appendText(`Rename: ${file.previousPath} → ${file.path}`);
           const diff = parsed.find((item) => item.name === note.path);
           const covered = diff && patchCoversSelection(diff, note);
-          if (covered) appendCode("Diff hunk:", "diff", commentDiffExcerpt(diff, note));
+          if (covered) appendCode(null, "diff", commentDiffExcerpt(diff, note));
           const source = target.sources.find((item) => item.path === note.path);
           if (!covered && source) {
             const lines = source[note.side].split("\n");
@@ -2654,17 +2747,24 @@ export class SavedReviewStore {
             const from = Math.max(1, note.line - 3);
             const to = Math.min(lines.length, end + 3);
             appendCode(
-              "Captured source (saved diff does not cover the full selection):",
+              "The source (the saved diff does not cover these lines):",
               "",
               (function* () {
                 for (let position = from; position <= to; position++)
                   yield `${position >= note.line && position <= end ? ">" : " "} ${position} | ${lines[position - 1]!}`;
               })(),
             );
-          } else if (!covered) appendText("Source context was not captured for this file.");
-          appendText("", "Comment:", note.text, "");
-          for (const reply of target.notes.notes.filter((item) => item.parentId === note.id))
-            append(reply, number);
+          } else if (!covered) appendText("Med did not capture this file's source.");
+          appendText("", note.text, "");
+          for (const reply of target.notes.notes.filter((item) => item.parentId === note.id)) {
+            // The user's replies count as comments, as the review's count has them.
+            if (!reply.author) index++;
+            appendText(
+              reply.author ? `${agentName(reply.author)} replied:` : "The user replied:",
+              reply.text,
+              "",
+            );
+          }
         };
         for (const note of threads) {
           append(note);
@@ -2692,24 +2792,33 @@ export class SavedReviewStore {
             text: comment.text,
           },
         });
+        index++;
         const pin = pins.find((item) => item.id === comment.section);
+        // A comment on a passage takes no reply in a thread, so it has no ID.
         appendText(
-          `## User Comment ${++index}`,
           comment.section === "pr"
-            ? `On: the pull request draft${record.saved.prDraft ? ` (revision ${record.saved.prDraft.revision}; revise it and run med pr draft again)` : ""}`
+            ? `## On the pull request draft${record.saved.prDraft ? ` (revision ${record.saved.prDraft.revision}; revise it and run med pr draft again)` : ""}`
             : comment.section === "brief"
-              ? `On: the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
-              : `On: an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
-          `Comment ID: ${comment.id}`,
-          "",
-          "Quote:",
+              ? `## On the review's brief${comment.iteration ? ` (iteration ${comment.iteration})` : ""}`
+              : `## On an agent reply pinned to the review${pin ? ` (${pin.createdAt})` : ""}`,
           ...comment.quote.split("\n").map((line) => `> ${line}`),
           "",
-          "Comment:",
           comment.text,
           "",
         );
       }
+      if (example)
+        appendText(
+          "Answer a comment in its thread with `med reply <id>`, the answer on standard input:",
+          "",
+          "```sh",
+          `med reply ${example} <<'END'`,
+          "<your answer>",
+          "END",
+          "```",
+          "",
+          "Answer there when the user asks a question, or to say why you left a change out. Your final message still says what you did.",
+        );
       if (!index) appendText("No comments.");
       return {
         text: output.join("\n"),
@@ -2722,9 +2831,22 @@ export class SavedReviewStore {
   }
 }
 
+/**
+ * A comment's short ID: the first 6 characters of its ID, or more, until no
+ * other ID in `ids` starts the same way.
+ */
+export function shortCommentId(id: string, ids: readonly string[]) {
+  for (let length = 6; length < id.length; length++) {
+    const start = id.slice(0, length);
+    if (!ids.some((other) => other !== id && other.startsWith(start))) return start;
+  }
+  return id;
+}
+
 /** A comment thread's version: its newest change. A reply changes the thread. */
+/** A thread's last change by the user. An agent's reply leaves it sent. */
 function threadVersion(notes: readonly Note[], note: Note) {
-  return [note, ...notes.filter((item) => item.parentId === note.id)]
+  return [note, ...notes.filter((item) => item.parentId === note.id && !item.author)]
     .map((item) => item.updatedAt)
     .sort()
     .at(-1)!;

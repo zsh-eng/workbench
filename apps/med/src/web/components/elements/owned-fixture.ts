@@ -110,9 +110,9 @@ export function createDemoAgent(
   const eventListeners = new Set<(events: SessionEvent[]) => void>();
   let inbox: AgentInboxState = {
     messages: [],
-    waiting: [],
     elsewhere: {},
     resumable: [],
+    owned: [],
     drafts: options.drafts ?? [],
   };
   const inboxListeners = new Set<() => void>();

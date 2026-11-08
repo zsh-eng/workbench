@@ -7,21 +7,10 @@ sessions.
 **A thread is one intent; reviews are its parts.** An agent that reviews four
 stacked pull requests makes one thread with four parts, not four workspaces.
 
-| Shape    | Parts                                   | A part's diff                                     |
-| -------- | --------------------------------------- | ------------------------------------------------- |
-| Stack    | Ordered layers; the first is the bottom | Against the layer below (the bottom: its base)    |
-| Set      | Independent parts, in any order         | Against its own base                              |
-| Attempts | Alternatives; keep one                  | Each attempt's worktree against the shared commit |
-
-Attempts stay as they are: a group of threads (`group` on each saved review,
-[Attempts](usage/threads.md#attempts)). An attempt is a live agent with its own session,
-worktree, and live Changes; Med's thread is one lead session and one checkout,
-and the sidebar state, recap, message box, and auto-close are per thread. A
-stack's or a set's parts are frozen hand-offs of one session. Folding attempts
-into parts needs a thread with several lead sessions, which is a larger change
-than this one and would put Keep, Undo, and the Attempts page at risk. The
-sidebar draws both the same way (one row, its parts under it), and the shape
-names leave room for `attempts` later.
+| Shape | Parts                                   | A part's diff                                  |
+| ----- | --------------------------------------- | ---------------------------------------------- |
+| Stack | Ordered layers; the first is the bottom | Against the layer below (the bottom: its base) |
+| Set   | Independent parts, in any order         | Against its own base                           |
 
 ## Data model
 
@@ -40,15 +29,13 @@ iteration.guides = { "l_…": guide }; // each part's Guide in that version
 ```
 
 - A part's **target** is its comparison in a version (base..head), with its
-  captured sources and its comments, as any target. Its **viewed** marks are
-  the review's (`data/viewed.ts`): they belong to file content, so a file that
-  two layers show with the same blob is viewed in both, and "Whole stack" shows
-  the top layer's blobs.
+  captured sources and its comments, as any target. "Whole stack" shows the top
+  layer's blobs.
 - A part's **key** (its PR URL or branch) matches it across versions. Each
   key also maps to the thread in `.keys.json`, so `med review create --key
 <part key>` adds a version of the thread that replaces only that part.
 - A new version recaptures every part. A part whose base and head did not
-  change keeps its target, so its comments and viewed marks stay.
+  change keeps its target, so its comments stay.
 - `describe()` adds `partTotals` (files, +/−, comments) from the current
   version; the thread list sends them with each part.
 
@@ -105,20 +92,12 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 
 ## UI states
 
-- **Sidebar.** The thread's row has a progress strip, one segment per part,
-  bottom first: unreviewed (outline), in progress (some files viewed, or a
-  comment), approved (all files viewed, no comments), changes requested (all
-  files viewed, with comments). The Review writes each layer's viewed and file
-  counts to `med:layers:v1:<review>` in local storage, so the strip reads no
-  diff. The chevron shows the parts, top first, numbered, with +/−. A merged
-  or closed layer's segment is dim.
+- **Sidebar.** A stack or a set is one session row, like any other.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom, the
   base branch (`main`) at the bottom, each with its number, title, state, and
-  +/−. Shift-click picks a range. **This layer** and **Whole stack** sit above.
+  comment count. Shift-click picks a range. **This layer** and **Whole stack** sit above.
   A narrow pane, where the rail hides, has a layer menu in the review's row.
-- **Keys.** `⌥↑` and `⌥↓` go up and down the stack. **Next unreviewed** (button
-  and `⌘K`) goes to the lowest layer that has no verdict (approved or changes
-  requested) and is not merged or closed.
+- **Keys.** `⌥↑` and `⌥↓` go up and down the stack.
 - **Top bar.** The current layer's pull request, through `PullRequestTitle`.
 
 ## Critique
@@ -129,7 +108,7 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
   the source; a crash between the two can leave a comparison in both, never in
   neither.
 - **Merged or closed layers.** They stay in the rail with their state; their
-  captures stay readable. Next unreviewed skips them. The whole stack still
+  captures stay readable. The whole stack still
   starts at the bottom layer's base.
 - **A retargeted base.** A pull request whose base is no longer the layer
   below (such as `main` after the layer below merged) is diffed against its own
@@ -146,8 +125,8 @@ session, files, and Git state (`loadSavedTarget`). A set has only "This part".
 
 ## Deferred
 
-- Comments that follow code across layers, and viewed marks through a restack
-  (a layer whose commits changed is a new target).
+- Comments that follow code across layers through a restack (a layer whose
+  commits changed is a new target).
 - GitHub review threads and state per layer: the top bar shows the stored title
   and state; comments still read the thread's own pull request.
-- Reordering parts by drag inside a thread; attempts as a shape.
+- Reordering parts by drag inside a thread.

@@ -24,8 +24,8 @@ export const EXPANSION_LINES = 20;
 export const diffSurfaceStyle = {
   ...codeSurfaceStyle,
   "--diffs-font-family": tokens.code,
-  "--diffs-font-size": "12px",
-  "--diffs-line-height": "20px",
+  "--diffs-font-size": "var(--med-code-size, 12px)",
+  "--diffs-line-height": "var(--med-code-line, 20px)",
   "--diffs-header-font-family": tokens.ui,
   "--diffs-bg-context-override": tokens.canvas,
   "--diffs-bg-context-gutter-override": tokens.canvas,

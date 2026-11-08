@@ -189,6 +189,66 @@ describe("agent review CLI through the production host", () => {
     }
   });
 
+  it("answers a comment in its thread as the session, by the start of its ID", async () => {
+    const f = await fixture();
+    const claude = "5c1f0e2a-9b7d-4e3a-8f6c-2d4b6a8c0e1f";
+    const bundle = await f.saved(
+      await f.run(
+        "create",
+        "--key",
+        "fix-copy",
+        "--title",
+        "Fix",
+        "--repo",
+        f.repos[0]!,
+        "--working",
+        "--no-session",
+        "--session",
+        `claude:${claude}`,
+      ),
+    );
+    const notesPath = `/api/reviews/${bundle.id}/targets/${bundle.targets[0].id}/notes`;
+    const added = await (
+      await fetch(`http://127.0.0.1:${f.host.port}${notesPath}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${f.host.token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          expectedRevision: (await f.api(notesPath)).revision,
+          mutation: {
+            type: "add",
+            note: { path: "file.txt", side: "new", line: 1, text: "Why after?" },
+          },
+        }),
+      })
+    ).json();
+    const comment = added.notes[0].id;
+    // The start of the ID finds the comment and its review; the words after it
+    // are the answer.
+    expect(await f.run("reply", comment.slice(0, 6), "It", "reads", "later.")).toBe(
+      "Your reply is in the comment's thread.",
+    );
+    await f.run("reply", comment, "--key", bundle.id, "--text", "  Or after.  ");
+    const notes = (await f.api(notesPath)).notes;
+    expect(notes.slice(1)).toMatchObject([
+      {
+        parentId: comment,
+        text: "It reads later.",
+        author: { agent: "claude", sessionId: claude },
+      },
+      { parentId: comment, text: "Or after.", author: { agent: "claude", sessionId: claude } },
+    ]);
+    await expect(f.run("reply", "--key", "fix-copy", "--text", "Done.")).rejects.toThrow(
+      "Use reply with the comment's ID, as the user's message gives it",
+    );
+    await expect(f.run("reply", "gone", "Done.")).rejects.toThrow('"gone" is not a comment ID.');
+    await expect(f.run("reply", "abcdef12", "Done.")).rejects.toThrow(
+      "No review in Med has a comment with ID abcdef12.",
+    );
+    await expect(f.run("reply", "abcdef12", "--key", "fix-copy", "Done.")).rejects.toThrow(
+      "Med request failed: This review has no comment with that ID.",
+    );
+  });
+
   it("attaches a brief from a file, then replaces and removes it without a new revision", async () => {
     const f = await fixture();
     const path = join(f.root, "brief.md");
@@ -910,18 +970,6 @@ describe("hand-off checks that say what to do next", () => {
     expect(sub.advice).toContain(
       "Session: this command runs in a subagent of Claude Code session parent.",
     );
-    expect(sub.advice).not.toContain("med review wait");
-    // Its wait would take the messages that the user sends to the parent.
-    await transcripts(
-      "",
-      call("toolu_wait", "Bash", { command: "med review wait --key sub" }, true),
-    );
-    await expect(
-      parseReviewCommand(["wait", "--key", "sub", ...f.flags.split(" ")], {
-        environment: { CLAUDE_CODE_SESSION_ID: "parent" },
-        home,
-      }),
-    ).rejects.toThrow("so this wait would take the messages that the user sends to the parent");
 
     // The parent's own hand-off, beside a subagent at work, records the parent.
     await transcripts(
@@ -932,7 +980,6 @@ describe("hand-off checks that say what to do next", () => {
     expect((await f.saved(own.out)).sessions).toEqual([
       { agent: "claude", id: "parent", cwd: "/work/app" },
     ]);
-    expect(own.advice).toContain(`med review wait --key own ${f.flags}`);
 
     // When no transcript shows the call, Med records nothing and says so.
     await transcripts("", call("toolu_test", "Bash", { command: "bun run test" }, true));
@@ -943,7 +990,7 @@ describe("hand-off checks that say what to do next", () => {
     );
   });
 
-  it("checks the title, defaults the key to the branch, and says how to wait", async () => {
+  it("checks the title, and defaults the key to the branch", async () => {
     const f = await fixture(2);
     const repo = f.repos[0]!;
     git(repo, "switch", "-c", "feat/retry");
@@ -958,9 +1005,7 @@ describe("hand-off checks that say what to do next", () => {
     expect(short.advice).toContain(
       "Key: feat/retry, from the branch. Hand off each later round of this task with the same key",
     );
-    expect(short.advice).toContain(
-      `To get the user's comments, run this as a background command: med review wait --key feat/retry ${f.flags}.`,
-    );
+    expect(short.advice).not.toContain("med review wait");
     // The next round on the branch is the next version of the same review.
     await writeFile(join(repo, "file.txt"), "round two\n");
     const named = await checked(f, [

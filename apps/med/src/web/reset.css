@@ -72,3 +72,11 @@ html[data-column-resizing] * {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* While a sidebar row drags (SessionSidebar), nothing selects and the
+   pointer holds the row. */
+html[data-session-drag],
+html[data-session-drag] * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}

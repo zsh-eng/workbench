@@ -18,9 +18,8 @@ give must be free.
 When Med is out of date, an open page says so. **Restart** replaces a server
 that runs older code, and **Reload** loads a newer page. Med first checks that
 the new build starts; if it does not, the current server keeps running and the
-notice shows the error. The command palette has **Reload Med** and **Restart
-Med server and reload**. A server that you started with `med serve` asks you to
-restart it in its terminal.
+notice shows the error. A server that you started with `med serve` asks you
+to restart it in its terminal.
 
 ## Start at login
 
@@ -53,8 +52,8 @@ server, so use `med service install` to start the server at login. Each port is
 a separate app.
 
 The title bar's hide button gives Med the whole window. The branch and the
-sidebar toggle move up beside the window controls, and the review card's first
-row rises between them as the card's tab; side panes start below it. With
+sidebar toggle move up beside the window controls, in Med's top row, and the
+panes start below it. With
 branch tabs open, the branch tabs head the window instead. Empty parts of the
 top row move the window. Show the title bar again from the same place. Chrome
 reads this from Med's manifest at a later launch; reinstall the app to get it
@@ -62,11 +61,11 @@ at once.
 
 Med's top row then takes the height of the strip that the system keeps for
 the window controls (38 pixels on macOS), so its controls and title sit on the
-same centre line as the traffic lights. A card that heads the window, such as
-Sources, has 24 pixel controls in its tab, the size of Chrome's own buttons
-beside it. On a strip lower than 38 pixels, as on Windows and Linux, the tab
-keeps its 38 pixel shape, so its controls sit a little below the window
-controls' centre line. In a browser tab the row is 40 pixels.
+same centre line as the traffic lights. A page that heads the window, such as
+Sources, puts its header in that strip, clear of the window controls. On a
+strip lower than 38 pixels, as on Windows and Linux, the header keeps 38
+pixels, so its controls sit a little below the window controls' centre line.
+In a browser tab the row is 36 pixels.
 
 ## Sources
 
@@ -89,3 +88,26 @@ worktree belongs to its repository; separate clones stay separate, even with
 the same remote. On the **Sources** page, a row's **⋯** menu can index a vault
 again, copy the path, or remove the source. Removing a source keeps its folder.
 See [notes and vaults](../VAULTS.md) for vaults.
+
+### Base branches stay up to date
+
+Med pulls each registered repository's base branch, so a new branch or a
+review starts from the newest commits without a `git pull` first. A minute
+after Med starts, and then every 15 minutes, it fetches the branch that the
+remote names as its default (`origin/HEAD`, such as `main`, `master`, or
+`develop`), or else the main checkout's branch, from its upstream, and moves
+the local branch forward as `git pull --ff-only` would:
+
+- A checkout that has the branch out moves with it while it has no
+  uncommitted changes to tracked files. With changes, Med only fetches.
+- A branch that no checkout has out moves by its ref, so a thread's own
+  branch and worktree stay as they are.
+- A branch with commits of its own stays as it is: Med never merges or
+  rebases. It only fetches the remote's branch.
+- A fetch never asks for a password or a passphrase. A key in the SSH agent
+  and a password in the keychain work; otherwise the pull fails quietly and
+  tries again later.
+
+Turn it off with **Pull base branches** in [Settings](settings.md#sources), or
+`"sources.pullBase": false` in the settings file. Only the Med that uses its
+own state folder pulls; one started with `--state-dir` does not.

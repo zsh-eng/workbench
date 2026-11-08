@@ -209,12 +209,15 @@ try {
   await page.keyboard.press("o");
   await page.keyboard.type("// retained draft");
   await page.keyboard.press("Escape");
-  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("radio", { name: "Changes", exact: true }).filter({ visible: true }).click();
   await page.getByRole("tab", { name: /http2.ts/ }).click();
   await editor.waitFor();
   assert.ok((await editor.textContent()).includes("retained draft"));
   await writeFile(join(repo, path), source + "\n// agent change\n");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The header has no Save: Vim's :w saves, as ⌘S does.
+  await editor.focus();
+  await page.keyboard.type(":w");
+  await page.keyboard.press("Enter");
   await page.getByRole("alert").filter({ hasText: "changed on disk" }).waitFor();
   assert.ok((await editor.textContent()).includes("retained draft"));
   assert.equal(await readFile(join(repo, path), "utf8"), source + "\n// agent change\n");
@@ -231,9 +234,15 @@ try {
   }
   await cdp.send("IO.close", { handle: stream });
   await writeFile(join(output, "typing.trace.json"), trace);
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  // The header has no Close: Vim's :q closes, as the tab's × does.
+  await editor.focus();
+  await page.keyboard.type(":q");
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
-  await page.getByRole("tab", { name: "Changes", exact: true }).waitFor();
+  await page
+    .getByRole("radio", { name: "Changes", exact: true })
+    .filter({ visible: true })
+    .waitFor();
   assert.equal(await page.getByRole("tab", { name: /http2.ts/ }).count(), 0);
   assert.deepEqual(errors, []);
   const sorted = [...frames].sort((a, b) => a - b);
@@ -246,7 +255,7 @@ try {
       "65ms ease-out cursor motion in Normal and Visual modes",
       "reduced-motion cursor preference",
       "deep link to second repository",
-      "Twinkleplop syntax colors",
+      "syntax colors",
       "Vim insert and :w",
       "undo after save",
       "byte-identical restore",

@@ -61,6 +61,8 @@ import {
   livePullRequestSchema,
   pullRequestCheckLogSchema,
   revealSchema,
+  openInSchema,
+  type OpenInLinks,
   HttpError,
   unanswered,
   notesSchema,
@@ -172,7 +174,7 @@ export interface ReviewController {
   showReview(): Promise<void>;
   /** Shows the Review's version as only what changed since an earlier version. */
   showSince(from: number): Promise<void>;
-  /** Marks a version read: the reader marked a file of it viewed. */
+  /** Marks a version read: the reader opened it. */
   markRead(version: number): Promise<void>;
   /** Places lines of the Review's version on the commit that shows: each
    * line there, or null when the commit does not show it. */
@@ -214,8 +216,6 @@ export interface ReviewController {
   /** The files of a version that changed since the reader's last review;
    * null before version 2. */
   loadSince(version: number): Promise<Since | null>;
-  /** Marks a version approved, or not: a record for the reader, not a gate. */
-  approveVersion(version: number, approved: boolean): Promise<void>;
   clearSavedComments(expectedRevision: number): Promise<void>;
   /** Replace the saved review's brief, or remove it with null. */
   setSavedBrief(text: string | null): Promise<void>;
@@ -250,6 +250,10 @@ export interface ReviewController {
   loadCommitDetails(id: string, signal?: AbortSignal): Promise<CommitDetails>;
   /** Shows a working-tree file in the system file manager. */
   revealPath(repo: string, path: string): Promise<void>;
+  /** Open in's editors and code host link for a checkout. */
+  openInLinks(repo: string): Promise<OpenInLinks>;
+  /** Opens a working-tree file in an editor at a line. */
+  openInEditor(repo: string, path: string, line: number, editor: string): Promise<void>;
   selectWorktree(path: string, repositoryId?: string): Promise<void>;
   selectBranch(name: string, repositoryId?: string): Promise<void>;
   addRepository(path: string): Promise<void>;
@@ -2621,27 +2625,6 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         )
       ).since;
     },
-    async approveVersion(version, approved) {
-      const saved = snapshot.savedReview;
-      if (!saved) throw new Error("Open a saved review to approve a version.");
-      const next = await api.json(
-        `/api/reviews/${encodeURIComponent(saved.id)}/approval`,
-        savedReviewSchema,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version, approved }),
-        },
-      );
-      if (disposed || snapshot.savedReview?.id !== saved.id) return;
-      // An approval does not move the comment revision. Keep newer comment counts.
-      update({
-        savedReview:
-          next.revision >= snapshot.savedReview.revision
-            ? next
-            : { ...snapshot.savedReview, approvals: next.approvals },
-      });
-    },
     async loadCodexReviews() {
       const saved = snapshot.savedReview;
       if (!saved) return [];
@@ -2711,6 +2694,14 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo, path }),
+      });
+    },
+    openInLinks: (repo) => api.json(`/api/open-in?repo=${encodeURIComponent(repo)}`, openInSchema),
+    async openInEditor(repo, path, line, editor) {
+      await api.json("/api/open-in", z.object({ opened: z.literal(true) }), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, path, line, editor }),
       });
     },
     loadSources: (path) => loadSources(path),

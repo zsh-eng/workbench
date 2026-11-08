@@ -6,206 +6,76 @@ import type { ReviewControllerSnapshot } from "../data/controller";
 import { tokens } from "../theme.stylex";
 import type { Choice, MenuAction, MenuEntry } from "./Controls";
 
-interface Toggle {
-  on: boolean;
-  toggle(): void;
-}
-
-/** What the review's ⋯ menu can do; a missing entry has no item. */
+/** What a narrow review row folds into its ⋯ menu; a missing entry has no
+ * item. */
 export interface QuietMenuActions {
-  /** The diff shows: its find, its view, push, and refresh. */
-  diff?: {
-    find(): void;
-    layout: { mode: "split" | "unified"; canSplit: boolean; set(mode: "split" | "unified"): void };
-    comments: Toggle;
-    wrap: Toggle;
-    rail?: Toggle;
-    collapse?: { collapsed: boolean; toggle(): void };
-    /** `blocked` says why Push… cannot open yet, such as remotes that Med
-     * still reads. */
-    push?: { blocked?: string; open(): void };
-    refresh: { disabled: boolean; run(): void };
-    /** The comparison, when the row has no room for it. */
-    comparison?: {
-      label: string;
-      value: string;
-      choices: Choice[];
-      select(value: string): void;
-      /** A `checked` action is a toggle, such as Only this session's files. */
-      actions: { label: string; checked?: boolean; onSelect(): void }[];
-    };
+  /** The comparison, when the row has no room for it. */
+  comparison?: {
+    label: string;
+    value: string;
+    choices: Choice[];
+    select(value: string): void;
+    /** A `checked` action is a toggle, such as Only this session's files. */
+    actions: { label: string; checked?: boolean; onSelect(): void }[];
   };
-  workingFile?: { label: string; open(): void };
-  /** The Changed files pane, and its shortcut where it has one. */
-  changed?: Toggle & { shortcut?: string };
-  session?: Toggle;
-  files?: Toggle;
-  openBranch?: () => void;
-  zen(): void;
-  commands(): void;
-  shortcuts(): void;
+  /** The pane's own Expand and Hide, when its row has no room for them. */
+  pane?: { label: string; zoomed: boolean; zoom?(): void; hide?(): void };
 }
 
 /**
- * Quiet chrome's ⋯ menu: the toolbar's view options in a View submenu, the
- * buttons that left the review's rows, and the panes. It fits in its popup
- * without a scroll. A pane that opens or closes closes the menu; a view
- * option keeps it open.
+ * Quiet chrome's ⋯ menu holds only what a narrow row folds away: what the
+ * diff compares, and the pane's Expand and Hide. The rest is in ⌘K and on
+ * its keys, and Copy comments has its own button. With nothing folded, the
+ * row has no ⋯.
  *
  * It is a hook so that the React Compiler knows that it does not call the
  * actions during render: the menu calls them when you choose an item.
  */
 export function useQuietMenu(actions: QuietMenuActions): MenuEntry[][] {
-  const { diff } = actions;
   const item = (entry: MenuAction | false | undefined) => (entry ? [entry] : []);
-  const comparison = diff?.comparison;
+  const { comparison, pane } = actions;
   return [
-    diff
-      ? [
-          // Named by what the diff shows, as the row's control is. With
-          // nothing to choose, it only says what the diff shows.
-          ...(comparison && comparison.choices.length <= 1 && !comparison.actions.length
-            ? [{ label: comparison.label, disabled: true, onClick: () => {} }]
-            : comparison
-              ? [
-                  {
-                    label: comparison.label,
-                    sections: [
-                      comparison.choices.map((choice) => ({
-                        label: choice.label,
-                        checked: choice.value === comparison.value,
-                        choice: true,
-                        onClick: () => comparison.select(choice.value),
-                      })),
-                      comparison.actions.map((action) => ({
-                        label: action.label,
-                        ...(action.checked !== undefined && { checked: action.checked }),
-                        onClick: action.onSelect,
-                      })),
-                    ],
-                  },
-                ]
-              : []),
-          { label: "Find in diffs", shortcut: "Mod+F", letter: "f", onClick: diff.find },
-          {
-            label: "View",
-            sections: [
-              [
-                {
-                  label: "Split diff",
-                  checked: diff.layout.mode === "split",
+    // Named by what the diff shows, as the row's control is. With nothing to
+    // choose, it only says what the diff shows.
+    comparison && comparison.choices.length <= 1 && !comparison.actions.length
+      ? [{ label: comparison.label, disabled: true, onClick: () => {} }]
+      : comparison
+        ? [
+            {
+              label: comparison.label,
+              sections: [
+                comparison.choices.map((choice) => ({
+                  label: choice.label,
+                  checked: choice.value === comparison.value,
                   choice: true,
-                  disabled: !diff.layout.canSplit,
-                  onClick: () => diff.layout.set("split"),
-                },
-                {
-                  label: "Unified diff",
-                  checked: diff.layout.mode === "unified",
-                  choice: true,
-                  onClick: () => diff.layout.set("unified"),
-                },
-                {
-                  label: "Show comments",
-                  checked: diff.comments.on,
-                  onClick: diff.comments.toggle,
-                },
-                {
-                  label: "Wrap long lines",
-                  checked: diff.wrap.on,
-                  letter: "w",
-                  onClick: diff.wrap.toggle,
-                },
-                ...item(
-                  diff.rail && {
-                    label: "Files and commits",
-                    shortcut: "Mod+Alt+B",
-                    checked: diff.rail.on,
-                    onClick: diff.rail.toggle,
-                  },
-                ),
-                ...item(
-                  diff.collapse && {
-                    label: diff.collapse.collapsed ? "Expand all files" : "Collapse all files",
-                    onClick: diff.collapse.toggle,
-                  },
-                ),
+                  onClick: () => comparison.select(choice.value),
+                })),
+                comparison.actions.map((action) => ({
+                  label: action.label,
+                  ...(action.checked !== undefined && { checked: action.checked }),
+                  onClick: action.onSelect,
+                })),
               ],
-            ],
-          },
-        ]
-      : [],
-    [
-      ...item(
-        actions.workingFile && {
-          label: actions.workingFile.label,
-          letter: "o",
-          onClick: actions.workingFile.open,
-        },
-      ),
-      ...item(
-        actions.changed && {
-          label: "Changed files",
-          ...(actions.changed.shortcut ? { shortcut: actions.changed.shortcut } : {}),
-          checked: actions.changed.on,
-          choice: true,
-          onClick: actions.changed.toggle,
-        },
-      ),
-      ...item(
-        actions.session && {
-          label: "Agent session",
-          shortcut: "Mod+Shift+B",
-          checked: actions.session.on,
-          choice: true,
-          onClick: actions.session.toggle,
-        },
-      ),
-      ...item(
-        actions.files && {
-          label: "Files",
-          checked: actions.files.on,
-          choice: true,
-          onClick: actions.files.toggle,
-        },
-      ),
-      ...item(
-        actions.openBranch && {
-          label: "Open branch or worktree…",
-          shortcut: "Mod+Shift+G",
-          onClick: actions.openBranch,
-        },
-      ),
-      { label: "Zen mode", shortcut: "Alt+Z", letter: "z", onClick: actions.zen },
-    ],
-    diff
-      ? [
-          ...item(
-            diff.push && {
-              label: "Push…",
-              disabled: !!diff.push.blocked,
-              hint: diff.push.blocked,
-              onClick: diff.push.open,
             },
-          ),
-          {
-            label: "Refresh review",
-            letter: "r",
-            disabled: diff.refresh.disabled,
-            onClick: diff.refresh.run,
-          },
-        ]
-      : [],
+          ]
+        : [],
     [
-      { label: "Commands", shortcut: "Mod+K", onClick: actions.commands },
-      { label: "Keyboard shortcuts", shortcut: "?", onClick: actions.shortcuts },
+      ...item(
+        pane?.zoom && {
+          label: pane.zoomed ? "Restore the other panes" : `Expand ${pane.label}`,
+          shortcut: "Mod+E",
+          onClick: pane.zoom,
+        },
+      ),
+      ...item(pane?.hide && { label: `Hide ${pane.label}`, onClick: pane.hide }),
     ],
   ];
 }
 
 /** A file header's tooltip: its path and, as quiet chrome has no status bar,
  * its size. */
-export function fileTitle(path: string, size: number | undefined, quiet: boolean) {
-  return quiet && size !== undefined ? `${path} · ${size.toLocaleString()} bytes` : path;
+export function fileTitle(path: string, size: number | undefined) {
+  return size !== undefined ? `${path} · ${size.toLocaleString()} bytes` : path;
 }
 
 const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
@@ -263,6 +133,25 @@ export type RowFit = "long" | "short" | "menu";
  * tabs and its other controls. The slot counts while it is hidden too, so
  * that the room it needs does not change as it shows.
  */
+/**
+ * An item's width with its shortened names whole (up to its own max-width),
+ * so the row's optional controls give way before a title shortens.
+ */
+function wholeWidth(child: Element, rowWidth: number) {
+  const width = child.getBoundingClientRect().width;
+  let hidden = 0;
+  for (const name of child.querySelectorAll("[data-truncates]"))
+    hidden += name.scrollWidth - name.clientWidth;
+  if (!hidden) return width;
+  const max = getComputedStyle(child).maxWidth;
+  const cap = max.endsWith("%")
+    ? (parseFloat(max) / 100) * rowWidth
+    : max === "none"
+      ? Infinity
+      : parseFloat(max);
+  return Math.max(width, Math.min(width + hidden, cap));
+}
+
 function rowRoom(row: HTMLElement, slot: HTMLElement) {
   const style = getComputedStyle(row);
   const gap = parseFloat(style.columnGap) || 0;
@@ -270,7 +159,8 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
   let items = 1;
   const count = (children: HTMLCollection) => {
     for (const child of children) {
-      if (child === slot) continue;
+      // The slot, and the space that only fills the row.
+      if (child === slot || child.hasAttribute("data-row-grow")) continue;
       const { display, position, marginLeft, marginRight } = getComputedStyle(child);
       // A wrapper with `display: contents`, as the totals, puts its children in the row.
       if (display === "contents") {
@@ -280,12 +170,7 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
       if (display === "none" || position === "absolute" || position === "fixed") continue;
       items++;
       used += (parseFloat(marginLeft) || 0) + (parseFloat(marginRight) || 0);
-      if (child.getAttribute("role") === "tablist") {
-        // The tabs' own width, not the room that the list takes.
-        const first = child.firstElementChild?.getBoundingClientRect();
-        const last = child.lastElementChild?.getBoundingClientRect();
-        used += first && last ? last.right - first.left : 0;
-      } else used += child.getBoundingClientRect().width;
+      used += wholeWidth(child, row.clientWidth);
     }
   };
   count(row.children);
@@ -293,8 +178,8 @@ function rowRoom(row: HTMLElement, slot: HTMLElement) {
 }
 
 /**
- * Whether a control of a fixed width, such as the Commit tab's Stage all,
- * fits in the review's row beside the tabs. `slot` is its place in the row,
+ * Whether a control of a fixed width, such as the Commit page's Stage all,
+ * fits in the review's row beside the title and the pages. `slot` is its place in the row,
  * also while it is hidden; its width is the one that it had when it showed.
  */
 export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
@@ -325,34 +210,56 @@ export function useSlotFits(slot: HTMLElement | null, fallbackWidth: number) {
 }
 
 /**
+ * Whether the row that holds `slot` is at least `width` pixels wide. It
+ * goes by the row's width alone, not by what the page puts in the row, so
+ * that a control shown by it stays as the pages switch and the tabs keep
+ * their places.
+ */
+export function useRowWide(slot: HTMLElement | null, width: number) {
+  const [wide, setWide] = useState(true);
+  useLayoutEffect(() => {
+    const row = slot?.parentElement;
+    if (!row) return;
+    // A hidden workspace has no width; it keeps its answer for its return.
+    const measure = () => {
+      if (row.clientWidth) setWide(row.clientWidth >= width);
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(row);
+    return () => resize.disconnect();
+  }, [slot, width]);
+  return wide;
+}
+
+/**
  * Whether an optional part of a control in the review's row, such as the
- * word "comments" after a count, may show: it shows while the row's tabs
- * keep their full width. `part` is the part's element, also while it is
- * hidden; its width is the one that it had when it showed. A new `text`
- * shows first, to measure it.
+ * word "comments" after a count, may show: it shows while the row has room
+ * for it beside the title's whole width. `part` is the part's element, also
+ * while it is hidden; its width is the one that it had when it showed. A new
+ * `text` shows first, to measure it.
  */
 export function useRowPart(part: HTMLElement | null, text: string) {
   const [state, setState] = useState({ text, fits: true });
   const width = useRef(0);
   useLayoutEffect(() => {
     width.current = 0;
-    // The row is the element whose child is the tab list (FileViewTabs).
-    let row = part?.parentElement ?? null;
-    const tabsOf = (element: Element) =>
-      [...element.children].find((child) => child.getAttribute("role") === "tablist");
-    while (row && !tabsOf(row)) row = row.parentElement;
-    const list = row && tabsOf(row);
-    if (!part || !row || !list) return;
+    // The row is the element whose child is the space that fills it, and
+    // the control is its child that holds the part.
+    let control: HTMLElement | null = part;
+    const isRow = (element: Element) =>
+      [...element.children].some((child) => child.hasAttribute("data-row-grow"));
+    while (control?.parentElement && !isRow(control.parentElement)) control = control.parentElement;
+    const row = control?.parentElement;
+    if (!part || !control || !row) return;
     const measure = () => {
       // A hidden workspace has no width; it keeps its fit for its return.
       if (!row.clientWidth) return;
-      const first = list.firstElementChild?.getBoundingClientRect();
-      const last = list.lastElementChild?.getBoundingClientRect();
-      // The room that the tab list has beyond its tabs; below zero, they scroll.
-      const free = list.clientWidth - (first && last ? last.right - first.left : 0);
       const shown = part.getBoundingClientRect().width;
       if (shown) width.current = shown;
-      const fits = shown ? free > -1 : free >= width.current;
+      // The row's room for the control without its part, less the control.
+      const free = rowRoom(row, control) - (control.getBoundingClientRect().width - shown);
+      const fits = free >= width.current;
       setState((current) =>
         current.text === text && current.fits === fits ? current : { text, fits },
       );
@@ -373,7 +280,7 @@ export function useRowPart(part: HTMLElement | null, text: string) {
 
 /**
  * Which label of the comparison fits in the review's row: its full one, its
- * short one, or none, when the comparison goes into ⋯. The row's tabs and
+ * short one, or none, when the comparison goes into ⋯. The row's pages and
  * other controls keep their width; the comparison has the room that is left.
  * `slot` is the comparison's place in the row, also while it is empty.
  */
@@ -395,8 +302,8 @@ export function useRowFit(
     const measure = () => {
       // A hidden workspace has no width; it keeps its fit for its return.
       if (!row.clientWidth || !context) return;
-      // The select's trigger, or the text that stands for one (ChoiceLabel).
-      const trigger = element.querySelector("button, [data-choice-static]");
+      // The select's trigger.
+      const trigger = element.querySelector("button");
       const value = trigger?.querySelector<HTMLElement>("[data-choice-value]");
       if (trigger && value) {
         const style = getComputedStyle(value);

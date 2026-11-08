@@ -89,7 +89,6 @@ function mountComposer(permission?: OwnedPermission) {
       <SessionComposer
         agent="claude"
         name="Claude Code"
-        waiting={false}
         drafts={[]}
         attachments={[]}
         onRemoveAttachment={() => {}}

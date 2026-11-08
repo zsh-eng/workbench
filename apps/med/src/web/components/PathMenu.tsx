@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import type { OpenInLinks } from "../data/api";
 import { picked, tokens, ui } from "../theme.stylex";
 
 export interface PathTarget {
@@ -19,10 +20,33 @@ export interface PathMenuItem {
 export interface PathActions {
   reveal(target: PathTarget & { repo: string }): Promise<void>;
   notify(text: string): void;
+  /** Open in's links and editors, where the host has them. */
+  openIn?: {
+    links(repo: string): Promise<OpenInLinks>;
+    open(target: PathTarget & { repo: string }, line: number, editor: string): Promise<void>;
+  };
 }
 
+/** A checkout's links, asked again after a minute, as a push gives its branch a page. */
+const asked = new Map<string, { at: number; links: Promise<OpenInLinks> }>();
+export function linksOf(actions: PathActions, repo: string) {
+  const known = asked.get(repo);
+  if (known && Date.now() - known.at < 60_000) return known.links;
+  const links = actions.openIn!.links(repo).catch(() => ({ editors: [], host: null, links: [] }));
+  asked.set(repo, { at: Date.now(), links });
+  return links;
+}
+
+const segments = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+/** The page of a file's line under a branch's page on its code host. */
+export const lineLink = (base: string, path: string, line?: number) =>
+  `${base}/${segments(path)}${line ? `#L${line}` : ""}`;
+/** A link from the settings, such as Sourcegraph's, at a file's line. */
+export const fillLink = (template: string, path: string, line: number) =>
+  template.replaceAll("{path}", segments(path)).replaceAll("{line}", String(line));
+
 const platform = typeof navigator === "undefined" ? "" : navigator.platform;
-const REVEAL_LABEL = /Mac/.test(platform)
+export const REVEAL_LABEL = /Mac/.test(platform)
   ? "Reveal in Finder"
   : /Win/.test(platform)
     ? "Show in Explorer"
@@ -64,8 +88,37 @@ export function PathContextMenu({
       () => actions?.notify(message),
       () => actions?.notify("Copying needs clipboard access."),
     );
+  // The code host's page and Settings' links, such as Sourcegraph's, once
+  // the checkout's links have come.
+  const [links, setLinks] = useState<{ repo: string; links: OpenInLinks } | null>(null);
+  const shownLinks = target?.repo && links?.repo === target.repo ? links.links : null;
+  const host = shownLinks?.host;
+  const web: PathMenuItem[] = target
+    ? [
+        ...(host && "base" in host
+          ? [
+              {
+                label: `Open on ${host.name}`,
+                run: () => window.open(lineLink(host.base, target.path), "_blank", "noopener"),
+              },
+            ]
+          : []),
+        ...(shownLinks?.links ?? []).flatMap((link) =>
+          "template" in link
+            ? [
+                {
+                  label: `Open in ${link.name}`,
+                  run: () =>
+                    window.open(fillLink(link.template, target.path, 1), "_blank", "noopener"),
+                },
+              ]
+            : [],
+        ),
+      ]
+    : [];
   const entries: (PathMenuItem | null)[] = target
     ? [
+        ...(web.length ? [...web, null] : []),
         {
           label: REVEAL_LABEL,
           disabled: !target.repo || !actions,
@@ -93,6 +146,9 @@ export function PathContextMenu({
         onContextMenuCapture={(event) => {
           located.current = locate(event);
           setTarget(located.current);
+          const repo = located.current?.repo;
+          if (repo && actions?.openIn)
+            void linksOf(actions, repo).then((next) => setLinks({ repo, links: next }));
         }}
       >
         {children}

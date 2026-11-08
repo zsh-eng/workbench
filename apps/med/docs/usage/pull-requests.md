@@ -66,31 +66,37 @@ that pull request as GitHub has it, so you rarely need github.com. A review
 from a branch with no pull request keeps the draft. This does not cover a stack:
 each layer has its own pull request, and the band links to it.
 
-- **The head** has the title, the number, the state (Draft, Open, Merged, or
-  Closed), the base and head branches, the author, and the labels.
-- **Merge** says what stops it in words: conflicts, how many commits it is
+The page is one column.
+
+- **The title**, with **Open on GitHub** beside it, then one line: the state
+  (Draft, Open, Merged, or Closed), who wants to merge which branch into
+  which, and the number.
+- **One status box** shows only what stands between the pull request and
+  merging. First what stops it, in words: conflicts, how many commits it is
   behind its base, a review that it needs, or failed checks. The count comes
   from GitHub's comparison, as GitHub's merge state says "behind" only under
-  a branch rule.
-- **Checks** lists each check of the head commit, failures first, with its
-  state, its time, and a link. Passed and skipped checks fold behind one line
-  when there are more than five. A check that ran again shows its last run to
-  start, as `gh pr checks` does, so a new run shows once it leaves the queue. A
-  check that runs for two triggers, such as a push and a pull request, shows
-  twice, with its trigger.
-  **Show failed log** reads the end of a failed GitHub Actions job's log with
-  `gh run view --log-failed`, only when you ask. The log opens at its last
-  error. Copy it, or add it to the message for the agent.
-- **Reviewers** lists who the pull request asks and what each one said.
+  a branch rule. Then each failing or running check of the head commit, with
+  its state, its time, and a link; the checks that passed are a count, which
+  opens. A check that ran again shows its last run to start, as
+  `gh pr checks` does, so a new run shows once it leaves the queue. A check
+  that runs for two triggers, such as a push and a pull request, shows twice,
+  with its trigger. **Show failed log** reads the end of a failed GitHub
+  Actions job's log with `gh run view --log-failed`, only when you ask. The
+  log opens at its last error. Copy it, or add it to the message for the
+  agent. Last, where each reviewer stands.
 - The description shows in Med's Markdown, with its images, also the ones that
-  GitHub writes as HTML, and the words beside them. Other raw HTML stays out. Med reads each image through
-  its own server, as the page loads none from other sites. Paths and links to
-  files of the checkout open the file, as in a comment. Images in comments stay
-  links.
-- **Your pending review**, the conversation, and the code comments work as in
-  the [comments panel](pull-requests.md). Your pending comments show in the
-  pending review, which says that only you see them. **Show in diff** opens a
-  thread at its line; a thread that the diff cannot show says why.
+  GitHub writes as HTML, and the words beside them. Other raw HTML stays out.
+  Med reads each image through its own server, as the page loads none from
+  other sites. Paths and links to files of the checkout open the file, as in
+  a comment. Images in comments stay links.
+- A description, or a comment, taller than half a screen folds there. Its
+  button names the sections that the fold hides: **Show more: Testing,
+  Rollout**.
+- **Your pending review** comes first; its comments say that only you see
+  them. Then **one timeline**: comments, reviews, and code threads, by when
+  each began. An approval or a change request with no text is one line, and
+  so is an outdated thread, which opens. **Show in diff** opens a thread at
+  its line; a thread that the diff cannot show says why.
 
 Med reads while the tab is on screen: every 30 seconds while a check runs or
 GitHub works out a merge, every 2 minutes otherwise, and every 5 minutes after
@@ -100,8 +106,8 @@ so a hidden window or another tab makes no read, and the first look back reads
 if the wait is over. Med waits twice as long after each failed read, and keeps
 what it read last. When under a tenth of your API limit is left, Med reads
 every 5 minutes and says so; when none is left, it waits until the limit
-fills. **Refresh** or **Read the pull request again from GitHub** in `⌘K`
-reads now.
+fills. **Read the pull request again from GitHub** in `⌘K` reads now, and
+so does **Try again** after a failed read. The page names no read time.
 
 The tab reads GitHub and changes nothing there, apart from your pending review:
 a reply, or Submit, Approve, or Discard when you click it. It does not merge or
@@ -157,21 +163,16 @@ hand-off of one range whose base is the head of an open thread's top layer,
 from the same session or with both pull requests, joins that thread as its
 next layer.
 
-- **Sidebar.** The thread is one row with a strip of segments, one for each
-  layer, bottom first: outlined when unreviewed, half filled in progress, green
-  when every file is viewed, orange when every file is viewed and you
-  commented. The chevron under its mark shows the layers, top first, with
-  their `+`/`−`; a click shows that layer.
+- **Sidebar.** The thread is one session row, like any other.
 - **Stack rail.** At the top of the Review's rail: the layers top to bottom,
   the base branch (such as `main`) under the bottom one, each with its number,
-  title, pull request state, and `+`/`−`. A pull request that GitHub moved to
+  title, pull request state, and comment count. A pull request that GitHub moved to
   another base says "on main". **This layer** shows the layer's own diff;
   **Whole stack** shows the base to the top layer's head; Shift-click a layer
   for the layers from the shown one to it. In a narrow pane the layers are a
   menu in the review's row.
 - **Keys.** `⌥↑` and `⌥↓` go up and down the stack (in a sidebar row they move
-  the tab). **Next unreviewed**, in the rail and in `⌘K`, shows the lowest
-  layer that is not done and not merged or closed.
+  the tab).
 - The title band names the shown layer's pull request. All layers use the
   thread's one checkout, so a switch keeps the session and its files.
 - Drag a row onto the middle of another row of its repository and hold until

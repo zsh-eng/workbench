@@ -51,13 +51,8 @@ test("binary, missing and too-large responses never mount a code renderer", asyn
     .toBeVisible();
   expect(document.querySelector("diffs-container")).toBeNull();
   expect(mount!.textContent).not.toContain("DO NOT RENDER");
-  let before = 0;
-  root!.render(
-    <FullFileView {...props} file={{ ...base, kind: "missing" }} onOpenBefore={() => before++} />,
-  );
+  root!.render(<FullFileView {...props} file={{ ...base, kind: "missing" }} />);
   await expect.element(page.getByText("This file does not exist in this worktree.")).toBeVisible();
-  await page.getByRole("button", { name: "Open before" }).click();
-  expect(before).toBe(1);
   expect(document.querySelector("diffs-container")).toBeNull();
   root!.render(<FullFileView {...props} file={{ ...base, kind: "too-large", size: 90_000_000 }} />);
   await expect.element(page.getByText("This file exceeds the preview size limit.")).toBeVisible();
@@ -142,7 +137,7 @@ test("large plain files remain virtualized and never enter worker syntax highlig
   render(
     <WorkerPoolContextProvider
       poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
-      highlighterOptions={{ theme: "med-graphite-dark" }}
+      highlighterOptions={{ theme: "med-graphite-dark", preferredHighlighter: "highlights" }}
     >
       <Probe />
     </WorkerPoolContextProvider>,
@@ -263,18 +258,19 @@ test("search highlights follow virtualized rows and release their ranges on clos
   expect(searchRanges()).toEqual([]);
 });
 
+// Pierre names Crystal files, but its highlighter has no Crystal grammar.
 test("an unsupported grammar keeps readable source and identifies plain highlighting", async () => {
   render(
     <FullFileView
       {...props}
-      file={{ ...base, path: "example.zig", identity: "zig:1", text: "pub fn main() void {}" }}
+      file={{ ...base, path: "example.cr", identity: "cr:1", text: 'puts "hello"' }}
     />,
   );
   await expect.poll(() => lines()?.length ?? 0).toBeGreaterThan(0);
-  expect(lines()![0].textContent).toContain("pub fn main()");
-  expect(mount!.querySelector('[role="status"]')?.textContent).toContain(
-    "Syntax highlighting is not available for zig",
-  );
+  expect(lines()![0].textContent).toContain('puts "hello"');
+  await expect
+    .poll(() => mount!.querySelector('[role="status"]')?.textContent)
+    .toContain("Syntax highlighting is not available for crystal");
 });
 
 test("a long plain line uses horizontal scrolling instead of wrapping", async () => {
@@ -1872,7 +1868,7 @@ test.each(["java", "cpp"])("%s is highlighted by the real syntax worker", async 
   const text = lang === "java" ? "class Demo { int count = 42; }" : "int main() { return 42; }";
   render(
     <WorkerPoolContextProvider
-      highlighterOptions={{ theme: "github-dark" }}
+      highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
       poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
     >
       <FullFileView
@@ -1906,7 +1902,7 @@ test("worker highlighting preserves distant multiline state across file switches
     const [second, setSecond] = useState(false);
     return (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         <button onClick={() => setSecond((value) => !value)}>Switch file</button>
@@ -1936,10 +1932,12 @@ test("worker highlighting preserves distant multiline state across file switches
   await pane.click();
   await userEvent.keyboard("gg");
   await expect.poll(() => line(1)?.textContent).toBe("class Demo {");
-  await expect.poll(() => color(1)).toContain("#f97583");
+  // The jump paints line 1 at once; its colors follow from the worker.
+  await expect.poll(() => color(1), { timeout: 5_000 }).toContain("#f97583");
   await userEvent.keyboard("G");
   await expect.poll(() => line(304)?.textContent).toBe("int count = 42;");
-  await expect.poll(() => color(304)).toContain("#f97583");
+  // Code again after the comment: `int` is a type in Pierre's Java grammar.
+  await expect.poll(() => color(304)).toContain("#b392f0");
   await page.getByRole("button", { name: "Switch file" }).click();
   await expect.poll(() => line(1)?.textContent).toBe("class Other { int value = 7; }");
   await page.getByRole("button", { name: "Switch file" }).click();
@@ -1947,12 +1945,12 @@ test("worker highlighting preserves distant multiline state across file switches
   await expect.poll(() => color(290)).toContain("#6a737d");
 });
 
-test("colors Groovy and Gradle files with the Java tokenizer", async () => {
+test("colors Groovy and Gradle files with the Groovy grammar", async () => {
   function Harness() {
     const [gradle, setGradle] = useState(false);
     return (
       <WorkerPoolContextProvider
-        highlighterOptions={{ theme: "github-dark" }}
+        highlighterOptions={{ theme: "github-dark", preferredHighlighter: "highlights" }}
         poolOptions={{ workerFactory: () => new PierreWorker(), poolSize: 1 }}
       >
         <button onClick={() => setGradle(true)}>Open Gradle</button>
@@ -1982,4 +1980,107 @@ test("colors Groovy and Gradle files with the Java tokenizer", async () => {
   await page.getByRole("button", { name: "Open Gradle" }).click();
   await expect.poll(() => color("class")).toBeUndefined();
   await expect.poll(() => color("'med'")).toContain("#9ecbff");
+});
+
+test("Open in lists the code host and Sourcegraph at the file's line, the editors, and the paths, each with a letter", async () => {
+  const opened: unknown[] = [];
+  const notes: string[] = [];
+  const windows = vi.spyOn(window, "open").mockReturnValue(null);
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const actions = {
+    reveal: vi.fn<() => Promise<void>>(async () => {}),
+    notify: (text: string) => notes.push(text),
+    openIn: {
+      links: async () => ({
+        editors: [
+          { id: "vscode", name: "VS Code" },
+          { id: "zed", name: "Zed" },
+        ],
+        host: {
+          name: "github.acme.build",
+          base: "https://github.acme.build/acme/trailhead/blob/feature/tides",
+        },
+        links: [
+          {
+            name: "Sourcegraph",
+            template:
+              "https://sourcegraph.acme.build/github.acme.build/acme/trailhead@feature/tides/-/blob/{path}?L{line}",
+          },
+        ],
+      }),
+      open: async (...args: unknown[]) => void opened.push(args),
+    },
+  };
+  const target = { repo: "/work/trailhead-open-in", path: "src/trail notes.ts" };
+  render(<FullFileView {...props} file={base} line={1} openIn={{ actions, target }} />);
+  await page.getByRole("button", { name: "Open in" }).click();
+  const item = (name: string) => page.getByRole("menuitem", { name });
+  await expect.element(item("github.acme.build")).toBeVisible();
+  const names = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent);
+  expect(names).toEqual([
+    "github.acme.build",
+    "Sourcegraph",
+    "VS Code",
+    "Zed",
+    "Reveal in Finder",
+    "Copy path",
+    "Copy link",
+  ]);
+  // Each link goes to the same line on the branch.
+  await item("github.acme.build").click();
+  expect(windows).toHaveBeenCalledWith(
+    "https://github.acme.build/acme/trailhead/blob/feature/tides/src/trail%20notes.ts#L1",
+    "_blank",
+    "noopener",
+  );
+  await page.getByRole("button", { name: "Open in" }).click();
+  await item("Sourcegraph").click();
+  expect(windows).toHaveBeenLastCalledWith(
+    "https://sourcegraph.acme.build/github.acme.build/acme/trailhead@feature/tides/-/blob/src/trail%20notes.ts?L1",
+    "_blank",
+    "noopener",
+  );
+  // A letter chooses while the menu is open.
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect.element(item("Zed")).toBeVisible();
+  await userEvent.keyboard("z");
+  await expect.poll(() => opened).toEqual([[target, 1, "zed"]]);
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect.element(item("Copy link")).toBeVisible();
+  await userEvent.keyboard("p");
+  await expect.poll(() => notes).toEqual(["Path copied."]);
+  expect(copy).toHaveBeenCalledWith("/work/trailhead-open-in/src/trail notes.ts");
+  windows.mockRestore();
+  copy.mockRestore();
+});
+
+test("Open in says Push to open while the branch has no page on its host", async () => {
+  const actions = {
+    reveal: async () => {},
+    notify: () => {},
+    openIn: {
+      links: async () => ({
+        editors: [],
+        host: { name: "github.com", push: true as const },
+        links: [{ name: "Sourcegraph", push: true as const }],
+      }),
+      open: async () => {},
+    },
+  };
+  render(
+    <FullFileView
+      {...props}
+      file={base}
+      openIn={{ actions, target: { repo: "/work/trailhead-unpushed", path: "src/example.ts" } }}
+    />,
+  );
+  await page.getByRole("button", { name: "Open in" }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Push to open on github.com" }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect
+    .element(page.getByRole("menuitem", { name: "Push to open on Sourcegraph" }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect.element(page.getByRole("menuitem", { name: "Copy link" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
 });

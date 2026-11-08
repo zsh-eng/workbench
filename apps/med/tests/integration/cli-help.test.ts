@@ -58,7 +58,7 @@ it("prints help with med help, and a command's own help with med help <command>"
   // Each command it lists has its own help, which names it.
   const commands = [...help.stdout.matchAll(/^ {2}([a-z]+) {2,}/gm)].map((match) => match[1]!);
   expect(commands).toEqual(
-    "web add status stop review pr thread open list remove index skills service agents docs".split(
+    "web add status stop review reply pr thread open list remove index skills service agents docs".split(
       " ",
     ),
   );
@@ -81,7 +81,7 @@ it("prints help with med help, and a command's own help with med help <command>"
 it("prints the user guide's index and then each of its pages, in the index's order", async () => {
   const index = await readFile(resolve("docs/USAGE.md"), "utf8");
   const pages = [...index.matchAll(/^- \[[^\]]+\]\((usage\/[a-z-]+\.md)\)/gm)].map((m) => m[1]!);
-  expect(pages.length).toBe(12);
+  expect(pages.length).toBe(13);
   const texts = await Promise.all(pages.map((page) => readFile(resolve("docs", page), "utf8")));
   const usage = await med("docs", "usage");
   expect(usage.stdout).toBe(`${[index, ...texts].map((text) => text.trimEnd()).join("\n\n")}\n`);

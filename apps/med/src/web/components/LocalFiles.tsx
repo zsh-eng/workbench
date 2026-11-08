@@ -449,7 +449,6 @@ export function LocalFiles({ children }: { children: ReactNode }) {
               line={active.line}
               column={active.column}
               vimEnabled
-              refreshAvailable={active.file.source.kind !== "drop"}
               onOpenFile={
                 active.file.source.kind === "local"
                   ? (path, line) => {

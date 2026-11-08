@@ -12,12 +12,10 @@ type TranscriptRead = { modifiedAt: number; idle: boolean; turn?: ThreadTurn };
 
 /**
  * The states of saved reviews' sessions, from what the host knows: the
- * sessions that it runs, the agents that wait in `med review wait`, and the
- * transcripts of the others. A transcript is read again only when it changes.
+ * sessions that it runs, and the transcripts of the others. A transcript is read again only when it changes.
  */
 export function createAgentStatus(sources: {
   owned(sessionId: string): { state: OwnedState; updatedAt?: number } | undefined;
-  waiting(reviewId: string): string[];
   /** Where Med keeps an ACP session's updates. */
   logPath?(sessionId: string): string;
 }) {
@@ -45,11 +43,7 @@ export function createAgentStatus(sources: {
     return read;
   };
 
-  const sessionStatus = async (
-    reviewId: string,
-    session: AgentSession,
-    waiting: Set<string>,
-  ): Promise<AgentStatus> => {
+  const sessionStatus = async (reviewId: string, session: AgentSession): Promise<AgentStatus> => {
     const base = {
       reviewId,
       sessionId: session.id,
@@ -95,10 +89,6 @@ export function createAgentStatus(sources: {
         }),
       };
     }
-    // The open `med review wait` call is not work: the turn shows what the
-    // agent said before it.
-    if (waiting.has(session.id))
-      return { ...base, state: "waiting", updatedAt, turn: { ...turn, activity: undefined } };
     return { ...base, state: working ? "working" : "idle", updatedAt, ...(turn && { turn }) };
   };
 
@@ -108,10 +98,7 @@ export function createAgentStatus(sources: {
     sessions: AgentSession[],
   ): Promise<AgentStatus | undefined> {
     if (!sessions.length) return undefined;
-    const waiting = new Set(sources.waiting(reviewId));
-    const statuses = await Promise.all(
-      sessions.map((session) => sessionStatus(reviewId, session, waiting)),
-    );
+    const statuses = await Promise.all(sessions.map((session) => sessionStatus(reviewId, session)));
     return (
       statuses.findLast((status) => status.state === "waiting") ??
       statuses.findLast((status) => status.state === "working") ??

@@ -3,13 +3,9 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import { createReviewController } from "../../src/web/data/controller";
-import { ThreadSidebar } from "../../src/web/components/shell/ThreadSidebar";
 import type { Comparison, ReviewResponse } from "../../src/shared/protocol";
 import type { SavedReview } from "../../src/shared/saved-review";
-import type { Thread } from "../../src/shared/threads";
-import type { WorkspaceSnapshot } from "../../src/web/data/workspaces";
 import "../../src/web/pierre-theme";
 import { initializeTheme, themeController } from "../../src/web/themes";
 
@@ -99,22 +95,14 @@ const saved = (): SavedReview => ({
 
 beforeEach(async () => {
   await page.viewport(1440, 900);
-  setChromeMode("full", false);
   for (const key of Object.keys(localStorage))
-    if (
-      key.startsWith("med:viewed:v1:") ||
-      key.startsWith("med:layers:v1:") ||
-      key === "med:changes-rail"
-    )
-      localStorage.removeItem(key);
+    if (key === "med:changes-rail") localStorage.removeItem(key);
 });
 afterEach(() => {
   root?.unmount();
   mount?.remove();
   root = undefined;
   mount = undefined;
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:viewed:v1:${REVIEW}` }));
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:layers:v1:${REVIEW}` }));
 });
 
 async function mountStack() {
@@ -221,17 +209,17 @@ async function mountStack() {
 const rail = () => page.getByRole("region", { name: "Stack" });
 const layerRow = (number: number) =>
   document.querySelector<HTMLElement>(`[data-stack-rail] [data-layer="${number}"]`);
-/** The files of the diff, from their headers' Viewed boxes. */
+/** The files of the diff, from their headers' fold buttons. */
 const diffPaths = () =>
-  [...document.querySelectorAll('[role="checkbox"][aria-label^="Viewed "]')]
-    .map((box) => box.getAttribute("aria-label")!.slice("Viewed ".length))
+  [...document.querySelectorAll("[data-stream-file] > button[aria-expanded]")]
+    .map((button) => button.getAttribute("aria-label")!.replace(/^(Collapse|Expand) /, ""))
     .sort();
 
 test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓ go between them", async () => {
   await mountStack();
   await expect.element(rail()).toBeVisible();
   // The review's one link is only the first layer's pull request: no live tab.
-  expect(page.getByRole("tab", { name: "Pull request" }).query()).toBeNull();
+  expect(page.getByRole("radio", { name: "Pull request" }).query()).toBeNull();
   // Top to bottom, as git draws a stack, with the base branch under it.
   const numbers = [...document.querySelectorAll("[data-stack-rail] [data-layer]")].map((row) =>
     row.getAttribute("data-layer"),
@@ -242,7 +230,8 @@ test("a stack's rail lists its layers top first over main, and ⌥↑ and ⌥↓
   await expect.element(rail().getByText("Draft")).toBeVisible();
   // The thread opens on the bottom layer, with only its own file.
   await expect.poll(() => layerRow(1)?.getAttribute("aria-current")).toBe("page");
-  await expect.poll(diffPaths).toEqual(["src/query.ts"]);
+  // The first diff in a page loads Pierre's highlighter on the main thread.
+  await expect.poll(diffPaths, { timeout: 5_000 }).toEqual(["src/query.ts"]);
 
   await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
   await expect.poll(() => layerRow(2)?.getAttribute("aria-current")).toBe("page");
@@ -280,202 +269,4 @@ test("Whole stack shows main to the top layer's head, a Shift-click a range, and
   await expect.poll(diffPaths).toEqual(["src/query.ts", "src/rank.ts"]);
   await userEvent.click(rail().getByRole("button", { name: "This layer" }));
   await expect.poll(diffPaths).toEqual(["src/query.ts"]);
-});
-
-test("Next unreviewed skips a merged layer and one whose files are all viewed", async () => {
-  await mountStack();
-  await expect.poll(diffPaths).toEqual(["src/query.ts"]);
-  // Layer 1 merged: the lowest that waits is layer 2.
-  await userEvent.click(rail().getByRole("button", { name: "Next unreviewed" }));
-  await expect.poll(() => layerRow(2)?.getAttribute("aria-current")).toBe("page");
-  await userEvent.click(page.getByRole("checkbox", { name: "Viewed src/rank.ts" }));
-  await expect.poll(() => layerRow(2)?.getAttribute("aria-label")).toContain("Approved");
-  await userEvent.click(rail().getByRole("button", { name: "Next unreviewed" }));
-  await expect.poll(() => layerRow(3)?.getAttribute("aria-current")).toBe("page");
-  // What the sidebar draws: layer 2's file is viewed.
-  expect(JSON.parse(localStorage.getItem(`med:layers:v1:${REVIEW}`) ?? "{}")).toMatchObject({
-    t2: { viewed: 1, files: 1 },
-  });
-});
-
-const sidebarThread = (): Thread => ({
-  id: `r_${"c".repeat(24)}`,
-  title: "Station search",
-  createdAt: "2026-10-26T00:00:00.000Z",
-  updatedAt: Date.now() - 60_000,
-  repository: { id: "repo-0", name: "tide", path: "/code/tide" },
-  agent: "claude",
-  state: "idle",
-  parts: {
-    shape: "stack",
-    items: [
-      {
-        id: "l_000000000001",
-        title: "Parse station queries",
-        state: "merged",
-        targetId: "t1",
-        files: 2,
-        additions: 10,
-        deletions: 0,
-        comments: 0,
-      },
-      {
-        id: "l_000000000002",
-        title: "Rank search results",
-        state: "open",
-        targetId: "t2",
-        files: 4,
-        additions: 11,
-        deletions: 1,
-        comments: 0,
-      },
-      {
-        id: "l_000000000003",
-        title: "Fold accents",
-        state: "open",
-        targetId: "t3",
-        files: 3,
-        additions: 15,
-        deletions: 5,
-        comments: 2,
-      },
-      {
-        id: "l_000000000004",
-        title: "Search by region",
-        state: "draft",
-        targetId: "t4",
-        files: 2,
-        additions: 13,
-        deletions: 2,
-        comments: 0,
-      },
-    ],
-  },
-});
-
-test("a stack is one sidebar row with a progress strip, and its layers under the chevron", async () => {
-  initializeTheme();
-  const thread = sidebarThread();
-  // Layer 1 is all viewed, layer 2 half, layer 3 all with comments, layer 4 not at all.
-  localStorage.setItem(
-    `med:layers:v1:${thread.id}`,
-    JSON.stringify({
-      t1: { viewed: 2, files: 2 },
-      t2: { viewed: 2, files: 4 },
-      t3: { viewed: 3, files: 3 },
-    }),
-  );
-  window.dispatchEvent(new StorageEvent("storage", { key: `med:layers:v1:${thread.id}` }));
-  const opened: string[] = [];
-  const snapshot: WorkspaceSnapshot = {
-    workspaces: [],
-    active: null,
-  } as unknown as WorkspaceSnapshot;
-  mount = document.createElement("div");
-  mount.style.cssText = "width: 300px; height: 700px; display: flex;";
-  document.body.append(mount);
-  root = createRoot(mount);
-  root.render(
-    <ThreadSidebar
-      threads={[thread]}
-      sources={[]}
-      snapshot={snapshot}
-      loaded
-      onOpen={() => {}}
-      onHide={() => {}}
-      onSources={() => {}}
-      onOpenPart={(_, part) => opened.push(part)}
-    />,
-  );
-  await expect.element(page.getByRole("button", { name: /^Station search/ })).toBeVisible();
-  const segments = [...document.querySelectorAll("[data-part-strip] [data-progress]")].map(
-    (segment) => segment.getAttribute("data-progress"),
-  );
-  expect(segments).toEqual(["approved", "progress", "changes", "unreviewed"]);
-  await expect.element(page.getByRole("img", { name: /^2 of 4 layers reviewed/ })).toBeVisible();
-  // One row: the layers show under it only when it opens.
-  expect(document.querySelectorAll("[data-part]")).toHaveLength(0);
-  await userEvent.click(page.getByRole("button", { name: "Show the layers of Station search" }));
-  const parts = [...document.querySelectorAll<HTMLElement>("[data-part]")];
-  expect(parts.map((part) => part.getAttribute("data-part"))).toEqual(["4", "3", "2", "1"]);
-  expect(parts[1]!.textContent).toContain("Fold accents");
-  expect(parts[1]!.textContent).toContain("+15");
-  expect(parts[1]!.textContent).toContain("−5");
-  await userEvent.click(parts[2]!);
-  expect(opened).toEqual(["l_000000000002"]);
-  localStorage.removeItem(`med:layers:v1:${thread.id}`);
-  localStorage.removeItem("med:sidebar-parts");
-});
-
-test("a drag held on a row's middle stacks the thread on it, and a quick drop only moves it", async () => {
-  initializeTheme();
-  const plain = (letter: string, title: string): Thread => ({
-    id: `r_${letter.repeat(24)}`,
-    title,
-    createdAt: "2026-10-26T00:00:00.000Z",
-    updatedAt: Date.now() - 60_000,
-    repository: { id: "repo-0", name: "tide", path: "/code/tide" },
-    agent: "claude",
-    state: "idle",
-  });
-  const below = plain("d", "Rank search results");
-  const above = plain("e", "Fold accents");
-  const grouped: string[][] = [];
-  const orders: string[][] = [];
-  const snapshot = { workspaces: [], active: null } as unknown as WorkspaceSnapshot;
-  mount = document.createElement("div");
-  mount.style.cssText = "width: 300px; height: 700px; display: flex;";
-  document.body.append(mount);
-  root = createRoot(mount);
-  root.render(
-    <ThreadSidebar
-      threads={[below, above]}
-      sources={[]}
-      snapshot={snapshot}
-      loaded
-      onOpen={() => {}}
-      onHide={() => {}}
-      onSources={() => {}}
-      onReorder={(ids) => orders.push([...ids])}
-      onGroup={(thread, onto) => grouped.push([thread.id, onto.id])}
-    />,
-  );
-  await expect.element(page.getByRole("button", { name: /^Fold accents/ })).toBeVisible();
-  const row = (thread: Thread) =>
-    document.querySelector<HTMLElement>(`[data-thread="${thread.id}"]`)!;
-  const drag = async (holdMs: number) => {
-    const data = new DataTransfer();
-    const event = (type: string, target: HTMLElement) => {
-      const box = target.getBoundingClientRect();
-      target.dispatchEvent(
-        new DragEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          dataTransfer: data,
-          clientX: box.left + 20,
-          clientY: box.top + box.height / 2,
-        }),
-      );
-    };
-    event("dragstart", row(above));
-    const started = performance.now();
-    do {
-      event("dragover", row(below));
-      await new Promise((done) => setTimeout(done, 50));
-    } while (performance.now() - started < holdMs);
-    event("dragover", row(below));
-    await new Promise((done) => requestAnimationFrame(done));
-    const shown = row(below).closest("li")!.getAttribute("data-drop");
-    event("drop", row(below));
-    event("dragend", row(above));
-    return shown;
-  };
-  // A quick drop on the middle reorders, as it always did.
-  expect(await drag(0)).not.toBe("onto");
-  expect(grouped).toEqual([]);
-  expect(orders).toHaveLength(1);
-  // Held there, the row is outlined, and the drop stacks the thread on it.
-  expect(await drag(700)).toBe("onto");
-  expect(grouped).toEqual([[above.id, below.id]]);
-  expect(orders).toHaveLength(1);
 });

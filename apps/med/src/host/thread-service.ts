@@ -145,7 +145,6 @@ export function createThreadService(options: ThreadServiceOptions) {
           },
         }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
-      ...(review.group && { group: review.group }),
       ...(review.parts && { parts: threadParts(review) }),
     } satisfies Thread;
   };
@@ -166,7 +165,13 @@ export function createThreadService(options: ThreadServiceOptions) {
    * title stays in `agentTitle`, and stubs keep it. */
   const named = (thread: Thread): Thread => {
     const name = tabs.entry(thread.id)?.name;
-    return name ? { ...thread, title: name, agentTitle: thread.title } : thread;
+    const place = tabs.pins().indexOf(thread.id);
+    if (!name && place < 0) return thread;
+    return {
+      ...thread,
+      ...(name && { title: name, agentTitle: thread.title }),
+      ...(place >= 0 && { pinned: place + 1 }),
+    };
   };
 
   /** A thread from what history keeps of it. */
@@ -568,11 +573,6 @@ export function createThreadService(options: ThreadServiceOptions) {
       return undefined;
     },
 
-    async order(order: readonly string[]) {
-      tabs.reorder(order);
-      await tabs.save();
-    },
-
     /**
      * Names a tab or a thread in history. Med keeps the name, not the agent:
      * a hand-off that changes the review's title does not change it. An empty
@@ -584,6 +584,15 @@ export function createThreadService(options: ThreadServiceOptions) {
         throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
       tabs.setName(id, name.trim() || undefined);
       await tabs.save();
+    },
+
+    /** Pins a thread at `at` among the pins (under the others without it),
+     * moves a pinned one there, or unpins it. */
+    async pin(id: string, pinned: boolean, at?: number) {
+      await reviewIndex();
+      if (!tabs.known(id))
+        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      if (tabs.setPinned(id, pinned, at)) await tabs.save();
     },
 
     /**
@@ -689,17 +698,6 @@ export function createThreadService(options: ThreadServiceOptions) {
       await service.prune().catch(() => {});
       pruneTimer = setInterval(() => void service.prune().catch(() => {}), DAY);
       pruneTimer.unref?.();
-    },
-
-    /** The saved reviews as attempts read them: a closed thread is archived. */
-    async attemptReviews(): Promise<SavedReview[]> {
-      return (await reviewIndex()).map((review) => {
-        const { archivedAt: _old, ...rest } = review;
-        const closedAt = tabs.entry(review.id)?.closedAt;
-        return tabs.isOpen(review.id) || closedAt === undefined
-          ? rest
-          : { ...rest, archivedAt: new Date(closedAt).toISOString() };
-      });
     },
 
     /** Stops the daily pruning. */

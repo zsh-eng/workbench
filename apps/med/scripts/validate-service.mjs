@@ -118,14 +118,6 @@ try {
   assert.equal((await api("backlinks", { id: added.id, path: "Target.md" })).backlinks.length, 1);
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
-  // The files pane's own button; quiet chrome keeps it in ⋯.
-  await page.addInitScript(() => {
-    try {
-      localStorage.setItem("med:chrome:v1", "full");
-    } catch {
-      /* A page without storage, such as a blank one. */
-    }
-  });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(url);
@@ -238,16 +230,21 @@ try {
   await page.locator(".cm-content").focus();
   await page.keyboard.type("gg0iDraft from Med\n");
   await page.keyboard.press("Escape");
+  // The unsaved dot is beside the tab's name, in the same tab strip.
   await page
-    .getByRole("tab", { name: /Nested.md/ })
+    .getByRole("tablist", { name: "Open files" })
     .getByLabel("Unsaved changes", { exact: true })
+    .first()
     .waitFor();
   await page.getByRole("button", { name: "Close Notes/Nested.md", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Save or discard" }).waitFor();
   await tree.getByRole("treeitem", { name: "Target.md", exact: true }).click();
   await page.getByRole("tab", { name: /Nested.md/ }).click();
   assert.match(await page.locator(".cm-content").innerText(), /Draft from Med/);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // The header has no Save: Vim's :w saves, as ⌘S does.
+  await page.locator(".cm-content").focus();
+  await page.keyboard.type(":w");
+  await page.keyboard.press("Enter");
   await until(async () =>
     (await readFile(join(vault, "Notes", "Nested.md"), "utf8")).startsWith("Draft from Med\n"),
   );

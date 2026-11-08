@@ -3,7 +3,6 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "@base-ui/react/menu";
 import {
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +24,6 @@ import {
 import { useOwnedSession } from "../../data/owned-session";
 import { useThreadUsage } from "../../data/thread-usage";
 import { useOutbox, type Outgoing } from "../../data/outbox";
-import { useQuietChrome } from "../../data/chrome";
 import type { SessionItem } from "../../data/session-store";
 import {
   followSession,
@@ -43,7 +41,6 @@ import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
-import { ZenContext } from "../ZenExit";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
 import {
@@ -105,7 +102,6 @@ function SessionMenu({
   loadTurns,
   onTurn,
   starter,
-  leads = false,
 }: {
   agent: string;
   sessions: AgentSession[];
@@ -117,8 +113,6 @@ function SessionMenu({
   loadTurns?(): Promise<SessionTurn[]>;
   onTurn(turn: SessionTurn): void;
   starter?: SessionStarter;
-  /** The menu starts the header and names the pane, as quiet chrome has it. */
-  leads?: boolean;
 }) {
   const [turns, setTurns] = useState<SessionTurn[] | null>(null);
   const [error, setError] = useState(false);
@@ -129,21 +123,17 @@ function SessionMenu({
   const check = (indicator: ReactNode) => <span {...stylex.props(styles.check)}>{indicator}</span>;
   const [open, setOpen] = useState(false);
   return (
-    <QuietMenuRoot open={open} onOpenChange={setOpen} look={`${agent}\n${leads}`}>
+    <QuietMenuRoot open={open} onOpenChange={setOpen} look={agent}>
       <Menu.Trigger
         aria-label={`${agent} session menu`}
         {...tooltip("Sessions, work, and turns")}
-        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, leads && styles.leadTrigger)}
+        {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, styles.leadTrigger)}
       >
         {agent}
         <Icon name="chevron" size={12} />
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner
-          align={leads ? "start" : "end"}
-          sideOffset={6}
-          {...stylex.props(styles.menuPositioner)}
-        >
+        <Menu.Positioner align="start" sideOffset={6} {...stylex.props(styles.menuPositioner)}>
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             {sessions.length > 1 && (
               <>
@@ -249,26 +239,22 @@ export function SessionStart({
   starter,
   controls,
   repo,
-  title,
   detail,
 }: {
   starter: SessionStarter;
   controls?: ReactNode;
   repo?: string;
-  /** The thread's name and place, as in the session's own header. */
-  title?: string;
+  /** Where the thread works, such as its repository and branch. */
   detail?: string;
 }) {
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Quiet chrome names the thread once, in the sidebar or the title band.
-  const quiet = useQuietChrome();
   const agents = starter.agents;
   return (
     <section aria-label="Start a session" {...stylex.props(styles.panel)}>
       <header {...paneHandle} {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.title)}>
-          {quiet ? "Session" : (title ?? "Session")}
+          Session
           {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
         </span>
         {controls}
@@ -360,6 +346,7 @@ export function SessionPanel({
   sessions,
   root,
   onOpenPath,
+  onOpenComment,
   fileRefs,
   onClose,
   onSideRoom,
@@ -370,8 +357,6 @@ export function SessionPanel({
   pins,
   controls,
   starter,
-  title,
-  detail,
   lead,
   mentions,
   onMentionsWanted,
@@ -405,10 +390,6 @@ export function SessionPanel({
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
-  /** The thread's name for the header, in place of the session's own. */
-  title?: string;
-  /** Where the thread works, such as its repository and branch. */
-  detail?: string;
   /** Starts new sessions; without it the header has no New session menu. */
   starter?: SessionStarter;
   /** The column's pane controls, in place of the close button. */
@@ -425,6 +406,8 @@ export function SessionPanel({
   /** The repository's path, to open absolute links to its files. */
   root?: string;
   onOpenPath(path: string, line?: number): void;
+  /** Shows one of the review's comments at its line, from the message box. */
+  onOpenComment?(id: string): void;
   /** The checkout's files: paths in prompts and replies that name one link to it. */
   fileRefs?: FileRefs;
   onClose(): void;
@@ -626,7 +609,6 @@ export function SessionPanel({
     [pins, session.id, session.agent],
   );
   const agent = agentName(session);
-  const waiting = inbox?.state?.waiting.includes(session.id) ?? false;
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;
   // Messages on their way to the host show at once, as in a chat app. The
@@ -724,9 +706,7 @@ export function SessionPanel({
                     }
                   : {}),
               }
-            : presence && presence !== "resumable" && message.delivery === "pending"
-              ? { ...message, waitsFor: presence }
-              : message,
+            : message,
         ) ?? []),
       ...outgoing
         .filter((message) => message.input.sessionId === session.id)
@@ -818,9 +798,7 @@ export function SessionPanel({
         : undefined,
     [recap, session.id, latest],
   );
-  const zen = useContext(ZenContext);
-  const quiet = useQuietChrome();
-  const side = roomy && !zen && sideChoice === "auto";
+  const side = roomy && sideChoice === "auto";
   useEffect(() => {
     if (!onSideRoom) return;
     onSideRoom(roomy);
@@ -872,11 +850,8 @@ export function SessionPanel({
           ? "Unavailable"
           : running
             ? "Working"
-            : waiting
-              ? "Waiting for you"
-              : "Idle";
-  // Zen keeps the agent and its status; a folded turn still opens.
-  const menu = !zen && (
+            : "Idle";
+  const menu = (
     <SessionMenu
       agent={agent}
       sessions={sessions}
@@ -887,10 +862,58 @@ export function SessionPanel({
       loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
       onTurn={(turn) => void showTurn(turn).catch(() => {})}
       starter={starter}
-      leads={quiet}
     />
   );
 
+  // The message box, or what stands in its place, at the pane's foot: over
+  // the thread's foot while the thread shows (SessionThread's footer).
+  const bottom = (
+    <>
+      {inbox && session.agent === "acp" && !ownedState ? (
+        // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
+        <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
+          {agent} stopped with the Med host. Start a new session to continue.
+        </p>
+      ) : (
+        inbox && (
+          <SessionComposer
+            key={session.id}
+            draftKey={`${reviewId}/${session.id}`}
+            agent={session.agent}
+            name={agent}
+            presence={presence}
+            onContinue={onContinue && (() => onContinue(session.id))}
+            drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
+            attachments={attachments}
+            onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
+            onSend={send}
+            owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
+            restore={restore}
+            onOpenComment={onOpenComment}
+            onTakeBack={
+              queued.length
+                ? () =>
+                    takeBack(
+                      queued.map((message) => message.id),
+                      true,
+                    )
+                : undefined
+            }
+            notice={
+              takeNote && (
+                <p {...stylex.props(styles.note, takeNote.error && styles.takeError)}>
+                  {takeNote.text}
+                </p>
+              )
+            }
+            mentions={mentions}
+            onMentionsWanted={onMentionsWanted}
+          />
+        )
+      )}
+      {!inbox && footer}
+    </>
+  );
   return (
     <section
       ref={panel}
@@ -901,34 +924,23 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      <header {...paneHandle} {...stylex.props(styles.header, quiet && styles.quietHeader)}>
-        {/* Quiet chrome names the thread in the sidebar or the title band; the
-            agent's menu names the pane. */}
-        {quiet ? (
-          zen && <span {...stylex.props(styles.zenAgent)}>{agent}</span>
-        ) : (
-          <span
-            {...stylex.props(styles.title)}
-            title={title ?? snapshot.title ?? `${agent} session`}
-          >
-            {title ?? snapshot.title ?? `${agent} session`}
-            {detail && <span {...stylex.props(styles.detail)}>{detail}</span>}
-          </span>
-        )}
-        {quiet && menu}
+      {/* The sidebar or the title band names the thread; the agent's menu
+          names the pane. */}
+      <header {...paneHandle} {...stylex.props(styles.header, styles.quietHeader)}>
+        {menu}
         <span {...stylex.props(styles.status)}>
           <span
             {...stylex.props(
               styles.dot,
               running && !needsYou && styles.dotLive,
-              (needsYou || (!running && waiting)) && styles.dotWaiting,
+              needsYou && styles.dotWaiting,
             )}
           />
           {status}
         </span>
-        {quiet ? <span {...stylex.props(styles.grow)} /> : menu}
-        {!zen && !side && <UsageChip usage={usage} context={shownContext} />}
-        {roomy && !zen && (
+        <span {...stylex.props(styles.grow)} />
+        {!side && <UsageChip usage={usage} context={shownContext} />}
+        {roomy && (
           <ToolButton
             icon="panelRight"
             label={side ? "Hide the side panel" : "Show the side panel"}
@@ -938,15 +950,14 @@ export function SessionPanel({
             onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
           />
         )}
-        {!zen &&
-          (controls ?? (
-            <ToolButton
-              icon="panelLeft"
-              label="Hide the session pane. The agent keeps working."
-              shortcut="Mod+Shift+B"
-              onClick={onClose}
-            />
-          ))}
+        {controls ?? (
+          <ToolButton
+            icon="minimize"
+            label="Hide the session pane. The agent keeps working."
+            shortcut="Mod+Shift+B"
+            onClick={onClose}
+          />
+        )}
       </header>
       <div {...stylex.props(styles.split)}>
         <div {...stylex.props(styles.main)}>
@@ -975,54 +986,13 @@ export function SessionPanel({
                       ) : undefined
                     }
                     onOpenLink={openLink}
+                    footer={bottom}
                   />
                 </FileRefsContext.Provider>
               </ReplyActionsContext.Provider>
             </div>
           )}
-          {inbox && session.agent === "acp" && !ownedState ? (
-            // Med ran this agent, and the host has stopped since: the thread stays, the agent does not.
-            <p {...stylex.props(styles.note, styles.stopped, column.bar)}>
-              {agent} stopped with the Med host. Start a new session to continue.
-            </p>
-          ) : (
-            inbox && (
-              <SessionComposer
-                key={session.id}
-                draftKey={`${reviewId}/${session.id}`}
-                agent={session.agent}
-                name={agent}
-                waiting={waiting}
-                presence={presence}
-                onContinue={onContinue && (() => onContinue(session.id))}
-                drafts={(inbox.state?.drafts ?? []).filter((draft) => !sending.has(draft.id))}
-                attachments={attachments}
-                onRemoveAttachment={(id) => onRemoveAttachment?.(id)}
-                onSend={send}
-                owned={ownedState ? { state: ownedState, act: owned.act } : undefined}
-                restore={restore}
-                onTakeBack={
-                  queued.length
-                    ? () =>
-                        takeBack(
-                          queued.map((message) => message.id),
-                          true,
-                        )
-                    : undefined
-                }
-                notice={
-                  takeNote && (
-                    <p {...stylex.props(styles.note, takeNote.error && styles.takeError)}>
-                      {takeNote.text}
-                    </p>
-                  )
-                }
-                mentions={mentions}
-                onMentionsWanted={onMentionsWanted}
-              />
-            )
-          )}
-          {!inbox && footer}
+          {state.status === "missing" && !ownedState && bottom}
         </div>
         {side && (
           <SessionSidePanel
@@ -1053,24 +1023,16 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8,
-    height: 38,
+    height: tokens.bar,
     flexShrink: 0,
+    boxSizing: "border-box",
     paddingInlineStart: 14,
     paddingInlineEnd: 6,
     color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
-  // The menu's label starts where the review's first tab label does.
-  quietHeader: { gap: 6, paddingInlineStart: 6 },
-  // The agent's name, without its menu, in zen mode.
-  zenAgent: {
-    paddingInlineStart: 8,
-    color: tokens.text,
-    fontSize: 12.5,
-    fontWeight: 500,
-  },
+  // The menu's label starts under the checkout's name in the title band.
+  quietHeader: { gap: 6, paddingInlineStart: 8 },
   grow: { flex: "1" },
   leadTrigger: {
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
@@ -1088,7 +1050,16 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   detail: { marginInlineStart: 8, color: tokens.faint, fontWeight: 400, fontSize: 12 },
-  status: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: tokens.faint },
+  // One line high, so its text sits on the menu label's baseline and the dot
+  // at its middle.
+  status: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11.5,
+    lineHeight: 1,
+    color: tokens.faint,
+  },
   dot: { width: 6, height: 6, borderRadius: "50%", backgroundColor: tokens.lineStrong },
   dotLive: { backgroundColor: tokens.green },
   dotWaiting: { backgroundColor: tokens.accent },

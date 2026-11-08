@@ -7,30 +7,29 @@ saved links then work in new tabs of that browser. See
 
 A saved review keeps its diff when the agent makes more changes. An agent that
 names its task with a key adds a version for each round of work. The Review
-opens on the latest one and is marked new again; comments on earlier versions
-stay. The version menu above the diff names each version and its age. A
-version with more
-than one comparison, such as one for each repository, lists each one in the
-menu by its repository, and so does a commit that you commented on while
-browsing.
+opens on the latest one, on what is new since you looked, and is marked new
+again; comments on earlier versions stay. Med names no versions. A hand-off
+with more than one comparison, such as one for each repository, has a menu
+above the diff that lists each one by its repository, and so does a commit
+that you commented on while browsing.
 
 **Copy comments** copies the comments of all targets, with paths, revisions,
-line numbers, and nearby source, for any agent. **Send to Claude** or **Send to
-Codex** sends them to the review's own agent; see
+line numbers, and nearby source, for any agent. The review's own agent gets
+them from its session's message box; see
 [sending comments](review-changes.md#send-comments-to-the-agent). **Clear**
 clears the review's comments after you confirm. Copying does not clear them.
-Beside a thread, the review's header keeps only its tabs: **Send to** shows
-when there are comments to send, and **Copy comments**, **Clear all
-comments**, **Commands**, and **Files** are in its **⋯** menu.
+Beside a thread, the review's header keeps its pages and one action, **Copy
+comments** with their number; **Clear all comments** and **Files** are in
+`⌘K`.
 
 The review's bar shows its title, or its pull request's title as a link. Hover
 the title for the time Med saved the review and its repository. Beside a
-thread, and in quiet chrome, a pull request is the thread's title in the
-window's title band: its number and title, which open it on GitHub, its state
+thread, a pull request is the thread's title in the window's title band: its number and title, which open it on GitHub, its state
 (**Open**, **Draft**, **Merged**, or **Closed**), and its author, then the
 repository and branch in quieter text, and its comments at the band's end. A
 long title is cut at its end; in a narrow band, the repository and branch go
-first. The review card keeps its tabs as its first row. See
+first. The review card keeps its header, with the review's own title, as its
+first row. See
 [titles and pull requests](../AGENT_INTEGRATION.md#titles-and-pull-requests).
 
 ## Set up agents
@@ -66,8 +65,7 @@ Med adds nothing to an agent's prompt.
 Hand off finished changes for review with the `med` skill. In a thread that
 Med started (`MED_SESSION=owned`), hand off each round of work with
 `med review create --working --title "<2-4 words>" --guide -` (add `--paths`
-in a shared checkout); messages arrive as new turns, so don't run
-`med review wait`.
+in a shared checkout); the user's messages arrive as new turns.
 ```
 
 Review commands talk to the running server, so start Med with `med web`. They

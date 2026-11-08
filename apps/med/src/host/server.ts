@@ -86,16 +86,15 @@ import { blameBrowse } from "./repository/inspect";
 import { symbolSearchRequestSchema } from "../shared/symbols";
 import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
+import { BasePulls } from "./repository/base-pull";
 import { RepositoryRegistry } from "./repository/registry";
 import { Memo } from "./repository/cache";
 import { CheckoutRevisions } from "./repository/events";
 import { removeWorktree } from "./repository/worktrees";
-import { AttemptGroups } from "./attempts";
 import { runProcess } from "./runtime/process";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore, type CommitLens } from "./saved-reviews";
-import { createSchedules } from "./schedules";
 import { createThreadTabs } from "./thread-tabs";
 import { createThreadService } from "./thread-service";
 import { createThreadSubagents } from "./thread-subagents";
@@ -105,8 +104,8 @@ import {
   readTranscriptPage,
   transcriptTurns,
 } from "./agent-transcripts";
-import { AgentInbox, findCodex } from "./agent-inbox";
-import { createHeldMessages } from "./held-messages";
+import { AgentInbox } from "./agent-inbox";
+import { findCodex } from "./find-codex";
 import { createQueuedMessages } from "./queued-messages";
 import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
@@ -118,11 +117,22 @@ import {
 } from "./owned-sessions";
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
-import { codexTurnOpen, createFoundSessions } from "./found-sessions";
+import { createFoundSessions } from "./found-sessions";
 import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
+import {
+  codeHosts,
+  createHostProbe,
+  findEditors,
+  launchEditor,
+  listedEditors,
+  openInLinks,
+  openInSettings,
+  type Editor,
+} from "./open-in";
+import { createSettingsFile, SETTING_KEY, settingsPath } from "./settings-file";
 import { createThreadFeed } from "./thread-feed";
 import { createCheckoutChanges } from "./checkout-changes";
 import { createSessionEdits } from "./session-edits";
@@ -132,18 +142,16 @@ import {
   foundUpdateSchema,
   sessionAdoptSchema,
   sessionFindSchema,
-  type RunningSession,
   type SessionAdopt,
   type SessionAdopted,
 } from "../shared/found-sessions";
 import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
-import { attemptLetter } from "../shared/attempts";
 import {
   threadCloseSchema,
   threadIdSchema,
   threadOpenSchema,
   threadNameSchema,
-  threadOrderSchema,
+  threadPinSchema,
   threadGroupSchema,
   threadShapeSchema,
   threadSlug,
@@ -152,7 +160,6 @@ import {
 } from "../shared/threads";
 import {
   agentMessageInputSchema,
-  deliveredText,
   type AgentInboxState,
   type SessionPlace,
 } from "../shared/agent-inbox";
@@ -169,7 +176,7 @@ import {
   type SavedCheckout,
   type SavedReviewCreate,
 } from "../shared/saved-review";
-import { getPersistentToken, publishConnection } from "./runtime/connection";
+import { defaultStateDirectory, getPersistentToken, publishConnection } from "./runtime/connection";
 import { medCommand } from "./runtime/med-command";
 import { ownedEnvironment, writeMedCommand } from "./thread-agents";
 
@@ -191,12 +198,18 @@ export interface StartHostOptions {
   stateDir?: string;
   /** Shows a file in the system file manager; tests replace it. */
   reveal?: (path: string) => void;
-  /** Adds a message to a Codex thread's queue; tests replace `codex queue`. */
-  queueCodex?: (threadId: string, text: string) => Promise<void>;
-  /** How long a `med review wait` has to confirm a message (tests shorten it). */
-  agentAckMs?: number;
-  /** How often Med checks the process that holds a message (held-messages.ts). */
-  heldCheckMs?: number;
+  /**
+   * The settings file. Med's own state folder uses ~/.config/med/settings.json;
+   * another state folder, such as a trial's or a test's, keeps its own
+   * settings.json in that folder, so it never changes the reader's Med.
+   */
+  settingsPath?: string;
+  /** Open in's editors, code hosts, and launches; tests replace them. */
+  openIn?: {
+    editors?(): Promise<Editor[]>;
+    isGitHub?(host: string): Promise<boolean>;
+    launch?(editor: Editor, file: string, line: number): void;
+  };
   /** The agents Med can start; tests replace the installed ones. */
   agents?: () => Promise<RunnableAgent[]>;
   /** The GitHub CLI that opens pull requests; tests give a fake one. */
@@ -211,6 +224,10 @@ export interface StartHostOptions {
   foundSessions?: boolean;
   /** Offer Antigravity (`agy`): off unless `MED_AGY=1` (default false). */
   agy?: boolean;
+  /** Pull each repository's base branch now and then (`BasePulls`): on for
+   * Med's own service and review, off for tests and another state folder.
+   * Tests give their own times. */
+  basePull?: boolean | { delayMs?: number; intervalMs?: number };
   /** Repository watchers. Tests turn file events off, change the safety
    * check, and learn when a watcher that sees file edits is ready. */
   watch?: WatchOptions & { onReady?: (repo: string) => void };
@@ -294,8 +311,6 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** Serve one local review process; Git operations never change the checkout. */
-/** How long an answer of Running now serves the pages that poll it. */
-const RUNNING_MS = 3000;
 
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   let repository: Repository;
@@ -359,10 +374,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
     },
   });
-  const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"), {
-    ...(options.queueCodex ? { queueCodex: options.queueCodex } : {}),
-    ...(options.agentAckMs ? { ackMs: options.agentAckMs } : {}),
-  });
+  const inbox = new AgentInbox(join(options.stateDir ?? temporaryState!, "agent-messages"));
   const inboxStreams = new Set<ServerResponse>();
   const imageDirectory = join(options.stateDir ?? temporaryState!, "images");
   const prDrafts = createPrDrafts({
@@ -397,34 +409,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     agy: options.agy ?? process.env.MED_AGY === "1",
   });
   await ownedSessions.restore();
-  // The Scheduled list: a session's jobs fire while its process runs, in Med
-  // or elsewhere.
-  const schedules = createSchedules({
-    async running(ids) {
-      const places = new Map<string, "med" | SessionPlace>();
-      const rest = ids.filter((id) => {
-        const runner = ownedSessions.get(id);
-        if (runner?.pid() === undefined || runner.dormant()) return true;
-        places.set(id, "med");
-        return false;
-      });
-      if (rest.length)
-        for (const [id, place] of await ownedSessions.elsewhere(rest, 1000)) places.set(id, place);
-      return places;
-    },
-  });
   /**
-   * The review's Claude sessions that Med does not run now, or restored
-   * without a process: those that another process runs, such as Claude Code
-   * in a terminal, with where each is open, and those that a message resumes
-   * in Med. A session that takes messages with `med review wait` is in
-   * neither.
+   * The review's sessions that Med does not run now, or restored without a
+   * process: those that another process has open, such as Claude Code in a
+   * terminal or a thread in Codex Desktop, with where each is open, and the
+   * Claude sessions that a message resumes in Med. Med cannot type into
+   * another process: the reader sees the thread, and Continue in Med forks it.
    */
-  const claudeSessions = async (
-    reviewId: string,
-    sessions: readonly AgentSession[] = [],
-    maxAgeMs = 1000,
-  ) => {
+  const sessionPlaces = async (sessions: readonly AgentSession[] = [], maxAgeMs = 1000) => {
     const ids = sessions.flatMap((session) => {
       const runner = ownedSessions.get(session.id);
       return session.agent === "claude" &&
@@ -435,42 +427,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const running = ids.length
       ? await ownedSessions.elsewhere(ids, maxAgeMs)
       : new Map<string, SessionPlace>();
+    const codex = await Promise.all(
+      sessions
+        .filter((session) => session.agent === "codex" && !ownedSessions.get(session.id))
+        .map(async (session): Promise<[string, SessionPlace][]> =>
+          (await ownedSessions.lockedElsewhere("codex", session.id).catch(() => false))
+            ? [[session.id, "other-app"]]
+            : [],
+        ),
+    );
     return {
-      elsewhere: Object.fromEntries([...running].filter(([id]) => !inbox.usesWait(reviewId, id))),
+      elsewhere: Object.fromEntries<SessionPlace>([...running, ...codex.flat()]),
       resumable: ids.filter((id) => !running.has(id)),
     };
   };
-  // Messages that wait for another process to end. When it ends, Med resumes
-  // the session, or wakes the one that it restored, and gives it the
-  // messages in one prompt. A `med review wait` of that process takes them
-  // first if it runs.
-  const heldMessages = createHeldMessages({
-    ...(options.heldCheckMs ? { intervalMs: options.heldCheckMs } : {}),
-    check: async (reviewId, sessionId) => {
-      if (!(await inbox.pending(reviewId, sessionId))) return "done";
-      const waits = inbox.waiting(reviewId);
-      if (waits.includes(sessionId) || waits.includes("*")) return "held";
-      if (await ownedSessions.runsElsewhere(sessionId)) return "held";
-      const bundle = await savedReviews.get(reviewId).catch(() => undefined);
-      const session = bundle?.sessions?.find((entry) => entry.id === sessionId);
-      if (!bundle || session?.agent !== "claude") return "done";
-      const current = ownedSessions.get(sessionId);
-      // The user stopped the session in Med; the messages stay for a wait.
-      if (current?.state().status === "exited") return "done";
-      let runner = current;
-      try {
-        runner ??= await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {});
-      } catch (error) {
-        await inbox.deliverPending(reviewId, sessionId, () => Promise.reject(error));
-        return "done";
-      }
-      const { left } = await inbox.deliverPending(reviewId, sessionId, (body) =>
-        runner.prompt(body),
-      );
-      return left ? "held" : "done";
-    },
-  });
-  for (const { reviewId, sessionId } of await inbox.held()) heldMessages.watch(reviewId, sessionId);
   // Messages that came while an agent that Med runs worked.
   const queuedMessages = createQueuedMessages({
     inbox,
@@ -485,7 +455,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       const runner = ownedSessions.get(sessionId);
       return runner && { state: runner.state(), updatedAt: ownedSessions.updatedAt(sessionId) };
     },
-    waiting: (reviewId) => inbox.waiting(reviewId),
     logPath: (sessionId) =>
       join(options.stateDir ?? temporaryState!, "sessions", `${sessionId}.jsonl`),
   });
@@ -553,90 +522,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     codexNames: () => found.codexNames(),
     excluded: (agent, id) => questions.excludes(agent, id),
   });
-  /** Running now: Med's agents that work on a turn, then the sessions that
-   * other processes have open, each with its thread if one has it. Pages
-   * poll it, so an answer serves for a few seconds. */
-  let runningAnswer: { at: number; sessions: Promise<RunningSession[]> } | undefined;
-  const runningSessions = () => {
-    if (!runningAnswer || Date.now() - runningAnswer.at > RUNNING_MS) {
-      const sessions = readRunning();
-      runningAnswer = { at: Date.now(), sessions };
-      sessions.catch(() => (runningAnswer = undefined));
-    }
-    return runningAnswer.sessions;
-  };
-  const readRunning = async (): Promise<RunningSession[]> => {
-    const running = await ownedSessions.running();
-    const reviews = await savedReviews.list();
-    const named = await sessionThreads(reviews);
-    const titles = new Map(reviews.map((review) => [review.id, review.title]));
-    const infos = new Map(
-      (
-        await sessionSearch.exactly([
-          ...running.claude.map(({ id }) => ({ agent: "claude" as const, id })),
-          ...running.codex.map(({ id }) => ({ agent: "codex" as const, id })),
-        ])
-      ).map((info) => [`${info.agent}:${info.id}`, info]),
-    );
-    const thread = (id: string) => {
-      const found = named.get(id)?.id;
-      return found ? { thread: found } : {};
-    };
-    const sessions: RunningSession[] = running.med.map(({ session, kind, name }) => {
-      const saved = named.get(session.id)?.id;
-      return {
-        agent: kind,
-        id: session.id,
-        title: (saved && titles.get(saved)) ?? name,
-        cwd: session.cwd,
-        place: "med",
-        ...thread(session.id),
-      };
-    });
-    for (const { id, cwd, place } of running.claude) {
-      const info = infos.get(`claude:${id}`);
-      const where = info?.cwd ?? cwd;
-      sessions.push({
-        agent: "claude",
-        id,
-        title: info?.title ?? "New Claude Code session",
-        ...(where && { cwd: where }),
-        place,
-        ...thread(id),
-      });
-    }
-    // A guardian review or a subagent shows in its parent; a thread without
-    // a rollout has nothing to keep yet; and one that Codex Desktop only has
-    // loaded does not work.
-    const working = await Promise.all(
-      running.codex.map(async ({ id }) => {
-        const info = infos.get(`codex:${id}`);
-        return info && !info.automatic && (await codexTurnOpen(info.path)) ? info : undefined;
-      }),
-    );
-    for (const info of working) {
-      if (!info) continue;
-      const { id } = info;
-      sessions.push({
-        agent: "codex",
-        id,
-        title: info.title,
-        ...(info.cwd && { cwd: info.cwd }),
-        place: "other-app",
-        ...thread(id),
-      });
-    }
-    for (const { id, cwd, title } of running.agy)
-      sessions.push({
-        agent: "agy",
-        id,
-        title: title ?? "Antigravity conversation",
-        ...(cwd && { cwd }),
-        place: "terminal",
-        ...thread(id),
-      });
-    return sessions;
-  };
   /** The saved thread that names a session: by its ID, or for a session
    * that Med runs through ACP, by the agent's own ID. */
   const sessionThreads = async (reviews?: Awaited<ReturnType<typeof savedReviews.list>>) => {
@@ -678,6 +563,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     onChange: () => listChanged(),
   });
   // The open pull request of a tab's branch, for a thread that has none yet.
+  const settingsFile = createSettingsFile(
+    options.settingsPath ??
+      (options.stateDir && resolve(options.stateDir) === defaultStateDirectory()
+        ? settingsPath()
+        : join(options.stateDir ?? temporaryState!, "settings.json")),
+  );
+  const settingsStreams = new Set<ServerResponse>();
   const pullRequestLinks = createPullRequestLinks({
     gh: options.gh ?? { command: "gh", args: [] },
     refs: (checkout) => checkoutState(checkout, false),
@@ -859,6 +751,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     reviews.removeRepositories(paths);
     notes.removeRepositories(paths);
   });
+  // The base branches stay up to date unless the reader turns
+  // `sources.pullBase` off; POST /api/base-pulls pulls now.
+  const basePulls = new BasePulls(
+    {
+      repositories: () => registry.snapshot(),
+      enabled: async () => (await settingsFile.snapshot()).settings["sources.pullBase"] !== false,
+      refresh: () => registry.list(),
+    },
+    typeof options.basePull === "object" ? options.basePull : {},
+  );
+  if (options.basePull) basePulls.start();
   /** Removes a linked worktree with `git worktree remove`. Git keeps one with
    * changes; an agent that works there keeps it too. */
   const removeLinkedWorktree = async (input: string, signal: AbortSignal) => {
@@ -898,33 +801,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     },
   });
   const pullStreams = new Set<ServerResponse>();
-  // Attempts: the threads of one task, compared, and one of them kept.
-  const attempts = new AttemptGroups({
-    reviews: () => threads.attemptReviews(),
-    status: (review) =>
-      review.sessions?.length
-        ? reviewStatus(review.id, review.sessions)
-        : Promise.resolve(undefined),
-    ownedEvents: (id) => ownedSessions.events(id),
-    ownedModel: (id) =>
-      ownedSessions
-        .get(id)
-        ?.state()
-        .settings.find((entry) => entry.category === "model")?.value,
-    // Keep closes the other attempts; Undo opens them at their places.
-    archive: (id, archived) => (archived ? threads.close(id) : threads.open(id, { restore: true })),
-    rename: (id, title) => savedReviews.details(id, { title }),
-    repository: (path) => registry.owner(path),
-    stopAgents(path) {
-      const working = ownedSessions
-        .within(path)
-        .filter((runner) => runner.state().status !== "idle");
-      for (const runner of working) ownedSessions.end(runner);
-      return working.length;
-    },
-    removeWorktree: (path, signal) => removeLinkedWorktree(path, signal),
-    refresh: (path) => registry.refreshOwner(path),
-  });
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
@@ -1095,9 +971,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         return { ...(window ? { window } : {}), env: startedAgentEnvironment() };
       });
     }),
-    ...attempts.routes(),
     ...questions.routes(),
   ]);
+  // The editors on this machine, looked for again after a minute.
+  let editorsFound: { at: number; editors: Promise<Editor[]> } | null = null;
+  const openInEditors = () => {
+    if (options.openIn?.editors) return options.openIn.editors();
+    if (!editorsFound || Date.now() - editorsFound.at > 60_000)
+      editorsFound = { at: Date.now(), editors: findEditors() };
+    return editorsFound.editors;
+  };
+  const openInIsGitHub = options.openIn?.isGitHub ?? createHostProbe();
   const handle = (request: IncomingMessage, response: ServerResponse) => {
     const abort = new AbortController();
     const owners = new Set<string>();
@@ -1466,6 +1350,51 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           push();
           return;
         }
+        // The settings file, sent again each time it changes, also when an
+        // agent saves it.
+        if (url.pathname === "/api/settings" && request.method === "GET") {
+          send(await settingsFile.snapshot());
+          return;
+        }
+        if (url.pathname === "/api/settings" && request.method === "PUT") {
+          const input = z
+            .object({
+              key: z.string().regex(SETTING_KEY),
+              value: z.union([
+                z.string().max(200),
+                z.number().finite(),
+                z.boolean(),
+                z.array(z.string().max(200)).max(50),
+                z.record(z.string().max(200), z.string().max(1000)),
+              ]),
+            })
+            .parse(await readBody(request));
+          send(await settingsFile.set(input.key, input.value));
+          return;
+        }
+        if (url.pathname === "/api/settings/events" && request.method === "GET") {
+          if (settingsStreams.size >= 16)
+            throw new HostError("too-many-streams", "Too many settings streams are open.", 503);
+          response.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            "x-accel-buffering": "no",
+          });
+          settingsStreams.add(response);
+          const push = () =>
+            void settingsFile.snapshot().then((snapshot) => {
+              if (!response.writableEnded)
+                response.write(`event: state\ndata: ${JSON.stringify(snapshot)}\n\n`);
+            });
+          const unsubscribe = settingsFile.subscribe(push);
+          response.once("close", () => {
+            settingsStreams.delete(response);
+            unsubscribe();
+          });
+          push();
+          return;
+        }
         // The tabs, with their agents' states, sent again when one changes;
         // and the registered repositories. A change to the tabs, such as a
         // close in another window, sends the list at once.
@@ -1502,11 +1431,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               ? await sessionSearch.find(input.text ?? "", input.limit ?? 20)
               : (await sessionSearch.lookup(input.session)).slice(0, input.limit ?? 20);
           send({ sessions: await sessionEntries(sessions) });
-          return;
-        }
-        // The agent sessions that run now, in Med or elsewhere ("Running now").
-        if (url.pathname === "/api/sessions/running" && request.method === "GET") {
-          send({ sessions: await runningSessions() });
           return;
         }
         if (url.pathname === "/api/agents" && request.method === "GET") {
@@ -1674,10 +1598,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           }
           throw new HostError("method-not-allowed", "This session action is not supported.", 405);
         }
-        // Messages from the review to its agent sessions. `wait` is the long
-        // poll behind `med review wait`, so it stays outside the request limit.
+        // Messages from the review to its agent sessions.
         const agentRoute =
-          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(wait|ack|messages|events|take|send-now))?$/.exec(
+          /^\/api\/reviews\/([A-Za-z0-9_-]+)\/agent(?:\/(messages|events|take|send-now|reply))?$/.exec(
             url.pathname,
           );
         if (agentRoute) {
@@ -1701,14 +1624,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               }
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
-            const { briefComments, sessions } = await savedReviews.get(reviewId);
+            const { briefComments, sessions, revision } = await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
             return {
               messages,
-              waiting: inbox.waiting(reviewId),
-              ...(await claudeSessions(reviewId, sessions)),
+              ...(await sessionPlaces(sessions)),
+              owned: (sessions ?? []).flatMap((session) =>
+                ownedSessions.get(session.id) ? [session.id] : [],
+              ),
+              revision,
               drafts: [
                 ...comments.filter(unsent).map((comment) => ({
                   id: comment.id,
@@ -1789,6 +1715,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const feedback = input.noteIds.length
                 ? await savedReviews.feedback(reviewId, new Set(input.noteIds))
                 : undefined;
+              // The text ends with how to answer a comment in its thread.
               if (feedback?.count) parts.push(feedback.text);
               const included = input.noteIds.flatMap((id) => {
                 const thread = feedback?.threads.get(id);
@@ -1802,42 +1729,56 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 parts.push(`## ${attachment.label}\n\n${attachment.text}`);
               const runner = ownedSessions.get(session.id);
               const live = runner && runner.state().status !== "exited" ? runner : undefined;
-              // A Claude session that Med does not run, or restored without its
-              // process, can run in another process, such as Claude Code in a
-              // terminal. Then the message waits until that process takes it
-              // with `med review wait`, or ends. Otherwise Med resumes the
-              // session and sends the message as its next prompt.
-              let held = false;
+              // Med sends only to a session that it runs, or resumes because no
+              // other process has it open. One that Claude Code in a terminal,
+              // the Claude app, or Codex Desktop has open is the reader's to
+              // see: Continue in Med forks it into one that Med runs.
               let resume = false;
               if ((!live || live.dormant()) && session.agent === "claude" && (!runner || live)) {
-                const waits = inbox.waiting(reviewId);
-                held =
-                  waits.includes(session.id) ||
-                  waits.includes("*") ||
-                  (await ownedSessions.runsElsewhere(session.id));
-                resume = !held && !live;
-              } else if (
-                session.agent === "codex" &&
-                !live &&
-                !runner &&
-                (await ownedSessions.agents()).some(
-                  (agent) => agent.kind === "codex" && agent.available,
-                ) &&
-                !(await ownedSessions.lockedElsewhere("codex", session.id))
-              )
-                // A Codex thread that no process has open: Med resumes it
-                // through Codex's app-server and runs it from then on. One
-                // that Codex Desktop or a terminal has open takes the message
-                // through `codex queue`.
+                if (await ownedSessions.runsElsewhere(session.id))
+                  throw new HostError(
+                    "session-elsewhere",
+                    "Claude Code has this session open in another app, so Med can't send to it. Continue it in Med, or copy the comments.",
+                    409,
+                  );
+                resume = !live;
+              } else if (session.agent === "codex" && !live && !runner) {
+                if (await ownedSessions.lockedElsewhere("codex", session.id))
+                  throw new HostError(
+                    "session-elsewhere",
+                    "Codex has this thread open in another app, so Med can't send to it. Continue it in Med, or copy the comments.",
+                    409,
+                  );
+                if (
+                  !(await ownedSessions.agents()).some(
+                    (agent) => agent.kind === "codex" && agent.available,
+                  )
+                )
+                  throw new HostError(
+                    "codex-not-found",
+                    "Med could not find the codex command. Install Codex, or set MED_CODEX_PATH.",
+                    409,
+                  );
+                // Med resumes the thread through Codex's app-server and runs it
+                // from then on.
                 resume = true;
+              }
+              // A session that stopped in Med takes no message, as one that no
+              // agent of Med's can resume.
+              if (!resume && !live)
+                throw new HostError(
+                  "session-stopped",
+                  "This session stopped, so Med can't send to it. Start a new session, or copy the comments.",
+                  409,
+                );
               // The agent that Med runs works: the message waits for its next
               // step (queued-messages.ts), and the user can take it back.
-              const queue = !held && !resume && live?.state().status === "working";
+              const queue = !resume && live?.state().status === "working";
               // An agent that Med runs and that takes images gets them in the
               // prompt, as Claude Code does. Any other agent, or a queued
               // message, gets the paths of saved copies.
               const native =
-                !queue && (resume || (live && !held && live.state().images)) ? input.images : [];
+                !queue && (resume || (live && live.state().images)) ? input.images : [];
               if (input.images.length && !native.length)
                 parts.push(imagesText(await saveImages(imageDirectory, input.images)));
               if (!parts.length && !native.length)
@@ -1847,11 +1788,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   400,
                 );
               // A session that Med runs takes the message as its next prompt.
-              const target = held
-                ? undefined
-                : resume
-                  ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
-                  : live;
+              const target = resume
+                ? await ownedSessions.resume(session, bundle.key ? { key: bundle.key } : {})
+                : live;
               const message = await inbox.send(
                 reviewId,
                 session,
@@ -1869,44 +1808,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   ? { queued: true, afterTurn: !!input.afterTurn }
                   : target
                     ? { deliver: (body) => target.prompt(body, native) }
-                    : { held },
+                    : {},
               );
-              if (held && message.delivery === "pending") heldMessages.watch(reviewId, session.id);
               if (queue && message.delivery === "pending")
                 queuedMessages.watch(reviewId, session.id);
               return message;
             });
             send({ message, state: await inboxState() });
-            return;
-          }
-          if (action === "wait" && request.method === "POST") {
-            const input = z
-              .object({
-                session: z
-                  .string()
-                  .regex(/^[A-Za-z0-9_-]{1,128}$/)
-                  .optional(),
-                timeout: z.number().int().min(1).max(25_000).default(25_000),
-                // The wait confirms what it prints (ack), so a message that
-                // reaches no one goes to the next wait.
-                confirm: z.boolean().default(false),
-              })
-              .parse(await readBody(request));
-            const result = await inbox.wait(
-              reviewId,
-              input.session,
-              input.timeout,
-              abort.signal,
-              input.confirm,
-            );
-            send(
-              result && "body" in result
-                ? {
-                    message: deliveredText(bundle.title, [{ body: result.body }]),
-                    ...(input.confirm ? { ids: result.ids } : {}),
-                  }
-                : { message: null, ...(result ? { superseded: true } : {}) },
-            );
             return;
           }
           // Takes back a queued message that the agent has not had, to edit
@@ -1939,12 +1847,39 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ state: await inboxState() });
             return;
           }
-          if (action === "ack" && request.method === "POST") {
+          // `med review reply`: the agent answers a comment in its thread.
+          if (action === "reply" && request.method === "POST") {
             const input = z
-              .object({ ids: z.array(z.string().min(1).max(128)).min(1).max(100) })
+              .object({
+                commentId: z.string().min(1).max(128),
+                text: z.string().min(1).max(16384),
+                session: z
+                  .object({
+                    agent: z.enum(["claude", "codex", "acp"]),
+                    id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+                  })
+                  .optional(),
+              })
               .parse(await readBody(request));
-            await inbox.ack(reviewId, input.ids);
-            send({ ok: true });
+            const session =
+              (input.session &&
+                bundle.sessions?.find(
+                  (entry) => entry.id === input.session!.id && entry.agent === input.session!.agent,
+                )) ??
+              bundle.sessions?.at(-1);
+            const author = session
+              ? {
+                  agent: session.agent,
+                  ...(session.name ? { name: session.name } : {}),
+                  sessionId: session.id,
+                }
+              : input.session
+                ? { agent: input.session.agent, sessionId: input.session.id }
+                : { agent: "acp" as const };
+            const note = await savedReviews.reply(reviewId, input.commentId, input.text, author);
+            // Open pages read the comments again.
+            inbox.touch(reviewId);
+            send({ note });
             return;
           }
           throw new HostError("method-not-allowed", "This agent action is not supported.", 405);
@@ -2291,8 +2226,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // its review, and an agent that starts on the task there.
           if (url.pathname === "/api/threads" && request.method === "POST") {
             const input = threadStartSchema.parse(await readBody(request));
-            if (input.group && !input.worktree)
-              throw new HostError("attempt-worktree", "Each attempt needs its own worktree.", 400);
             const entry = registry.snapshot().find((item) => item.id === input.repositoryId);
             if (!entry)
               throw new HostError("repository-not-found", "Add this repository to Med first.", 404);
@@ -2313,13 +2246,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               const branches = new Set(
                 (await git(["branch", "--format=%(refname:short)"])).stdout.toString().split("\n"),
               );
-              // An attempt's branch ends in its letter, such as week-view-b.
-              const stem = input.group
-                ? `${slug}-${attemptLetter(input.group.attempt).toLowerCase()}`
-                : slug;
-              let name = stem;
+              let name = slug;
               for (let n = 2; branches.has(name) || existsSync(join(base, name)); n++)
-                name = `${stem}-${n}`;
+                name = `${slug}-${n}`;
               assertRequestAccess();
               await git(["worktree", "add", "-b", name, join(base, name)]);
               await registry.refreshOwner(entry.path);
@@ -2336,7 +2265,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 title,
                 key,
                 sessions: [runner.session],
-                ...(input.group ? { group: input.group } : {}),
                 targets: [],
               },
               captureTarget,
@@ -2382,7 +2310,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               let parsed: Map<string, FileDiffMetadata> | undefined;
               const fileOf = (path: string) => {
                 parsed ??= new Map(
-                  parsePatchFiles(stored.patch, undefined, true)
+                  parsePatchFiles(stored.patch, { throwOnError: true })
                     .flatMap((patch) => patch.files)
                     .map((file) => {
                       const named = normalizeDiffMetadataPaths(file);
@@ -2532,6 +2460,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             );
             send({ ...state, reviewId });
             inbox.touch(id!);
+            return;
+          }
+          // `med reply <id>`: the reviews with a comment whose ID starts so.
+          if (url.pathname === "/api/base-pulls") {
+            if (request.method === "POST") send({ pulls: await basePulls.run() });
+            else send({ pulls: [...basePulls.last.values()] });
+            return;
+          }
+          const commentRoute = /^\/api\/comments\/([0-9a-fA-F-]{6,36})$/.exec(url.pathname);
+          if (commentRoute && request.method === "GET") {
+            const ids = await savedReviews.reviewsWithComment(commentRoute[1]!.toLowerCase());
+            const reviews = await Promise.all(
+              ids.map(async (id) => ({ id, title: (await savedReviews.get(id)).title })),
+            );
+            send({ reviews });
             return;
           }
           if (url.pathname === "/api/reviews/by-key" && request.method === "POST") {
@@ -3339,19 +3282,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send(await threads.list());
             return;
           }
-          // The tabs' Claude Code schedules and the Claude app's scheduled
-          // tasks, read only (docs/SCHEDULES.md).
-          if (url.pathname === "/api/schedules" && request.method === "GET") {
-            send(await schedules.list((await threads.list()).threads));
-            return;
-          }
           if (url.pathname === "/api/threads/history" && request.method === "GET") {
             send({ threads: await threads.history() });
-            return;
-          }
-          if (url.pathname === "/api/threads/order" && request.method === "POST") {
-            await threads.order(threadOrderSchema.parse(await readBody(request)).order);
-            send({ ok: true });
             return;
           }
           if (url.pathname === "/api/threads/reopen" && request.method === "POST") {
@@ -3386,9 +3318,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             }
             return;
           }
-          const threadAction = /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name)$/.exec(
-            url.pathname,
-          );
+          const threadAction =
+            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin)$/.exec(url.pathname);
           if (threadAction && request.method === "POST") {
             const id = threadIdSchema.parse(threadAction[1]);
             const action = threadAction[2];
@@ -3403,6 +3334,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               send({ deleted: true });
             } else if (action === "name") {
               await threads.rename(id, threadNameSchema.parse(body ?? {}).name);
+              send({ ok: true });
+            } else if (action === "pin") {
+              const pin = threadPinSchema.parse(body ?? {});
+              await threads.pin(id, pin.pinned, pin.at);
               send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.
@@ -3429,6 +3364,62 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               throw new HostError("not-found", "This file is not in the working tree.", 404);
             (options.reveal ?? revealInFileManager)(target);
             send({ revealed: true });
+            return;
+          }
+          if (url.pathname === "/api/open-in" && request.method === "GET") {
+            const checkout = await requireRepo(url.searchParams.get("repo"));
+            const settings = openInSettings((await settingsFile.snapshot()).settings);
+            const [editors, links] = await Promise.all([
+              openInEditors(),
+              openInLinks(checkout, settings, openInIsGitHub),
+            ]);
+            send({
+              editors: listedEditors(editors, settings).map(({ id, name }) => ({ id, name })),
+              ...links,
+            });
+            return;
+          }
+          // For Settings: the code hosts of the sources' remotes, and every
+          // editor found, listed or not.
+          if (url.pathname === "/api/open-in/hosts" && request.method === "GET") {
+            const checkouts = registry
+              .snapshot()
+              .filter((entry) => !entry.error)
+              .map((entry) => entry.path);
+            const [hosts, editors] = await Promise.all([
+              codeHosts(checkouts, openInIsGitHub),
+              openInEditors(),
+            ]);
+            send({
+              hosts,
+              editors: editors.map(({ id, name, usage }) => ({
+                id,
+                name,
+                ...(usage && { usage }),
+              })),
+            });
+            return;
+          }
+          if (url.pathname === "/api/open-in" && request.method === "POST") {
+            const input = z
+              .object({
+                repo: z.string().optional(),
+                path: z.string().min(1),
+                line: z.number().int().positive().default(1),
+                editor: z.string().min(1),
+              })
+              .parse(await readBody(request));
+            const repo = await requireRepo(input.repo ?? null);
+            const target = resolve(repo, input.path);
+            const inside = relative(repo, target);
+            if (!inside || inside.startsWith("..") || isAbsolute(inside))
+              throw new HostError("path-not-allowed", "Choose a file in this repository.", 403);
+            if (!(await lstat(target).catch(() => null)))
+              throw new HostError("not-found", "This file is not in the working tree.", 404);
+            const editor = (await openInEditors()).find((entry) => entry.id === input.editor);
+            if (!editor) throw new HostError("not-found", "Med did not find this editor.", 404);
+            (options.openIn?.launch ?? launchEditor)(editor, target, input.line);
+            send({ opened: true });
             return;
           }
           if (url.pathname === "/api/review" && request.method === "POST") {
@@ -3526,6 +3517,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
       const appRoute =
         path === "/sources" ||
+        path === "/settings" ||
+        path.startsWith("/settings/") ||
         path === "/sessions" ||
         path === "/welcome" ||
         path === "/elements" ||
@@ -3534,7 +3527,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path.startsWith("/file/") ||
         path === "/files" ||
         path === "/search" ||
-        path.startsWith("/attempts/") ||
         path === "/" ||
         /^\/review\/[a-zA-Z0-9_-]+$/.test(path);
       const file = resolve(webRoot, `.${appRoute ? "/index.html" : path}`);
@@ -3573,7 +3565,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "content-security-policy":
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
       });
       response.end(request.method === "HEAD" ? undefined : data);
     })()
@@ -3710,7 +3702,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       if (closing) return;
       closing = true;
       clearInterval(heartbeat);
-      heldMessages.stop();
+      basePulls.close();
       queuedMessages.stop();
       await ownedSessions.detachAll();
       await questions.stopAll();
@@ -3719,6 +3711,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       found.close();
       checkoutWork.close();
       pullRequestLinks.close();
+      settingsFile.close();
       threadFeed.close();
       checkoutChanges.close();
       threads.stop();

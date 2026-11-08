@@ -22,7 +22,6 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
 import { runAgentsCommand } from "../../src/cli/agents";
 import { readServerEvents } from "../../src/web/data/sse";
-import type { RunningSession } from "../../src/shared/found-sessions";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { longProcess, processStart, writeProcessRecord } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
@@ -68,7 +67,6 @@ async function fixture({ key, agy = true }: { key?: string; agy?: boolean } = {}
     repos: [repo],
     stateDir,
     port: 0,
-    heldCheckMs: 100,
     agy,
     agents: async () => [
       {
@@ -241,7 +239,7 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   // A host that a Claude Code session started has the session's variables,
   // such as its bare mode; Claude Code that Med starts uses the user's login.
   vi.stubEnv("CLAUDE_CODE_SIMPLE", "1");
-  const { api, review, stateDir, thread, start } = await fixture();
+  const { api, review, thread, start } = await fixture();
   const agents = await api<{ agents: unknown[] }>("/api/agents");
   // Each says what Med can do with it, so the page shows only what works.
   expect(agents.data.agents).toEqual([
@@ -364,22 +362,13 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
 
   await session.act({ action: "stop" });
   expect((await session.act({ action: "prompt", text: "Again." })).status).toBe(409);
-  // A session that Med does not run reads text: the message names a saved copy.
-  const stopped = await api(`/api/reviews/${review.id}/agent/messages`, {
-    sessionId: session.id,
-    text: "Compare with this.",
-    noteIds: [],
-    images: [{ mimeType: "image/png", data: PNG }],
-  });
-  expect(stopped.status).toBe(200);
-  const waited = await api<{ message: string }>(`/api/reviews/${review.id}/agent/wait`, {
-    session: session.id,
-    timeout: 1000,
-  });
-  const path = /^- (\/.+\.png)$/m.exec(waited.data.message)?.[1];
-  expect(waited.data.message).toContain("Compare with this.");
-  expect(path?.startsWith(join(stateDir, "images"))).toBe(true);
-  expect((await readFile(path!)).toString("base64")).toBe(PNG);
+  // A session that the user stopped takes no message from the review either.
+  const stopped = await api<{ error: { code: string } }>(
+    `/api/reviews/${review.id}/agent/messages`,
+    { sessionId: session.id, text: "Compare with this.", noteIds: [] },
+  );
+  expect(stopped.status).toBe(409);
+  expect(stopped.data.error.code).toBe("session-stopped");
 });
 
 test("Claude Code's questions and plans wait in Med; the answer goes back as Claude Code reads it", async () => {
@@ -622,25 +611,27 @@ test("agents keep working through a host restart; after a reboot, Claude Code re
   expect((await acp.state()).status).toBe("exited");
 
   // While another Claude Code process runs the session, as in a terminal,
-  // Med does not start a second one: the message waits for that process to
-  // end. A process that names the session in its arguments counts; without
-  // its record, Med does not know where it is open.
+  // Med does not start a second one, and sends nothing. A process that names
+  // the session in its arguments counts; without its record, Med does not
+  // know where it is open.
   const send = (text: string) =>
     api<{ message: { delivery: string; error?: string }; state: AgentInboxState }>(
       `/api/reviews/${review.id}/agent/messages`,
       { sessionId: kept.id, text, noteIds: [] },
     );
+  const inbox = async () => (await api<AgentInboxState>(`/api/reviews/${review.id}/agent`)).data;
   const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", "claude", kept.id]);
   const exited = once(other, "exit");
   await once(other, "spawn");
-  const busy = await send("Are you there?");
-  expect(busy.data.message).toMatchObject({ delivery: "pending" });
-  expect(busy.data.state.elsewhere).toEqual({ [kept.id]: "other-app" });
+  expect((await send("Are you there?")).status).toBe(409);
+  expect((await inbox()).elsewhere).toEqual({ [kept.id]: "other-app" });
 
-  // When it ends, Med resumes the session in a new process, on the new port.
+  // When it ends, a message resumes the session in a new process, on the new port.
   const again = await thread(kept.id);
   other.kill();
   await exited;
+  await vi.waitFor(async () => expect((await inbox()).elsewhere).toEqual({}), { timeout: 5000 });
+  expect((await send("Are you there?")).data.message.delivery).toBe("delivered");
   await vi.waitFor(
     () => expect(again().at(-1)).toBe("Model opus, effort high, mode plan: Are you there?"),
     { timeout: 5000 },
@@ -1460,7 +1451,7 @@ async function holdOpen(cwd: string, paths: string[]) {
   };
 }
 
-test("Running now lists the sessions that run in Med and elsewhere; an agy conversation continues in Med once its process ends, from its history", async () => {
+test("an agy conversation continues in Med once its process ends, from its history", async () => {
   const { api, home, repo, review, start, thread } = await fixture();
   const lines = (entries: object[]) =>
     entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
@@ -1593,28 +1584,6 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
     });
     await owned.until((state) => !!state.permission);
 
-    const running = async () =>
-      (await api<{ sessions: RunningSession[] }>("/api/sessions/running")).data.sessions;
-    expect(await running()).toEqual([
-      {
-        agent: "codex",
-        id: owned.id,
-        title: "Format durations",
-        cwd: repo,
-        place: "med",
-        thread: review.id,
-      },
-      {
-        agent: "claude",
-        id: claude,
-        title: "Tidy the duration helpers",
-        cwd: repo,
-        place: "terminal",
-      },
-      { agent: "codex", id: codex, title: "Port the parser", cwd: repo, place: "other-app" },
-      { agent: "agy", id: agy, title: "Name the files.", cwd: repo, place: "terminal" },
-    ]);
-
     // Continue in Med makes the agy conversation a thread at once, with its
     // history. agy has one writer, so a message waits for agy to end there.
     const adopt = () =>
@@ -1659,7 +1628,7 @@ test("Running now lists the sessions that run in Med and elsewhere; an agy conve
   }
 });
 
-test("Antigravity is off until the user turns it on: Med does not offer it, list it as running, or continue its conversations", async () => {
+test("Antigravity is off until the user turns it on: Med does not offer it or continue its conversations", async () => {
   const { api, home, repo, review } = await fixture({ agy: false });
   const agy = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
   const terminal = await holdOpen(repo, [
@@ -1670,8 +1639,6 @@ test("Antigravity is off until the user turns it on: Med does not offer it, list
     expect(agents.data.agents.map((agent) => agent.id)).not.toContain("agy");
     expect((await api(`/api/reviews/${review.id}/owned`, { preset: "agy" })).status).toBe(404);
     expect((await api("/api/agents/agy/choices")).status).toBe(404);
-    const running = await api<{ sessions: RunningSession[] }>("/api/sessions/running");
-    expect(running.data.sessions.filter((session) => session.agent === "agy")).toEqual([]);
     const adopt = await api("/api/sessions/adopt", { agent: "agy", session: agy, repo });
     expect(adopt.status).toBe(404);
   } finally {

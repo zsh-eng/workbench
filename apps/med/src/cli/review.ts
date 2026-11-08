@@ -59,12 +59,12 @@ export const reviewHelp = `Usage: med review create --title <title> --repo <path
        med review create --stack <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review create --set <pr|branch>... [--base <ref>] [--repo <path>] [--title <title>]
        med review update --key <key> [--pr <https-url>] [--title <title>] [--guide <path|->] [--session <agent:id>] [--paths <path>...]
-       med review wait --key <key>
+       med review reply <id> [<text>]   (or med reply <id> [<text>])
        med review repos [--repo <path>] [--json]
 
 create hands off a change: a new review, or a new version of the review with
-the same --key. update changes a review. wait prints the user's next message.
-repos lists the repositories that Med knows.
+the same --key. update changes a review. reply answers one of the user's
+comments in its thread. repos lists the repositories that Med knows.
 
 Examples:
   # The commits of a branch, with a guide from standard input
@@ -76,17 +76,15 @@ Examples:
   # After you apply the comments: the same key adds version 2
   med review create --key feat/retry --repo . --base main --head feat/retry \\
     --guide guide.json
-  # Claude Code outside Med: wait for the comments, in the background
-  med review wait --key feat/retry
 
 --key <key> names your task, such as its branch. Create with the same key again to add a version to that review: its workspace stays, earlier briefs and comments stay, and the new comparison and brief become current. Without --key, create uses the branch's name when the branch is not the repository's base branch. update also takes the review's ID (r_…) as --key.
 update sets the title or the PR link of the review with that key, such as after you open the PR. With --paths, it adds a version that shows those files' uncommitted changes.
 --paths <path>... keeps only these files or folders, relative to this directory. In a checkout that other sessions or people also change, such as a shared main checkout, show only your own files with --paths. med thread show --paths <path>... does the same for your session's thread.
 --working shows the checkout's uncommitted changes: with --paths, only those files; without it, all of them, including changes that were there before you started.
-wait waits until the user sends a message to your session from the review, prints it, and exits. Run it in the background; it has no time limit. Only Claude Code outside Med needs it: run it when create prints its line. A Claude Code session that the review does not have, such as after /clear, joins the review. Outside Claude Code, as in Codex, wait fails at once: Codex reads the user's messages from its queue.
+reply answers the comment with that ID (the user's message gives each comment's ID, such as 6f1c9e) in its thread, where the user reads it, as your session. The answer is the words after the ID, or standard input: med reply 6f1c9e <<'END' … END. Use it for a question the user asked on a line, or to say why you left a change out; your final message still says what you did. Med finds the review by the comment; --key names the review when the ID is in more than one. A comment on a passage of the guide or the pull request draft takes no reply.
 repos prints one line for each registered repository: its name, path, main branch, and number of worktrees. --repo <path> says whether Med knows the checkout that holds <path>; --json prints every branch and worktree.
 A Claude Code session that runs the command is recorded with the review, so Med can copy its resume command; --session codex:<id> or claude:<id> adds others, and --no-session records none. A subagent has its parent's session ID, so in a subagent, or when Med cannot tell, Med records no session and says why.
-Without --port and --state-dir, MED_PORT and MED_STATE_DIR choose the host; Med sets them in a session that it started. In a thread, MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review. Med sends the user's messages to such a session itself, so wait exits at once.
+Without --port and --state-dir, MED_PORT and MED_STATE_DIR choose the host; Med sets them in a session that it started. In a thread, MED_THREAD_KEY and MED_THREAD_REPO give the default --key and --repo, so "create --working --guide -" hands off the thread's worktree to its Review.
 
 --title names the review in the workspace list and the browser tab. Use 2–4 words, such as "Commit tab search". Without it, use the matching PR title or a comparison label. Once the review has a PR, its header shows the PR title, read with gh.
 --pr <https-url> adds a clickable GitHub PR link. A matching PR is inferred for a single GitHub origin repository when gh is available; --no-pr skips lookup.
@@ -98,9 +96,26 @@ Open Med windows add each new review to their workspaces, marked unread. --open 
 Options: --port <port> (default ${DEFAULT_PORT}), --state-dir <path> (or MED_STATE_DIR)
 The running host must already have the target repositories registered.
 --stack <pr|branch>... makes one thread of related changes, bottom first: each pull request (a number or URL) or branch is a layer, and each layer's diff starts at the layer below. A pull request is its own diff, read with gh; a missing head is fetched, never checked out. --base names the bottom branch's base (default: the repository's base branch). --set makes a thread of independent parts, each since its own base. --guide then takes a JSON array with one guide, or null, for each part. A later create with the same --key, or with --stack and the same parts, adds a version; create --key <a part's PR URL or branch> replaces that part only.
---group <name> --attempt <1-3> marks the review as one attempt at a task that several agents do, each in its own worktree. Med shows a group's attempts together and compares them.
 A manifest is {"title":"Review title","targets":[{"repo":"/absolute/path","comparison":{"kind":"range","base":"<ref>","head":"<ref>"}}]}. --manifest - reads it from standard input.
 The create command prints a Markdown review link without an access token.`;
+
+export const replyHelp = `Usage: med reply <id> [<text>] [--key <review>]
+
+Answers one of the user's comments in its thread, where the user reads it, as
+your session. The user's message gives each comment's ID in its heading, such
+as "## 6f1c9e · src/summary.ts:14". The answer is the words after the ID, or
+standard input:
+
+  med reply 6f1c9e <<'END'
+  Minutes drop the seconds. Keep them for runs under a minute?
+  END
+
+Use a reply for a question the user asked on a line, or to say why you left a
+change out; your final message still says what you did. Med finds the review
+by the comment, trying the thread's review (MED_THREAD_KEY) first; --key names
+the review when the ID is in more than one. med review reply is the same.
+Options: --text <text|->, --key <key>, --session <agent:id>, --port <port>,
+--state-dir <path>`;
 
 /**
  * Takes `--paths a b c` (and `--paths=a`) out of the arguments: the words
@@ -168,11 +183,19 @@ export function repoPaths(repo: string, paths: readonly string[], cwd = process.
 }
 
 export interface ReviewCommand {
-  kind: "help" | "repos" | "create" | "update" | "wait";
+  kind: "help" | "repos" | "create" | "update" | "reply";
   /** For repos: the checkout to look up (--repo), or the full listing (--json). */
   repos?: { repo?: string; json?: boolean };
-  /** For wait: the review's key, and the Claude Code session that waits. `owned`: Med started this session and sends it messages itself. */
-  wait?: { key: string; session?: AgentSession; owned?: boolean };
+  /** For reply: the comment it answers, the answer, and the session that
+   * answers. `key` (--key) names the review; without it, Med finds the
+   * review by the comment, trying the thread's review (`threadKey`) first. */
+  reply?: {
+    key?: string;
+    threadKey?: string;
+    commentId: string;
+    text: string;
+    session?: AgentSession;
+  };
   /** For update: the review's key and its new details. With `paths`, a new
    * version shows those files' uncommitted changes in `repo` (or the
    * thread's checkout). */
@@ -321,11 +344,11 @@ export async function parseReviewCommand(
       guide: { type: "string" },
       open: { type: "boolean" },
       key: { type: "string" },
-      group: { type: "string" },
-      attempt: { type: "string" },
       session: { type: "string", multiple: true },
       "no-session": { type: "boolean" },
       json: { type: "boolean" },
+      comment: { type: "string" },
+      text: { type: "string" },
     },
   });
   // The Claude Code session that runs this command, and why Med left it out.
@@ -344,13 +367,17 @@ export async function parseReviewCommand(
   // A session that Med started for a thread knows the thread from its environment.
   const environment = sessionOptions.environment ?? process.env;
   const owned = environment.MED_SESSION === "owned";
+  const givenKey = values.key;
   values.key ??= environment.MED_THREAD_KEY || undefined;
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = await clientPort(stateDir, values.port, environment);
   const common = { port, stateDir, caller, ...(values.json && { json: true }) };
   if (values.help) return { ...common, kind: "help" };
-  if (positionals.length !== 1 || !["repos", "create", "update", "wait"].includes(positionals[0]!))
+  if (
+    !["repos", "create", "update", "reply"].includes(positionals[0]!) ||
+    (positionals.length !== 1 && positionals[0] !== "reply")
+  )
     throw new UsageError(reviewHelp);
   if (paths && positionals[0] !== "create" && positionals[0] !== "update")
     throw new UsageError("Use --paths with create or update.");
@@ -358,29 +385,44 @@ export async function parseReviewCommand(
     throw new UsageError("Use --json with create or repos.");
   if (generated && positionals[0] !== "create" && !(positionals[0] === "update" && paths))
     throw new UsageError("Use --generated with create, or with update --paths.");
-  if (positionals[0] === "wait") {
-    if (owned) return { ...common, kind: "wait", wait: { key: values.key ?? "", owned } };
-    if (!values.key)
-      throw new UsageError("Use wait with --key, the key the review was created with.");
-    const key = reviewKeySchema.safeParse(values.key);
-    if (!key.success) throw new Error(key.error.issues[0]!.message);
+  if (positionals[0] === "reply") {
+    const [, id = values.comment, ...words] = positionals;
+    if (!id)
+      throw new UsageError(
+        "Use reply with the comment's ID, as the user's message gives it: med reply <id>, with the answer on standard input.",
+      );
+    if (!/^[0-9a-f-]{6,36}$/i.test(id))
+      throw new UsageError(
+        `"${id}" is not a comment ID. The user's message gives each comment's ID, such as 6f1c9e.`,
+      );
+    if (words.length && values.text !== undefined)
+      throw new UsageError("Give the answer after the ID or with --text, not both.");
+    const given = words.length ? words.join(" ") : values.text;
+    if (given === undefined && process.stdin.isTTY)
+      throw new UsageError(
+        `Give the answer on standard input: med reply ${id} <<'END' … END, or after the ID.`,
+      );
+    const text = (given === undefined || given === "-" ? await readStandardInput() : given).trim();
+    if (!text) throw new UsageError("The reply is empty.");
+    let key: string | undefined;
+    if (givenKey !== undefined) {
+      const parsed = reviewKeySchema.safeParse(givenKey);
+      if (!parsed.success) throw new Error(parsed.error.issues[0]!.message);
+      key = parsed.data;
+    }
+    const threadKey = givenKey === undefined ? values.key : undefined;
     const session = (await sessions())[0];
-    const running = environment.CLAUDE_CODE_SESSION_ID;
-    if (caller.left === "subagent")
-      throw new Error(
-        `This command runs in a subagent of Claude Code session ${running}. A subagent has its parent's session ID, so this wait would take the messages that the user sends to the parent. Give the review link to your parent agent.`,
-      );
-    if (caller.left === "unknown")
-      throw new Error(
-        `Claude Code session ${running} has subagents at work, and Med could not tell which agent runs this wait. If the session itself runs it, add --session claude:${running}.`,
-      );
-    // Only Claude Code wakes its agent when a background command ends, and
-    // only a Claude session takes messages here: nothing would end this wait.
-    if (session?.agent !== "claude")
-      throw new Error(
-        "No Claude Code session runs this command, so no message can reach this wait. Codex gets the user's messages from its queue at its next turn, and a session that Med started gets them as new turns. Put the review link in your final message and end your turn.",
-      );
-    return { ...common, kind: "wait", wait: { key: key.data, session } };
+    return {
+      ...common,
+      kind: "reply",
+      reply: {
+        ...(key && { key }),
+        ...(threadKey && { threadKey }),
+        commentId: id.toLowerCase(),
+        text,
+        ...(session && { session }),
+      },
+    };
   }
   if (positionals[0] === "update") {
     if (!values.key)
@@ -455,11 +497,10 @@ export async function parseReviewCommand(
       values["merge-base"] ||
       values["no-merge-base"] ||
       values.pr !== undefined ||
-      values.group !== undefined ||
       paths
     )
       throw new Error(
-        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, --group, or --paths.`,
+        `Use --${shape} without --manifest, --head, --working, --merge-base, --pr, or --paths.`,
       );
     if (partItems.length < 2)
       throw new UsageError(`Name two or more pull requests or branches after --${shape}.`);
@@ -580,15 +621,6 @@ export async function parseReviewCommand(
     input = { ...(input as object), guide: await readGuide(values.guide) };
   }
   if (values.key !== undefined) input = { ...(input as object), key: values.key };
-  if ((values.group === undefined) !== (values.attempt === undefined))
-    throw new UsageError(
-      "Use --group and --attempt together, such as --group week-view --attempt 2.",
-    );
-  if (values.group !== undefined)
-    input = {
-      ...(input as object),
-      group: { id: values.group, attempt: Number(values.attempt) },
-    };
   const found = await sessions();
   if (found.length)
     input = {
@@ -610,9 +642,7 @@ export async function parseReviewCommand(
           ? `Invalid brief: ${result.error.issues.find((issue) => issue.path[0] === "brief")!.message}`
           : result.error.issues.some((issue) => issue.path[0] === "key")
             ? `Invalid key: ${result.error.issues.find((issue) => issue.path[0] === "key")!.message}`
-            : result.error.issues.some((issue) => issue.path[0] === "group")
-              ? "Invalid group: use a name of letters, digits, and . _ -, and an attempt from 1 to 3."
-              : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
+            : "Invalid review manifest. Supply a title and 1–16 targets, each with repo and a Git comparison.",
     );
   // A brief can name generated files too (docs/PRACTICES.md): they join --generated.
   const named = [...(generated ?? []), ...readReviewOutput([result.data.brief]).generated];
@@ -686,8 +716,6 @@ export async function runReviewCommand(
     /** Where agent sessions are found: the environment and home directory. */
     environment?: NodeJS.ProcessEnv;
     home?: string;
-    /** How long wait pauses before it retries a lost connection. */
-    retryDelay?: number;
     /** Where the checks' advice goes: standard error by default. */
     warn?: (text: string) => void;
   } = {},
@@ -696,13 +724,7 @@ export async function runReviewCommand(
   const print = options.print ?? console.log;
   const warn = options.warn ?? console.error;
   if (command.kind === "help") {
-    print(reviewHelp);
-    return;
-  }
-  if (command.kind === "wait" && command.wait?.owned) {
-    print(
-      "Med started this session and sends the user's messages to it as new turns, so there is nothing to wait for. Do not run med review wait in this session.",
-    );
+    print(args[0] === "reply" ? replyHelp : reviewHelp);
     return;
   }
   const connection = await readConnection(command.stateDir, command.port);
@@ -710,8 +732,9 @@ export async function runReviewCommand(
   // Advice names this instance, so that it works as printed.
   const instance = { port: command.port, stateDir: command.stateDir };
   if (command.caller?.note) warn(command.caller.note);
-  if (command.kind === "wait") {
-    await waitForMessage(command, connection, fetcher, print, warn, options.retryDelay);
+  if (command.kind === "reply") {
+    await replyToComment(command.reply!, connection, fetcher);
+    print("Your reply is in the comment's thread.");
     return;
   }
   if (command.kind === "update") {
@@ -864,16 +887,6 @@ export async function runReviewCommand(
         `Shared checkout: ${listed(scope.others)} changed, but this session did not edit ${scope.others.length === 1 ? "it" : "them"}. If ${scope.others.length === 1 ? "it is" : "they are"} not part of your task, hand off only your files: ${update(`--paths ${scope.own.map((path) => shellWord(join(manifest.targets[0]!.repo, path))).join(" ")}`)}`,
       );
   }
-  // A Claude Code session outside a Med thread gets the user's comments by
-  // waiting. A subagent has no Session pane to send them from.
-  const wait =
-    key && !command.owned && command.caller?.detected
-      ? medCommand(instance, `review wait --key ${shellWord(key)}`)
-      : undefined;
-  if (wait)
-    tell(
-      `To get the user's comments, run this as a background command: ${wait}. Its output is the user's message.`,
-    );
   if (report)
     print(
       JSON.stringify(
@@ -884,7 +897,6 @@ export async function runReviewCommand(
           url,
           title: parsed.data.title ?? manifest.title,
           ...(joined && { layer: joined }),
-          ...(wait && { wait }),
           notes: report.notes,
           advice: report.advice,
         },
@@ -985,6 +997,50 @@ async function keyElsewhere(
 }
 
 /** A review by its key, or by its ID (r_…) when no review has that key. */
+/**
+ * `med reply`: answers a comment in the review that --key names, or else in
+ * the thread's review, or else in the one review that has the comment.
+ */
+async function replyToComment(
+  reply: NonNullable<ReviewCommand["reply"]>,
+  connection: RunningConnection,
+  fetcher: typeof fetch,
+) {
+  const { key, threadKey, commentId, text, session } = reply;
+  const send = (id: string) =>
+    request(connection, `/api/reviews/${id}/agent/reply`, fetcher, {
+      commentId,
+      text,
+      ...(session && { session: { agent: session.agent, id: session.id } }),
+    });
+  if (key) {
+    await send((await reviewByKey(connection, key, fetcher)).id);
+    return;
+  }
+  if (threadKey) {
+    // The comment can come from another review, pasted into this thread.
+    const done = await reviewByKey(connection, threadKey, fetcher)
+      .then((found) => send(found.id))
+      .then(
+        () => true,
+        (error: unknown) => (error instanceof NotFoundError ? false : Promise.reject(error)),
+      );
+    if (done) return;
+  }
+  const { reviews } = z
+    .object({
+      reviews: z.array(z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/), title: z.string() })),
+    })
+    .parse(await request(connection, `/api/comments/${commentId}`, fetcher));
+  if (!reviews.length)
+    throw new NotFoundError(`No review in Med has a comment with ID ${commentId}.`);
+  if (reviews.length > 1)
+    throw new UsageError(
+      `Comments in ${reviews.length} reviews have an ID that starts with ${commentId}: ${reviews.map((review) => `"${review.title}" (--key ${review.id})`).join(", ")}. Add --key with the review's ID.`,
+    );
+  await send(reviews[0]!.id);
+}
+
 async function reviewByKey(connection: RunningConnection, key: string, fetcher: typeof fetch) {
   const shape = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) });
   try {
@@ -1325,93 +1381,6 @@ export async function printGuideCheck(
   } catch {
     // The check is advice; the review was saved.
   }
-}
-
-/**
- * Waits for the user's next message to this session: a series of long polls,
- * so it has no time limit. A lost connection, such as a Med restart, is
- * retried for about five minutes.
- */
-async function waitForMessage(
-  command: ReviewCommand,
-  first: RunningConnection,
-  fetcher: typeof fetch,
-  print: (text: string) => void,
-  warn: (text: string) => void,
-  retryDelay = 5_000,
-) {
-  const { key, session } = command.wait!;
-  let connection: RunningConnection | undefined = first;
-  let id: string | undefined;
-  let failures = 0;
-  for (;;) {
-    try {
-      // After a lost connection, only a live record of the host counts: its
-      // old port may belong to another process now.
-      connection ??= await readConnection(command.stateDir, command.port);
-      if (!id) {
-        const found = z
-          .object({ id: z.string().regex(/^[A-Za-z0-9_-]+$/) })
-          .parse(await request(connection, "/api/reviews/by-key", fetcher, { key })).id;
-        await joinReview(connection, found, session!, fetcher, warn);
-        id = found;
-      }
-      const result = z
-        .object({
-          message: z.string().nullable(),
-          ids: z.array(z.string()).optional(),
-          superseded: z.boolean().optional(),
-        })
-        .parse(
-          await request(connection, `/api/reviews/${id}/agent/wait`, fetcher, {
-            session: session!.id,
-            confirm: true,
-          }),
-        );
-      failures = 0;
-      if (result.message) {
-        print(result.message);
-        // Med gives a message that nobody confirms to the next wait.
-        if (result.ids?.length)
-          await request(connection, `/api/reviews/${id}/agent/ack`, fetcher, {
-            ids: result.ids,
-          }).catch(() => {});
-        return;
-      }
-      if (result.superseded) {
-        print("Another `med review wait` for this session now waits. This one stops.");
-        return;
-      }
-    } catch (error) {
-      const lost = error instanceof HostError && error.code === "no-server";
-      if (!lost || ++failures > Math.ceil(300_000 / retryDelay)) throw error;
-      await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      connection = await readConnection(command.stateDir, command.port).catch(() => undefined);
-    }
-  }
-}
-
-/**
- * The review sends the user's messages only to its own sessions. A wait in a
- * session that it does not have, such as after /clear or in the parent of
- * the subagent that made the review, adds that session, as `update
- * --session` does; otherwise no message could reach the wait.
- */
-async function joinReview(
-  connection: RunningConnection,
-  id: string,
-  session: AgentSession,
-  fetcher: typeof fetch,
-  warn: (text: string) => void,
-) {
-  const review = z
-    .object({ sessions: z.array(z.object({ id: z.string() })).optional() })
-    .parse(await request(connection, `/api/reviews/${id}`, fetcher));
-  if (review.sessions?.some((entry) => entry.id === session.id)) return;
-  await request(connection, `/api/reviews/${id}/details`, fetcher, { sessions: [session] });
-  warn(
-    `Med added Claude Code session ${session.id} to the review, so the user's messages from it reach this wait.`,
-  );
 }
 
 /**

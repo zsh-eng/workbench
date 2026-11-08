@@ -28,9 +28,27 @@ one. `⌘`-click opens a file in the background. A middle click on a tab closes
 it. A workspace holds 24 file tabs; when the row is full, a new file takes the
 place of the oldest tab without an unsaved draft.
 
-Right-click a file in a tree or tab for **Reveal in Finder**, **Copy path**,
-and **Copy relative path**. The panel button beside **Esc**, or **Hide file
-preview in Find file**, hides the preview in every picker and window.
+Right-click a file in a tree or tab for **Open on GitHub** (the code host's
+page of the branch, once it is pushed), **Open in Sourcegraph** and the other
+links of Settings › Open in, then **Reveal in Finder**, **Copy path**, and
+**Copy relative path**.
+
+**Open in**, above a working-tree file, opens it elsewhere at the cursor's
+line, each item with a letter while the menu is open:
+
+- The code host by its address, such as `github.acme.build` (`G`): the file
+  at the same line on the branch's page. Med reads the host from the remote
+  that the branch pushes to, or origin. github.com is GitHub; Med asks any
+  other host once, through `/api/v3/meta`, and a host that answers is GitHub
+  Enterprise. A branch that is not pushed has no page, so the item reads
+  **Push to open**.
+- The editors on this Mac, each with the first free letter of its name:
+  VS Code (`code -g`), Cursor (`cursor -g`), Zed (`zed path:line`), and
+  IntelliJ IDEA (`idea --line`). Med finds each one's tool on `PATH`, or in
+  its app in /Applications.
+- **Reveal in Finder** (`R`), **Copy path** (`P`), and **Copy link** (`L`),
+  the code host's link. The panel button beside **Esc**, or **Hide file
+  preview in Find file**, hides the preview in every picker and window.
 
 ## Search file contents
 
@@ -86,9 +104,9 @@ Until the index is ready, Git answers: in a checkout, from its working files.
 
 Without the index, search says nothing about it while Git answers. Once in a
 run, a Git search that takes a second or more adds a quiet line that the index
-would make it faster. **Symbols in the project** (`⌘⇧O`) at a commit, or in a
+would make it faster. **Symbols in the project** at a commit, or in a
 checkout of more than 20,000 files, needs the index; without it, the picker
-says so, and **Symbols in this file** (`⌘O`) still works.
+says so, and **Symbols in this file** (`⌘⇧O`) still works.
 
 The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 `MED_SEARCH_CACHE` to move it, or `MED_ZOEKT_BIN` to a folder that has
@@ -98,12 +116,12 @@ The cache is `~/.cache/med/search`, or `$XDG_CACHE_HOME/med/search`. Set
 
 ![In-file symbol palette with a live jump in the current file](../validation/symbol-navigation.png)
 
-**Symbols in this file** (`⌘O`) starts at the symbol nearest the cursor and
+**Symbols in this file** (`⌘⇧O`) starts at the symbol nearest the cursor and
 ranks ties by distance. Arrow keys jump in the file; Enter keeps the position,
-and Escape restores it. **Symbols in the project** (`⌘⇧O`) searches the
-checkout's working files, with their uncommitted changes, and has its own
-preview. Both keep the last query, and both work in any view of a checkout.
-With no file open, `⌘O` says so and offers the project.
+and Escape restores it. **Symbols in the project**, from the picker or the
+palette, searches the checkout's working files, with their uncommitted
+changes, and has its own preview. Both keep the last query, and both work in
+any view of a checkout. With no file open, `⌘⇧O` opens the project's.
 
 Symbols come from Universal Ctags (`brew install universal-ctags`). Project
 symbols need no index: Med parses the files that Git tracks or does not
@@ -127,9 +145,13 @@ browser address. Files take focus when they open, in Normal mode:
   `a'`, backtick), and brackets (`i(`, `a[`, `i{`, `ib`, `aB`). Counts such as
   `v2i(` and repeated objects expand outward. Brackets are text pairs, not
   syntax.
-- `/` and `?` search live, `n` and `N` step, and `*` and `#` search for the word
-  at the cursor. An uppercase letter makes a search case-sensitive. Enter
-  accepts; Escape cancels or clears highlights.
+- `/` and `?` open the find bar that the diff has, with `/` or `?` in place of
+  its search icon. It searches live from the cursor, with Match case, Whole
+  word, and Regular expression (`⌥C`, `⌥W`, `⌥R`) and a count. `↵` goes to the
+  match and back to the file; `Esc` closes the bar and puts the cursor back.
+  Then `n` and `N` step from the bar's query, and `*` and `#` find the word at
+  the cursor, whole. `⌘F` opens the same bar without Vim's mark; there `↵` and
+  `⇧↵` step.
 - `gd` finds declarations of the word at the cursor, first in the file, then
   in the project index. Several candidates open a picker. Ctags does not
   resolve types or imports as a language server does.

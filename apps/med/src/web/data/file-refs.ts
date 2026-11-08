@@ -1,4 +1,5 @@
 import type { BrowseEntry } from "../../shared/browse";
+import { fileIconHtml } from "./file-icons";
 
 // File references in an agent's text: `src/a.ts:12`, `src/a.ts:12-20`,
 // `path#L12-L20`, an absolute path, a file:// or editor URL, or a GitHub blob
@@ -196,6 +197,7 @@ export function fileRefHtml(ref: FileRef, label: string) {
     (ref.endLine ? ` data-file-end="${ref.endLine}"` : "") +
     ` data-tooltip="${escape(refTitle(ref))}"` +
     ` aria-label="${escape(`Open ${ref.path}${lines ? ` at ${lines}` : ""}`)}">` +
+    fileIconHtml(ref.path, `${FILE_REF}-icon`) +
     `<span class="${FILE_REF}-name">${escape(label)}</span>` +
     (lines ? `<span class="${FILE_REF}-lines">${lines}</span>` : "") +
     `</a>`

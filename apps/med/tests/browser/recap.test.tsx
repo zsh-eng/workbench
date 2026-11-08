@@ -143,8 +143,6 @@ afterEach(() => {
   mount?.remove();
   root = mount = undefined;
   for (const key of KEYS) localStorage.removeItem(key);
-  for (const key of Object.keys(localStorage))
-    if (key.startsWith("med:viewed:v1:recap-")) localStorage.removeItem(key);
   history.replaceState(null, "", address);
   delete (document as unknown as Record<string, unknown>).visibilityState;
 });
@@ -293,10 +291,8 @@ async function openSession() {
   await expect.element(thread.getByText(question)).toBeVisible();
 }
 
-test("a turn that asked a question ends with its facts; Review opens the Guide's first segment not viewed", async () => {
+test("a turn that asked a question ends with its facts; Review opens the Guide's overview", async () => {
   const id = "recap-guide";
-  // The first segment's file is viewed already.
-  localStorage.setItem(`med:viewed:v1:${id}`, JSON.stringify(["src/tides.ts\u00002222222"]));
   const host = createHost(ended(id, Date.now() - 5_000), true);
   render(host);
   await openSession();
@@ -321,14 +317,14 @@ test("a turn that asked a question ends with its facts; Review opens the Guide's
   await userEvent.click(recap.getByRole("button", { name: "Reply" }));
   expect(document.activeElement).toBe(composer());
 
-  // Review: the turn is seen, and the Guide shows its first segment that is
-  // not viewed. The recap keeps its place out of sight, so nothing moves.
+  // Review: the turn is seen, and a first version opens on the Guide's
+  // overview. The recap keeps its place out of sight, so nothing moves.
   const before = shownRecap()!.getBoundingClientRect();
   await userEvent.click(recap.getByRole("button", { name: /^Review/ }));
-  await expect.element(page.getByRole("heading", { name: "Phase of the moon" })).toBeVisible();
+  await expect.element(page.getByRole("region", { name: "Guide overview" })).toBeVisible();
   await expect
-    .element(page.getByRole("tab", { name: "Review", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Review", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
   await expect.poll(() => shownRecap()?.dataset.recap).toBe("hidden");
   expect(getComputedStyle(shownRecap()!).visibility).toBe("hidden");
   const after = shownRecap()!.getBoundingClientRect();
@@ -346,14 +342,14 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
   await openSession();
   await expect.element(recap).toBeVisible();
   // No Review yet: the tab row has no Review tab.
-  expect(page.getByRole("tab", { name: "Review", exact: true }).query()).toBeNull();
+  expect(page.getByRole("radio", { name: "Review", exact: true }).query()).toBeNull();
 
   // ⌥↵ from the message box opens Changes at its first file; the box gets no new line.
   composer()!.focus();
   await userEvent.keyboard("{Alt>}{Enter}{/Alt}");
   await expect
-    .element(page.getByRole("tab", { name: "Changes", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Changes", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
   await expect.poll(() => shownRecap()?.dataset.recap).toBe("hidden");
   expect(composer()!.value).toBe("");
   await expect
@@ -362,18 +358,20 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
 
   // The next turn works while the reader watches its session, and ends: seen,
   // so no recap.
-  const activity = page.getByText("Running bun test");
+  const row = page.getByRole("navigation", { name: "Sessions" }).getByRole("button", {
+    name: /^Week view/,
+  });
   host.setThread(working(id, first + 10_000));
-  await expect.element(activity).toBeVisible();
+  await expect.element(row).toHaveAttribute("aria-busy", "true");
   expect(shownRecap()).toBeNull();
   host.setThread(ended(id, first + 20_000));
-  await expect.element(activity).not.toBeInTheDocument();
+  await expect.element(row).not.toHaveAttribute("aria-busy");
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(shownRecap()).toBeNull();
 
   // A turn that ends while the window hides comes unseen: a new recap.
   host.setThread(working(id, first + 30_000));
-  await expect.element(activity).toBeVisible();
+  await expect.element(row).toHaveAttribute("aria-busy", "true");
   Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
   document.dispatchEvent(new Event("visibilitychange"));
   host.setThread(ended(id, first + 40_000, { changes: { files: 1, additions: 2, deletions: 0 } }));
@@ -390,6 +388,6 @@ test("before a hand-off Review opens Changes at the first file; ⌥↵ works fro
   expect(document.activeElement?.classList.contains("med-thread-scroller")).toBe(true);
   // The tab row did not move: Esc went to the recap only.
   await expect
-    .element(page.getByRole("tab", { name: "Changes", exact: true }))
-    .toHaveAttribute("aria-selected", "true");
+    .element(page.getByRole("radio", { name: "Changes", exact: true }))
+    .toHaveAttribute("aria-checked", "true");
 });

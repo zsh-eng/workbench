@@ -34,13 +34,14 @@ import {
   type Rect,
   type Side,
 } from "../data/pane-tree";
-import { tokens, ui } from "../theme.stylex";
+import { tokens } from "../theme.stylex";
 import { resizeLine } from "./ColumnResize";
 import { Icon, type IconName } from "./Icon";
-import { ToolButton, tooltip } from "./ToolButton";
+import { ToolButton } from "./ToolButton";
 
-/** The room between panes and around them, in pixels. */
-export const PANE_GAP = 6;
+/** The room between panes, in pixels: a line, as in Claude's desktop app.
+ * The panes are flat, edge to edge, and each gutter draws the line. */
+export const PANE_GAP = 1;
 const STORAGE = "med:panes:v1:";
 const KEYBOARD_STEP = 24;
 
@@ -56,13 +57,26 @@ export interface PaneSpec {
   preload?: boolean;
   /** Where the pane opens when nothing says otherwise. */
   place?: { near?: string; side?: Side; share?: number };
-  /** The pane cannot close, such as the review. */
+  /** The pane stays when the window is too small for the others, such as the
+   * review. It closes only through its own `onClose`. */
   fixed?: boolean;
   /** The close button, when closing only hides what the pane shows, such as
    * an agent's session that keeps working: its name, icon, and shortcut. */
   hide?: { label: string; icon: IconName; shortcut?: string };
-  /** The pane with its header; `controls` go at the header's end. */
-  render(controls: ReactNode): ReactNode;
+  /** The pane with its header; `controls` go at the header's end. `place`
+   * says where the pane is on screen, or null while it is hidden or behind. */
+  render(controls: ReactNode, place: PanePlace | null): ReactNode;
+}
+
+/** Where a pane on screen is: which of the tree's edges it reaches, its left
+ * side, and the tree's width. A pane at the top right can take the room in
+ * the window's title band above it, as the review's title does. */
+export interface PanePlace {
+  top: boolean;
+  left: boolean;
+  right: boolean;
+  x: number;
+  treeWidth: number;
 }
 
 function read(key: string) {
@@ -465,18 +479,22 @@ export function PaneHeader({
 }
 
 /**
- * The end of a pane's header: Restore while the pane is zoomed, and Close. The
- * header itself moves the pane and zooms it (see paneHandle), as ⌘E does.
+ * The end of a pane's header: Expand (or Restore while the pane fills the
+ * workspace), then Close or Hide. The header itself also moves the pane, and
+ * a double click on it expands it (see paneHandle), as ⌘E does.
  */
 export function PaneControls({
   label,
   zoomed,
+  several = zoomed,
   onZoom,
   onClose,
   hide,
 }: {
   label: string;
   zoomed: boolean;
+  /** Other panes show beside this one, so it can expand. */
+  several?: boolean;
   onZoom(): void;
   onClose?(): void;
   hide?: PaneSpec["hide"];
@@ -484,16 +502,13 @@ export function PaneControls({
   const name = label.toLowerCase();
   return (
     <>
-      {zoomed && (
-        <button
-          type="button"
-          aria-label={`Restore ${name}`}
-          {...tooltip("Restore the other panes", "Mod+E")}
+      {(several || zoomed) && (
+        <ToolButton
+          label={zoomed ? `Restore the other panes` : `Expand ${name}`}
+          icon={zoomed ? "restore" : "maximize"}
+          shortcut="Mod+E"
           onClick={onZoom}
-          {...stylex.props(ui.button, ui.pressable, styles.restore)}
-        >
-          Restore
-        </button>
+        />
       )}
       {onClose &&
         (hide ? (
@@ -748,14 +763,22 @@ export function PaneTree({
               <PaneControls
                 label={pane.label}
                 zoomed={zoomed === pane.id}
+                several={several}
                 onZoom={() => state.toggleZoom(pane.id)}
                 {...(pane.hide && { hide: pane.hide })}
                 onClose={
-                  pane.fixed
-                    ? undefined
-                    : () => (pane.onClose ? pane.onClose() : state.close(pane.id))
+                  pane.onClose ? pane.onClose : pane.fixed ? undefined : () => state.close(pane.id)
                 }
               />,
+              shown && !behind && rect
+                ? {
+                    top: rect.y <= 0,
+                    left: rect.x <= 0,
+                    right: rect.x + rect.width >= box.width - 0.5,
+                    x: rect.x,
+                    treeWidth: box.width,
+                  }
+                : null,
             )}
           </section>
         );
@@ -956,14 +979,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
-    boxShadow: {
-      default: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
-      ":is([data-focused])": `0 0 0 1px ${tokens.lineStrong}, 0 1px 3px #0000000f`,
-    },
-    transitionProperty: "box-shadow",
-    transitionDuration: "120ms",
     outline: "none",
     contain: "strict",
     pointerEvents: { default: null, ":is(html[data-pane-resizing] *)": "none" },
@@ -975,18 +991,15 @@ const styles = stylex.create({
     height,
   }),
   hidden: { display: "none" },
-  restore: { flexShrink: 0, height: 24, paddingInline: 8, fontSize: 12 },
   veil: {
     position: "absolute",
     zIndex: 3,
-    borderRadius: tokens.frame,
     backgroundColor: `color-mix(in srgb, ${tokens.panel} 55%, transparent)`,
     pointerEvents: "none",
   },
   drop: {
     position: "absolute",
     zIndex: 4,
-    borderRadius: `calc(${tokens.frame} - 2px)`,
     backgroundColor: `color-mix(in srgb, ${tokens.accent} 12%, transparent)`,
     boxShadow: `inset 0 0 0 1.5px ${tokens.accentLine}`,
     pointerEvents: "none",
@@ -1028,10 +1041,12 @@ const styles = stylex.create({
   // Zoom keeps the other panes laid out, so they keep their scroll.
   behind: { visibility: "hidden" },
   zoomed: { zIndex: 1 },
+  // The line between two panes.
   gutter: {
     position: "absolute",
     zIndex: 2,
     display: "flex",
+    backgroundColor: tokens.line,
     alignItems: "center",
     justifyContent: "center",
     outline: "none",
@@ -1045,14 +1060,13 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8,
-    height: 38,
+    height: tokens.bar,
     flexShrink: 0,
+    boxSizing: "border-box",
     paddingInlineStart: 14,
     paddingInlineEnd: 6,
     color: tokens.muted,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     fontFamily: tokens.ui,
   },
   title: { flexShrink: 0, color: tokens.text, fontSize: 12.5, fontWeight: 500 },

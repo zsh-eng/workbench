@@ -24,6 +24,7 @@ import { PendingReviewContext, type PendingReviewInput } from "../data/pending-r
 import { CommentEditor, CommentText } from "./NoteCard";
 import { useRowPart } from "./QuietChrome";
 import { tooltip } from "./ToolButton";
+import { Fold } from "./Fold";
 
 // Review comments that Med reads but does not write: GitHub pull request
 // comments, and the findings of Codex reviews. Med shows them beside its own
@@ -179,11 +180,20 @@ const labelSuggestions = (text: string) =>
 /** A comment's Markdown, rendered as Med's own comments are: code, lists, task
  * lists, quotes, and links that open in the browser. Raw HTML never renders;
  * the HTML comments that bots leave are removed. A long comment folds. */
-function Body({ text }: { text: string }) {
+function Body({ text, page = false }: { text: string; page?: boolean }) {
   const clean = text.replace(/<!--[\s\S]*?-->/g, "").trim();
   const long = clean.length > 900 || clean.split("\n").length > 14;
   const [open, setOpen] = useState(false);
   if (!clean) return <p {...stylex.props(styles.body, styles.empty)}>No text.</p>;
+  // On the pull request page, a comment folds where a description does.
+  if (page)
+    return (
+      <Fold>
+        <div {...stylex.props(styles.body)}>
+          <CommentText text={labelSuggestions(clean)} />
+        </div>
+      </Fold>
+    );
   return (
     <>
       <div {...stylex.props(styles.body, long && !open && styles.clamped)}>
@@ -323,6 +333,7 @@ function Entry({
   tag,
   heading,
   tools,
+  page,
 }: {
   comment: Pick<PullRequestComment, "author" | "body" | "createdAt" | "draft">;
   now: number;
@@ -333,6 +344,8 @@ function Entry({
   /** A finding's title, above its text. */
   heading?: string;
   tools?: ReactNode;
+  /** On the pull request page, where long text folds at half a screen. */
+  page?: boolean;
 }) {
   const created = Date.parse(comment.createdAt);
   const review = tag ?? (state ? reviewTag(state) : comment.draft ? draftTag : null);
@@ -362,7 +375,7 @@ function Entry({
         {tools && <span {...stylex.props(styles.tools)}>{tools}</span>}
       </div>
       {heading && <p {...stylex.props(styles.heading2)}>{heading}</p>}
-      {comment.body.trim() ? <Body text={comment.body} /> : null}
+      {comment.body.trim() ? <Body text={comment.body} page={page} /> : null}
     </div>
   );
 }
@@ -530,13 +543,9 @@ export type { ThreadPlacement };
 export function PullRequestPanel({
   state,
   placement,
-  words = false,
 }: {
   state: PullRequestState;
   placement: ThreadPlacement;
-  /** Quiet chrome: the count in words, such as "3 comments", and nothing
-   * while the comments load. */
-  words?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [part, setPart] = useState<HTMLSpanElement | null>(null);
@@ -551,7 +560,7 @@ export function PullRequestPanel({
     : count === null
       ? "Pull request comments"
       : `${count} pull request ${count === 1 ? "comment" : "comments"}`;
-  const room = useRowPart(words ? part : null, error ? "error" : "count");
+  const room = useRowPart(part, error ? "error" : "count");
   return (
     <Popover.Root
       open={open}
@@ -563,33 +572,27 @@ export function PullRequestPanel({
       <Popover.Trigger
         {...stylex.props(ui.button, ui.pressable, styles.trigger)}
         aria-label={label}
-        {...(words ? tooltip(error ?? label) : { title: label })}
+        {...tooltip(error ?? label)}
       >
         <Icon name="note" size={14} />
-        {words ? (
-          (error || count !== null) && (
-            // The words give way before the row's tabs do: "7", or "!".
-            <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
-              {error ? (
-                <>
-                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                    Comments could not load
-                  </span>
-                  {!room && "!"}
-                </>
-              ) : (
-                <>
-                  {count}
-                  <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
-                    {count === 1 ? " comment" : " comments"}
-                  </span>
-                </>
-              )}
-            </span>
-          )
-        ) : (
-          <span {...stylex.props(styles.count, error ? styles.bad : null)}>
-            {error ? "!" : (count ?? "…")}
+        {(error || count !== null) && (
+          // The words give way before the review's title shortens: "7", or "!".
+          <span {...stylex.props(styles.words, !room && error ? styles.bad : null)}>
+            {error ? (
+              <>
+                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                  Comments could not load
+                </span>
+                {!room && "!"}
+              </>
+            ) : (
+              <>
+                {count}
+                <span ref={setPart} {...stylex.props(!room && styles.hidden)}>
+                  {count === 1 ? " comment" : " comments"}
+                </span>
+              </>
+            )}
           </span>
         )}
       </Popover.Trigger>
@@ -754,6 +757,13 @@ export function Discussion({
       }
     />
   );
+  if (onShowThread)
+    return (
+      <>
+        <PendingReview data={data}>{pending.length > 0 && pending.map(item)}</PendingReview>
+        <Timeline data={data} threads={listed} now={now} item={item} />
+      </>
+    );
   return (
     <>
       <PendingReview data={data}>{pending.length > 0 && pending.map(item)}</PendingReview>
@@ -804,6 +814,109 @@ export function Discussion({
         {!data.threads.length && <p {...stylex.props(styles.lede)}>No code comments.</p>}
       </section>
     </>
+  );
+}
+
+/** "sam approved", for a review with no text: one line. */
+const REVIEW_LINES: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "requested changes",
+  DISMISSED: "had a review dismissed",
+};
+
+/**
+ * The pull request page's conversation: one timeline of comments, reviews,
+ * and code threads, by when each began. An approval or a change request with
+ * no text is one line; so is an outdated thread, which opens. People's
+ * comments stack without rules.
+ */
+function Timeline({
+  data,
+  threads,
+  now,
+  item,
+}: {
+  data: PullRequestComments;
+  threads: PullRequestThread[];
+  now: number;
+  item(thread: PullRequestThread): ReactNode;
+}) {
+  const [opened, setOpened] = useState<ReadonlySet<number>>(new Set());
+  const entries = [
+    ...data.reviews
+      // A review with no text that only holds code comments says nothing itself.
+      .filter((review) => review.body.trim() || REVIEW_LINES[review.state])
+      .map((review) => ({ at: review.createdAt, comment: review, state: review.state })),
+    ...data.conversation.map((comment) => ({ at: comment.createdAt, comment, state: undefined })),
+    ...threads.map((thread) => ({ at: thread.comments[0]?.createdAt ?? "", thread })),
+  ].sort((a, b) => a.at.localeCompare(b.at));
+  return (
+    <section aria-label="Conversation" {...stylex.props(styles.section)}>
+      <div {...stylex.props(styles.headingRow)}>
+        <h3 {...stylex.props(ui.label, styles.heading)}>Conversation</h3>
+        <AddAllToReply threads={data.threads.filter((thread) => thread.line !== null)} />
+      </div>
+      {entries.map((entry) => {
+        if ("thread" in entry) {
+          const { thread } = entry;
+          const first = thread.comments[0];
+          if (thread.line !== null || opened.has(thread.id))
+            return <div key={`thread-${thread.id}`}>{item(thread)}</div>;
+          return (
+            <button
+              key={`thread-${thread.id}`}
+              type="button"
+              aria-expanded={false}
+              onClick={() => setOpened(new Set([...opened, thread.id]))}
+              {...stylex.props(styles.oneLine, styles.lineButton)}
+            >
+              <Icon name="github" size={12} />
+              <span {...stylex.props(ui.truncate)}>
+                {first?.author ?? "Someone"} on {thread.path}, outdated
+              </span>
+            </button>
+          );
+        }
+        const { comment, state } = entry;
+        if (state && !comment.body.trim())
+          return (
+            <p key={comment.id} {...stylex.props(styles.oneLine)}>
+              <StateTag tag={reviewTag(state)} />
+              <span>
+                {comment.author} {REVIEW_LINES[state]}
+              </span>
+              <time dateTime={comment.createdAt} {...stylex.props(styles.time)}>
+                {relativeTime(Date.parse(comment.createdAt), now)}
+              </time>
+            </p>
+          );
+        return (
+          <div key={comment.id} {...stylex.props(styles.stacked)}>
+            <Entry
+              comment={comment}
+              now={now}
+              state={state}
+              page
+              tools={
+                <>
+                  {comment.body.trim() && (
+                    <>
+                      <AddToReplyButton
+                        label={`@${comment.author}`}
+                        text={() => commentText(comment)}
+                      />
+                      <CopyButton label="Copy comment" text={() => commentText(comment)} />
+                    </>
+                  )}
+                  <OpenButton url={comment.url} />
+                </>
+              }
+            />
+          </div>
+        );
+      })}
+      {!entries.length && <p {...stylex.props(styles.lede)}>No conversation yet.</p>}
+    </section>
   );
 }
 
@@ -1343,6 +1456,28 @@ const styles = stylex.create({
   error: { marginBlock: 6, color: tokens.red, fontSize: 12, lineHeight: 1.5 },
   section: { marginTop: 12 },
   heading: { margin: 0, marginBottom: 2 },
+  // A line of the timeline: an approval, or an outdated thread.
+  oneLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 28,
+    marginBlock: 2,
+    color: tokens.muted,
+    fontSize: 12.5,
+  },
+  lineButton: {
+    width: "100%",
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    fontFamily: tokens.ui,
+    textAlign: "start",
+    cursor: "pointer",
+    color: { default: tokens.muted, ":hover": tokens.text },
+  },
+  // People's comments stack without rules.
+  stacked: { paddingBlock: 6 },
   item: {
     paddingBlock: 4,
     borderTopWidth: { default: 1, ":first-of-type": 0 },

@@ -2,7 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import { useEffect, useState, type Ref } from "react";
 import type { Thread, ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
-import { useQuietChrome } from "../../data/chrome";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { ToolButton, tooltip } from "../ToolButton";
@@ -68,7 +67,7 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
  * title bar hidden, the band is the title bar beside the window controls; it
  * moves the window, and its controls take clicks.
  *
- * With quiet chrome, the band is the one place for the thread's branch. While
+ * The band is the one place for the thread's branch. While
  * the sidebar, which lists the thread, is hidden, the band names the thread
  * too, and a dot on Show sidebar tells that a tab needs the reader. A
  * thread's pull request is its title here (InTitleBand): the checkout follows
@@ -81,6 +80,7 @@ export function WorkspaceBar({
   rename,
   slots,
   titled = false,
+  covered = false,
 }: {
   context?: BarContext;
   /** The sidebar is hidden or covers the workspace: the band starts with its toggle. */
@@ -91,19 +91,22 @@ export function WorkspaceBar({
    * while the sidebar hides. */
   rename?: { thread: Thread; editing: boolean; start(): void; done(name: string | null): void };
   /** Where the workspace on screen puts its own title (InTitleBand): `lead`
-   * before the checkout, `trail` at the band's end. */
-  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement> };
+   * before the checkout, `trail` at the band's end, and `cover`, a pane's own
+   * row over the band's end, above the pane. */
+  slots?: { lead: Ref<HTMLSpanElement>; trail: Ref<HTMLSpanElement>; cover: Ref<HTMLSpanElement> };
   /** The workspace's own title leads the band, such as a thread's pull
    * request: the checkout follows it, quieter, and goes in a narrow band. */
   titled?: boolean;
+  /** A pane's row covers the band's end, such as the review's title beside
+   * the session: it names the thread, so the band does not. */
+  covered?: boolean;
 }) {
-  const quiet = useQuietChrome();
   const title =
-    quiet && showSidebar && !titled && context?.kind === "checkout" ? context.title : undefined;
+    showSidebar && !titled && !covered && context?.kind === "checkout" ? context.title : undefined;
   return (
     <header
       aria-label="Workspace"
-      className={`med-title-row ${stylex.props(styles.bar, showSidebar && styles.afterControls).className ?? ""}`}
+      className={`med-title-row ${stylex.props(styles.bar, showSidebar && styles.afterControls, covered && styles.covered).className ?? ""}`}
     >
       {showSidebar && (
         <ToolButton
@@ -132,12 +135,7 @@ export function WorkspaceBar({
       )}
       <span ref={slots?.lead} {...stylex.props(styles.lead, !titled && styles.empty)} />
       {context?.kind === "checkout" && (
-        <Checkout
-          {...context}
-          quiet={quiet}
-          after={!!title || !!rename?.editing || titled}
-          secondary={titled}
-        />
+        <Checkout {...context} after={!!title || !!rename?.editing || titled} secondary={titled} />
       )}
       {context?.kind === "label" && (
         <span {...stylex.props(styles.checkout)}>
@@ -146,6 +144,7 @@ export function WorkspaceBar({
         </span>
       )}
       <span ref={slots?.trail} {...stylex.props(styles.trail, !titled && styles.empty)} />
+      <span ref={slots?.cover} {...stylex.props(styles.cover, !covered && styles.empty)} />
     </header>
   );
 }
@@ -157,11 +156,9 @@ function Checkout({
   branch,
   path,
   linked,
-  quiet,
   after,
   secondary,
 }: Extract<BarContext, { kind: "checkout" }> & {
-  quiet: boolean;
   after: boolean;
   secondary: boolean;
 }) {
@@ -195,8 +192,8 @@ function Checkout({
         <Icon name="branch" size={13} />
         <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
       </span>
-      {/* Quiet chrome leaves out a worktree folder that has the branch's name. */}
-      {linked && !(quiet && basename(path) === branch) && (
+      {/* A worktree folder that has the branch's name says nothing more. */}
+      {linked && basename(path) !== branch && (
         <span {...stylex.props(styles.part, styles.worktree)}>
           <Icon name="folder" size={13} />
           <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>
@@ -207,10 +204,12 @@ function Checkout({
 }
 
 const styles = stylex.create({
-  // Level with the sidebar's own top row, so both read as one band.
+  // Level with the sidebar's own top row, so both read as one band; a line
+  // at its foot, where the panes start.
   bar: {
     display: "flex",
     alignItems: "center",
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     gap: 4,
     flexShrink: 0,
     minWidth: 0,
@@ -226,6 +225,16 @@ const styles = stylex.create({
   },
   // Past the window controls, where the sidebar would otherwise start.
   afterControls: { paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 8px)" },
+  // The covering row reaches the band's end, or the window controls there.
+  covered: { paddingInlineEnd: "var(--med-titlebar-right)" },
+  // A pane's row over the band's end (InTitleBand's cover): it sets its own
+  // width, the pane's, and the band's start gives way.
+  cover: {
+    display: "flex",
+    flexShrink: 0,
+    alignSelf: "stretch",
+    marginInlineStart: "auto",
+  },
   checkout: {
     display: "inline-flex",
     alignItems: "center",
@@ -260,7 +269,17 @@ const styles = stylex.create({
     minWidth: 0,
     paddingInlineStart: 8,
   },
-  trail: { display: "flex", alignItems: "center", flexShrink: 0, marginInlineStart: "auto" },
+  // At the band's end; a row that ends the band (the review's, alone) fills
+  // the rest of it, and the title gives way before it does.
+  trail: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexGrow: 1,
+    flexShrink: 0.001,
+    minWidth: 0,
+    marginInlineStart: "auto",
+  },
   empty: { display: "none" },
   name: { color: tokens.text, fontWeight: 500 },
   // After the thread's title, the repository is secondary.

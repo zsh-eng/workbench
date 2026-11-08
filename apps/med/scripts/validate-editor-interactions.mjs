@@ -97,7 +97,10 @@ try {
     await page.keyboard.press("Alt+KeyW");
     await tabs.getByRole("tab", { name: /sample.ts/ }).waitFor({ state: "hidden", timeout: 3000 });
     assert.equal(
-      await tabs.getByRole("tab", { name: "Changes", exact: true }).getAttribute("aria-selected"),
+      await page
+        .getByRole("radio", { name: "Changes", exact: true })
+        .filter({ visible: true })
+        .getAttribute("aria-checked"),
       "true",
     );
     await page.goto(fileUrl);
@@ -173,13 +176,25 @@ try {
     "keep named register private",
   );
   // Mouse word selection must paint the same selection layer and seed search.
-  const word = editor
+  // The word's place in the first line, whether or not the highlighter
+  // wraps it in its own element.
+  const word = await editor
     .locator(".cm-line")
     .first()
-    .locator("span")
-    .filter({ hasText: /^selectionTarget$/ })
-    .first();
-  await word.dblclick();
+    .evaluate((line) => {
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent.indexOf("selectionTarget");
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + "selectionTarget".length);
+        const box = range.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }
+      throw new Error("No selectionTarget in the first line");
+    });
+  await page.mouse.dblclick(word.x, word.y);
   assert.equal(await page.evaluate(() => getSelection()?.toString()), "selectionTarget");
   await highlight.waitFor();
   await page.keyboard.press("Control+Shift+f");
@@ -225,7 +240,8 @@ try {
   await page.keyboard.type("ggO");
   await page.keyboard.type("// saved");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.keyboard.type(":w");
+  await page.keyboard.press("Enter");
   await labels.first().waitFor();
   assert.match(await labels.first().getAttribute("aria-label"), /Uncommitted/);
   await page.waitForTimeout(700); // allow the real file watcher to report this save
@@ -264,14 +280,34 @@ try {
   await editor.waitFor({ state: "hidden" });
   await page.goto(`${new URL(launch).origin}/file${repo}/Sample.java`);
   await editor.waitFor();
-  const diamond = editor.locator(".cm-line span").filter({ hasText: /^<>$/ });
+  // The highlighter may split < and > into spans of their own: measure the
+  // pair with a range over the line's text.
+  const diamond = editor.locator(".cm-line", { hasText: "ConcurrentHashmap<>" });
   await diamond.waitFor();
   await page.evaluate(() => document.fonts.ready);
-  const widths = await diamond.evaluate((el) => {
+  const widths = await diamond.evaluate((line) => {
+    const nodes = [];
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+    // A start is in the node where its character is; an end may close one.
+    const at = (offset, end) => {
+      for (const node of nodes) {
+        if (end ? offset <= node.data.length : offset < node.data.length) return [node, offset];
+        offset -= node.data.length;
+      }
+      throw new Error("No such offset");
+    };
+    const start = nodes
+      .map((node) => node.data)
+      .join("")
+      .indexOf("<>");
+    const range = document.createRange();
+    range.setStart(...at(start, false));
+    range.setEnd(...at(start + 2, true));
     const canvas = document.createElement("canvas").getContext("2d");
-    const style = getComputedStyle(el);
+    const style = getComputedStyle(range.startContainer.parentElement);
     canvas.font = `${style.fontSize} ${style.fontFamily}`;
-    return { pair: el.getBoundingClientRect().width, cell: canvas.measureText("p").width };
+    return { pair: range.getBoundingClientRect().width, cell: canvas.measureText("p").width };
   });
   assert.ok(
     widths.pair >= widths.cell * 1.9,

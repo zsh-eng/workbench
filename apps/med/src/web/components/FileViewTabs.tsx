@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
+import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { paneHandle } from "./PaneTree";
 import { PathContextMenu, type PathActions } from "./PathMenu";
@@ -34,10 +35,7 @@ export function FileViewTabs({
   leading,
   trailing,
   pathActions,
-  keepTabs = false,
 }: {
-  /** The tabs keep their width, and the trailing controls give way first. */
-  keepTabs?: boolean;
   pathActions?: PathActions;
   tabs: FileViewTab[];
   active: string;
@@ -93,11 +91,7 @@ export function FileViewTabs({
       {...stylex.props(styles.root)}
     >
       {leading}
-      <Tabs.List
-        ref={list}
-        aria-label="Open files"
-        {...stylex.props(styles.list, keepTabs && styles.keep)}
-      >
+      <Tabs.List ref={list} aria-label="Open files" {...stylex.props(styles.list, styles.keep)}>
         {showReview && (
           <Tabs.Tab
             value="review"
@@ -219,17 +213,22 @@ export function FileViewTabs({
               }}
               {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
+              <FileIcon path={tab.path} />
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
-              {tab.dirty && (
-                <span
-                  aria-label="Unsaved changes"
-                  title="Unsaved changes"
-                  {...stylex.props(styles.dirty)}
-                />
-              )}
             </Tabs.Tab>
+            {/* An unsaved file's dot takes the close button's place, until hover. */}
+            {tab.dirty && (
+              <span
+                aria-label="Unsaved changes"
+                title="Unsaved changes"
+                {...stylex.props(styles.dirty)}
+              />
+            )}
             <button
-              {...stylex.props(styles.close, active === tab.id && styles.closeVisible)}
+              {...stylex.props(
+                styles.close,
+                active === tab.id && !tab.dirty && styles.closeVisible,
+              )}
               aria-label={`Close ${tab.path}`}
               title={`Close ${tab.path}`}
               onClick={() => onClose(tab.id)}
@@ -248,43 +247,51 @@ const tabEnter = stylex.keyframes({
   to: { opacity: 1, transform: "none" },
 });
 const styles = stylex.create({
+  // Plain rectangles, a line between each. The strip's bottom line is a
+  // shadow inside it, so the current tab, on the file's color, covers it
+  // and joins the file below.
   root: {
     display: "flex",
-    alignItems: "center",
-    gap: 4,
+    alignItems: "stretch",
     flexShrink: 0,
     minWidth: 0,
-    height: 38,
-    minHeight: 38,
+    height: 32,
+    minHeight: 32,
     boxSizing: "border-box",
-    paddingInline: 6,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    backgroundColor: tokens.panel,
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
+  // The tabs narrow as more open and never scroll.
   list: {
     display: "flex",
-    alignItems: "center",
-    gap: 2,
+    alignItems: "stretch",
     flex: "1",
     minWidth: 0,
-    overflowX: "auto",
-    scrollbarWidth: "none",
+    overflow: "hidden",
   },
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
-  // scroll before the row's last controls shrink.
+  // narrow before the row's last controls shrink.
   keep: { flexBasis: "auto", flexShrink: 100 },
-  item: { position: "relative", display: "flex", alignItems: "center", flexShrink: 0 },
+  item: {
+    position: "relative",
+    display: "flex",
+    alignItems: "stretch",
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: 200,
+    minWidth: 56,
+  },
   tab: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    height: 26,
+    gap: 7,
+    minWidth: 0,
     borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
+    borderRadius: 0,
+    boxShadow: `inset -1px 0 0 ${tokens.line}`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
-    paddingInline: 8,
+    paddingInline: 12,
     fontFamily: tokens.ui,
     fontSize: 12,
     fontWeight: 450,
@@ -293,18 +300,26 @@ const styles = stylex.create({
     outlineOffset: -2,
     whiteSpace: "nowrap",
   },
-  changes: { paddingInlineEnd: 6 },
+  changes: { flexShrink: 0 },
   enter: {
     animationName: { default: tabEnter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { paddingInlineEnd: 26 },
+  fileTab: { width: "100%", paddingInlineStart: 10, paddingInlineEnd: 28 },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
-    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
+    backgroundColor: { default: tokens.canvas, ":hover": tokens.canvas },
   },
-  name: { maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" },
+  // A long name fades at the tab's edge; a short one never reaches it.
+  name: {
+    flex: "1",
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textAlign: "start",
+    maskImage: "linear-gradient(to right, #000 calc(100% - 18px), transparent)",
+  },
   query: { maxWidth: 180, whiteSpace: "pre" },
   count: {
     minWidth: 18,
@@ -320,15 +335,22 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   dirty: {
+    position: "absolute",
+    zIndex: 2,
+    insetInlineEnd: 12,
+    top: "calc(50% - 3px)",
     width: 6,
     height: 6,
     borderRadius: "50%",
     backgroundColor: tokens.warning,
-    flexShrink: 0,
+    pointerEvents: "none",
+    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
   },
   close: {
     position: "absolute",
-    insetInlineEnd: 4,
+    zIndex: 2,
+    insetInlineEnd: 6,
+    top: "calc(50% - 9px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

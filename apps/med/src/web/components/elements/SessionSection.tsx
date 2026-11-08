@@ -120,7 +120,6 @@ function Replay() {
         <SessionComposer
           agent="claude"
           name="Claude"
-          waiting={false}
           drafts={[]}
           attachments={[]}
           onRemoveAttachment={() => {}}
@@ -131,20 +130,11 @@ function Replay() {
   );
 }
 
-// The reply flow: the agent hands off, waits in `med review wait`, and takes
-// the user's message with the comments they chose.
+// The reply flow: the agent hands off and ends its turn; the user's message,
+// with the comments they chose, starts the next.
 const BASE = Date.UTC(2026, 9, 10, 9, 0, 0);
 const at = (seconds: number) => BASE + seconds * 1000;
 const iso = (seconds: number) => new Date(at(seconds)).toISOString();
-const wait = (id: string, status: "in_progress" | "completed"): SessionUpdate => ({
-  sessionUpdate: "tool_call",
-  toolCallId: id,
-  title: "Wait for your review",
-  kind: "execute",
-  status,
-  rawInput: { command: "med review wait --key durations" },
-  _meta: { med: { tool: "Bash", background: { id: `b-${id}`, kind: "shell" } } },
-});
 const say = (id: string, text: string): SessionUpdate => ({
   sessionUpdate: "agent_message_chunk",
   messageId: id,
@@ -165,13 +155,8 @@ const replyEvents: SessionEvent[] = [
     at: at(48),
     update: say(
       "a1",
-      "Added `formatDuration` and used it in `summarize()` ([summary.ts:14](src/summary.ts:14)). The review is in Med; I wait for your comments there.",
+      "Added `formatDuration` and used it in `summarize()` ([summary.ts:14](src/summary.ts:14)). The review is in Med.",
     ),
-  },
-  { at: at(50), update: wait("w1", "in_progress") },
-  {
-    at: at(301),
-    update: { sessionUpdate: "tool_call_update", toolCallId: "w1", status: "completed" },
   },
   {
     at: at(302),
@@ -189,7 +174,6 @@ const replyEvents: SessionEvent[] = [
       "Durations over 90 seconds now round to whole minutes ([summary.ts:14](src/summary.ts:14)), and the export keeps milliseconds. New iteration in Med.",
     ),
   },
-  { at: at(342), update: wait("w2", "in_progress") },
 ];
 const sentBefore: AgentMessage = {
   id: "m1",
@@ -222,9 +206,9 @@ const demoDrafts: DraftComment[] = [
 const demoThread =
   "src/summary.ts:R14\n\n@reviewer:\n> Can this handle a missing duration?\n\nhttps://github.com/example/trail-notes/pull/12#discussion_r1";
 const STATES = [
-  { id: "waiting", label: "Claude waits" },
+  { id: "idle", label: "Claude is idle" },
   { id: "away", label: "Claude works" },
-  { id: "codex", label: "Codex" },
+  { id: "elsewhere", label: "Open in a terminal" },
 ] as const;
 
 function ReplyDemo() {
@@ -234,13 +218,13 @@ function ReplyDemo() {
     return store;
   });
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [mode, setMode] = useState<(typeof STATES)[number]["id"]>("waiting");
+  const [mode, setMode] = useState<(typeof STATES)[number]["id"]>("idle");
   const [messages, setMessages] = useState<AgentMessage[]>([sentBefore]);
   const [drafts, setDrafts] = useState(demoDrafts);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([
     { id: "g1", label: "summary.ts:R14", text: demoThread },
   ]);
-  const agent = mode === "codex" ? "codex" : "claude";
+  const agent = "claude";
   const shown = useMemo(
     () => ({ ...snapshot, items: withSentMessages(snapshot.items, messages) }),
     [snapshot, messages],
@@ -265,24 +249,18 @@ function ReplyDemo() {
           <Icon name={agent} size={14} />
           <span {...stylex.props(styles.panelTitle)}>Format trail durations</span>
           <span {...stylex.props(styles.state)}>
-            <span
-              {...stylex.props(
-                styles.dot,
-                mode === "away" && styles.dotLive,
-                mode === "waiting" && styles.dotWaiting,
-              )}
-            />
-            {mode === "waiting" ? "Waiting for you" : mode === "away" ? "Working" : "Idle"}
+            <span {...stylex.props(styles.dot, mode === "away" && styles.dotLive)} />
+            {mode === "away" ? "Working" : "Idle"}
           </span>
         </header>
         <div {...stylex.props(styles.thread)}>
           <SessionThread snapshot={shown} />
         </div>
         <SessionComposer
-          key={agent}
+          key={mode}
           agent={agent}
-          name={agent === "codex" ? "Codex" : "Claude"}
-          waiting={mode === "waiting"}
+          name="Claude"
+          presence={mode === "elsewhere" ? "terminal" : "resumable"}
           drafts={drafts}
           attachments={attachments}
           onRemoveAttachment={(id) =>
@@ -298,11 +276,11 @@ function ReplyDemo() {
               attachmentCount: message.attachments.length,
               // After the recorded work, so it shows last.
               createdAt: iso(400 + messages.length),
-              delivery: agent === "codex" ? "queued" : "pending",
+              delivery: "pending",
             };
             setMessages((list) => [...list, sent]);
             setDrafts((list) => list.filter((draft) => !message.noteIds.includes(draft.id)));
-            if (agent === "claude" && mode === "waiting")
+            if (mode === "idle")
               setTimeout(
                 () =>
                   setMessages((list) =>
@@ -547,7 +525,7 @@ export function SessionSection() {
       </Specimen>
       <Specimen
         title="Reply to the agent"
-        note="Comments and GitHub threads go into one message. A waiting Claude takes it at once; otherwise it waits in Med until the agent runs med review wait. Codex gets it in its queue."
+        note="Comments and GitHub threads go into one message. Claude takes it as its next prompt, or at its next step while it works. A session open in a terminal is read-only here: Continue in Med forks it."
         padded={false}
         zoomable={false}
         span="half"

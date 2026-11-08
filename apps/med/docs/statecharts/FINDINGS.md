@@ -361,9 +361,8 @@ Not modelled.
   commit. A file that the tab did not show, such as a binary one, has no
   content check.
 - SentComments: one comment, one edit and one message. Replies and comments
-  on the Notes use the same code. Held messages and `med review wait`, the
-  Codex queue, failed delivery, and two windows that send one message. Two
-  edits in the same millisecond have one version.
+  on the Notes use the same code. Failed delivery, and two windows that send
+  one message. Two edits in the same millisecond have one version.
 
 ## Decisions
 

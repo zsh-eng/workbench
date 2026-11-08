@@ -5,7 +5,6 @@ import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { Comparison, LivePullRequest, PullRequestComments } from "../../src/shared/protocol";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
@@ -310,7 +309,6 @@ beforeEach(async () => {
   liveFails = "";
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
-  setChromeMode("quiet", false);
 });
 afterEach(() => {
   root?.unmount();
@@ -348,11 +346,11 @@ const shown = () =>
 async function openChanges() {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("live-working");
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
 }
@@ -447,7 +445,7 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request is the thread's title in the window's band, before its checkout; no row sits above the tabs", async () => {
+test("a pull request is the thread's title in the window's band, before its checkout; the review alone has its header in the band", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
@@ -480,26 +478,21 @@ test("a pull request is the thread's title in the window's band, before its chec
   expect(region(band)).toBe("drag");
   expect(region(link.element())).toBe("no-drag");
   expect(region(comments.element())).toBe("no-drag");
-  // The review card starts with its tab row, with no pull request in it,
-  // level with the Changed files pane.
+  // The review fills the window, so its header is the band's one row.
   const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
-  const tabs = review.querySelector('[role="tablist"]')!;
-  expect(tabs.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
-  expect(review.textContent).not.toContain("Rename the export");
-  const files = review.parentElement!.querySelector<HTMLElement>(':scope > [data-pane="changed"]')!;
-  expect(files.getBoundingClientRect().top).toBe(review.getBoundingClientRect().top);
-  expect(files.textContent).not.toContain("Rename the export");
+  expect(band.querySelector('[aria-label="Review header"]')).not.toBeNull();
+  expect(review.querySelector('header[aria-label="Review header"]')).toBeNull();
 });
 
 /** The thread's Pull request tab, once its review shows. */
 async function openPullTab() {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: /^Rename the export/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("pull-target");
-  await page.getByRole("tab", { name: "Pull request" }).click();
+  await page.getByRole("radio", { name: "Pull request" }).click();
   return page.getByRole("region", { name: "Pull request" });
 }
 
@@ -511,6 +504,7 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
       createdAt: "2026-09-30T00:00:00Z",
       state: "CHANGES_REQUESTED",
     },
+    { ...comment(4, "jordan", ""), createdAt: "2026-09-29T00:00:00Z", state: "APPROVED" },
   ];
   // Nothing reads the live pull request until the reader opens the tab.
   render();
@@ -521,9 +515,11 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
 
   const view = await openPullTab();
   await expect.element(view.getByRole("heading", { name: "Rename the export" })).toBeVisible();
-  await expect.element(view.getByText("Pull request #7")).toBeVisible();
-  await expect.element(view.getByText("main ← feature")).toBeVisible();
-  await expect.element(view.getByText("bug", { exact: true })).toBeVisible();
+  // One line says who wants to merge which branch into which; no labels.
+  await expect
+    .poll(() => view.element().querySelector("header p")?.textContent)
+    .toMatch(/wants to merge feature into main#7$/);
+  expect(view.getByText("bug", { exact: true }).query()).toBeNull();
   await expect
     .element(view.getByRole("link", { name: "Open on GitHub" }).first())
     .toHaveAttribute("href", pullUrl);
@@ -531,13 +527,13 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   const merge = view.getByRole("region", { name: "Merge" });
   await expect.element(merge.getByText("Blocked: changes requested.")).toBeVisible();
   await expect.element(merge.getByText("3 commits behind main.")).toBeVisible();
-  // Failures show; the six that passed fold behind one line, and open.
-  const checks = view.getByRole("region", { name: "Checks" });
-  await expect.element(checks.getByText("2 failed, 6 passed")).toBeVisible();
+  // One status box. Failures show; the six that passed are a count, which opens.
+  const status = view.getByRole("region", { name: "Status" });
+  const checks = status.getByRole("region", { name: "Checks" });
   await expect.element(checks.getByText("2m 49s")).toBeVisible();
   await expect.element(checks.getByRole("img", { name: "Error" })).toBeVisible();
   expect(checks.getByText("a", { exact: true }).query()).toBeNull();
-  await checks.getByRole("button", { name: "Show 6 passed" }).click();
+  await checks.getByRole("button", { name: "Checks: 6 passed" }).click();
   await expect.element(checks.getByText("a", { exact: true })).toBeVisible();
   await expect
     .element(view.getByRole("region", { name: "Reviewers" }).getByText("Changes requested"))
@@ -561,6 +557,8 @@ test("the Pull request tab shows the pull request as GitHub has it", async () =>
   // GitHub shows no HTML comment, and a dollar is not math here.
   expect(view.getByRole("img", { name: "Hidden" }).query()).toBeNull();
   await expect.element(view.getByText(/for \$3 and \$5/)).toBeVisible();
+  // An approval with no text is one line.
+  await expect.element(view.getByText("jordan approved", { exact: true })).toBeVisible();
   // Reviews and comments in time order, with the threads below them.
   const talk = view.getByRole("region", { name: "Conversation" });
   await expect
@@ -612,16 +610,12 @@ test("a failed job's log comes only when asked for, and opens at its error", asy
   expect(view.getByRole("button", { name: "Show the failed log of deploy" }).query()).toBeNull();
 });
 
-test("Refresh and the ⌘K command read GitHub past the host's cache", async () => {
+test("the ⌘K command reads GitHub past the host's cache; the page has no Refresh", async () => {
   const view = await openPullTab();
   await expect.element(view.getByRole("region", { name: "Checks" })).toBeVisible();
-  await expect.poll(() => view.element().textContent).toContain("Read just now");
-  asked = [];
-  await view.getByRole("button", { name: "Read the pull request again" }).click();
-  await expect
-    .poll(() => asked)
-    .toEqual(expect.arrayContaining(["pull-request?refresh=1", "pull-request-live?refresh=1"]));
-  await expect.poll(() => view.element().textContent).toContain("Read just now");
+  // Med reads while the page is open, so the page names no time and no Refresh.
+  expect(view.getByRole("button", { name: "Read the pull request again" }).query()).toBeNull();
+  expect(view.element().textContent).not.toContain("Read just now");
   asked = [];
   await userEvent.keyboard("{Control>}k{/Control}");
   await userEvent.keyboard("Read the pull request again");
@@ -633,12 +627,16 @@ test("Refresh and the ⌘K command read GitHub past the host's cache", async () 
 
 test("a thread in the tab links to its line in the diff, and says why when it cannot", async () => {
   const view = await openPullTab();
-  await expect.element(view.getByRole("region", { name: "Code comments" })).toBeVisible();
+  // One timeline: comments, reviews, and code threads together.
+  await expect.element(view.getByRole("region", { name: "Conversation" })).toBeVisible();
   // The reader's own comment is in their pending review, which only they see.
   const pending = view.getByRole("region", { name: "Your pending review" });
   await expect.element(pending.getByText("1 comment, only you see them")).toBeVisible();
   await expect.poll(() => pending.element().textContent).toContain("And in the docs.");
-  const code = view.getByRole("region", { name: "Code comments" });
+  const code = view.getByRole("region", { name: "Conversation" });
+  // An outdated thread is one line, which opens.
+  expect(code.element().textContent).not.toContain("Outdated on GitHub.");
+  await code.getByRole("button", { name: /gamma\.ts, outdated$/ }).click();
   await expect.poll(() => code.element().textContent).toContain("Outdated on GitHub.");
   expect(code.getByRole("button", { name: "Show gamma.ts:R4 in the diff" }).query()).toBeNull();
   await pending.getByRole("button", { name: "Show alpha.ts:R1 in the diff" }).click();

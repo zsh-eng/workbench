@@ -14,7 +14,7 @@ import { Icon } from "../Icon";
 import { SessionComposer } from "../session/SessionComposer";
 import { ConnectionNote, SessionNotice, TurnMark } from "../session/SessionNotice";
 import { SessionThread } from "../session/SessionThread";
-import { ThreadRowsPreview } from "../shell/ThreadSidebar";
+import { SessionRowsPreview } from "../shell/SessionSidebar";
 import { Section, Specimen } from "./Specimen";
 import {
   NOW,
@@ -39,7 +39,6 @@ function Composer(props: Partial<ComponentProps<typeof SessionComposer>>) {
     <SessionComposer
       agent="claude"
       name="Claude Code"
-      waiting={false}
       drafts={[]}
       attachments={[]}
       onRemoveAttachment={noop}
@@ -313,9 +312,8 @@ function Frame({ spec }: { spec: FrameSpec }) {
       <div {...stylex.props(styles.board)}>
         <span {...stylex.props(ui.label, styles.layer)}>Thread list</span>
         <div {...stylex.props(styles.rowSlot)}>
-          <ThreadRowsPreview
+          <SessionRowsPreview
             threads={[spec.thread]}
-            now={NOW}
             unread={spec.id === "ready" ? [spec.thread.id] : []}
           />
         </div>
@@ -554,8 +552,7 @@ function Receipts() {
             "The browser’s copy, until Med answers. It survives a reload in the outbox.",
           ],
           ["Waiting for Claude to take it", "Saved: Med wrote it to disk. Safe from here."],
-          ["Queued for Claude", "The agent is in a turn; it takes the message next."],
-          ["Waiting for the terminal session", "Held: the session is open in a terminal."],
+          ["Queued for Claude's next step", "The agent is in a turn; it takes the message next."],
           ["Not sent", "The reason, with Retry and Discard. The text stays."],
         ].map(([name, note]) => (
           <li key={name} {...stylex.props(styles.step)}>

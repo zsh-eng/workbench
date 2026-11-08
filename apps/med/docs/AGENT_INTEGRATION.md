@@ -2,8 +2,8 @@
 
 An agent hands off its changes as a review in Med. You read its guide and its
 diff, comment on lines, and send the comments back. A review can hold comparisons from
-several repositories, and it stays on your machine. [Concepts](USAGE.md#concepts)
-defines the words that Med uses, such as key, version, and guide.
+several repositories, and it stays on your machine. [The words](USAGE.md#the-words)
+defines the words that Med uses, such as hand-off, key, and guide.
 
 ## Set up
 
@@ -27,7 +27,8 @@ MED_STATE_DIR=/tmp/med-trial med add ~/code/my-app
 Its server never takes port 6330, the port of `~/.local/state/med`: without
 `--port` or `MED_PORT`, it takes a free port and says which. Each command with
 the same `--state-dir` or `MED_STATE_DIR` finds that server, and the commands
-that Med prints carry `--port` and `--state-dir`. It lists only its own
+that Med prints carry `--port` and `--state-dir`. It keeps its settings in
+`settings.json` in that folder, and does not pull base branches. It lists only its own
 threads; the palette's **Show sessions not kept in Med** shows the others.
 
 ## Choose the repositories
@@ -76,8 +77,7 @@ The command prints a link to paste into the final message:
 ```
 
 With `--json`, the command prints one JSON object instead: the review's `id`,
-`key`, `version`, `url`, and `title`; `layer` when it joined a stack; `wait`,
-the command to run when Med expects `med review wait`; `notes`, the lines that
+`key`, `version`, `url`, and `title`; `layer` when it joined a stack; `notes`, the lines that
 it prints after the link; and `advice`, the lines that it otherwise writes to
 standard error. The `url` has no access token.
 
@@ -134,11 +134,19 @@ request covers it all.
 `--key` names the task, such as its branch. Create the review again with the
 same key after each round of work: Med adds a version to that review instead
 of a new workspace. The review is marked new again, and its new comparison and
-brief become current. Earlier versions stay in the version menu, and comments
-stay on their comparisons. Keys use letters, digits, and
+brief become current. The Review opens on what is new since the user last
+looked; earlier versions stay as snapshots, and comments stay on their
+comparisons. Keys use letters, digits, and
 `. / @ : + # _ -`. Without `--key`, `create` uses the branch's name, when the
 branch is not the repository's base branch, and prints it. `update --key`
 also takes the review's ID (`r_…`).
+
+A version shows the comparison that you give it, so choose what the reader
+needs. Usually that is the whole task's change, from the same base each
+round. When the user asks for only the newest change, or a round reads better
+alone, compare from the commit that the last round ended on
+(`--base <commit> --head HEAD`), or show only the files that you changed this
+round (`--working --paths <files>`). A review can be part of a change.
 
 ```sh
 med review create --key feat/parser --title "Parser recovery" \
@@ -166,9 +174,9 @@ the agent's thread, read from the transcript and followed live; see
 - A subagent has its parent's `CLAUDE_CODE_SESSION_ID`. Med looks for the
   command's call in the session's transcripts: when a subagent runs the
   command, or when Med cannot tell which agent runs it, Med records no
-  session and says why. The review then has no Session pane, and Med prints
-  no `med review wait` line, because nothing would send the subagent a
-  message. `--session claude:<id>` records a session by hand; `med thread
+  session and says why. The review then has no Session pane, because nothing
+  would send the subagent a message. `--session claude:<id>` records a
+  session by hand; `med thread
 show` in a subagent needs `--key`.
 - Other sessions need `--session codex:<id>` or `--session claude:<id>`. Repeat
   the option for more sessions; `review update --key <name> --session …` adds
@@ -179,9 +187,51 @@ Med reads a session's folder from its transcript in `~/.claude` or `~/.codex`.
 Without a transcript, it records the command's folder. A review keeps its 32
 newest sessions.
 
+### Answer a comment
+
+The user's message gives each comment as a heading with its short ID, the
+file and lines, the diff hunk, and the user's words, with the replies under
+it:
+
+````markdown
+## 6f1c9e · src/summary.ts:14
+
+```diff
+@@ -12,3 +12,3 @@
+-  return `${ms} ms`;
++  return `${Math.round(ms / 60000)} min`;
+```
+
+Round half a minute up.
+````
+
+To answer one in its thread, where the user reads it, run `med reply` with
+the ID, and the answer on standard input (or after the ID):
+
+```sh
+med reply 6f1c9e <<'END'
+Minutes drop the seconds. Keep them for runs under a minute?
+END
+```
+
+The ID is the first 6 characters of the comment's ID, or more when another
+comment of the review starts the same way. Med finds the review by the
+comment, trying the thread's review first (`MED_THREAD_KEY`); `--key` names
+the review when two reviews have such a comment. `med review reply` is the
+same command. Med shows the answer under the comment with your agent's name,
+as the session that runs the command (or else the review's latest session).
+It does not make the comment unsent, and the next message that holds the
+thread shows the answer as yours. A comment on a passage of the guide or the
+pull request draft has no ID and takes no reply; answer it in your message.
+Use a reply for a question the user asked on a line, or to say why you left a
+change out; your final message still says what you did.
+
 ### Attach a guide
 
-A guide splits the review into segments that the reader checks one at a time.
+A guide is optional: say only what the change needs. A small change that
+explains itself can be just the diff, and a change with one idea needs one
+segment with a sentence. A larger change gets a guide that splits it into
+segments that the reader checks one at a time.
 Write it in JSON: a short summary of the whole change, then up to 40 segments.
 Each segment has a title, an optional area, a summary in Markdown, its files,
 and your comments.
@@ -305,7 +355,7 @@ against the open target. A brief holds up to 100,000 characters.
 
 Med reads these sections of a brief, a pinned reply, or the guide's summary,
 and shows them on the Overview
-([proof, findings, and later versions](usage/guide.md#proof-findings-and-later-versions)):
+([proof, findings, and later hand-offs](usage/guide.md#proof-findings-and-later-hand-offs)):
 
 ```markdown
 ## Proof
@@ -353,8 +403,8 @@ med pr draft --key fix/parser --file pr.md
 - Images can be local PNG, JPEG, GIF, or WebP files, relative to the file
   (`![Retry chart](shots/retry.png)`), or https links. Med keeps a copy of
   each local one, up to 8 images of 5 MB.
-- Comments on the draft come back as the user's other comments do, marked
-  `On: the pull request draft`. Revise the file and run `med pr draft` again
+- Comments on the draft come back as the user's other comments do, under the
+  heading `On the pull request draft`. Revise the file and run `med pr draft` again
   with the same key: each run is the next revision.
 - Never run `gh pr create` yourself. **Create** runs it from the checkout's
   branch, which must be on GitHub with all of its commits, and links the pull request to the
@@ -633,10 +683,7 @@ after the review is saved.
 | `--working` without `--paths` has files the session never edited | Names them and prints `med review update --paths` with the session's files                                         |
 | `update --guide` after the checkout moved on                     | Prints `med review create` for the next version                                                                    |
 | The guide puts lockfiles or generated files first                | The guide check names the segments                                                                                 |
-| A Claude Code session outside a Med thread                       | Prints the `med review wait --key` line                                                                            |
-| A subagent runs the command, or Med cannot tell                  | Records no session, says why, and prints no `med review wait` line                                                 |
-| `review wait` outside Claude Code, as in Codex, or in a subagent | Fails at once: nothing would send it a message                                                                     |
-| `review wait` in a Claude Code session that the review lacks     | Adds the session to the review, as `update --session` does, and says so                                            |
+| A subagent runs the command, or Med cannot tell                  | Records no session, and says why                                                                                   |
 | `--port` or `--state-dir` is not the default                     | Each printed command carries them, so it reaches the same Med                                                      |
 
 Med suggests review practices and enforces none by default. A repository can

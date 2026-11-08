@@ -53,20 +53,9 @@ export interface ReviewCommand {
   label: string;
   shortcut?: string;
   disabled?: boolean;
+  /** Why a command cannot run yet, in its tooltip. */
+  hint?: string;
   run(): void;
-}
-
-/** A ChoiceSelect's place when there is nothing to choose: its text, as the
- * trigger shows it, and no menu. `title` says more, as a choice's
- * description does. */
-export function ChoiceLabel({ title, text }: { title: string; text: string }) {
-  return (
-    <span data-choice-static="" title={title} {...stylex.props(styles.static)}>
-      <span data-choice-value="" {...stylex.props(styles.value)}>
-        {text}
-      </span>
-    </span>
-  );
 }
 
 /** A value that no choice has: an action's item in a ChoiceSelect. */
@@ -239,7 +228,7 @@ export function ActionMenu({
       look={[label, align, triggerProps.className, lookOf(children)].join("\n")}
     >
       <Menu.Trigger {...triggerProps} {...tooltip(label)} aria-label={label}>
-        {children ?? <Icon name="settings" size={15} />}
+        {children ?? <Icon name="display" size={15} />}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
@@ -481,6 +470,7 @@ export function CommandDialog({
                 role="option"
                 aria-selected={index === active}
                 aria-disabled={command.disabled || undefined}
+                aria-describedby={command.hint ? `command-${command.id}-hint` : undefined}
                 onMouseMove={() => setActive(index)}
                 onClick={() => run(index)}
                 {...stylex.props(
@@ -492,6 +482,12 @@ export function CommandDialog({
                 )}
               >
                 <span {...stylex.props(styles.commandText)}>{command.label}</span>
+                {/* Why it cannot run yet, such as Push… while Med reads the remotes. */}
+                {command.hint && (
+                  <span id={`command-${command.id}-hint`} {...stylex.props(styles.commandHint)}>
+                    {command.hint}
+                  </span>
+                )}
                 <ShortcutKeys value={command.shortcut} />
               </button>
             ))}
@@ -599,21 +595,6 @@ const styles = stylex.create({
   },
   // In a narrow toolbar the value truncates before the trigger overflows.
   trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
-  // A trigger's text and padding, without its button.
-  static: {
-    display: "inline-flex",
-    alignItems: "center",
-    boxSizing: "border-box",
-    minWidth: 0,
-    minHeight: 28,
-    paddingInline: 8,
-    color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12,
-    fontWeight: 450,
-    lineHeight: 1.5,
-    whiteSpace: "nowrap",
-  },
   value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },
@@ -643,6 +624,7 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  commandHint: { flexShrink: 0, color: tokens.faint, fontSize: 12 },
   footerHint: { display: "inline-flex", alignItems: "center", gap: 6 },
   empty: { padding: 24, textAlign: "center", fontSize: 12.5, color: tokens.muted },
   segmented: {

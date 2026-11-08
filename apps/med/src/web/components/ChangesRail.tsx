@@ -1,10 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentProps, ReactNode } from "react";
 import type { SavedCommit } from "../../shared/review-guide";
-import { tokens } from "../theme.stylex";
+import { picked, tokens, ui } from "../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "./ColumnResize";
 import { FileSidebar } from "./FileSidebar";
-import { RailCommits } from "./guide/GuideRail";
+import { clippedTooltip } from "./ToolButton";
 
 /** As wide as the Guide's rail. */
 const RAIL_WIDTH = 268;
@@ -25,9 +25,10 @@ type CommitProps = {
 };
 
 /**
- * A thread's rail beside Review and Changes: the changed files as a tree, and
- * the commits. It sits where the Guide's rail does, so the diff keeps
- * its place between the tabs. Its edge resizes it (ColumnResize.tsx).
+ * The Changes page's sidebar: the range at its top (what the diff compares,
+ * and the range's commits, one at a time), then the changed files as a tree. It sits where the Guide does in Review,
+ * so the diff keeps its place between the pages. Its edge resizes it
+ * (ColumnResize.tsx).
  */
 export function ChangesRail({
   commits,
@@ -39,34 +40,51 @@ export function ChangesRail({
   onWhole,
   fresh,
   top,
+  range,
+  hidden = false,
   ...files
-}: ComponentProps<typeof FileSidebar> & CommitProps & { top?: ReactNode }) {
+}: ComponentProps<typeof FileSidebar> &
+  CommitProps & {
+    top?: ReactNode;
+    /** What the diff compares, under the heading. */
+    range?: ReactNode;
+    /** Hidden, it keeps its tree for its return. */
+    hidden?: boolean;
+  }) {
   const { measure, width, pane } = useColumnWidth("changes", () => RAIL_WIDTH);
   return (
     <nav
       ref={measure}
       aria-label="Files and commits"
-      {...stylex.props(styles.rail, styles.width(width))}
+      hidden={hidden}
+      {...stylex.props(styles.rail, styles.width(width), hidden && styles.hidden)}
     >
       {top}
-      <FileSidebar {...files} />
-      <RangeCommits
-        commits={commits}
-        moreCommits={moreCommits}
-        commit={commit}
-        whole={whole}
-        wholeLabel={wholeLabel}
-        onCommit={onCommit}
-        onWhole={onWhole}
-        fresh={fresh}
+      <FileSidebar
+        {...files}
+        top={
+          <>
+            {range}
+            <RangeCommits
+              commits={commits}
+              moreCommits={moreCommits}
+              commit={commit}
+              whole={whole}
+              wholeLabel={wholeLabel}
+              onCommit={onCommit}
+              onWhole={onWhole}
+              fresh={fresh}
+            />
+          </>
+        }
       />
       <ColumnHandle kind="changes" width={width} pane={pane} label="the file list" />
     </nav>
   );
 }
 
-/** A range's or a branch's commits under its files, in the rail or the
- * Changed files pane. A range of one commit lists none. */
+/** A range's or a branch's commits, above its files; a range of one commit
+ * lists it too, so the sidebar always says what the changes hold. */
 export function RangeCommits({
   commits,
   moreCommits,
@@ -77,7 +95,7 @@ export function RangeCommits({
   onWhole,
   fresh,
 }: CommitProps) {
-  if (commits.length < 2) return null;
+  if (!commits.length) return null;
   return (
     <div {...stylex.props(styles.commits)}>
       <RailCommits
@@ -89,6 +107,83 @@ export function RangeCommits({
         whole={{ current: whole, label: wholeLabel, onShow: onWhole }}
       />
     </div>
+  );
+}
+
+/** A range's commits, after a first row for the whole range. */
+function RailCommits({
+  commits,
+  more,
+  current,
+  fresh,
+  onCommit,
+  whole,
+}: {
+  commits: readonly SavedCommit[];
+  more?: boolean;
+  /** The commit that shows, if one does. */
+  current: string | null;
+  /** Commits that are new since the reader's last review. */
+  fresh?: ReadonlySet<string>;
+  onCommit(id: string): void;
+  /** A row for the whole range, "Whole range" unless `label` names it. */
+  whole: { current: boolean; label: string; onShow(): void };
+}) {
+  return (
+    <>
+      <div {...stylex.props(commitStyles.section)}>
+        <span {...stylex.props(ui.label)}>Commits</span>
+        <span {...stylex.props(commitStyles.sectionCount)}>
+          {commits.length}
+          {more ? "+" : ""}
+        </span>
+      </div>
+      <ol aria-label="Commits" {...stylex.props(commitStyles.list)}>
+        <li>
+          <button
+            type="button"
+            aria-current={whole.current ? "page" : undefined}
+            onClick={whole.onShow}
+            {...stylex.props(
+              commitStyles.row,
+              commitStyles.commit,
+              whole.current && [commitStyles.on, picked],
+            )}
+          >
+            <span {...stylex.props(commitStyles.commitSubject)}>{whole.label}</span>
+          </button>
+        </li>
+        {commits.map((commit) => {
+          const open = current === commit.id;
+          return (
+            <li key={commit.id}>
+              <button
+                type="button"
+                aria-current={open ? "page" : undefined}
+                {...clippedTooltip(commit.subject)}
+                onClick={() => onCommit(commit.id)}
+                {...stylex.props(
+                  commitStyles.row,
+                  commitStyles.commit,
+                  open && [commitStyles.on, picked],
+                )}
+              >
+                <span data-clip="" {...stylex.props(commitStyles.commitSubject)}>
+                  {commit.subject}
+                </span>
+                {fresh?.has(commit.id) && (
+                  <span
+                    title="New since your last review"
+                    aria-label="new"
+                    {...stylex.props(commitStyles.fresh)}
+                  />
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </>
   );
 }
 
@@ -106,15 +201,74 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
   },
   width: (width: number) => ({ width }),
+  hidden: { display: "none" },
   commits: {
     flexShrink: 0,
     maxHeight: "40%",
     overflowY: "auto",
     scrollbarWidth: "thin",
     paddingInline: 6,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: tokens.line,
+    paddingBottom: 8,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: tokens.line,
+  },
+});
+
+const commitStyles = stylex.create({
+  section: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 2,
+    paddingInline: 8,
+    minHeight: 24,
+  },
+  sectionCount: {
+    color: tokens.faint,
+    fontFamily: tokens.code,
+    fontSize: 10.5,
+  },
+  list: { listStyle: "none", margin: 0, padding: 0 },
+  row: {
+    display: "flex",
+    alignItems: "center",
+    width: "100%",
+    boxSizing: "border-box",
+    borderWidth: 0,
+    borderRadius: `calc(7px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover": tokens.fill },
+    color: tokens.text,
+    fontFamily: tokens.ui,
+    textAlign: "left",
+    cursor: "pointer",
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${tokens.accentLine}`,
+    },
+    outlineOffset: -2,
+  },
+  on: {
+    backgroundColor: { default: tokens.pick, ":hover": tokens.pick },
+    color: tokens.selectedText,
+  },
+  commit: { minHeight: 30, paddingInline: 8, gap: 9 },
+  fresh: {
+    flexShrink: 0,
+    width: 6,
+    height: 6,
+    marginLeft: "auto",
+    borderRadius: "50%",
+    backgroundColor: tokens.accent,
+  },
+  commitSubject: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.muted,
+    fontSize: 12,
   },
 });

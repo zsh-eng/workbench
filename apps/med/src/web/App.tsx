@@ -1,7 +1,8 @@
 import { useDocumentTitle } from "./data/document-title";
 import { DiffImages } from "./components/MediaView";
 import { mediaType } from "../shared/media";
-import { ToolButton, tooltip } from "./components/ToolButton";
+import { ToolButton } from "./components/ToolButton";
+import { settingsCommands } from "./components/settings/settings-commands";
 import * as stylex from "@stylexjs/stylex";
 import {
   CodeView,
@@ -42,18 +43,19 @@ import {
 } from "./data/controller";
 import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
-import {
-  ActionMenu,
-  ChoiceLabel,
-  ChoiceSelect,
-  CommandDialog,
-  SegmentedControl,
-  type MenuAction,
-  type ReviewCommand,
-} from "./components/Controls";
-import { DiffStat } from "./components/DiffStat";
+import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
 import { ChangeTotals } from "./components/ChangeTotals";
-import { FileSidebar } from "./components/FileSidebar";
+import { DiffStat } from "./components/DiffStat";
+import {
+  ReviewActions,
+  ReviewBar,
+  ReviewHeader,
+  ReviewTitle,
+  ReviewTitleRow,
+  SessionToggle,
+  type DisplayOptions,
+  type ReviewPage,
+} from "./components/ReviewHeader";
 import { GeneratedGroup, type GeneratedRow } from "./components/GeneratedGroup";
 import { generatedIndex, splitGenerated, useProvenance } from "./data/generated";
 import { DependencyCard } from "./components/DependencyCard";
@@ -74,11 +76,13 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   InTitleBand,
+  useInTitleBand,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
   useTabCommands,
   useThread,
+  useSessionReviews,
   useThreadReader,
   useThreadState,
   useWorkspace,
@@ -104,13 +108,22 @@ import { useMentionSources } from "./data/mentions";
 import { isBrowseFile, type FileRead } from "../shared/local-file";
 import { createFileWorkspace, sourceKey, useFileWorkspace } from "./data/file-workspace";
 import { RepositoryFiles } from "./components/RepositoryFiles";
-import { PaneTree, paneHandle, usePaneTree, type PaneSpec } from "./components/PaneTree";
+import {
+  PANE_GAP,
+  PaneTree,
+  usePaneTree,
+  type PanePlace,
+  type PaneSpec,
+} from "./components/PaneTree";
 import type { PaneNode, Side } from "./data/pane-tree";
 import { FilePicker } from "./components/FilePicker";
 import { SEARCH_OPEN_EVENT, SearchView, type SearchOpen } from "./components/SearchView";
 import { subscribeFileOpens, takeFileOpen, takeSearchOpen } from "./data/file-opens";
 import { subscribeSubagentOpens, takeSubagentOpen } from "./data/tabs";
 import { useTurnRecap } from "./data/turn-recap";
+import { shortAge } from "./data/threads";
+import { FindBar, NO_FIND_OPTIONS, type FindOptions } from "./components/FindBar";
+import { findPattern } from "./data/search-highlights";
 import { SymbolPicker } from "./components/SymbolPicker";
 import {
   FullFileView,
@@ -139,8 +152,6 @@ import {
   type PendingReviewTarget,
 } from "./data/pending-review";
 import { placeThreads } from "./data/pull-request";
-import { createPathValue, hoveredPath, usePathValue, type PathValue } from "./data/hovered-path";
-import { PathLabel } from "./components/PathLabel";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
 import {
   PullRequestTitle,
@@ -153,12 +164,11 @@ import {
   ConnectionNotice,
   useQuietMenu,
   useRowFit,
+  useRowWide,
   useSlotFits,
 } from "./components/QuietChrome";
-import { setChromeMode, useQuietChrome } from "./data/chrome";
 import { switchSetter, useViewSetting, viewSettings } from "./data/view-settings";
 import { ShortcutGuide } from "./components/ShortcutGuide";
-import { ZenContext, ZenExit, ZenHint } from "./components/ZenExit";
 import { platform } from "./data/keys";
 import type { GuideContextId } from "./data/shortcut-guide";
 import {
@@ -185,24 +195,14 @@ import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
-import { ChangesRail, RangeCommits } from "./components/ChangesRail";
+import { GuideStepper } from "./components/guide/GuideStepper";
+import { HandoffContext } from "./components/session/HandoffCard";
+import { ChangesRail } from "./components/ChangesRail";
 import { LayerMenu, StackRail, type StackMode } from "./components/StackRail";
-import {
-  layerProgress,
-  layerRange,
-  nextUnreviewed,
-  rangeOf,
-  setLayerViewed,
-  subscribeLayers,
-  takeLayer,
-  stackOf,
-  useLayerViewed,
-  type LayerProgress,
-} from "./data/stack";
+import { layerRange, rangeOf, subscribeLayers, takeLayer, stackOf } from "./data/stack";
 import { GuideOverview } from "./components/guide/GuideOverview";
 import type { Offer, OverviewProof } from "./components/guide/OverviewParts";
 import { isOpenFinding, readReviewOutput, withoutProof } from "../shared/review-output";
-import proofFirstSkill from "../../skills/suggestions/proof-first/SKILL.md?raw";
 import roundLimitSkill from "../../skills/suggestions/round-limit/SKILL.md?raw";
 import {
   CommitHeader,
@@ -218,15 +218,14 @@ import {
   type GuideScope,
   type GuideSection,
 } from "./data/guide";
-import { useViewed, viewKey } from "./data/viewed";
 import type { ParsedReviewFile } from "../shared/review";
 import type { SavedCommit } from "../shared/review-guide";
-import { requestServerRestart } from "./components/UpdateNotice";
 import type { PathActions } from "./components/PathMenu";
 import { diffSurfaceStyle, EXPANSION_LINES } from "./components/diff-surface";
 import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
+import { CommentAgentContext, type CommentAgent } from "./data/comment-agent";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionStarter } from "./components/session/SessionPanel";
 import type { ThreadLink } from "./components/session/SessionSidePanel";
@@ -234,6 +233,7 @@ import { useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
 import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
+import { HIGHLIGHTER } from "./pierre-theme";
 
 // The brief loads its Markdown worker and excerpt renderer only when shown.
 const BriefView = lazy(() => import("./components/BriefView"));
@@ -255,19 +255,13 @@ function preloadPanes() {
   preloadFileEditor();
   CommitView.preload();
 }
-/** ⌘⌃B shows or hides the Changed files pane, beside ⌘B for the sidebar,
- * ⌘⇧B for the session, and ⌘⌥B for the review's rail. Linux reads ⌘⌃ as
- * Ctrl+Alt, which is the rail's, so there the button and ⌘K show it. */
-const CHANGED_SHORTCUT = platform === "mac" ? "Mod+Ctrl+B" : undefined;
-const CHANGED_HIDE = {
-  label: "Hide changed files",
-  icon: "panelLeft" as const,
-  ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
-};
 /** The Session pane hides: its agent keeps working, and ⌘⇧B shows it again. */
+/** The review hides while the session shows beside it; its pages, a file,
+ * or Show review bring it back. */
+const REVIEW_HIDE = { label: "Hide the review", icon: "minimize" } as const;
 const SESSION_HIDE = {
   label: "Hide the session pane. The agent keeps working.",
-  icon: "panelLeft",
+  icon: "minimize",
   shortcut: "Mod+Shift+B",
 } as const;
 const SessionPanel = lazy(() =>
@@ -295,7 +289,6 @@ const NO_COMMITS: SavedCommit[] = [];
 const NO_FILES: ParsedReviewFile[] = [];
 const NO_SECTIONS: GuideSection[] = [];
 const NO_GUIDE_NOTES: GuideNote[] = [];
-const NO_PROGRESS: LayerProgress[] = [];
 // Pierre's view renders its file headers and comments again whenever it renders.
 const ReviewCodeView = memo(CodeView) as typeof CodeView;
 
@@ -375,33 +368,11 @@ const commonCommands = [
   "theme",
   "layout",
   "sidebar",
-  "zen",
 ];
 const commandRank = (id: string) => {
   const rank = commonCommands.indexOf(id);
   return rank < 0 ? commonCommands.length : rank;
 };
-
-/** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
-function shortRevision(revision: string) {
-  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
-}
-
-/**
- * The status bar's path: the file row under the pointer, else the file that
- * shows, or on the Commit tab the file that its list is on. It renders alone,
- * so a pointer over the lists does not render the review again.
- */
-function StatusPath({ shown, commit }: { shown: string | undefined; commit: PathValue | null }) {
-  const hovered = usePathValue(hoveredPath);
-  const focused = usePathValue(commit ?? hoveredPath);
-  const path = hovered ?? (commit ? focused : shown);
-  return (
-    <span {...stylex.props(styles.selectedPath)}>
-      {path && <PathLabel path={path} quiet={false} />}
-    </span>
-  );
-}
 
 // The view settings outlast a restart, and every workspace and window shares
 // them (data/view-settings.ts).
@@ -414,7 +385,7 @@ const setLineBlame = switchSetter(viewSettings.lineBlame, "on", "off");
 /** Where each pane opens beside the review, and its share of the room. */
 const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> = {
   session: { near: "review", side: "left", share: 0.5 },
-  changed: { near: "review", side: "left", share: 0.24 },
+  review: { near: "session", side: "right", share: 0.5 },
   files: { near: "review", side: "right", share: 0.26 },
   // At the right of the row, with room from the thread and the review alike,
   // so that an answer has room to read.
@@ -475,6 +446,8 @@ export function App({
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const shell = useShell();
+  // The window's title band shows this workspace: the review's title can go up into it.
+  const bandShown = useInTitleBand();
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
@@ -502,28 +475,23 @@ export function App({
             children: [{ id: "session" }, { id: "review" }],
             sizes: [0.5, 0.5],
           }
-        : {
-            axis: "row",
-            children: [{ id: "changed" }, { id: "review" }],
-            sizes: [0.24, 0.76],
-          },
+        : { id: "review" },
     [threadLayout],
   );
   const panes = usePaneTree({ key: layoutKey, initial: initialPanes });
   const filesVisible = panes.isOpen("files");
   const sessionVisible = panes.isOpen("session");
-  const changedVisible = panes.isOpen("changed");
+  const reviewVisible = panes.isOpen("review");
   // Markdown files now read rendered or show their source in the file view
-  // (FullFileView), so a saved layout's Preview pane has nothing to show.
+  // (FullFileView), so a saved layout's Preview pane has nothing to show;
+  // the changed files are the Changes page's sidebar, not a pane.
   const retiredPreview = panes.isOpen("preview");
+  const retiredChanged = panes.isOpen("changed");
   const closeRetired = panes.close;
   useEffect(() => {
     if (retiredPreview) closeRetired("preview");
-  }, [retiredPreview, closeRetired]);
-  // Zen hides every bar. The sidebars keep their own state in and out of zen.
-  const [zen, setZenState] = useState(() => viewSettings.zen.get() === "on");
-  // Quiet chrome: one row for the review pane, its rare actions in ⋯ and ⌘K.
-  const quiet = useQuietChrome();
+    if (retiredChanged) closeRetired("changed");
+  }, [retiredPreview, retiredChanged, closeRetired]);
   const comparisonActions = useRef<ComparisonActionsHandle>(null);
   const comparisonTrigger = useRef<HTMLButtonElement>(null);
   // The comparison's place in the review's row; empty while it is in ⋯.
@@ -539,11 +507,15 @@ export function App({
       null,
     [],
   );
-  // With quiet chrome, the Commit tab's Stage all goes in the review's row.
+  // The Commit tab's Stage all goes in the review's row.
   // In a narrow row it goes back to the Commit view's own header, so that
   // the tabs keep their labels.
   const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
   const stageFits = useSlotFits(stageSlot, 72);
+  // The review pane's Expand and Hide, at the row's end. A narrow row puts
+  // them in ⋯, so that the tabs keep their labels.
+  const [paneSlot, setPaneSlot] = useState<HTMLElement | null>(null);
+  const paneControlsFit = useRowWide(paneSlot, 520);
   const savedActions = useRef<SavedReviewActions>(null);
   // The base branch menu opens below the comparison once the select closes.
   const openCompare = useCallback(
@@ -553,13 +525,7 @@ export function App({
   const openPush = useCallback(() => comparisonActions.current?.openPush(), []);
   const clearComments = useCallback(() => savedActions.current?.clearComments(), []);
   const filePreviewShown = useFilePreviewShown();
-  const focusBeforeZen = useRef<Element | null>(null);
-  const setZen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
-    focusBeforeZen.current = document.activeElement;
-    setZenState(next);
-  }, []);
   const rightVisible = filesVisible;
-  useEffect(() => viewSettings.zen.set(zen ? "on" : "off"), [zen]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState<string | undefined>();
   const fileSelection = useRef<(() => string) | null>(null);
@@ -598,8 +564,19 @@ export function App({
   const [blameTab, setBlameTab] = useState<string | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [branchPickerNew, setBranchPickerNew] = useState(false);
+  // ⌘O opens the picker on the repositories; ⌘⇧G on every branch.
+  const [branchPickerRepos, setBranchPickerRepos] = useState(false);
   const workerPool = useWorkerPool();
   const [diagnostics] = useState(createRenderDiagnostics);
+  // Developers save the last render events from the console
+  // (`medRenderDiagnostics.download()`); ⌘K keeps to reviewing.
+  useEffect(() => {
+    const target = window as Window & { medRenderDiagnostics?: typeof diagnostics };
+    target.medRenderDiagnostics = diagnostics;
+    return () => {
+      if (target.medRenderDiagnostics === diagnostics) delete target.medRenderDiagnostics;
+    };
+  }, [diagnostics]);
   const [rawBrowseApi] = useState(
     () =>
       providedBrowseApi ?? createBrowseApi(globalThis.fetch.bind(globalThis), readBrowserToken()),
@@ -995,19 +972,46 @@ export function App({
     setPickerResume(true);
     setFilePickerOpen(true);
   }, []);
-  const { close: closePane, show: showInTree, toggle: toggleInTree } = panes;
+  const { close: closePane, show: showInTree } = panes;
   const showPane = useCallback(
     (id: string, options: { quiet?: boolean } = {}) =>
       showInTree(id, { ...PANE_PLACES[id], ...options }),
     [showInTree],
   );
-  const togglePane = useCallback((id: string) => toggleInTree(id, PANE_PLACES[id]), [toggleInTree]);
   const showFiles = useCallback(() => showPane("files"), [showPane]);
   const toggleFilesSidebar = useCallback(() => {
     if (rightVisible) closePane("files");
     else showFiles();
   }, [rightVisible, showFiles, closePane]);
-  const toggleSession = useCallback(() => togglePane("session"), [togglePane]);
+  // The workspace keeps one pane: hiding the session while the review is
+  // hidden shows the review instead.
+  const hideSession = useCallback(() => {
+    if (!reviewVisible) showPane("review");
+    closePane("session");
+  }, [reviewVisible, showPane, closePane]);
+  const toggleSession = useCallback(
+    () => (sessionVisible ? hideSession() : showPane("session")),
+    [sessionVisible, hideSession, showPane],
+  );
+  const toggleReview = useCallback(
+    () => (reviewVisible ? sessionVisible && closePane("review") : showPane("review")),
+    [reviewVisible, sessionVisible, closePane, showPane],
+  );
+  /** The session's header. While the review is hidden, the session is the
+   * whole workspace: it has Show review, as words, and no Hide, which would
+   * only show the review in its place. */
+  const withShowReview = (controls: ReactNode) =>
+    reviewVisible ? (
+      controls
+    ) : (
+      <button
+        type="button"
+        {...stylex.props(ui.button, ui.pressable)}
+        onClick={() => showPane("review")}
+      >
+        Show review
+      </button>
+    );
   useEffect(() => {
     if (!workspaceId) return;
     const take = () => {
@@ -1019,33 +1023,13 @@ export function App({
     take();
     return subscribeSubagentOpens(take);
   }, [workspaceId, showPane]);
-  // ⌘B shows or hides the window's thread list; alone, the changed files.
-  const toggleChanged = useCallback(() => togglePane("changed"), [togglePane]);
-  const toggleReviewSidebar = shell?.toggleSidebar ?? toggleChanged;
-  const zenToggle = useRef<HTMLButtonElement>(null);
-  const toggleZen = useCallback(() => setZen((value) => !value), [setZen]);
-  // Keep keyboard focus when the control that held it leaves with the chrome.
-  const previousZen = useRef(zen);
-  useLayoutEffect(() => {
-    if (previousZen.current === zen) return;
-    previousZen.current = zen;
-    // Move focus only when the control that held it has gone with the chrome.
-    const before = focusBeforeZen.current;
-    if (!(before instanceof HTMLElement) || before === document.body) return;
-    if (before.isConnected && before.checkVisibility()) return;
-    // The zen controls keep focus in both directions; a file keeps reading focus.
-    if (zen)
-      (visibleElement('[data-file-pane="main"]') ?? visibleElement("[data-zen-exit]"))?.focus();
-    else zenToggle.current?.focus();
-  }, [zen]);
   const preferredMode = useViewSetting(viewSettings.diffLayout);
+  const codeSize = useViewSetting(viewSettings.codeSize);
   // Split diffs need room for two columns; a narrow review pane shows them
   // unified until it has room again.
   const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
   const [roomy, setRoomy] = useState(true);
   const [guideRoomy, setGuideRoomy] = useState(true);
-  // The Commit tab's file, for the status bar.
-  const [commitPath] = useState(createPathValue);
   const [compactSelection, setCompactSelection] = useState(false);
   useLayoutEffect(() => {
     if (!mainElement) return;
@@ -1066,32 +1050,46 @@ export function App({
   // A pane hidden from its header takes its button, and the focus, with it:
   // the button that shows it again, where it was, takes the focus. The review
   // widens as the pane goes, so the button can come a frame later, with room.
-  const panesShown = useRef({ changed: changedVisible, session: sessionVisible });
-  const focusShow = useRef<"changed" | "session">(undefined);
+  const sessionShown = useRef(sessionVisible);
+  const focusShow = useRef(false);
   useLayoutEffect(() => {
-    const before = panesShown.current;
-    panesShown.current = { changed: changedVisible, session: sessionVisible };
+    const before = sessionShown.current;
+    sessionShown.current = sessionVisible;
     const active = document.activeElement;
     const lost =
       !(active instanceof HTMLElement) || active === document.body || !active.checkVisibility();
-    if (before.changed && !changedVisible) focusShow.current = lost ? "changed" : undefined;
-    else if (before.session && !sessionVisible) focusShow.current = lost ? "session" : undefined;
-    const id = focusShow.current;
-    if (!id) return;
-    if (!lost || (id === "changed" ? changedVisible : sessionVisible)) {
-      focusShow.current = undefined;
+    if (before && !sessionVisible) focusShow.current = lost;
+    if (!focusShow.current) return;
+    if (!lost || sessionVisible) {
+      focusShow.current = false;
       return;
     }
-    const button = visibleElement(`[data-pane-show="${id}"]`);
-    if (!button) return;
-    focusShow.current = undefined;
-    button.focus();
-  }, [changedVisible, sessionVisible, roomy]);
+    // The button can come a few frames later, as in the title band once the
+    // review fills the window; a focus that moved on meanwhile stays.
+    let frames = 0;
+    let frame = 0;
+    const focus = () => {
+      const now = document.activeElement;
+      if (now instanceof HTMLElement && now !== document.body && now.checkVisibility()) {
+        focusShow.current = false;
+        return;
+      }
+      const button = visibleElement('[data-pane-show="session"]');
+      if (button) {
+        focusShow.current = false;
+        button.focus();
+      } else if (++frames < 10) frame = requestAnimationFrame(focus);
+    };
+    focus();
+    return () => cancelAnimationFrame(frame);
+  }, [sessionVisible, roomy]);
   const wrap = useViewSetting(viewSettings.wrap) === "on";
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
   const [findOpen, setFindOpen] = useState(false);
   const [find, setFind] = useState("");
-  const [findIndex, setFindIndex] = useState(0);
+  const [findOptions, setFindOptions] = useState<FindOptions>(NO_FIND_OPTIONS);
+  // The match that shows, from 0; -1 before the first.
+  const [findIndex, setFindIndex] = useState(-1);
   const findHighlights = useMemo(
     () => createDiffFindHighlights("med-diff-find", "med-diff-find-current"),
     [],
@@ -1139,7 +1137,6 @@ export function App({
   }, [clearLineSelection]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [contextError, setContextError] = useState<string | null>(null);
-  const [frameMs, setFrameMs] = useState<number | null>(null);
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState("HEAD");
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -1198,34 +1195,21 @@ export function App({
   const metadataRows = useRef(new Map<string, HTMLDivElement>());
   const filterRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
-  const renderStart = useRef({ id: "", at: 0, measured: true, generation: 0 });
+  // The review that the selection and the draft belong to; they go when
+  // another one loads.
+  const shownReview = useRef("");
   useEffect(() => {
     let previousMetrics = controller.getSnapshot().metrics;
     return controller.subscribe(() => {
       const snapshot = controller.getSnapshot();
       const id = snapshot.review?.id ?? "";
-      if (renderStart.current.id !== id) {
+      if (shownReview.current !== id) {
         setSelection(null);
         setDraft(null);
         setContextError(null);
       }
-      if (snapshot.status === "loading") {
-        renderStart.current = {
-          id,
-          at: 0,
-          measured: true,
-          generation: renderStart.current.generation + 1,
-        };
-        setFrameMs(null);
-      } else if (snapshot.metrics !== previousMetrics) {
-        renderStart.current = {
-          id,
-          at: performance.now(),
-          measured: false,
-          generation: renderStart.current.generation + 1,
-        };
-        setFrameMs(null);
-      }
+      if (snapshot.status === "loading" || snapshot.metrics !== previousMetrics)
+        shownReview.current = id;
       previousMetrics = snapshot.metrics;
     });
   }, [controller]);
@@ -1292,12 +1276,7 @@ export function App({
   // the review. The reader starts an agent from the session toggle.
   const adoptPanes = panes.adopt;
   useEffect(() => {
-    if (threadLayout && state.savedReview && !hasSessions)
-      adoptPanes({
-        axis: "row",
-        children: [{ id: "changed" }, { id: "review" }],
-        sizes: [0.24, 0.76],
-      });
+    if (threadLayout && state.savedReview && !hasSessions) adoptPanes({ id: "review" });
   }, [threadLayout, state.savedReview, hasSessions, adoptPanes]);
   useEffect(() => {
     if (sessionReady || !hasSessions) return;
@@ -1352,6 +1331,38 @@ export function App({
         : null,
     [replyAgent, showPane],
   );
+  // A comment goes to the agent from the comment when Med started that agent
+  // and runs it. One that a terminal runs takes comments from its message.
+  const inboxState = agentInbox.state;
+  const sendAgentMessage = agentInbox.send;
+  const commentAgent = useMemo<CommentAgent | null>(() => {
+    if (!leadSession || !replyAgent || !inboxState?.owned.includes(leadSession.id)) return null;
+    const unsent = new Set(inboxState.drafts.map((draft) => draft.id));
+    const held = new Set(inboxState.messages.flatMap((message) => message.noteIds));
+    return {
+      name: replyAgent,
+      mark: leadSession.agent === "acp" ? "agent" : leadSession.agent,
+      sent: (id) => held.has(id) && !unsent.has(id),
+      send: async (id) => {
+        await sendAgentMessage({
+          id: crypto.randomUUID(),
+          sessionId: leadSession.id,
+          text: "",
+          noteIds: [id],
+          attachments: [],
+          images: [],
+        });
+      },
+    };
+  }, [leadSession, replyAgent, inboxState, sendAgentMessage]);
+  // An agent's reply changes the review where the page does not write: the
+  // inbox says so, and the page reads the comments again.
+  const inboxRevision = inboxState?.revision;
+  const savedRevision = state.savedReview?.revision;
+  useEffect(() => {
+    if (inboxRevision !== undefined && savedRevision !== undefined && inboxRevision > savedRevision)
+      void controller.refreshSavedReview().catch(() => {});
+  }, [inboxRevision, savedRevision, controller]);
   const savedTarget = state.savedReview?.targets.find(
     (target) => target.id === state.savedTargetId,
   );
@@ -1666,7 +1677,6 @@ export function App({
     capturedVersions.some((entry) => entry.number < shownIteration);
   const overviewParts =
     !!savedGuide ||
-    guideCommits.length >= 2 ||
     !!reviewOutput.proof ||
     reviewOutput.findings.length > 0 ||
     !!reviewOutput.counts;
@@ -1706,25 +1716,25 @@ export function App({
     guideScope.kind === "segment"
       ? guideSections.find((section) => section.key === guideScope.key)
       : undefined;
+  // A commit of the saved range, picked in the Review's file sidebar, shows
+  // with the version's comments and its message.
+  const shownCommit = state.comparison.kind === "commit" ? state.comparison.commit : null;
   const commitIndex =
-    guideScope.kind === "commit"
-      ? guideCommits.findIndex((commit) => commit.id === guideScope.id)
+    state.inReview && !state.savedView && shownCommit
+      ? guideCommits.findIndex((commit) => commit.id === shownCommit)
       : -1;
-  const guideCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
+  const rangeCommit = commitIndex >= 0 ? guideCommits[commitIndex] : undefined;
   const guideTab = hasGuide && fileState.active === "guide";
-  // A segment shows the saved comparison; a commit shows that commit; Since
-  // shows the saved comparison as only what changed since an earlier version.
+  // A segment shows the saved comparison; Since shows it as only what changed
+  // since an earlier version.
   const guideDiff =
     guideTab &&
     ((!!guideSection && state.savedView && !state.savedSince) ||
-      (guideScope.kind === "since" && state.savedView && !!state.savedSince) ||
-      (!!guideCommit &&
-        state.comparison.kind === "commit" &&
-        state.comparison.commit === guideCommit.id));
+      (guideScope.kind === "since" && state.savedView && !!state.savedSince));
   const guideOverview = guideTab && !guideDiff;
   // What changed since the reader's last review: the host compares the
-  // captures, and answers again when an approval, a comment, or a viewed mark
-  // moves the basis.
+  // captures, and answers again when an approval, a comment, or opening a
+  // version moves the basis.
   const approvals = state.savedReview?.approvals;
   const sinceKey =
     laterVersion && state.savedReview
@@ -1761,10 +1771,20 @@ export function App({
     [shownSince, guideTarget],
   );
   if (guideScope.kind === "since" && !laterVersion) setGuideScope({ kind: "overview" });
-  // The tab row is Review · Changes · Commit. Review is what the agent handed
-  // off: a saved version, with its Guide. Changes are the checkout's live
-  // diff. The pane's "changes" view shows either diff, and "guide" is Review's.
+  // The pages are Review · Changes · Commit, or Pull request in Commit's
+  // place once the branch has one. Review is what the agent handed off: a
+  // saved version, with its Guide. Changes are the checkout's live diff. The
+  // pane's "changes" view shows either diff, and "guide" is Review's.
   const reviewAvailable = !!state.savedReview && hasReview(state.savedReview);
+  const reviewPages = useMemo<ReviewPage[]>(
+    () => [
+      ...(reviewAvailable ? [{ value: "review", label: "Review" }] : []),
+      { value: "changes", label: "Changes" },
+      ...(commitApi && !livePullUrl ? [{ value: "commit", label: "Commit" }] : []),
+      ...(hasPullTab ? [{ value: "brief", label: "Pull request" }] : []),
+    ],
+    [reviewAvailable, commitApi, livePullUrl, hasPullTab],
+  );
   const reviewShown =
     reviewAvailable &&
     (fileState.active === "guide" || (fileState.active === "changes" && state.inReview));
@@ -1775,20 +1795,15 @@ export function App({
       : fileState.active;
   // The diff stream shows in Review and Changes, and in the Guide for a segment or commit.
   const streamShown = fileState.active === "changes" || guideDiff;
-  // A thread's Review and Changes list their files beside the diff, and
-  // Review its commits, unless the Changed files pane shows them.
-  const changesRail =
-    fileState.active === "changes" &&
-    !!state.savedReview &&
-    !zen &&
-    !changedVisible &&
-    gitAvailable;
-  // The Guide's rail takes the same place in Review's Guide. The two are one
-  // nested sidebar: hiding it keeps it hidden between the Guide and the diff.
-  // "auto" shows it in a pane with room for it; the reader's choice holds in
-  // any width, so a pane at the edge of the breakpoint stays as chosen.
-  const guideRail = guideTab && !zen;
-  const railChoice = useViewSetting(viewSettings.reviewRail);
+  // Each page has its own sidebar. Changes (and a Review without a guide)
+  // lists the changed files, with what the diff compares at its top.
+  const changesRail = fileState.active === "changes" && gitAvailable;
+  // Review's sidebar is its guide. Each page keeps whether its sidebar shows:
+  // "auto" shows it in a review with room for it; the reader's choice holds
+  // in any width, so a review at the edge of the breakpoint stays as chosen.
+  const guideRail = guideTab;
+  const railSetting = guideRail ? viewSettings.guideSidebar : viewSettings.changesSidebar;
+  const railChoice = useViewSetting(railSetting);
   // The session's side panel shows where its pane has room (SessionPanel.tsx).
   const sessionPanelChoice = useViewSetting(viewSettings.sessionPanel);
   const followUpChoice = useViewSetting(viewSettings.followUp);
@@ -1798,10 +1813,15 @@ export function App({
   const railShown = changesRail && railOpen;
   const guideRailShown = guideRail && railOpen;
   const toggleRail = useCallback(
-    () => viewSettings.reviewRail.set(railOpen ? "closed" : "open"),
-    [railOpen],
+    () => railSetting.set(railOpen ? "closed" : "open"),
+    [railSetting, railOpen],
   );
-  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "files and commits"}`;
+  const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "changed files"}`;
+  // The rail's own icon: what it lists, not a sidebar.
+  const railIcon: IconName = guideRail ? "guide" : "fileTree";
+  // ⌘B shows or hides the window's thread list; alone, the page's sidebar.
+  const toggleReviewSidebar = shell?.toggleSidebar ?? toggleRail;
+  const sidebarShown = railShown || guideRailShown;
   // A stack's or a set's layers (docs/STACKS.md): the Review shows one layer,
   // the whole stack, or a range of layers, from one checkout.
   const stack = useMemo(
@@ -1819,18 +1839,6 @@ export function App({
     : layerSpan.from === 0 && layerSpan.to === stack!.layers.length - 1
       ? { kind: "whole" }
       : { kind: "range", ...layerSpan };
-  const layerViewed = useLayerViewed(stack ? (state.savedReview?.id ?? null) : null);
-  const layerStates = useMemo(
-    () =>
-      stack
-        ? stack.layers.map((layer) => {
-            const counts = layerViewed[layer.target.id];
-            return layerProgress(counts?.viewed ?? 0, layer.files ?? counts?.files, layer.comments);
-          })
-        : NO_PROGRESS,
-    [stack, layerViewed],
-  );
-  const nextLayer = stack ? nextUnreviewed(stack.layers, layerStates) : -1;
   const showLayer = useCallback(
     (index: number) => {
       const layer = stack?.layers[index];
@@ -1865,9 +1873,6 @@ export function App({
     },
     [stack, reviewShown, layerIndex, state.savedView, showLayer],
   );
-  const showNextUnreviewed = useCallback(() => {
-    if (nextLayer >= 0) showLayer(nextLayer);
-  }, [nextLayer, showLayer]);
   // Outside the Guide, whose order the agent chose, generated files come
   // last, and only while their group is open.
   const fileGroups = useMemo(() => splitGenerated(files, generatedFiles), [files, generatedFiles]);
@@ -1889,113 +1894,51 @@ export function App({
     () => setCollapsed(allCollapsed ? new Set() : new Set(streamFiles.map((file) => file.id))),
     [allCollapsed, streamFiles],
   );
-  // Viewed marks, by file ID, for the shown comparison and for the guide's files.
-  const viewed = useViewed(state.savedReview?.id ?? null);
-  const markedIds = useCallback(
-    (list: readonly ParsedReviewFile[]) => {
-      const ids = new Set<string>();
-      for (const file of list) if (viewed.marks.has(viewKey(file))) ids.add(file.id);
-      // A generated file is viewed with the file whose change made it.
-      if (generatedFiles.sources.size) {
-        const byId = new Map(state.files.map((file) => [file.id, file]));
-        for (const file of list) {
-          const source = byId.get(generatedFiles.sources.get(file.id) ?? "");
-          if (source && viewed.marks.has(viewKey(source))) ids.add(file.id);
-        }
-      }
-      return ids;
-    },
-    [viewed.marks, generatedFiles, state.files],
-  );
-  const viewedIds = useMemo(() => markedIds(state.files), [markedIds, state.files]);
-  // The sidebar draws a stack's progress from each layer's viewed count.
-  const shownLayerTarget = state.savedView && shownLayer ? shownLayer.target.id : null;
-  const viewedReview = state.savedReview?.id;
-  useEffect(() => {
-    if (!shownLayerTarget || !viewedReview || state.status !== "ready") return;
-    setLayerViewed(viewedReview, shownLayerTarget, viewedIds.size, state.files.length);
-  }, [shownLayerTarget, viewedReview, state.status, viewedIds, state.files.length]);
+  const stackReview = state.savedReview?.id;
   // A layer that the sidebar picked shows once the thread's review is read.
-  const stackReady = !!stack && !!viewedReview;
+  const stackReady = !!stack && !!stackReview;
   useEffect(() => {
-    if (!stackReady || !viewedReview) return;
+    if (!stackReady || !stackReview) return;
     const take = () => {
-      const part = takeLayer(viewedReview);
+      const part = takeLayer(stackReview);
       if (!part) return;
       const index = stack?.layers.findIndex((layer) => layer.id === part) ?? -1;
       if (index >= 0) showLayer(index);
     };
     take();
     return subscribeLayers(take);
-  }, [stackReady, viewedReview, stack, showLayer]);
-  const guideViewedIds = useMemo(
-    () => (shownGuideFiles === state.files ? viewedIds : markedIds(shownGuideFiles)),
-    [markedIds, shownGuideFiles, state.files, viewedIds],
-  );
-  const setFilesViewed = useCallback(
-    (ids: readonly string[], value: boolean) => {
-      const byId = new Map([...shownGuideFiles, ...state.files].map((file) => [file.id, file]));
-      const keys = ids.flatMap((id) => {
-        const file = byId.get(id);
-        return file ? [viewKey(file)] : [];
-      });
-      viewed.set(keys, value);
-      // "Since" starts from the last version that the reader read: a file
-      // marked in the Review tab, not in the live Changes tab.
-      if (
-        value &&
-        state.savedReview &&
-        (state.savedView || state.inReview) &&
-        shownIteration !== undefined
-      )
-        controller.markRead(shownIteration).catch(() => {});
-      // A viewed file folds away, as on GitHub; marking it unviewed opens it again.
-      setCollapsed((current) => {
-        const next = new Set(current);
-        for (const id of ids) {
-          if (value) next.add(id);
-          else next.delete(id);
-        }
-        return next;
-      });
-    },
-    [
-      shownGuideFiles,
-      state.files,
-      viewed,
-      state.savedReview,
-      state.savedView,
-      state.inReview,
-      shownIteration,
-      controller,
-    ],
-  );
+  }, [stackReady, stackReview, stack, showLayer]);
+  // The reader looked at the version on screen: the next version's "since"
+  // starts here.
+  const lookedIteration =
+    state.status === "ready" && state.savedReview && (state.savedView || state.inReview)
+      ? shownIteration
+      : undefined;
+  useEffect(() => {
+    if (lookedIteration !== undefined) controller.markRead(lookedIteration).catch(() => {});
+  }, [controller, lookedIteration]);
   const guideFilesById = useMemo(
     () => new Map(shownGuideFiles.map((file) => [file.id, file])),
     [shownGuideFiles],
   );
+  // The Overview's line: where the change is, and how many files. Line counts
+  // and hashes show only in a file's own header.
   const guideMeta = useMemo(() => {
     if (!guideTarget) return "";
-    let additions = 0;
-    let deletions = 0;
-    for (const file of shownGuideFiles) {
-      additions += file.info.additions;
-      deletions += file.info.deletions;
-    }
     return [
       guideTarget.branch ?? guideTarget.repo.split("/").at(-1),
       guideTarget.captured
         ? guideTarget.label
-        : `${shortRevision(guideTarget.base)} → ${shortRevision(guideTarget.head)}`,
-      ...(shownGuideFiles.length
-        ? [
-            `+${additions.toLocaleString()} −${deletions.toLocaleString()}`,
-            `${shownGuideFiles.length} ${shownGuideFiles.length === 1 ? "file" : "files"}`,
-          ]
-        : []),
-    ].join(" · ");
+        : guideTarget.names
+          ? comparisonLabel(guideTarget.comparison, guideTarget.names).long
+          : undefined,
+      shownGuideFiles.length
+        ? `${shownGuideFiles.length} ${shownGuideFiles.length === 1 ? "file" : "files"}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }, [guideTarget, shownGuideFiles]);
-  const canMarkViewed = !!state.savedReview;
   const guideAt = savedGuide?.updatedAt ?? state.savedReview?.createdAt ?? "";
   const guideAgent = useMemo(
     () => ({
@@ -2015,45 +1958,46 @@ export function App({
       setSelection(null);
       fileWorkspace.select("guide");
       setPendingGuideFile(fileId ?? null);
-      if (scope.kind === "commit") {
-        if (snapshot.comparison.kind !== "commit" || snapshot.comparison.commit !== scope.id)
-          void controller.selectComparison({ kind: "commit", commit: scope.id }, true);
-        return;
-      }
       if (scope.kind === "since") {
         if (sinceFrom) void controller.showSince(sinceFrom);
         return;
       }
       if (!snapshot.savedView || snapshot.savedSince) void controller.showReview();
-      // A segment's viewed files start folded.
-      const section =
-        scope.kind === "segment" ? guideSections.find((entry) => entry.key === scope.key) : null;
-      if (section)
+      // The file chosen in the rail opens, if it was folded.
+      if (fileId)
         setCollapsed((current) => {
+          if (!current.has(fileId)) return current;
           const next = new Set(current);
-          for (const id of section.fileIds)
-            if (guideViewedIds.has(id) && id !== fileId) next.add(id);
-            else if (id === fileId) next.delete(id);
+          next.delete(fileId);
           return next;
         });
     },
-    [controller, fileWorkspace, guideSections, guideViewedIds, sinceFrom],
+    [controller, fileWorkspace, sinceFrom],
   );
   // Since follows its basis: a new answer, such as after an approval, or another version.
   useEffect(() => {
     if (guideTab && guideScope.kind === "since" && sinceFrom && state.savedSince !== sinceFrom)
       void controller.showSince(sinceFrom);
   }, [controller, guideTab, guideScope.kind, sinceFrom, state.savedSince]);
-  // j and k step through the segments, or through the commits once one shows.
+  // A later hand-off opens on what is new since the reader last looked, once
+  // for each hand-off; the Overview stays a click away in the rail.
+  const freshKey =
+    guideTab && guideScope.kind === "overview" && sinceRow?.files && state.savedReview
+      ? `${state.savedReview.id} ${shownIteration}`
+      : null;
+  const openedFresh = useRef<string | null>(null);
+  useEffect(() => {
+    if (!freshKey || openedFresh.current === freshKey) return;
+    openedFresh.current = freshKey;
+    openGuide({ kind: "since" });
+  }, [freshKey, openGuide]);
+  // j and k step through the segments.
   const stepGuide = useCallback(
     (delta: number) => {
-      const commits = guideScope.kind === "commit" || !guideSections.length;
       const order: GuideScope[] = [
         { kind: "overview" },
         ...(sinceFrom ? [{ kind: "since" as const }] : []),
-        ...(commits
-          ? guideCommits.map((commit) => ({ kind: "commit" as const, id: commit.id }))
-          : guideSections.map((section) => ({ kind: "segment" as const, key: section.key }))),
+        ...guideSections.map((section) => ({ kind: "segment" as const, key: section.key })),
       ];
       const index = order.findIndex(
         (scope) => JSON.stringify(scope) === JSON.stringify(guideScope),
@@ -2062,32 +2006,9 @@ export function App({
       if (next && index + delta >= 0 && JSON.stringify(next) !== JSON.stringify(guideScope))
         openGuide(next);
     },
-    [guideScope, guideSections, guideCommits, openGuide, sinceFrom],
+    [guideScope, guideSections, openGuide, sinceFrom],
   );
-  // v: the file whose header is at the top of the stream, or the first one
-  // below the segment's header. Marking it viewed folds it and shows the next.
   const streamRef = useRef<HTMLDivElement>(null);
-  const toggleTopFileViewed = useCallback(() => {
-    const host = streamRef.current;
-    if (!host) return;
-    const top = host.getBoundingClientRect().top;
-    let current: string | undefined;
-    for (const header of host.querySelectorAll<HTMLElement>("[data-stream-file]"))
-      if (header.getBoundingClientRect().top <= top + 4) current = header.dataset.streamFile;
-    current ??= streamFiles[0]?.id;
-    if (!current) return;
-    const value = !viewedIds.has(current);
-    setFilesViewed([current], value);
-    if (!value) return;
-    const next = streamFiles[streamFiles.findIndex((file) => file.id === current) + 1];
-    requestAnimationFrame(() =>
-      viewer.current?.scrollTo({
-        type: "item",
-        id: next?.id ?? current,
-        align: "start",
-      }),
-    );
-  }, [streamFiles, viewedIds, setFilesViewed]);
   // A file chosen in the rail shows once its segment's stream has mounted.
   useEffect(() => {
     // `path:` names a file of a diff that has not loaded yet, as in Since.
@@ -2147,6 +2068,7 @@ export function App({
   const selectTab = useCallback(
     (id: string) => {
       pendingTab.current = null;
+      if (!reviewVisible) showPane("review");
       if (id === "review") {
         if (hasGuide) openGuide(guideScope);
         else {
@@ -2168,8 +2090,15 @@ export function App({
       }
       fileWorkspace.select(id);
     },
-    [hasGuide, openGuide, guideScope, fileWorkspace, controller],
+    [hasGuide, openGuide, guideScope, fileWorkspace, controller, reviewVisible, showPane],
   );
+  // A page or a file that opens while the review is hidden shows the review.
+  const revealedTab = useRef(fileState.active);
+  useEffect(() => {
+    if (revealedTab.current === fileState.active) return;
+    revealedTab.current = fileState.active;
+    if (!reviewVisible) showPane("review");
+  }, [fileState.active, reviewVisible, showPane]);
   /** q: open the Commit tab, or go back to the tab that showed before it,
    * by the rule that a closed tab follows. */
   const toggleCommit = useCallback(() => {
@@ -2192,6 +2121,11 @@ export function App({
       reveal: (target: { repo: string; path: string }) =>
         controller.revealPath(target.repo, target.path),
       notify: (text: string) => showToast(text),
+      openIn: {
+        links: (repo) => controller.openInLinks(repo),
+        open: (target, line, editor) =>
+          controller.openInEditor(target.repo, target.path, line, editor),
+      },
     }),
     [controller, showToast],
   );
@@ -2246,11 +2180,7 @@ export function App({
             pendingIteration.current = first;
             pendingSavedChanges.current = null;
             void controller.selectSavedTarget(first);
-            showToast(
-              refresh
-                ? `Refreshed the Review as version ${iteration.number}.`
-                : `Started the notes of version ${iteration.number}.`,
-            );
+            showToast(refresh ? "Refreshed the Review." : "Started new notes.");
           },
           (error: unknown) =>
             showToast(
@@ -2283,6 +2213,21 @@ export function App({
       );
     },
     [controller, reveal, revealLine],
+  );
+  /** Shows one of the review's comments at its line in Changes, from the
+   * session's message box. */
+  const openComment = useCallback(
+    (id: string) => {
+      const note = notes.find((entry) => entry.id === id);
+      const snapshot = controller.getSnapshot();
+      const file = note && snapshot.files.find((entry) => entry.path === note.path);
+      if (!note || !file) return;
+      if (!reviewVisible) showPane("review");
+      if (!snapshot.visibleFiles.some((entry) => entry.id === file.id)) controller.setFilter("");
+      const line = noteLine(file.metadata, note);
+      revealLine(file.id, line, line, note.side === "old" ? "deletions" : "additions");
+    },
+    [notes, controller, reviewVisible, showPane, revealLine],
   );
   /** Shows a GitHub thread at its line, from the Pull request tab. */
   const showPullThread = useCallback(
@@ -2356,10 +2301,7 @@ export function App({
         : NO_GUIDE_NOTES,
     [resolvedGuide],
   );
-  const lensReview =
-    guideCommit && state.inReview && !state.savedView && state.status === "ready"
-      ? state.review
-      : null;
+  const lensReview = rangeCommit && state.status === "ready" ? state.review : null;
   const [placedGuide, setPlacedGuide] = useState<{
     review: string;
     byPath: Map<string, GuideNote[]>;
@@ -2527,6 +2469,7 @@ export function App({
   const options = useMemo<CodeViewReactOptions<Annotation, undefined>>(
     () => ({
       theme: activeTheme.pierreTheme,
+      preferredHighlighter: HIGHLIGHTER,
       themeType: theme,
       diffStyle: mode,
       overflow: wrap ? "wrap" : "scroll",
@@ -2627,59 +2570,61 @@ export function App({
             },
             instance,
           );
-        if (phase === "unmount" || renderStart.current.measured) return;
-        renderStart.current.measured = true;
-        const generation = renderStart.current.generation;
-        const start = renderStart.current.at;
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            if (renderStart.current.generation === generation)
-              setFrameMs(performance.now() - start);
-          }),
-        );
       },
     }),
     [controller, theme, activeTheme, mode, wrap, reviewId, diagnostics, draft, findHighlights],
   );
 
-  const hits = useMemo(() => {
-    if (!find) return [];
-    const query = find.toLowerCase();
-    const result: {
-      id: string;
-      side: "additions" | "deletions";
-      line: number;
-    }[] = [];
-    for (const file of streamFiles) {
-      const metadata = file.metadata;
-      if (!metadata) continue;
-      for (const hunk of metadata.hunks) {
-        let found = false;
-        for (const side of ["additions", "deletions"] as const) {
-          const source = side === "additions" ? metadata.additionLines : metadata.deletionLines;
-          const index = side === "additions" ? hunk.additionLineIndex : hunk.deletionLineIndex;
-          const count = side === "additions" ? hunk.additionCount : hunk.deletionCount;
-          const start = side === "additions" ? hunk.additionStart : hunk.deletionStart;
-          for (let offset = 0; offset < count; offset++)
-            if (source[index + offset]?.toLowerCase().includes(query)) {
-              result.push({ id: file.id, side, line: start + offset });
-              found = true;
-              break;
+  // Find in the diff: each line that matches, in the order the diff reads.
+  // A line that both sides have counts once, on the new side.
+  const findMatcher = useMemo(() => findPattern(find, findOptions), [find, findOptions]);
+  const hitsOf = useCallback(
+    (matcher: ReturnType<typeof findPattern>) => {
+      if (!(matcher instanceof RegExp)) return [];
+      const result: {
+        id: string;
+        side: "additions" | "deletions";
+        line: number;
+      }[] = [];
+      const pattern = new RegExp(matcher.source, matcher.flags);
+      const matches = (text: string | undefined) => {
+        pattern.lastIndex = 0;
+        return !!text && [...text.matchAll(pattern)].some((match) => match[0].length > 0);
+      };
+      for (const file of streamFiles) {
+        const metadata = file.metadata;
+        if (!metadata) continue;
+        for (const hunk of metadata.hunks) {
+          const lines = (side: "additions" | "deletions", index: number, count: number) => {
+            const source = side === "additions" ? metadata.additionLines : metadata.deletionLines;
+            const first = side === "additions" ? hunk.additionLineIndex : hunk.deletionLineIndex;
+            const start = side === "additions" ? hunk.additionStart : hunk.deletionStart;
+            for (let at = index; at < index + count && result.length < 1000; at++)
+              if (matches(source[at])) result.push({ id: file.id, side, line: start + at - first });
+          };
+          for (const block of hunk.hunkContent) {
+            if (block.type === "context") lines("additions", block.additionLineIndex, block.lines);
+            else {
+              lines("deletions", block.deletionLineIndex, block.deletions);
+              lines("additions", block.additionLineIndex, block.additions);
             }
-          if (found) break;
+          }
         }
       }
-    }
-    return result;
-  }, [streamFiles, find]);
+      return result;
+    },
+    [streamFiles],
+  );
+  const hits = useMemo(() => hitsOf(findMatcher), [hitsOf, findMatcher]);
   useEffect(() => {
     const hit = findOpen ? hits[findIndex] : undefined;
     const path = hit && streamFiles.find((file) => file.id === hit.id)?.path;
     findHighlights.set(
       findOpen ? find : "",
       hit && path ? { path, side: hit.side, line: hit.line } : null,
+      findOptions,
     );
-  }, [findHighlights, findOpen, find, hits, findIndex, streamFiles]);
+  }, [findHighlights, findOpen, find, findOptions, hits, findIndex, streamFiles]);
   const jumpHit = useCallback(
     (index: number) => {
       if (!hits.length) return;
@@ -2690,6 +2635,21 @@ export function App({
     },
     [hits, revealLine],
   );
+  /** The next match, or the previous one; before any, the first or the last. */
+  const stepHit = useCallback(
+    (direction: 1 | -1) =>
+      jumpHit(findIndex < 0 ? (direction > 0 ? 0 : -1) : findIndex + direction),
+    [jumpHit, findIndex],
+  );
+  /** A new query or option: the diff goes to its first match, as typing in a
+   * find bar does. */
+  const findAgain = (query: string, options: FindOptions) => {
+    setFind(query);
+    setFindOptions(options);
+    const first = hitsOf(findPattern(query, options))[0];
+    setFindIndex(first ? 0 : -1);
+    if (first) revealLine(first.id, first.line, first.line, first.side);
+  };
   const startNote = useCallback(() => {
     if (!selection) return;
     const file = streamFiles.find((entry) => entry.id === selection.id);
@@ -2913,6 +2873,27 @@ export function App({
         toggleCommit();
         return;
       }
+      // 1, 2, and 3 show the pages, also while a file shows; in the session,
+      // a number answers the agent's question.
+      const pageAt = /^[1-9]$/.test(event.key) ? reviewPages[Number(event.key) - 1] : undefined;
+      if (
+        pageAt &&
+        !editing &&
+        !modal &&
+        !visibleElement('[role="dialog"]') &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest('[data-file-pane="main"][tabindex="0"], [data-session-panel]')
+        ) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) selectTab(pageAt.value);
+        return;
+      }
       const optionKey = event.code || `Key${event.key.toUpperCase()}`;
       // These Alt keys also work from the editor and the Search tab's query,
       // so ⌥W, ⌥Z, and ⌥1–9 do not type there.
@@ -2944,12 +2925,10 @@ export function App({
           if (id && id !== row.active) selectTab(id);
           return;
         }
-        // ⌥↑ and ⌥↓ go up and down a stack, unless a sidebar row has the focus:
-        // there they move the tab.
+        // ⌥↑ and ⌥↓ go up and down a stack.
         if (
           (key === "ArrowUp" || key === "ArrowDown") &&
           !event.shiftKey &&
-          !(event.target instanceof Element && event.target.closest("[data-sidebar-row]")) &&
           stepLayer(key === "ArrowUp" ? 1 : -1)
         ) {
           event.preventDefault();
@@ -2967,24 +2946,8 @@ export function App({
           } else if (key === "KeyO" && event.shiftKey) fileWorkspace.closeOthers();
           else if (key === "KeyB" && activeFile && fileState.file?.kind === "text") toggleBlame();
           else if (key === "KeyR" && browseSource) resumeFilePicker();
-          else if (key === "KeyZ" && !event.shiftKey) toggleZen();
           return;
         }
-      }
-      // ⌘⌃B shows or hides the Changed files pane, in the shell or alone.
-      // Without Git it does nothing, rather than ⌘B's sidebar.
-      if (
-        CHANGED_SHORTCUT &&
-        event.metaKey &&
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey &&
-        event.code === "KeyB"
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat && gitAvailable) toggleChanged();
-        return;
       }
       // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
       if (
@@ -3083,14 +3046,21 @@ export function App({
         selectTab(order[(index + step + order.length) % order.length]!);
         return;
       }
-      // ⌘O and ⌘⇧O open the symbol picker wherever there is a checkout, so the
-      // browser never opens its own file dialog; with no file open, ⌘O's
-      // picker says so and offers the project.
+      // ⌘O opens a repository, and ⌘⇧O the symbols of the file, or of the
+      // project with no file open; the browser never opens its own file dialog.
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        if (!browseSource) return;
+        if (event.shiftKey ? !browseSource : !gitAvailable) return;
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) openSymbols(event.shiftKey ? "project" : "file");
+        if (event.repeat) return;
+        if (event.shiftKey)
+          openSymbols(activeFile && fileState.file?.kind === "text" ? "file" : "project");
+        else {
+          setCommandsOpen(false);
+          setBranchPickerNew(false);
+          setBranchPickerRepos(true);
+          setBranchPickerOpen(true);
+        }
         return;
       }
       if (
@@ -3124,6 +3094,7 @@ export function App({
         if (event.repeat) return;
         setCommandsOpen(false);
         setBranchPickerNew(false);
+        setBranchPickerRepos(false);
         setBranchPickerOpen((open) => !open);
         return;
       }
@@ -3178,24 +3149,11 @@ export function App({
         event.altKey
       )
         return;
-      // The Guide: j and k step through its parts; v marks the file at the top
-      // of the stream as viewed; Shift+V marks the part and moves on.
+      // The Guide: j and k step through its parts.
       if (guideTab && (event.key === "j" || event.key === "k")) {
         event.preventDefault();
         event.stopPropagation();
         stepGuide(event.key === "j" ? 1 : -1);
-        return;
-      }
-      if (guideDiff && (event.key === "v" || event.key === "V")) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.key === "V") {
-          setFilesViewed(
-            streamFiles.map((file) => file.id),
-            true,
-          );
-          stepGuide(1);
-        } else toggleTopFileViewed();
         return;
       }
       if (!streamShown) return;
@@ -3215,11 +3173,11 @@ export function App({
       } else if (event.key === "n" && find) {
         event.preventDefault();
         event.stopPropagation();
-        jumpHit(findIndex + 1);
+        stepHit(1);
       } else if (event.key === "N" && find) {
         event.preventDefault();
         event.stopPropagation();
-        jumpHit(findIndex - 1);
+        stepHit(-1);
       } else if (event.key === "c" && selection) {
         // Without this, the key that opens the composer is typed into it.
         event.preventDefault();
@@ -3254,8 +3212,7 @@ export function App({
     openFind,
     navigateHunk,
     find,
-    findIndex,
-    jumpHit,
+    stepHit,
     selection,
     startNote,
     askThread,
@@ -3264,7 +3221,6 @@ export function App({
     toggleReviewSidebar,
     toggleSession,
     state.savedReview,
-    toggleZen,
     browseSource,
     openFilePicker,
     openSearch,
@@ -3278,21 +3234,18 @@ export function App({
     toggleBlame,
     commitApi,
     toggleCommit,
+    reviewPages,
     tabRow,
     selectTab,
     streamShown,
     guideTab,
     guideDiff,
     stepGuide,
-    setFilesViewed,
-    streamFiles,
-    toggleTopFileViewed,
     shown,
     stepLayer,
     changesRail,
     guideRail,
     toggleRail,
-    toggleChanged,
   ]);
 
   const selectBranch = useCallback(
@@ -3316,8 +3269,9 @@ export function App({
     onBranch: selectBranch,
     onWorktree: selectWorktree,
   });
-  const openBranchPicker = (newWorkspace: boolean) => {
+  const openBranchPicker = (newWorkspace: boolean, repositoriesFirst = false) => {
     setBranchPickerNew(newWorkspace);
+    setBranchPickerRepos(repositoriesFirst);
     setBranchPickerOpen(true);
   };
   // Plain ↵ opens a branch here, or shows the workspace that already has it;
@@ -3511,8 +3465,6 @@ export function App({
         : undefined,
     [activeSource, activePath, browseApi, editorDrafts, fileWorkspace],
   );
-  // The main file shows a Markdown file rendered.
-  const [fileReading, setFileReading] = useState(false);
   const setFileBlame = useCallback(
     (open: boolean) => setBlameTab(open && activeFileId ? activeFileId : null),
     [activeFileId],
@@ -3556,22 +3508,6 @@ export function App({
       window.removeEventListener("med-vault-navigate", follow);
     };
   }, [activeVault, activePath, activeSourceLabel, browseApi, fileWorkspace, showToast, shown]);
-  // A primitive copy, so the callbacks below do not depend on a mutable file object.
-  const activeDiffPath = activeDiffFile ? `${activeDiffFile.path}` : undefined;
-  const openBeforeVersion = useCallback(() => {
-    if (activeDiffPath) openVersion(activeDiffPath, "old");
-  }, [activeDiffPath, openVersion]);
-  const openAfterVersion = useCallback(() => {
-    if (activeDiffPath) openVersion(activeDiffPath, "new");
-  }, [activeDiffPath, openVersion]);
-  const openBefore =
-    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? "")
-      ? openBeforeVersion
-      : undefined;
-  const openAfter =
-    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.head ?? "")
-      ? openAfterVersion
-      : undefined;
   const runFileNavigation = (keys: string, control = false) => {
     if (keys !== "/" && keys !== "?") setVimEnabled(true);
     // Run after the palette releases its focus trap.
@@ -3635,7 +3571,7 @@ export function App({
     fileWorkspace.select("changes");
     void controller.showReview();
   }, [state.savedTargetId, fileWorkspace, controller]);
-  // The commits beside the diff, in the rail or the Changed files pane: the
+  // The commits beside the diff, in the Changes page's sidebar: the
   // Review's range, and in Changes the same list, or else the branch's own
   // commits. A commit opens in the tab that lists it, and one that showed
   // before shows again from the cache.
@@ -3711,10 +3647,10 @@ export function App({
     undefined,
     state.activeBranch ? { name: state.activeBranch, head: liveHead } : undefined,
   );
-  // In Review, the row names the hand-off: its version and its age. The menu
-  // lists the versions, newest first, then the commits that you commented
-  // on. Git's comparisons are the Changes tab's. A version of several
-  // checkouts has an item for each.
+  // In Review, a hand-off of several checkouts has a menu of them, then the
+  // commits that you commented on. It shows no versions: the Review is the
+  // latest hand-off, and earlier ones stay only as its snapshots. Git's
+  // comparisons are the Changes page's.
   const reviewNow = useMinuteClock(reviewShown);
   const handoffs = state.savedReview ? handoffTargets(state.savedReview) : [];
   const versionOf = (target: SavedReviewTarget) =>
@@ -3742,27 +3678,21 @@ export function App({
   const versionChoices = reviewShown
     ? [
         ...versionHandoffs
-          .map((target, index) => ({ target, index, number: versionNumber(target) }))
-          .sort((a, b) => b.number - a.number || a.index - b.index)
-          .map(({ target, number }) => {
-            const places = versionHandoffs.filter(
-              (other) => versionNumber(other) === number,
-            ).length;
+          .filter(
+            (target) =>
+              versionNumber(target) === latestVersion || target.id === state.savedTargetId,
+          )
+          .map((target) => {
             const time = Date.parse(
               versionOf(target)?.createdAt ?? state.savedReview?.createdAt ?? "",
             );
             return {
               value: target.id,
               label: [
-                `Version ${number}`,
-                ...(places > 1 ? [target.repo.split(/[\\/]/).at(-1)!] : []),
+                target.repo.split(/[\\/]/).at(-1)!,
                 ...(Number.isFinite(time) ? [relativeTime(time, Math.max(reviewNow, time))] : []),
               ].join(" · "),
-              description: [
-                placeOf(target),
-                ...(number === latestVersion && latestVersion > 1 ? ["the latest version"] : []),
-                ...(approvals?.some((entry) => entry.version === number) ? ["approved"] : []),
-              ].join(" · "),
+              description: placeOf(target),
             };
           }),
         ...(state.savedReview?.targets ?? [])
@@ -3820,8 +3750,8 @@ export function App({
                   ? "Patch review"
                   : state.comparison.kind === "files"
                     ? "File comparison"
-                    : // Quiet chrome names the range here, and only here.
-                      quiet && state.comparison.kind === "range"
+                    : // The range is named here, and only here.
+                      state.comparison.kind === "range"
                       ? liveText.long
                       : "Revision range",
             description:
@@ -3857,9 +3787,6 @@ export function App({
       );
   // The row's label: in full, or short in a narrow row (QuietChrome.tsx).
   const chosenLabel = comparisonChoices.find((choice) => choice.value === comparisonValue)?.label;
-  const shownVersion = state.savedTargetId
-    ? iterations.find((entry) => entry.targetIds.includes(state.savedTargetId!))?.number
-    : undefined;
   const comparisonText: ComparisonLabel = reviewShown
     ? {
         long: chosenLabel ?? "",
@@ -3867,7 +3794,7 @@ export function App({
         short:
           reviewCommit || shownTarget?.commentReviewId
             ? (chosenLabel ?? "")
-            : `Version ${shownVersion ?? 1}`,
+            : (chosenLabel?.split(" · ")[0] ?? ""),
       }
     : {
         // The branch's changes name the branch and its base.
@@ -3899,15 +3826,12 @@ export function App({
   else if (keptRecap !== undefined && !recap.unseen && (!sessionVisible || recapKey !== keptRecap))
     setKeptRecap(undefined);
   useEffect(() => () => setKeptRecap(undefined), []);
-  // Review from the recap waits for the diff that it opens, then goes to the
-  // Guide's first segment not viewed, or to the first file.
+  // Review from the recap waits for the diff that it opens, then goes to what
+  // is new since the reader last looked, or to the Guide's Overview.
   const recapJump = useRef<"guide" | "review" | "changes" | null>(null);
-  const firstUnviewed = useCallback(() => {
-    const next =
-      guideSections.find((section) => section.fileIds.some((id) => !guideViewedIds.has(id))) ??
-      guideSections[0];
-    openGuide(next ? { kind: "segment", key: next.key } : { kind: "overview" });
-  }, [guideSections, guideViewedIds, openGuide]);
+  const openFresh = useCallback(() => {
+    openGuide(sinceFrom ? { kind: "since" } : { kind: "overview" });
+  }, [openGuide, sinceFrom]);
   const jumpReady = (jump: "guide" | "review" | "changes") => {
     const snapshot = controller.getSnapshot();
     if (snapshot.status !== "ready") return false;
@@ -3915,7 +3839,7 @@ export function App({
   };
   const finishJump = (jump: "guide" | "review" | "changes") => {
     recapJump.current = null;
-    if (jump === "guide") firstUnviewed();
+    if (jump === "guide") openFresh();
     else if (files[0]) reveal(files[0].id);
   };
   useEffect(() => {
@@ -4001,12 +3925,6 @@ export function App({
   const commands: ReviewCommand[] = [
     ...(stack && reviewAvailable
       ? [
-          {
-            id: "stack-next-unreviewed",
-            label: `Next unreviewed ${stack.shape === "stack" ? "layer" : "part"}`,
-            disabled: nextLayer < 0,
-            run: showNextUnreviewed,
-          },
           ...(stack.shape === "stack"
             ? [
                 {
@@ -4033,11 +3951,6 @@ export function App({
             : []),
         ]
       : []),
-    {
-      id: "render-diagnostics",
-      label: "Download render diagnostics",
-      run: () => diagnostics.download(),
-    },
     {
       id: "find-file-text",
       managesFocus: true,
@@ -4066,7 +3979,7 @@ export function App({
       id: "file-symbols",
       managesFocus: true,
       label: "Search symbols in current file",
-      shortcut: "⌘ O",
+      shortcut: "⌘ ⇧ O",
       disabled: !activeFile || fileState.file?.kind !== "text",
       run: () => openSymbols("file"),
     },
@@ -4074,7 +3987,6 @@ export function App({
       id: "project-symbols",
       managesFocus: true,
       label: "Search symbols in project commits",
-      shortcut: "⌘ ⇧ O",
       disabled: !browseSource,
       run: () => openSymbols("project"),
     },
@@ -4082,6 +3994,14 @@ export function App({
       id: "vim",
       label: vimEnabled ? "Disable Vim navigation in files" : "Enable Vim navigation in files",
       run: () => setVimEnabled((value) => !value),
+    },
+    {
+      id: "open-repository",
+      managesFocus: true,
+      label: "Open repository…",
+      shortcut: "⌘ O",
+      disabled: !gitAvailable,
+      run: () => openBranchPicker(false, true),
     },
     {
       id: "open-branch",
@@ -4155,14 +4075,14 @@ export function App({
       label: "Next diff search match",
       shortcut: "n",
       disabled: !find || !!activeFile,
-      run: () => jumpHit(findIndex + 1),
+      run: () => stepHit(1),
     },
     {
       id: "previous-match",
       label: "Previous diff search match",
       shortcut: "N",
       disabled: !find || !!activeFile,
-      run: () => jumpHit(findIndex - 1),
+      run: () => stepHit(-1),
     },
     {
       id: "commands",
@@ -4177,17 +4097,6 @@ export function App({
       label: "Show keyboard shortcuts",
       shortcut: "?",
       run: () => setHelpOpen(true),
-    },
-    {
-      id: "elements",
-      label: "Open elements page",
-      run: () => location.assign("/elements"),
-    },
-    { id: "reload", label: "Reload Med", run: () => location.reload() },
-    {
-      id: "restart-server",
-      label: "Restart Med server and reload",
-      run: requestServerRestart,
     },
     {
       id: "close-file",
@@ -4335,6 +4244,16 @@ export function App({
                   shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
+                // The review hides only beside the session.
+                ...(sessionVisible || !reviewVisible
+                  ? [
+                      {
+                        id: "review-pane",
+                        label: reviewVisible ? "Hide review" : "Show review",
+                        run: toggleReview,
+                      },
+                    ]
+                  : []),
               ]
             : []),
           ...(state.savedReview
@@ -4345,6 +4264,16 @@ export function App({
                   shortcut: "⌘⇧B",
                   run: toggleSession,
                 },
+                // The review hides only beside the session.
+                ...(sessionVisible || !reviewVisible
+                  ? [
+                      {
+                        id: "review-pane",
+                        label: reviewVisible ? "Hide review" : "Show review",
+                        run: toggleReview,
+                      },
+                    ]
+                  : []),
                 ...(agentPresets ?? [])
                   .filter((agent) => agent.available)
                   .map((agent) => ({
@@ -4434,9 +4363,10 @@ export function App({
       id: "filter",
       label: "Filter changed files",
       run: () => {
-        // The Changes rail's filter, when it shows; otherwise the pane's.
+        // The Changes sidebar's filter: the page and its sidebar show first.
         if (filterRef.current?.offsetParent) return filterRef.current.focus();
-        showPane("changed");
+        selectTab("changes");
+        viewSettings.changesSidebar.set("open");
         requestAnimationFrame(() => filterRef.current?.focus());
       },
     },
@@ -4452,6 +4382,7 @@ export function App({
       label: "Change theme",
       run: () => setThemePickerOpen(true),
     },
+    ...settingsCommands(),
     {
       id: "refresh",
       label: "Refresh current review and history",
@@ -4475,40 +4406,18 @@ export function App({
           },
         ]
       : []),
-    {
-      id: "sidebar",
-      label: shell
-        ? shell.sidebarVisible
-          ? "Hide threads"
-          : "Show threads"
-        : changedVisible
-          ? "Hide changed files"
-          : "Show changed files",
-      shortcut: "⌘ B",
-      run: toggleReviewSidebar,
-    },
-    ...(shell && gitAvailable
+    // Without the window's shell, ⌘B is the page's sidebar (⌘⌥B, below).
+    ...(shell
       ? [
           {
-            id: "changed-files",
-            label: changedVisible ? "Hide changed files" : "Show changed files",
-            ...(CHANGED_SHORTCUT ? { shortcut: "⌘⌃B" } : {}),
-            run: toggleChanged,
+            id: "sidebar",
+            label: shell.sidebarVisible ? "Hide threads" : "Show threads",
+            shortcut: "⌘ B",
+            run: shell.toggleSidebar,
           },
         ]
       : []),
-    {
-      id: "zen",
-      label: zen ? "Leave zen mode" : "Enter zen mode",
-      shortcut: "⌥ Z",
-      run: toggleZen,
-    },
-    {
-      id: "chrome",
-      label: quiet ? "Use full chrome" : "Use quiet chrome",
-      run: () => setChromeMode(quiet ? "full" : "quiet"),
-    },
-    ...(comparisonActionsShown && !zen
+    ...(comparisonActionsShown
       ? [
           {
             id: "compare-base",
@@ -4521,11 +4430,11 @@ export function App({
             managesFocus: true,
             label: "Push to remote…",
             disabled: !!pushBlocked,
+            ...(pushBlocked && { hint: pushBlocked }),
             run: openPush,
           },
         ]
       : []),
-    // The saved review's own actions, for zen mode, which hides its header.
     ...(state.savedReview && replyAgent
       ? [
           {
@@ -4549,8 +4458,7 @@ export function App({
           },
         ]
       : []),
-    // The question opens under the review's header, which zen hides.
-    ...(state.savedReview?.commentCount && !zen
+    ...(state.savedReview?.commentCount
       ? [
           {
             id: "clear-comments",
@@ -4580,7 +4488,7 @@ export function App({
         ]
       : []),
     // As the side panel's own button: where the session's pane has room.
-    ...(sessionVisible && sessionSideRoom && !zen
+    ...(sessionVisible && sessionSideRoom
       ? [
           {
             id: "session-side-panel",
@@ -4957,7 +4865,6 @@ export function App({
               : renamedFrom
                 ? { label: "Renamed", tone: styles.statusRenamed }
                 : null;
-      const isViewed = viewedIds.has(item.id);
       const generated = generatedFiles.marks.get(item.id);
       const generatedFrom = fileInfoById.get(generatedFiles.sources.get(item.id) ?? "")?.path;
       const written = generated ? provenance.get(path) : undefined;
@@ -5035,36 +4942,10 @@ export function App({
               <DiffStat additions={info.additions} deletions={info.deletions} />
             </span>
           )}
-          {canMarkViewed && (
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={isViewed}
-              aria-label={`Viewed ${path}`}
-              title={isViewed ? "Viewed · folds the file (v)" : "Mark as viewed (v)"}
-              onClick={() => setFilesViewed([item.id], !isViewed)}
-              {...stylex.props(styles.viewedToggle, isViewed && styles.viewedOn)}
-            >
-              <span {...stylex.props(styles.viewedBox, isViewed && styles.viewedBoxOn)}>
-                {isViewed && <Icon name="check" size={10} />}
-              </span>
-              Viewed
-            </button>
-          )}
         </div>
       );
     },
-    [
-      fileInfoById,
-      collapsed,
-      prefetchFile,
-      openWorkingFile,
-      viewedIds,
-      canMarkViewed,
-      setFilesViewed,
-      generatedFiles,
-      provenance,
-    ],
+    [fileInfoById, collapsed, prefetchFile, openWorkingFile, generatedFiles, provenance],
   );
   // A link to a file in a comment opens the file at its line.
   const openCommentLink = useCallback(
@@ -5075,7 +4956,8 @@ export function App({
     [fileWorkspace],
   );
   const renderAnnotation = useCallback(
-    (annotation: { metadata?: Annotation }) =>
+    // Pierre also passes the file and the item; Med reads the metadata only.
+    (annotation: { metadata?: Annotation }, ..._rest: unknown[]) =>
       annotation.metadata?.draft ? (
         <NoteComposer
           key={JSON.stringify(annotation.metadata.draft)}
@@ -5276,7 +5158,7 @@ export function App({
     overviewOffers.push({
       id: "round-limit",
       slot: "rounds",
-      title: `Version ${shownIteration}`,
+      title: `Round ${shownIteration}`,
       text: "A change that needs a fourth round often needs another approach. The round-limit practice asks the agent to stop after 3 rounds and rethink.",
       action: { kind: "copy", label: "Copy skill", text: roundLimitSkill },
     });
@@ -5297,54 +5179,45 @@ export function App({
           }),
       },
     });
-  if (!overviewProof)
-    overviewOffers.push({
-      id: "proof-first",
-      slot: "proof",
-      title: "No proof with this version",
-      text: "The proof-first practice asks the agent to list each check it ran with its result, and what the checks miss. Med shows them here.",
-      action: { kind: "copy", label: "Copy skill", text: proofFirstSkill },
-    });
-  const approveVersion = useCallback(
-    (version: number, approved: boolean) =>
-      void controller
-        .approveVersion(version, approved)
-        .catch((error: unknown) =>
-          showToast(error instanceof Error ? error.message : "Med could not save the approval."),
-        ),
-    [controller, showToast],
-  );
   const nextGuidePart = guideSection
     ? guideSections[guideSections.indexOf(guideSection) + 1]
     : guideScope.kind === "since"
       ? guideSections[0]
       : undefined;
-  const nextGuideCommit =
-    commitIndex >= 0
-      ? guideCommits[commitIndex + 1]
-      : guideScope.kind === "since" && !guideSections.length
-        ? guideCommits[0]
-        : undefined;
   const nextGuideLabel = nextGuidePart
     ? `${nextGuidePart.automatic ? "" : `${String(nextGuidePart.number).padStart(2, "0")} · `}${nextGuidePart.title}`
-    : nextGuideCommit
-      ? `${nextGuideCommit.id.slice(0, 7)} · ${nextGuideCommit.subject}`
-      : undefined;
-  const streamViewed =
-    streamFiles.length > 0 && streamFiles.every((file) => viewedIds.has(file.id));
+    : undefined;
   const renderCodeViewHeader = useCallback(() => {
+    if (rangeCommit)
+      return (
+        <CommitHeader
+          commit={rangeCommit}
+          number={commitIndex + 1}
+          count={guideCommits.length}
+          hidden={state.notes?.hidden}
+          onWhole={showReviewDiff}
+          totals={
+            state.review
+              ? {
+                  additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
+                  deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
+                  files: state.files.length,
+                }
+              : undefined
+          }
+          loadDetails={loadGuideCommit}
+        />
+      );
     if (!guideDiff) return dependencyCard || null;
     if (guideSection)
       return (
         <SegmentHeader
           section={guideSection}
           count={guideSections.length}
-          viewed={guideSection.fileIds.filter((id) => viewedIds.has(id)).length}
           agent={guideAgent}
           stray={guideStray}
           notes={notes}
           repo={state.review?.repo}
-          onMarkAll={(value) => setFilesViewed(guideSection.fileIds, value)}
           onMutate={(mutation) => controller.mutateNote(mutation)}
           onOpenLink={openGuideLink}
         />
@@ -5362,39 +5235,17 @@ export function App({
           onWhole={showReviewDiff}
         />
       );
-    if (guideCommit)
-      return (
-        <CommitHeader
-          commit={guideCommit}
-          number={commitIndex + 1}
-          count={guideCommits.length}
-          hidden={state.notes?.hidden}
-          onWhole={showReviewDiff}
-          totals={
-            state.review
-              ? {
-                  additions: state.files.reduce((sum, file) => sum + file.info.additions, 0),
-                  deletions: state.files.reduce((sum, file) => sum + file.info.deletions, 0),
-                  files: state.files.length,
-                }
-              : undefined
-          }
-          loadDetails={loadGuideCommit}
-        />
-      );
     return null;
   }, [
     guideDiff,
     guideSection,
     guideSections.length,
-    viewedIds,
     guideAgent,
     guideStray,
     notes,
-    setFilesViewed,
     controller,
     openGuideLink,
-    guideCommit,
+    rangeCommit,
     commitIndex,
     guideCommits,
     state.review,
@@ -5426,7 +5277,6 @@ export function App({
               kind: mark.kind,
               additions: file.info.additions,
               deletions: file.info.deletions,
-              viewed: viewedIds.has(file.id),
               ...(summary && { summary }),
               ...(done?.command && { command: done.command }),
               ...(source && sourceId ? { source: { id: sourceId, path: source.path } } : {}),
@@ -5434,15 +5284,7 @@ export function App({
             };
           })
         : [],
-    [
-      groupGenerated,
-      fileGroups,
-      generatedFiles,
-      fileInfoById,
-      viewedIds,
-      generatedSummaries,
-      provenance,
-    ],
+    [groupGenerated, fileGroups, generatedFiles, fileInfoById, generatedSummaries, provenance],
   );
   const toggleGenerated = useCallback(() => {
     if (generatedOpenRef.current) {
@@ -5458,10 +5300,9 @@ export function App({
           open={generatedOpen}
           onToggle={toggleGenerated}
           onReveal={reveal}
-          onViewed={canMarkViewed ? setFilesViewed : undefined}
         />
       ),
-    [generatedRows, generatedOpen, toggleGenerated, reveal, canMarkViewed, setFilesViewed],
+    [generatedRows, generatedOpen, toggleGenerated, reveal],
   );
   const renderCodeViewFooter = useCallback(
     () =>
@@ -5470,15 +5311,7 @@ export function App({
           {skipped.length > 0 && renderMetadataRows()}
           <GuideFooter
             next={nextGuideLabel}
-            allViewed={streamViewed}
-            onNext={(mark) => {
-              if (mark)
-                setFilesViewed(
-                  streamFiles.map((file) => file.id),
-                  true,
-                );
-              stepGuide(1);
-            }}
+            onNext={() => stepGuide(1)}
             onOverview={() => openGuide({ kind: "overview" })}
           />
         </>
@@ -5502,9 +5335,6 @@ export function App({
       generatedGroup,
       files.length,
       nextGuideLabel,
-      streamViewed,
-      setFilesViewed,
-      streamFiles,
       stepGuide,
       openGuide,
     ],
@@ -5514,94 +5344,51 @@ export function App({
   // a saved review's header names its own branch.
   const identity = (
     <div {...stylex.props(styles.identity)}>
-      {!shell && (
+      {!shell && (changesRail || guideRail) && (
         <ToolButton
-          label={changedVisible ? "Hide changed files" : "Show changed files"}
+          label={railLabel}
           shortcut="⌘ B"
-          icon="panelLeft"
+          icon={railIcon}
           aria-label="Toggle sidebar"
-          aria-pressed={changedVisible}
+          aria-pressed={railOpen}
           onClick={toggleReviewSidebar}
         />
       )}
       {gitAvailable && <BranchSwitch model={branches} onOpen={() => openBranchPicker(false)} />}
     </div>
   );
-  const viewControls = (
-    <span {...stylex.props(styles.viewControls)}>
-      <ToolButton
-        label="Commands"
-        shortcut="⌘ K"
-        icon="search"
-        aria-label="Open command palette"
-        onClick={() => setCommandsOpen(true)}
-      />
-      {!shell && (
-        <ToolButton
-          ref={zenToggle}
-          label="Zen mode"
-          shortcut="⌥ Z"
-          icon="focus"
-          aria-label="Enter zen mode"
-          onClick={toggleZen}
-        />
-      )}
-      {/* The thread pane closes from its own header. */}
-      {(state.savedReview || found) && !sessionVisible && (
-        <ToolButton
-          label={sessionVisible ? "Hide agent session" : "Show agent session"}
-          shortcut="⌘ ⇧ B"
-          icon={found?.agent ?? leadIcon}
-          aria-label="Toggle agent session"
-          aria-pressed={sessionVisible}
-          active={sessionVisible}
-          onClick={toggleSession}
-        />
-      )}
-      {browseSource && (
-        <ToolButton
-          label={rightVisible ? "Hide files" : "Show files"}
-          icon="folder"
-          aria-label="Toggle files sidebar"
-          aria-pressed={rightVisible}
-          onClick={toggleFilesSidebar}
-        />
-      )}
-    </span>
-  );
-  // Quiet chrome leaves the branch to the title band, which names the checkout.
-  const identityShown = !state.savedReview && !(quiet && shell);
-  // A hidden pane at the review's left leaves its button where the pane was,
-  // at the start of the review's row: a session with its agent's mark, as
-  // full chrome's button, and the changed files with the panel icon that
-  // hides them in their header. Alone, the identity's sidebar button shows
-  // the changed files; full chrome has its session button. Like the rail's
-  // at the row's other end, they show where the row has room; a narrow row
-  // keeps its tabs in place, and ⋯, the shortcuts and ⌘K still work.
-  const sessionShow = quiet && roomy && !sessionVisible && (agentSessions.length > 0 || found) && (
+  // The title band names the checkout and its branch.
+  const identityShown = !state.savedReview && !shell;
+  // A hidden sidebar leaves its button at the start of the review's header
+  // (the session's toggle does the same for the session). It hides from its
+  // own edge (railHide).
+  const railShow = (changesRail || guideRail) && !railOpen && !identityShown && (
     <ToolButton
-      icon={found?.agent ?? leadIcon}
-      label="Show agent session"
-      shortcut="Mod+Shift+B"
+      icon={railIcon}
+      label={railLabel}
+      shortcut="Mod+Alt+B"
       aria-pressed={false}
-      data-pane-show="session"
-      onClick={toggleSession}
+      data-pane-show="rail"
+      onClick={toggleRail}
     />
   );
-  const changedShow = gitAvailable && !changedVisible && roomy && !(identityShown && !shell) && (
+  // Hiding the sidebar from its own button leaves the focus on the button
+  // that shows it again.
+  const railHide = (
     <ToolButton
-      icon="panelLeft"
-      label="Show changed files"
-      {...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {})}
-      aria-pressed={false}
-      data-pane-show="changed"
-      onClick={toggleChanged}
+      icon={railIcon}
+      label={railLabel}
+      shortcut="Mod+Alt+B"
+      aria-pressed
+      onClick={() => {
+        toggleRail();
+        requestAnimationFrame(() => visibleElement('[data-pane-show="rail"]')?.focus());
+      }}
     />
   );
-  const leading = (identityShown || sessionShow || changedShow) && (
+  const leading = (identityShown || railShow) && (
     <>
-      {sessionShow}
-      {changedShow}
+      {railShow}
       {identityShown && (
         <>
           {identity}
@@ -5610,44 +5397,10 @@ export function App({
       )}
     </>
   );
-  // The nested sidebar's toggle, at the end of the review's row with the
-  // pane's other controls; the tabs keep their places. It stays where it
-  // is, so a hidden rail is one click back.
-  // The button shows where the rail has room, or while it shows; a narrow
-  // row keeps its room for the comparison, and ⌘⌥B or ⌘K still opens it.
-  const railToggle = (changesRail || guideRail) && (railOpen || railRoom) && (
-    <ToolButton
-      icon="panelLeft"
-      label={railLabel}
-      shortcut="Mod+Alt+B"
-      aria-pressed={railOpen}
-      onClick={toggleRail}
-    />
-  );
-  // Beside the thread, the review pane's own actions join the header's menu.
-  const moreActions: MenuAction[] = [
-    {
-      label: "Commands",
-      shortcut: "Mod+K",
-      onClick: () => setCommandsOpen(true),
-    },
-    ...(!shell ? [{ label: "Zen mode", shortcut: "Alt+Z", onClick: toggleZen }] : []),
-    ...(browseSource
-      ? [
-          {
-            label: "Files",
-            checked: rightVisible,
-            choice: true,
-            onClick: toggleFilesSidebar,
-          },
-        ]
-      : []),
-  ];
-  // The diff's controls: in the toolbar above it, or in the review's one row
-  // with quiet chrome, while the diff shows.
-  const streamChrome = streamShown && !zen;
-  // After the choices: in a shared checkout, the session's own files; with
-  // quiet chrome, in Changes, other ways to choose what the diff compares.
+  // The diff's controls: in the review's one row, while the diff shows.
+  const streamChrome = streamShown;
+  // After the choices: in a shared checkout, the session's own files; in
+  // Changes, other ways to choose what the diff compares.
   const compareActions = [
     ...(canFilterSession
       ? [
@@ -5669,72 +5422,64 @@ export function App({
           },
         ]
       : []),
-    ...(quiet && !reviewShown && comparisonActionsShown
+    ...(!reviewShown && comparisonActionsShown
       ? [
           workingAvailable
             ? { label: "Base branch…", hint: branchBase, onSelect: openCompare }
             : { label: "Compare against a branch…", onSelect: openCompare },
         ]
       : []),
-    ...(quiet && !reviewShown && gitAvailable
+    ...(!reviewShown && gitAvailable
       ? [{ label: "Compare two revisions…", onSelect: () => setRangeOpen(true) }]
       : []),
   ];
   // In a narrow row the comparison takes its short label, then goes into ⋯.
-  const comparisonFit = useRowFit(comparisonSlot, quiet && streamChrome ? comparisonText : null);
-  // A Review of one version names it, with nothing to choose. (Review has no
-  // compare actions.)
-  const stackRail = stack && reviewShown && !zen && (
+  // On the Changes page, what the diff compares tops its sidebar; elsewhere,
+  // and while the sidebar hides, it is in the header's row or in ⋯.
+  const comparisonInRail = railShown && shownTab === "changes" && streamChrome;
+  // A Review of one checkout has nothing to choose, and shows nothing there.
+  // (Review has no compare actions.)
+  const comparisonShown = !reviewShown || comparisonChoices.length > 1;
+  const comparisonFit = useRowFit(
+    comparisonSlot,
+    streamChrome && !comparisonInRail && comparisonShown ? comparisonText : null,
+  );
+  const stackRail = stack && reviewShown && (
     <StackRail
       stack={stack}
       current={Math.max(0, layerIndex)}
       mode={stackMode}
-      progress={layerStates}
-      next={nextLayer}
       onLayer={showLayer}
       onRange={showLayers}
-      onNext={showNextUnreviewed}
     />
   );
   // Where the rail hides, the layers are a menu in the review's row.
-  const layerMenu = stack &&
-    reviewShown &&
-    !zen &&
-    !(railShown || (changedVisible && gitAvailable) || guideRailShown) && (
-      <LayerMenu
-        stack={stack}
-        current={Math.max(0, layerIndex)}
-        mode={stackMode}
-        onLayer={showLayer}
-        onRange={showLayers}
-      />
-    );
-  const comparisonSelect =
-    reviewShown && comparisonChoices.length <= 1 ? (
-      <ChoiceLabel
-        title={comparisonChoices[0]?.description ?? "Review version"}
-        text={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
-      />
-    ) : (
-      <ChoiceSelect
-        label={reviewShown ? "Review version" : "Comparison"}
-        value={comparisonValue}
-        choices={comparisonChoices}
-        onChange={chooseComparison}
-        actions={compareActions}
-        {...(quiet && {
-          // One control says what the diff compares, and changes it.
-          triggerRef: comparisonTrigger,
-          trigger: styles.rowComparisonTrigger,
-          display: comparisonFit === "short" ? comparisonText.short : comparisonText.long,
-        })}
-      />
-    );
+  const layerMenu = stack && reviewShown && !sidebarShown && (
+    <LayerMenu
+      stack={stack}
+      current={Math.max(0, layerIndex)}
+      mode={stackMode}
+      onLayer={showLayer}
+      onRange={showLayers}
+    />
+  );
+  const comparisonSelect = comparisonShown && (
+    <ChoiceSelect
+      label={reviewShown ? "Review checkout" : "Comparison"}
+      value={comparisonValue}
+      choices={comparisonChoices}
+      onChange={chooseComparison}
+      actions={compareActions}
+      // One control says what the diff compares, and changes it.
+      triggerRef={comparisonTrigger}
+      trigger={styles.rowComparisonTrigger}
+      display={comparisonFit === "short" ? comparisonText.short : comparisonText.long}
+    />
+  );
   const comparisonActionsElement = comparisonActionsShown && actionRepo && (
     <ComparisonActions
       key={`${actionRepo}:${actionHead}:${actionBranch}`}
       ref={comparisonActions}
-      triggers={!quiet}
       anchor={compareAnchor}
       targets={gitTargets.targets}
       targetsError={gitTargets.error}
@@ -5770,134 +5515,27 @@ export function App({
       }}
     />
   );
-  const totals = state.review && (
-    <span {...stylex.props(styles.toolbarTotals)}>
-      <ChangeTotals
-        files={state.review.files}
-        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
-      />
-    </span>
-  );
-  const notesToggle = (
-    <button
-      {...stylex.props(ui.button, ui.pressable, styles.notesButton, showNotes && ui.active)}
-      {...tooltip(showNotes ? "Hide comments" : "Show comments")}
-      aria-label="Toggle notes"
-      aria-pressed={showNotes}
-      onClick={() => setShowNotes(!showNotes)}
-    >
-      <Icon name="note" size={15} />
-      {notes.length > 0 && <span {...stylex.props(styles.notesCount)}>{notes.length}</span>}
-    </button>
-  );
-  const viewSections: MenuAction[][] = [
-    selectedFile && browseSource
-      ? [
-          {
-            label: browseSource.kind === "worktree" ? "Open working file" : "Open snapshot file",
-            letter: "o",
-            onClick: () => openWorkingFile(selectedFile.path),
-          },
-          {
-            label: "Show files sidebar",
-            onClick: showFiles,
-          },
-        ]
-      : [],
-    [
-      {
-        label: "Find in diffs",
-        shortcut: "⌘ F",
-        letter: "f",
-        onClick: openFind,
-      },
-      ...(gitAvailable
-        ? [
-            {
-              label: "Compare revisions…",
-              letter: "c",
-              onClick: () => setRangeOpen(!rangeOpen),
-            },
-          ]
-        : []),
-    ],
-    [
-      {
-        label: "Show comments",
-        checked: showNotes,
-        onClick: () => setShowNotes(!showNotes),
-      },
-      {
-        label: "Wrap long lines",
-        checked: wrap,
-        letter: "w",
-        onClick: () => setWrap(!wrap),
-      },
-    ],
-    [
-      {
-        label: "Zen mode",
-        shortcut: "⌥ Z",
-        letter: "z",
-        onClick: toggleZen,
-      },
-      {
-        label: "Refresh review",
-        letter: "r",
-        disabled: state.status === "loading",
-        onClick: () => void controller.refresh(),
-      },
-    ],
-  ];
   const quietSections = useQuietMenu({
-    diff: streamChrome
-      ? {
-          find: openFind,
-          layout: { mode, canSplit: roomy, set: setMode },
-          comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
-          wrap: { on: wrap, toggle: () => setWrap(!wrap) },
-          rail: changesRail ? { on: railShown, toggle: toggleRail } : undefined,
-          collapse:
-            files.length > 1 ? { collapsed: allCollapsed, toggle: toggleAllFiles } : undefined,
-          push: comparisonActionsShown ? { blocked: pushBlocked, open: openPush } : undefined,
-          refresh: { disabled: state.status === "loading", run: () => void controller.refresh() },
-          comparison:
-            quiet && comparisonFit === "menu"
-              ? {
-                  label: comparisonText.long,
-                  value: comparisonValue,
-                  choices: comparisonChoices,
-                  select: chooseComparison,
-                  actions: compareActions,
-                }
-              : undefined,
-        }
-      : undefined,
-    workingFile:
-      streamChrome && selectedFile && browseSource
+    comparison:
+      streamChrome && comparisonFit === "menu"
         ? {
-            label: browseSource.kind === "worktree" ? "Open working file" : "Open snapshot file",
-            open: () => openWorkingFile(selectedFile.path),
+            label: comparisonText.long,
+            value: comparisonValue,
+            choices: comparisonChoices,
+            select: chooseComparison,
+            actions: compareActions,
           }
         : undefined,
-    changed: gitAvailable
-      ? {
-          on: changedVisible,
-          toggle: toggleChanged,
-          ...(CHANGED_SHORTCUT ? { shortcut: CHANGED_SHORTCUT } : {}),
-        }
-      : undefined,
-    session: state.savedReview || found ? { on: sessionVisible, toggle: toggleSession } : undefined,
-    files: browseSource ? { on: rightVisible, toggle: toggleFilesSidebar } : undefined,
-    openBranch:
-      !state.savedReview && gitAvailable && shell ? () => openBranchPicker(false) : undefined,
-    zen: toggleZen,
-    commands: () => setCommandsOpen(true),
-    shortcuts: () => setHelpOpen(true),
+    pane: paneControlsFit
+      ? undefined
+      : {
+          label: "review",
+          zoomed: panes.zoom === "review",
+          zoom: panes.open.length > 1 ? () => panes.toggleZoom("review") : undefined,
+          hide: sessionVisible ? () => closePane("review") : undefined,
+        },
   });
-  // The card's own row, in full chrome without a thread beside it. It names
-  // a pull request; elsewhere the pull request is the window's title.
-  const savedCardHeader = !!state.savedReview && !zen && !sessionVisible && !quiet;
+  const quietFolded = quietSections.some((section) => section.length > 0);
   const savedHeader = (compact: boolean) =>
     state.savedReview && (
       <SavedReviewHeader
@@ -5905,29 +5543,10 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
-        quiet={quiet}
-        more={compact ? (quiet ? quietSections : [moreActions]) : undefined}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
         findingPlacement={codexFindings.placement}
-        sendTo={
-          replyAgent
-            ? {
-                name: replyAgent,
-                icon: leadIcon,
-                drafts: agentInbox.state?.drafts.length ?? 0,
-                open: () => showPane("session"),
-              }
-            : undefined
-        }
-        pickVersion={reviewShown && !streamChrome}
-        onTarget={(id) => {
-          pendingSavedChanges.current = id;
-          pendingIteration.current = null;
-          fileWorkspace.select("changes");
-          void controller.selectSavedTarget(id);
-        }}
       />
     );
   // The tabs stay while a workspace loads, so the branch switch in them does
@@ -5935,9 +5554,33 @@ export function App({
   const plainHeader = state.session?.repository.git === false && !hasPullTab && !hasGuide;
   // Quiet chrome's row, after the tabs: what the diff compares and the few
   // controls that stay in view, then the ⋯ menu (in a saved review's header).
-  const quietTrailing = quiet && (
+  // Where the Guide's rail hides, as beside the session, its parts step in
+  // the header, so the screen keeps three columns.
+  const guideStepper = guideTab && !guideRailShown && (guideSections.length > 0 || !!sinceFrom) && (
+    <GuideStepper
+      sections={guideSections}
+      since={!!sinceFrom}
+      scope={guideScope}
+      onScope={openGuide}
+      onStep={stepGuide}
+    />
+  );
+  // The comparison's line totals on the pages that show its diff; a hover
+  // splits them by kind of file. A narrow row leaves them out.
+  const totals = (shownTab === "review" || shownTab === "changes") &&
+    paneControlsFit &&
+    state.review &&
+    state.review.files.length > 0 && (
+      <ChangeTotals
+        files={state.review.files}
+        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+      />
+    );
+  // The page's own controls, in the header's second row after the pages.
+  const pageTools = (
     <>
-      {streamChrome && (
+      {guideStepper}
+      {streamChrome && !comparisonInRail && comparisonShown && (
         <span
           ref={comparisonSlot}
           {...stylex.props(styles.rowComparison, comparisonFit === "menu" && styles.hiddenSurface)}
@@ -5946,80 +5589,184 @@ export function App({
         </span>
       )}
       {streamChrome && layerMenu}
+      {totals}
       {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
       {fileState.active === "commit" && commitApi && (
         <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
       )}
-      {streamChrome && roomy && totals}
       {comparisonActionsElement}
-      {streamChrome && notes.length > 0 && notesToggle}
-      {railToggle}
-      {state.savedReview ? (
-        savedHeader(true)
-      ) : (
-        <ActionMenu
-          label="More actions"
-          trigger={[ui.button, ui.iconButton]}
-          sections={quietSections}
-        >
-          <Icon name="more" size={15} />
-        </ActionMenu>
+    </>
+  );
+  // What acts on the whole review, in its title row: the pull request's
+  // comments, then Copy comments.
+  const reviewActions = (
+    <>
+      {state.savedReview?.pullRequestUrl && (
+        <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
+      )}
+      {savedHeader(true)}
+    </>
+  );
+  // ⋯: what the second row folds away when narrow, before its pages.
+  const rowMore = quietFolded && (
+    <ActionMenu label="More actions" trigger={[ui.button, ui.iconButton]} sections={quietSections}>
+      <Icon name="more" size={15} />
+    </ActionMenu>
+  );
+  // The review's name: its pull request's, when it has one.
+  const pullName = shownLayer?.pullRequestUrl ? (
+    <PullRequestTitle
+      url={shownLayer.pullRequestUrl}
+      title={shownLayer.pullRequestTitle ?? shownLayer.title}
+    />
+  ) : (
+    state.savedReview?.pullRequestUrl && (
+      <PullRequestTitle
+        url={state.savedReview.pullRequestUrl}
+        title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
+        pull={pullRequest.data?.pull}
+      />
+    )
+  );
+  const shownPage = reviewPages.some((entry) => entry.value === shownTab) ? shownTab : null;
+  const display: DisplayOptions = {
+    layout: { mode, canSplit: roomy, set: setMode },
+    wrap: { on: wrap, toggle: () => setWrap(!wrap) },
+    comments: { on: showNotes, toggle: () => setShowNotes(!showNotes) },
+    size: { value: codeSize, set: (size) => viewSettings.codeSize.set(size) },
+  };
+  const reviewName = pullName || (
+    <ReviewTitle
+      reviewed={!!state.savedReview}
+      title={
+        state.savedReview
+          ? (threadName ?? state.savedReview.title)
+          : (state.session?.repository.path.split("/").at(-1) ?? "Changes")
+      }
+    />
+  );
+  // The review's title row goes up into the window's title band where the
+  // review reaches the band: over the band's end beside another pane, when
+  // its column has room for the row, or leading the band alone. Elsewhere it
+  // is the header's first row.
+  const mainHeader = (controls: ReactNode, place: PanePlace | null) => {
+    const band =
+      bandShown && place?.top && place.right
+        ? place.left
+          ? "lead"
+          : place.treeWidth - place.x >= BAND_ROW_MIN
+            ? "cover"
+            : null
+        : null;
+    return (
+      <>
+        {band === "lead" && (
+          <InTitleBand
+            lead={
+              <>
+                {sessionToggle && <SessionToggle {...sessionToggle} />}
+                {leading}
+                {reviewName}
+              </>
+            }
+            trail={
+              <ReviewBar
+                inBand
+                {...barProps(controls)}
+                actions={<ReviewActions actions={reviewActions} display={display} />}
+              />
+            }
+          />
+        )}
+        {band === "cover" && place && (
+          <InTitleBand
+            cover={
+              <ReviewTitleRow
+                name={reviewName}
+                actions={reviewActions}
+                display={display}
+                width={place.treeWidth - place.x + PANE_GAP}
+              />
+            }
+          />
+        )}
+        {band !== "lead" && mainHeaderRows(controls, band === null)}
+        {fileTabs}
+      </>
+    );
+  };
+  // The session's toggle, while the session hides.
+  const sessionToggle =
+    !sessionVisible && (state.savedReview || found)
+      ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
+      : undefined;
+  // The second row's parts, also where the review's one row ends the band.
+  const barProps = (controls: ReactNode) => ({
+    session: sessionToggle,
+    lead: leading,
+    tools: pageTools,
+    more: rowMore,
+    pages: plainHeader ? [] : reviewPages,
+    page: shownPage,
+    onPage: selectTab,
+    controls: (
+      <span
+        ref={setPaneSlot}
+        {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
+      >
+        {controls}
+      </span>
+    ),
+  });
+  const mainHeaderRows = (controls: ReactNode, titled: boolean) => (
+    <>
+      <ReviewHeader
+        {...barProps(controls)}
+        identity={
+          titled && (
+            <ReviewTitleRow
+              name={reviewName}
+              branch={
+                identityShown
+                  ? undefined
+                  : (threadTarget?.branch ?? state.activeBranch ?? undefined)
+              }
+              actions={reviewActions}
+              display={display}
+            />
+          )
+        }
+      />
+    </>
+  );
+  const fileTabs = (
+    <>
+      {/* An open Search tab has a label, empty before a query. */}
+      {(fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
+        <FileViewTabs
+          panelId={`${idPrefix}file-view-panel`}
+          pathActions={pathActions}
+          showChanges={false}
+          search={fileState.searchLabel}
+          tabs={fileState.tabs.map((tab) => ({
+            ...tab,
+            ...(tab.source.kind === "vault"
+              ? { sourcePath: vaultRoots.get(tab.source.id), sourceName: tab.sourceLabel }
+              : {
+                  sourcePath: tab.source.repo,
+                  sourceName: checkoutNameFor(state.repositories, tab.source.repo),
+                }),
+            dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
+          }))}
+          active={shownTab}
+          onSelect={selectTab}
+          onClose={fileWorkspace.close}
+          onCloseOthers={fileWorkspace.closeOthers}
+          onCloseAll={fileWorkspace.closeAll}
+        />
       )}
     </>
   );
-  const mainHeader = (controls: ReactNode) =>
-    !plainHeader ? (
-      <FileViewTabs
-        panelId={`${idPrefix}file-view-panel`}
-        pathActions={pathActions}
-        leading={leading}
-        keepTabs={quiet}
-        trailing={
-          quiet ? (
-            <>
-              {quietTrailing}
-              {controls}
-            </>
-          ) : (
-            <>
-              {railToggle}
-              {sessionVisible && !zen && savedHeader(true)}
-              {!(sessionVisible && !zen && state.savedReview) && viewControls}
-              {controls}
-            </>
-          )
-        }
-        showBrief={hasPullTab}
-        showReview={reviewAvailable}
-        showCommit={!!commitApi}
-        search={fileState.searchLabel}
-        tabs={fileState.tabs.map((tab) => ({
-          ...tab,
-          ...(tab.source.kind === "vault"
-            ? { sourcePath: vaultRoots.get(tab.source.id), sourceName: tab.sourceLabel }
-            : {
-                sourcePath: tab.source.repo,
-                sourceName: checkoutNameFor(state.repositories, tab.source.repo),
-              }),
-          dirty: !!editorDrafts.get(JSON.stringify([tab.source, tab.path]))?.dirty,
-        }))}
-        active={shownTab}
-        // The tabs keep their places as you switch: a thread with a Review
-        // has no count, which Changes could not keep while Review shows.
-        changesCount={state.review && !reviewAvailable ? state.files.length : undefined}
-        onSelect={selectTab}
-        onClose={fileWorkspace.close}
-        onCloseOthers={fileWorkspace.closeOthers}
-        onCloseAll={fileWorkspace.closeAll}
-      />
-    ) : (
-      <header {...paneHandle} {...stylex.props(styles.mainHeader)}>
-        {leading}
-        <span {...stylex.props(ui.grow)} />
-        {quiet ? quietTrailing : viewControls}
-        {controls}
-      </header>
-    );
   // The tab is the card's first row, so the notice follows it.
   const linkError = fileLinkError && (
     <div role="alert" {...stylex.props(styles.notice, styles.error)}>
@@ -6041,28 +5788,86 @@ export function App({
         .filter(Boolean)
         .join(" · ")
     : undefined;
-  // The session side panel's Reviews card.
-  const reviewVersion = shownIteration ?? 1;
-  const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
-  const sessionLinks: ThreadLink[] = [
-    ...(reviewAvailable
-      ? [
-          {
-            id: "review",
-            icon: "guide" as const,
-            label: "Review",
-            detail: approvals?.some((entry) => entry.version === reviewVersion)
-              ? `Version ${reviewVersion} · approved`
-              : hasGuide && shownGuideFiles.length
-                ? `Version ${reviewVersion} · ${guideViewedIds.size}/${shownGuideFiles.length} viewed`
-                : `Version ${reviewVersion}`,
-            onOpen: () => {
+  // A hand-off's card in the conversation opens the Review (HandoffCard.tsx).
+  const siblingReviews = useSessionReviews(state.savedReview?.id);
+  const reviewsClock = useMinuteClock(siblingReviews.length > 1);
+  const handoffTitle = reviewAvailable
+    ? (state.savedReview?.pullRequestTitle ?? state.savedReview?.title ?? "Review")
+    : null;
+  const handoff = useMemo(
+    () =>
+      handoffTitle === null
+        ? null
+        : {
+            title: handoffTitle,
+            open: () => {
               revealPane("review");
               selectTab("review");
             },
+            id: savedReviewId,
+            titles: new Map(siblingReviews.map((thread) => [thread.id, thread.title])),
+            openReview: (id: string) => {
+              if (id === savedReviewId) {
+                revealPane("review");
+                selectTab("review");
+                return;
+              }
+              const thread = siblingReviews.find((each) => each.id === id);
+              if (!workspace || !thread) return;
+              const target = { kind: "review" as const, reviewId: id, title: thread.title };
+              const existing = workspace.match(target);
+              if (existing) workspace.activate(existing);
+              else workspace.open(target);
+            },
           },
-        ]
-      : []),
+    [handoffTitle, revealPane, selectTab, savedReviewId, siblingReviews, workspace],
+  );
+  // The session side panel's Reviews card: each review that the session
+  // handed off, newest first, this one among them; then the live changes.
+  const pullNumber = /\/pull\/(\d+)/.exec(state.savedReview?.pullRequestUrl ?? "")?.[1];
+  const ownReview: ThreadLink[] = reviewAvailable
+    ? [
+        {
+          id: "review",
+          icon: "guide" as const,
+          label: state.savedReview?.title ?? "Review",
+          current: siblingReviews.length > 1,
+          detail: sinceRow?.files
+            ? `${sinceRow.files} ${sinceRow.files === 1 ? "file" : "files"} new`
+            : undefined,
+          onOpen: () => {
+            revealPane("review");
+            selectTab("review");
+          },
+        },
+      ]
+    : [];
+  const sessionLinks: ThreadLink[] = [
+    ...(siblingReviews.length > 1
+      ? siblingReviews.flatMap((thread): ThreadLink[] =>
+          thread.id === state.savedReview?.id
+            ? ownReview
+            : [
+                {
+                  id: `review-${thread.id}`,
+                  icon: "guide",
+                  label: thread.title,
+                  detail: shortAge(thread.updatedAt, reviewsClock),
+                  onOpen: () => {
+                    if (!workspace) return;
+                    const target = {
+                      kind: "review" as const,
+                      reviewId: thread.id,
+                      title: thread.title,
+                    };
+                    const existing = workspace.match(target);
+                    if (existing) workspace.activate(existing);
+                    else workspace.open(target);
+                  },
+                },
+              ],
+        )
+      : ownReview),
     {
       id: "changes",
       icon: "diff",
@@ -6094,6 +5899,7 @@ export function App({
             ariaLabel: "Agent session",
             icon: leadIcon,
             hide: SESSION_HIDE,
+            onClose: hideSession,
             preload: sessionReady && hasSessions,
             render: (controls: ReactNode) => (
               <Suspense
@@ -6107,21 +5913,14 @@ export function App({
                 {agentSessions.length === 0 ? (
                   <SessionStart
                     starter={sessionStarter}
-                    controls={controls}
+                    controls={withShowReview(controls)}
                     repo={state.review?.repo}
-                    title={
-                      threadName ?? state.savedReview!.pullRequestTitle ?? state.savedReview!.title
-                    }
                     detail={shell ? undefined : threadPlace}
                   />
                 ) : (
                   <SessionPanel
                     key={state.savedReview!.id}
                     reviewId={state.savedReview!.id}
-                    title={
-                      threadName ?? state.savedReview!.pullRequestTitle ?? state.savedReview!.title
-                    }
-                    detail={shell ? undefined : threadPlace}
                     sessions={agentSessions}
                     root={state.review?.repo}
                     fetcher={sessionFetch}
@@ -6131,10 +5930,11 @@ export function App({
                       setAgentAttachments((list) => list.filter((entry) => entry.id !== id))
                     }
                     onOpenPath={openFromPane}
+                    onOpenComment={openComment}
                     fileRefs={fileRefs}
-                    onClose={() => closePane("session")}
+                    onClose={hideSession}
                     onSideRoom={setSessionSideRoom}
-                    controls={controls}
+                    controls={withShowReview(controls)}
                     starter={sessionStarter}
                     lead={sessionVisible}
                     mentions={mentionSources}
@@ -6166,6 +5966,7 @@ export function App({
             ariaLabel: "Agent session",
             icon: found.agent,
             hide: SESSION_HIDE,
+            onClose: hideSession,
             preload: true,
             render: (controls: ReactNode) => (
               <Suspense fallback={null}>
@@ -6174,10 +5975,10 @@ export function App({
                   session={found}
                   root={state.review?.repo}
                   fetcher={sessionFetch}
-                  controls={controls}
+                  controls={withShowReview(controls)}
                   onOpenPath={openFromPane}
                   fileRefs={fileRefs}
-                  onClose={() => closePane("session")}
+                  onClose={hideSession}
                   onSideRoom={setSessionSideRoom}
                   openAgent={openAgent}
                 />
@@ -6251,10 +6052,15 @@ export function App({
       onSelect={(entry, newWorkspace) =>
         !workspace
           ? branches.open(entry)
-          : threadPicker && !newWorkspace && !branchPickerNew
+          : threadPicker && !newWorkspace && !branchPickerNew && !branchPickerRepos
             ? moveThreadTo(entry)
-            : openBranch(entry, newWorkspace || branchPickerNew)
+            : // A repository opened from a thread opens beside it.
+              openBranch(
+                entry,
+                newWorkspace || branchPickerNew || (branchPickerRepos && !!threadPicker),
+              )
       }
+      repositoriesFirst={branchPickerRepos}
       workspaces={
         workspace ? (branchPickerNew ? "new" : threadPicker ? "thread" : "here") : undefined
       }
@@ -6297,20 +6103,19 @@ export function App({
       ariaLabel: "Review",
       icon: "diff",
       fixed: true,
-      render: (controls: ReactNode) => (
+      hide: REVIEW_HIDE,
+      // The review hides only beside another pane.
+      ...(sessionVisible && { onClose: () => closePane("review") }),
+      render: (controls: ReactNode, place: PanePlace | null) => (
         <main ref={setMainElement} {...stylex.props(styles.main)} aria-label="Continuous review">
-          {/* The review's own row heads the card; beside a thread, its actions
-        join the tab row. */}
-          {savedCardHeader && savedHeader(false)}
           {linkError}
-          {zen ? <ZenExit onExit={toggleZen} /> : mainHeader(controls)}
-          {quiet && state.status === "loading" && (
+          {mainHeader(controls, place)}
+          {state.status === "loading" && (
             <span role="presentation" {...stylex.props(styles.loadingTrack, styles.rowLoading)}>
               <span {...stylex.props(styles.loadingBar)} />
             </span>
           )}
           {state.savedView &&
-            !zen &&
             !agentWorking &&
             state.savedDrift &&
             state.savedDrift !== dismissedDrift && (
@@ -6373,13 +6178,8 @@ export function App({
                 {guideRailShown && (
                   <GuideRail
                     sections={guideSections}
-                    commits={guideCommits}
-                    moreCommits={guideTarget?.moreCommits}
                     scope={guideScope}
                     filesById={guideFilesById}
-                    viewed={guideViewedIds}
-                    total={shownGuideFiles.length}
-                    done={guideViewedIds.size}
                     onScope={openGuide}
                     onFile={(key, id) => {
                       if (guideDiff && guideSection?.key === key) reveal(id);
@@ -6389,14 +6189,21 @@ export function App({
                         openGuide({ kind: "segment", key }, id);
                       }
                     }}
-                    onToggleViewed={setFilesViewed}
                     top={stackRail}
                     since={sinceRow}
+                    controls={railHide}
                   />
                 )}
-                {railShown && (
+                {changesRail && (
                   <ChangesRail
+                    hidden={!railShown}
                     top={stackRail}
+                    controls={railHide}
+                    range={
+                      comparisonInRail && (
+                        <div {...stylex.props(styles.railRange)}>{comparisonSelect}</div>
+                      )
+                    }
                     repo={state.session?.repository.path ?? null}
                     pathActions={pathActions}
                     files={files}
@@ -6430,26 +6237,10 @@ export function App({
                     }
                     agent={leadSession ? { name: guideAgent.name, mark: guideAgent.mark } : null}
                     sections={guideSections}
-                    commits={guideCommits}
-                    moreCommits={guideTarget?.moreCommits}
-                    viewed={guideViewedIds}
-                    total={shownGuideFiles.length}
-                    done={guideViewedIds.size}
                     proof={overviewProof}
                     findings={reviewOutput}
                     openFindings={openFindings}
                     since={shownSince}
-                    version={
-                      state.savedReview
-                        ? {
-                            number: shownIteration ?? 1,
-                            approved: !!approvals?.some(
-                              (entry) => entry.version === (shownIteration ?? 1),
-                            ),
-                            onApprove: (approved) => approveVersion(shownIteration ?? 1, approved),
-                          }
-                        : undefined
-                    }
                     offers={overviewOffers}
                     repo={state.review?.repo}
                     onSince={(file) => {
@@ -6464,50 +6255,6 @@ export function App({
                   />
                 )}
                 <div {...stylex.props(styles.reviewSurface, guideOverview && styles.hiddenSurface)}>
-                  {/* Quiet chrome puts the toolbar's controls in the review's row and ⋯. */}
-                  {!quiet && (
-                    <div
-                      {...stylex.props(styles.toolbar, zen && styles.hiddenSurface)}
-                      hidden={zen}
-                    >
-                      {layerMenu}
-                      {comparisonSelect}
-                      {comparisonActionsElement}
-                      {totals}
-                      <span {...stylex.props(ui.grow)} />
-                      {files.length > 1 && (
-                        <ToolButton
-                          label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                          icon={allCollapsed ? "expandAll" : "collapseAll"}
-                          aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-                          onClick={toggleAllFiles}
-                        />
-                      )}
-                      <SegmentedControl<"split" | "unified">
-                        label="Diff layout"
-                        value={mode}
-                        onChange={setMode}
-                        options={[
-                          roomy
-                            ? { value: "split", label: "Split", icon: "split" }
-                            : {
-                                value: "split",
-                                label: "Split needs a wider pane",
-                                icon: "split",
-                                disabled: true,
-                              },
-                          { value: "unified", label: "Unified", icon: "unified" },
-                        ]}
-                      />
-                      {notesToggle}
-                      <ActionMenu sections={viewSections} />
-                      {state.status === "loading" && (
-                        <span role="presentation" {...stylex.props(styles.loadingTrack)}>
-                          <span {...stylex.props(styles.loadingBar)} />
-                        </span>
-                      )}
-                    </div>
-                  )}
                   {rangeOpen && (
                     <form
                       {...stylex.props(styles.rangeBar)}
@@ -6599,65 +6346,24 @@ export function App({
                   ))}
                   <div ref={streamRef} {...stylex.props(styles.stream)}>
                     {findOpen && (
-                      <div {...stylex.props(styles.findWidget)}>
-                        <Icon name="search" size={14} />
-                        <input
-                          ref={findRef}
-                          value={find}
-                          onChange={(event) => {
-                            setFind(event.target.value);
-                            setFindIndex(0);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              jumpHit(event.shiftKey ? findIndex - 1 : findIndex + 1);
-                            }
-                            if (event.key === "Escape") {
-                              event.stopPropagation();
-                              setFindOpen(false);
-                            }
-                          }}
-                          aria-label="Find in diff contents"
-                          placeholder="Find in changed hunks"
-                          {...stylex.props(styles.findInput)}
-                        />
-                        <span
-                          {...stylex.props(
-                            styles.findCount,
-                            !!find && !hits.length && styles.findEmpty,
-                          )}
-                        >
-                          {find
-                            ? hits.length
-                              ? `${Math.min(findIndex + 1, hits.length)} / ${hits.length} hunks`
-                              : "No matches"
-                            : ""}
-                        </span>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Previous match"
-                          disabled={!hits.length}
-                          onClick={() => jumpHit(findIndex - 1)}
-                        >
-                          <Icon name="arrowUp" size={14} />
-                        </button>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Next match"
-                          disabled={!hits.length}
-                          onClick={() => jumpHit(findIndex + 1)}
-                        >
-                          <Icon name="arrowDown" size={14} />
-                        </button>
-                        <button
-                          {...stylex.props(ui.button, ui.iconButton, styles.findButton)}
-                          aria-label="Close find"
-                          onClick={() => setFindOpen(false)}
-                        >
-                          <Icon name="close" size={14} />
-                        </button>
-                      </div>
+                      <FindBar
+                        inputRef={findRef}
+                        query={find}
+                        onQuery={(query) => findAgain(query, findOptions)}
+                        options={findOptions}
+                        onOptions={(options) => findAgain(find, options)}
+                        count={
+                          !find
+                            ? null
+                            : findMatcher && !(findMatcher instanceof RegExp)
+                              ? findMatcher
+                              : { current: findIndex + 1, total: hits.length }
+                        }
+                        onNext={() => stepHit(1)}
+                        onPrevious={() => stepHit(-1)}
+                        onClose={() => setFindOpen(false)}
+                        placeholder="Find in changes"
+                      />
                     )}
                     {selection && (
                       <div
@@ -6806,15 +6512,6 @@ export function App({
                           : undefined
                       }
                       onDismissLeft={() => setPullImagesLeft(null)}
-                      since={
-                        sinceRow && sinceRow.files > 0
-                          ? {
-                              from: sinceRow.from,
-                              files: sinceRow.files,
-                              onShow: () => openGuide({ kind: "since" }),
-                            }
-                          : undefined
-                      }
                     />
                   ) : (
                     <BriefView
@@ -6863,8 +6560,7 @@ export function App({
                     active={fileState.active === "commit"}
                     draftKey={`med:commit-message:${commitRepo}`}
                     onOpenFile={openWorkingFile}
-                    stageIn={quiet && !zen && (!stageSlot || stageFits) ? stageSlot : undefined}
-                    focusPath={commitPath}
+                    stageIn={!stageSlot || stageFits ? stageSlot : undefined}
                   />
                 </Suspense>
               </div>
@@ -6925,9 +6621,14 @@ export function App({
                 onRefresh={refreshFile}
                 onClose={closeActiveFile}
                 onOpenFile={openLinkedFile}
-                onOpenBefore={openBefore}
-                onOpenAfter={openAfter}
-                onReadingChange={setFileReading}
+                openIn={
+                  activeFile.source.kind === "worktree"
+                    ? {
+                        actions: pathActions,
+                        target: { repo: activeFile.source.repo, path: activeFile.path },
+                      }
+                    : undefined
+                }
               />
             )}
           </div>
@@ -6939,37 +6640,6 @@ export function App({
         </main>
       ),
     },
-    ...(gitAvailable
-      ? [
-          {
-            id: "changed",
-            label: "Changed files",
-            ariaLabel: "Changed files",
-            icon: "diff" as const,
-            hide: CHANGED_HIDE,
-            render: (controls: ReactNode) => (
-              <>
-                <FileSidebar
-                  controls={controls}
-                  top={stackRail}
-                  repo={state.session?.repository.path ?? null}
-                  pathActions={pathActions}
-                  files={files}
-                  total={state.files.length}
-                  selected={state.selectedFileId}
-                  filter={state.filter}
-                  onFilter={controller.setFilter}
-                  onSelect={reveal}
-                  onPrefetch={prefetchFile}
-                  onOpen={browseSource ? openChangedFile : undefined}
-                  filterRef={filterRef}
-                />
-                <RangeCommits {...rangeCommits} />
-              </>
-            ),
-          },
-        ]
-      : []),
     ...sidePanes,
   ];
   const app = (
@@ -6977,7 +6647,7 @@ export function App({
       <div
         {...stylex.props(styles.app)}
         data-theme={activeTheme.id}
-        data-sidebar-visible={shell ? shell.sidebarVisible : changedVisible}
+        data-sidebar-visible={shell ? shell.sidebarVisible : sidebarShown}
         data-selected-branch={state.activeBranch ?? ""}
         data-selected-repository={state.activeRepositoryId ?? ""}
         data-selected-commit={loadedCommit}
@@ -6991,38 +6661,18 @@ export function App({
         data-file-count={state.files.length}
         data-active-file={activeFile?.path ?? ""}
       >
-        {zen ? (
-          <ZenHint loading={state.status === "loading"} session={!!state.savedReview} />
-        ) : (
-          !workspace && <BranchStrip model={branches} />
-        )}
+        {!workspace && <BranchStrip model={branches} />}
         {branchPicker}
-        {/* A stack's band names the shown layer's pull request. */}
-        {shownLayer?.pullRequestUrl && !savedCardHeader && (
+        {/* While the review hides, the band still names its pull request (a
+            stack's: the shown layer's); otherwise its title row does. */}
+        {!reviewVisible && pullName && (
           <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={shownLayer.pullRequestUrl}
-                title={shownLayer.pullRequestTitle ?? shownLayer.title}
-              />
-            }
-          />
-        )}
-        {state.savedReview?.pullRequestUrl && !shownLayer?.pullRequestUrl && !savedCardHeader && (
-          <InTitleBand
-            lead={
-              <PullRequestTitle
-                url={state.savedReview.pullRequestUrl}
-                title={state.savedReview.pullRequestTitle ?? state.savedReview.title}
-                pull={pullRequest.data?.pull}
-              />
-            }
+            lead={pullName}
             trail={
-              <PullRequestPanel
-                state={pullRequest}
-                placement={pullRequestThreads.placement}
-                words
-              />
+              !shownLayer?.pullRequestUrl &&
+              state.savedReview?.pullRequestUrl && (
+                <PullRequestPanel state={pullRequest} placement={pullRequestThreads.placement} />
+              )
             }
           />
         )}
@@ -7112,102 +6762,14 @@ export function App({
           }
         />
         <div
-          {...stylex.props(
-            styles.workspace,
-            (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
-            (zen || quiet) && styles.zenWorkspace,
-          )}
+          {...stylex.props(styles.workspace)}
           id={`${idPrefix}review-workspace`}
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
         >
           <PaneTree state={panes} panes={workspacePanes} label="Workspace panes" />
-          {quiet && !zen && <ConnectionNotice connection={state.connection} />}
+          <ConnectionNotice connection={state.connection} />
         </div>
-        {/* Quiet chrome has no status bar: the comparison names the review, a
-            file's header its path, and ⋯ and ⌘K have the rest. */}
-        <footer
-          {...stylex.props(
-            styles.statusbar,
-            stylex.defaultMarker(),
-            (zen || quiet) && styles.hiddenSurface,
-          )}
-          hidden={zen || quiet}
-        >
-          <span {...stylex.props(styles.statusItem)}>
-            <span
-              key={state.sourceRevision}
-              data-connection={state.connection}
-              {...stylex.props(
-                styles.statusDot,
-                state.connection === "reconnecting" && styles.statusWaiting,
-                state.connection !== "connected" &&
-                  state.connection !== "reconnecting" &&
-                  styles.statusIdle,
-              )}
-            />
-            {activeFile
-              ? fileReading
-                ? "Reading file"
-                : editorDrafts.get(JSON.stringify([activeFile.source, activeFile.path]))?.editing
-                  ? "Editing file · Vim"
-                  : fileState.file?.media
-                    ? fileState.file.kind === "video"
-                      ? "Video"
-                      : "Image"
-                    : vimEnabled
-                      ? "Read-only file · Vim"
-                      : "Read-only file"
-              : state.savedView
-                ? "Saved review"
-                : state.comparison.kind === "patch"
-                  ? "Patch review"
-                  : state.comparison.kind === "files"
-                    ? "File comparison"
-                    : state.comparison.kind === "commit" || state.comparison.kind === "range"
-                      ? "Commit review"
-                      : state.connection === "connected"
-                        ? "Live changes"
-                        : state.connection === "reconnecting"
-                          ? "Reconnecting…"
-                          : "Connecting…"}
-          </span>
-          {activeFile && (
-            <span>
-              {fileState.file
-                ? `${fileState.file.size.toLocaleString()} bytes`
-                : activeFile.sourceLabel}
-            </span>
-          )}
-          <span {...stylex.props(ui.grow)} />
-          <StatusPath
-            shown={activeFile?.path ?? selectedFile?.path}
-            commit={fileState.active === "commit" && !activeFile ? commitPath : null}
-          />
-          {!activeFile && state.metrics && (
-            <span
-              title="Request includes transfer; parse runs in a worker; frame measures React update to a frame after Pierre rendered."
-              {...stylex.props(styles.performance, styles.onStatusHover)}
-            >
-              {Math.round(state.metrics.requestMs)} ms request · {Math.round(state.metrics.parseMs)}{" "}
-              ms parse
-              {frameMs !== null ? ` · ${Math.round(frameMs)} ms frame` : ""} ·{" "}
-              {state.metrics.cacheHit
-                ? "client cache"
-                : state.review?.metrics.cacheHit
-                  ? "server cache"
-                  : "fresh"}
-            </span>
-          )}
-          <button
-            {...stylex.props(ui.button, styles.helpButton)}
-            {...tooltip("Shortcuts and commands", "?")}
-            onClick={() => setHelpOpen(true)}
-            aria-label="Shortcuts and commands"
-          >
-            <kbd>?</kbd>
-          </button>
-        </footer>
         <CommandDialog
           open={commandsOpen}
           onOpenChange={setCommandsOpen}
@@ -7223,11 +6785,13 @@ export function App({
     </AgentReplyContext.Provider>
   );
   return (
-    <ZenContext.Provider value={zen}>
-      <PendingReviewContext.Provider value={pendingReview}>
-        <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
-      </PendingReviewContext.Provider>
-    </ZenContext.Provider>
+    <PendingReviewContext.Provider value={pendingReview}>
+      <CommentAgentContext.Provider value={commentAgent}>
+        <HandoffContext.Provider value={handoff}>
+          <CommentRefsContext.Provider value={commentFileRefs}>{app}</CommentRefsContext.Provider>
+        </HandoffContext.Provider>
+      </CommentAgentContext.Provider>
+    </PendingReviewContext.Provider>
   );
 }
 
@@ -7260,6 +6824,15 @@ const toastRise = stylex.keyframes({
   from: { opacity: 0, transform: "translate(-50%, 8px)" },
   to: { opacity: 1, transform: "translate(-50%, 0)" },
 });
+/** The narrowest review column whose title row goes up into the title band:
+ * room for its actions, and window controls at the band's end. */
+const BAND_ROW_MIN = 360;
+
+/** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
+function shortRevision(revision: string) {
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+}
+
 const styles = stylex.create({
   // The workspace fills its place in the window's shell.
   app: {
@@ -7269,7 +6842,7 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     color: tokens.text,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.canvas,
     fontFamily: tokens.ui,
     fontSize: 12,
     isolation: "isolate",
@@ -7308,19 +6881,18 @@ const styles = stylex.create({
     justifyContent: "center",
     gap: 4,
     flex: "1",
-    margin: 6,
-    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
     fontFamily: tokens.ui,
   },
   emptyAction: { marginTop: 14, paddingInline: 12 },
   // The frame holds both sidebars; the review sits on one inset card.
-  workspace: { position: "relative", display: "flex", flex: "1", minHeight: 0, paddingInline: 6 },
-  // Without the strip, the frame's own inset is the top margin.
-  workspaceTop: { paddingTop: 6 },
-  zenWorkspace: { paddingBottom: 6 },
+  workspace: {
+    position: "relative",
+    display: "flex",
+    flex: "1",
+    minHeight: 0,
+  },
   main: {
     position: "relative",
     minWidth: 0,
@@ -7329,8 +6901,6 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: tokens.frame,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   reviewSurface: {
     position: "relative",
@@ -7349,54 +6919,6 @@ const styles = stylex.create({
     minWidth: 0,
     containerType: "inline-size",
   },
-  // A file's Viewed mark at the end of its header, as on GitHub.
-  // In a narrow pane the label and the totals give way before the file name;
-  // the box stays.
-  viewedToggle: {
-    // Above the header's fold button, as the other header parts are.
-    position: "relative",
-    pointerEvents: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    flexShrink: 100,
-    minWidth: 27,
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    height: 24,
-    marginInlineStart: 4,
-    paddingInline: 7,
-    borderWidth: 0,
-    borderRadius: `calc(6px * ${tokens.round})`,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: { default: tokens.faint, ":hover": tokens.text },
-    fontFamily: tokens.ui,
-    fontSize: 11.5,
-    cursor: "pointer",
-    outline: {
-      default: "none",
-      ":focus-visible": `2px solid ${tokens.accentLine}`,
-    },
-    outlineOffset: -1,
-  },
-  viewedOn: { color: { default: tokens.muted, ":hover": tokens.text } },
-  viewedBox: {
-    display: "inline-flex",
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    width: 13,
-    height: 13,
-    boxSizing: "border-box",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    borderRadius: `calc(4px * ${tokens.round})`,
-    color: tokens.canvas,
-    transitionProperty: "background-color, border-color",
-    transitionDuration: "120ms",
-  },
-  viewedBoxOn: { borderColor: tokens.green, backgroundColor: tokens.green },
   // One quiet message at a time, low in the review card, with an optional undo.
   toast: {
     position: "absolute",
@@ -7491,7 +7013,16 @@ const styles = stylex.create({
   // The comparison gives way first in a narrow row: useRowFit chooses a label
   // that fits, or ⋯.
   rowComparison: { display: "flex", flexGrow: 0, flexShrink: 1000, minWidth: 0 },
-  rowStage: { display: "flex", flexShrink: 0 },
+  // The Changes sidebar's range, under its heading.
+  railRange: { display: "flex", minWidth: 0, paddingInline: 6, paddingBottom: 6 },
+  // Empty while Stage all has no room here, and then no gap in the row.
+  rowStage: { display: { default: "flex", ":empty": "none" }, flexShrink: 0 },
+  rowPane: {
+    display: { default: "flex", ":empty": "none" },
+    alignItems: "center",
+    gap: 2,
+    flexShrink: 0,
+  },
   // Quiet as a tab is: the row's text, not the toolbar's strong label.
   rowComparisonTrigger: {
     width: "100%",
@@ -7531,50 +7062,6 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
   },
-  findWidget: {
-    position: "absolute",
-    top: 8,
-    right: 16,
-    zIndex: 20,
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    height: 36,
-    boxSizing: "border-box",
-    paddingInlineStart: 10,
-    paddingInlineEnd: 4,
-    borderRadius: `calc(9px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.lineStrong,
-    boxShadow: tokens.shadow,
-    color: tokens.faint,
-  },
-  findInput: {
-    width: 220,
-    height: 28,
-    marginInlineStart: 6,
-    borderWidth: 0,
-    outline: "none",
-    backgroundColor: "transparent",
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-    "::placeholder": { color: tokens.faint },
-  },
-  findCount: {
-    whiteSpace: "nowrap",
-    fontFamily: tokens.code,
-    fontSize: 10.5,
-    minWidth: 76,
-    paddingInlineEnd: 4,
-    textAlign: "end",
-    color: tokens.muted,
-    fontVariantNumeric: "tabular-nums",
-  },
-  findEmpty: { color: tokens.red },
-  findButton: { width: 26, minWidth: 26, minHeight: 26, height: 26 },
   notice: {
     display: "flex",
     alignItems: "center",
@@ -7687,10 +7174,9 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 8,
     paddingBlock: 0,
-    // The header spans the stream, as the code does. In zen, the first row
-    // keeps clear of the window controls (see CardTab).
-    paddingInlineStart: "calc(8px + var(--med-lift-start, 0px))",
-    paddingInlineEnd: "calc(14px + var(--med-lift-end, 0px))",
+    // The header spans the stream, as the code does.
+    paddingInlineStart: 8,
+    paddingInlineEnd: 14,
     backgroundColor: headerBackground,
     boxShadow: `inset 0 -1px 0 ${tokens.line}, inset 0 1px 0 ${tokens.line}`,
     color: tokens.text,

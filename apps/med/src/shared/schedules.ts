@@ -179,31 +179,3 @@ export function scheduleState(
   }
   return running ? "live" : "stopped";
 }
-
-/** One entry of the Scheduled list (`GET /api/schedules`): a job that will
- * fire, since its session's process runs. */
-export const scheduleEntrySchema = z.object({
-  /** The session's job: a cron, or the next wakeup of a dynamic /loop. */
-  kind: z.enum(["cron", "wakeup"]),
-  id: z.string().optional(),
-  threadId: z.string(),
-  threadTitle: z.string(),
-  sessionId: z.string(),
-  /** In words, such as "Every hour at :23" or "In 20 minutes". */
-  schedule: z.string(),
-  cron: z.string().optional(),
-  recurring: z.boolean(),
-  prompt: z.string(),
-  createdAt: z.number(),
-  /** When a recurring job ends, or when a wakeup fires. */
-  endsAt: z.number().optional(),
-  /** How many times it fired, from the session's transcript. */
-  fires: z.number().int().nonnegative(),
-  lastFiredAt: z.number().optional(),
-  /** Where its session's process runs. */
-  runs: z.enum(["med", "terminal", "claude-app", "other-app"]),
-});
-export type ScheduleEntry = z.infer<typeof scheduleEntrySchema>;
-
-export const schedulesSchema = z.object({ sessions: z.array(scheduleEntrySchema) });
-export type Schedules = z.infer<typeof schedulesSchema>;

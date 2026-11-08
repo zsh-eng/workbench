@@ -11,9 +11,11 @@
 //
 // `?scene=` picks the view, one for each window on the website: the review,
 // the brief, a comment, the agent's session, the commit, or the notes vault.
+// Med's Screens page (/screens) uses the same scenes, and its own, on the
+// recordings that `?recording=` names.
 // The review plays its recording on a timeline: the reviewer sends a comment,
 // and the agent answers it. `?still` keeps a scene at its first moment, for
-// screenshots.
+// screenshots. `?full` shows the whole window, not just the scene's part.
 
 import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { AgentStatus } from "../shared/agent-status";
@@ -58,10 +60,66 @@ interface Recording {
 const params = new URLSearchParams(location.search);
 const scene = params.get("scene") ?? "review";
 // The notes vault and the review's timeline have recordings of their own.
-const file = scene === "notes" ? "vault.json" : scene === "review" ? "hero.json" : "recording.json";
+// The Screens page names its own recordings (public/screens).
+const file =
+  params.get("recording") ??
+  (scene === "notes" ? "vault.json" : scene === "review" ? "hero.json" : "recording.json");
 const recording: Recording = await fetch(new URL(file, document.baseURI)).then((response) =>
   response.json(),
 );
+if (scene === "replies") answerComment(recording);
+
+/**
+ * The replies scene: Med runs the agent's session, and the agent has
+ * answered the reviewer's comment in its thread (`med reply`).
+ */
+function answerComment(recording: Recording) {
+  const rewrite = (text: string, change: (value: any) => void) =>
+    text.replace(/^data: (.*)$/gm, (_line, json: string) => {
+      const value = JSON.parse(json);
+      change(value);
+      return `data: ${JSON.stringify(value)}`;
+    });
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET") continue;
+    const path = entry.url.split("?")[0]!;
+    if (/\/targets\/[^/]+\/notes$/.test(path)) {
+      const state = JSON.parse(entry.text) as NoteState;
+      const comment = state.notes.find((note) => !note.parentId);
+      if (!comment) continue;
+      const answered = new Date(recording.recordedAt).toISOString();
+      state.notes.push({
+        path: comment.path,
+        side: comment.side,
+        line: comment.line,
+        ...(comment.endLine ? { endLine: comment.endLine } : {}),
+        parentId: comment.id,
+        text: 'On the list, it reads out every trail as the list changes. I would put it on the count above the list instead, so a filter change is one short announcement: "12 trails". Shall I?',
+        id: "c0ffee00-0000-4000-8000-000000000001",
+        createdAt: answered,
+        updatedAt: answered,
+        resolution: "active",
+        author: { agent: "claude" },
+      });
+      entry.text = JSON.stringify(state);
+    }
+    // Med runs the session: a comment goes to it from the comment.
+    if (/\/agent(\/events)?$/.test(path)) {
+      const own = (state: AgentInboxState) => {
+        const ids = [...new Set(state.messages.map((message) => message.sessionId))];
+        state.owned = ids;
+      };
+      if (path.endsWith("/events")) {
+        entry.text = rewrite(entry.text, own);
+        for (const chunk of entry.chunks ?? []) chunk.text = rewrite(chunk.text, own);
+      } else {
+        const state = JSON.parse(entry.text) as AgentInboxState;
+        own(state);
+        entry.text = JSON.stringify(state);
+      }
+    }
+  }
+}
 
 // The clock. A timeline's recording time is its start, which the clock
 // shows again when the timeline starts.
@@ -229,9 +287,9 @@ function inbox(id: string): AgentInboxState {
     streamed<AgentInboxState>(`${path}/events`) ??
     read<AgentInboxState>(path) ?? {
       messages: [],
-      waiting: [],
       elsewhere: {},
       resumable: [],
+      owned: [],
       drafts: [],
     }
   );
@@ -269,7 +327,22 @@ function threadList(): ThreadList {
       },
     }),
   };
-  return { threads: [thread], repositories };
+  // In the session scene the agent also handed off an earlier review, so the
+  // side panel's Reviews lists two and the sidebar shows the session once.
+  const earlier: ThreadList["threads"][number] | undefined =
+    scene === "session" && saved.sessions
+      ? {
+          id: "r_demo_parser",
+          title: "Parse trail filters",
+          createdAt: saved.createdAt,
+          updatedAt: Date.parse(saved.createdAt) - 50 * 60_000,
+          ...(repository && { repository }),
+          ...(target && { checkout: target.repo }),
+          ...(target?.branch && { branch: target.branch }),
+          sessions: saved.sessions,
+        }
+      : undefined;
+  return { threads: earlier ? [thread, earlier] : [thread], repositories };
 }
 
 /** The thread list's stream: the list now, and again when the agent's state
@@ -378,7 +451,74 @@ function status(repo: string): WorkingStatus {
 }
 
 type Handler = (url: URL, body: any, match: RegExpMatchArray) => unknown;
+// The settings file, kept in the page: Settings writes it, and Open in reads it.
+const demoSettings: Record<string, unknown> = {};
+
 const handlers: [method: string, path: RegExp, handler: Handler][] = [
+  // Settings › Open in: Trailhead's code hosts, and the editors on this Mac.
+  [
+    "GET",
+    /^\/api\/open-in\/hosts$/,
+    () => ({
+      hosts: [
+        { host: "github.acme.build", repositories: 31, github: true },
+        { host: "github.com", repositories: 14, github: true },
+        { host: "git.acme.build", repositories: 2, github: false },
+      ],
+      editors: [
+        { id: "vscode", name: "VS Code", usage: "code -g file:line" },
+        { id: "cursor", name: "Cursor", usage: "cursor -g file:line" },
+        { id: "zed", name: "Zed", usage: "zed file:line" },
+        { id: "idea", name: "IntelliJ IDEA", usage: "idea --line line file" },
+      ],
+    }),
+  ],
+  [
+    "PUT",
+    /^\/api\/settings$/,
+    (_url, body) => {
+      demoSettings[body.key] = body.value;
+      return { path: "~/.config/med/settings.json", settings: { ...demoSettings }, error: null };
+    },
+  ],
+  // New thread's model and effort, as Claude Code offers them.
+  [
+    "GET",
+    /^\/api\/agents\/[^/]+\/choices$/,
+    () => ({
+      model: {
+        id: "model",
+        name: "Model",
+        category: "model",
+        value: "opus",
+        options: [
+          { value: "default", name: "Default (recommended)" },
+          { value: "opus", name: "Opus" },
+          { value: "sonnet", name: "Sonnet" },
+          { value: "haiku", name: "Haiku" },
+        ],
+      },
+      effort: {
+        id: "effort",
+        name: "Effort",
+        category: "effort",
+        value: "high",
+        options: [
+          { value: "default", name: "Default effort" },
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+          { value: "xhigh", name: "Extra high" },
+        ],
+      },
+      efforts: {
+        default: ["low", "medium", "high", "xhigh"],
+        opus: ["low", "medium", "high", "xhigh"],
+        sonnet: ["low", "medium", "high"],
+        haiku: [],
+      },
+    }),
+  ],
   [
     "POST",
     /^\/api\/reviews\/([^/]+)\/(?:targets|browsing)\/[^/]+\/notes$/,
@@ -727,7 +867,8 @@ if (parent === window) {
 }
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
-const theme = () => (dark.matches ? "med-night" : "med-dawn");
+// The Screens page picks the theme (`?theme=`); the website follows the visitor.
+const theme = () => params.get("theme") ?? (dark.matches ? "med-night" : "med-dawn");
 
 // The demos on a page share one origin, and so one storage: a scene's layout
 // would open in the next demo, and each write would reach the others as a
@@ -756,8 +897,6 @@ class MemoryStorage {
 const storage = new MemoryStorage();
 for (const [name, value] of Object.entries(recording.storage)) storage.setItem(name, value);
 storage.setItem("med:theme:v1", theme());
-// Zen mode's first hints name keys that a visitor on the website does not need.
-storage.setItem("med:zen-hints", "3");
 Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 Object.defineProperty(window, "sessionStorage", {
   value: new MemoryStorage(),
@@ -779,9 +918,9 @@ const visible = (selector: string) =>
 const until = async (test: () => unknown) => {
   for (let waited = 0; waited < 15_000 && !test(); waited += 100) await pause(100);
 };
-/** Sets a toggle button, such as a pane, to shown or hidden. */
+/** Shows a page of the review's header, or a file's tab. */
 const tab = (name: string) =>
-  all<HTMLElement>("[role='tab']")
+  all<HTMLElement>("[role='radio'], [role='tab']")
     .find((node) => node.textContent?.trim().startsWith(name))
     ?.click();
 const scroller = (node: Element | null) => {
@@ -812,18 +951,34 @@ const toComment = async () => {
 /** The review, with only the parts that a scene names. The thread sidebar
  * folds away by itself in a narrow window. */
 const review = async (panes: { sidebar: boolean; session: boolean }, name: string) => {
-  await until(() => visible("diffs-container"));
+  // The review opens on its Review page, which shows diffs only in a part.
+  await until(() => visible("[data-review-status='ready']"));
   if (!panes.sidebar) visible("button[aria-label='Hide sidebar']")?.click();
   // ⌘⇧B shows the session at any width. A phone shows the chosen pane only:
   // there the session is open without room, so it closes, then opens chosen.
-  for (let press = 0; panes.session && press < 2 && !visible(session); press += 1) {
+  // A key, not a click, so no button keeps the focus and its tooltip.
+  for (let press = 0; press < 2 && !!visible(session) !== panes.session; press += 1) {
     dispatchEvent(
       new KeyboardEvent("keydown", { key: "B", code: "KeyB", metaKey: true, shiftKey: true }),
     );
     await pause(300);
   }
-  if (!panes.session) visible("button[aria-label^='Hide the session pane']")?.click();
+  // Closing the session gives its toggle the focus, which shows its tooltip.
+  await pause(300);
+  (document.activeElement as HTMLElement | null)?.blur();
   tab(name);
+  if (name === "Changes") await until(() => visible("diffs-container"));
+};
+/** Review's every file, with the comments on the saved version. Changes
+ * shows the checkout as it is now. */
+const allFiles = async () => {
+  await until(() =>
+    all<HTMLButtonElement>("button").find((button) => button.textContent === "All files"),
+  );
+  all<HTMLButtonElement>("button")
+    .find((button) => button.textContent === "All files")
+    ?.click();
+  await until(() => visible("diffs-container"));
 };
 const session = "section[aria-label='Claude session']";
 /** The Commit tab's marks that stage or unstage a file. */
@@ -833,30 +988,47 @@ const marks = (action: "stage" | "unstage") =>
   );
 
 const scenes: Record<string, () => Promise<void>> = {
-  // Med in zen mode: the thread in the sidebar, the agent's session waiting
-  // for the review, and the diff with the reviewer's comment on the first file.
+  // The thread in the sidebar, the agent's session waiting for the review,
+  // and the diff with the reviewer's comment on the first file.
   async review() {
     await review({ sidebar: true, session: true }, "Changes");
-    if (!visible("[data-zen-exit]"))
-      dispatchEvent(new KeyboardEvent("keydown", { key: "Ω", code: "KeyZ", altKey: true }));
     await until(() => visible(`${session} textarea`) && visible("[data-comment-card]"));
     // The first file, with the comment, at the top.
     const stream = scroller(visible("diffs-container") ?? null);
     if (stream) stream.scrollTop = 0;
   },
-  // The agent's brief, with its cited diffs.
+  // Settings, on its Appearance section: the system's light and dark, and a
+  // theme for each.
+  async settings() {
+    await until(() => visible("[data-review-status='ready']"));
+    history.pushState(null, "", "/settings");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await until(() => visible("nav[aria-label='Settings']"));
+  },
+  // The agent's summary on the Review page, with links to the lines it cites.
   async brief() {
-    await review({ sidebar: false, session: false }, "Notes");
-    await until(() => visible("diffs-container"));
+    await review({ sidebar: false, session: false }, "Review");
+    await until(() => visible("section[aria-label='Guide overview']"));
   },
   // A short unified diff with the reviewer's comment.
   async comment() {
-    await review({ sidebar: false, session: false }, "Changes");
-    visible("[role='group'][aria-label='Diff layout'] button[aria-label='Unified']")?.click();
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
+    await toComment();
+  },
+  // The agent's answer under the reviewer's comment.
+  async replies() {
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
     await toComment();
   },
   async session() {
-    await review({ sidebar: false, session: true }, "Changes");
+    await review({ sidebar: false, session: true }, "Review");
+    await allFiles();
     await toComment();
   },
   // The Commit tab, with the first four files staged.
@@ -890,8 +1062,9 @@ await scenes[scene]?.();
 // rest of the app; the app still runs underneath. While the part is gone, as
 // when the visitor opens something else, the whole app shows.
 const parts: Record<string, () => HTMLElement | undefined> = {
-  brief: () => visible("section[aria-label='Notes']"),
+  brief: () => visible("section[aria-label='Guide overview']"),
   comment: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
+  replies: () => scroller(visible("diffs-container") ?? null) as HTMLElement | undefined,
   session: () => visible(session),
   // A phone has room for the files to stage, without their diffs.
   commit: () =>
@@ -900,7 +1073,8 @@ const parts: Record<string, () => HTMLElement | undefined> = {
       : visible("[role='tabpanel'][aria-label='Commit']"),
   notes: () => visible("#vault-file-panel"),
 };
-const find = parts[scene];
+// The Screens page shows the whole window (`?full`).
+const find = params.has("full") ? undefined : parts[scene];
 if (find) {
   const fill = document.createElement("style");
   fill.textContent = `
@@ -952,13 +1126,15 @@ if (find) {
   keep();
   new MutationObserver(keep).observe(document.body, { childList: true, subtree: true });
   // The comment sits near the foot of its window, under the lines it is about.
-  if (scene === "comment" && part) {
+  if ((scene === "comment" || scene === "replies") && part) {
     await pause(200);
     const card = visible("[data-comment-card]");
     if (card) part.scrollTop += card.getBoundingClientRect().bottom - (innerHeight - 64);
   }
 }
 await pause(400);
+// A control that a scene clicked keeps its focus, and its tooltip, otherwise.
+if (scene !== "review") (document.activeElement as HTMLElement | null)?.blur();
 document.documentElement.dataset.demo = "ready";
 if (parent !== window) parent.postMessage({ type: "med-demo", state: "ready" }, "*");
 

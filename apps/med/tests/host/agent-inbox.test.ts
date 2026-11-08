@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import type { AgentInboxState } from "../../src/shared/agent-inbox";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { startHost, type RunningHost } from "../../src/host/server";
-import { runReviewCommand } from "../../src/cli/review";
 import { openSession } from "../fixtures/terminal-claude";
 import { removeFolder } from "./remove-folder";
 
@@ -41,21 +40,14 @@ async function fixture() {
   const home = join(directory, "home");
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
-  // The Claude session runs in a terminal and takes messages with `med review wait`.
+  // The Claude session runs in a terminal.
   ends.push((await openSession(home, claude)).end);
   const stateDir = join(directory, "state");
-  const queued: [string, string][] = [];
   const host = await startHost({
     repo,
     repos: [repo],
     stateDir,
     port: 0,
-    queueCodex: async (thread, text) => {
-      queued.push([thread, text]);
-      // codex queue runs a process; a second send can arrive meanwhile.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    },
-    agentAckMs: 300,
     agents: async () => [
       {
         id: "claude",
@@ -99,143 +91,40 @@ async function fixture() {
       },
     })
   ).data as { notes: { id: string }[] };
-  /** `med review wait` in Claude Code session `session`, or outside Claude Code. */
-  const wait = (session: string | undefined, warn?: (text: string) => void) => {
-    const printed: string[] = [];
-    const done = runReviewCommand(
-      ["wait", "--key", "durations", "--state-dir", stateDir, "--port", String(host.port)],
-      {
-        print: (text) => printed.push(text),
-        environment: session ? { CLAUDE_CODE_SESSION_ID: session } : {},
-        home,
-        ...(warn && { warn }),
-      },
-    ).then(() => printed.join("\n"));
-    return done;
-  };
-  return { api, repo, saved, commentId: comment.notes[0]!.id, wait, queued };
+  return { api, repo, saved, commentId: comment.notes[0]!.id };
 }
 
-test("a message reaches a waiting Claude session through med review wait", async () => {
-  const { api, saved, commentId, wait } = await fixture();
+test("Med sends nothing to a session that another app has open: the comments stay drafts to copy", async () => {
+  const { api, saved, commentId } = await fixture();
   const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
-  expect((await inbox()).drafts).toMatchObject([
-    { id: commentId, path: "summary.ts", text: "Round to minutes instead." },
-  ]);
-
-  // The agent is not waiting yet: Med keeps the message until it does.
-  const first = await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: claude,
-    text: "Also keep the old format in the export.",
-    noteIds: [],
-  });
-  expect(first.data).toMatchObject({ message: { delivery: "pending" } });
-  expect(await wait(claude)).toContain("Also keep the old format in the export.");
-
-  // Now the agent waits first; a message with the comment ends the wait.
-  const output = wait(claude);
-  await vi.waitFor(async () => expect((await inbox()).waiting).toEqual([claude]));
+  expect((await inbox()).elsewhere).toEqual({ [claude]: "terminal" });
   const sent = await api(`/api/reviews/${saved.id}/agent/messages`, {
     sessionId: claude,
     text: "Use minutes.",
     noteIds: [commentId],
   });
-  expect(sent.status).toBe(200);
-  const text = await output;
-  expect(text).toMatch(/^The user sent this from the Med review "Format durations"/);
-  expect(text).toContain("Use minutes.");
-  expect(text).toContain("File: summary.ts");
-  expect(text).toContain("Round to minutes instead.");
-
-  const state = await inbox();
-  expect(state.messages.map((message) => message.delivery)).toEqual(["delivered", "delivered"]);
-  // The thread shows the comment as it was sent; a sent comment is no longer a draft.
-  expect(state.messages[1]!.comments).toEqual([
-    { path: "summary.ts", line: 1, text: "Round to minutes instead." },
-  ]);
-  expect(state.drafts).toEqual([]);
-});
-
-test("a message that a wait takes but never prints goes to the next wait", async () => {
-  const { api, saved, wait } = await fixture();
-  const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
-  // A wait whose process died takes the message and never confirms it. Under
-  // Bun the host cannot tell that its client went away.
-  const lost = api(`/api/reviews/${saved.id}/agent/wait`, { session: claude, confirm: true });
-  await vi.waitFor(async () => expect((await inbox()).waiting).toEqual([claude]));
-  await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: claude,
-    text: "Use minutes.",
-    noteIds: [],
-  });
-  expect((await lost).data).toMatchObject({ message: expect.stringContaining("Use minutes.") });
-  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["pending"]);
-
-  // The next wait gets it and confirms it.
-  expect(await wait(claude)).toContain("Use minutes.");
-  expect((await inbox()).messages.map((message) => message.delivery)).toEqual(["delivered"]);
-});
-
-test("a wait in a Claude Code session that the review does not have adds that session, so the user's message reaches it", async () => {
-  const { api, saved, wait } = await fixture();
-  const inbox = async () => (await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState;
-  // Such as the session after /clear, or the parent of the subagent that
-  // made the review.
-  const other = "6a1d3b9f-2222-4333-8444-a55566677788";
-  const warned: string[] = [];
-  const output = wait(other, (text) => warned.push(text));
-  await vi.waitFor(async () => expect((await inbox()).waiting).toEqual([other]));
-  const review = (await api(`/api/reviews/${saved.id}`)).data as SavedReview;
-  expect(review.sessions?.map((session) => session.id)).toEqual([claude, codex, other]);
-  expect(warned.join("\n")).toContain(`Med added Claude Code session ${other} to the review`);
-  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: other,
-    text: "Rename it.",
-    noteIds: [],
-  });
-  expect(sent.status).toBe(200);
-  expect(await output).toContain("Rename it.");
-});
-
-test("a wait outside Claude Code, such as in Codex, ends at once: no message could reach it", async () => {
-  const { api, saved, wait } = await fixture();
-  await expect(wait(undefined)).rejects.toThrow(
-    /No Claude Code session runs this command.*Codex gets the user's messages from its queue/s,
-  );
-  expect(((await api(`/api/reviews/${saved.id}/agent`)).data as AgentInboxState).waiting).toEqual(
-    [],
-  );
-});
-
-test("a message to a Codex session goes to its queue once", async () => {
-  const { api, saved, commentId, queued } = await fixture();
-  const message = {
-    id: "8d7e3f0a-5b2c-4e1d-9a6f-0c1b2d3e4f5a",
-    sessionId: codex,
-    text: "Use minutes.",
-    noteIds: [commentId],
-  };
-  // Two windows that reload send the same message at once.
-  const [sent, again] = await Promise.all([
-    api(`/api/reviews/${saved.id}/agent/messages`, message),
-    api(`/api/reviews/${saved.id}/agent/messages`, message),
-  ]);
+  expect(sent.status).toBe(409);
   expect(sent.data).toMatchObject({
-    message: { id: message.id, agent: "codex", delivery: "queued" },
+    error: { code: "session-elsewhere", message: expect.stringContaining("copy the comments") },
   });
-  expect(again.data).toMatchObject({ message: { id: message.id, delivery: "queued" } });
-  // Med sends again with the same ID when it lost the answer; the agent gets it once.
-  expect((await api(`/api/reviews/${saved.id}/agent/messages`, message)).status).toBe(200);
-  expect(queued).toHaveLength(1);
-  expect(queued[0]![0]).toBe(codex);
-  expect(queued[0]![1]).toContain("Round to minutes instead.");
+  const state = await inbox();
+  expect(state.messages).toEqual([]);
+  expect(state.drafts).toMatchObject([{ id: commentId, text: "Round to minutes instead." }]);
+  // Copy comments gives the same text that a message would.
+  const feedback = (await api(`/api/reviews/${saved.id}/feedback`)).data as { text: string };
+  expect(feedback.text).toContain("Round to minutes instead.");
+});
 
-  const empty = await api(`/api/reviews/${saved.id}/agent/messages`, {
+test("a message to a Codex session needs Codex: Med resumes the session with it", async () => {
+  const { api, saved, commentId } = await fixture();
+  const sent = await api(`/api/reviews/${saved.id}/agent/messages`, {
     sessionId: codex,
-    text: " ",
-    noteIds: [],
+    text: "Use minutes.",
+    noteIds: [commentId],
   });
-  expect(empty.status).toBe(400);
+  // This host has no Codex to resume it with.
+  expect(sent.status).toBe(409);
+  expect(sent.data).toMatchObject({ error: { code: "codex-not-found" } });
 });
 
 test("a reply pinned to the review stays with its iteration", async () => {
@@ -266,8 +155,8 @@ test("a reply pinned to the review stays with its iteration", async () => {
   expect((await api(`/api/reviews/${saved.id}/pins`, { add: { text: " " } })).status).toBe(400);
 });
 
-test("a comment on a passage of the Notes counts, copies, and reaches the agent with its quote", async () => {
-  const { api, saved, commentId, queued } = await fixture();
+test("a comment on a passage of the Notes counts, and copies with its quote", async () => {
+  const { api, saved, commentId } = await fixture();
   const comment = (mutation: unknown) => api(`/api/reviews/${saved.id}/brief-comments`, mutation);
   const add = {
     section: "brief",
@@ -296,16 +185,10 @@ test("a comment on a passage of the Notes counts, copies, and reaches the agent 
     count: number;
   };
   expect(feedback.count).toBe(2);
+  // A comment on a passage takes no reply, so it has no ID.
   expect(feedback.text).toContain(
-    `On: the review's brief (iteration 1)\nComment ID: ${id}\n\nQuote:\n> rounds to whole seconds\n\nComment:\nRound to minutes instead.`,
+    "## On the review's brief (iteration 1)\n> rounds to whole seconds\n\nRound to minutes instead.",
   );
-  await api(`/api/reviews/${saved.id}/agent/messages`, {
-    sessionId: codex,
-    text: "",
-    noteIds: [id],
-  });
-  expect(queued[0]![1]).toContain("> rounds to whole seconds");
-  expect(queued[0]![1]).not.toContain("File: summary.ts");
 
   const edited = (await comment({ edit: { id, text: "Use minutes." } })).data as SavedReview;
   expect(edited.briefComments?.[0]).toMatchObject({ id, text: "Use minutes." });

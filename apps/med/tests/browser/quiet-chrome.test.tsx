@@ -3,15 +3,14 @@ import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { App } from "../../src/web/App";
 import { AppTooltip } from "../../src/web/components/ToolButton";
+import { comparisonLabel } from "../../src/web/components/QuietChrome";
 import { SourcesView } from "../../src/web/components/SourcesPage";
 // The window's top row, as main.tsx loads it.
 import "../../src/web/components/TitleRow.css";
 import { WorkspaceHost, WorkspaceViews } from "../../src/web/components/Workspaces";
 import { createFakeRepository } from "../../src/web/components/elements/commit-fixture";
 import { createBrowseApi } from "../../src/web/data/browse";
-import { setChromeMode } from "../../src/web/data/chrome";
 import type { CommitApi } from "../../src/web/data/commit";
-import { platform } from "../../src/web/data/keys";
 import type { Comparison } from "../../src/shared/protocol";
 import type { EndpointNames } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
@@ -208,7 +207,6 @@ beforeEach(async () => {
   await page.viewport(1280, 800);
   for (const key of Object.keys(localStorage))
     if (key.startsWith("med:") && key !== "med:theme:v1") localStorage.removeItem(key);
-  setChromeMode("quiet", false);
   const remotes = new Promise<void>((resolve) => (releaseRemotes = resolve));
   globalThis.fetch = async (input, init) => {
     if (!String(input).includes("/api/git/targets")) return pageFetch(input, init);
@@ -264,18 +262,27 @@ const shown = () =>
   [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find((element) =>
     element.checkVisibility({ visibilityProperty: true }),
   );
-/** The review's row: its tabs and the controls after them. */
-const row = () => shown()?.querySelector<HTMLElement>('[role="tablist"]')?.parentElement;
-/** What the diff shows: in Changes the comparison, in Review the version (a
- * select, or text when there is one version). */
+/** The review's header: in its pane, or, where the review fills the window,
+ * the title band, which is then the review's one row. */
+const row = () =>
+  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ??
+  document
+    .querySelector('header[aria-label="Workspace"] [aria-label="Review header"]')
+    ?.closest<HTMLElement>('header[aria-label="Workspace"]') ??
+  undefined;
+/** What the diff shows: in Changes the comparison (atop the page's sidebar,
+ * or in the header while it hides), in Review the checkout, when it has
+ * several. */
 const comparison = () =>
-  row()?.querySelector<HTMLElement>(
-    '[aria-label="Comparison"], [aria-label="Review version"], [data-choice-static]',
-  );
-/** A Review of one version: "Version 1" and its age. */
-const versionOne = /^Version 1 · (just now|\d+ (min|hr|day|days|mo|yr) ago)$/;
+  (shown()?.querySelector<HTMLElement>(
+    '[aria-label="Comparison"], [aria-label="Review checkout"]',
+  ) ??
+    row()?.querySelector<HTMLElement>(
+      '[aria-label="Comparison"], [aria-label="Review checkout"]',
+    )) ||
+  null;
 const openThread = async (title: string) => {
-  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
   await page.getByRole("button", { name: new RegExp(`^${title}`) }).click();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -296,25 +303,22 @@ function hideTitleBar(height: number) {
   html.style.setProperty("--med-titlebar-right", "100px");
 }
 
-test("Review names its version and age, and says a range by the names saved with it, or by short object IDs", async () => {
+test("Review names no version, and one checkout leaves nothing to choose", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   // Live, the row says the working changes in full.
   await expect.poll(() => comparison()?.textContent).toBe("Working changes");
 
-  // A Review of one version: its number and age, as text with no menu. The
-  // range that it shows is in the tooltip, with no Git comparison to choose.
+  // A Review of one checkout: no menu, no version, no Git comparison.
   await openThread("Week view");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("week-target");
-  await expect.poll(() => comparison()?.textContent).toMatch(versionOne);
-  expect(comparison()?.tagName).not.toBe("BUTTON");
-  expect(comparison()?.title).toBe("repo · main · main → week-view");
-  // An older record has no names.
-  await openThread("Older range");
-  await expect.poll(() => comparison()?.title).toBe("repo · main · bbbbbbb → aaaaaaa");
-  // Object IDs on main: the branch's newest commits.
-  await openThread("Prediction model");
-  await expect.poll(() => comparison()?.title).toBe("repo · main · 2 commits on main");
+  await expect.poll(() => comparison()).toBeFalsy();
+  expect(row()!.textContent).not.toMatch(/Version \d/);
+  // A checkout menu says a range by the names saved with it, or by short
+  // object IDs in an older record, or as a branch's newest commits.
+  expect(comparisonLabel(range, saved.week!.names).long).toBe("main → week-view");
+  expect(comparisonLabel(range).long).toBe("bbbbbbb → aaaaaaa");
+  expect(comparisonLabel(range, saved.model!.names).long).toBe("2 commits on main");
 });
 
 test("the Commit tab's Stage all is in the review's row, and the tab does not name the branch again", async () => {
@@ -326,7 +330,7 @@ test("the Commit tab's Stage all is in the review's row, and the tab does not na
   });
   render(repository.api);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
   const files = page.getByRole("listbox", { name: "Changed files" });
   await expect.element(files).toBeVisible();
   const stage = () =>
@@ -349,15 +353,8 @@ test("the Commit tab's Stage all is in the review's row, and the tab does not na
     .toBe(true);
   await expect.poll(() => stage()?.textContent).toBe("Unstage all");
   // Changes has no Stage all.
-  await page.getByRole("tab", { name: /^Changes/ }).click();
+  await page.getByRole("radio", { name: /^Changes/ }).click();
   await expect.poll(() => stage()).toBeUndefined();
-
-  // Full chrome keeps the Commit tab's own header.
-  setChromeMode("full", false);
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
-  await expect.element(page.getByText("feature/commit-tab", { exact: true })).toBeVisible();
-  await expect.element(files.getByRole("option").first()).toBeVisible();
-  expect(stage()).toBeUndefined();
 });
 
 test("a narrow row shortens the comparison, then moves it into ⋯, and keeps ⋯ in view", async () => {
@@ -390,23 +387,20 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
     const label = value()?.textContent ?? "⋯";
     if (!seen.has(label)) seen.set(label, width);
   }
-  // Review's version: with its age, then without, then in ⋯.
-  const [long, short, menu] = [...seen.keys()];
-  expect(long).toMatch(versionOne);
-  expect([short, menu]).toEqual(["Version 1", "⋯"]);
-  expect(seen.get(long!)).toBe(1280);
+  // Review names no comparison at any width.
+  expect([...seen.keys()]).toEqual(["⋯"]);
 
-  // In ⋯, the comparison is the menu's first item: in Review, the version,
-  // which has nothing to choose; in Changes, the comparisons.
-  await page.viewport(seen.get("⋯")!, 800);
+  // In Changes, a narrow row puts the comparisons first in ⋯.
+  await page.getByRole("radio", { name: /^Changes/ }).click();
+  let narrow = 1280;
+  for (; narrow >= 600; narrow -= 20) {
+    await page.viewport(narrow, 800);
+    await frame();
+    if (!comparison()) break;
+  }
   await expect.poll(() => comparison()).toBeFalsy();
   const more = () =>
     [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
-  more().click();
-  await expect.element(page.getByRole("menuitem", { name: versionOne })).toBeDisabled();
-  expect(page.getByRole("menuitem", { name: "Working changes" }).query()).toBeNull();
-  await userEvent.keyboard("{Escape}");
-  await page.getByRole("tab", { name: /^Changes/ }).click();
   more().click();
   await page.getByRole("menuitem", { name: "Working changes" }).hover();
   await expect
@@ -417,20 +411,20 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   // 600 px: the tabs keep their place and ⋯ its own.
   await page.viewport(600, 800);
   await frame();
-  const changes = row()!.querySelector<HTMLElement>('[role="tab"]')!;
+  const changes = row()!.querySelector<HTMLElement>('[role="radio"]')!;
   expect(changes.getBoundingClientRect().width).toBeGreaterThan(0);
 
-  // On the Commit tab, a row without room for Stage all gives it back to
-  // the view's header, and the tabs keep that room. It returns to the row as
-  // the row widens.
-  await page.getByRole("tab", { name: "Commit", exact: true }).click();
+  // On the Commit page, a row without room for Stage all gives it back to
+  // the view's header, and the pages keep that room. It returns to the row
+  // once the row has room for it beside the title.
+  await page.getByRole("radio", { name: "Commit", exact: true }).click();
   const stage = () =>
     [...row()!.querySelectorAll("button")].find((button) =>
       /^(Un)?[Ss]tage /.test(button.textContent ?? ""),
     );
   await expect.element(page.getByRole("button", { name: /^(Un)?[Ss]tage all$/ })).toBeVisible();
   await expect.poll(() => stage()).toBeUndefined();
-  await page.viewport(1280, 800);
+  await page.viewport(2400, 800);
   await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
 });
 
@@ -441,18 +435,21 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
   await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
   const names = ["Review", "Changes", "Commit"];
   const tab = (name: string) =>
-    row()!.querySelector<HTMLElement>(`[role="tab"][aria-label="${name}"]`)!;
+    [...row()!.querySelectorAll<HTMLElement>('[role="radio"]')].find(
+      (radio) => radio.textContent === name,
+    )!;
   const boxes = () =>
     names.map((name) => {
       const box = tab(name).getBoundingClientRect();
       return `${name} ${Math.round(box.left)}+${Math.round(box.width)}`;
     });
-  for (const width of [1440, 900, 600]) {
+  // Beside the session, at a width with room for the header's pages.
+  for (const width of [1440]) {
     await page.viewport(width, 800);
     const seen: string[][] = [];
     for (const name of [...names, "Review"]) {
-      await page.getByRole("tab", { name, exact: true }).click();
-      await expect.poll(() => tab(name).getAttribute("aria-selected")).toBe("true");
+      await page.getByRole("radio", { name, exact: true }).click();
+      await expect.poll(() => tab(name).getAttribute("aria-checked")).toBe("true");
       await frame();
       await frame();
       seen.push(boxes());
@@ -469,54 +466,53 @@ const visible = (selector: string) =>
   [...document.querySelectorAll<HTMLElement>(selector)].find((element) =>
     element.checkVisibility(),
   );
-/** The Changed files pane on screen. */
-const changedPane = () => visible('[data-pane="changed"]');
+/** The Changes page's sidebar on screen. */
+const changesSidebar = () => visible('nav[aria-label="Files and commits"]');
 const hideChanged = page.getByRole("button", { name: "Hide changed files" });
 const showChanged = page.getByRole("button", { name: "Show changed files" });
 
-test("a closed Changed files pane comes back by the button where it was, ⌘K and ⋯, and stays as chosen after a restart", async () => {
+test("the Changes page's sidebar hides from its heading, comes back by the header's button, ⌘⌥B, and ⌘K, and stays as chosen after a restart", async () => {
+  await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await openThread("Week view");
-  await expect.poll(changedPane).toBeTruthy();
-  const keys = platform === "mac" ? "Mod+Ctrl+B" : null;
-  // Open, the pane's header hides it, and its tooltip names the shortcut.
-  expect(hideChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
+  await expect.poll(changesSidebar).toBeTruthy();
+  // What the diff compares tops it.
+  expect(changesSidebar()!.contains(comparison()!)).toBe(true);
+  // Its heading hides it, and the tooltip names the shortcut.
+  expect(hideChanged.element().getAttribute("data-tooltip-keys")).toBe("Mod+Alt+B");
   await hideChanged.click();
-  await expect.poll(changedPane).toBeUndefined();
-  // Closed, its button is where it was, first in the review's row, and has
-  // the focus that the pane's button had.
+  await expect.poll(changesSidebar).toBeUndefined();
+  // Hidden, its button is at the start of the review's header, with the
+  // focus, and the comparison is in the header.
   await expect.element(showChanged).toBeVisible();
-  expect(row()!.querySelector("button")).toBe(showChanged.element());
-  expect(document.activeElement).toBe(showChanged.element());
-  expect(showChanged.element().getAttribute("data-tooltip-keys")).toBe(keys);
+  expect(row()!.contains(showChanged.element())).toBe(true);
+  await expect.poll(() => document.activeElement).toBe(showChanged.element());
+  expect(row()!.contains(comparison()!)).toBe(true);
+  expect(localStorage.getItem("med:changes-rail")).toBe("closed");
   await showChanged.click();
-  await expect.poll(changedPane).toBeTruthy();
+  await expect.poll(changesSidebar).toBeTruthy();
   await expect.element(showChanged).not.toBeInTheDocument();
 
-  // ⌘K and ⋯ name it too.
-  await hideChanged.click();
+  // ⌘⌥B and ⌘K show it too; ⋯ holds only what a narrow row folds.
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  await expect.poll(changesSidebar).toBeUndefined();
   await userEvent.keyboard("{Control>}k{/Control}");
   await page.getByRole("combobox", { name: "Search commands" }).fill("Show changed files");
   await page.getByRole("option", { name: /^Show changed files/ }).click();
-  await expect.poll(changedPane).toBeTruthy();
-  await hideChanged.click();
-  [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!.click();
-  await page.getByRole("menuitemcheckbox", { name: /^Changed files/ }).click();
-  await expect.poll(changedPane).toBeTruthy();
+  await expect.poll(changesSidebar).toBeTruthy();
 
-  // Closed, it stays closed when Med opens again, once the layout is saved.
+  // Hidden, it stays hidden when Med opens again.
   await hideChanged.click();
-  await expect.poll(changedPane).toBeUndefined();
-  await expect
-    .poll(() => localStorage.getItem("med:panes:v1:review:week"))
-    .toMatch(/^(?!.*"changed").*"review"/);
+  await expect.poll(changesSidebar).toBeUndefined();
   root!.unmount();
   mount!.remove();
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  await page.getByRole("radio", { name: "Changes", exact: true }).click();
   await expect.element(showChanged).toBeVisible();
-  expect(changedPane()).toBeUndefined();
+  expect(changesSidebar()).toBeUndefined();
 });
 
 test("a hidden session pane comes back by its button where it was, and ⌘K hides the session's side panel where it has room", async () => {
@@ -543,12 +539,71 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   await page.getByRole("button", { name: /^Hide the session pane/ }).click();
   await expect.poll(session).toBeUndefined();
   await expect.element(showSession).toBeVisible();
-  expect(row()!.querySelector("button")).toBe(showSession.element());
+  expect(row()!.querySelector('[data-pane-show="session"]')).toBe(showSession.element());
   expect(showSession.element().getAttribute("data-tooltip-keys")).toBe("Mod+Shift+B");
   expect(document.activeElement).toBe(showSession.element());
   await showSession.click();
   await expect.poll(session).toBeTruthy();
   expect(showSession.query()).toBeNull();
+});
+
+test("the review has Expand and Hide in its header, in ⋯ when the row is narrow, and comes back by Show review", async () => {
+  await page.viewport(1600, 900);
+  render();
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // Alone, the review has neither: it is the whole workspace, and stays.
+  expect(page.getByRole("button", { name: "Expand review" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
+  await openThread("A thread about the export");
+  await page.getByRole("button", { name: "Hide sidebar" }).click();
+  const review = () => visible('[data-pane="review"]');
+  const session = () => visible('[data-pane="session"]');
+  await expect.poll(session).toBeTruthy();
+
+  // Beside the session, Expand fills the workspace and Restore gives the
+  // session its place back.
+  await page.getByRole("button", { name: "Expand review" }).click();
+  await expect
+    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
+    .toBe(true);
+  await page.getByRole("button", { name: "Restore the other panes" }).click();
+  await expect
+    .poll(() => document.querySelector<HTMLElement>('[data-pane="session"]')!.inert)
+    .toBe(false);
+
+  // Hide leaves the session, whose header shows the review again.
+  await page.getByRole("button", { name: "Hide the review" }).click();
+  await expect.poll(review).toBeUndefined();
+  const showReview = page.getByRole("button", { name: "Show review" });
+  await showReview.click();
+  await expect.poll(review).toBeTruthy();
+
+  // While the review hides, the session is the whole workspace: its header
+  // has Show review, as words, and no Hide. ⌘⇧B hides it and shows the
+  // review, so the workspace keeps a pane.
+  await page.getByRole("button", { name: "Hide the review" }).click();
+  await expect.poll(review).toBeUndefined();
+  await expect.element(showReview).toHaveTextContent("Show review");
+  expect(page.getByRole("button", { name: /^Hide the session pane/ }).query()).toBeNull();
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await expect.poll(review).toBeTruthy();
+  await expect.poll(session).toBeUndefined();
+  expect(page.getByRole("button", { name: "Hide the review" }).query()).toBeNull();
+  await page.getByRole("button", { name: "Show agent session" }).click();
+  await expect.poll(session).toBeTruthy();
+
+  // A narrow row keeps its tabs and puts Expand and Hide in ⋯.
+  await page.viewport(700, 800);
+  await expect
+    .poll(() => row()!.querySelector('[aria-label="Hide the review"]')?.checkVisibility())
+    .toBe(false);
+  const more = [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
+  more.click();
+  await expect.element(page.getByRole("menuitem", { name: /^Expand review/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Hide review" }).click();
+  await expect.poll(review).toBeUndefined();
+  await showReview.click();
+  await expect.poll(review).toBeTruthy();
 });
 
 /**
@@ -602,34 +657,15 @@ test("the sidebar moves the session pane and its side panel in one frame, as wid
   expect(shownAgain).toEqual([hidden[1], start]);
 });
 
-test.runIf(platform === "mac")(
-  "⌘⌃B hides and shows the Changed files pane, and ⌘B's sidebar stays",
-  async () => {
-    render();
-    await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-    await openThread("Week view");
-    await expect.poll(changedPane).toBeTruthy();
-    await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
-    await expect.poll(changedPane).toBeUndefined();
-    await expect.element(showChanged).toBeVisible();
-    await expect.element(page.getByRole("navigation", { name: "Threads" })).toBeVisible();
-    await userEvent.keyboard("{Meta>}{Control>}b{/Control}{/Meta}");
-    await expect.poll(changedPane).toBeTruthy();
-    await expect.element(page.getByRole("navigation", { name: "Threads" })).toBeVisible();
-  },
-);
-
-test("Push… waits for the remotes, with the reason in its tooltip", async () => {
+test("Push… waits for the remotes, with the reason beside it in ⌘K", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  const more = () =>
-    [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
-  more().click();
-  const push = page.getByRole("menuitem", { name: "Push…" });
+  // ⋯ holds only what a narrow row folds; Push is in ⌘K.
+  expect(row()!.querySelector('[aria-label="More actions"]')).toBeNull();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  const push = page.getByRole("option", { name: /^Push to remote…/ });
   await expect.element(push).toHaveAttribute("aria-disabled", "true");
-  await expect.element(push).toHaveAttribute("aria-description", "Reading the remotes…");
-  await push.hover();
-  await expect.element(page.getByRole("tooltip", { name: "Reading the remotes…" })).toBeVisible();
+  await expect.element(push).toHaveAccessibleDescription("Reading the remotes…");
 
   releaseRemotes();
   await expect.element(push).not.toHaveAttribute("aria-disabled", "true");
@@ -655,7 +691,7 @@ test("the installed app's top row is the strip's height, so its controls sit on 
   }
 });
 
-test("a card's tab puts its controls on the window controls' centre line, clear of the tab's edge", async () => {
+test("a page's header in the title bar puts its controls on the window controls' centre line", async () => {
   hideTitleBar(38);
   await page.viewport(1280, 800);
   initializeTheme();
@@ -687,8 +723,8 @@ test("a card's tab puts its controls on the window controls' centre line, clear 
     card.getByRole("heading", { name: "Sources" }),
   ];
   // macOS's strip and a taller one: the strip's centre line. A strip lower
-  // than 38 px keeps the 38 px tab, whose controls would otherwise leave
-  // the card: they sit at 19 px, below that strip's centre.
+  // than 38 px keeps a 38 px header: its controls sit at 19 px, below that
+  // strip's centre.
   for (const [height, line] of [
     [38, 19],
     [44, 22],
@@ -697,7 +733,7 @@ test("a card's tab puts its controls on the window controls' centre line, clear 
     hideTitleBar(height);
     await frame();
     for (const part of parts) expect(middle(part.element())).toBeCloseTo(line, 1);
-    // The tab's top edge is the card's, and its 1 px outline is drawn there.
+    // The header starts at the window's top, and its controls are inside it.
     const edge = card.element().getBoundingClientRect().top;
     for (const part of parts.slice(0, 3))
       expect(part.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(edge + 2);

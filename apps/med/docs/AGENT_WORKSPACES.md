@@ -21,22 +21,22 @@ Med **attaches** to a session that another app started, or **owns** a session
 that Med started. Both feed the same store and events; the thread does not
 know which way an update came.
 
-| Feature            | Attach                                          | Own                                                                        |
-| ------------------ | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| Who starts it      | Claude Desktop, a terminal, or Codex            | The Med host                                                               |
-| Source of updates  | Transcript lines, read every 400 ms             | Claude, Codex: the transcript and the agent's stdio. ACP, agy: stdio       |
-| Replies            | Whole blocks                                    | Token by token                                                             |
-| Send a message     | Claude: `med review wait`. Codex: `codex queue` | Claude: a `user` line on stdin. Codex: `turn/start`. ACP: `session/prompt` |
-| Images in a prompt | Saved copies, named by path in the message      | Claude: image blocks. ACP: when `promptCapabilities.image` is set          |
-| Permission prompts | Not visible                                     | A card above the prompt box                                                |
-| Stop, model, mode  | Not possible; model and effort show as text     | Controls in the prompt box                                                 |
-| History on reload  | The transcript                                  | Claude: the transcript. ACP: Med's log of the updates                      |
+| Feature            | Attach                                      | Own                                                                        |
+| ------------------ | ------------------------------------------- | -------------------------------------------------------------------------- |
+| Who starts it      | Claude Desktop, a terminal, or Codex        | The Med host                                                               |
+| Source of updates  | Transcript lines, read every 400 ms         | Claude, Codex: the transcript and the agent's stdio. ACP, agy: stdio       |
+| Replies            | Whole blocks                                | Token by token                                                             |
+| Send a message     | Not while it is open; a closed one resumes  | Claude: a `user` line on stdin. Codex: `turn/start`. ACP: `session/prompt` |
+| Images in a prompt | Saved copies, named by path in the message  | Claude: image blocks. ACP: when `promptCapabilities.image` is set          |
+| Permission prompts | Not visible                                 | A card above the prompt box                                                |
+| Stop, model, mode  | Not possible; model and effort show as text | Controls in the prompt box                                                 |
+| History on reload  | The transcript                              | Claude: the transcript. ACP: Med's log of the updates                      |
 
 **One writer per session.** Only the process that runs an agent can safely add
-turns. Med sends prompts only to sessions that it owns, or through a path that
-the owner provides (`med review wait`, `codex queue`). Token streaming needs
-that process too: for a session that Claude Desktop runs, only Claude Desktop
-gets the tokens.
+turns. Med sends prompts only to sessions that it owns; an attached session
+that no process has open becomes owned when a message comes. Token streaming
+needs that process too: for a session that Claude Desktop runs, only Claude
+Desktop gets the tokens.
 
 ### Owning a Claude session
 
@@ -157,26 +157,20 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   terminal runs (`--resume <id> --fork-session --session-id <new ID>`). A
   Codex thread resumes the same way through `thread/resume` when no other
   process has it open (`~/.codex/thread-writer-locks/<id>.lock`,
-  `src/host/agent-locks.ts`); one that Codex Desktop or a terminal has open
-  takes messages through `codex queue`.
+  `src/host/agent-locks.ts`); Med sends nothing to one that Codex Desktop or
+  a terminal has open.
 
 ### Running now
 
-The sidebar's **Running now** lists the agent sessions that run on this
-computer (`GET /api/sessions/running`): Med's own while they work on a turn,
-and Claude Code, Codex, and agy sessions that another process has open. Med
-reads Claude Code's process records (`~/.claude/sessions/<pid>.json`),
-Codex's thread locks, and agy's presence locks
-(`~/.gemini/antigravity-cli/presence/<id>.lock`), and counts a lock only
-while a process other than Med's agents has it open (`lsof`). Codex Desktop
-keeps every thread that it shows loaded, with its lock, so a Codex thread
-lists only while a turn is in progress: its rollout's last turn started
-(`task_started`) without a `task_complete` or `turn_aborted`, or, in a turn
-too long for the rollout's last 256 KB to show its start, the rollout
-changed in the last 2 minutes (`codexTurnOpen` in `found-sessions.ts`
-reads the last 256 KB, then the last 4 MiB). An idle `codex` in a terminal
-does not list either; Claude Code sessions list while their process runs.
-Codex's guardian reviews and subagents do not list. One with a thread opens it;
+The sidebar has no Running now section: a running session joins the session
+list as a tab. Med tells a Claude Code, Codex, or agy session that another
+process has open from its lock: Claude Code's process records
+(`~/.claude/sessions/<pid>.json`), Codex's thread locks, and agy's presence
+locks (`~/.gemini/antigravity-cli/presence/<id>.lock`), each counted only
+while a process other than Med's agents has it open (`lsof`, in
+`agent-locks.ts`).
+Codex's guardian reviews and subagents stay out of the session list. A found
+session with a thread opens it;
 **Keep in Med** saves a Claude Code or Codex session as a thread
 (`POST /api/sessions/adopt`), and **Continue in Med** makes an agy
 conversation a thread whose agent Med runs, from its transcript's history
@@ -241,7 +235,7 @@ The inbox keeps it as `pending` with `queued: true` (`queued-messages.ts`):
 ### Antigravity is off
 
 Med's Antigravity support is off by default, while the user does not use it:
-Med offers no agy agent, lists no agy sessions in Running now, and refuses
+Med offers no agy agent, lists no running agy sessions, and refuses
 Continue in Med for an agy conversation. The code and its tests stay
 (`agy-runner.ts`, `tests/fixtures/agents/agy-stream.jsonl`, `fake-agy.mjs`).
 Start the server with `MED_AGY=1` (or `startHost({ agy: true })`) to turn it
@@ -254,14 +248,14 @@ Med adds nothing to an agent's prompt. The user keeps short instructions in
 their own CLAUDE.md or AGENTS.md (`med skills instructions` prints them, from
 `skills/thread-instructions.md`), so they can edit them. The instructions say
 how to hand off work with `med review create --working --title "<2-4 words>"
---guide -`, with `--paths` in a shared checkout, and not to run `med review
-wait`; the med skill gives the guide's format.
+--guide -`, with `--paths` in a shared checkout; the med skill gives the
+guide's format.
 
 Every agent that Med starts also gets these variables:
 
 | Variable                            | Value                                                       |
 | ----------------------------------- | ----------------------------------------------------------- |
-| `MED_SESSION`                       | `owned`: `med review wait` exits at once                    |
+| `MED_SESSION`                       | `owned`: the user's messages arrive as new turns            |
 | `MED_PORT`, `MED_STATE_DIR`         | This host, so `med review` reaches it                       |
 | `MED_THREAD_KEY`, `MED_THREAD_REPO` | The default `--key` and `--repo` of `med review`            |
 | `PATH`                              | Starts with `<state>/bin`, whose `med` runs this host's CLI |
@@ -293,8 +287,8 @@ linked session that is still working is the lead.
 
 The thread list shows each lead's state from `GET /api/threads/events`
 (`src/host/agent-status.ts` reads it): a turning mark for **Working**,
-**Needs you** when the session waits in `med review wait` or on a permission,
-or when its last turn ended on a question that no message from Med answers,
+**Needs you** when the session waits on a permission, or when its last turn
+ended on a question that no message from Med answers,
 and an unread dot for **Done**. A working row shows the running tool in place
 of its branch (`src/host/thread-turns.ts` reads the transcript's tail). The
 browser keeps the last update that you saw (`med:thread-seen`). An attached
@@ -303,30 +297,51 @@ does not record it.
 
 ## Replies
 
-Med cannot write to an attached session while another process runs it:
-`claude --resume` would start a second process and split the history,
-channels and Remote Control need the owner's setup, and Claude Desktop's
-messaging socket is not documented. When no process runs a Claude session,
-Med resumes it and owns it from then on
-([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
+Med sends only to a session that it runs. It cannot write to one that another
+process runs: `claude --resume` would start a second process and split the
+history, channels and Remote Control need the owner's setup, and Claude
+Desktop's messaging socket is not documented.
 
-- **Claude:** after `med review create`, the skill runs `med review wait
-<review>` in the background. **Send to agent** makes the command print your
-  message and exit; Claude Code wakes the agent, which works and waits again.
-  The message arrives as command output, so the skill says that it is your
-  review.
-- **Codex:** `codex queue --thread <id> --message <text>` stores a real user
-  turn that the next Codex process takes first. Codex does not wake an agent
-  when a background command ends, so `med review wait` does not fit it: the
-  command fails at once outside Claude Code.
-- **Owned sessions:** **Send to agent** is the next prompt.
+- **A session that Med runs** (started in Med, or resumed): **Send** is its
+  next prompt. While the agent works, the message waits for its next step, or
+  for its turn's end with Queue.
+- **A session that no process has open** (adopted, or closed since): Med
+  resumes it with the message and runs it from then on
+  ([messages to adopted sessions](SESSIONS.md#messages-to-adopted-sessions)).
+  Codex resumes through `thread/resume`.
+- **A session that another app has open** (a terminal, the Claude app, Codex
+  Desktop): the thread is for reading. The message box is shut, with
+  **Continue in Med**, which forks the session into one that Med runs. Or
+  copy the comments and paste them there. The host refuses a message to such
+  a session (`session-elsewhere`), and to one that stopped in Med
+  (`session-stopped`).
 
-Comments work as a pending GitHub review: drafts until sent, one message with
-each comment's `path:line`, the quoted lines, and your remark. A sent comment
-shows **Maybe addressed** when the agent changes its lines. GitHub comments
-appear with a badge; **Add to reply** and **Add all open** copy them into the
-draft. Med writes to GitHub only into your pending review, which you submit
-yourself ([pull requests](usage/pull-requests.md)).
+### The comment flow
+
+1. **Comment.** Select lines in the diff and write a comment, or comment on a
+   passage of the guide or the pull request draft. A comment is a draft until
+   it goes to the agent.
+2. **Send.** In the session's composer, the drafts wait above the message box
+   as one line: **Send 2 comments** sends them on their own, and a message
+   you write takes them along (the line's menu picks which). A comment card's
+   agent mark sends that one comment. The message has your text, then each
+   comment with its file, lines, the diff hunk, and your words, then how to
+   answer in a thread. The card then reads **Sent to Claude**; an edit after
+   that makes it a draft again.
+3. **Copy.** **Copy comments** (the review's header, or ⌘K) copies the same
+   text for every comment, for an agent that Med does not run. Copying marks
+   nothing sent.
+4. **Answer.** The agent answers a comment in its thread with
+   `med reply <id>`: a question you asked on a line, or why it left a
+   change out. The answer shows under your comment with the agent's mark,
+   and does not make your comment a draft. Its final message still says what
+   it did.
+5. **Next round.** The agent hands off again with `med review create`. A sent
+   comment shows **Maybe addressed** when the agent changes its lines.
+
+GitHub comments appear with a badge; **Add to reply** and **Add all open**
+copy them into the draft. Med writes to GitHub only into your pending review,
+which you submit yourself ([pull requests](usage/pull-requests.md)).
 
 ## Notes (removed)
 

@@ -1,8 +1,11 @@
 // The view settings outlast a restart: the built Med and a browser with its
 // own profile, closed and opened again with the server stopped and started on
-// the same port (docs/usage/layout.md, "View settings"). The first window has no
-// stored settings, so it shows the defaults; each later one shows what the
-// one before it chose. Set MED_VIEW_SETTINGS_SHOTS to a folder for screenshots.
+// the same port (docs/usage/layout.md, "View settings"). The diff's settings
+// are keys of the settings file, which a Med with its own state folder keeps
+// there (docs/usage/settings.md); the panes and sidebars are the browser's.
+// The first window has neither, so it shows the defaults; each later one shows
+// what the one before it chose. Set MED_VIEW_SETTINGS_SHOTS to a folder for
+// screenshots.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -125,27 +128,22 @@ async function diffView(page) {
     wrap: (await diff.getAttribute("data-overflow")) === "wrap",
   };
 }
-/** Whether the review's View menu shows comments (quiet chrome's ⋯ → View). */
+/** Whether Display's Comments in the diff is on (the review header's Display). */
 async function commentsShown(page) {
   await page
-    .getByRole("button", { name: "More actions" })
+    .getByRole("button", { name: "Display", exact: true })
     .filter({ visible: true })
-    .first()
     .click();
-  await page.getByRole("menuitem", { name: "View", exact: true }).click();
-  const item = page.getByRole("menuitemcheckbox", { name: "Show comments" });
-  const shown = (await item.getAttribute("aria-checked")) === "true";
-  return shown;
+  const item = page
+    .getByRole("dialog", { name: "Display" })
+    .getByRole("switch", { name: "Comments in the diff" });
+  return (await item.getAttribute("aria-checked")) === "true";
 }
 const closeMenus = async (page) => {
   await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  // The menu and its View submenu close together.
-  await page.waitForFunction(() =>
-    [...document.querySelectorAll('[role="menu"]')].every((menu) => !menu.checkVisibility()),
-  );
+  await page.getByRole("dialog", { name: "Display" }).waitFor({ state: "hidden" });
 };
-const sidebar = (page) => page.locator('nav[aria-label="Threads"]');
+const sidebar = (page) => page.locator('nav[aria-label="Sessions"]');
 const sessionPane = (page) => page.locator("[data-session-panel]").filter({ visible: true });
 const filesRail = (page) => page.getByRole("navigation", { name: "Files and commits" });
 const sideDetails = (page) => page.getByRole("complementary", { name: "Session details" });
@@ -292,7 +290,7 @@ try {
     sidebarWidth + 48,
   );
   // More choices for the next restart: the rail beside the diff, the session's
-  // side panel, the session pane and the full chrome.
+  // side panel, and the session pane.
   await filesRail(page).waitFor();
   await page.keyboard.press("ControlOrMeta+Alt+b");
   await filesRail(page).waitFor({ state: "detached" });
@@ -301,14 +299,11 @@ try {
   await sideDetails(page).waitFor({ state: "detached" });
   await page.keyboard.press("ControlOrMeta+Shift+b");
   await sessionPane(page).waitFor({ state: "hidden" });
-  await palette(page, "Use full chrome");
-  await page.getByRole("button", { name: "View options" }).waitFor();
   await page.waitForTimeout(600);
   await restart(page, "2-changed-again");
 
-  // 3. Opened again: the session pane stays hidden, and the chrome is full.
+  // 3. Opened again: the session pane stays hidden.
   page = await open(server);
-  await page.getByRole("button", { name: "View options" }).waitFor();
   assert.equal(await sessionPane(page).count(), 0);
   // The rail stays hidden, and the session pane, shown, has no side panel.
   assert.equal(await filesRail(page).count(), 0);
@@ -324,7 +319,7 @@ try {
   console.log(
     JSON.stringify({
       checks:
-        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; the files rail hidden, the session's side panel closed, the session pane hidden and full chrome after a second restart",
+        "defaults in a new profile; a second window follows wrap, layout and comments at once and keeps its own sidebar; diff wrap, layout, comments, theme, sidebar hidden and width, and pane share after closing the browser and restarting Med; the files rail hidden, the session's side panel closed, and the session pane hidden after a second restart",
       restarts: 2,
       pageErrors,
     }),

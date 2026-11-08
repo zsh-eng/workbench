@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { threadListSchema, type Thread, type ThreadList } from "../../shared/threads";
 import { createApi } from "./api";
-import { orderAttempts } from "./attempts";
 import { readBrowserToken } from "./auth";
 import { noteFoundSettings } from "./found-threads";
 import { readServerEvents } from "./sse";
@@ -69,42 +68,66 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
   return list;
 }
 
-export interface ThreadGroup {
-  /** The repository's ID, or the checkout for a thread outside a registered one. */
-  key: string;
-  name: string;
-  threads: Thread[];
+/** A row of the sidebar: one agent session, by the thread that stands for
+ * it, and the IDs of all its threads when it handed off several reviews. */
+export type SessionRow = Thread & { members?: readonly string[] };
+
+/** The threads that share an agent session, together, each list newest
+ * first. One session often hands off several reviews, one for each branch or
+ * part of its task, and the sidebar lists sessions (docs/usage/threads.md). */
+export function sessionGroups(threads: readonly Thread[]): Thread[][] {
+  const parent = threads.map((_, at) => at);
+  const root = (at: number): number => (parent[at] === at ? at : (parent[at] = root(parent[at]!)));
+  const owner = new Map<string, number>();
+  threads.forEach((thread, at) => {
+    for (const session of thread.sessions ?? []) {
+      const other = owner.get(session.id);
+      if (other === undefined) owner.set(session.id, at);
+      else parent[root(at)] = root(other);
+    }
+  });
+  const groups = new Map<number, Thread[]>();
+  threads.forEach((thread, at) => {
+    const key = root(at);
+    groups.set(key, [...(groups.get(key) ?? []), thread]);
+  });
+  return [...groups.values()].map((group) => group.toSorted((a, b) => b.updatedAt - a.updatedAt));
 }
 
-/**
- * Tabs by repository, in the user's order: a group shows where its first tab
- * is, and keeps its tabs' order. The attempts of one task stay together
- * (data/attempts.ts). A tab never moves when its agent's state changes.
- */
-export function groupThreads(threads: readonly Thread[]): ThreadGroup[] {
-  const groups = new Map<string, ThreadGroup>();
-  for (const thread of threads) {
-    const key = thread.repository?.id ?? thread.checkout ?? "other";
-    const name =
-      thread.repository?.name ?? thread.checkout?.split("/").filter(Boolean).at(-1) ?? "Other";
-    let group = groups.get(key);
-    if (!group) groups.set(key, (group = { key, name, threads: [] }));
-    group.threads.push(thread);
-  }
-  for (const group of groups.values()) group.threads = orderAttempts(group.threads);
-  return [...groups.values()];
+/** One row for each session: the thread on screen when it is one of the
+ * session's, else a pinned one, else the newest. The row has the session's
+ * newest activity. */
+export function sessionRows(threads: readonly Thread[], current?: string | null): SessionRow[] {
+  return sessionGroups(threads).map((group) => {
+    if (group.length === 1) return group[0]!;
+    const lead =
+      group.find((thread) => thread.id === current) ??
+      group.find((thread) => thread.pinned) ??
+      group[0]!;
+    return {
+      ...lead,
+      updatedAt: Math.max(...group.map((thread) => thread.updatedAt)),
+      members: group.map((thread) => thread.id),
+    };
+  });
 }
 
-/** The tabs in the sidebar's order, which ⌘1–⌘9 follow. */
-export const tabOrder = (threads: readonly Thread[]) =>
-  groupThreads(threads).flatMap((group) => group.threads);
+/** The sessions in the sidebar's order, which ⌘1–⌘9 follow: the pinned ones
+ * in the order they were pinned, then the others, newest activity first. */
+export const tabOrder = (threads: readonly Thread[], current?: string | null): SessionRow[] => {
+  const rows = sessionRows(threads, current);
+  return [
+    ...rows.filter((thread) => thread.pinned).toSorted((a, b) => a.pinned! - b.pinned!),
+    ...rows.filter((thread) => !thread.pinned).toSorted((a, b) => b.updatedAt - a.updatedAt),
+  ];
+};
 
 /** The user sent a message from Med after the turn ended. */
 const answered = (thread: Thread) =>
   !!thread.replied && thread.replied.at > (thread.turn?.endedAt ?? 0);
 
-/** A permission request, `med review wait`, a question that waits for an
- * answer, or work that stopped until the reader acts (`halt`). */
+/** A permission request, a question that waits for an answer, or work that
+ * stopped until the reader acts (`halt`). */
 export const needsYou = (thread: Thread) =>
   thread.state === "waiting" || !!thread.halt || (!!thread.turn?.asks && !answered(thread));
 

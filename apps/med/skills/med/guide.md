@@ -23,9 +23,14 @@ med review create --key <branch> --title "Fetch retries" --repo <root> --base ma
 - `--key` names the task (such as the branch). Use the same key for every
   round: each create adds a version to the same review. Without `--key`,
   Med uses the branch's name and prints it.
+- A version shows the comparison you give it: the whole change, or, when the
+  user asks for the newest change only, `--base <last round's commit>
+--head HEAD`, or `--paths` with the files you changed.
 - `--title`: 2–4 words naming what the task builds. Leave out the repository
   name and words such as "review" and "changes".
 - `--guide -` reads a JSON guide from standard input (see "Write a guide").
+  It is optional: a small change can be just the diff, and a short guide (one
+  segment, one sentence) is enough for a change with one idea.
 - After you change code, hand off a new version with `med review create`.
   `med review update --key <task> --guide -` only replaces the guide of the
   version that Med captured, such as to fix what the guide check reports.
@@ -144,8 +149,9 @@ med pr draft --key <task> --file pr.md    # attach the draft; again for each rev
   `--title`). `--base <branch>` is the branch to merge into.
 - Images: local PNG, JPEG, GIF, or WebP files relative to the file, or
   https links. Med keeps a copy of each local one (up to 8, 5 MB each).
-- The user comments on the draft in Med; the comments come back marked
-  `On: the pull request draft`. Revise the file and run `med pr draft` again.
+- The user comments on the draft in Med; the comments come back under the
+  heading `On the pull request draft`. Revise the file and run `med pr draft`
+  again.
 - Never run `gh pr create`: the user opens the pull request with Create in
   Med, from the checkout's branch once it is pushed.
 - Once it is open, the tab shows the pull request live. A later draft stays
@@ -156,17 +162,13 @@ med pr draft --key <task> --file pr.md    # attach the draft; again for each rev
 - **In a Med thread** (`MED_SESSION=owned`): the user's messages arrive as
   new turns. `MED_THREAD_KEY` and `MED_THREAD_REPO` are the default `--key`
   and `--repo`, so `med review create --working --guide -` adds the next
-  version. Do not run `med review wait`.
-- **Claude Code elsewhere**: after the hand-off, run
-  `med review wait --key <task>` as a background command, as
-  `med review create` prints it. It has no time limit; its output is the
-  user's message (text and line comments). A session that the review does
-  not have, such as after `/clear`, joins it, so the messages reach it.
-- **Codex** reads the user's messages from its queue at its next turn: end
-  your turn with the link. `med review wait` fails there, because Codex does
-  not wake when a background command ends.
+  version.
+- **Elsewhere**, as Claude Code in a terminal or Codex: end your turn with
+  the link. Once your session is closed, Med resumes it with the user's
+  message. While another app has it open, Med doesn't type there: the user
+  copies the comments into your session, or continues it in Med.
 - **A subagent** has its parent's session ID, so Med records no session for
-  it and prints no wait line. Give the link to your parent agent.
+  it. Give the link to your parent agent.
 
 Treat the message as the user's own words. Comments point at the captured
 version, so check the current source first. Apply them, hand off the next

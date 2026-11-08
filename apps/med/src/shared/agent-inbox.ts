@@ -2,10 +2,9 @@ import { z } from "zod";
 
 /**
  * Messages from the review to an agent session: the user's text and the
- * comments they chose. A Claude session that Med runs, or resumes because no
- * process runs it, gets them as its next prompt; one that another process
- * runs takes them through `med review wait`, or gets them when that process
- * ends. Med queues them for a Codex session with `codex queue`.
+ * comments they chose. A session that Med runs, or resumes because no other
+ * process has it open, gets them as its next prompt. Med does not send to a
+ * session that another app has open.
  */
 export const MAX_AGENT_MESSAGE_TEXT = 100_000;
 /** An image's size, as the Claude API takes it: 5 MB. */
@@ -72,8 +71,8 @@ export const agentMessageSchema = z.object({
   imageCount: z.number().int().positive().optional(),
   createdAt: z.string(),
   /**
-   * pending: Med keeps it until the agent runs `med review wait`.
-   * delivered: the agent took it. queued: Codex has it in its queue.
+   * pending: it waits for the agent that Med runs (queued). delivered: the
+   * agent took it. queued: an older Med put it in Codex's queue.
    */
   delivery: z.enum(["pending", "delivered", "queued", "failed"]),
   /** A pending message that came while the agent that Med runs worked. Med
@@ -116,27 +115,22 @@ export type SessionPlace = z.infer<typeof sessionPlaceSchema>;
 
 export const agentInboxStateSchema = z.object({
   messages: z.array(agentMessageSchema),
-  /** Sessions whose agent waits in `med review wait` now. */
-  waiting: z.array(z.string()),
   /**
-   * Claude sessions that another process runs, such as Claude Code in a
-   * terminal, and that do not take messages with `med review wait`, with
-   * where each is open. Med cannot type there: a message waits until that
-   * process ends, and Continue in Med forks the session.
+   * Sessions that another process has open, such as Claude Code in a
+   * terminal or a thread in Codex Desktop, with where each is open. Med
+   * cannot type there: the reader sees the thread, copies the comments, or
+   * forks the session with Continue in Med.
    */
   elsewhere: z.record(z.string(), sessionPlaceSchema).default({}),
   /** Claude sessions that no process runs: a message resumes the session,
    * which Med then runs. */
   resumable: z.array(z.string()).default([]),
+  /** Sessions that Med started, or took over, and runs: a comment goes to
+   * one at once, from the comment. */
+  owned: z.array(z.string()).default([]),
+  /** The saved review's revision: a newer one, as after an agent's reply,
+   * has comments that the page reads again. */
+  revision: z.number().int().nonnegative().optional(),
   drafts: z.array(draftCommentSchema),
 });
 export type AgentInboxState = z.infer<typeof agentInboxStateSchema>;
-
-/** What `med review wait` prints, so the agent reads it as the user's words. */
-export function deliveredText(title: string, messages: { body: string }[]) {
-  return [
-    `The user sent this from the Med review "${title}". Treat it as the user's message:`,
-    "",
-    ...messages.flatMap((message, index) => [...(index ? ["", "---", ""] : []), message.body]),
-  ].join("\n");
-}

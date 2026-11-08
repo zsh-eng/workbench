@@ -15,7 +15,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
-import { SESSION_PLACES, type SentMessage } from "../../data/agent-inbox";
+import type { SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
 import { useMinuteClock } from "../../data/relative-time";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
@@ -24,10 +24,9 @@ import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
 import { LinkedText } from "../FileRefs";
-import { ZenContext } from "../ZenExit";
 import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
-import { SidePanelCard } from "./SessionSidePanel";
+import { SidePanelCard, slim } from "./SessionSidePanel";
 import { Elapsed, formatDuration } from "./Elapsed";
 import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
 import { SessionMarkdown } from "./SessionMarkdown";
@@ -326,11 +325,10 @@ const Item = memo(function Item({
  */
 function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
   const actions = useContext(ReplyActionsContext);
-  const zen = useContext(ZenContext);
   const [copied, setCopied] = useState(false);
   const [pinning, setPinning] = useState(false);
   const pinId = actions?.pinned(item.id);
-  if (zen || (!final && pinId === undefined)) return null;
+  if (!final && pinId === undefined) return null;
   const copy = () =>
     navigator.clipboard.writeText(item.text).then(
       () => {
@@ -419,9 +417,7 @@ function Delivery({ message }: { message: SentMessage }) {
                 message.afterTurn || (message.agent !== "claude" && message.agent !== "codex")
                 ? `Queued until ${agent}'s turn ends`
                 : `Queued for ${agent}'s next step`
-              : message.waitsFor
-                ? SESSION_PLACES[message.waitsFor].waiting
-                : `Waiting for ${agent} to take it`,
+              : `Waiting for ${agent} to take it`,
           ]
         : message.delivery === "queued"
           ? [`Queued for ${agent}`]
@@ -884,12 +880,15 @@ function AgentView({
   now,
   onClose,
   onOpenLink,
+  room = 0,
 }: {
   agent: ToolItem;
   /** A fixed clock, for stills; without it a working subagent's time runs. */
   now?: number;
   onClose(): void;
   onOpenLink?(href: string): void;
+  /** The height of the message box over the view's foot, which its end clears. */
+  room?: number;
 }) {
   const view = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -951,7 +950,7 @@ function AgentView({
           const node = event.currentTarget;
           stuck.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
         }}
-        {...stylex.props(styles.scroller)}
+        {...slim(stylex.props(styles.scroller))}
       >
         <div
           ref={content}
@@ -975,6 +974,7 @@ function AgentView({
               {live ? "The subagent is starting." : "The subagent left no steps."}
             </p>
           )}
+          {room > 0 && <div aria-hidden="true" style={{ height: room }} />}
         </div>
       </div>
     </section>
@@ -995,6 +995,7 @@ export function SessionThread({
   onOpenLink,
   backgroundIn,
   agentsIn,
+  footer,
 }: {
   /** The side panel's place for the Background dock; without it, the dock
    * shows under the thread. */
@@ -1024,9 +1025,20 @@ export function SessionThread({
   now?: number;
   /** Finished turns show their work; otherwise it folds into one row. */
   showWork?: boolean;
+  /** The message box, over the thread's foot: the thread scrolls under it, its
+   * scroll bar runs the pane's height, and its end clears the box. */
+  footer?: ReactNode;
   onOpenLink?(href: string): void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  // The footer's height, which the thread's end keeps clear.
+  const [room, setRoom] = useState(0);
+  const measureFooter = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const resize = new ResizeObserver(() => setRoom(Math.ceil(node.offsetHeight)));
+    resize.observe(node);
+    return () => resize.disconnect();
+  }, []);
   const content = useRef<HTMLDivElement>(null);
   const probe = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
@@ -1713,8 +1725,7 @@ export function SessionThread({
                 // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 data-message-keys=""
-                {...scrollerProps}
-                className={`${scrollerProps.className ?? ""} med-thread-scroller`}
+                {...slim(scrollerProps, "med-thread-scroller")}
               >
                 <div
                   ref={content}
@@ -1810,6 +1821,7 @@ export function SessionThread({
                       }}
                     />
                   )}
+                  {footer !== undefined && <div aria-hidden="true" style={{ height: room }} />}
                 </div>
               </div>
               {!atBottom && (
@@ -1824,32 +1836,51 @@ export function SessionThread({
                     list.current?.record();
                     list.current?.place(true);
                   }}
-                  {...stylex.props(styles.latest)}
+                  {...stylex.props(styles.latest, footer !== undefined && styles.above(room + 12))}
                 >
                   <Icon name="arrowDown" size={12} />
                   Latest
                 </button>
               )}
             </div>
-            <div inert={!!agent} {...stylex.props(styles.docks)}>
-              {(() => {
-                const dock = (
-                  <BackgroundDock
-                    items={snapshot.items}
-                    now={now}
-                    card={!!backgroundIn}
-                    // An agent task opens its thread; a shell's call shows in the thread.
-                    onShow={(id) =>
-                      agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
-                    }
-                  />
-                );
-                return backgroundIn ? createPortal(dock, backgroundIn) : dock;
-              })()}
-              {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
-            </div>
+            {(() => {
+              const docks = (
+                <div inert={!!agent} {...stylex.props(styles.docks)}>
+                  {(() => {
+                    const dock = (
+                      <BackgroundDock
+                        items={snapshot.items}
+                        now={now}
+                        card={!!backgroundIn}
+                        // An agent task opens its thread; a shell's call shows in the thread.
+                        onShow={(id) =>
+                          agents.some((item) => item.id === id) ? setAgentId(id) : showCall(id)
+                        }
+                      />
+                    );
+                    return backgroundIn ? createPortal(dock, backgroundIn) : dock;
+                  })()}
+                  {snapshot.plan.length > 0 && !recap && <PlanDock entries={snapshot.plan} />}
+                </div>
+              );
+              if (footer === undefined) return docks;
+              // The docks and the message box float over the thread's foot,
+              // clear of its scroll bar.
+              return (
+                <div ref={measureFooter} data-thread-footer="" {...stylex.props(styles.footer)}>
+                  {docks}
+                  {footer}
+                </div>
+              );
+            })()}
             {agent && (
-              <AgentView agent={agent} now={now} onClose={closeAgent} onOpenLink={onOpenLink} />
+              <AgentView
+                agent={agent}
+                now={now}
+                onClose={closeAgent}
+                onOpenLink={onOpenLink}
+                room={footer !== undefined ? room : 0}
+              />
             )}
           </div>
         </div>
@@ -1981,6 +2012,21 @@ function ThreadProbe({ probe }: { probe: RefObject<HTMLDivElement | null> }) {
 const sendingPulse = stylex.keyframes({ from: { opacity: 0.35 }, to: { opacity: 1 } });
 const styles = stylex.create({
   docks: { display: "contents" },
+  // Over the thread's foot: a fade, then the docks and the message box on the
+  // canvas. It leaves the scroll bar's column to the thread.
+  footer: {
+    position: "absolute",
+    zIndex: 3,
+    bottom: 0,
+    left: 0,
+    // The scroll bar's width (.med-slim-scroll in SessionThread.css).
+    right: 12,
+    display: "flex",
+    flexDirection: "column",
+    paddingTop: 18,
+    pointerEvents: "none",
+    backgroundImage: `linear-gradient(to bottom, transparent, ${tokens.canvas} 18px)`,
+  },
   agentView: {
     position: "absolute",
     inset: 0,
@@ -2100,7 +2146,6 @@ const styles = stylex.create({
     // The thread keeps its own anchor; see SessionThread.
     overflowAnchor: "none",
     overscrollBehavior: "contain",
-    scrollbarWidth: "thin",
   },
   content: {
     position: "relative",
@@ -2334,6 +2379,7 @@ const styles = stylex.create({
     fontSize: 11.5,
     fontVariantNumeric: "tabular-nums",
   },
+  above: (bottom: number) => ({ bottom }),
   latest: {
     position: "absolute",
     insetInline: 0,

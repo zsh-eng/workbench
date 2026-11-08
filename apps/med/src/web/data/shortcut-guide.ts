@@ -61,6 +61,17 @@ export const guideContexts: GuideContext[] = [
             note: "Enter opens it here; Mod+Enter opens a new workspace",
             command: "open-branch",
           },
+          {
+            label: "Open a repository",
+            keys: ["Mod+O"],
+            note: "Tab searches its branches; Shift+Tab goes back",
+            command: "open-repository",
+          },
+          {
+            label: "Show the Review, Changes, or Commit page",
+            keys: ["{1–3}"],
+            note: "While the focus is not in text, the diff, or the session",
+          },
           { label: "Show a tab by its place in the sidebar", keys: ["Mod+{1–9}"] },
           {
             label: "Show the next tab that needs you",
@@ -92,8 +103,12 @@ export const guideContexts: GuideContext[] = [
             keys: ["Alt+Up", "Alt+Down"],
             note: "On a focused sidebar row, or drag it",
           },
-          { label: "Symbols in this file", keys: ["Mod+O"], command: "file-symbols" },
-          { label: "Symbols in the project", keys: ["Mod+Shift+O"], command: "project-symbols" },
+          {
+            label: "Symbols in this file",
+            keys: ["Mod+Shift+O"],
+            note: "In the project with no file open",
+            command: "file-symbols",
+          },
           { label: "Resume the last file search", keys: ["Alt+R"], command: "resume-picker" },
           { label: "Shortcuts and commands", keys: ["?"], note: "Outside text fields and files" },
         ],
@@ -125,14 +140,8 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Next / previous segment",
             keys: ["j", "k"],
-            note: "In the Review tab's Guide; commits step the same way",
+            note: "In the Review tab's Guide",
           },
-          {
-            label: "Mark the top file viewed",
-            keys: ["v"],
-            note: "Folds it and moves to the next file",
-          },
-          { label: "Mark the segment viewed and continue", keys: ["Shift+V"] },
         ],
       },
       {
@@ -206,7 +215,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Review the turn",
             keys: ["Alt+Enter"],
-            note: "While its recap shows: the Guide's first segment not viewed, or Changes",
+            note: "While its recap shows: what is new since you last looked, or the overview",
           },
           { label: "Hide the recap until the next turn", keys: ["Esc"], note: "In the recap" },
         ],
@@ -215,17 +224,11 @@ export const guideContexts: GuideContext[] = [
         title: "Layout",
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
-          {
-            label: "Toggle the changed files",
-            keys: mac ? ["Mod+Ctrl+B"] : [],
-            note: "The Changes pane, with its tree and filter",
-            command: "changed-files",
-          },
           { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
           {
-            label: "Toggle the guide, or the files and commits",
+            label: "Toggle the page's sidebar",
             keys: ["Mod+Alt+B"],
-            note: "The rail beside Review and Changes",
+            note: "Review's guide, or Changes' changed files",
             command: "changes-rail",
           },
           {
@@ -233,12 +236,6 @@ export const guideContexts: GuideContext[] = [
             keys: ["Mod+Alt+Shift+B"],
             note: "In a session pane with room beside its thread",
             command: "session-side-panel",
-          },
-          {
-            label: "Zen mode",
-            keys: ["Alt+Z"],
-            note: "Hides every bar; the sidebar keys still show panels",
-            command: "zen",
           },
         ],
       },
@@ -280,16 +277,6 @@ export const guideContexts: GuideContext[] = [
             note: "Again: the width from before",
           },
           { label: "Close a branch tab", keys: ["Backspace"], note: "On a focused branch tab" },
-          {
-            label: "Previous / next attempt",
-            keys: ["Left", "Right"],
-            note: "On the Attempts page",
-          },
-          {
-            label: "Show / hide a task's attempts",
-            keys: ["Right", "Left"],
-            note: "On its sidebar row",
-          },
         ],
       },
       {

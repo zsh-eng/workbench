@@ -128,10 +128,10 @@ export function PermissionCard({
 
 /**
  * Writes to the agent from the review: the user's text, the comments not yet
- * sent, and other text such as GitHub comments. A Claude session that no
- * process runs resumes in Med with the message; one that a terminal or
- * another app runs takes it when it runs `med review wait`, or gets it when
- * that session closes. A Codex session reads its queue.
+ * sent, and other text such as GitHub comments. A session that Med runs takes
+ * it as its next prompt, and one that no process has open resumes in Med with
+ * it. One that a terminal or another app has open is the reader's to see:
+ * the box stays shut, and Continue in Med forks the session.
  */
 const clock = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -139,7 +139,6 @@ const clock = (at: number) =>
 export function SessionComposer({
   agent,
   name,
-  waiting,
   presence,
   onContinue,
   drafts,
@@ -153,12 +152,15 @@ export function SessionComposer({
   draftKey,
   restore,
   onTakeBack,
+  onOpenComment,
 }: {
   /** Text that comes back into the box, such as a queued message to edit;
    * each nonce comes once, before what the box holds. */
   restore?: { text: string; nonce: number };
   /** ↑ in the empty box takes back the queued messages, as in Claude Code. */
   onTakeBack?(): void;
+  /** Shows a comment at its line in the review. */
+  onOpenComment?(id: string): void;
   /** Keeps the unsent text in the browser under this key, across a reload. */
   draftKey?: string;
   /** Where a Claude session runs, when Med does not run it: in a terminal or
@@ -177,8 +179,6 @@ export function SessionComposer({
   agent: AgentMessage["agent"];
   /** The agent's name, such as Claude or OpenCode. */
   name: string;
-  /** The agent waits in `med review wait` now. */
-  waiting: boolean;
   drafts: DraftComment[];
   attachments: ComposerAttachment[];
   onRemoveAttachment(id: string): void;
@@ -298,9 +298,15 @@ export function SessionComposer({
     setRestored(restore.nonce);
     setText((current) => (current.trim() ? `${restore.text}\n\n${current}` : restore.text));
   }
+  const openThere =
+    presence && presence !== "resumable"
+      ? `${name} has this session open ${SESSION_PLACES[presence].open}. Med can't type there.`
+      : undefined;
+  // Another app has the session open: Med can't send to it.
+  const blocked = !!openThere && !owned;
   // While the agent works, a message waits for its next step (queued-messages.ts).
   const send = async (afterTurn = queues()) => {
-    if (empty || stopped) return;
+    if (empty || stopped || blocked) return;
     setError(null);
     onSend({
       // Each mention reaches the agent as its absolute path.
@@ -381,12 +387,8 @@ export function SessionComposer({
       void act({ action: "interrupt" });
     }
   };
-  const openThere =
-    presence && presence !== "resumable"
-      ? `${name} has this session open ${SESSION_PLACES[presence].open}. Med can't type there.`
-      : undefined;
   // Without a Med runner, the line takes the footer's status place.
-  const elsewhere = !!openThere && !owned && !error;
+  const elsewhere = blocked && !error;
   const ownedStatus = error
     ? error
     : status === "starting"
@@ -514,6 +516,17 @@ export function SessionComposer({
                   : `${chosen.length} of ${drafts.length} comments`}
               </button>
             )}
+            {/* Comments wait here as one line, and go on their own. */}
+            {chosen.length > 0 && !text.trim() && !stopped && (
+              <button
+                type="button"
+                onClick={() => void send()}
+                {...stylex.props(styles.chip, styles.sendComments)}
+              >
+                Send {chosen.length} {chosen.length === 1 ? "comment" : "comments"}
+                <Icon name="arrowLeft" size={11} style={{ transform: "rotate(180deg)" }} />
+              </button>
+            )}
             {attachments.map((attachment) => (
               <span key={attachment.id} {...stylex.props(styles.chip, styles.chipOn)}>
                 <Icon name={attachment.icon ?? "github"} size={12} />
@@ -540,26 +553,32 @@ export function SessionComposer({
                   : draft.endLine && draft.endLine !== draft.line
                     ? `:${draft.line}–${draft.endLine}`
                     : `:${draft.line}`;
+              const name = `${draft.path.split("/").at(-1)}${lines}`;
               return (
-                <li key={draft.id}>
-                  <label {...stylex.props(styles.draft)}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        const next = new Set(left);
-                        if (on) next.add(draft.id);
-                        else next.delete(draft.id);
-                        setLeft(next);
-                      }}
-                      {...stylex.props(styles.check)}
-                    />
-                    <span {...stylex.props(styles.draftPath)}>
-                      {draft.path.split("/").at(-1)}
-                      {lines}
-                    </span>
+                <li key={draft.id} {...stylex.props(styles.draft)}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Send the comment on ${name}`}
+                    checked={on}
+                    onChange={() => {
+                      const next = new Set(left);
+                      if (on) next.add(draft.id);
+                      else next.delete(draft.id);
+                      setLeft(next);
+                    }}
+                    {...stylex.props(styles.check)}
+                  />
+                  {/* The comment itself opens at its line in the review. */}
+                  <button
+                    type="button"
+                    disabled={!onOpenComment}
+                    onClick={() => onOpenComment?.(draft.id)}
+                    {...tooltip(onOpenComment ? "Show in the review" : undefined)}
+                    {...stylex.props(styles.draftOpen)}
+                  >
+                    <span {...stylex.props(styles.draftPath)}>{name}</span>
                     <span {...stylex.props(styles.draftText)}>{draft.text}</span>
-                  </label>
+                  </button>
                 </li>
               );
             })}
@@ -596,12 +615,15 @@ export function SessionComposer({
           <textarea
             {...mentions.textarea}
             aria-label={`Message ${name}`}
+            disabled={blocked}
             placeholder={
-              owned?.state.commands.length
-                ? `Message ${name}, @ to mention, or / for commands…`
-                : mentionSources
-                  ? `Message ${name}, or @ to mention…`
-                  : `Message ${name}…`
+              blocked
+                ? `Continue in Med to message ${name} here`
+                : owned?.state.commands.length
+                  ? `Message ${name}, @ to mention, or / for commands…`
+                  : mentionSources
+                    ? `Message ${name}, or @ to mention…`
+                    : `Message ${name}…`
             }
             value={text}
             rows={2}
@@ -680,24 +702,9 @@ export function SessionComposer({
               ))}
             </div>
           ) : (
+            // Empty until a send fails; it keeps the buttons at the end.
             <span role="status" {...stylex.props(styles.status, error !== null && styles.error)}>
-              {error ? (
-                error
-              ) : agent === "codex" ? (
-                "Codex reads this at its next turn"
-              ) : waiting ? (
-                <>
-                  <span {...stylex.props(styles.live)} />
-                  {name} is waiting for your review
-                </>
-              ) : presence === "resumable" ? (
-                `Med resumes ${name} with this message`
-              ) : (
-                <>
-                  {name} gets this when it runs{" "}
-                  <code {...stylex.props(styles.code)}>med review wait</code>
-                </>
-              )}
+              {error}
             </span>
           )}
           {/* The buttons stay together, at the end, when the line wraps. */}
@@ -740,7 +747,7 @@ export function SessionComposer({
               type="button"
               aria-label="Add images"
               title="Add images, or paste them"
-              disabled={stopped}
+              disabled={stopped || blocked}
               onClick={() => imageInput.current?.click()}
               {...stylex.props(ui.button, ui.iconButton, styles.attach)}
             >
@@ -777,7 +784,7 @@ export function SessionComposer({
                         ? `Queue for the end of ${name}'s turn (⌘↩); ⇧⌘↩ sends it now; ↑ takes it back`
                         : `Send now: ${name} reads it at its next step (⌘↩); ⇧⌘↩ queues it for the turn's end; ↑ takes it back`
                 }
-                disabled={empty || stopped}
+                disabled={empty || stopped || blocked}
                 {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.send)}
               >
                 <Icon name={queues() ? "clock" : "arrowUp"} size={14} />
@@ -865,6 +872,12 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   chipOn: { backgroundColor: tokens.accentSoft, color: tokens.accent },
+  sendComments: {
+    marginInlineStart: "auto",
+    backgroundColor: { default: "transparent", ":hover": tokens.accentSoft },
+    color: tokens.accent,
+    fontWeight: 500,
+  },
   chipLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   chipRemove: {
     display: "inline-flex",
@@ -887,14 +900,30 @@ const styles = stylex.create({
   },
   draft: {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "center",
     gap: 7,
-    paddingBlock: 3,
     color: tokens.muted,
     fontSize: 12,
-    cursor: "pointer",
   },
-  check: { margin: 0, accentColor: tokens.accent, transform: "translateY(1px)" },
+  draftOpen: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 7,
+    flex: "1",
+    minWidth: 0,
+    marginInlineStart: -4,
+    paddingBlock: 3,
+    paddingInline: 4,
+    borderWidth: 0,
+    borderRadius: `calc(5px * ${tokens.round})`,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
+    color: { default: tokens.muted, ":hover:not(:disabled)": tokens.text },
+    font: "inherit",
+    textAlign: "start",
+    cursor: { default: "pointer", ":disabled": "default" },
+    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
+  },
+  check: { flexShrink: 0, margin: 0, accentColor: tokens.accent, cursor: "pointer" },
   draftPath: { flexShrink: 0, color: tokens.text, fontFamily: tokens.code, fontSize: 11 },
   draftText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   input: {
@@ -1043,8 +1072,6 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
   },
   error: { color: tokens.red, whiteSpace: "normal" },
-  live: { width: 6, height: 6, flexShrink: 0, borderRadius: "50%", backgroundColor: tokens.green },
-  code: { fontFamily: tokens.code, fontSize: 10.5 },
   send: {
     width: 26,
     minWidth: 26,
