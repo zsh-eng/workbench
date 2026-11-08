@@ -61,6 +61,8 @@ import {
   type FileCommentAgent,
   type FileCommentSend,
 } from "./FileComments";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./SymbolHover";
+import type { SymbolDefinition, SymbolHover } from "../../shared/symbols";
 
 /** Comments on the file's lines, for a file in a thread (FileComments.tsx). */
 export interface FileComments {
@@ -126,6 +128,9 @@ export interface FullFileViewProps {
   onNavigationReady?(command: FileNavigationCommand | null): void;
   onSelectionReaderReady?(read: (() => string) | null): void;
   onDefinition?(name: string): void;
+  /** A name's definitions, for the card that a hover or `K` shows. */
+  loadHover?(name: string, signal: AbortSignal): Promise<SymbolHover>;
+  onOpenDefinition?(definition: SymbolDefinition): void;
   highlightQuery?: string;
   compact?: boolean;
   initialScrollTop?: number;
@@ -183,6 +188,8 @@ function ReadOnlyFileView({
   onNavigationReady,
   onSelectionReaderReady,
   onDefinition,
+  loadHover,
+  onOpenDefinition,
   onSymbolPreviewReady,
   highlightQuery = "",
   compact = false,
@@ -231,6 +238,16 @@ function ReadOnlyFileView({
     [onSourcePosition],
   );
   const workingColor = active.appearance === "dark" ? "#7db4ff" : "#245ea8";
+  const hoverSource = useMemo<SymbolHoverSource | undefined>(
+    () =>
+      !compact && loadHover && onOpenDefinition && file?.kind === "text"
+        ? { key: file.identity, load: loadHover, open: onOpenDefinition }
+        : undefined,
+    [compact, loadHover, onOpenDefinition, file],
+  );
+  const symbolHover = useSymbolHover(hoverSource);
+  const { enter: hoverEnter, leave: hoverLeave } = symbolHover;
+  const hovering = !!hoverSource;
   const viewer = useRef<CodeViewHandle<FileAnnotation, undefined>>(null);
   const vim = useFileVim<FileAnnotation>({
     text: file?.kind === "text" ? (file.text ?? "") : "",
@@ -243,6 +260,7 @@ function ReadOnlyFileView({
     onNavigationReady,
     onDefinition,
     onPosition: followCursor,
+    onHover: symbolHover.show,
     onAnnotate(kind, from, to) {
       const current = commentsRef.current;
       if (!current) return;
@@ -475,6 +493,26 @@ function ReadOnlyFileView({
       onGutterUtilityClick(range) {
         openBoxRef.current(range.start, range.end);
       },
+      // A name that the pointer rests on shows its definition.
+      ...(hovering
+        ? {
+            onTokenEnter(token: {
+              lineNumber: number;
+              lineCharStart: number;
+              tokenText: string;
+              tokenElement: HTMLElement;
+            }) {
+              const name = hoverName(token.tokenText);
+              if (!name) return hoverLeave();
+              hoverEnter(`${token.lineNumber}:${token.lineCharStart}`, name, () =>
+                token.tokenElement.getBoundingClientRect(),
+              );
+            },
+            onTokenLeave() {
+              hoverLeave();
+            },
+          }
+        : {}),
       theme: active.pierreTheme,
       preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
@@ -529,6 +567,9 @@ function ReadOnlyFileView({
       changes,
       workingColor,
       commenting,
+      hovering,
+      hoverEnter,
+      hoverLeave,
     ],
   );
   useLayoutEffect(() => {
@@ -741,6 +782,7 @@ function ReadOnlyFileView({
                 aria-hidden="true"
                 {...stylex.props(styles.caret)}
               />
+              {symbolHover.element}
             </div>
           ) : (
             <div {...stylex.props(styles.notice)}>

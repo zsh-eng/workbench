@@ -188,7 +188,7 @@ import { createEditorDrafts } from "./data/editor-drafts";
 import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
-import type { SymbolSearch } from "../shared/symbols";
+import type { SymbolDefinition, SymbolSearch } from "../shared/symbols";
 import { matchReviewFile, parseBriefHref } from "./data/brief";
 import { questionExcerpt, useQuestion } from "./data/questions";
 import { MAX_QUESTION_LINES, questionComment } from "../shared/questions";
@@ -857,6 +857,28 @@ export function App({
   useEffect(() => {
     return () => definitionRequest.current?.abort();
   }, [fileState.file, state.sourceRevision]);
+  // A hover over a name in a file: its definitions and doc comments.
+  const hoverFile = fileState.file;
+  const loadHover = useMemo(() => {
+    const file = hoverFile;
+    const hover = browseApi.hover;
+    if (!file || !isBrowseFile(file) || file.kind !== "text" || !hover) return undefined;
+    return (name: string, signal: AbortSignal) =>
+      hover(file.source, file.path, file.identity, name, signal);
+  }, [hoverFile, browseApi]);
+  const openDefinition = useCallback(
+    (definition: SymbolDefinition) => {
+      const source = definition.source;
+      fileWorkspace.open(
+        definition.path,
+        definition.line,
+        source,
+        source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
+        definition.column,
+      );
+    },
+    [fileWorkspace, sourceLabel],
+  );
   const goToDefinition = useCallback(
     (name: string) => {
       const file = fileState.file;
@@ -4103,6 +4125,14 @@ export function App({
       run: () => runFileNavigation("gc"),
     },
     {
+      id: "vim-file-hover",
+      managesFocus: true,
+      label: "Show the definition of the name at the cursor",
+      shortcut: "K",
+      disabled: !loadHover,
+      run: () => runFileNavigation("K"),
+    },
+    {
       id: "vim-file-ask",
       managesFocus: true,
       label: "Ask the agent about the file's line or selected lines",
@@ -6753,6 +6783,8 @@ export function App({
                 onNavigationReady={onNavigationReady}
                 onSelectionReaderReady={onSelectionReaderReady}
                 onDefinition={goToDefinition}
+                loadHover={loadHover}
+                onOpenDefinition={openDefinition}
                 onSymbolPreviewReady={onSymbolPreviewReady}
                 onRefresh={refreshFile}
                 onClose={closeActiveFile}

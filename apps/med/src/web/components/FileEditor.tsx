@@ -53,6 +53,7 @@ import { fileTitle } from "./QuietChrome";
 import { createPortal } from "react-dom";
 import { MAX_FILE_COMMENT_LINES } from "../../shared/saved-review";
 import { FileCommentBox, FileCommentThread } from "./FileComments";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./SymbolHover";
 import {
   CommentSlots,
   editorComments,
@@ -216,6 +217,7 @@ const actions = new WeakMap<
     definition: () => void;
     scroll: (y: "start" | "end") => void;
     annotate: (kind: "comment" | "ask") => void;
+    hover: () => void;
   }
 >();
 Vim.defineAction("medDefinition", (cm) => actions.get(cm)?.definition());
@@ -234,6 +236,9 @@ for (const [keys, y] of [
 // comment syntax.
 Vim.defineAction("medComment", (cm) => actions.get(cm)?.annotate("comment"));
 Vim.defineAction("medAsk", (cm) => actions.get(cm)?.annotate("ask"));
+// `K` shows the definition of the name under the cursor, as a hover does.
+Vim.defineAction("medHover", (cm) => actions.get(cm)?.hover());
+Vim.mapCommand("K", "action", "medHover", {}, { context: "normal" });
 for (const context of ["normal", "visual"] as const) {
   Vim.mapCommand("gc", "action", "medComment", {}, { context });
   Vim.mapCommand("ga", "action", "medAsk", {}, { context });
@@ -354,6 +359,20 @@ export default function FileEditor({
     };
   });
   const refocus = () => view.current?.focus();
+  // A name that the pointer rests on, or `K`, shows its definition.
+  const { loadHover, onOpenDefinition, file: readFile } = context;
+  const hoverSource = useMemo<SymbolHoverSource | undefined>(
+    () =>
+      loadHover && onOpenDefinition && readFile?.kind === "text"
+        ? { key: readFile.identity, load: loadHover, open: onOpenDefinition }
+        : undefined,
+    [loadHover, onOpenDefinition, readFile],
+  );
+  const symbolHover = useSymbolHover(hoverSource);
+  const hoverRef = useRef(hoverSource ? symbolHover : undefined);
+  useLayoutEffect(() => {
+    hoverRef.current = hoverSource ? symbolHover : undefined;
+  });
   const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
     context;
   // The file as Med last read it, when it is not the text that the draft
@@ -613,8 +632,43 @@ export default function FileEditor({
     let firstInsert = false,
       joinChange = false;
     const code = codeColors(active);
+    /** Where a word is on screen, for its card. */
+    const wordBounds = (from: number, to: number) => () => {
+      const start = view.current?.coordsAtPos(from, 1);
+      const end = view.current?.coordsAtPos(to, -1);
+      return start && end
+        ? new DOMRect(start.left, start.top, end.right - start.left, end.bottom - start.top)
+        : undefined;
+    };
     const extensions = [
       editorComments(),
+      // Pointer events come before the card's own, so leaving for the card keeps it.
+      EditorView.domEventHandlers({
+        pointermove(event, editor) {
+          const hover = hoverRef.current;
+          if (!hover) return false;
+          const pos = editor.posAtCoords({ x: event.clientX, y: event.clientY });
+          const word = pos === null ? null : editor.state.wordAt(pos);
+          const bounds = word && wordBounds(word.from, word.to)();
+          const name = word && hoverName(editor.state.sliceDoc(word.from, word.to));
+          if (
+            !word ||
+            !bounds ||
+            !name ||
+            event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom
+          )
+            hover.leave();
+          else hover.enter(String(word.from), name, wordBounds(word.from, word.to));
+          return false;
+        },
+        pointerleave() {
+          hoverRef.current?.leave();
+          return false;
+        },
+      }),
       EditorState.transactionFilter.of((transaction) => {
         if (
           !transaction.docChanged ||
@@ -769,6 +823,11 @@ export default function FileEditor({
     placeCommentSlots(editor, slots, placedSlots.current.wanted, placedSlots.current.writing);
     const cm = getCM(editor)!;
     actions.set(cm, {
+      hover: () => {
+        const word = editor.state.wordAt(editor.state.selection.main.head);
+        const name = word && hoverName(editor.state.sliceDoc(word.from, word.to));
+        if (word && name) hoverRef.current?.show(name, wordBounds(word.from, word.to));
+      },
       annotate: (kind) => {
         const { line, endLine } = selectedLines(editor);
         if (cm.state.vim?.visualMode)
@@ -1085,6 +1144,7 @@ export default function FileEditor({
             key,
           );
         })}
+      {symbolHover.element}
       <BlameTooltips cells={cells} />
       <style>{lineBlameCSS(".med-editor .cm-line", active.palette.faint)}</style>
       <LineBlame

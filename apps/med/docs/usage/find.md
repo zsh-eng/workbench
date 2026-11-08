@@ -155,6 +155,12 @@ browser address. Files take focus when they open, in Normal mode:
 - `gd` finds declarations of the word at the cursor, first in the file, then
   in the project index. Several candidates open a picker. Ctags does not
   resolve types or imports as a language server does.
+- `K`, or the pointer resting on a name, shows a card with where the name is
+  declared, the lines that declare it, and its doc comment, found as `gd`
+  finds them; it shows up to three, and the card's file and line open one.
+  The card stays while the pointer is on it; `Esc`, a key, or a click
+  elsewhere puts it away. It reads the comment above the declaration (or a
+  Python docstring under it), not types.
 - `''` returns to the line of the previous jump, and two backticks to its exact
   column; repeat to swap. `ma`–`mz` set marks, and `'a` or backtick-`a` go to
   them. Marks and jumps reset when the file reloads.

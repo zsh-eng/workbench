@@ -25,6 +25,7 @@ import {
   readBrowse,
 } from "../../src/host/repository/browse";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { discoverCtags } from "../../src/host/search/symbols";
 
 const temporary: string[] = [];
 const hosts: RunningHost[] = [];
@@ -190,6 +191,82 @@ test("preserves literal unusual Git paths and rejects cancelled work before proc
   await expect(listBrowse(source, false, controller.signal)).rejects.toThrow("aborted");
   await expect(readBrowse(source, path, controller.signal)).rejects.toThrow("aborted");
 });
+
+const ctags = await discoverCtags();
+test.skipIf(!ctags)(
+  "a hover finds a name's definition in its file, else in the project, with its doc comment",
+  async () => {
+    const { repo } = await fixture();
+    await writeFile(
+      join(repo, "src/units.ts"),
+      "/** Kilometres in a mile. */\nexport const MILE_KM = 1.609;\n",
+    );
+    await writeFile(
+      join(repo, "src/query.ts"),
+      [
+        'import { MILE_KM } from "./units";',
+        "",
+        "// Miles to kilometres.",
+        "function toKm(miles: number): number {",
+        "  return miles * MILE_KM;",
+        "}",
+        "export const limit = toKm(8);",
+        "",
+      ].join("\n"),
+    );
+    const host = await startHost({ repo });
+    hosts.push(host);
+    const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+    const call = (route: string, body: unknown) =>
+      fetch(`http://127.0.0.1:${host.port}/api/browse/${route}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    const source = { kind: "worktree" as const, repo };
+    const { identity } = (await (await call("read", { source, path: "src/query.ts" })).json()) as {
+      identity: string;
+    };
+    const hover = async (name: string, at = identity) =>
+      (await (
+        await call("hover", { source, path: "src/query.ts", identity: at, name })
+      ).json()) as {
+        definitions: unknown[];
+        more: number;
+        unavailable?: string;
+      };
+    // In the file itself.
+    expect(await hover("toKm")).toMatchObject({
+      name: "toKm",
+      more: 0,
+      definitions: [
+        {
+          name: "toKm",
+          path: "src/query.ts",
+          line: 4,
+          source,
+          signature: ["function toKm(miles: number): number"],
+          doc: ["Miles to kilometres."],
+        },
+      ],
+    });
+    // Not in the file: in the project's working files.
+    expect((await hover("MILE_KM")).definitions).toMatchObject([
+      {
+        path: "src/units.ts",
+        line: 2,
+        signature: ["export const MILE_KM = 1.609;"],
+        doc: ["Kilometres in a mile."],
+      },
+    ]);
+    expect((await hover("nowhere")).definitions).toEqual([]);
+    // A file that changed since it was read, and a name that is not one.
+    expect((await hover("toKm", `${identity}-old`)).unavailable).toContain("changed");
+    expect(
+      (await call("hover", { source, path: "src/query.ts", identity, name: "a b" })).status,
+    ).toBe(400);
+  },
+);
 
 test("HTTP browse routes authorize discovered worktrees and reject arbitrary repositories", async () => {
   const { root, repo } = await fixture();

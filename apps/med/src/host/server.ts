@@ -4,7 +4,7 @@ import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
 import { markdownAsset } from "./markdown-assets";
-import { browseSourceSchema } from "../shared/browse";
+import { browseSourceSchema, type BrowseRead } from "../shared/browse";
 import { LocalFiles } from "./local-files";
 import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
 import { PullJobs } from "./pull-workspace";
@@ -83,7 +83,14 @@ import {
 import { listBrowse, readBrowse, writeBrowse } from "./repository/browse";
 import { browseBlameRequestSchema, browseSearchRequestSchema } from "../shared/inspect";
 import { blameBrowse } from "./repository/inspect";
-import { symbolSearchRequestSchema } from "../shared/symbols";
+import {
+  symbolHoverRequestSchema,
+  symbolSearchRequestSchema,
+  type SymbolHover,
+  type SymbolHoverRequest,
+  type SymbolSearch,
+} from "../shared/symbols";
+import { definitionText } from "../shared/definition-text";
 import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { BasePulls } from "./repository/base-pull";
@@ -254,6 +261,8 @@ function revealInFileManager(path: string) {
   child.unref();
 }
 const MAX_BODY = 128 * 1024;
+/** Definitions that a hover shows; `gd` lists all of them. */
+const MAX_HOVER_DEFINITIONS = 3;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
 const MAX_BRIEF_BODY = 512 * 1024;
 // A guide holds up to 200,000 characters of JSON.
@@ -349,6 +358,67 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const notes = new NoteService(reviews);
   const symbols = new FileSymbolService();
   const workingSymbols = new WorkingTreeSymbols();
+  /** The definitions of a name that a hover shows: in its own file first,
+   * then in the project, as `gd` looks; each with its declaration and doc
+   * comment from its file. */
+  const hoverSymbol = async (
+    input: SymbolHoverRequest,
+    signal: AbortSignal,
+  ): Promise<SymbolHover> => {
+    const base = {
+      source: input.source,
+      path: input.path,
+      identity: input.identity,
+      name: input.name,
+      definitions: [],
+      more: 0,
+    };
+    const exact = (search: SymbolSearch) =>
+      search.matches
+        .filter((match) => match.name === input.name)
+        .map((match) => ({ match, source: search.resultSource ?? search.source }));
+    const local = await symbols.search(
+      { source: input.source, path: input.path, identity: input.identity, query: input.name },
+      signal,
+    );
+    if (local.identity !== input.identity)
+      return { ...base, unavailable: local.unavailable ?? "This file changed." };
+    let found = exact(local);
+    let unavailable = local.unavailable;
+    if (!found.length) {
+      const project =
+        (input.source.kind === "worktree" &&
+          (await workingSymbols.search(input.source.repo, input.name, signal))) ||
+        (await registry.withSearch(input.source.repo, (search) =>
+          search.symbols(input.source, input.name, signal),
+        ));
+      found = exact(project);
+      unavailable = project.unavailable;
+    }
+    const reads = new Map<string, Promise<BrowseRead | undefined>>();
+    const definitions = await Promise.all(
+      found.slice(0, MAX_HOVER_DEFINITIONS).map(async ({ match, source }) => {
+        const key = JSON.stringify([source, match.path]);
+        let read = reads.get(key);
+        if (!read) {
+          read = readBrowse(source, match.path, signal).catch(() => undefined);
+          reads.set(key, read);
+        }
+        const file = await read;
+        const text =
+          file?.kind === "text" && file.text !== undefined
+            ? definitionText(file.text, match.line)
+            : { signature: [], doc: [] };
+        return { ...match, source, ...text };
+      }),
+    );
+    return {
+      ...base,
+      definitions,
+      more: found.length - definitions.length,
+      ...(!definitions.length && unavailable ? { unavailable } : {}),
+    };
+  };
   const localFiles = new LocalFiles();
   const temporaryState = options.stateDir
     ? undefined
@@ -3205,6 +3275,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                       search.symbols(input.source, input.query, abort.signal),
                     )),
             );
+            return;
+          }
+          if (url.pathname === "/api/browse/hover" && request.method === "POST") {
+            const input = symbolHoverRequestSchema.parse(await readBody(request));
+            input.source.repo = await requireRepo(input.source.repo);
+            send(await hoverSymbol(input, abort.signal));
             return;
           }
           if (url.pathname === "/api/browse/search" && request.method === "POST") {

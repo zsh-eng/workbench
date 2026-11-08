@@ -7,7 +7,7 @@ import {
   type BrowseEntry,
 } from "../../shared/browse";
 import { createApi } from "./api";
-import { symbolSearchSchema } from "../../shared/symbols";
+import { symbolHoverSchema, symbolSearchSchema } from "../../shared/symbols";
 import { browseSearchResponseSchema } from "../../shared/inspect";
 import { localReadSchema, type LocalRead } from "../../shared/local-file";
 import { z } from "zod";
@@ -82,6 +82,28 @@ export function createBrowseApi(fetcher: typeof fetch, token: string) {
             : source.kind === "commit" && result.resultSource.oid !== source.oid))
       )
         throw new Error("The symbols belong to another commit.");
+      return result;
+    },
+    /** The definitions of a name in a file, with their doc comments. */
+    async hover(
+      source: BrowseSource,
+      path: string,
+      identity: string,
+      name: string,
+      signal?: AbortSignal,
+    ) {
+      const result = await api.json("/api/browse/hover", symbolHoverSchema, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, path, identity, name }),
+        signal,
+      });
+      if (
+        browseSourceKey(result.source) !== browseSourceKey(source) ||
+        result.path !== path ||
+        result.name !== name
+      )
+        throw new Error("The definitions belong to another file or name.");
       return result;
     },
     /** `stream` names the query that this one replaces on the host, such as
@@ -236,6 +258,7 @@ type CompleteBrowseApi = ReturnType<typeof createBrowseApi>;
 type OptionalBrowse =
   | "search"
   | "symbols"
+  | "hover"
   | "write"
   | "changes"
   | "vaults"

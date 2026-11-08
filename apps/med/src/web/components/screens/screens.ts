@@ -68,6 +68,13 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
+    id: "hover",
+    label: "A name's definition",
+    note: "K, or the pointer resting on a name, shows where it is declared, its declaration, and its doc comment, from Med's symbol index; the file and line open it.",
+    scene: "hover",
+    recording: "recording.json",
+  },
+  {
     id: "settings",
     label: "Settings",
     note: "Appearance: light, dark, or the system's choice between them, with a theme for each.",

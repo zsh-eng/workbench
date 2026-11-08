@@ -14,6 +14,7 @@ import {
   type FileComments,
 } from "../../src/web/components/FullFileView";
 import type { FileComment } from "../../src/shared/saved-review";
+import type { SymbolDefinition, SymbolHover } from "../../src/shared/symbols";
 import { createEditorDrafts } from "../../src/web/data/editor-drafts";
 import { FileViewTabs } from "../../src/web/components/FileViewTabs";
 import { initializeTheme } from "../../src/web/themes";
@@ -2231,4 +2232,97 @@ test("a comment that the agent resolved says so, and opens again", async () => {
     .toBeVisible();
   await card.getByRole("button", { name: "Reopen" }).click();
   expect(comments.mutate).toHaveBeenCalledWith({ reopen: comment.id });
+});
+
+function hoverProps() {
+  const definition: SymbolDefinition = {
+    name: "retries",
+    kind: "constant",
+    path: "src/limits.ts",
+    line: 3,
+    source: { kind: "worktree", repo: "/fixture" },
+    signature: ["export const retries = 3;"],
+    doc: ["How often a request goes again, as `fetch` does."],
+  };
+  return {
+    loadHover: vi.fn<(name: string, signal: AbortSignal) => Promise<SymbolHover>>(async (name) => ({
+      source: base.source,
+      path: base.path,
+      identity: "hover:1",
+      name,
+      definitions: name === "retries" ? [definition] : [],
+      more: 0,
+    })),
+    onOpenDefinition: vi.fn<(definition: SymbolDefinition) => void>(),
+    definition,
+  };
+}
+const hoverText = "const total = retries + 1;\nconst unknown = other;\n";
+
+test("a name's card shows its definition, from the pointer or K, and opens it", async () => {
+  const hover = hoverProps();
+  render(
+    <FullFileView
+      {...props}
+      vimEnabled
+      file={{ ...base, text: hoverText, size: hoverText.length, identity: "hover:1" }}
+      loadHover={hover.loadHover}
+      onOpenDefinition={hover.onOpenDefinition}
+    />,
+  );
+  await expect.poll(() => lines()?.length).toBeGreaterThan(1);
+  // The pointer rests on the name: a moment later, its card.
+  const token = () =>
+    [...(lines()?.[0]?.querySelectorAll<HTMLElement>("span") ?? [])].find(
+      (span) => span.textContent === "retries" && !span.querySelector("span"),
+    );
+  await expect.poll(() => token()).toBeTruthy();
+  await userEvent.hover(token()!);
+  const card = page.getByRole("tooltip", { name: "Definition of retries" });
+  await expect.element(card).toBeVisible();
+  const text = card.element().textContent;
+  expect(text).toContain("export const retries = 3;");
+  expect(text).toContain("How often a request goes again, as fetch does.");
+  expect(card.element().querySelector("code")?.textContent).toBe("fetch");
+  expect(hover.loadHover).toHaveBeenCalledWith("retries", expect.any(AbortSignal));
+  await userEvent.click(card.getByRole("button", { name: "limits.ts:3" }));
+  expect(hover.onOpenDefinition).toHaveBeenCalledWith(hover.definition);
+  await expect.element(card).not.toBeInTheDocument();
+  // K shows the card of the name under the cursor; Esc puts it away.
+  const pane = page.getByRole("textbox", { name: "File navigation" });
+  (pane.element() as HTMLElement).focus();
+  await userEvent.keyboard("0wwwK");
+  await expect.element(card).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(card).not.toBeInTheDocument();
+  // A name with no definition shows nothing.
+  await userEvent.keyboard("j0wwwK");
+  await expect.poll(() => hover.loadHover.mock.calls.at(-1)?.[0]).toBe("other");
+  expect(document.querySelector("[data-symbol-hover]")).toBeNull();
+});
+
+test("in the editor, K shows the card of the name under the cursor", async () => {
+  const hover = hoverProps();
+  render(
+    <FullFileView
+      {...props}
+      file={{ ...base, text: hoverText, size: hoverText.length, identity: "hover:1" }}
+      editor={{
+        drafts: createEditorDrafts(),
+        key: "hover",
+        autoEdit: true,
+        write: async () => ({ ...base, identity: "hover:2" }),
+      }}
+      loadHover={hover.loadHover}
+      onOpenDefinition={hover.onOpenDefinition}
+    />,
+  );
+  await expect.poll(() => document.querySelector(".cm-activeLine")).not.toBeNull();
+  document.querySelector<HTMLElement>(".cm-content")!.focus();
+  await userEvent.keyboard("wwwK");
+  const card = page.getByRole("tooltip", { name: "Definition of retries" });
+  await expect.element(card).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(card).not.toBeInTheDocument();
+  expect(document.querySelector(".med-save-dot")?.getAttribute("data-dirty")).toBe("false");
 });

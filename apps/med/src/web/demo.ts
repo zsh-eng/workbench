@@ -21,6 +21,9 @@ import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { AgentStatus } from "../shared/agent-status";
 import type { Note, NoteMutation, NoteState, RegisteredRepository } from "../shared/protocol";
 import type { SavedReview } from "../shared/saved-review";
+import type { BrowseRead } from "../shared/browse";
+import type { SymbolHoverRequest } from "../shared/symbols";
+import { definitionText } from "../shared/definition-text";
 import type { ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
 
@@ -689,6 +692,44 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
       return saved;
     },
   ],
+  // A hover finds a name's declaration in the files that the recording read,
+  // the hovered file first, as Med's index would.
+  [
+    "POST",
+    /^\/api\/browse\/hover$/,
+    (_url, body: SymbolHoverRequest) => {
+      const files = recording.entries
+        .filter((entry) => entry.url === "/api/browse/read" && entry.body)
+        .map((entry) => JSON.parse(entry.text) as BrowseRead)
+        .filter((file) => file.kind === "text" && file.text !== undefined)
+        .sort((a, b) => Number(b.path === body.path) - Number(a.path === body.path));
+      const declaration = new RegExp(
+        `^\\s*(?:export\\s+)?(?:async\\s+)?(function|const|let|class|interface|type|enum)\\s+${body.name}\\b`,
+      );
+      const kinds: Record<string, string> = { const: "constant", let: "variable" };
+      for (const file of files) {
+        const lines = file.text!.split("\n");
+        const index = lines.findIndex((line) => declaration.test(line));
+        if (index < 0) continue;
+        const kind = declaration.exec(lines[index]!)![1]!;
+        return {
+          ...body,
+          definitions: [
+            {
+              name: body.name,
+              kind: kinds[kind] ?? kind,
+              path: file.path,
+              line: index + 1,
+              source: file.source,
+              ...definitionText(file.text!, index + 1),
+            },
+          ],
+          more: 0,
+        };
+      }
+      return { ...body, definitions: [], more: 0 };
+    },
+  ],
   [
     "POST",
     /^\/api\/reviews\/([^/]+)\/file-comments$/,
@@ -1213,6 +1254,33 @@ const scenes: Record<string, () => Promise<void>> = {
       0,
     );
   },
+  // A name's definition, as the pointer or K shows it, in another file.
+  async hover() {
+    await review({ sidebar: false, session: false }, "Review");
+    dispatchEvent(
+      new KeyboardEvent("keydown", { key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
+    );
+    await until(() => visible("input[aria-label='Find file']"));
+    const find = visible("input[aria-label='Find file']") as HTMLInputElement;
+    await type(find, "search/index.ts", 0);
+    await until(() =>
+      all<HTMLElement>("[role='option']").some((node) => node.textContent?.includes("index.ts")),
+    );
+    find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const content = () => visible("section[aria-label='File editor'] .cm-content");
+    await until(content);
+    const [{ EditorView }, { Vim, getCM }] = await Promise.all([
+      import("@codemirror/view"),
+      import("@replit/codemirror-vim"),
+    ]);
+    const editor = EditorView.findFromDOM(content()!)!;
+    editor.focus();
+    const cm = getCM(editor)!;
+    for (const key of "14Gfp") Vim.handleKey(cm, key, "user");
+    await until(() => editor.state.doc.lineAt(editor.state.selection.main.head).number === 14);
+    Vim.handleKey(cm, "K", "user");
+    await until(() => visible("[data-symbol-hover]"));
+  },
   // A note in the vault, as it reads.
   async notes() {
     // The file tree renders in its own shadow root. A click selects the
@@ -1244,6 +1312,7 @@ const parts: Record<string, () => HTMLElement | undefined> = {
       : visible("[role='tabpanel'][aria-label='Commit']"),
   notes: () => visible("#vault-file-panel"),
   files: () => visible("section[aria-label='Full file']"),
+  hover: () => visible("section[aria-label='Full file']"),
 };
 // The Screens page shows the whole window (`?full`).
 const find = params.has("full") ? undefined : parts[scene];

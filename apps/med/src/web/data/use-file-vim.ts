@@ -41,6 +41,7 @@ export function useFileVim<Annotation = undefined>({
   onDefinition,
   onPosition,
   onAnnotate,
+  onHover,
 }: {
   text: string;
   identity: string;
@@ -55,7 +56,13 @@ export function useFileVim<Annotation = undefined>({
   onPosition?: (line: number, reason: "cursor") => void;
   /** `gc` or `ga`: the lines, from 1, of the selection or else the cursor. */
   onAnnotate?: (kind: "comment" | "ask", line: number, endLine: number) => void;
+  /** `K`: the name under the cursor, and where the cursor is. */
+  onHover?: (name: string, anchor: () => DOMRect | undefined) => void;
 }) {
+  const hoverListener = useRef(onHover);
+  useLayoutEffect(() => {
+    hoverListener.current = onHover;
+  }, [onHover]);
   const annotateListener = useRef(onAnnotate);
   useLayoutEffect(() => {
     annotateListener.current = onAnnotate;
@@ -101,6 +108,7 @@ export function useFileVim<Annotation = undefined>({
   }, [model, enabled, visualPainter, cancelCopies]);
   const pane = useRef<HTMLDivElement>(null);
   const caret = useRef<HTMLSpanElement>(null);
+  const caretBounds = useCallback(() => caret.current?.getBoundingClientRect(), []);
   const host = useRef<HTMLElement | null>(null);
   const active = useRef(false);
   const paintPending = useRef(false);
@@ -412,6 +420,7 @@ export function useFileVim<Annotation = undefined>({
       if (result.lineCommand) beginLineCommand();
       if (result.definition !== undefined) onDefinition?.(result.definition);
       if (result.annotate) annotate(result.annotate);
+      if (result.hover) hoverListener.current?.(result.hover, caretBounds);
       if (result.handled && !result.copy) {
         cancelCopies();
         setCopyState(null);
@@ -429,6 +438,7 @@ export function useFileVim<Annotation = undefined>({
       cancelCopies,
       onDefinition,
       annotate,
+      caretBounds,
     ],
   );
   useLayoutEffect(() => {
@@ -518,6 +528,7 @@ export function useFileVim<Annotation = undefined>({
     if (result.lineCommand) beginLineCommand();
     if (result.definition !== undefined) onDefinition?.(result.definition);
     if (result.annotate) annotate(result.annotate);
+    if (result.hover) hoverListener.current?.(result.hover, caretBounds);
     if (result.copy) void copySelection();
     else {
       cancelCopies();

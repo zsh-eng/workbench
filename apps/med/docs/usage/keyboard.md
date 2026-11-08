@@ -34,6 +34,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Ask about selected lines               | `a`             |
 | Comment on a file's lines, in Vim      | `gc`            |
 | Ask about a file's lines, in Vim       | `ga`            |
+| A name's definition, in Vim            | `K`             |
 | Next / previous guide segment          | `j` / `k`       |
 | Next / previous excerpt or reply       | `]` / `[`       |
 | Resume search                          | `⌥R`            |
