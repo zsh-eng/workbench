@@ -102,6 +102,6 @@ off a review only if the user asks, or if the change is one to review.
 
 ## Threads and sessions
 
-`med thread list | open | close`, and `med thread find` / `adopt` to bring an
+`med thread list | open | close | send`, and `med thread find` / `adopt` to bring an
 earlier session into Med (`med thread --help`). Act only on threads the user
 names. `med docs agents` is the full guide.

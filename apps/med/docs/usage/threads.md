@@ -92,6 +92,8 @@ load it or read its agents until you open it again.
   - **Effort**, such as **High effort**, while the model has efforts. Claude
     Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
     keeps your last choice for each agent.
+- **Superagent**, at the top of the sidebar, is one thread that sees the
+  others ([The Superagent](#the-superagent)).
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
@@ -119,6 +121,25 @@ load it or read its agents until you open it again.
   the registered repositories and vaults.
 - `⌘B`, or the button beside **New thread**, shows or hides the sidebar. In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
+
+## The Superagent
+
+The Superagent is a thread for the other threads: ask it where things stand,
+which threads wait on you and why, or to pass a direction to one of them. The
+first click on **Superagent** starts it. Med makes it a folder of its own in
+its state folder, which no list of repositories shows, and starts Claude Code
+there on Opus at high effort with a brief: what the Superagent is for, and how
+it works through `med`. After that it is a thread like any other: change its
+model and effort in the message box, queue messages, or stop it. There is one
+Superagent; the next click opens it.
+
+It reads the threads with `med thread list --json` and their transcripts, and
+sends a message to a thread with `med thread send <id> "<message>"`, which the
+thread's agent gets as `From the Superagent:` and the message, at its next
+step, or after its turn with `--after-turn`. It answers no permission
+request, approves, merges, pushes, and deletes nothing, and edits no thread's
+files itself. Med schedules nothing; the Superagent uses Claude Code's own
+scheduling when you ask for a check later.
 
 ## A thread's pane
 

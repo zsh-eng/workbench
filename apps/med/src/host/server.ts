@@ -100,6 +100,14 @@ import { Memo } from "./repository/cache";
 import { CheckoutRevisions } from "./repository/events";
 import { removeWorktree } from "./repository/worktrees";
 import { runProcess } from "./runtime/process";
+import {
+  prepareSuperagentFolder,
+  SUPERAGENT_CHOICES,
+  SUPERAGENT_KEY,
+  SUPERAGENT_TITLE,
+  superagentBrief,
+  superagentFolder,
+} from "./superagent";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore, type CommitLens } from "./saved-reviews";
@@ -426,6 +434,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const temporaryState = options.stateDir
     ? undefined
     : await mkdtemp(join(tmpdir(), "med-reviews-"));
+  // The Superagent's folder (superagent.ts), which the lists of repositories
+  // leave out.
+  const superagentPath = superagentFolder(options.stateDir ?? temporaryState!);
+  let superagentReal = existsSync(superagentPath) ? await realpath(superagentPath) : superagentPath;
+  const isSuperagentRepo = (path: string) => path === superagentReal || path === superagentPath;
+  const visibleRepositories = () =>
+    registry.snapshot().filter((entry) => !isSuperagentRepo(entry.path));
   // Open tabs and cold history (thread-tabs.ts). Past the byte budget, the
   // threads that closed first give up their captures, as pruning does.
   const tabs = createThreadTabs({ file: join(options.stateDir ?? temporaryState!, "tabs.json") });
@@ -661,7 +676,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const threads = createThreadService({
     savedReviews,
     tabs,
-    repositories: () => registry.snapshot(),
+    repositories: visibleRepositories,
     status: reviewStatus,
     lastMessage: (reviewId) => inbox.last(reviewId),
     found,
@@ -882,6 +897,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
+    // The Superagent's folder, once Med has made it, so its thread opens.
+    if (existsSync(join(superagentPath, ".git")))
+      await registry.register(superagentPath).catch(() => {});
   }
   await options.service?.attach(registry);
   // Tabs come from the saved reviews on the first start; history prunes now and daily.
@@ -2330,6 +2348,45 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } satisfies SessionAdopted);
             return;
           }
+          // The Superagent's thread: made, with its folder and session, the
+          // first time; opened as a tab after that.
+          if (url.pathname === "/api/superagent" && request.method === "POST") {
+            const input = z
+              .object({ preset: z.string().min(1).max(200).default("claude") })
+              .parse(await readBody(request));
+            const known = await savedReviews.byKey(SUPERAGENT_KEY).catch(() => undefined);
+            if (known) {
+              await registry.register(superagentPath, abort.signal).catch(() => {});
+              await threads.open(known.id, { restore: true }).catch(() => {});
+              send({ review: known, created: false });
+              return;
+            }
+            assertRequestAccess();
+            await prepareSuperagentFolder(superagentPath);
+            const cwd = await realpath(superagentPath);
+            superagentReal = cwd;
+            await registry.register(cwd, abort.signal);
+            const runner = await ownedSessions.start(input.preset, cwd, {
+              key: SUPERAGENT_KEY,
+              choices: { ...SUPERAGENT_CHOICES },
+            });
+            const review = await savedReviews.create(
+              {
+                title: SUPERAGENT_TITLE,
+                key: SUPERAGENT_KEY,
+                sessions: [runner.session],
+                targets: [],
+              },
+              captureTarget,
+              assertRequestAccess,
+              await placeCheckout(cwd),
+            );
+            const brief = superagentBrief();
+            await threads.opened(review, brief);
+            await runner.prompt(brief);
+            send({ review, created: true });
+            return;
+          }
           // A new thread: a branch in a new worktree (or the checkout itself),
           // its review, and an agent that starts on the task there.
           if (url.pathname === "/api/threads" && request.method === "POST") {
@@ -3066,7 +3123,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             }
             if (request.method === "GET") {
-              send({ repositories: await registry.list(abort.signal) });
+              const repositories = await registry.list(abort.signal);
+              send({ repositories: repositories.filter((entry) => !isSuperagentRepo(entry.path)) });
               return;
             }
             if (request.method === "POST") {

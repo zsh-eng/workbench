@@ -1169,6 +1169,20 @@ export function WorkspaceHost({
   const kept = useRef(new Set<string>());
 
   const [notice, setNotice] = useState<TabNotice | null>(null);
+  // The Superagent's thread: Med makes it the first time (superagent.ts),
+  // then it opens as any thread does.
+  const startSuperagent = useCallback(async () => {
+    try {
+      const { review } = await createApi(fetcher, readBrowserToken()).json(
+        "/api/superagent",
+        z.object({ review: z.object({ id: z.string(), title: z.string() }) }),
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      actions.open({ kind: "review", reviewId: review.id, title: review.title });
+    } catch (reason) {
+      setNotice({ problem: true, text: errorText(reason, "Med could not start the Superagent.") });
+    }
+  }, [actions, fetcher]);
   useEffect(() => {
     if (!notice || notice.stays) return;
     const timer = setTimeout(() => setNotice(null), notice.problem ? 8000 : 6000);
@@ -1719,6 +1733,10 @@ export function WorkspaceHost({
                               onPullRequests={() => {
                                 setOverlay(false);
                                 openPullRequests();
+                              }}
+                              onSuperagent={() => {
+                                setOverlay(false);
+                                void startSuperagent();
                               }}
                               onArchive={(thread) =>
                                 void closeTabs([thread], { removeWorktree: false })

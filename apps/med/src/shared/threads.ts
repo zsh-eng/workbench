@@ -72,6 +72,9 @@ export const threadSchema = z.object({
   /** Its place among the pins, from 1, when the reader pinned it: the
    * sidebar lists the pinned sessions first, in the order they were pinned. */
   pinned: z.number().int().positive().optional(),
+  /** The Superagent's thread (src/host/superagent.ts): the sidebar shows it
+   * on top, apart from the others. */
+  superagent: z.boolean().optional(),
   /** A session that Med found by itself (src/host/found-sessions.ts): no
    * saved review names it, and its ID is not a review's. */
   found: z.boolean().optional(),

@@ -1,3 +1,4 @@
+import { SUPERAGENT_KEY } from "./superagent";
 import type { AgentStatus } from "../shared/agent-status";
 import type { AgentMessage } from "../shared/agent-inbox";
 import {
@@ -146,6 +147,8 @@ export function createThreadService(options: ThreadServiceOptions) {
         }),
       ...(review.pullRequestUrl && { pullRequestUrl: review.pullRequestUrl }),
       ...(review.parts && { parts: threadParts(review) }),
+      // The Superagent's thread (superagent.ts), which the sidebar pins on top.
+      ...(review.key === SUPERAGENT_KEY && { superagent: true }),
     } satisfies Thread;
   };
 
