@@ -410,7 +410,12 @@ const styles = stylex.create({
   popup: { width: 280, paddingBlock: 6, paddingInline: 6 },
   line: { display: "flex", alignItems: "center", gap: 10, paddingInline: 8 },
   row: { width: "100%", height: 34, fontSize: 13, color: tokens.text },
-  toggle: { justifyContent: "flex-start", borderRadius: `calc(7px * ${tokens.round})` },
+  // A button centres its text; a row's name starts at its left, as in Pierre's.
+  toggle: {
+    justifyContent: "flex-start",
+    textAlign: "start",
+    borderRadius: `calc(7px * ${tokens.round})`,
+  },
   // Icons side by side; the chosen one is filled.
   segment: {
     display: "flex",
