@@ -113,8 +113,16 @@
   top: 0;
   bottom: 0;
   width: 3px;
-  border-radius: calc(1px * var(--med-round, 1));
   background: var(--edit-green);
+}
+/* One bar for a run of lines: its ends are round, the lines between meet. */
+.med-editor [data-med-change][data-change-start] {
+  border-start-start-radius: calc(1.5px * var(--med-round, 1));
+  border-start-end-radius: calc(1.5px * var(--med-round, 1));
+}
+.med-editor [data-med-change][data-change-end] {
+  border-end-start-radius: calc(1.5px * var(--med-round, 1));
+  border-end-end-radius: calc(1.5px * var(--med-round, 1));
 }
 .med-editor [data-med-change="deleted"] {
   background: var(--edit-red);
@@ -124,6 +132,7 @@
   width: 4px;
 }
 .med-editor [data-change-edge] {
+  border-radius: calc(1px * var(--med-round, 1));
   width: 6px;
   height: 3px;
   top: auto;

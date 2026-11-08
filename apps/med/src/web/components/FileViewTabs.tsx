@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { distinctLabels } from "../data/tab-labels";
 import { tokens } from "../theme.stylex";
+import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { paneHandle } from "./PaneTree";
 import { PathContextMenu, type PathActions } from "./PathMenu";
@@ -212,6 +213,7 @@ export function FileViewTabs({
               }}
               {...stylex.props(styles.tab, styles.fileTab, active === tab.id && styles.active)}
             >
+              <FileIcon path={tab.path} />
               <span {...stylex.props(styles.name)}>{labels[index]}</span>
             </Tabs.Tab>
             {/* An unsaved file's dot takes the close button's place, until hover. */}
@@ -253,8 +255,8 @@ const styles = stylex.create({
     alignItems: "stretch",
     flexShrink: 0,
     minWidth: 0,
-    height: 38,
-    minHeight: 38,
+    height: 32,
+    minHeight: 32,
     boxSizing: "border-box",
     backgroundColor: tokens.panel,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
@@ -282,7 +284,7 @@ const styles = stylex.create({
   tab: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
     minWidth: 0,
     borderWidth: 0,
     borderRadius: 0,
@@ -304,7 +306,7 @@ const styles = stylex.create({
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { width: "100%", paddingInlineEnd: 28 },
+  fileTab: { width: "100%", paddingInlineStart: 10, paddingInlineEnd: 28 },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.canvas, ":hover": tokens.canvas },

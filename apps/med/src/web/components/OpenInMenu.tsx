@@ -3,25 +3,15 @@ import { useEffect, useState } from "react";
 import type { OpenInLinks } from "../data/api";
 import { tokens } from "../theme.stylex";
 import { ActionMenu, type MenuAction } from "./Controls";
-import { absolutePath, REVEAL_LABEL, type PathActions, type PathTarget } from "./PathMenu";
-
-/** A checkout's links, asked again after a minute, as a push gives its branch a page. */
-const asked = new Map<string, { at: number; links: Promise<OpenInLinks> }>();
-function linksOf(actions: PathActions, repo: string) {
-  const known = asked.get(repo);
-  if (known && Date.now() - known.at < 60_000) return known.links;
-  const links = actions.openIn!.links(repo).catch(() => ({ editors: [], host: null, links: [] }));
-  asked.set(repo, { at: Date.now(), links });
-  return links;
-}
-
-const segments = (path: string) => path.split("/").map(encodeURIComponent).join("/");
-/** The page of a file's line under a branch's page on its code host. */
-export const lineLink = (base: string, path: string, line: number) =>
-  `${base}/${segments(path)}#L${line}`;
-/** A link from the settings, such as Sourcegraph's, at a file's line. */
-const fill = (template: string, path: string, line: number) =>
-  template.replaceAll("{path}", segments(path)).replaceAll("{line}", String(line));
+import {
+  absolutePath,
+  fillLink,
+  lineLink,
+  linksOf,
+  REVEAL_LABEL,
+  type PathActions,
+  type PathTarget,
+} from "./PathMenu";
 
 /**
  * Open in, above a file: the code host's page at the same line on the
@@ -70,7 +60,7 @@ export function OpenInMenu({
           label: link.name,
           letter: letterOf(link.name),
           onClick: () =>
-            window.open(fill(link.template, target.path, line()), "_blank", "noopener"),
+            window.open(fillLink(link.template, target.path, line()), "_blank", "noopener"),
         }
       : {
           label: `Push to open on ${link.name}`,

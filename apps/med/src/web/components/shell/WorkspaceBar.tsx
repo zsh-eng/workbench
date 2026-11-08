@@ -269,7 +269,17 @@ const styles = stylex.create({
     minWidth: 0,
     paddingInlineStart: 8,
   },
-  trail: { display: "flex", alignItems: "center", flexShrink: 0, marginInlineStart: "auto" },
+  // At the band's end; a row that ends the band (the review's, alone) fills
+  // the rest of it, and the title gives way before it does.
+  trail: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexGrow: 1,
+    flexShrink: 0.001,
+    minWidth: 0,
+    marginInlineStart: "auto",
+  },
   empty: { display: "none" },
   name: { color: tokens.text, fontWeight: 500 },
   // After the thread's title, the repository is secondary.

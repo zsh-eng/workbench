@@ -284,10 +284,12 @@ export function SessionSidebar({
           aria-label="New thread"
           aria-pressed={newThread}
           onClick={onNewThread}
-          {...stylex.props(styles.new)}
+          {...stylex.props(styles.row, styles.new, newThread && styles.current)}
         >
-          <Icon name="plus" size={13} />
-          New
+          <span {...stylex.props(styles.mark, styles.plus)}>
+            <Icon name="plus" size={14} />
+          </span>
+          <span {...stylex.props(styles.name)}>New thread</span>
         </button>
         <button
           type="button"
@@ -583,30 +585,15 @@ const styles = stylex.create({
   top: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 4,
     height: "var(--med-top-row)",
     paddingInlineStart: "max(calc(var(--med-titlebar-left) - 8px), 0px)",
     flex: "none",
   },
-  new: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    height: 28,
-    paddingInlineStart: 11,
-    paddingInlineEnd: 14,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: tokens.line,
-    borderRadius: 999,
-    backgroundColor: { default: tokens.raised, ":hover": tokens.hover },
-    color: tokens.text,
-    fontFamily: tokens.ui,
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: "default",
-    outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
-  },
+  // A row like the sessions under it, its mark in their marks' column; the
+  // open New thread is its current row.
+  new: { flex: "1", width: "auto", minWidth: 0 },
+  plus: { color: tokens.muted },
   hide: { width: 28, height: 28, paddingInline: 0, color: tokens.muted },
   scroll: { flex: "1", minHeight: 0, overflowY: "auto", marginInline: -8, paddingInline: 8 },
   label: {

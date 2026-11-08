@@ -1031,8 +1031,8 @@ const styles = stylex.create({
     color: tokens.muted,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
-  // The menu's label starts where the review's first tab label does.
-  quietHeader: { gap: 6, paddingInlineStart: 6 },
+  // The menu's label starts under the checkout's name in the title band.
+  quietHeader: { gap: 6, paddingInlineStart: 8 },
   grow: { flex: "1" },
   leadTrigger: {
     color: { default: tokens.text, ":hover:not(:disabled)": tokens.text },
@@ -1050,7 +1050,16 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   detail: { marginInlineStart: 8, color: tokens.faint, fontWeight: 400, fontSize: 12 },
-  status: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: tokens.faint },
+  // One line high, so its text sits on the menu label's baseline and the dot
+  // at its middle.
+  status: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11.5,
+    lineHeight: 1,
+    color: tokens.faint,
+  },
   dot: { width: 6, height: 6, borderRadius: "50%", backgroundColor: tokens.lineStrong },
   dotLive: { backgroundColor: tokens.green },
   dotWaiting: { backgroundColor: tokens.accent },

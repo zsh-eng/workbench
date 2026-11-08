@@ -26,28 +26,16 @@ export interface DisplayOptions {
 /** Claude's orange, as on New thread; other agents keep the text's colour. */
 const CLAUDE = "#d97757";
 
-/**
- * The review's header, in two rows. The title row names the review and holds
- * what acts on all of it: Copy comments, ⋯, and Display (ReviewTitleRow).
- * Where the review reaches the window's top right, that row is in the title
- * band above it, and this header is the second row only: the toggles of the
- * session and the review's sidebar and the page's own controls, then the
- * pages and the pane's controls at its end, where they keep their places.
- */
-export function ReviewHeader({
-  session,
-  identity,
-  lead,
-  pages,
-  page,
-  onPage,
-  tools,
-  more,
-  controls,
-}: {
-  session?: { agent: IconName; shown: boolean; toggle(): void };
-  /** The title row, when the title band does not hold it. */
-  identity?: ReactNode;
+/** The session's toggle, with its agent's mark, while the session hides. */
+export interface SessionToggleProps {
+  agent: IconName;
+  shown: boolean;
+  toggle(): void;
+}
+
+/** What the review's second row holds; in the title band, all of one row. */
+export interface ReviewBarProps {
+  session?: SessionToggleProps;
   /** The review's sidebar's toggle, while the sidebar hides. */
   lead?: ReactNode;
   pages: readonly ReviewPage[];
@@ -60,52 +48,99 @@ export function ReviewHeader({
   more?: ReactNode;
   /** The pane's own controls, at the row's end. */
   controls?: ReactNode;
+}
+
+/**
+ * The review's header, in two rows. The title row names the review and holds
+ * what acts on all of it: Copy comments, ⋯, and Display (ReviewTitleRow).
+ * Where the review reaches the window's top right, that row is in the title
+ * band above it, and this header is the second row only: the toggles of the
+ * session and the review's sidebar and the page's own controls, then the
+ * pages and the pane's controls at its end, where they keep their places.
+ */
+export function ReviewHeader({
+  identity,
+  ...bar
+}: ReviewBarProps & {
+  /** The title row, when the title band does not hold it. */
+  identity?: ReactNode;
 }) {
   return (
     <header aria-label="Review header" {...paneHandle} {...stylex.props(styles.header)}>
       {identity}
-      <div {...stylex.props(styles.bar)}>
-        {session && (
-          <button
-            type="button"
-            aria-label={session.shown ? "Hide agent session" : "Show agent session"}
-            aria-pressed={session.shown}
-            data-pane-show="session"
-            {...tooltip(session.shown ? "Hide agent session" : "Show agent session", "Mod+Shift+B")}
-            onClick={session.toggle}
-            {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.session)}
-          >
-            <span {...stylex.props(session.agent === "claude" && styles.claude)}>
-              <Icon name={session.agent} size={15} />
-            </span>
-          </button>
-        )}
-        {lead}
-        {tools}
-        <span data-row-grow="" {...stylex.props(styles.grow)} />
-        {more}
-        {pages.length > 1 && (
-          <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
-            {pages.map((entry, index) => (
-              <button
-                key={entry.value}
-                type="button"
-                role="radio"
-                aria-checked={page === entry.value}
-                {...tooltip(entry.label, String(index + 1))}
-                onClick={() => onPage(entry.value)}
-                {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
-              >
-                <span data-truncates="" {...stylex.props(styles.name)}>
-                  {entry.label}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        {controls}
-      </div>
+      <ReviewBar {...bar} />
     </header>
+  );
+}
+
+/**
+ * The second row's parts. In the title band, where the review fills the
+ * window, they end the band's one row (`actions` after them); the session's
+ * toggle leads the band there, before the title.
+ */
+export function ReviewBar({
+  session,
+  lead,
+  pages,
+  page,
+  onPage,
+  tools,
+  more,
+  controls,
+  actions,
+  inBand = false,
+}: ReviewBarProps & { actions?: ReactNode; inBand?: boolean }) {
+  return (
+    <div
+      {...(inBand && { role: "group", "aria-label": "Review header" })}
+      {...stylex.props(inBand ? styles.barInBand : styles.bar)}
+    >
+      {!inBand && session && <SessionToggle {...session} />}
+      {!inBand && lead}
+      {tools}
+      <span data-row-grow="" {...stylex.props(styles.grow)} />
+      {more}
+      {pages.length > 1 && (
+        <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
+          {pages.map((entry, index) => (
+            <button
+              key={entry.value}
+              type="button"
+              role="radio"
+              aria-checked={page === entry.value}
+              {...tooltip(entry.label, String(index + 1))}
+              onClick={() => onPage(entry.value)}
+              {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
+            >
+              <span data-truncates="" {...stylex.props(styles.name)}>
+                {entry.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {actions}
+      {controls}
+    </div>
+  );
+}
+
+/** Shows or hides the session, in its agent's mark. */
+export function SessionToggle({ agent, shown, toggle }: SessionToggleProps) {
+  return (
+    <button
+      type="button"
+      aria-label={shown ? "Hide agent session" : "Show agent session"}
+      aria-pressed={shown}
+      data-pane-show="session"
+      {...tooltip(shown ? "Hide agent session" : "Show agent session", "Mod+Shift+B")}
+      onClick={toggle}
+      {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.session)}
+    >
+      <span {...stylex.props(agent === "claude" && styles.claude)}>
+        <Icon name={agent} size={15} />
+      </span>
+    </button>
   );
 }
 
@@ -408,6 +443,17 @@ const styles = stylex.create({
     minWidth: 0,
     paddingInline: 8,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
+    color: tokens.text,
+  },
+  // In the title band: the band's height and line, its end after the
+  // checkout, so the page's tools follow the title and the pages end it.
+  barInBand: {
+    display: "flex",
+    alignItems: "center",
+    flex: "1",
+    gap: 2,
+    minWidth: 0,
+    height: "100%",
     color: tokens.text,
   },
   // A narrow row hides the branch (styles.branch).

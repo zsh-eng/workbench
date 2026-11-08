@@ -44,12 +44,15 @@ import {
 import { tokens, ui } from "./theme.stylex";
 import { relativeTime, useMinuteClock } from "./data/relative-time";
 import { ActionMenu, ChoiceSelect, CommandDialog, type ReviewCommand } from "./components/Controls";
+import { ChangeTotals } from "./components/ChangeTotals";
 import { DiffStat } from "./components/DiffStat";
 import {
   ReviewActions,
+  ReviewBar,
   ReviewHeader,
   ReviewTitle,
   ReviewTitleRow,
+  SessionToggle,
   type DisplayOptions,
   type ReviewPage,
 } from "./components/ReviewHeader";
@@ -1061,10 +1064,24 @@ export function App({
       focusShow.current = false;
       return;
     }
-    const button = visibleElement('[data-pane-show="session"]');
-    if (!button) return;
-    focusShow.current = false;
-    button.focus();
+    // The button can come a few frames later, as in the title band once the
+    // review fills the window; a focus that moved on meanwhile stays.
+    let frames = 0;
+    let frame = 0;
+    const focus = () => {
+      const now = document.activeElement;
+      if (now instanceof HTMLElement && now !== document.body && now.checkVisibility()) {
+        focusShow.current = false;
+        return;
+      }
+      const button = visibleElement('[data-pane-show="session"]');
+      if (button) {
+        focusShow.current = false;
+        button.focus();
+      } else if (++frames < 10) frame = requestAnimationFrame(focus);
+    };
+    focus();
+    return () => cancelAnimationFrame(frame);
   }, [sessionVisible, roomy]);
   const wrap = useViewSetting(viewSettings.wrap) === "on";
   const showNotes = useViewSetting(viewSettings.comments) === "shown";
@@ -1800,6 +1817,8 @@ export function App({
     [railSetting, railOpen],
   );
   const railLabel = `${railOpen ? "Hide" : "Show"} ${guideRail ? "the guide" : "changed files"}`;
+  // The rail's own icon: what it lists, not a sidebar.
+  const railIcon: IconName = guideRail ? "guide" : "fileTree";
   // ⌘B shows or hides the window's thread list; alone, the page's sidebar.
   const toggleReviewSidebar = shell?.toggleSidebar ?? toggleRail;
   const sidebarShown = railShown || guideRailShown;
@@ -5329,7 +5348,7 @@ export function App({
         <ToolButton
           label={railLabel}
           shortcut="⌘ B"
-          icon="panelLeft"
+          icon={railIcon}
           aria-label="Toggle sidebar"
           aria-pressed={railOpen}
           onClick={toggleReviewSidebar}
@@ -5345,7 +5364,7 @@ export function App({
   // own edge (railHide).
   const railShow = (changesRail || guideRail) && !railOpen && !identityShown && (
     <ToolButton
-      icon="panelLeft"
+      icon={railIcon}
       label={railLabel}
       shortcut="Mod+Alt+B"
       aria-pressed={false}
@@ -5357,7 +5376,7 @@ export function App({
   // that shows it again.
   const railHide = (
     <ToolButton
-      icon="panelLeft"
+      icon={railIcon}
       label={railLabel}
       shortcut="Mod+Alt+B"
       aria-pressed
@@ -5546,6 +5565,17 @@ export function App({
       onStep={stepGuide}
     />
   );
+  // The comparison's line totals on the pages that show its diff; a hover
+  // splits them by kind of file. A narrow row leaves them out.
+  const totals = (shownTab === "review" || shownTab === "changes") &&
+    paneControlsFit &&
+    state.review &&
+    state.review.files.length > 0 && (
+      <ChangeTotals
+        files={state.review.files}
+        range={`${shortRevision(state.review.base)} → ${shortRevision(state.review.head)}`}
+      />
+    );
   // The page's own controls, in the header's second row after the pages.
   const pageTools = (
     <>
@@ -5559,6 +5589,7 @@ export function App({
         </span>
       )}
       {streamChrome && layerMenu}
+      {totals}
       {/* The Commit tab's Stage all; its header would repeat the band's branch. */}
       {fileState.active === "commit" && commitApi && (
         <span ref={setStageSlot} {...stylex.props(styles.rowStage)} />
@@ -5631,8 +5662,20 @@ export function App({
       <>
         {band === "lead" && (
           <InTitleBand
-            lead={reviewName}
-            trail={<ReviewActions actions={reviewActions} display={display} />}
+            lead={
+              <>
+                {sessionToggle && <SessionToggle {...sessionToggle} />}
+                {leading}
+                {reviewName}
+              </>
+            }
+            trail={
+              <ReviewBar
+                inBand
+                {...barProps(controls)}
+                actions={<ReviewActions actions={reviewActions} display={display} />}
+              />
+            }
           />
         )}
         {band === "cover" && place && (
@@ -5647,18 +5690,38 @@ export function App({
             }
           />
         )}
-        {mainHeaderRows(controls, band === null)}
+        {band !== "lead" && mainHeaderRows(controls, band === null)}
+        {fileTabs}
       </>
     );
   };
+  // The session's toggle, while the session hides.
+  const sessionToggle =
+    !sessionVisible && (state.savedReview || found)
+      ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
+      : undefined;
+  // The second row's parts, also where the review's one row ends the band.
+  const barProps = (controls: ReactNode) => ({
+    session: sessionToggle,
+    lead: leading,
+    tools: pageTools,
+    more: rowMore,
+    pages: plainHeader ? [] : reviewPages,
+    page: shownPage,
+    onPage: selectTab,
+    controls: (
+      <span
+        ref={setPaneSlot}
+        {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
+      >
+        {controls}
+      </span>
+    ),
+  });
   const mainHeaderRows = (controls: ReactNode, titled: boolean) => (
     <>
       <ReviewHeader
-        session={
-          !sessionVisible && (state.savedReview || found)
-            ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
-            : undefined
-        }
+        {...barProps(controls)}
         identity={
           titled && (
             <ReviewTitleRow
@@ -5673,21 +5736,11 @@ export function App({
             />
           )
         }
-        lead={leading}
-        tools={pageTools}
-        more={rowMore}
-        pages={plainHeader ? [] : reviewPages}
-        page={shownPage}
-        onPage={selectTab}
-        controls={
-          <span
-            ref={setPaneSlot}
-            {...stylex.props(styles.rowPane, !paneControlsFit && styles.hiddenSurface)}
-          >
-            {controls}
-          </span>
-        }
       />
+    </>
+  );
+  const fileTabs = (
+    <>
       {/* An open Search tab has a label, empty before a query. */}
       {(fileState.tabs.length > 0 || fileState.searchLabel !== undefined) && (
         <FileViewTabs
@@ -5751,8 +5804,23 @@ export function App({
               revealPane("review");
               selectTab("review");
             },
+            id: savedReviewId,
+            titles: new Map(siblingReviews.map((thread) => [thread.id, thread.title])),
+            openReview: (id: string) => {
+              if (id === savedReviewId) {
+                revealPane("review");
+                selectTab("review");
+                return;
+              }
+              const thread = siblingReviews.find((each) => each.id === id);
+              if (!workspace || !thread) return;
+              const target = { kind: "review" as const, reviewId: id, title: thread.title };
+              const existing = workspace.match(target);
+              if (existing) workspace.activate(existing);
+              else workspace.open(target);
+            },
           },
-    [handoffTitle, revealPane, selectTab],
+    [handoffTitle, revealPane, selectTab, savedReviewId, siblingReviews, workspace],
   );
   // The session side panel's Reviews card: each review that the session
   // handed off, newest first, this one among them; then the live changes.
@@ -6759,6 +6827,11 @@ const toastRise = stylex.keyframes({
 /** The narrowest review column whose title row goes up into the title band:
  * room for its actions, and window controls at the band's end. */
 const BAND_ROW_MIN = 360;
+
+/** Abbreviate object IDs; keep symbolic endpoints such as "worktree" whole. */
+function shortRevision(revision: string) {
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision.slice(0, 7) : revision;
+}
 
 const styles = stylex.create({
   // The workspace fills its place in the window's shell.

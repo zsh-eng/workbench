@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
@@ -6,6 +6,7 @@ import { useTheme } from "../../themes";
 import { fileRefOf } from "../../data/file-refs";
 import { DiagramBlock } from "../DiagramBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
+import { ReviewLinkCard } from "./HandoffCard";
 import "../MarkdownPreview.css";
 
 /**
@@ -40,6 +41,7 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const refs = useFileRefs();
   const fileRefs = useRef(refs);
   const blocks = useFileRefBlocks(result?.blocks);
+  const reviewLinks = useMemo(() => blocks?.map((block) => reviewLinkOf(block.html)), [blocks]);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };
@@ -108,6 +110,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
         blocks.map((block, index) =>
           block.diagram !== undefined ? (
             <DiagramBlock key={index} block={block} />
+          ) : reviewLinks?.[index] ? (
+            <ReviewLinkCard key={index} {...reviewLinks[index]} />
           ) : (
             <div
               key={index}
@@ -122,3 +126,29 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     </div>
   );
 });
+
+// A review of Med's, as `med review create` prints it: on this machine.
+const REVIEW_URL = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/review\/([\w-]+)\/?$/i;
+const reviewLinks = new Map<string, { id: string; href: string; text: string } | null>();
+/** A paragraph that is only a link to a review of Med's, which shows as the
+ * review's card (ReviewLinkCard); null for any other block. */
+function reviewLinkOf(html: string) {
+  if (!html.includes("/review/")) return null;
+  const known = reviewLinks.get(html);
+  if (known !== undefined) return known;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const parts = (node: ParentNode) =>
+    [...node.childNodes].filter((child) => child.nodeType !== 3 || child.textContent?.trim());
+  const [paragraph, ...others] = parts(template.content);
+  const [link, ...rest] = paragraph instanceof HTMLParagraphElement ? parts(paragraph) : [];
+  const href =
+    link instanceof HTMLAnchorElement
+      ? (link.dataset.briefHref ?? link.getAttribute("href"))
+      : null;
+  const id = !others.length && !rest.length && href ? REVIEW_URL.exec(href)?.[1] : undefined;
+  const found = id ? { id, href: href!, text: link!.textContent?.trim() || "Review" } : null;
+  if (reviewLinks.size > 200) reviewLinks.clear();
+  reviewLinks.set(html, found);
+  return found;
+}

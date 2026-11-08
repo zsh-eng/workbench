@@ -445,7 +445,7 @@ test("a GitHub comment shows its Markdown: code, lists, task lists, quotes, and 
   expect(element.textContent).not.toContain("```");
 });
 
-test("a pull request is the thread's title in the window's band, before its checkout; the review's header is the card's first row", async () => {
+test("a pull request is the thread's title in the window's band, before its checkout; the review alone has its header in the band", async () => {
   pullTitle = `Rename the export ${"and every caller of it ".repeat(12)}`;
   await openChanges();
   const link = page.getByRole("link", { name: /^Open pull request #7: Rename the export/ });
@@ -478,10 +478,10 @@ test("a pull request is the thread's title in the window's band, before its chec
   expect(region(band)).toBe("drag");
   expect(region(link.element())).toBe("no-drag");
   expect(region(comments.element())).toBe("no-drag");
-  // The review card starts with its header.
+  // The review fills the window, so its header is the band's one row.
   const review = document.querySelector<HTMLElement>('[data-pane="review"]')!;
-  const header = review.querySelector('header[aria-label="Review header"]')!;
-  expect(header.getBoundingClientRect().top - review.getBoundingClientRect().top).toBeLessThan(10);
+  expect(band.querySelector('[aria-label="Review header"]')).not.toBeNull();
+  expect(review.querySelector('header[aria-label="Review header"]')).toBeNull();
 });
 
 /** The thread's Pull request tab, once its review shows. */

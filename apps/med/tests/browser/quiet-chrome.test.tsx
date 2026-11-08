@@ -262,15 +262,25 @@ const shown = () =>
   [...document.querySelectorAll<HTMLElement>("[data-review-status]")].find((element) =>
     element.checkVisibility({ visibilityProperty: true }),
   );
-/** The review's row: its tabs and the controls after them. */
-/** The review's header, its one row. */
+/** The review's header: in its pane, or, where the review fills the window,
+ * the title band, which is then the review's one row. */
 const row = () =>
-  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ?? undefined;
+  shown()?.querySelector<HTMLElement>('header[aria-label="Review header"]') ??
+  document
+    .querySelector('header[aria-label="Workspace"] [aria-label="Review header"]')
+    ?.closest<HTMLElement>('header[aria-label="Workspace"]') ??
+  undefined;
 /** What the diff shows: in Changes the comparison (atop the page's sidebar,
  * or in the header while it hides), in Review the checkout, when it has
  * several. */
 const comparison = () =>
-  shown()?.querySelector<HTMLElement>('[aria-label="Comparison"], [aria-label="Review checkout"]');
+  (shown()?.querySelector<HTMLElement>(
+    '[aria-label="Comparison"], [aria-label="Review checkout"]',
+  ) ??
+    row()?.querySelector<HTMLElement>(
+      '[aria-label="Comparison"], [aria-label="Review checkout"]',
+    )) ||
+  null;
 const openThread = async (title: string) => {
   const sidebar = page.getByRole("navigation", { name: "Sessions" });
   if (!sidebar.query()) await page.getByRole("button", { name: "Show sidebar" }).click();
@@ -529,7 +539,7 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   await page.getByRole("button", { name: /^Hide the session pane/ }).click();
   await expect.poll(session).toBeUndefined();
   await expect.element(showSession).toBeVisible();
-  expect(row()!.querySelector("button")).toBe(showSession.element());
+  expect(row()!.querySelector('[data-pane-show="session"]')).toBe(showSession.element());
   expect(showSession.element().getAttribute("data-tooltip-keys")).toBe("Mod+Shift+B");
   expect(document.activeElement).toBe(showSession.element());
   await showSession.click();
