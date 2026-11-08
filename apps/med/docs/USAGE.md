@@ -67,7 +67,13 @@ The review has three pages, `1`–`3`:
 | ---------------------------------------------------------------------- | ------------------------------------------------------ |
 | ![The Commit page with four files staged](screenshots/app/commit.webp) | ![Settings on one page](screenshots/app/settings.webp) |
 
-Every pane's header has **Expand** (`⌘E`). The review has **Hide** while the
+| Display, a row for each choice                                                     | Settings › Open in                                                                    |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| ![Display: layout, wrap, comments, text size, theme](screenshots/app/display.webp) | ![Code hosts, Sourcegraph, editors, and links](screenshots/app/settings-open-in.webp) |
+
+The review's header keeps one action, **Copy comments**, with their number;
+the rest is in `⌘K`, Settings and each of its sections too. Every pane's
+header has **Expand** (`⌘E`) and **Hide** (a line). The review hides while the
 session shows beside it; the session's header then has **Show review**.
 
 ![The review hidden, and Show review in the session's header](screenshots/app/review-hidden.webp)
