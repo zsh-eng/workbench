@@ -671,7 +671,6 @@ export function VaultWorkspace({ children }: { children: ReactNode }) {
                     line={line}
                     sourceLabel={source?.name ?? "Vault"}
                     onClose={() => closeTabs([currentFile.path])}
-                    refreshAvailable
                     onRefresh={() => setRefresh((value) => value + 1)}
                     editor={{
                       drafts,

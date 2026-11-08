@@ -260,163 +260,161 @@ export function NewThread({
   const effortName = efforts.find((option) => option.value === effort);
   return (
     <div ref={page} role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
-      <div {...stylex.props(styles.sheet)}>
-        <div {...stylex.props(styles.column)}>
-          <div {...stylex.props(styles.middle)}>
-            <WhereToWork
-              repositories={ordered}
-              chosen={repository?.id}
-              onPick={(id) => {
-                pick(id);
-                input.current?.focus();
-              }}
-              onAdd={addFolder}
-            />
+      <div {...stylex.props(styles.column)}>
+        <div {...stylex.props(styles.middle)}>
+          <WhereToWork
+            repositories={ordered}
+            chosen={repository?.id}
+            onPick={(id) => {
+              pick(id);
+              input.current?.focus();
+            }}
+            onAdd={addFolder}
+          />
+        </div>
+        <div {...stylex.props(styles.bottom)}>
+          <div {...stylex.props(styles.card)}>
+            {mentions.field(
+              <textarea
+                {...mentions.textarea}
+                value={prompt}
+                disabled={busy}
+                rows={3}
+                placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
+                aria-label="Task"
+                role="combobox"
+                aria-controls={mentions.textarea["aria-controls"]}
+                aria-expanded={mentions.open}
+                aria-autocomplete="list"
+                onChange={(event) => {
+                  setPrompt(event.target.value);
+                  mentions.changed(event.target.selectionStart);
+                }}
+                onKeyDown={(event) => {
+                  if (mentions.onKeyDown(event)) return;
+                  // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.altKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    void start();
+                  }
+                }}
+                {...stylex.props(styles.input, mentions.over)}
+              />,
+            )}
+            {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
           </div>
-          <div {...stylex.props(styles.bottom)}>
-            <div {...stylex.props(styles.card)}>
-              {mentions.field(
-                <textarea
-                  {...mentions.textarea}
-                  value={prompt}
-                  disabled={busy}
-                  rows={3}
-                  placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
-                  aria-label="Task"
-                  role="combobox"
-                  aria-controls={mentions.textarea["aria-controls"]}
-                  aria-expanded={mentions.open}
-                  aria-autocomplete="list"
-                  onChange={(event) => {
-                    setPrompt(event.target.value);
-                    mentions.changed(event.target.selectionStart);
-                  }}
-                  onKeyDown={(event) => {
-                    if (mentions.onKeyDown(event)) return;
-                    // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.metaKey &&
-                      !event.ctrlKey &&
-                      !event.altKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      void start();
-                    }
-                  }}
-                  {...stylex.props(styles.input, mentions.over)}
-                />,
-              )}
-              {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
-            </div>
-            <div {...stylex.props(styles.menus)}>
-              {ordered.length > 1 ? (
-                <ActionMenu
-                  label="Repository"
-                  align="start"
-                  trigger={styles.menu}
-                  sections={[
-                    ordered.map((entry) => ({
-                      label: entry.name,
-                      checked: entry.id === repository?.id,
-                      choice: true,
-                      onClick: () => pick(entry.id),
-                    })),
-                  ]}
-                >
-                  <MenuLabel icon="folder" text={repository?.name ?? "Repository"} />
-                </ActionMenu>
-              ) : (
-                repository && (
-                  <span {...stylex.props(styles.fact)}>
-                    <MenuLabel icon="folder" text={repository.name} />
-                  </span>
-                )
-              )}
-              <span {...stylex.props(styles.grow)} />
+          <div {...stylex.props(styles.menus)}>
+            {ordered.length > 1 ? (
               <ActionMenu
-                label="Where the agent works"
+                label="Repository"
+                align="start"
                 trigger={styles.menu}
                 sections={[
-                  [
-                    {
-                      label: `New worktree · ${branch}`,
-                      checked: choice.worktree,
-                      choice: true,
-                      onClick: () => remember({ worktree: true }),
-                    },
-                    {
-                      label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
-                      checked: !choice.worktree,
-                      choice: true,
-                      onClick: () => remember({ worktree: false }),
-                    },
-                  ],
+                  ordered.map((entry) => ({
+                    label: entry.name,
+                    checked: entry.id === repository?.id,
+                    choice: true,
+                    onClick: () => pick(entry.id),
+                  })),
                 ]}
               >
-                <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
+                <MenuLabel icon="folder" text={repository?.name ?? "Repository"} />
               </ActionMenu>
-              {agent && (
-                <ActionMenu
-                  label="Model"
-                  trigger={styles.menu}
-                  sections={[
-                    (options?.model?.options ?? []).map((option) => ({
-                      label: optionName(option),
-                      checked: option.value === model,
-                      choice: true,
-                      onClick: () => chooseAgent({ model: option.value }),
-                    })),
-                    agents && agents.length > 1
-                      ? [
-                          {
-                            label: `Agent · ${agent.name}`,
-                            sections: [
-                              agents.map((entry) => ({
-                                label: entry.name,
-                                checked: entry.id === agent.id,
-                                choice: true,
-                                onClick: () => chooseAgent({ preset: entry.id }),
-                              })),
-                            ],
-                          },
-                        ]
-                      : [],
-                  ]}
-                >
-                  <AgentLabel
-                    kind={agent.kind}
-                    model={modelName ? optionName(modelName) : agent.name}
-                  />
-                </ActionMenu>
-              )}
-              {effort && (
-                <ActionMenu
-                  label="Effort"
-                  trigger={styles.menu}
-                  sections={[
-                    efforts.map((option) => ({
-                      label: optionName(option),
-                      checked: option.value === effort,
-                      choice: true,
-                      onClick: () => chooseAgent({ effort: option.value }),
-                    })),
-                  ]}
-                >
-                  <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
-                </ActionMenu>
-              )}
-            </div>
-            <p {...stylex.props(styles.hint)} aria-live="polite">
-              {error ? (
-                <span {...stylex.props(styles.error)}>{error}</span>
-              ) : busy ? (
-                "Starting the agent…"
-              ) : null}
-            </p>
+            ) : (
+              repository && (
+                <span {...stylex.props(styles.fact)}>
+                  <MenuLabel icon="folder" text={repository.name} />
+                </span>
+              )
+            )}
+            <span {...stylex.props(styles.grow)} />
+            <ActionMenu
+              label="Where the agent works"
+              trigger={styles.menu}
+              sections={[
+                [
+                  {
+                    label: `New worktree · ${branch}`,
+                    checked: choice.worktree,
+                    choice: true,
+                    onClick: () => remember({ worktree: true }),
+                  },
+                  {
+                    label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
+                    checked: !choice.worktree,
+                    choice: true,
+                    onClick: () => remember({ worktree: false }),
+                  },
+                ],
+              ]}
+            >
+              <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
+            </ActionMenu>
+            {agent && (
+              <ActionMenu
+                label="Model"
+                trigger={styles.menu}
+                sections={[
+                  (options?.model?.options ?? []).map((option) => ({
+                    label: optionName(option),
+                    checked: option.value === model,
+                    choice: true,
+                    onClick: () => chooseAgent({ model: option.value }),
+                  })),
+                  agents && agents.length > 1
+                    ? [
+                        {
+                          label: `Agent · ${agent.name}`,
+                          sections: [
+                            agents.map((entry) => ({
+                              label: entry.name,
+                              checked: entry.id === agent.id,
+                              choice: true,
+                              onClick: () => chooseAgent({ preset: entry.id }),
+                            })),
+                          ],
+                        },
+                      ]
+                    : [],
+                ]}
+              >
+                <AgentLabel
+                  kind={agent.kind}
+                  model={modelName ? optionName(modelName) : agent.name}
+                />
+              </ActionMenu>
+            )}
+            {effort && (
+              <ActionMenu
+                label="Effort"
+                trigger={styles.menu}
+                sections={[
+                  efforts.map((option) => ({
+                    label: optionName(option),
+                    checked: option.value === effort,
+                    choice: true,
+                    onClick: () => chooseAgent({ effort: option.value }),
+                  })),
+                ]}
+              >
+                <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
+              </ActionMenu>
+            )}
           </div>
+          <p {...stylex.props(styles.hint)} aria-live="polite">
+            {error ? (
+              <span {...stylex.props(styles.error)}>{error}</span>
+            ) : busy ? (
+              "Starting the agent…"
+            ) : null}
+          </p>
         </div>
       </div>
     </div>
@@ -460,27 +458,14 @@ const enter = stylex.keyframes({
 });
 
 const styles = stylex.create({
-  // On the window's frame, a card like the panes', so the page reads apart
-  // from the sidebar.
   page: {
     position: "absolute",
     inset: 0,
     zIndex: 30,
     display: "flex",
-    boxSizing: "border-box",
-    padding: 6,
-    paddingTop: 0,
-    backgroundColor: tokens.panel,
-  },
-  sheet: {
-    flex: "1",
-    minWidth: 0,
-    display: "flex",
     justifyContent: "center",
     paddingInline: 24,
-    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   column: {
     display: "flex",

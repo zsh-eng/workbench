@@ -39,10 +39,9 @@ import { resizeLine } from "./ColumnResize";
 import { Icon, type IconName } from "./Icon";
 import { ToolButton } from "./ToolButton";
 
-/** The room between panes and around them, in pixels. The design board's
- * flat panels (demo.html?panels=flat, flat-panels.css) have a 1-pixel line. */
-export const PANE_GAP =
-  typeof document !== "undefined" && document.documentElement.dataset.panels === "flat" ? 1 : 6;
+/** The room between panes, in pixels: a line, as in Claude's desktop app.
+ * The panes are flat, edge to edge, and each gutter draws the line. */
+export const PANE_GAP = 1;
 const STORAGE = "med:panes:v1:";
 const KEYBOARD_STEP = 24;
 
@@ -959,14 +958,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
-    boxShadow: {
-      default: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
-      ":is([data-focused])": `0 0 0 1px ${tokens.lineStrong}, 0 1px 3px #0000000f`,
-    },
-    transitionProperty: "box-shadow",
-    transitionDuration: "120ms",
     outline: "none",
     contain: "strict",
     pointerEvents: { default: null, ":is(html[data-pane-resizing] *)": "none" },
@@ -981,14 +973,12 @@ const styles = stylex.create({
   veil: {
     position: "absolute",
     zIndex: 3,
-    borderRadius: tokens.frame,
     backgroundColor: `color-mix(in srgb, ${tokens.panel} 55%, transparent)`,
     pointerEvents: "none",
   },
   drop: {
     position: "absolute",
     zIndex: 4,
-    borderRadius: `calc(${tokens.frame} - 2px)`,
     backgroundColor: `color-mix(in srgb, ${tokens.accent} 12%, transparent)`,
     boxShadow: `inset 0 0 0 1.5px ${tokens.accentLine}`,
     pointerEvents: "none",
@@ -1030,10 +1020,12 @@ const styles = stylex.create({
   // Zoom keeps the other panes laid out, so they keep their scroll.
   behind: { visibility: "hidden" },
   zoomed: { zIndex: 1 },
+  // The line between two panes.
   gutter: {
     position: "absolute",
     zIndex: 2,
     display: "flex",
+    backgroundColor: tokens.line,
     alignItems: "center",
     justifyContent: "center",
     outline: "none",

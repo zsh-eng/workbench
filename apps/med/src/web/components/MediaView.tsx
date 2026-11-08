@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { FileRead } from "../../shared/local-file";
 import { tokens } from "../theme.stylex";
-import { ToolButton, tooltip } from "./ToolButton";
+import { tooltip } from "./ToolButton";
 import "./MediaView.css";
 import { Icon } from "./Icon";
 
@@ -66,16 +66,13 @@ function Preview({ src, label, video = false }: { src: string; label: string; vi
 export function MediaFileView({
   file,
   compact,
-  onClose,
   onRefresh,
-  refreshAvailable = true,
   stale,
 }: {
   file: FileRead;
   compact?: boolean;
-  onClose?(): void;
+  /** Read the file again, when it changed on disk. */
   onRefresh(): void;
-  refreshAvailable?: boolean;
   stale?: boolean;
 }) {
   const [actual, setActual] = useState(false);
@@ -98,7 +95,11 @@ export function MediaFileView({
                 ? `${(file.size / 1024).toFixed(1)} KiB`
                 : `${(file.size / (1024 * 1024)).toFixed(1)} MiB`}
           </span>
-          {stale && <span className="med-media-detail">Changed on disk</span>}
+          {stale && (
+            <button className="med-media-fit" onClick={onRefresh}>
+              Changed on disk · Reload
+            </button>
+          )}
           {file.kind === "image" && (
             <button
               className="med-media-fit"
@@ -109,10 +110,6 @@ export function MediaFileView({
               {actual ? "Fit" : "1:1"}
             </button>
           )}
-          {refreshAvailable && (
-            <ToolButton label="Refresh file" icon="refresh" onClick={onRefresh} />
-          )}
-          {onClose && <ToolButton label="Close file" icon="close" onClick={onClose} />}
         </header>
       )}
       <div className="med-media-stage" data-actual={actual}>

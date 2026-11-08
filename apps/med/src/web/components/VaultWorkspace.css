@@ -3,18 +3,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--med-panel);
+  background: var(--med-canvas);
   color: var(--med-text);
   font: 12px var(--med-font-ui);
 }
-/* The review's frame: a 6px inset, a sidebar on the panel, and the file card. */
+/* Flat, as the review's panes: the files and the note, a line between. */
 .med-vault-layout {
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 0 6px 6px;
 }
-/* A card like the file's, so the files read apart from the app's sidebar. */
 .med-vault-sidebar {
   flex: none;
   display: flex;
@@ -24,10 +22,6 @@
   min-height: 0;
   overflow: hidden;
   background: var(--med-canvas);
-  border-radius: 10px;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--med-text) 8%, transparent),
-    0 1px 3px #0000000f;
 }
 .med-vault-sidebar > aside {
   height: auto;
@@ -39,19 +33,33 @@
   height: 38px;
   min-height: 38px;
 }
-/* A hairline that shows on hover, like the review's sidebar divider. */
+/* The line between the files and the note; on hover, the accent's. Its hit
+   area reaches into both sides. */
 .med-vault-resizer {
   position: relative;
+  z-index: 1;
   display: flex;
   justify-content: center;
   flex: none;
-  width: 6px;
+  width: 1px;
+  background: color-mix(
+    in srgb,
+    var(--med-line-from, var(--med-text)) var(--med-line-mix, 8%),
+    transparent
+  );
   cursor: col-resize;
   outline: none;
   touch-action: none;
 }
+.med-vault-resizer::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -3px;
+}
 .med-vault-resizer::after {
   content: "";
+  flex: none;
   width: 2px;
   height: 100%;
   border-radius: calc(1px * var(--med-round, 1));
@@ -72,11 +80,6 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--med-canvas);
-  /* tokens.frame: concentric with the macOS window corner in every theme. */
-  border-radius: 10px;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--med-text) 8%, transparent),
-    0 1px 3px #0000000f;
 }
 .med-vault-tabbar {
   display: flex;

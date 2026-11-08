@@ -197,10 +197,12 @@ function Checkout({
 }
 
 const styles = stylex.create({
-  // Level with the sidebar's own top row, so both read as one band.
+  // Level with the sidebar's own top row, so both read as one band; a line
+  // at its foot, where the panes start.
   bar: {
     display: "flex",
     alignItems: "center",
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
     gap: 4,
     flexShrink: 0,
     minWidth: 0,

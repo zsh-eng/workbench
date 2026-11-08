@@ -850,16 +850,6 @@ export default function FileEditor({
         <span className="med-editor-path" title={fileTitle(draft.file.path, draft.file.size)}>
           {context.path ?? draft.file.path}
         </span>
-        <span className="med-editor-mode" aria-live="polite" title="Editing file · Vim">
-          {`Vim · ${mode}`}
-        </span>
-        <ToolButton
-          label="Save"
-          icon="save"
-          shortcut="⌘ S"
-          onClick={() => void save()}
-          disabled={!draft.dirty || draft.saving}
-        />
         {context.loadBlame && (
           <ToolButton
             label={draft.dirty ? "Blame updates after saving" : "Toggle Git blame"}
@@ -873,24 +863,7 @@ export default function FileEditor({
             }}
           />
         )}
-        {context.onOpenBefore && <button onClick={context.onOpenBefore}>Open before</button>}
-        {context.onOpenAfter && <button onClick={context.onOpenAfter}>Open after</button>}
-        {context.refreshAvailable !== false && (
-          <ToolButton
-            label="Refresh file"
-            icon="refresh"
-            onClick={context.onRefresh}
-            disabled={draft.dirty || draft.saving}
-          />
-        )}
         {previewControl}
-        <ToolButton
-          label="Close file"
-          shortcut=":q"
-          icon="close"
-          onClick={close}
-          disabled={draft.saving}
-        />
       </header>
       {draft.error && !conflict && (
         <div role="alert" className="med-editor-message">

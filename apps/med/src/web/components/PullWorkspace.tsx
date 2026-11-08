@@ -222,12 +222,12 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     color: tokens.text,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.canvas,
     fontFamily: tokens.ui,
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
-  workspace: { display: "flex", flex: "1", minHeight: 0, gap: 6, padding: 6 },
+  workspace: { display: "flex", flex: "1", minHeight: 0 },
   main: {
     minWidth: 0,
     flex: "1",
@@ -238,8 +238,6 @@ const styles = stylex.create({
     paddingBlock: { default: 56, "@media (max-width: 640px)": 24 },
     paddingInline: { default: 24, "@media (max-width: 640px)": 14 },
     backgroundColor: tokens.canvas,
-    borderRadius: tokens.frame,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   card: {
     width: "100%",

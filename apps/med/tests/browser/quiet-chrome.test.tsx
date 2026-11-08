@@ -681,7 +681,7 @@ test("the installed app's top row is the strip's height, so its controls sit on 
   }
 });
 
-test("a card's tab puts its controls on the window controls' centre line, clear of the tab's edge", async () => {
+test("a page's header in the title bar puts its controls on the window controls' centre line", async () => {
   hideTitleBar(38);
   await page.viewport(1280, 800);
   initializeTheme();
@@ -713,8 +713,8 @@ test("a card's tab puts its controls on the window controls' centre line, clear 
     card.getByRole("heading", { name: "Sources" }),
   ];
   // macOS's strip and a taller one: the strip's centre line. A strip lower
-  // than 38 px keeps the 38 px tab, whose controls would otherwise leave
-  // the card: they sit at 19 px, below that strip's centre.
+  // than 38 px keeps a 38 px header: its controls sit at 19 px, below that
+  // strip's centre.
   for (const [height, line] of [
     [38, 19],
     [44, 22],
@@ -723,7 +723,7 @@ test("a card's tab puts its controls on the window controls' centre line, clear 
     hideTitleBar(height);
     await frame();
     for (const part of parts) expect(middle(part.element())).toBeCloseTo(line, 1);
-    // The tab's top edge is the card's, and its 1 px outline is drawn there.
+    // The header starts at the window's top, and its controls are inside it.
     const edge = card.element().getBoundingClientRect().top;
     for (const part of parts.slice(0, 3))
       expect(part.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(edge + 2);

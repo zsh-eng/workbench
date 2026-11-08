@@ -3473,22 +3473,6 @@ export function App({
       window.removeEventListener("med-vault-navigate", follow);
     };
   }, [activeVault, activePath, activeSourceLabel, browseApi, fileWorkspace, showToast, shown]);
-  // A primitive copy, so the callbacks below do not depend on a mutable file object.
-  const activeDiffPath = activeDiffFile ? `${activeDiffFile.path}` : undefined;
-  const openBeforeVersion = useCallback(() => {
-    if (activeDiffPath) openVersion(activeDiffPath, "old");
-  }, [activeDiffPath, openVersion]);
-  const openAfterVersion = useCallback(() => {
-    if (activeDiffPath) openVersion(activeDiffPath, "new");
-  }, [activeDiffPath, openVersion]);
-  const openBefore =
-    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.base ?? "")
-      ? openBeforeVersion
-      : undefined;
-  const openAfter =
-    activeDiffPath && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(state.review?.head ?? "")
-      ? openAfterVersion
-      : undefined;
   const runFileNavigation = (keys: string, control = false) => {
     if (keys !== "/" && keys !== "?") setVimEnabled(true);
     // Run after the palette releases its focus trap.
@@ -6484,8 +6468,6 @@ export function App({
                 onRefresh={refreshFile}
                 onClose={closeActiveFile}
                 onOpenFile={openLinkedFile}
-                onOpenBefore={openBefore}
-                onOpenAfter={openAfter}
                 openIn={
                   activeFile.source.kind === "worktree"
                     ? {
@@ -6639,10 +6621,7 @@ export function App({
           }
         />
         <div
-          {...stylex.props(
-            styles.workspace,
-            (!!workspace || branches.visible.length < 2) && styles.workspaceTop,
-          )}
+          {...stylex.props(styles.workspace)}
           id={`${idPrefix}review-workspace`}
           role="tabpanel"
           aria-label={`${state.activeBranch ?? "Workspace"} review`}
@@ -6713,7 +6692,7 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     color: tokens.text,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.canvas,
     fontFamily: tokens.ui,
     fontSize: 12,
     isolation: "isolate",
@@ -6752,10 +6731,7 @@ const styles = stylex.create({
     justifyContent: "center",
     gap: 4,
     flex: "1",
-    margin: 6,
-    borderRadius: tokens.frame,
     backgroundColor: tokens.canvas,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
     color: tokens.muted,
     fontFamily: tokens.ui,
   },
@@ -6766,12 +6742,7 @@ const styles = stylex.create({
     display: "flex",
     flex: "1",
     minHeight: 0,
-    paddingInline: 6,
-    paddingBottom: 6,
   },
-  // Without the strip, the panes start at the title row's foot: the row is
-  // the room above them, so its title is centred in that room.
-  workspaceTop: { paddingTop: 0 },
   main: {
     position: "relative",
     minWidth: 0,
@@ -6780,8 +6751,6 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: tokens.frame,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   reviewSurface: {
     position: "relative",

@@ -92,11 +92,10 @@ export interface FullFileViewProps {
   /** Shows the cursor line's author and age after its text. Default: true. */
   lineBlame?: boolean;
   loadCommit?: CommitLoader;
+  /** Read the file again, when the workspace changed it. */
   onRefresh(): void;
-  refreshAvailable?: boolean;
+  /** Vim's :q in the editor. */
   onClose?(): void;
-  onOpenBefore?(): void;
-  onOpenAfter?(): void;
   onOpenFile?(path: string, line?: number): void;
   onEdit?(): void;
   /** Open in, for a working-tree file: its code host, editors, and paths. */
@@ -149,10 +148,6 @@ function ReadOnlyFileView({
   lineBlame = true,
   loadCommit,
   onRefresh,
-  refreshAvailable = true,
-  onClose,
-  onOpenBefore,
-  onOpenAfter,
   onEdit,
   openIn,
 }: FullFileViewProps) {
@@ -526,24 +521,6 @@ function ReadOnlyFileView({
               onClick={() => setBlameOpen(!blameOpen)}
             />
           )}
-          {onOpenBefore && (
-            <button {...stylex.props(ui.button)} onClick={onOpenBefore}>
-              Open before
-            </button>
-          )}
-          {onOpenAfter && (
-            <button {...stylex.props(ui.button)} onClick={onOpenAfter}>
-              Open after
-            </button>
-          )}
-          {refreshAvailable && (
-            <ToolButton
-              label="Refresh file"
-              icon="refresh"
-              disabled={loading}
-              onClick={onRefresh}
-            />
-          )}
           {openIn && (
             <OpenInMenu
               actions={openIn.actions}
@@ -552,7 +529,6 @@ function ReadOnlyFileView({
             />
           )}
           {previewControl}
-          {onClose && <ToolButton label="Close file" icon="close" onClick={onClose} />}
         </header>
       )}
       {stale && !loading && (
@@ -1035,14 +1011,6 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
               {props.sourceLabel.replace(/^Working files\b/, "Working file")}
             </span>
           )}
-          {props.refreshAvailable && (
-            <ToolButton
-              label="Refresh file"
-              icon="refresh"
-              disabled={!!draft?.dirty}
-              onClick={props.onRefresh}
-            />
-          )}
           {props.openIn && !draft?.editing && (
             <OpenInMenu
               actions={props.openIn.actions}
@@ -1051,7 +1019,6 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
             />
           )}
           {previewControl}
-          {props.onClose && <ToolButton label="Close file" icon="close" onClick={props.onClose} />}
         </header>
         <Suspense fallback={<div className="med-markdown" aria-hidden="true" />}>
           <MarkdownPreview

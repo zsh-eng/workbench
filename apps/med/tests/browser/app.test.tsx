@@ -1484,7 +1484,9 @@ describe("graphical review", () => {
         path: "src/alpha.ts",
       });
     expect(diffHost?.isConnected).toBe(true);
-    await page.getByRole("button", { name: "Open before", exact: true }).click();
+    // The file's header has no Open before; ⌘K does.
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await page.getByRole("option", { name: /^Open before version of current file/ }).click();
     await expect.poll(() => fileRequests.at(-1)?.source.kind).toBe("commit");
     // Commit snapshots stay read-only.
     await expect
@@ -4385,13 +4387,16 @@ describe("agent session", () => {
     const side = pane.getByRole("complementary", { name: "Session details" });
     await expect.element(side).toBeVisible();
     // Beside the panel, the thread's column takes the room that is left: the
-    // message box is that room less its 12 pixel sides and the thread's
-    // 12 pixel scroll bar, which it leaves in view.
+    // message box is that room less its 12 pixel sides, and once it is over
+    // the thread, less the thread's 12 pixel scroll bar, which it leaves in
+    // view.
     const box = () =>
       pane.getByRole("form", { name: "Message Claude" }).element().getBoundingClientRect().width;
     const room = () =>
       pane.element().getBoundingClientRect().width - side.element().getBoundingClientRect().width;
-    await expect.poll(box).toBeCloseTo(room() - 36, 0);
+    await expect
+      .poll(() => [24, 36].some((less) => Math.abs(room() - less - box()) < 0.5))
+      .toBe(true);
     const context = side.getByRole("region", { name: "Context" });
     await expect.element(context).toMatchTextContent(/^Context31%/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();

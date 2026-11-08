@@ -107,10 +107,7 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
         | undefined
     )?.dataset.itemPath;
   return (
-    <aside
-      {...stylex.props(styles.panel, controls !== undefined && styles.inColumn)}
-      aria-label={props.label ?? "Repository files"}
-    >
+    <aside {...stylex.props(styles.panel)} aria-label={props.label ?? "Repository files"}>
       {controls !== undefined ? (
         <div {...paneHandle} {...stylex.props(styles.paneHeading)}>
           <span {...stylex.props(styles.paneTitle)}>Files</span>
@@ -185,7 +182,8 @@ export const RepositoryFiles = memo(function RepositoryFiles(props: RepositoryFi
                 "--trees-font-family-override": tokens.ui,
                 "--trees-theme-sidebar-header-fg": tokens.muted,
                 "--trees-accent-override": tokens.accent,
-                "--trees-theme-sidebar-bg": controls !== undefined ? tokens.canvas : tokens.panel,
+                // On the canvas, as every pane: apart from the app's sidebar.
+                "--trees-theme-sidebar-bg": tokens.canvas,
                 "--trees-theme-sidebar-fg": tokens.text,
                 "--trees-theme-list-active-selection-bg": tokens.selected,
                 "--trees-theme-list-active-selection-fg": tokens.selectedText,
@@ -215,14 +213,12 @@ const styles = stylex.create({
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    // The card it sits in gives the color.
+    // The pane or column it sits in gives the color.
     backgroundColor: "transparent",
     color: tokens.text,
     fontFamily: tokens.ui,
     overflow: "hidden",
   },
-  // In the pane column: the column's card color, and its 40-pixel header.
-  inColumn: { backgroundColor: tokens.canvas },
   paneHeading: {
     display: "flex",
     alignItems: "center",

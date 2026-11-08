@@ -244,34 +244,27 @@ const tabEnter = stylex.keyframes({
   from: { opacity: 0, transform: "translateX(-4px)" },
   to: { opacity: 1, transform: "none" },
 });
-/** The current tab's corners: rounded at its top, and turned inward where it
- * meets the file below, as Chrome's are. */
-const CORNER = `calc(8px * ${tokens.round})`;
 const styles = stylex.create({
-  // The strip's bottom line is a shadow inside it, not a border: the current
-  // tab and its inward corners cover it, where a border would clip them.
+  // Plain rectangles, a line between each. The strip's bottom line is a
+  // shadow inside it, so the current tab, on the file's color, covers it
+  // and joins the file below.
   root: {
     display: "flex",
-    alignItems: "flex-end",
-    gap: 4,
+    alignItems: "stretch",
     flexShrink: 0,
     minWidth: 0,
     height: 38,
     minHeight: 38,
     boxSizing: "border-box",
-    paddingInline: 6,
     backgroundColor: tokens.panel,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
-  // The tabs narrow as more open and never scroll. Room at the ends keeps the
-  // first and last tabs' inward corners.
+  // The tabs narrow as more open and never scroll.
   list: {
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "stretch",
     flex: "1",
     minWidth: 0,
-    height: "100%",
-    paddingInline: CORNER,
     overflow: "hidden",
   },
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
@@ -280,25 +273,23 @@ const styles = stylex.create({
   item: {
     position: "relative",
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "stretch",
     flexGrow: 0,
     flexShrink: 1,
     flexBasis: 200,
     minWidth: 56,
-    height: 32,
   },
   tab: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    height: "100%",
     minWidth: 0,
     borderWidth: 0,
-    borderTopLeftRadius: CORNER,
-    borderTopRightRadius: CORNER,
+    borderRadius: 0,
+    boxShadow: `inset -1px 0 0 ${tokens.line}`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
-    paddingInline: 10,
+    paddingInline: 12,
     fontFamily: tokens.ui,
     fontSize: 12,
     fontWeight: 450,
@@ -307,36 +298,16 @@ const styles = stylex.create({
     outlineOffset: -2,
     whiteSpace: "nowrap",
   },
-  changes: { flexShrink: 0, paddingInlineEnd: 6 },
+  changes: { flexShrink: 0 },
   enter: {
     animationName: { default: tabEnter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { width: "100%", paddingInlineEnd: 26 },
+  fileTab: { width: "100%", paddingInlineEnd: 28 },
   active: {
-    position: "relative",
-    zIndex: 1,
     color: { default: tokens.text, ":hover": tokens.text },
     backgroundColor: { default: tokens.canvas, ":hover": tokens.canvas },
-    "::before": {
-      content: "''",
-      position: "absolute",
-      bottom: 0,
-      left: `calc(-1 * ${CORNER})`,
-      width: CORNER,
-      height: CORNER,
-      backgroundImage: `radial-gradient(circle at 0 0, transparent ${CORNER}, ${tokens.canvas} calc(${CORNER} + 0.5px))`,
-    },
-    "::after": {
-      content: "''",
-      position: "absolute",
-      bottom: 0,
-      right: `calc(-1 * ${CORNER})`,
-      width: CORNER,
-      height: CORNER,
-      backgroundImage: `radial-gradient(circle at 100% 0, transparent ${CORNER}, ${tokens.canvas} calc(${CORNER} + 0.5px))`,
-    },
   },
   // A long name fades at the tab's edge; a short one never reaches it.
   name: {
@@ -364,8 +335,8 @@ const styles = stylex.create({
   dirty: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 10,
-    bottom: 13,
+    insetInlineEnd: 12,
+    top: "calc(50% - 3px)",
     width: 6,
     height: 6,
     borderRadius: "50%",
@@ -376,8 +347,8 @@ const styles = stylex.create({
   close: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 4,
-    bottom: 7,
+    insetInlineEnd: 6,
+    top: "calc(50% - 9px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

@@ -2899,11 +2899,13 @@ const styles = stylex.create({
     WebkitFontSmoothing: "antialiased",
   },
   width: (width: number) => ({ width }),
+  // The sidebar on the panel's color, with a line at its edge.
   shellSidebar: {
     display: "flex",
     flexShrink: 0,
     minWidth: 0,
     minHeight: 0,
+    boxShadow: `inset -1px 0 0 ${tokens.line}`,
   },
   shellGutter: {
     position: "relative",
@@ -2943,6 +2945,7 @@ const styles = stylex.create({
     flex: "1",
     minWidth: 0,
     minHeight: 0,
+    backgroundColor: tokens.canvas,
   },
   shellViews: {
     position: "relative",
@@ -2966,8 +2969,14 @@ const styles = stylex.create({
     backgroundColor: "#00000040",
   },
   shellLayer: { position: "absolute", inset: 0 },
-  // Show sidebar in the corner of a page's card, such as Settings.
-  pageToggle: { position: "absolute", zIndex: 2, top: 12, left: 12 },
+  // Show sidebar in the corner of a page of its own, such as Settings, where
+  // the title row's would be.
+  pageToggle: {
+    position: "absolute",
+    zIndex: 2,
+    top: "calc(var(--med-top-row) / 2 - 14px)",
+    left: "max(calc(var(--med-titlebar-left) + 4px), 8px)",
+  },
   slot: { display: "contents" },
   // The list sits under the sidebar's identity row and above History. It
   // appears with the second workspace, so it settles in rather than sliding.

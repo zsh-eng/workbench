@@ -74,14 +74,6 @@
 .med-editor-body .cm-editor {
   height: 100%;
 }
-.med-editor-mode {
-  min-width: 48px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  color: var(--edit-muted);
-  font-size: 10px;
-}
-
 /* Match the read-only Vim caret. The layer scrolls with the document, so
    scrolling does not need to animate cursor coordinates. CodeMirror draws the
    insert caret in its selection layer; its native text caret stays hidden. */

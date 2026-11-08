@@ -362,8 +362,7 @@ const styles = stylex.create({
     flex: "1",
     minHeight: 0,
     display: "flex",
-    padding: 6,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.canvas,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 13,
@@ -374,8 +373,6 @@ const styles = stylex.create({
     minWidth: 0,
     overflowY: "auto",
     backgroundColor: tokens.canvas,
-    borderRadius: tokens.frame,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   // The text's column; the cards reach 20 pixels past it on each side.
   column: {

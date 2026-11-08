@@ -5,7 +5,6 @@ import { picked, tokens, ui } from "../theme.stylex";
 import { openWelcome } from "../data/setup";
 import { visibleElement } from "../data/palette-focus";
 import { useTitleBarOverlay } from "../data/title-bar";
-import { CardTab, tabbedCard } from "./CardTab";
 import { Icon } from "./Icon";
 import { ToolButton } from "./ToolButton";
 import { displayPath } from "./welcome/Welcome";
@@ -143,11 +142,15 @@ export function SourcesView({
         </ul>
       </section>
     );
+  // In the title bar, the header moves the window (TitleRow.css).
+  const head = stylex.props(styles.header, tab && styles.headerInBar);
   return (
     <div {...stylex.props(styles.page, tab && styles.pageTab)}>
-      <main aria-label="Sources" {...stylex.props(styles.card, tab && tabbedCard.card)}>
-        {tab && <CardTab />}
-        <header {...stylex.props(styles.header)}>
+      <main aria-label="Sources" {...stylex.props(styles.card)}>
+        <header
+          className={`${tab ? "med-title-row " : ""}${head.className ?? ""}`}
+          style={head.style}
+        >
           <ToolButton label="Back" shortcut="Esc" icon="arrowLeft" onClick={onBack} />
           <h1 {...stylex.props(styles.title)}>Sources</h1>
           <span {...stylex.props(ui.grow)} />
@@ -375,19 +378,18 @@ const spin = stylex.keyframes({ to: { transform: "rotate(360deg)" } });
 const narrow = "@media (max-width: 640px)";
 
 const styles = stylex.create({
-  // The review's frame: a 6px gutter on the panel, and one card.
+  // Flat, as the review's panes: the page on the canvas.
   page: {
     flex: "1",
     minHeight: 0,
     display: "flex",
-    padding: 6,
-    backgroundColor: tokens.panel,
+    backgroundColor: tokens.canvas,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,
     WebkitFontSmoothing: "antialiased",
   },
-  // The view starts below the title bar; the card rises into it.
+  // The view starts below the title bar; the page rises into it.
   pageTab: { marginTop: "calc(-1 * var(--med-titlebar-height))" },
   card: {
     position: "relative",
@@ -397,8 +399,6 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden",
     backgroundColor: tokens.canvas,
-    borderRadius: tokens.frame,
-    boxShadow: `0 0 0 1px ${tokens.line}, 0 1px 3px #0000000f`,
   },
   // As the review card's first row.
   header: {
@@ -409,9 +409,16 @@ const styles = stylex.create({
     height: 38,
     paddingInline: 6,
     boxSizing: "border-box",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: tokens.line,
+    // A line inside its foot, so its controls are centred in all of it.
+    boxShadow: `inset 0 -1px 0 ${tokens.line}`,
+  },
+  // With the title bar hidden, the header is the window's top strip: its
+  // controls on the window controls' centre line, clear of them at either
+  // side. A strip lower than macOS's 38 px keeps 38.
+  headerInBar: {
+    height: "max(var(--med-titlebar-height), 38px)",
+    paddingInlineStart: "max(calc(var(--med-titlebar-left) + 4px), 6px)",
+    paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 6px)",
   },
   title: {
     margin: 0,

@@ -51,13 +51,8 @@ test("binary, missing and too-large responses never mount a code renderer", asyn
     .toBeVisible();
   expect(document.querySelector("diffs-container")).toBeNull();
   expect(mount!.textContent).not.toContain("DO NOT RENDER");
-  let before = 0;
-  root!.render(
-    <FullFileView {...props} file={{ ...base, kind: "missing" }} onOpenBefore={() => before++} />,
-  );
+  root!.render(<FullFileView {...props} file={{ ...base, kind: "missing" }} />);
   await expect.element(page.getByText("This file does not exist in this worktree.")).toBeVisible();
-  await page.getByRole("button", { name: "Open before" }).click();
-  expect(before).toBe(1);
   expect(document.querySelector("diffs-container")).toBeNull();
   root!.render(<FullFileView {...props} file={{ ...base, kind: "too-large", size: 90_000_000 }} />);
   await expect.element(page.getByText("This file exceeds the preview size limit.")).toBeVisible();

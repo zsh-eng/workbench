@@ -414,7 +414,7 @@ test("Vim edits, undo, retained drafts, and :w use the production file API", asy
   await userEvent.keyboard(":w{Enter}");
   await expect.poll(() => source).toBe("const total = 1;\r\n");
   await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await userEvent.keyboard(":q{Enter}");
   await expect.element(editor).not.toBeInTheDocument();
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
   await expect.element(editor).toHaveTextContent("const total = 1;");
@@ -435,7 +435,7 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwdraft{Escape}");
   source = "const agent = 2;";
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect
     .element(page.getByRole("region", { name: "Changes on disk" }).getByRole("status"))
     .toMatchTextContent(
@@ -443,10 +443,11 @@ test("a conflicting save keeps the draft until explicit discard", async () => {
     );
   await expect.element(editor).toHaveTextContent("const draft = 1;");
   expect(source).toBe("const agent = 2;");
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await userEvent.keyboard(":q{Enter}");
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect.element(editor).toHaveTextContent("const draft = 1;");
-  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await editor.click();
+  await userEvent.keyboard(":q{Enter}");
   await page.getByRole("button", { name: "Discard draft", exact: true }).click();
   await expect.element(editor).not.toBeInTheDocument();
   await page.getByRole("treeitem", { name: /main.ts/ }).dblClick();
@@ -503,7 +504,7 @@ test("a draft whose file changed on disk shows the change, then keeps your versi
   // An agent writes the file. The save stops, and the editor shows what the
   // agent changed, next to the draft.
   source = "const agent = 2;";
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect.element(changes.getByText("const agent = 2;")).toBeInTheDocument();
   await expect.element(changes.getByText("const count = 1;")).toBeInTheDocument();
   await expect.element(editor).toHaveTextContent("const draft = 1;");
@@ -555,7 +556,7 @@ test("a change on disk while a save is on its way still shows after the save", a
   const editor = page.getByRole("textbox", { name: "Edit main.ts", exact: true });
   await expect.element(editor).toBeVisible();
   await userEvent.keyboard("wciwdraft{Escape}");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await userEvent.keyboard(":w{Enter}");
   await expect.element(page.getByRole("img", { name: "Saved", exact: true })).toBeVisible();
   await expect
     .element(page.getByRole("status").filter({ hasText: "The file changed on disk" }))
