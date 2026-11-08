@@ -96,12 +96,17 @@ load it or read its agents until you open it again.
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
 - A row's menu opens from its **⋯** button, which shows when the pointer
-  rests on the row, or from a right-click. It has **Open pull request** (`G`,
-  when the session has one), **Copy resume command** (`C`), **Pin** or
-  **Unpin** (`P`), **Mark as unread** or **Mark as read** (`U`), **Rename**
-  (`R`), **Archive** (`A`), and **Delete** (`D`). While the menu is open, a
-  letter runs its item. Med keeps the pins, also across a restart and in
-  history.
+  rests on the row, or from a right-click, under the row and inside the
+  sidebar. It has **Open pull request** (`G`, when the session has one),
+  **Copy resume command** (`C`), **Pin** or **Unpin** (`P`), **Mark as
+  unread** or **Mark as read** (`U`), **Rename** (`R`), **Move up** and
+  **Move down** for a pin, **Archive** (`A`), and **Delete** (`D`). While the
+  menu is open, a letter runs its item. Med keeps the pins, also across a
+  restart and in history.
+- **Drag a row into Pinned** to pin it at that place, within Pinned to move
+  it, and out to Recent to unpin it. While it drags, the list shows where it
+  would land: the other rows make room, and Pinned shows even with no pins.
+  `Esc` puts it back.
 - **Rename a thread** with **Rename…** in its row's menu, a double-click on
   its row, or **Rename thread…** in the palette (`⌘K`). With the sidebar
   hidden, the field shows in the title band, where a double-click on the
