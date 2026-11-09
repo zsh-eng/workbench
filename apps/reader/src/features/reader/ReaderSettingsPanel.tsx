@@ -47,6 +47,9 @@ interface ReaderSettingsListProps {
   className?: string;
 }
 
+const TAB =
+  "h-10 gap-1.5 rounded-full text-[13px] font-medium text-muted-foreground data-[state=active]:text-foreground";
+
 export function ReaderSettingsPanel({
   settings,
   onUpdateSettings,
@@ -69,24 +72,24 @@ export function ReaderSettingsPanel({
       <SegmentedTabsList className="mx-4 mt-1 mb-4 grid h-auto w-auto shrink-0 grid-cols-3 rounded-full bg-secondary/50 p-1">
         <SegmentedTabsTrigger
           value="type"
-          className="h-10 gap-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[state=active]:text-foreground"
+          className={TAB}
         >
           <Type className="size-4" />
           Type
         </SegmentedTabsTrigger>
         <SegmentedTabsTrigger
           value="layout"
-          className="h-10 gap-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[state=active]:text-foreground"
+          className={TAB}
         >
           <AlignLeft className="size-4" />
-          Layout
+          Page
         </SegmentedTabsTrigger>
         <SegmentedTabsTrigger
           value="theme"
-          className="h-10 gap-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[state=active]:text-foreground"
+          className={TAB}
         >
           <Palette className="size-4" />
-          Theme
+          Paper
         </SegmentedTabsTrigger>
       </SegmentedTabsList>
 

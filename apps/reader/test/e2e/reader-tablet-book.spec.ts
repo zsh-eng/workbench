@@ -4,6 +4,7 @@ import {
   expect,
   nextSpread,
   openLocalBook,
+  selectPassage,
   test,
   waitForReaderReady,
 } from "./helpers/fixtures";
@@ -44,7 +45,7 @@ async function expectPlaceKept(page: Page, before: string) {
   expect(kept, `${before.slice(0, 80)} → ${after.slice(0, 80)}`).toBe(true);
 }
 
-/** Appearance → Layout in the tools sidebar; the chrome shows on a tap. */
+/** Appearance → Page in the tools sidebar; the chrome shows on a tap. */
 async function openLayout(page: Page) {
   const sidebar = page.locator('aside[aria-label="Reader tools"]');
   if ((await sidebar.getAttribute("aria-hidden")) !== "false") {
@@ -65,7 +66,7 @@ async function openLayout(page: Page) {
       .getByRole("button", { name: "Reading appearance", exact: true })
       .tap();
   if (!(await row.isVisible()))
-    await sidebar.getByRole("tab", { name: "Layout", exact: true }).tap();
+    await sidebar.getByRole("tab", { name: "Page", exact: true }).tap();
   await expect(row).toBeVisible();
   return sidebar;
 }
@@ -257,6 +258,79 @@ test("A landscape tablet reads two pages and keeps its place through Pages and a
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("reader-pages-v1")))
     .toBe("two");
+});
+
+test("A long-pressed passage opens the highlight tools below it, with no release, and its handles move it", async ({
+  page,
+  localBook,
+}) => {
+  await openLocalBook(page, localBook.id);
+  for (let turn = 0; turn < 3; turn++) await nextSpread(page);
+  await waitForReaderReady(page);
+
+  // Chrome on Android cancels the touch that long-presses a word, and its
+  // handles move the selection with no touch the page sees.
+  await page.evaluate(() => {
+    const init = { bubbles: true, pointerId: 9, pointerType: "touch" };
+    document.dispatchEvent(new PointerEvent("pointerdown", init));
+    document.dispatchEvent(new PointerEvent("pointercancel", init));
+  });
+  await selectPassage(page, { index: 1, length: 12, release: false });
+  const tools = page.locator("[data-selection-tools]");
+  await expect(tools).toBeVisible();
+
+  // The system's menu takes the space above, so the tools open below,
+  // clear of the handle under the selection's end.
+  const foot = () =>
+    page.evaluate(
+      () => getSelection()!.getRangeAt(0).getBoundingClientRect().bottom,
+    );
+  await expect
+    .poll(async () => (await tools.boundingBox())!.y - (await foot()))
+    .toBeGreaterThanOrEqual(24);
+
+  // A handle drags the end a line down; the tools follow.
+  const before = (await tools.boundingBox())!.y;
+  const grown = await page.evaluate((spread) => {
+    const selection = getSelection()!;
+    const range = selection.getRangeAt(0);
+    const line = range.getBoundingClientRect();
+    // Each line is its own run of text: end a few letters into the next.
+    const walker = document.createTreeWalker(
+      document.querySelector(spread)!,
+      NodeFilter.SHOW_TEXT,
+    );
+    walker.currentNode = range.endContainer;
+    const probe = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      probe.selectNodeContents(node);
+      const box = probe.getBoundingClientRect();
+      if (box.top < line.bottom || (node.textContent?.length ?? 0) < 4)
+        continue;
+      range.setEnd(node, 3);
+      break;
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return range.toString();
+  }, CURRENT_SPREAD);
+  await expect
+    .poll(async () => (await tools.boundingBox())!.y)
+    .toBeGreaterThan(before);
+
+  await tools.getByRole("button", { name: "Highlight with yellow" }).tap();
+  await expect
+    .poll(() =>
+      page
+        .locator(`${CURRENT_SPREAD} mark[data-highlight-id]`)
+        .evaluateAll((marks) =>
+          marks
+            .map((mark) => mark.textContent)
+            .join("")
+            .replace(/\s+/g, " "),
+        ),
+    )
+    .toBe(grown.replace(/\s+/g, " "));
 });
 
 test.describe("Full screen while reading, installed on Android", () => {

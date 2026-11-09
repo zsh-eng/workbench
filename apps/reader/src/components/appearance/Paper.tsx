@@ -123,7 +123,7 @@ export function PaperModeTiles({ compact = false }: { compact?: boolean }) {
   return (
     <div
       role="group"
-      aria-label="Appearance"
+      aria-label="Light or dark"
       className={cn("grid grid-cols-3", compact ? "gap-2.5" : "gap-3")}
     >
       {APPEARANCE_MODES.map((mode) => {

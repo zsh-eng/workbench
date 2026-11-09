@@ -95,7 +95,7 @@ it.each(["denied", "unavailable"])(
     fireEvent.click(
       screen.getByRole("button", { name: "Copy highlighted text" }),
     );
-    await screen.findByText("Could not copy highlight.");
+    await screen.findByText("Couldn’t copy highlight.");
     toast.dismiss();
     consoleError.mockRestore();
   },

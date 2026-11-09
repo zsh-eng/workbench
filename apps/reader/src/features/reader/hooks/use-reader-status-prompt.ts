@@ -118,7 +118,7 @@ export function useReaderStatusPrompt({
           setOperation({
             key,
             pending: false,
-            error: "Could not update reading status. Please try again.",
+            error: "Couldn’t update reading status. Try again.",
           });
         });
     },

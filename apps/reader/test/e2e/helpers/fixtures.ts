@@ -137,9 +137,35 @@ export async function importSampleBook(page: Page): Promise<void> {
     importButton.click(),
   ]);
   await fileChooser.setFiles(SAMPLE_EPUB_PATH);
+  await landArrival(page, await waitForArrival(page));
   await expect(
     page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
   ).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * After one new EPUB file is chosen: waits until the arrival sheet says the
+ * book is in your library, with Read now, and holds still. Returns the sheet.
+ */
+export async function waitForArrival(
+  page: Page,
+  { timeout = 60_000 }: { timeout?: number } = {},
+): Promise<Locator> {
+  await expect(
+    page
+      .locator("[data-arrival-sheet]")
+      .getByRole("button", { name: "Read now", exact: true }),
+  ).toBeEnabled({ timeout });
+  const sheet = await waitForSheet(page, "In your library", { timeout });
+  await waitForSheetToRest(sheet);
+  return sheet;
+}
+
+/** Closes the arrival sheet, and the book lands in its place in the Library. */
+export async function landArrival(page: Page, sheet: Locator): Promise<void> {
+  await expect(sheet).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-arrival-sheet]")).toHaveCount(0);
 }
 
 /** Wait for the current spread only, including removal of the outgoing animated spread. */

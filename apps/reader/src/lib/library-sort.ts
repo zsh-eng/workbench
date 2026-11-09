@@ -40,37 +40,3 @@ export function compareBooksByLastReadDesc(
     return compareBooksByDateAddedDesc(a, b);
   };
 }
-
-export interface RecentlyReadBook {
-  book: Book;
-  lastRead: number;
-}
-
-/**
- * Finds the book with the latest reading activity across all statuses.
- */
-export function findMostRecentlyReadBook(
-  books: readonly Book[],
-  lastReadByBook: ReadonlyMap<string, number>,
-): RecentlyReadBook | null {
-  let mostRecent: RecentlyReadBook | null = null;
-
-  for (const book of books) {
-    const lastRead = lastReadByBook.get(book.id) ?? 0;
-    if (lastRead <= 0) continue;
-
-    if (!mostRecent || lastRead > mostRecent.lastRead) {
-      mostRecent = { book, lastRead };
-      continue;
-    }
-
-    if (
-      lastRead === mostRecent.lastRead &&
-      compareBooksByDateAddedDesc(book, mostRecent.book) < 0
-    ) {
-      mostRecent = { book, lastRead };
-    }
-  }
-
-  return mostRecent;
-}

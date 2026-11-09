@@ -77,13 +77,13 @@ export function ChromeSpecimen({
     state === "finish",
   );
   const dismiss = () => setDismissed(true);
-  const accessory = dismissed ? null : state === "handoff" ? (
+  const handoff = !dismissed && state === "handoff" && (
     <ReaderChromeAccessory
       kind="handoff"
-      floating={isMobile}
+      placement="foot"
       currentPage={page}
       prompt={{
-        sourceLabel: "iPad",
+        source: { words: "your iPad", type: "tablet" },
         targetPage: 86,
         onJump: () => {
           setPage(86);
@@ -92,25 +92,26 @@ export function ChromeSpecimen({
         onDismiss: dismiss,
       }}
     />
-  ) : (
+  );
+  const accessory = !dismissed &&
     state !== "none" &&
+    state !== "handoff" &&
     status && (
       <ReaderChromeAccessory
         kind="reading"
-        floating={isMobile}
+        placement={isMobile ? "top" : "header"}
         prompt={{
           ...status,
           isPending: pending,
           error:
             state === "error" && !pending
-              ? "Could not update reading status. Please try again."
+              ? "Couldn’t update reading status. Try again."
               : "",
           onConfirm: () => setPending(true),
           onDismiss: dismiss,
         }}
       />
-    )
-  );
+    );
   const chapter = chapterOfPage(page);
 
   return (
@@ -143,6 +144,7 @@ export function ChromeSpecimen({
           setPage(CHAPTER_START_PAGES[Math.max(0, chapter - 1)])
         }
         onOpenContents={() => {}}
+        prompt={handoff}
         noteAccessory={
           isMobile && (
             <NotesCapsule

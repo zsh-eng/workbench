@@ -143,7 +143,7 @@ export function AccountMenu() {
         message:
           error instanceof SyncUnavailableError
             ? error.message
-            : "Could not sync your library.",
+            : "Couldn’t sync your library.",
         variant: "destructive",
       });
     }
@@ -163,7 +163,7 @@ export function AccountMenu() {
     } catch (error) {
       console.error("Error signing in:", error);
       toast({
-        message: "Could not sign in with Google.",
+        message: "Couldn’t sign in with Google.",
         variant: "destructive",
       });
     }
@@ -191,7 +191,7 @@ export function AccountMenu() {
       toast({ message: "Signed out." });
     } catch (error) {
       console.error("Error signing out:", error);
-      toast({ message: "Could not sign out.", variant: "destructive" });
+      toast({ message: "Couldn’t sign out.", variant: "destructive" });
     }
   };
 
@@ -312,7 +312,7 @@ export function AccountMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel className="pt-2 pb-1 text-xs font-normal text-muted-foreground">
-            Appearance
+            Paper
           </DropdownMenuLabel>
           {/* Each mode a small open book in the papers it shows; the menu
               stays open, so the change is seen behind it. */}

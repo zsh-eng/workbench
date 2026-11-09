@@ -80,7 +80,7 @@ async function shownRows(page: Page): Promise<number[]> {
 async function chooseTables(page: Page, mode: "Grid" | "Paragraph") {
   await showPhoneChrome(page);
   const settings = await openReaderTool(page, "Appearance", "Appearance");
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await settings.getByRole("tab", { name: "Page", exact: true }).tap();
   await waitForSheetToRest(settings);
   await Promise.all([
     page.waitForEvent("load"),
@@ -601,7 +601,7 @@ test("with tables off, a table reads as one paragraph until Grid is chosen", asy
   // More than the first cell: the header runs on into the next one.
   expect(await flattened.textContent()).toMatch(/^\s*Name\s*\S/);
 
-  // Appearance → Layout → Tables opens the Reader again with grids.
+  // Appearance → Page → Tables opens the Reader again with grids.
   await chooseTables(page, "Grid");
   await turnToTable(page);
   await expect(page.locator(`${TABLE} thead th`).first()).toHaveText("Name");

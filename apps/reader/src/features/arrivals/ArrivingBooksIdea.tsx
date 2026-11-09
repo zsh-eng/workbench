@@ -310,7 +310,7 @@ function DemoBookTile({
         coverUrl={coverUrl}
         className={cn("aspect-[2/3] w-full rounded-[3px]", COVER_SHADOW)}
       />
-      <h3 className="mt-3 line-clamp-2 text-[13px] leading-snug font-normal">
+      <h3 className="mt-3 line-clamp-2 font-serif text-[15.5px] leading-[1.18] font-normal">
         {book.title}
       </h3>
       <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">

@@ -13,18 +13,17 @@ import { afterEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   add: vi.fn(),
   toast: vi.fn(),
-  dismiss: vi.fn(),
   navigate: vi.fn(),
+  present: vi.fn(),
 }));
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mocks.toast, dismiss: mocks.dismiss }),
+  useToast: () => ({ toast: mocks.toast }),
 }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("@/hooks/use-epub-processor", () => ({
   markEpubPreparationReady: vi.fn(),
 }));
 vi.mock("@/lib/book-service", () => ({
-  addBookFromFile: mocks.add,
   DuplicateBookError: class extends Error {
     constructor(
       message: string,
@@ -34,9 +33,33 @@ vi.mock("@/lib/book-service", () => ({
     }
   },
 }));
-vi.mock("@/features/library/DuplicateBookDialog", () => ({
-  DuplicateBookDialog: ({ open }: { open: boolean }) =>
-    open ? createElement("div", { role: "dialog" }, "Already imported") : null,
+// Each file is an arrival; its outcome is what `add` answers for it.
+vi.mock("@/lib/background-activity", () => ({
+  importBooks: (chosen: readonly File[]) => {
+    const outcomes = chosen.map((file) => {
+      const outcome = Promise.resolve().then(() => mocks.add(file));
+      outcome.catch(() => {});
+      return outcome;
+    });
+    return {
+      keys: chosen.map((file) => `arrival:${file.name}`),
+      outcomes,
+      rested: async () => {},
+      end: () => {},
+    };
+  },
+}));
+vi.mock("@/lib/book-arrivals", () => ({
+  appArrivals: {
+    subscribe: () => () => {},
+    getSnapshot: () => [],
+    present: mocks.present,
+  },
+}));
+vi.mock("@/features/arrivals/LazyArrivingCover", () => ({
+  preloadArrivals: () => {},
+  LazyArrivalSheet: ({ arrivalKey }: { arrivalKey: string }) =>
+    createElement("div", { role: "dialog" }, arrivalKey),
 }));
 vi.mock("@/features/library/ImportOutcomes", async (importOriginal) => ({
   ...(await importOriginal<
@@ -104,81 +127,31 @@ it("reports duplicate-only batches without an import error", async () => {
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(result.current.isProcessing).toBe(false);
 });
-it("keeps the single-duplicate dialog", async () => {
+it("one file arrives in the sheet, which says how it went: no toast", async () => {
   mocks.add.mockRejectedValue(duplicate());
   const { result } = setup();
   await act(() => result.current.importFiles(files.slice(0, 1)));
-  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByRole("dialog").textContent).toBe("arrival:one.epub");
+  // Its place in the grid waits for the sheet from the first frame.
+  expect(mocks.present).toHaveBeenCalledExactlyOnceWith(
+    "arrival:one.epub",
+    true,
+  );
   expect(mocks.toast).not.toHaveBeenCalled();
+  expect(result.current.isProcessing).toBe(false);
 });
 
-it("says why one file couldn't be added, and what to do", async () => {
-  mocks.add.mockRejectedValue(
-    new BookImportError({ kind: "not-epub", format: "pdf" }),
+it("a file that is not an EPUB, chosen with one that is, is part of a batch", async () => {
+  mocks.add.mockResolvedValueOnce({ id: "new-book" } as Book);
+  const { result } = setup();
+  await act(() =>
+    result.current.importFiles([files[0]!, new File(["x"], "notes.txt")]),
   );
-  const { result } = setup();
-  await act(() => result.current.importFiles(files.slice(0, 1)));
-  expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({
-    id: "book-import",
-    message: "Not an EPUB",
-    description:
-      "It’s a PDF renamed to .epub. Reader opens EPUB books only. Add an EPUB copy instead.",
-    variant: "destructive",
-    duration: 10000,
-    action: undefined,
-  });
-});
-
-it("tries a file again in the same toast after storage ran out", async () => {
-  mocks.add
-    .mockRejectedValueOnce(new BookImportError({ kind: "storage" }))
-    .mockResolvedValueOnce({ id: "new-book" } as Book);
-  const { result } = setup();
-  await act(() => result.current.importFiles(files.slice(0, 1)));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(lastToast()).toMatchObject({
-    id: "book-import",
-    message: "Not enough storage",
-    description:
-      "This device ran out of space while saving the book. Free up some space, then try again.",
-    action: { label: "Try again" },
+    message: "1 added, 1 couldn’t be added.",
+    action: { label: "See why" },
   });
-
-  // The toast stays and changes: it is trying, then the book is added.
-  const event = click(lastToast().action);
-  expect(event.defaultPrevented).toBe(true);
-  await vi.waitFor(() =>
-    expect(lastToast()).toMatchObject({ message: "Added 1 book." }),
-  );
-  expect(mocks.toast.mock.calls.map(([toast]) => toast.message)).toEqual([
-    "Not enough storage",
-    "Adding the book…",
-    "Added 1 book.",
-  ]);
-  expect(
-    mocks.toast.mock.calls.every(([toast]) => toast.id === "book-import"),
-  ).toBe(true);
-  expect(mocks.add).toHaveBeenCalledTimes(2);
-});
-
-it("offers the details of an unexpected error to copy", async () => {
-  const writeText = vi.fn(async () => {});
-  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-  mocks.add.mockRejectedValue(new TypeError("reading 'spine' of undefined"));
-  const { result } = setup();
-  await act(() => result.current.importFiles(files.slice(0, 1)));
-  expect(lastToast()).toMatchObject({
-    message: "Couldn’t add this book",
-    action: { label: "Copy details" },
-  });
-
-  click(lastToast().action);
-  await vi.waitFor(() =>
-    expect(lastToast().action.label).toBe("Details copied"),
-  );
-  expect(writeText.mock.calls[0]![0]).toMatch(
-    /^File: one\.epub\nProblem: unexpected: reading 'spine' of undefined\n/,
-  );
-  vi.unstubAllGlobals();
 });
 
 it("sums up a mixed batch and shows why each file was not added", async () => {

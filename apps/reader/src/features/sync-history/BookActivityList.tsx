@@ -1,10 +1,10 @@
 import { RIBBON_RED } from "@/components/appearance/Paper";
+import { DeviceGlyph } from "@/components/DeviceGlyph";
 import { SECTION_HEADING } from "@/features/background-activity/ActivitySheet";
 import { cn } from "@/lib/utils";
-import type { DeviceType } from "@/types/session";
 import type { SyncHistory } from "@zsh-eng/local-sync";
 import { format, isToday, isYesterday } from "date-fns";
-import { ChevronRight, MonitorSmartphone } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { bookActivity, lineClauses, type BookActivity } from "./book-activity";
 import type { DevicePill, DevicePillNamer } from "./device-pill";
@@ -21,45 +21,17 @@ function dayLabel(at: number): string {
   return format(at, "EEE d MMM");
 }
 
-/** A phone, a tablet or a laptop, drawn small enough to sit in a line of text. */
-function DeviceGlyph({ type }: { type: DeviceType | null }) {
-  if (type === null)
-    return <MonitorSmartphone className="size-[13px]" strokeWidth={1.5} />;
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-      className="size-[13px] shrink-0 fill-none stroke-current [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.3]"
-    >
-      {type === "desktop" ? (
-        <>
-          <rect x="3" y="3.25" width="10" height="7.25" rx="1.2" />
-          <path d="M1.5 12.75h13" />
-        </>
-      ) : type === "mobile" ? (
-        <>
-          <rect x="4.75" y="1.75" width="6.5" height="12.5" rx="1.75" />
-          <path d="M7.25 3.9h1.5" />
-        </>
-      ) : (
-        <>
-          <rect x="2.75" y="1.75" width="10.5" height="12.5" rx="1.75" />
-          <path d="M7.5 3.7h1" />
-        </>
-      )}
-    </svg>
-  );
-}
-
 /**
  * Where a change happened, as a small tag beside it: "your Mac". The
  * device you're holding wears Reader's bookmark ribbon: "this iPhone".
+ * The tag's words share the line's face and baseline, so the tag is
+ * centred on the words around it.
  */
 export function DeviceTag({ pill }: { pill: DevicePill }) {
   return (
     <span
       className={cn(
-        "relative inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[5px] align-[-4px] bg-foreground/[0.05] pr-[7px] text-[11.5px] leading-none whitespace-nowrap",
+        "relative inline-flex shrink-0 items-center gap-1 rounded-[5px] bg-foreground/[0.05] pr-[7px] font-numeric text-[11.5px] whitespace-nowrap",
         pill.here
           ? "pl-[14px] text-foreground"
           : "pl-[5px] text-muted-foreground",
@@ -74,7 +46,8 @@ export function DeviceTag({ pill }: { pill: DevicePill }) {
         />
       )}
       <DeviceGlyph type={pill.type} />
-      {pill.words}
+      {/* The one item on the baseline gives the tag its baseline. */}
+      <span className="self-baseline leading-[18px]">{pill.words}</span>
     </span>
   );
 }

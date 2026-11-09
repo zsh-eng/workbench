@@ -54,7 +54,7 @@ export function useSyncStatus() {
           : uploads?.failed
             ? "Retry file uploads"
             : uploads?.waiting
-              ? `${uploads.waiting} files waiting`
+              ? `${uploads.waiting} ${uploads.waiting === 1 ? "file" : "files"} waiting`
               : summary.label;
   const fileDetail = uploads
     ? `Files: ${uploads.waiting} awaiting upload${transfer.downloading.length ? ` · ${transfer.downloading.length} downloading` : ""}.`

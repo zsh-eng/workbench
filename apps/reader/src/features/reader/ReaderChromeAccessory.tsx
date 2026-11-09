@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { ArrowLeft, ArrowRight, BookOpen, Laptop, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, X } from "lucide-react";
+import { DeviceGlyph } from "@/components/DeviceGlyph";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ReaderStatusAction } from "./hooks/use-reader-status-prompt";
@@ -8,6 +9,11 @@ import type { ReaderHandoffPrompt } from "./types";
 
 export type ChromePromptKind = "reading" | "handoff";
 export type ChromePromptAppearance = "soft" | "minimal" | "outline";
+/**
+ * Where a prompt sits: in the desktop header's row, floating at a phone's
+ * top edge, or floating above the footer.
+ */
+export type ChromePromptPlacement = "header" | "top" | "foot";
 
 const statusLabels = {
   "want-to-read": "Want to read",
@@ -25,20 +31,21 @@ const surfaces: Record<ChromePromptAppearance, string> = {
 type ReaderChromeAccessoryProps = {
   /** Alternative surfaces remain available in the debug preview. */
   appearance?: ChromePromptAppearance;
-  /** Phones float the prompt at the top edge, over the page and the header. */
-  floating?: boolean;
+  placement?: ChromePromptPlacement;
 } & (
   | { kind: "reading"; prompt: ReaderStatusAction }
   | { kind: "handoff"; prompt: ReaderHandoffPrompt; currentPage: number }
 );
 
-/** Reader prompts share one compact surface on desktop and phones. Only the
- * page order determines a handoff's arrow; a more recent checkpoint can be
- * earlier in the book. */
+/** Reader prompts share one compact surface on desktop and phones. A
+ * handoff wears the glyph of the device it came from, and only the page
+ * order sets its arrow: a more recent checkpoint can be earlier in the
+ * book. */
 export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
   const errorId = useId();
   const tooltipId = useId();
-  const { appearance = "soft", floating = false, prompt } = props;
+  const { appearance = "soft", placement = "header", prompt } = props;
+  const floating = placement !== "header";
   const handoff = props.kind === "handoff";
   const label =
     props.kind === "handoff"
@@ -48,7 +55,7 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
         : "Mark as reading";
   const detail =
     props.kind === "handoff"
-      ? `Newer position on ${props.prompt.sourceLabel}: page ${props.prompt.targetPage}`
+      ? `Newer position on ${props.prompt.source.words}: page ${props.prompt.targetPage}`
       : "";
   const direction =
     props.kind !== "handoff" || props.prompt.targetPage === props.currentPage
@@ -57,7 +64,6 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
         ? "backward"
         : "forward";
   const Arrow = direction === "backward" ? ArrowLeft : ArrowRight;
-  const Icon = handoff ? Laptop : BookOpen;
   const pending = props.kind === "reading" && props.prompt.isPending;
   const error = props.kind === "reading" ? props.prompt.error : "";
   const action = (
@@ -67,7 +73,7 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
       title={handoff ? detail : undefined}
       aria-label={
         props.kind === "handoff"
-          ? `${label} from ${props.prompt.sourceLabel}`
+          ? `${label} from ${props.prompt.source.words}`
           : label
       }
       aria-describedby={
@@ -87,7 +93,17 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
           : "h-7 rounded-[calc(var(--radius-xl)-3px)] px-2",
       )}
     >
-      <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      {props.kind === "handoff" ? (
+        <DeviceGlyph
+          type={props.prompt.source.type}
+          className="size-3.5 text-muted-foreground"
+        />
+      ) : (
+        <BookOpen
+          className="size-3.5 text-muted-foreground"
+          aria-hidden="true"
+        />
+      )}
       <span className="whitespace-nowrap">{pending ? "Saving…" : label}</span>
       {direction && (
         <Arrow
@@ -100,8 +116,9 @@ export function ReaderChromeAccessory(props: ReaderChromeAccessoryProps) {
   );
   return (
     <div
-      data-reader-header-accessory={floating ? undefined : ""}
-      data-reader-top-prompt={floating ? "" : undefined}
+      data-reader-header-accessory={placement === "header" ? "" : undefined}
+      data-reader-top-prompt={placement === "top" ? "" : undefined}
+      data-reader-foot-prompt={placement === "foot" ? "" : undefined}
       data-testid="chrome-accessory"
       className={cn("relative shrink-0", !floating && "mr-2")}
     >

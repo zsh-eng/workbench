@@ -265,7 +265,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
   await waitForSheet(page, "Notebook");
   const notebook = page.getByRole("region", { name: "Book notebook" });
   const heading = notebook.getByRole("heading", { level: 2 });
-  await expect(heading).toHaveText(/Notebook\s*2$/);
+  await expect(heading).toHaveText(/1 note, 1 highlight$/);
   const show = notebook.getByRole("group", { name: "Show" });
   const height = (await notebook.boundingBox())!.height;
   await show.getByRole("button", { name: "Show highlights" }).click();
@@ -285,7 +285,7 @@ test("the notebook gathers highlights and filters them by type and colour", asyn
   // The filtered-out entries leave before the empty state takes taps.
   await expect(notebook.locator("[data-note-id]")).toHaveCount(0);
   await notebook.getByRole("button", { name: "Show everything" }).click();
-  await expect(heading).toHaveText(/Notebook\s*2$/);
+  await expect(heading).toHaveText(/1 note, 1 highlight$/);
   // A highlight opens its page and returns to reading.
   const yellow = notebook.getByRole("button", { name: /^Go to highlight:/ });
   await yellow.click();

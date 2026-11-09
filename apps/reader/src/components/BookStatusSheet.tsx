@@ -1,3 +1,4 @@
+import { SURFACE_TITLE_TYPE } from "@/components/type-voices";
 import { CircularBookCover } from "@/components/CircularBookCover";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
@@ -133,7 +134,7 @@ export function BookStatusSheet({
             <ChevronLeft className="size-4" />
           </Button>
 
-          <p className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          <p className={cn("truncate text-center", SURFACE_TITLE_TYPE)}>
             Reading status
           </p>
 
@@ -219,7 +220,7 @@ export function BookStatusPanel({
         {...removePress}
       >
         <Trash2 className="size-5" aria-hidden="true" />
-        Remove book
+        Remove book…
       </motion.button>
     </div>
   );

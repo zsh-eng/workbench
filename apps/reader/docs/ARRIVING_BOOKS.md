@@ -1,17 +1,16 @@
 # Arriving books
 
 The moment a book you add comes into the Library, for one book and for
-many at once. This is an experiment. It is off by default.
+many at once. Every import goes this way (shipped 2026-11-09).
 
-- **Try it in the Library:** Settings → Debug tools → Try on this device →
-  Arriving books. Then add one EPUB file (the sheet) or several (the
+- **In the Library:** add one EPUB file (the sheet) or several (the
   grid).
 - **Compare the moments:** Settings → Debug tools → Design ideas → Arriving
   books (or the Debug lightbulb in the Library, which opens the newest
   topic). Each idea opens full screen at
   `/debug/ideas/arriving-books?look=<look>&state=<one|again|five|trouble>`.
   "One book: arrival sheet" and "Several books: raking light" are the two
-  moments as they ship behind the switch. Develop, Ink in the grid, Calm
+  moments as they ship. Develop, Ink in the grid, Calm
   and Reduced motion stay for comparison. The demo runs the real job queue,
   the real sheet and the real tiles on simulated imports, with
   public-domain covers.
@@ -300,8 +299,6 @@ transform.
   within about 0.3 s, so the sheet comes up already saying "In your
   library" while the ink finishes. That is true, and Read now works at
   once.
-- **The activity glyph** still says "downloading" while a book is
-  imported. Its words belong to background activity.
 
 ## The first attempt, and what it taught
 
@@ -340,9 +337,9 @@ inside that place, follows the real work, and stops when it is done.
 - `src/features/arrivals/ArrivalSheet.tsx`: the one-book sheet, Read now
   and the flight to the grid. `ArrivalRecords.present(key)` keeps a book's
   grid place empty, and alive after its batch, while the sheet shows it.
-- `src/features/library/use-epub-import.ts`: with the switch on, an import
-  goes through `importBooks`, and one file opens the arrival sheet; with it
-  off, nothing changed.
+- `src/features/library/use-epub-import.ts`: an import goes through
+  `importBooks`. One file on its own opens the arrival sheet; several, or
+  one with a file that is not an EPUB, fill the grid and end in a toast.
 
 ### Feeding it from background activity
 

@@ -3,10 +3,8 @@ import { DATABASE_MODULE } from "../helpers/global-setup";
 import activitySheet from "./activity-sheet";
 
 /**
- * agent-kit `--steps`, with `sample-book.ts` and Debug → Offline downloads
- * on (`--storage reader-debug-enabled-v1=true --storage
- * reader-offline-downloads-v1=true`): the book leaves this device, its
- * download starts and holds, and the activity sheet opens.
+ * agent-kit `--steps`, with `sample-book.ts`: the book leaves this device,
+ * its download starts and holds, and the activity sheet opens.
  */
 export default async function heldDownload({ page }: { page: Page }) {
   await holdDownload(page);

@@ -194,7 +194,7 @@ function targetPage(
 
 /**
  * Owns one Reader's chapter column: Scroll as a reading layout beside
- * Pages (Appearance → Layout), and the visits to the column that a
+ * Pages (Appearance → Page), and the visits to the column that a
  * selection cut by a page break makes from pages.
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the

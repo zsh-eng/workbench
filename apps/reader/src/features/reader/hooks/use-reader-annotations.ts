@@ -43,7 +43,7 @@ export interface ActiveHighlightState {
 
 interface PendingHighlightDraft {
   /** The selection's top centre, and its foot for tools that open below. */
-  position: { x: number; y: number; bottom: number };
+  position: { x: number; y: number; bottom: number; touch?: boolean };
   spineItemId: string;
   highlight: NonNullable<
     ReturnType<typeof resolveContentAnchorRangeToHighlight>
@@ -95,7 +95,7 @@ interface UseReaderAnnotationsResult {
   isCreatingHighlight: boolean;
   /** Where the selection was when the Reader last read it: for placing the
    * tools only. */
-  creationPosition: { x: number; y: number; bottom?: number };
+  creationPosition: { x: number; y: number; bottom?: number; touch?: boolean };
   /** The selection as Copy writes it, read as a tool does (see below). */
   readSelectionCopyText: () => string;
   /** The selected highlight's text as the toolbar copies it. */
@@ -299,7 +299,11 @@ function resolveHighlightCopyText(
  * Selection, highlight and note state for the Reader's pages.
  *
  * The Reader reads a selection for its tools 100 ms after a mouse release,
- * or 300 ms after a touch ends (`creating`). That draft only places and
+ * or 300 ms after a touch ends (`creating`). A finger's selection can also
+ * end with no release the page sees: Android cancels the touch that
+ * long-presses a word, and its handles move the selection with no touch at
+ * all. So after a touch, the Reader also reads a selection once it has
+ * been still for 300 ms with no finger down. That draft only places and
  * shows the tools. A selection can change after it: a key changes it with
  * no release, a native handle's last change can come after its touchend,
  * and a tap can come within the delay. So the tools act on the selection
@@ -330,6 +334,9 @@ export function useReaderAnnotations({
   const suppressSelectionUntilRef = useRef(0);
   /** The selection as a press on the tools read it, until an action takes it. */
   const pressRef = useRef<{ draft: PendingHighlightDraft | null } | null>(null);
+  /** The last press was a finger or a pen: the system's own menu sits
+   * above the selection, so the tools open below it. */
+  const touchInputRef = useRef(false);
 
   const activeHighlight = state.kind === "active" ? state.highlight : null;
   const pendingDraft = state.kind === "creating" ? state.draft : null;
@@ -379,7 +386,7 @@ export function useReaderAnnotations({
         chapterAccess,
       );
 
-      return resolvePendingHighlightDraft({
+      const draft = resolvePendingHighlightDraft({
         range,
         spread,
         stageContentRef,
@@ -387,6 +394,12 @@ export function useReaderAnnotations({
         chapterAccess,
         preparedByChapter,
       });
+      return draft
+        ? {
+            ...draft,
+            position: { ...draft.position, touch: touchInputRef.current },
+          }
+        : null;
     },
     [
       chapterAccess,
@@ -495,11 +508,27 @@ export function useReaderAnnotations({
       timeoutId = window.setTimeout(handleResolvedSelection, delay);
     };
 
+    // Fingers on the page, by pointer ID.
+    const fingers = new Set<number>();
+    const handlePointerDown = (event: PointerEvent) => {
+      touchInputRef.current = event.pointerType !== "mouse";
+      if (touchInputRef.current) fingers.add(event.pointerId);
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      fingers.delete(event.pointerId);
+    };
+    // Android cancels the touch that long-presses a word into a selection.
+    const handleTouchCancel = (event: TouchEvent) => {
+      if (event.touches.length === 0) handlePointerUp(event);
+    };
+
     const handleSelectionChange = () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = 0;
       }
+      if (touchInputRef.current && fingers.size === 0)
+        timeoutId = window.setTimeout(handleResolvedSelection, delay);
     };
 
     const handleTouchTapHandled = () => {
@@ -518,8 +547,12 @@ export function useReaderAnnotations({
     };
 
     document.addEventListener("copy", handleCopy);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerup", handlePointerEnd, true);
+    document.addEventListener("pointercancel", handlePointerEnd, true);
     document.addEventListener("mouseup", handlePointerUp);
     document.addEventListener("touchend", handlePointerUp);
+    document.addEventListener("touchcancel", handleTouchCancel);
     document.addEventListener("selectionchange", handleSelectionChange);
     document.addEventListener(
       READER_TOUCH_TAP_HANDLED_EVENT,
@@ -528,8 +561,12 @@ export function useReaderAnnotations({
 
     return () => {
       document.removeEventListener("copy", handleCopy);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerup", handlePointerEnd, true);
+      document.removeEventListener("pointercancel", handlePointerEnd, true);
       document.removeEventListener("mouseup", handlePointerUp);
       document.removeEventListener("touchend", handlePointerUp);
+      document.removeEventListener("touchcancel", handleTouchCancel);
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener(
         READER_TOUCH_TAP_HANDLED_EVENT,

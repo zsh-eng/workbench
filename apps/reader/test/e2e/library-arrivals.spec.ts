@@ -10,8 +10,8 @@ import {
   waitForSheetToRest,
 } from "./helpers/fixtures";
 
-// Debug → Arriving books: each added book holds its place in the Library at
-// once and its cover develops as it is prepared. The arrival draws with
+// Arriving books: each added book holds its place in the Library at once
+// and its cover develops as it is prepared. The arrival draws with
 // WebGL, which headless Chromium has only through its software GPU.
 test.use({
   viewport: { width: 390, height: 844 },
@@ -23,15 +23,13 @@ test.use({
 const READY = { timeout: 30_000 };
 
 /**
- * Turns on the trial before the app loads, and records what the page shows
- * on the way: the most places held at one time, each look an arriving cover
+ * Before the app loads, sorts by date added in covers, and records what
+ * the page shows on the way: the most places held at one time, each look an arriving cover
  * took, whether a drawing canvas was ever made, and whether the arrival
  * sheet opened.
  */
-async function turnOnArrivingBooks(page: Page) {
+async function watchArrivals(page: Page) {
   await page.addInitScript(() => {
-    localStorage.setItem("reader-debug-enabled-v1", "true");
-    localStorage.setItem("reader-arriving-books-v1", "true");
     localStorage.setItem(
       "reader-library-view-v1",
       JSON.stringify({ sort: "added", layout: "covers" }),
@@ -154,7 +152,7 @@ test("a batch holds every place at once and ends with each book on the shelf in 
   page,
 }) => {
   const titles = [1, 2, 3, 4, 5].map((n) => `Arriving book ${n}`);
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, books(titles));
@@ -175,7 +173,7 @@ test("a batch holds every place at once and ends with each book on the shelf in 
 test("one book arrives in the arrival sheet, and Read now opens it", async ({
   page,
 }) => {
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, books(["Arriving book 1"]));
@@ -203,7 +201,7 @@ test("closing the sheet early leaves the book arriving in its place", async ({
   localBook,
 }) => {
   void localBook;
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.reload();
 
   await chooseFiles(page, books(["Arriving book 1"]));
@@ -230,7 +228,7 @@ test("closing the sheet early leaves the book arriving in its place", async ({
 test("closing the sheet once the book is ready lands it on its own cover", async ({
   page,
 }) => {
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, books(["Arriving book 1"]));
@@ -255,7 +253,7 @@ test("the same book again shows the copy you have in the sheet", async ({
   page,
   localBook,
 }) => {
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.reload();
 
   await chooseFiles(page, SAMPLE_EPUB_PATH);
@@ -291,7 +289,7 @@ function stored(page: Page) {
 test("a file that is no book says why in the sheet, and another file arrives", async ({
   page,
 }) => {
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, [
@@ -342,7 +340,7 @@ test("a batch says how it went, and why a file was not added", async ({
     mimeType: "application/epub+zip",
     buffer: first!.buffer.subarray(0, first!.buffer.length / 2),
   };
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, [first!, cut, second!]);
@@ -368,7 +366,7 @@ test("a batch says how it went, and why a file was not added", async ({
 test("with reduced motion an arriving cover never moves", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const titles = ["Arriving book 1", "Arriving book 2"];
-  await turnOnArrivingBooks(page);
+  await watchArrivals(page);
   await page.goto("/");
 
   await chooseFiles(page, books(titles));

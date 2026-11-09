@@ -58,7 +58,7 @@ export function useReaderNotes(bookId: string) {
     void work.catch(() => {
       if (mounted.current)
         setError(
-          "Could not save the draft. Try again before leaving this book.",
+          "Couldn’t save the draft. Try again before leaving this book.",
         );
     });
     return work;
@@ -86,7 +86,7 @@ export function useReaderNotes(bookId: string) {
       .catch(() => {
         if (active)
           setError(
-            "Could not restore the draft. Reopen this book to try again.",
+            "Couldn’t restore the draft. Reopen this book to try again.",
           );
       });
     const flushOnHide = () => {
@@ -145,7 +145,7 @@ export function useReaderNotes(bookId: string) {
       } catch {
         if (mounted.current)
           setError(
-            "Could not open this note for editing. Your draft is still here.",
+            "Couldn’t open this note for editing. Your draft is still here.",
           );
         return false;
       } finally {
@@ -187,7 +187,7 @@ export function useReaderNotes(bookId: string) {
         await client.invalidateQueries({ queryKey: noteKeys.book(bookId) });
         return true;
       } catch {
-        if (mounted.current) setError("Could not delete the note. Try again.");
+        if (mounted.current) setError("Couldn’t delete the note. Try again.");
         return false;
       } finally {
         submitting.current = false;
@@ -221,7 +221,7 @@ export function useReaderNotes(bookId: string) {
         setError("");
       }
     } catch {
-      if (mounted.current) setError("Could not cancel the edit. Try again.");
+      if (mounted.current) setError("Couldn’t cancel the edit. Try again.");
     } finally {
       submitting.current = false;
       if (mounted.current) setSaving(false);
@@ -257,7 +257,7 @@ export function useReaderNotes(bookId: string) {
         setError(
           error instanceof SyncValueTooLargeError
             ? "This note is too long to sync. Shorten it, or quote a shorter passage. Your draft is still here."
-            : "Could not save the note. Your draft is still here; try sending again.",
+            : "Couldn’t save the note. Your draft is still here; try sending again.",
         );
       return false;
     } finally {
@@ -271,7 +271,7 @@ export function useReaderNotes(bookId: string) {
     composeDraft: draft?.editId ? compose.current : draft,
     ready,
     saving,
-    error: error || (query.isError ? "Could not load notes." : ""),
+    error: error || (query.isError ? "Couldn’t load notes." : ""),
     change,
     edit,
     cancelEdit,

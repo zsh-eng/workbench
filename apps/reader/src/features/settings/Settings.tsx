@@ -1,3 +1,4 @@
+import { APP_TITLE_TYPE } from "@/components/app-header-styles";
 import { PaperChoices, PaperModeTiles } from "@/components/appearance/Paper";
 import {
   BookStylesRows,
@@ -46,7 +47,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 const SECTIONS: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "appearance", label: "Paper", icon: Palette },
   { id: "type", label: "Type", icon: Type },
   { id: "page", label: "Page", icon: BookOpen },
   { id: "book-styles", label: "Book styles", icon: BookMarked },
@@ -176,12 +177,17 @@ export function Settings() {
           <header>
             <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3 md:block">
               <BackToLibrary className="md:hidden" />
-              <h1 className="text-center text-2xl font-bold tracking-tight text-foreground md:px-[17px] md:text-left md:text-[28px]">
+              <h1
+                className={cn(
+                  "text-center text-foreground md:px-[17px] md:text-left",
+                  APP_TITLE_TYPE,
+                )}
+              >
                 Settings
               </h1>
               <div className="size-8 md:hidden" aria-hidden="true" />
             </div>
-            <p className="mt-1 text-center text-sm text-muted-foreground md:px-[17px] md:text-left">
+            <p className="mt-2 text-center text-sm text-muted-foreground md:px-[17px] md:text-left">
               Preferences for this browser.
             </p>
           </header>
@@ -194,7 +200,7 @@ export function Settings() {
           <div className="mt-5 space-y-10 md:mt-10">
             <SettingsSection
               id="appearance"
-              title="Appearance"
+              title="Paper"
               description="A paper for the day and one for the night. Match system turns between them with this device."
               className={SECTION_SCROLL_MARGIN}
             >

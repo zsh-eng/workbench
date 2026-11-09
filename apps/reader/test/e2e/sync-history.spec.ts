@@ -328,13 +328,6 @@ test.describe("on a desktop", () => {
 test.describe("Design ideas → Sync history", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  const rowsOf = (page: Page) =>
-    page.locator("[data-sync-history] [data-history-row]");
-  const kinds = (page: Page) =>
-    rowsOf(page).evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-kind")),
-    );
-
   test("By book is the choice, and the iPhone's line in Persuasion counts its new highlight in place", async ({
     page,
   }) => {
@@ -368,32 +361,6 @@ test.describe("Design ideas → Sync history", () => {
       "data-activity-book",
       "persuasion",
     );
-  });
-
-  test("the timeline puts the lost edit among the groups", async ({ page }) => {
-    await page.goto("/debug/ideas/sync-history?variant=timeline");
-    await waitForSheet(page, "Activity");
-    await expect(rowsOf(page).first()).toHaveAttribute(
-      "data-history-kind",
-      "waiting",
-    );
-    const order = await kinds(page);
-    expect(order.indexOf("lost")).toBeGreaterThan(order.indexOf("received"));
-  });
-
-  test("by device, one row per device", async ({ page }) => {
-    await page.goto("/debug/ideas/sync-history?variant=devices");
-    await waitForSheet(page, "Activity");
-    await expect(rowsOf(page)).toHaveCount(6);
-    const ids = await rowsOf(page).evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-row")),
-    );
-    expect(ids.slice(2)).toEqual([
-      "device:iphone",
-      "device:this device",
-      "device:mac",
-      "device:ipad",
-    ]);
   });
 });
 

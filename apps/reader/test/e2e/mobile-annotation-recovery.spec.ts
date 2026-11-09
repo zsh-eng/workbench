@@ -37,9 +37,7 @@ test("failed note save preserves the mobile draft and retry saves exactly once",
     db.notes.hook("creating", failOnce);
   });
   await save.click();
-  await expect(page.getByRole("alert")).toContainText(
-    "Could not save the note",
-  );
+  await expect(page.getByRole("alert")).toContainText("Couldn’t save the note");
   await expect(input).toHaveValue("A draft that must survive a failed save");
   await expect(save).toBeEnabled();
   await expect(page.locator("[data-reader-footer]")).toHaveCount(0);

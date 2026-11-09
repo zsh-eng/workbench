@@ -61,7 +61,7 @@ export function ReaderBookActionsSheet({
       .catch(() => {
         setDisplayStatus(previousStatus);
         toast({
-          message: "Could not change reading status.",
+          message: "Couldn’t change reading status.",
           variant: "destructive",
         });
       });

@@ -1,26 +1,11 @@
+import { useSyncDeviceNames } from "@/features/sync-history/device-names";
 import type { ReadingCheckpoint } from "@/lib/db";
-import { honoClient } from "@/lib/api";
 import { getOrCreateDeviceId } from "@/lib/device";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReaderCheckpointsQuery } from "../data/reader-cache/hooks";
 import type { ReaderHandoffPrompt } from "../types";
 
-const GENERIC_REMOTE_DEVICE_LABEL = "another device";
 const EMPTY_READING_CHECKPOINTS: readonly ReadingCheckpoint[] = [];
-
-interface ReaderHandoffDevice {
-  clientId: string;
-  deviceName: string | null;
-}
-
-interface ReaderHandoffDevicesData {
-  devices: ReaderHandoffDevice[];
-}
-
-export const readerHandoffDeviceKeys = {
-  all: ["readerHandoffDevices"] as const,
-};
 
 export interface ReaderHandoffSessionStart {
   bookId: string;
@@ -32,7 +17,6 @@ export interface ReaderHandoffSessionStart {
 export interface ReaderHandoffPromptState {
   show: boolean;
   checkpoint: ReadingCheckpoint | null;
-  sourceDeviceLabel: string;
 }
 
 export interface UseReaderHandoffPromptOptions {
@@ -46,6 +30,9 @@ export interface UseReaderHandoffPromptOptions {
   sessionStartedAt?: number;
   chapterStartPages?: (number | null)[];
   totalPages?: number;
+  /** The first page on screen, and how many show beside it. */
+  currentPage?: number;
+  pagesShown?: number;
   onJumpToPage?: (page: number) => void;
 }
 
@@ -183,47 +170,6 @@ function getCheckpointVersion(checkpoint: ReadingCheckpoint): string {
   ]);
 }
 
-function useReaderHandoffDevicesQuery(enabled: boolean) {
-  return useQuery({
-    networkMode: "online", // Device names must be fetched from the server.
-    queryKey: readerHandoffDeviceKeys.all,
-    queryFn: async (): Promise<ReaderHandoffDevicesData> => {
-      const response = await honoClient.api.devices.$get();
-      if (!response.ok) {
-        throw new Error("Failed to load devices for reader handoff");
-      }
-
-      const data = await response.json();
-      return {
-        devices: data.devices.map((device) => ({
-          clientId: device.clientId,
-          deviceName: device.deviceName ?? null,
-        })),
-      };
-    },
-    enabled,
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-}
-
-function getSourceDeviceLabel(
-  checkpoint: ReadingCheckpoint | null,
-  devices: ReaderHandoffDevice[] | undefined,
-): string {
-  if (checkpoint === null) return GENERIC_REMOTE_DEVICE_LABEL;
-
-  const deviceName = devices?.find(
-    (device) => device.clientId === checkpoint.deviceId,
-  )?.deviceName;
-
-  const trimmedDeviceName = deviceName?.trim();
-  if (!trimmedDeviceName) return GENERIC_REMOTE_DEVICE_LABEL;
-
-  return trimmedDeviceName;
-}
-
 /**
  * Converts a synced chapter checkpoint into the global page number used by the
  * paginated reader footer. The prompt stays hidden until chapter page starts
@@ -258,7 +204,7 @@ export function resolveHandoffCheckpointPage(
  *
  * React Query remains the source of truth for loading and invalidation. This
  * hook only captures the current device's checkpoint at session start, then
- * resolves a newer remote checkpoint into a footer-ready jump prompt.
+ * resolves a newer remote checkpoint into a jump prompt for the footer.
  */
 export function useReaderHandoffPrompt({
   bookId,
@@ -267,6 +213,8 @@ export function useReaderHandoffPrompt({
   sessionStartedAt: explicitSessionStartedAt,
   chapterStartPages,
   totalPages,
+  currentPage,
+  pagesShown = 1,
   onJumpToPage,
 }: UseReaderHandoffPromptOptions): UseReaderHandoffPromptResult {
   const currentDeviceId = useCurrentDeviceId(explicitCurrentDeviceId);
@@ -320,14 +268,6 @@ export function useReaderHandoffPrompt({
 
     return getLatestUnreadRemoteReadingCheckpoint(checkpoints, sessionStart);
   }, [checkpoints, sessionStart]);
-  const devicesQuery = useReaderHandoffDevicesQuery(
-    latestUnreadCheckpoint !== null,
-  );
-  const sourceDeviceLabel = useMemo(
-    () =>
-      getSourceDeviceLabel(latestUnreadCheckpoint, devicesQuery.data?.devices),
-    [devicesQuery.data?.devices, latestUnreadCheckpoint],
-  );
 
   const promptState = useMemo<ReaderHandoffPromptState>(
     () => ({
@@ -336,9 +276,8 @@ export function useReaderHandoffPrompt({
         dismissedCheckpointVersion,
       ),
       checkpoint: latestUnreadCheckpoint,
-      sourceDeviceLabel,
     }),
-    [dismissedCheckpointVersion, latestUnreadCheckpoint, sourceDeviceLabel],
+    [dismissedCheckpointVersion, latestUnreadCheckpoint],
   );
 
   const dismissPrompt = useCallback(() => {
@@ -363,9 +302,32 @@ export function useReaderHandoffPrompt({
     );
   }, [chapterStartPages, latestUnreadCheckpoint, totalPages]);
 
+  // A position already on screen needs no prompt, then or later: the
+  // reader is where the other device left off.
+  const alreadyThere =
+    handoffTargetPage !== null &&
+    currentPage !== undefined &&
+    handoffTargetPage >= currentPage &&
+    handoffTargetPage < currentPage + pagesShown;
+  useEffect(() => {
+    if (alreadyThere) dismissPrompt();
+  }, [alreadyThere, dismissPrompt]);
+
+  // Named as Activity names it. The server is asked only once there is a
+  // device to name; until then the remembered names serve.
+  const names = useSyncDeviceNames({
+    enabled: latestUnreadCheckpoint !== null,
+  });
+  const sourceDeviceId = latestUnreadCheckpoint?.deviceId ?? null;
+  const source = useMemo(() => {
+    const { words, type } = names.pill(sourceDeviceId);
+    return { words, type };
+  }, [names, sourceDeviceId]);
+
   const prompt = useMemo<ReaderHandoffPrompt | undefined>(() => {
     if (
       !promptState.show ||
+      alreadyThere ||
       handoffTargetPage === null ||
       onJumpToPage === undefined
     ) {
@@ -373,7 +335,7 @@ export function useReaderHandoffPrompt({
     }
 
     return {
-      sourceLabel: promptState.sourceDeviceLabel,
+      source,
       targetPage: handoffTargetPage,
       onJump: () => {
         onJumpToPage(handoffTargetPage);
@@ -381,7 +343,14 @@ export function useReaderHandoffPrompt({
       },
       onDismiss: dismissPrompt,
     };
-  }, [dismissPrompt, handoffTargetPage, onJumpToPage, promptState]);
+  }, [
+    alreadyThere,
+    dismissPrompt,
+    handoffTargetPage,
+    onJumpToPage,
+    promptState,
+    source,
+  ]);
 
   return {
     promptState,

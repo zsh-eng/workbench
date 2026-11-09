@@ -2,7 +2,6 @@ import {
   captureReaderHandoffSessionStart,
   getLatestRemoteReadingCheckpoint,
   getLatestUnreadRemoteReadingCheckpoint,
-  readerHandoffDeviceKeys,
   resolveHandoffCheckpointPage,
   useReaderHandoffPrompt,
 } from "@/features/reader/hooks/use-reader-handoff-prompt";
@@ -19,6 +18,21 @@ import {
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Activity's namer, with one device it knows.
+const namer = vi.hoisted(() => ({
+  enabled: [] as boolean[],
+  pill: (deviceId: string | null) =>
+    deviceId === "device-remote"
+      ? { words: "your iPad", type: "tablet" as const, here: false }
+      : { words: "another device", type: null, here: false },
+}));
+vi.mock("@/features/sync-history/device-names", () => ({
+  useSyncDeviceNames: ({ enabled = true }: { enabled?: boolean } = {}) => {
+    namer.enabled.push(enabled);
+    return { pill: namer.pill };
+  },
+}));
 
 const BOOK_ID = "book-1";
 const CURRENT_DEVICE_ID = "device-current";
@@ -69,13 +83,6 @@ function setCheckpoints(
     readerCheckpointKeys.book(BOOK_ID),
     { checkpoints },
   );
-}
-
-function setHandoffDevices(
-  queryClient: QueryClientType,
-  devices: { clientId: string; deviceName: string | null }[],
-): void {
-  queryClient.setQueryData(readerHandoffDeviceKeys.all, { devices });
 }
 
 afterEach(() => {
@@ -179,9 +186,6 @@ describe("useReaderHandoffPrompt", () => {
       lastRead: 1001,
     });
     setCheckpoints(queryClient, [currentCheckpoint, remoteCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: "Safari on iPadOS" },
-    ]);
 
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
@@ -219,9 +223,6 @@ describe("useReaderHandoffPrompt", () => {
       lastRead: 1001,
     });
     setCheckpoints(queryClient, [currentCheckpoint, remoteCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: "Safari on iPadOS" },
-    ]);
 
     const { result } = renderHook(
       () =>
@@ -237,9 +238,6 @@ describe("useReaderHandoffPrompt", () => {
       expect(result.current.promptState.show).toBe(true);
     });
     expect(result.current.promptState.checkpoint).toBe(remoteCheckpoint);
-    expect(result.current.promptState.sourceDeviceLabel).toBe(
-      "Safari on iPadOS",
-    );
 
     queryClient.clear();
   });
@@ -257,9 +255,6 @@ describe("useReaderHandoffPrompt", () => {
     });
     const onJumpToPage = vi.fn();
     setCheckpoints(queryClient, [currentCheckpoint, remoteCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: "Safari on iPadOS" },
-    ]);
 
     const { result } = renderHook(
       () =>
@@ -277,7 +272,10 @@ describe("useReaderHandoffPrompt", () => {
     await waitFor(() => {
       expect(result.current.prompt?.targetPage).toBe(16);
     });
-    expect(result.current.prompt?.sourceLabel).toBe("Safari on iPadOS");
+    expect(result.current.prompt?.source).toEqual({
+      words: "your iPad",
+      type: "tablet",
+    });
 
     act(() => {
       result.current.prompt?.onJump();
@@ -290,19 +288,11 @@ describe("useReaderHandoffPrompt", () => {
     queryClient.clear();
   });
 
-  it("uses a generic source label when the remote device has no name", async () => {
+  it("asks for device names only once another device has a newer position", async () => {
     const queryClient = createQueryClient();
-    const currentCheckpoint = makeCheckpoint({
-      lastRead: 1000,
-    });
-    const remoteCheckpoint = makeCheckpoint({
-      deviceId: "device-remote",
-      lastRead: 1001,
-    });
-    setCheckpoints(queryClient, [currentCheckpoint, remoteCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: null },
-    ]);
+    const currentCheckpoint = makeCheckpoint({ lastRead: 1000 });
+    setCheckpoints(queryClient, [currentCheckpoint]);
+    namer.enabled.length = 0;
 
     const { result } = renderHook(
       () =>
@@ -313,11 +303,100 @@ describe("useReaderHandoffPrompt", () => {
         }),
       { wrapper: createWrapper(queryClient) },
     );
+    await waitFor(() => {
+      expect(namer.enabled.length).toBeGreaterThan(0);
+    });
+    expect(namer.enabled).not.toContain(true);
 
+    act(() => {
+      setCheckpoints(queryClient, [
+        currentCheckpoint,
+        makeCheckpoint({ deviceId: "device-remote", lastRead: 1001 }),
+      ]);
+    });
     await waitFor(() => {
       expect(result.current.promptState.show).toBe(true);
     });
-    expect(result.current.promptState.sourceDeviceLabel).toBe("another device");
+    expect(namer.enabled.at(-1)).toBe(true);
+
+    queryClient.clear();
+  });
+
+  it("offers no jump to the spread already on screen, then or after the reader moves on", async () => {
+    const queryClient = createQueryClient();
+    setCheckpoints(queryClient, [
+      makeCheckpoint({ lastRead: 1000 }),
+      makeCheckpoint({
+        deviceId: "device-remote",
+        currentSpineIndex: 1,
+        scrollProgress: 50,
+        lastRead: 1001,
+      }),
+    ]);
+
+    // Page 16 is the right-hand page of the spread at 15.
+    const { result, rerender } = renderHook(
+      ({ currentPage }: { currentPage: number }) =>
+        useReaderHandoffPrompt({
+          bookId: BOOK_ID,
+          currentDeviceId: CURRENT_DEVICE_ID,
+          sessionStartedAt: SESSION_STARTED_AT,
+          chapterStartPages: [1, 11, 21],
+          totalPages: 30,
+          currentPage,
+          pagesShown: 2,
+          onJumpToPage: vi.fn(),
+        }),
+      {
+        initialProps: { currentPage: 15 },
+        wrapper: createWrapper(queryClient),
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.promptState.checkpoint).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(result.current.promptState.show).toBe(false);
+    });
+    expect(result.current.prompt).toBeUndefined();
+
+    rerender({ currentPage: 17 });
+    expect(result.current.prompt).toBeUndefined();
+
+    queryClient.clear();
+  });
+
+  it("offers the jump from another spread", async () => {
+    const queryClient = createQueryClient();
+    setCheckpoints(queryClient, [
+      makeCheckpoint({ lastRead: 1000 }),
+      makeCheckpoint({
+        deviceId: "device-remote",
+        currentSpineIndex: 1,
+        scrollProgress: 50,
+        lastRead: 1001,
+      }),
+    ]);
+
+    const { result } = renderHook(
+      () =>
+        useReaderHandoffPrompt({
+          bookId: BOOK_ID,
+          currentDeviceId: CURRENT_DEVICE_ID,
+          sessionStartedAt: SESSION_STARTED_AT,
+          chapterStartPages: [1, 11, 21],
+          totalPages: 30,
+          currentPage: 13,
+          pagesShown: 2,
+          onJumpToPage: vi.fn(),
+        }),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.prompt?.targetPage).toBe(16);
+    });
 
     queryClient.clear();
   });
@@ -332,9 +411,6 @@ describe("useReaderHandoffPrompt", () => {
       lastRead: 1001,
     });
     setCheckpoints(queryClient, [currentCheckpoint, remoteCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: "Chrome on macOS" },
-    ]);
 
     const { result } = renderHook(
       () =>
@@ -391,9 +467,6 @@ describe("useReaderHandoffPrompt", () => {
       lastRead: 1000,
     });
     setCheckpoints(queryClient, [sessionStartCheckpoint]);
-    setHandoffDevices(queryClient, [
-      { clientId: "device-remote", deviceName: "Chrome on Android" },
-    ]);
 
     const { result } = renderHook(
       () =>

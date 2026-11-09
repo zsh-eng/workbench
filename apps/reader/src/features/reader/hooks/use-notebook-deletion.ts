@@ -88,8 +88,8 @@ export function useNotebookDeletion({
       if (failed.length)
         toast.error(
           failed.length === 1
-            ? `Could not restore the ${failed[0].kind}.`
-            : `Could not restore ${failed.length} entries.`,
+            ? `Couldn’t restore the ${failed[0].kind}.`
+            : `Couldn’t restore ${failed.length} entries.`,
           { id: "notebook-restore-failed" },
         );
       restoring.current = false;

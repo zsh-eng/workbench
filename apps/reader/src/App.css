@@ -529,7 +529,8 @@ mark {
     [data-reader-top-prompt]
   )
   .reader-running-heads,
-[data-reader-root]:has([data-reader-footer]) .reader-folios {
+[data-reader-root]:has([data-reader-footer], [data-reader-foot-prompt])
+  .reader-folios {
   opacity: 0;
 }
 

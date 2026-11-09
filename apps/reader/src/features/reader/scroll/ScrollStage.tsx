@@ -1455,7 +1455,7 @@ export function ScrollStage({
                   onClick={onOpenNextChapter}
                   className="flex w-full flex-col items-start rounded-[1.25rem] border border-border/60 bg-secondary/35 px-4 py-3.5 text-left transition-[background-color,scale] duration-150 active:scale-[0.98] hover:bg-secondary/55"
                 >
-                  <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="text-[12.5px] text-muted-foreground">
                     End of chapter
                   </span>
                   <span className="mt-1.5 line-clamp-2 text-[15px] leading-snug text-foreground">
@@ -1469,7 +1469,7 @@ export function ScrollStage({
                   </span>
                 </button>
               ) : (
-                <p className="pt-3 text-center text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                <p className="pt-3 text-center font-serif text-[16px] text-muted-foreground italic">
                   End of book
                 </p>
               )}

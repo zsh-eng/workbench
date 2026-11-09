@@ -32,10 +32,7 @@ export function ReaderDesktopToolbar({
           data-reader-header-title=""
           title={bookTitle}
           className={cn(
-            "min-w-0 truncate px-4 text-muted-foreground",
-            subtitle === undefined
-              ? "text-[11px] font-medium uppercase tracking-[0.18em]"
-              : "text-[13px]",
+            "min-w-0 truncate px-4 font-serif text-[16px] text-muted-foreground italic",
             accessory
               ? "text-left @min-[1024px]/desktop-chrome:text-center"
               : "text-center",
@@ -43,7 +40,10 @@ export function ReaderDesktopToolbar({
         >
           {bookTitle}
           {subtitle && (
-            <span className="text-muted-foreground/60"> · {subtitle}</span>
+            <span className="font-sans text-[13px] text-muted-foreground/60 not-italic">
+              {" "}
+              · {subtitle}
+            </span>
           )}
         </p>
         <div className="flex items-center justify-end gap-1">

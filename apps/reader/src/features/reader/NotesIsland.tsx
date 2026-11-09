@@ -328,7 +328,7 @@ function CopyPassageButton({
   className?: string;
   iconClassName: string;
 }) {
-  const { copied, copy } = useCopyFeedback("Could not copy the passage.");
+  const { copied, copy } = useCopyFeedback("Couldn’t copy the passage.");
   return (
     <button
       type="button"

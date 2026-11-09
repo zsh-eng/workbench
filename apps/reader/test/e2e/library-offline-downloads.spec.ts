@@ -6,20 +6,14 @@ import {
   waitForSheet,
 } from "./helpers/fixtures";
 
-// Debug -> Offline downloads: a book that is only on the server downloads
-// from the Library, on its cover, with the glyph and its sheet (which show
-// without the switch).
+// Offline downloads: a book that is only on the server downloads from the
+// Library, on its cover, with the glyph and its sheet.
 test.use({ viewport: { width: 390, height: 844 } });
 
 test("a book downloads for offline on its cover", async ({
   page,
-  context,
   localBook,
 }) => {
-  await context.addInitScript(() => {
-    localStorage.setItem("reader-debug-enabled-v1", "true");
-    localStorage.setItem("reader-offline-downloads-v1", "true");
-  });
   const sourceFileId = await page.evaluate(async (bookId) => {
     const { syncV2Db: db } = await import("/src/lib/sync-v2/db.ts");
     const book = await db.books.get(bookId);
@@ -63,7 +57,7 @@ test("a book downloads for offline on its cover", async ({
   // Signed out, sync says so under This app, in words that are all there.
   const syncLine = sheet
     .locator('[data-sheet-row="sync"]')
-    .getByText(/only on this device\. Sign in to keep them\.$/);
+    .getByText(/only on this device\. Sign in to keep (it|them)\.$/);
   await expect(syncLine).toBeVisible();
   expect(
     await syncLine.evaluate(

@@ -18,8 +18,11 @@ import { useEffect, useRef, useState } from "react";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 
 interface HighlightToolbarProps {
-  /** The selection's top centre, and its foot when known. */
-  position: { x: number; y: number; bottom?: number };
+  /**
+   * The selection's top centre, and its foot when known. A selection made
+   * by touch has the system's own menu over it, so the tools open below.
+   */
+  position: { x: number; y: number; bottom?: number; touch?: boolean };
   onColorSelect: (color: AnnotationColor) => void;
   onClose: () => void;
   currentColor?: AnnotationColor;
@@ -44,7 +47,7 @@ export function HighlightToolbar({
   const isMobile = useCompactWindow();
   const prefersReducedMotion = useReducedMotion();
   const [noteText, setNoteText] = useState("");
-  const { copied, copy } = useCopyFeedback("Could not copy highlight.");
+  const { copied, copy } = useCopyFeedback("Couldn’t copy highlight.");
   const inputRef = useRef<HTMLInputElement>(null);
   const isBareDesktopPicker = !isMobile && !onNoteSubmit;
   const hasCopyAction = Boolean(textToCopy);
@@ -61,9 +64,15 @@ export function HighlightToolbar({
       : 220;
   const toolbarHeight = isBareDesktopPicker ? 44 : isMobile ? 120 : 88;
   const padding = 12;
+  // Below a touch selection, clear of the handle that hangs from its end.
+  const handleClearance = 32;
 
   let x = position.x - toolbarWidth / 2;
-  let y = position.y - toolbarHeight - padding;
+  const above = position.y - toolbarHeight - padding;
+  const below =
+    (position.bottom ?? position.y) +
+    (position.touch ? handleClearance : padding);
+  let y = position.touch ? below : above;
 
   // Keep toolbar within viewport
   if (typeof window !== "undefined") {
@@ -76,10 +85,14 @@ export function HighlightToolbar({
       x = viewportWidth - toolbarWidth - padding;
     }
 
-    // Adjust vertical position (show below if not enough space above)
-    if (y < padding) {
-      y = (position.bottom ?? position.y) + padding;
-    }
+    // Take the other side when this one has no room.
+    if (y === above && y < padding) y = below;
+    else if (
+      y === below &&
+      y + toolbarHeight > window.innerHeight - padding &&
+      above >= padding
+    )
+      y = above;
   }
 
   const opensBelowSelection = y > position.y;

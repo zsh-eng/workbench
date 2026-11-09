@@ -81,7 +81,7 @@ export function useBookLoader(bookId: string | undefined): UseBookLoaderReturn {
   useEffect(() => {
     if (!bookId) {
       toast({
-        message: "Could not open this book.",
+        message: "Couldn’t open this book.",
         variant: "destructive",
       });
       navigate("/");
@@ -91,7 +91,7 @@ export function useBookLoader(bookId: string | undefined): UseBookLoaderReturn {
     if (bookQuery.error) {
       console.error("Error loading book:", bookQuery.error);
       toast({
-        message: "Could not load this book.",
+        message: "Couldn’t load this book.",
         variant: "destructive",
       });
       navigate("/");

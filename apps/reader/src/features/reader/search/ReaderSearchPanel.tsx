@@ -1,3 +1,4 @@
+import { GROUP_LABEL_TYPE } from "@/components/type-voices";
 import { cn } from "@/lib/utils";
 import { Search, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -140,7 +141,7 @@ function AnnotationRow({
               </span>
             )}
           </span>
-          <span className="shrink-0 text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+          <span className="shrink-0 text-[12px] text-muted-foreground">
             {annotation.kind === "note" ? "Note" : "Highlight"}
           </span>
         </span>
@@ -187,8 +188,7 @@ function MoreResults({
   );
 }
 
-const SECTION_HEADING =
-  "sticky top-0 z-10 flex items-baseline justify-between gap-3 bg-background/95 px-4 pt-3 pb-1.5 text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase backdrop-blur";
+const GROUP_HEADING = `sticky top-0 z-10 flex items-baseline justify-between gap-3 bg-background/95 px-4 pt-3 pb-1.5 backdrop-blur ${GROUP_LABEL_TYPE}`;
 
 /**
  * Book search: a field, then matches in the reader's own highlights and
@@ -363,7 +363,7 @@ export function ReaderSearchPanel({
       >
         {hasQuery && state.annotations.length > 0 && (
           <section aria-label="Your highlights and notes">
-            <h3 className={SECTION_HEADING}>
+            <h3 className={GROUP_HEADING}>
               <span>Your highlights and notes</span>
               <span className="font-numeric tabular-nums">
                 {state.annotations.length}
@@ -388,10 +388,8 @@ export function ReaderSearchPanel({
             .filter((group) => group.firstIndex < state.shown)
             .map((group) => (
               <section key={group.key} aria-label={group.title}>
-                <h3 className={SECTION_HEADING}>
-                  <span className="min-w-0 truncate text-xs tracking-normal normal-case">
-                    {group.title}
-                  </span>
+                <h3 className={GROUP_HEADING}>
+                  <span className="min-w-0 truncate">{group.title}</span>
                   <span className="shrink-0 font-numeric tabular-nums">
                     {group.results.length}
                   </span>

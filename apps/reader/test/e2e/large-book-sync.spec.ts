@@ -3,8 +3,10 @@ import { MAX_SYNC_VALUE_BYTES } from "@zsh-eng/local-sync";
 import { LARGE_TECHNICAL_BOOK, largeEpub } from "../fixtures/large-epub";
 import {
   expect,
+  landArrival,
   openAccountMenu,
   test,
+  waitForArrival,
   waitForReaderReady,
 } from "./helpers/fixtures";
 import { mockApi } from "./helpers/mock-api";
@@ -98,6 +100,7 @@ test("a book with a huge table of contents imports, syncs, and opens whole on an
     mimeType: "application/epub+zip",
     buffer: Buffer.from(epub.bytes),
   });
+  await landArrival(page, await waitForArrival(page));
   await expect(
     page.getByRole("heading", { name: shape.title, exact: true }),
   ).toBeVisible({ timeout: 30_000 });

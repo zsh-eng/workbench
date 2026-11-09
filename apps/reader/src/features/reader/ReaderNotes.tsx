@@ -64,6 +64,18 @@ interface Location {
   chapter: string;
 }
 /** Book-scoped notebook UI; durable capture is owned by useReaderNotes. */
+const plural = (count: number, word: string) =>
+  `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** "2 notes, 1 highlight": what a notebook holds, in words. */
+function holdings(entries: readonly { kind: string }[]): string {
+  const notes = entries.filter((entry) => entry.kind === "note").length;
+  const highlights = entries.length - notes;
+  if (!notes) return plural(highlights, "highlight");
+  if (!highlights) return plural(notes, "note");
+  return `${plural(notes, "note")}, ${plural(highlights, "highlight")}`;
+}
+
 export function ReaderNotes({
   bookId,
   chapters,
@@ -160,7 +172,7 @@ export function ReaderNotes({
       try {
         await deleteHighlight(entry.id);
       } catch {
-        toast.error("Could not delete the highlight.", {
+        toast.error("Couldn’t delete the highlight.", {
           id: "highlight-delete-failed",
         });
         return false;
@@ -1023,12 +1035,17 @@ export function ReaderNotes({
         className={`flex min-h-0 flex-col overflow-hidden ${embeddedNotebook ? "flex-initial" : "flex-1"}`}
       >
         <header className="flex items-center gap-3 px-4 py-2">
+          {/* In a sheet the sheet's title names it; the line says what it holds. */}
           <h2 className="flex flex-1 items-center gap-2 text-sm font-medium">
-            <span>Notebook</span>{" "}
-            <span className="text-xs font-normal text-muted-foreground font-numeric tabular-nums">
+            <span className={embeddedNotebook ? "sr-only" : undefined}>
+              Notebook
+            </span>{" "}
+            <span className="font-numeric text-[13px] font-normal text-muted-foreground tabular-nums">
               {filtering
                 ? `${shownEntries.length} of ${notebookEntries.length}`
-                : notebookEntries.length}
+                : embeddedNotebook
+                  ? holdings(notebookEntries)
+                  : notebookEntries.length}
             </span>
           </h2>
           <DropdownMenu>

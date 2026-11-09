@@ -400,7 +400,7 @@ test("Appearance turns the curl on for this device", async ({
   const tools = await waitForSheet(page, "Reader tools");
   await tools.getByRole("button", { name: "Appearance", exact: true }).tap();
   const appearance = await waitForSheet(page, "Appearance");
-  await appearance.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await appearance.getByRole("tab", { name: "Page", exact: true }).tap();
   // The sheet grows to fit the tab on its spring; tap once it rests.
   await waitForSheetToRest(appearance);
   await appearance

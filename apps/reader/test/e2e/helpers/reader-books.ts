@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import {
   currentPages,
   expect,
+  waitForArrival,
   waitForReaderReady,
   waitForSheet,
 } from "./fixtures";
@@ -24,9 +25,10 @@ export async function importAndOpenEpub(
       .click(),
   ]);
   await chooser.setFiles(file);
-  const heading = page.getByRole("heading", { name: title }).first();
-  await expect(heading).toBeVisible({ timeout: 120_000 });
-  await heading.click();
+  // One book arrives in the arrival sheet, whose Read now opens it.
+  const sheet = await waitForArrival(page, { timeout: 120_000 });
+  await expect(sheet.getByRole("heading", { name: title })).toBeVisible();
+  await sheet.getByRole("button", { name: "Read now", exact: true }).click();
   await page.waitForURL(/\/reader\/[^/?#]+/, { timeout: 60_000 });
   await waitForReaderReady(page);
   return decodeURIComponent(

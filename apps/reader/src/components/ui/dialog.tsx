@@ -1,3 +1,4 @@
+import { SURFACE_TITLE_TYPE } from "@/components/type-voices";
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
@@ -121,7 +122,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
+      className={cn(SURFACE_TITLE_TYPE, className)}
       {...props}
     />
   );

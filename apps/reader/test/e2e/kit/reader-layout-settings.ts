@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { waitForReaderReady } from "../helpers/fixtures";
 
 /**
- * agent-kit steps: opens Appearance → Layout in the Reader tools sidebar of
+ * agent-kit steps: opens Appearance → Page in the Reader tools sidebar of
  * a tablet or desktop window (Reading view, Pages, Full screen while
  * reading).
  */
@@ -23,7 +23,7 @@ export default async function layoutSettings({ page }: { page: Page }) {
       .getByRole("button", { name: "Reading appearance", exact: true })
       .click();
   if (!(await row.isVisible()))
-    await sidebar.getByRole("tab", { name: "Layout", exact: true }).click();
+    await sidebar.getByRole("tab", { name: "Page", exact: true }).click();
   await row.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400); // the sidebar's slide, for the picture only
 }

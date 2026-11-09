@@ -31,7 +31,7 @@ it("disables duplicate saves and keeps an unsuccessful save available to retry o
       prompt: {
         ...prompt,
         isPending: false,
-        error: "Could not update reading status. Please try again.",
+        error: "Couldn’t update reading status. Try again.",
       },
     }),
   );

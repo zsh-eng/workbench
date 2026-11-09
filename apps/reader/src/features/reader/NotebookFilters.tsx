@@ -36,8 +36,8 @@ export function NotebookFilters({
         {(
           [
             ["all", "All"],
-            ["notes", "Notes"],
             ["highlights", "Highlights"],
+            ["notes", "Notes"],
           ] as const
         ).map(([value, label]) => (
           <SegmentedToggleGroupItem
@@ -45,7 +45,7 @@ export function NotebookFilters({
             value={value}
             // Distinct from the sidebar's Notes and Highlights tabs.
             aria-label={`Show ${label.toLowerCase()}`}
-            className="relative h-7 flex-none rounded-full px-3 text-xs font-medium before:absolute before:content-[''] before:-inset-y-2 text-muted-foreground data-[pressed]:text-foreground"
+            className="relative h-7 flex-none rounded-full px-3 text-[13px] font-medium before:absolute before:content-[''] before:-inset-y-2 text-muted-foreground data-[pressed]:text-foreground"
           >
             {label}
           </SegmentedToggleGroupItem>

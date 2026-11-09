@@ -99,9 +99,7 @@ describe("getReaderStatusPrompt", () => {
       useReaderStatusPrompt({ bookId: "book-1", isReady: true }),
     );
     act(() => result.current?.onConfirm());
-    await waitFor(() =>
-      expect(result.current?.error).toContain("Please try again"),
-    );
+    await waitFor(() => expect(result.current?.error).toContain("Try again"));
     expect(result.current?.isPending).toBe(false);
     expect(mocks.success).not.toHaveBeenCalled();
     act(() => result.current?.onConfirm());

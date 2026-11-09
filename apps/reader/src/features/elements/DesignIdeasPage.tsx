@@ -283,7 +283,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
         id: "arriving-light",
         title: "Several books: raking light",
         description:
-          "The recommendation for a batch, with no sheet. Every book holds its place at once, as paper. A low lamp crosses each cover from the spine as the book is prepared, and the colour returns where it has been. On a printed cover the light finds the board's tooth and a passing sheen; on a living cover, its hand-made relief. In the real Library: Settings → Debug tools → Try on this device → Arriving books.",
+          "The recommendation for a batch, with no sheet. Every book holds its place at once, as paper. A low lamp crosses each cover from the spine as the book is prepared, and the colour returns where it has been. On a printed cover the light finds the board's tooth and a passing sheen; on a living cover, its hand-made relief. This is what the Library does.",
         src: "/debug/ideas/arriving-books?look=light&state=five",
       },
       {
@@ -431,7 +431,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "background-current",
       title: "Covers with a glyph",
       description:
-        "The choice, in the real Library. A glyph opens the activity sheet (before Search, or beside Sort and layout on a phone), for everyone. Covers that fill as their books download are behind Settings → Debug tools → Try on this device → Offline downloads: turn the switch on, then Sort and layout → Download all for offline.",
+        "The choice, in the real Library. A glyph opens the activity sheet (before Search, or beside Sort and layout on a phone), for everyone. Covers fill as their books download: Sort and layout → Download all for offline.",
       src: "/",
     },
     ideas: [

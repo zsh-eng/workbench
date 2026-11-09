@@ -141,17 +141,13 @@ export function Library() {
   const { data } = useBooksWithStatuses();
   const debugEnabled = useDebugEnabled();
 
-  const [chosenFilter, setFilter] = useState<
+  const [filter, setFilter] = useState<
     LibraryFilter | typeof ON_DEVICE_FILTER.value
   >("all");
-  const onDevice = useOnDeviceFilter(
+  const onDeviceIds = useOnDeviceFilter(
     data?.books,
-    chosenFilter === ON_DEVICE_FILTER.value,
+    filter === ON_DEVICE_FILTER.value,
   );
-  const filter =
-    chosenFilter === ON_DEVICE_FILTER.value && !onDevice.enabled
-      ? "all"
-      : chosenFilter;
   const filterRow = useMoreToTheRight();
   const [view, setViewState] = useState(readViewPreferences);
   const placeSearch = usePlaceSearch();
@@ -180,14 +176,14 @@ export function Library() {
       found.filter((book) =>
         filter === ON_DEVICE_FILTER.value
           ? data.statuses.get(book.id) !== "reading" &&
-            !!onDevice.ids?.has(book.id)
+            !!onDeviceIds?.has(book.id)
           : matchesFilter(data.statuses.get(book.id) ?? null, filter),
       ),
       view.sort,
       data.lastReadByBook,
     );
     return { found, reading, shown };
-  }, [data, filter, onDevice.ids, terms, view.sort]);
+  }, [data, filter, onDeviceIds, terms, view.sort]);
 
   const displayedBooks = useMemo(
     () => [...reading, ...shown],
@@ -608,10 +604,7 @@ export function Library() {
                 data-more={filterRow.more || undefined}
                 className="flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] max-md:data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] md:gap-4"
               >
-                {[
-                  ...LIBRARY_FILTERS,
-                  ...(onDevice.enabled ? [ON_DEVICE_FILTER] : []),
-                ].map((option) => {
+                {[...LIBRARY_FILTERS, ON_DEVICE_FILTER].map((option) => {
                   const active = option.value === filter;
                   return (
                     <button

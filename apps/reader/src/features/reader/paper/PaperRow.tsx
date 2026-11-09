@@ -1,3 +1,4 @@
+import { GROUP_LABEL_TYPE } from "@/components/type-voices";
 import {
   SegmentedToggleGroup,
   SegmentedToggleGroupItem,
@@ -16,9 +17,8 @@ import {
 } from "./paper-preference";
 
 const itemClassName =
-  "h-9 flex-1 gap-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[pressed]:text-foreground";
-const labelClassName =
-  "text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground";
+  "h-9 flex-1 gap-1.5 rounded-full text-[13px] font-medium text-muted-foreground data-[pressed]:text-foreground";
+const labelClassName = GROUP_LABEL_TYPE;
 
 function Toggle({
   label,
@@ -47,7 +47,7 @@ function Toggle({
  * Appearance row: the page turn and how the leaf is held, the paper's
  * grain, its ink and highlights, and the turn's feel.
  * Debug mode only while the curl is a prototype; it follows the Reading
- * view row in the Layout tab.
+ * view row in the Page tab.
  */
 export function PaperRow() {
   const paper = usePaperPreference();
@@ -57,7 +57,7 @@ export function PaperRow() {
     <div className="space-y-3 py-3" data-paper-row={paper.pageTurn}>
       <div className="flex items-center gap-2">
         <h4 className={labelClassName}>Page turn</h4>
-        <span className="rounded-full border border-border/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="rounded-full border border-border/70 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
           Debug
         </span>
       </div>

@@ -127,13 +127,18 @@ function writeCache(devices: SyncDevice[]): void {
  * (`GET /api/devices`) is keyed by the `X-Device-ID` that records carry.
  * The names are remembered for offline use.
  */
-export function useSyncDeviceNames(): SyncDeviceNames {
+export function useSyncDeviceNames({
+  enabled = true,
+}: {
+  /** False keeps to the remembered names and asks the server for none. */
+  enabled?: boolean;
+} = {}): SyncDeviceNames {
   const { user, isAuthenticated, isLoading } = useAuth();
   const userId = !isLoading && isAuthenticated ? user?.id : undefined;
   const { data } = useQuery({
     networkMode: "online",
     queryKey: ["sync-devices", userId],
-    enabled: !!userId && !getLabRuntime(),
+    enabled: enabled && !!userId && !getLabRuntime(),
     initialData: readCache,
     initialDataUpdatedAt: 0,
     staleTime: 5 * 60_000,

@@ -65,7 +65,7 @@ export function useAddHighlightMutation(bookId: string | undefined) {
       toast.error(
         err instanceof SyncValueTooLargeError
           ? "This passage is too long to highlight. Select less text."
-          : "Could not save highlight.",
+          : "Couldn’t save highlight.",
         { id: "highlight-save-failed" },
       );
     },
@@ -86,7 +86,7 @@ export function useDeleteHighlightMutation(bookId: string | undefined) {
     },
     onError: (err) => {
       console.error("Failed to delete highlight:", err);
-      toast.error("Could not delete highlight.", {
+      toast.error("Couldn’t delete highlight.", {
         id: "highlight-delete-failed",
       });
     },
@@ -115,7 +115,7 @@ export function useUpdateHighlightMutation(bookId: string | undefined) {
     },
     onError: (err) => {
       console.error("Failed to update highlight:", err);
-      toast.error("Could not change highlight color.", {
+      toast.error("Couldn’t change highlight color.", {
         id: "highlight-colour-failed",
       });
     },

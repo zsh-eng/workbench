@@ -292,6 +292,8 @@ export function Reader() {
     enabled: settledPaintReady && sessionState.pagination.status === "ready",
     chapterStartPages: sessionState.navigation.chapterStartPages,
     totalPages: sessionState.navigation.totalPages,
+    currentPage: sessionState.navigation.currentPage,
+    pagesShown: resolvedSpreadColumns,
     onJumpToPage: sessionActions.jumpToHandoffPage,
   });
   useReaderPerformanceTraceLifecycle({
@@ -334,8 +336,7 @@ export function Reader() {
     return (
       <ReaderStateScreen
         title="Book file unavailable"
-        message="The EPUB file is not available on this device. Reconnect to download it, or return to the Library and try again."
-        titleTone="destructive"
+        message="This book isn’t on this device yet. Connect to the internet to download it, or go back to the Library."
         action={{ label: "Back to Library", onClick: () => navigate("/") }}
       />
     );
@@ -346,7 +347,6 @@ export function Reader() {
       <ReaderStateScreen
         title="This book couldn’t open"
         message="Something went wrong while opening it on this device. Nothing was changed, and your place is kept."
-        titleTone="destructive"
         action={{ label: "Try again", onClick: () => window.location.reload() }}
       />
     );
@@ -681,18 +681,14 @@ export function Reader() {
                       }
                       onClose={search.exit}
                     />
-                  ) : handoffPrompt ? (
-                    <ReaderChromeAccessory
-                      kind="handoff"
-                      floating={isMobile}
-                      prompt={handoffPrompt}
-                      currentPage={sessionState.navigation.currentPage}
-                    />
                   ) : (
+                    // A newer position from another device goes first, at
+                    // the footer; the status prompt waits for it here.
+                    !handoffPrompt &&
                     statusPrompt && (
                       <ReaderChromeAccessory
                         kind="reading"
-                        floating={isMobile}
+                        placement={isMobile ? "top" : "header"}
                         prompt={statusPrompt}
                       />
                     )
@@ -810,6 +806,19 @@ export function Reader() {
                 onOpenContents={() => requestSheet("contents")}
                 isLoading={
                   !displayReady || sessionState.pagination.status !== "ready"
+                }
+                prompt={
+                  handoffPrompt &&
+                  searchActiveIndex === null &&
+                  !isReaderInteractionSuppressed &&
+                  !(isMobile && annotationState.kind === "active") && (
+                    <ReaderChromeAccessory
+                      kind="handoff"
+                      placement="foot"
+                      prompt={handoffPrompt}
+                      currentPage={sessionState.navigation.currentPage}
+                    />
+                  )
                 }
                 noteAccessory={
                   isMobile && (

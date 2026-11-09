@@ -33,7 +33,7 @@ test.describe("Reader settings on a phone", () => {
       if (!bounds || bounds.y < 0) await page.touchscreen.tap(195, 350);
       await expect(tools).toBeInViewport();
       const settings = await openReaderTool(page, "Appearance", "Appearance");
-      await settings.getByRole("tab", { name: "Layout" }).click();
+      await settings.getByRole("tab", { name: "Page" }).click();
       // The sheet grows to fit the tab on its spring; tap once it rests.
       await waitForSheetToRest(settings);
     };
@@ -139,7 +139,7 @@ test.describe("Reader settings on a phone", () => {
     const justify = page.getByRole("switch", { name: "Justify", exact: true });
     await justify.click();
     await expect(justify).toBeChecked();
-    await page.getByRole("tab", { name: "Theme" }).click();
+    await page.getByRole("tab", { name: "Paper" }).click();
     // The sheet fits the tab on its spring; tap once it rests.
     await waitForSheetToRest(settings);
     await page

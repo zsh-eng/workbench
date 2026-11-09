@@ -92,7 +92,7 @@ test("Reader sheets rest on detents and stack over Reader tools", async ({
     );
   const typeTop = await top();
   expect(typeTop).toBeGreaterThan(844 / 4);
-  await settings.getByRole("tab", { name: "Theme" }).click();
+  await settings.getByRole("tab", { name: "Paper" }).click();
   await expect.poll(top).toBeGreaterThan(typeTop + 40);
   await expect.poll(() => visibleShare(settings)).toBeCloseTo(1, 1);
   await waitForSheetToRest(settings);
@@ -119,7 +119,7 @@ test("A page tapped while Reader tools still opens takes taps", async ({
   const tools = page.getByRole("dialog", { name: "Reader tools" });
   await expect(tools).toBeVisible({ timeout: 30_000 });
   await tools
-    .getByRole("button", { name: /Book status/ })
+    .getByRole("button", { name: /Reading status/ })
     .dispatchEvent("click");
   const status = await waitForSheet(page, "Reading status");
   const finished = status.getByRole("button", { name: "Finished" });

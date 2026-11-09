@@ -101,8 +101,8 @@ export function downloadBooks(books: readonly Book[]): void {
 }
 
 /**
- * Add books from files as import jobs, behind Debug → Arriving books. Each
- * file holds its place in the Library at once; the outcomes settle in order.
+ * Add books from files as import jobs. Each file holds its place in the
+ * Library at once; the outcomes settle in order.
  */
 export function importBooks(files: readonly File[]) {
   const { batch, keys } = appArrivals.start(files.map((file) => file.name));
