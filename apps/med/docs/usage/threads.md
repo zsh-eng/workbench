@@ -73,29 +73,37 @@ load it or read its agents until you open it again.
 
 ## New threads and the sidebar
 
-- **New thread** (`⌥N`, or `⌘N` where the browser lets Med have it, as the
-  installed app does; a browser tab keeps `⌘N` for a new window) asks one
-  thing in its middle: **Where to work**.
-  Your repositories are one list: those of your newest threads, tabs and
-  history first, newest first, up to 5, then the others. The chosen one has a
-  check. The list scrolls when it is long. Type in its filter to narrow it;
-  `↑` and `↓` move, and `↵` picks. A first `Esc` clears the filter.
-  **Add a folder…** at its foot opens Sources, where you register another
-  repository or vault.
-- The task box sits at the bottom, as in a chat. `↵` starts the agent on the
-  task, and `⇧↵` adds a line; `⌘↵` starts from anywhere on the page. Under
-  the box, one line of menus:
-  - **Repository**, on the left, the same choice as the list. With only one
-    repository, its name is plain text.
+- **New thread** (`⌥N`; `⌘N` in the installed app, or `⌘K` › **New thread**)
+  puts the task box in the middle of the page, as Claude's new session page
+  does. A browser tab keeps `⌘N` for a new window; the installed app's window
+  gives Med every key, so `⌘N` opens New thread there. `↵` starts the agent
+  on the task, and `⇧↵` adds a line; `⌘↵` starts from anywhere on the page.
+  Under the box, one line of choices:
+  - **Repository**, on the left, opens the list of where to work: your
+    repositories, those of your newest threads, tabs and history first, newest
+    first, up to 5, then the others. The chosen one has a check. The list
+    scrolls when it is long. Its filter has the focus: type to narrow it; `↑`
+    and `↓` move, and `↵` picks. The first `Esc` clears the filter, the next
+    closes the list. **Add a folder…** at its foot opens Sources, where you
+    register another repository or vault. Med chooses the repository on
+    screen, else your last choice or your newest thread's. Before your first
+    thread, it asks you to choose, unless you have only one; `↵` in the task
+    then opens the list.
   - **Where the agent works**: **New worktree**, the default, makes a branch
     named for the task in a new linked worktree, so the work stays apart from
-    your checkout; **Checkout** works on the checkout's current branch, which
-    the item names.
+    your checkout; **Checkout** works on the checkout's current branch. A
+    click switches between the two; the tooltip names the other, with its
+    branch.
   - **Model**: the agent's mark and its model. Its **Agent** submenu chooses
     another agent, when Med has more than one.
   - **Effort**, such as **High effort**, while the model has efforts. Claude
     Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
     keeps your last choice for each agent.
+
+  A choice with only two options, here or anywhere in Med, such as the pull
+  requests page's **Where to look**, switches on a click. A menu opens only
+  for three or more.
+
 - **Superagent**, at the top of the sidebar, is one thread that sees the
   others ([The Superagent](#the-superagent)).
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
@@ -243,8 +251,8 @@ background shells and agents. It follows the session live.
   in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
-  review's sessions and **Show work**. **New thread** (`⌥N`, or `⌘N` where
-  the browser lets Med have it) starts another session.
+  review's sessions and **Show work**. **New thread** (`⌥N`, or `⌘N` in the
+  installed app) starts another session.
 - **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
   shows its state. The review's **Restore**, at its top right where
@@ -372,7 +380,9 @@ Med can run it:
 Type `@` in the message box, or in a new thread's task, to name a file in the
 checkout, a note in a registered vault, or another thread. A query can have
 spaces, as note names do. The best match comes first; `↵` or `Tab` adds it, and
-`Esc` keeps the `@` as text. The box shows a short name as a chip,
+`Esc` keeps the `@` as text. The list opens over the page above the box, so the
+box keeps its size; the `/` commands do the same. The box shows a short name as
+a chip,
 and the agent gets the absolute path, which it reads itself: a file's or a
 note's path, or another thread's session transcript.
 

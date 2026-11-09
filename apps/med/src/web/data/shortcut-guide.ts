@@ -62,6 +62,12 @@ export const guideContexts: GuideContext[] = [
             command: "open-branch",
           },
           {
+            label: "New thread",
+            keys: ["Alt+N", "Mod+N"],
+            note: "Mod+N in the installed app; a browser tab keeps it for a new window",
+            command: "new-thread",
+          },
+          {
             label: "Open a repository",
             keys: ["Mod+O"],
             note: "Tab searches its branches; Shift+Tab goes back",

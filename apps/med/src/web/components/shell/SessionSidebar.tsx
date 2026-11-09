@@ -17,6 +17,7 @@ import { needsYou, tabOrder, type SessionRow } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { RenameField } from "./RenameField";
+import { newThreadKeys } from "../../data/title-bar";
 import { tooltip } from "../ToolButton";
 import { motion } from "../session/session-styles";
 
@@ -297,6 +298,7 @@ export function SessionSidebar({
           aria-label="New thread"
           aria-pressed={newThread}
           onClick={onNewThread}
+          {...tooltip("New thread", newThreadKeys())}
           {...stylex.props(styles.row, styles.new, newThread && styles.current)}
         >
           <span {...stylex.props(styles.mark, styles.plus)}>

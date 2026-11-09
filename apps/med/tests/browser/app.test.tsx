@@ -1064,12 +1064,14 @@ describe("graphical review", () => {
     await reviewTab.click();
     await expect.poll(() => controller.getSnapshot().savedView).toBe(true);
     await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
+    // Two checkouts: a click switches to the other.
+    const checkout = page.getByRole("button", { name: /^Review checkout: / });
     for (const [index, name] of [
-      [0, /^repo · /],
-      [1, /^feature · /],
+      [0, /^Review checkout: repo · /],
+      [1, /^Review checkout: feature · /],
     ] as const) {
-      await page.getByRole("combobox", { name: "Review checkout" }).click();
-      await page.getByRole("option", { name }).click();
+      if (!name.test(checkout.element().getAttribute("aria-label") ?? "")) await checkout.click();
+      await expect.element(checkout).toHaveAccessibleName(name);
       await expect.poll(() => controller.getSnapshot().review?.id).toBe(`target-${index}`);
       await expect.element(reviewTab).toHaveAttribute("aria-checked", "true");
     }
@@ -4858,12 +4860,10 @@ describe("agent session", () => {
     });
     // Before the transcript has a request, the header shows what the runner reports.
     await expect.element(page.getByRole("button", { name: /^Context 20% full/ })).toBeVisible();
-    // Model, effort, and mode are pickers, not commands.
-    await userEvent.click(composer.getByRole("combobox", { name: "Model" }));
-    await userEvent.click(page.getByRole("option", { name: "Haiku" }));
-    await expect
-      .element(composer.getByRole("combobox", { name: "Model" }))
-      .toHaveTextContent("Haiku");
+    // Model, effort, and mode are pickers, not commands. With two models, a
+    // click switches to the other.
+    await userEvent.click(composer.getByRole("button", { name: "Model: Default" }));
+    await expect.element(composer.getByRole("button", { name: "Model: Haiku" })).toBeVisible();
     expect(ownedActions).toContainEqual({
       action: "setting",
       id: "model",

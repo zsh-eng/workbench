@@ -23,7 +23,7 @@ import { Icon, type IconName } from "../Icon";
 import { tooltip } from "../ToolButton";
 import { PlanCard, QuestionCard, type CardKeys } from "./AskCards";
 import { ImageViewer, imageSource } from "./ImageThumbs";
-import { useMentions } from "../Mentions";
+import { mentionPopover, useMentions } from "../Mentions";
 import { SessionNotice } from "./SessionNotice";
 import type { MentionSources } from "../../data/mentions";
 import { readDraft, writeDraft } from "../../data/outbox";
@@ -585,7 +585,12 @@ export function SessionComposer({
           </ul>
         )}
         {matches.length > 0 && (
-          <div id={menuId} role="listbox" aria-label="Commands" {...stylex.props(styles.commands)}>
+          <div
+            id={menuId}
+            role="listbox"
+            aria-label="Commands"
+            {...stylex.props(ui.popup, mentionPopover.over, styles.commands)}
+          >
             {matches.map((command, index) => (
               <button
                 type="button"
@@ -798,7 +803,9 @@ export function SessionComposer({
 }
 
 const styles = stylex.create({
+  // The / and @ lists open over the thread above it.
   box: {
+    position: "relative",
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
@@ -994,8 +1001,6 @@ const styles = stylex.create({
   commands: {
     listStyle: "none",
     margin: 0,
-    marginInline: -6,
-    padding: 0,
     display: "flex",
     flexDirection: "column",
     gap: 1,

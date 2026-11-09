@@ -1,26 +1,87 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Popover } from "@base-ui/react/popover";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ThreadList } from "../../../shared/threads";
-import { tokens } from "../../theme.stylex";
+import { tokens, ui } from "../../theme.stylex";
 import { Icon } from "../Icon";
 
 type Repository = ThreadList["repositories"][number];
 
 /**
- * New thread's one question: where to work. The repositories in one list,
- * most recent first, with a filter on top; typing filters, the arrow keys
- * move, and Enter picks. Add a folder… at its foot registers another.
+ * New thread's question of where to work, from the repository's chip under
+ * the composer: a popover with the repositories, most recent first, and a
+ * filter on top. Typing filters, the arrow keys move, and Enter picks; Escape
+ * clears the filter, then closes the popover. Add a folder… registers another.
+ */
+export function RepositoryPicker({
+  repositories,
+  chosen,
+  onPick,
+  onAdd,
+  open,
+  onOpenChange,
+  trigger,
+  children,
+}: {
+  repositories: readonly Repository[];
+  chosen?: string;
+  onPick(id: string): void;
+  onAdd(): void;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  trigger: stylex.StyleXStyles;
+  /** The chip: the chosen repository's name, or the ask to choose one. */
+  children: ReactNode;
+}) {
+  const filter = useRef<HTMLInputElement>(null);
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Trigger aria-label="Repository" {...stylex.props(trigger)}>
+        {children}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          {...stylex.props(styles.positioner)}
+        >
+          <Popover.Popup
+            initialFocus={filter}
+            aria-label="Where to work"
+            data-where-to-work=""
+            {...stylex.props(ui.popup, ui.pop, styles.popup)}
+          >
+            <WhereToWork
+              repositories={repositories}
+              chosen={chosen}
+              filterRef={filter}
+              onPick={onPick}
+              onAdd={onAdd}
+            />
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/**
+ * The repositories in one list with a filter on top, and Add a folder… at
+ * its foot.
  */
 export function WhereToWork({
   repositories,
   chosen,
   onPick,
   onAdd,
+  filterRef,
 }: {
   repositories: readonly Repository[];
   chosen?: string;
   onPick(id: string): void;
   onAdd(): void;
+  filterRef?: RefObject<HTMLInputElement | null>;
 }) {
   const id = useId();
   const [filter, setFilter] = useState("");
@@ -47,120 +108,108 @@ export function WhereToWork({
   }, [activeIndex]);
 
   return (
-    <section aria-labelledby={`${id}-label`} {...stylex.props(styles.section)}>
-      <h2 id={`${id}-label`} {...stylex.props(styles.label)}>
-        Where to work
-      </h2>
-      <div {...stylex.props(styles.box)}>
-        <label {...stylex.props(styles.filter)}>
-          <Icon name="search" size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
-          <input
-            value={filter}
-            placeholder="Filter repositories"
-            aria-label="Filter repositories"
-            role="combobox"
-            aria-expanded
-            aria-controls={`${id}-list`}
-            aria-activedescendant={active ? `${id}-${activeIndex}` : undefined}
-            aria-autocomplete="list"
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(event) => {
-              setFilter(event.target.value);
+    <div {...stylex.props(styles.box)}>
+      <label {...stylex.props(styles.filter)}>
+        <Icon name="search" size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
+        <input
+          ref={filterRef}
+          value={filter}
+          placeholder="Filter repositories"
+          aria-label="Filter repositories"
+          role="combobox"
+          aria-expanded
+          aria-controls={`${id}-list`}
+          aria-activedescendant={active ? `${id}-${activeIndex}` : undefined}
+          aria-autocomplete="list"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => {
+            setFilter(event.target.value);
+            setMoved(undefined);
+          }}
+          onKeyDown={(event) => {
+            const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+            if (move && shown.length) {
+              event.preventDefault();
+              const next = Math.min(shown.length - 1, Math.max(0, activeIndex + move));
+              setMoved(shown[next]!.id);
+            } else if (event.key === "Enter" && active && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onPick(active.id);
+            } else if (event.key === "Escape" && filter) {
+              // The first Escape clears the filter; the next closes the list.
+              event.preventDefault();
+              event.stopPropagation();
+              setFilter("");
               setMoved(undefined);
-            }}
-            onKeyDown={(event) => {
-              const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
-              if (move && shown.length) {
-                event.preventDefault();
-                const next = Math.min(shown.length - 1, Math.max(0, activeIndex + move));
-                setMoved(shown[next]!.id);
-              } else if (event.key === "Enter" && active && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                onPick(active.id);
-              } else if (event.key === "Escape" && filter) {
-                // The first Escape clears the filter; the next leaves New thread.
-                event.preventDefault();
-                setFilter("");
-                setMoved(undefined);
-              }
-            }}
-            {...stylex.props(styles.input)}
-          />
-        </label>
-        <div
-          ref={list}
-          id={`${id}-list`}
-          role="listbox"
-          aria-label="Repositories"
-          {...stylex.props(styles.list)}
-        >
-          {shown.map((entry, index) => {
-            const selected = entry.id === chosen;
-            return (
-              <button
-                type="button"
-                key={entry.id}
-                id={`${id}-${index}`}
-                role="option"
-                tabIndex={-1}
-                aria-selected={selected}
-                data-index={index}
-                // The filter keeps focus; a click only picks.
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseMove={() => entry.id !== active?.id && setMoved(entry.id)}
-                onClick={() => onPick(entry.id)}
-                {...stylex.props(
-                  styles.option,
-                  entry === active && styles.active,
-                  selected && styles.selected,
-                )}
-              >
-                <Icon name="folder" size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
-                <span {...stylex.props(styles.name)}>{entry.name}</span>
-                <span {...stylex.props(styles.path)}>{entry.path}</span>
-                <span {...stylex.props(styles.check)}>
-                  {selected && <Icon name="check" size={14} />}
-                </span>
-              </button>
-            );
-          })}
-          {!shown.length && (
-            <p {...stylex.props(styles.empty)}>
-              {repositories.length
-                ? `No repository matches “${filter.trim()}”.`
-                : "Add a repository to start a thread."}
-            </p>
-          )}
-        </div>
-        <button type="button" onClick={onAdd} {...stylex.props(styles.add)}>
-          <Icon name="plus" size={13} style={{ flexShrink: 0 }} />
-          Add a folder…
-        </button>
+            }
+          }}
+          {...stylex.props(styles.input)}
+        />
+      </label>
+      <div
+        ref={list}
+        id={`${id}-list`}
+        role="listbox"
+        aria-label="Repositories"
+        {...stylex.props(styles.list)}
+      >
+        {shown.map((entry, index) => {
+          const selected = entry.id === chosen;
+          return (
+            <button
+              type="button"
+              key={entry.id}
+              id={`${id}-${index}`}
+              role="option"
+              tabIndex={-1}
+              aria-selected={selected}
+              data-index={index}
+              // The filter keeps focus; a click only picks.
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => entry.id !== active?.id && setMoved(entry.id)}
+              onClick={() => onPick(entry.id)}
+              {...stylex.props(
+                styles.option,
+                entry === active && styles.active,
+                selected && styles.selected,
+              )}
+            >
+              <Icon name="folder" size={14} style={{ flexShrink: 0, opacity: 0.7 }} />
+              <span {...stylex.props(styles.name)}>{entry.name}</span>
+              <span {...stylex.props(styles.path)}>{entry.path}</span>
+              <span {...stylex.props(styles.check)}>
+                {selected && <Icon name="check" size={14} />}
+              </span>
+            </button>
+          );
+        })}
+        {!shown.length && (
+          <p {...stylex.props(styles.empty)}>
+            {repositories.length
+              ? `No repository matches “${filter.trim()}”.`
+              : "Add a repository to start a thread."}
+          </p>
+        )}
       </div>
-    </section>
+      <button type="button" onClick={onAdd} {...stylex.props(styles.add)}>
+        <Icon name="plus" size={13} style={{ flexShrink: 0 }} />
+        Add a folder…
+      </button>
+    </div>
   );
 }
 
 const styles = stylex.create({
-  section: { display: "flex", flexDirection: "column", gap: 10, minHeight: 0 },
-  label: {
-    margin: 0,
-    paddingInline: 4,
-    color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-    fontWeight: 500,
-  },
-  box: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    borderRadius: `calc(10px * ${tokens.round})`,
-    backgroundColor: tokens.canvas,
-    boxShadow: `0 0 0 1px ${tokens.line}`,
+  positioner: { zIndex: 100, outline: "none" },
+  // The popup is the list's frame: its rows reach its edges.
+  popup: {
+    width: "min(520px, calc(100vw - 32px))",
+    maxHeight: "none",
+    padding: 0,
     overflow: "hidden",
   },
+  box: { display: "flex", flexDirection: "column", minHeight: 0 },
   filter: {
     display: "flex",
     alignItems: "center",

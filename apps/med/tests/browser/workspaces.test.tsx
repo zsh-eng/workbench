@@ -1260,29 +1260,26 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(dialog).toBeVisible();
   const task = dialog.getByRole("combobox", { name: "Task" });
   await expect.element(task).toHaveFocus();
-  // The middle asks where to work; the repository on screen is chosen.
-  const repositories = dialog.getByRole("listbox", { name: "Repositories" });
-  await expect
-    .element(repositories.getByRole("option", { name: /^fixture/, selected: true }))
-    .toBeVisible();
-  // Under the composer, one line of menus; each shows its choice.
+  // Under the composer, one line of choices; each shows its choice. The
+  // repository on screen is chosen.
   const menu = (name: string) => dialog.getByRole("button", { name, exact: true });
-  const checked = () =>
-    [...document.querySelectorAll('[role="menuitemcheckbox"][aria-checked="true"]')].map(
-      (item) => item.textContent,
-    );
-  const where = menu("Where the agent works");
+  const where = dialog.getByRole("button", { name: /^Where the agent works: / });
   const model = menu("Model");
   const effort = menu("Effort");
+  await expect.element(menu("Repository")).toHaveTextContent("fixture");
   await task.fill("Show each result's age in the list");
-  // The worktree names the branch that Med creates; the checkout names its own.
+  // Two places to work: a click switches between them. The worktree names
+  // the branch that Med creates; the checkout names its own.
   await expect.element(where).toHaveTextContent("New worktree");
-  await where.click();
   await expect
-    .element(page.getByRole("menuitemcheckbox", { name: "Checkout · main" }))
-    .toBeVisible();
-  expect(checked()).toEqual(["New worktree · show-each-results-age-list"]);
-  await userEvent.keyboard("{Escape}");
+    .element(where)
+    .toHaveAccessibleName("Where the agent works: New worktree · show-each-results-age-list");
+  await expect.element(where).toHaveAccessibleDescription("Switch to Checkout · main");
+  await where.click();
+  await expect.element(where).toHaveAccessibleName("Where the agent works: Checkout · main");
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  await where.click();
+  await expect.element(where).toHaveTextContent("New worktree");
   await expect.element(dialog).toBeVisible();
   // Med chooses Opus at medium effort: the agent's mark and the model, then
   // the effort, each its own menu. The only agent is a fact, not a choice.
@@ -1297,9 +1294,11 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await effort.click();
   await page.getByRole("menuitemcheckbox", { name: "high" }).click();
   await expect.element(effort).toHaveTextContent("high effort");
-  // The list sits in the middle; the composer at the bottom, its menus under it.
+  // The composer sits in the page's middle, its choices under it.
   const box = task.element().getBoundingClientRect();
-  expect(repositories.element().getBoundingClientRect().bottom).toBeLessThan(box.top);
+  const height = dialog.element().getBoundingClientRect().height;
+  expect(box.top).toBeGreaterThan(height * 0.2);
+  expect(box.bottom).toBeLessThan(height * 0.7);
   expect(model.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(box.bottom);
   expect(box.right - effort.element().getBoundingClientRect().right).toBeLessThan(16);
   await expect.element(dialog.getByRole("button", { name: /^Start/ })).not.toBeInTheDocument();
@@ -1344,8 +1343,9 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
   await expect.element(dialog).not.toBeInTheDocument();
   expect(shown()?.dataset.reviewId).toBe("agent-target");
 
-  // A repository chosen here wins over the repository on screen. Typing in
-  // the filter narrows the list, and Enter picks.
+  // A repository chosen here wins over the repository on screen. The
+  // repository's chip lists them: typing in the filter narrows the list, and
+  // Enter picks.
   host.setThreads(
     [thread("agent")],
     [
@@ -1354,23 +1354,22 @@ test("a new thread starts its agent in a new worktree and opens", async () => {
     ],
   );
   await userEvent.keyboard("{Alt>}n{/Alt}");
+  await expect.element(menu("Repository")).toHaveTextContent("fixture");
+  await menu("Repository").click();
+  const repositories = page.getByRole("listbox", { name: "Repositories" });
   await expect
     .element(repositories.getByRole("option", { name: /^fixture/, selected: true }))
     .toBeVisible();
-  await expect.element(menu("Repository")).toHaveTextContent("fixture");
-  await dialog.getByRole("combobox", { name: "Filter repositories" }).click();
+  await expect.element(page.getByRole("combobox", { name: "Filter repositories" })).toHaveFocus();
   await userEvent.keyboard("oth");
   await expect.poll(() => repositories.getByRole("option").all().length).toBe(1);
   await userEvent.keyboard("{Enter}");
-  await expect
-    .element(repositories.getByRole("option", { name: /^other/, selected: true }))
-    .toBeVisible();
+  await expect.element(repositories).not.toBeInTheDocument();
   await expect.element(menu("Repository")).toHaveTextContent("other");
   await expect.element(task).toHaveFocus();
   // Med does not know the other checkout's branch.
   await where.click();
-  await page.getByRole("menuitemcheckbox", { name: "Checkout", exact: true }).click();
-  await expect.element(where).toHaveTextContent("Checkout");
+  await expect.element(where).toHaveAccessibleName("Where the agent works: Checkout");
   // Enter in the task starts; ⇧Enter adds a line.
   await task.click();
   await userEvent.keyboard("Rank results{Shift>}{Enter}{/Shift}by age");

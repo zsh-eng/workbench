@@ -91,9 +91,14 @@ test("what waits on you comes first, a stack is one row, and the keys open, revi
     "_blank",
     "noopener",
   );
-  // All of GitHub reads again, without the repositories.
-  await userEvent.click(page.getByRole("combobox", { name: "Where to look" }));
-  await userEvent.click(page.getByRole("option", { name: "All of GitHub" }));
+  // All of GitHub reads again, without the repositories: two places to look,
+  // so a click switches.
+  const where = page.getByRole("button", { name: /^Where to look: Your/ });
+  await expect.element(where).toHaveAccessibleDescription("Switch to All of GitHub");
+  await userEvent.click(where);
+  await expect
+    .element(page.getByRole("button", { name: "Where to look: All of GitHub" }))
+    .toBeVisible();
   await expect.element(page.getByText("A change elsewhere")).toBeVisible();
   expect(load).toHaveBeenLastCalledWith(true, false, expect.any(AbortSignal));
   // The refresh button skips the host's minute-long read.

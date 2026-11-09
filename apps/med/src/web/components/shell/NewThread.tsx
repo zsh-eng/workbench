@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { savedReviewSchema, type SavedReview } from "../../../shared/saved-review";
 import { threadSlug, threadTitle, type Thread, type ThreadList } from "../../../shared/threads";
@@ -8,14 +8,14 @@ import { readBrowserToken } from "../../data/auth";
 import type { AgentChoices, AgentOptions } from "../../../shared/owned-session";
 import { useAgentOptions, useAgentPresets } from "../../data/owned-session";
 import { tokens } from "../../theme.stylex";
-import { ActionMenu } from "../Controls";
+import { ActionMenu, FlipChoice, type Choice as Option, type MenuEntry } from "../Controls";
 import { Icon, type IconName } from "../Icon";
 import { useMentions } from "../Mentions";
 import { createBrowseApi, useBrowseFiles, useVaults } from "../../data/browse";
 import { useMentionSources } from "../../data/mentions";
 import type { BrowseSource } from "../../../shared/browse";
 import { readHistory } from "../../data/tabs";
-import { WhereToWork } from "./WhereToWork";
+import { RepositoryPicker } from "./WhereToWork";
 
 const CLAUDE = "#d97757";
 
@@ -84,11 +84,11 @@ export function sessionChoices(options: AgentOptions | undefined, last: AgentCho
 }
 
 /**
- * A new thread, as Claude's new session page: the middle asks where to work;
- * the composer sits at the bottom, with one line of menus under it for the
- * repository, where the agent works, and the agent's model. Enter creates
- * the branch, the thread, and the agent's first turn in one step; the thread
- * then opens.
+ * A new thread, as Claude's new session page: the composer in the middle of
+ * the page, with one line under it for the repository, where the agent
+ * works, and the agent's model and effort. The repository's chip opens the
+ * list of repositories. Enter creates the branch, the thread, and the agent's
+ * first turn in one step; the thread then opens.
  */
 export function NewThread({
   list,
@@ -109,10 +109,6 @@ export function NewThread({
   const [picked, setPicked] = useState<string>();
   const agents = useAgentPresets(true, fetcher)?.filter((agent) => agent.available);
   const repositories = list?.repositories ?? [];
-  const repository =
-    [picked, suggested, choice.repositoryId, list?.threads[0]?.repository?.id]
-      .map((id) => repositories.find((entry) => entry.id === id))
-      .find(Boolean) ?? repositories[0];
   // The repositories of the newest threads, tabs and history, come first.
   const [past, setPast] = useState<readonly Thread[] | null>(null);
   useEffect(() => {
@@ -129,6 +125,23 @@ export function NewThread({
     () => (list ? repositoryOrder([...list.threads, ...(past ?? [])], list.repositories) : []),
     [list, past],
   );
+  const newest = useMemo(
+    () =>
+      list
+        ? recentRepositories([...list.threads, ...(past ?? [])], list.repositories)[0]
+        : undefined,
+    [list, past],
+  );
+  // The repository chosen here, else the one on screen, the last choice, or
+  // the newest thread's. Before a first thread, the reader chooses, unless
+  // there is only one.
+  const repository =
+    [picked, suggested, choice.repositoryId]
+      .map((id) => repositories.find((entry) => entry.id === id))
+      .find(Boolean) ??
+    newest ??
+    (repositories.length === 1 ? repositories[0] : undefined);
+  const [choosing, setChoosing] = useState(false);
   const agent = agents?.find((entry) => entry.id === choice.preset) ?? agents?.[0];
   const options = useAgentOptions(agent?.id, fetcher);
   const { model, effort, efforts } = sessionChoices(options, agent && choice.agents?.[agent.id]);
@@ -180,6 +193,8 @@ export function NewThread({
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const target = event.target instanceof Element ? event.target : null;
+      // The list of repositories closes on its own Escape.
+      if (target?.closest("[data-where-to-work]")) return;
       if (event.key === "Escape" && !busyRef.current) {
         event.preventDefault();
         leave.current();
@@ -208,6 +223,7 @@ export function NewThread({
   const pick = (repositoryId: string) => {
     setPicked(repositoryId);
     remember({ repositoryId });
+    setChoosing(false);
   };
   const chooseAgent = (next: AgentChoices & { preset?: string }) =>
     remember(
@@ -218,6 +234,8 @@ export function NewThread({
 
   const ready = !!prompt.trim() && !!repository && !!agent && !busy;
   const start = async () => {
+    // A task without a repository asks for one.
+    if (prompt.trim() && !repository && repositories.length) setChoosing(true);
     if (!ready) return;
     setBusy(true);
     setError(null);
@@ -258,166 +276,198 @@ export function NewThread({
   };
   const modelName = options?.model?.options.find((option) => option.value === model);
   const effortName = efforts.find((option) => option.value === effort);
+  const modelChoices = (options?.model?.options ?? []).map((option) => ({
+    value: option.value,
+    label: optionName(option),
+  }));
+  const effortChoices = efforts.map((option) => ({
+    value: option.value,
+    label: optionName(option),
+  }));
+  const otherAgents = agents && agents.length > 1 ? agents : [];
   return (
     <div ref={page} role="dialog" aria-label="New thread" {...stylex.props(styles.page)}>
       <div {...stylex.props(styles.column)}>
-        <div {...stylex.props(styles.middle)}>
-          <WhereToWork
-            repositories={ordered}
-            chosen={repository?.id}
-            onPick={(id) => {
-              pick(id);
-              input.current?.focus();
-            }}
-            onAdd={addFolder}
-          />
+        <div {...stylex.props(styles.card)}>
+          {mentions.menu}
+          {mentions.field(
+            <textarea
+              {...mentions.textarea}
+              value={prompt}
+              disabled={busy}
+              rows={3}
+              placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
+              aria-label="Task"
+              role="combobox"
+              aria-controls={mentions.textarea["aria-controls"]}
+              aria-expanded={mentions.open}
+              aria-autocomplete="list"
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                mentions.changed(event.target.selectionStart);
+              }}
+              onKeyDown={(event) => {
+                if (mentions.onKeyDown(event)) return;
+                // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.altKey &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  void start();
+                }
+              }}
+              {...stylex.props(styles.input, mentions.over)}
+            />,
+          )}
         </div>
-        <div {...stylex.props(styles.bottom)}>
-          <div {...stylex.props(styles.card)}>
-            {mentions.field(
-              <textarea
-                {...mentions.textarea}
-                value={prompt}
-                disabled={busy}
-                rows={3}
-                placeholder="Describe the task, and @ to name files, notes, or threads. Enter starts the agent."
-                aria-label="Task"
-                role="combobox"
-                aria-controls={mentions.textarea["aria-controls"]}
-                aria-expanded={mentions.open}
-                aria-autocomplete="list"
-                onChange={(event) => {
-                  setPrompt(event.target.value);
-                  mentions.changed(event.target.selectionStart);
-                }}
-                onKeyDown={(event) => {
-                  if (mentions.onKeyDown(event)) return;
-                  // Enter starts, ⇧Enter adds a line; ⌘↵ starts from anywhere.
-                  if (
-                    event.key === "Enter" &&
-                    !event.shiftKey &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.altKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault();
-                    void start();
-                  }
-                }}
-                {...stylex.props(styles.input, mentions.over)}
-              />,
-            )}
-            {mentions.menu && <div {...stylex.props(styles.mentions)}>{mentions.menu}</div>}
-          </div>
-          <div {...stylex.props(styles.menus)}>
-            {ordered.length > 1 ? (
-              <ActionMenu
-                label="Repository"
-                align="start"
-                trigger={styles.menu}
-                sections={[
-                  ordered.map((entry) => ({
-                    label: entry.name,
-                    checked: entry.id === repository?.id,
-                    choice: true,
-                    onClick: () => pick(entry.id),
-                  })),
-                ]}
-              >
-                <MenuLabel icon="folder" text={repository?.name ?? "Repository"} />
-              </ActionMenu>
-            ) : (
-              repository && (
-                <span {...stylex.props(styles.fact)}>
-                  <MenuLabel icon="folder" text={repository.name} />
-                </span>
-              )
-            )}
-            <span {...stylex.props(styles.grow)} />
-            <ActionMenu
-              label="Where the agent works"
-              trigger={styles.menu}
-              sections={[
-                [
-                  {
-                    label: `New worktree · ${branch}`,
-                    checked: choice.worktree,
-                    choice: true,
-                    onClick: () => remember({ worktree: true }),
-                  },
-                  {
-                    label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
-                    checked: !choice.worktree,
-                    choice: true,
-                    onClick: () => remember({ worktree: false }),
-                  },
-                ],
-              ]}
+        <div {...stylex.props(styles.menus)}>
+          {repositories.length ? (
+            <RepositoryPicker
+              repositories={ordered}
+              chosen={repository?.id}
+              open={choosing}
+              onOpenChange={setChoosing}
+              onPick={(id) => {
+                pick(id);
+                input.current?.focus();
+              }}
+              onAdd={addFolder}
+              trigger={[styles.menu, !repository && styles.ask]}
             >
-              <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
-            </ActionMenu>
-            {agent && (
-              <ActionMenu
-                label="Model"
-                trigger={styles.menu}
-                sections={[
-                  (options?.model?.options ?? []).map((option) => ({
-                    label: optionName(option),
-                    checked: option.value === model,
-                    choice: true,
-                    onClick: () => chooseAgent({ model: option.value }),
-                  })),
-                  agents && agents.length > 1
-                    ? [
-                        {
-                          label: `Agent · ${agent.name}`,
-                          sections: [
-                            agents.map((entry) => ({
-                              label: entry.name,
-                              checked: entry.id === agent.id,
-                              choice: true,
-                              onClick: () => chooseAgent({ preset: entry.id }),
-                            })),
-                          ],
-                        },
-                      ]
-                    : [],
-                ]}
-              >
-                <AgentLabel
-                  kind={agent.kind}
-                  model={modelName ? optionName(modelName) : agent.name}
-                />
-              </ActionMenu>
-            )}
-            {effort && (
-              <ActionMenu
-                label="Effort"
-                trigger={styles.menu}
-                sections={[
-                  efforts.map((option) => ({
-                    label: optionName(option),
-                    checked: option.value === effort,
-                    choice: true,
-                    onClick: () => chooseAgent({ effort: option.value }),
-                  })),
-                ]}
-              >
-                <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
-              </ActionMenu>
-            )}
-          </div>
-          <p {...stylex.props(styles.hint)} aria-live="polite">
-            {error ? (
-              <span {...stylex.props(styles.error)}>{error}</span>
-            ) : busy ? (
-              "Starting the agent…"
-            ) : null}
-          </p>
+              <MenuLabel icon="folder" text={repository?.name ?? "Choose a repository"} />
+              <Icon name="chevron" size={12} style={{ flexShrink: 0, opacity: 0.6 }} />
+            </RepositoryPicker>
+          ) : (
+            <button type="button" onClick={addFolder} {...stylex.props(styles.menu, styles.ask)}>
+              <MenuLabel icon="plus" text="Add a folder…" />
+            </button>
+          )}
+          <span {...stylex.props(styles.grow)} />
+          <FlipChoice
+            label="Where the agent works"
+            value={choice.worktree ? "worktree" : "checkout"}
+            choices={[
+              { value: "worktree", label: `New worktree · ${branch}` },
+              {
+                value: "checkout",
+                label: repository?.branch ? `Checkout · ${repository.branch}` : "Checkout",
+              },
+            ]}
+            onChange={(value) => remember({ worktree: value === "worktree" })}
+            trigger={styles.menu}
+          >
+            <MenuLabel icon="branch" text={choice.worktree ? "New worktree" : "Checkout"} />
+          </FlipChoice>
+          {agent && (
+            <Picker
+              label="Model"
+              value={model ?? ""}
+              choices={modelChoices}
+              onChange={(value) => chooseAgent({ model: value })}
+              more={
+                otherAgents.length
+                  ? [
+                      {
+                        label: `Agent · ${agent.name}`,
+                        sections: [
+                          otherAgents.map((entry) => ({
+                            label: entry.name,
+                            checked: entry.id === agent.id,
+                            choice: true,
+                            onClick: () => chooseAgent({ preset: entry.id }),
+                          })),
+                        ],
+                      },
+                    ]
+                  : []
+              }
+            >
+              <AgentLabel
+                kind={agent.kind}
+                model={modelName ? optionName(modelName) : agent.name}
+              />
+            </Picker>
+          )}
+          {effort && (
+            <Picker
+              label="Effort"
+              value={effort}
+              choices={effortChoices}
+              onChange={(value) => chooseAgent({ effort: value })}
+            >
+              <EffortLabel text={effortName ? optionName(effortName) : "Default"} />
+            </Picker>
+          )}
         </div>
+        <p {...stylex.props(styles.hint)} aria-live="polite">
+          {error ? (
+            <span {...stylex.props(styles.error)}>{error}</span>
+          ) : busy ? (
+            "Starting the agent…"
+          ) : !repositories.length && list ? (
+            "Add a repository to start a thread."
+          ) : !repository && list ? (
+            "Choose the repository that the agent works in."
+          ) : null}
+        </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * A choice under the composer: a menu, or with two choices and nothing more,
+ * a control that switches between them.
+ */
+function Picker({
+  label,
+  value,
+  choices,
+  onChange,
+  more = [],
+  children,
+}: {
+  label: string;
+  value: string;
+  choices: Option[];
+  onChange(value: string): void;
+  /** Items after the choices, such as the agent's submenu. */
+  more?: MenuEntry[];
+  children: ReactNode;
+}) {
+  if (choices.length === 2 && !more.length)
+    return (
+      <FlipChoice
+        label={label}
+        value={value}
+        choices={choices}
+        onChange={onChange}
+        trigger={styles.menu}
+      >
+        {children}
+      </FlipChoice>
+    );
+  return (
+    <ActionMenu
+      label={label}
+      trigger={styles.menu}
+      sections={[
+        choices.map((option) => ({
+          label: option.label,
+          checked: option.value === value,
+          choice: true,
+          onClick: () => onChange(option.value),
+        })),
+        more,
+      ]}
+    >
+      {children}
+    </ActionMenu>
   );
 }
 
@@ -467,27 +517,24 @@ const styles = stylex.create({
     paddingInline: 24,
     backgroundColor: tokens.canvas,
   },
+  // The composer in the page's middle, a little above it, as in Claude's new
+  // session page.
   column: {
     display: "flex",
     flexDirection: "column",
+    justifyContent: "center",
+    boxSizing: "border-box",
     width: "min(680px, 100%)",
     height: "100%",
+    paddingTop: 24,
+    paddingBottom: "min(14vh, 120px)",
     animationName: { default: enter, "@media (prefers-reduced-motion: reduce)": "none" },
     animationDuration: "220ms",
     animationTimingFunction: tokens.easeOut,
   },
-  // The page's one question, in its middle.
-  middle: {
-    flex: "1",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    minHeight: 0,
-    paddingBlock: 24,
-  },
-  // The composer at the bottom, as in a chat.
-  bottom: { flexShrink: 0, paddingBottom: 20 },
+  // The @ list opens over the page above it.
   card: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     borderRadius: 12,
@@ -499,8 +546,6 @@ const styles = stylex.create({
     transitionProperty: "box-shadow",
     transitionDuration: "150ms",
   },
-  // Level with the task's text.
-  mentions: { paddingInline: 16, paddingBottom: 4 },
   input: {
     boxSizing: "border-box",
     width: "100%",
@@ -538,22 +583,15 @@ const styles = stylex.create({
     outline: "none",
     boxShadow: { default: "none", ":focus-visible": `0 0 0 2px ${tokens.accentLine}` },
   },
-  fact: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    minWidth: 0,
-    height: 28,
-    paddingInline: 8,
-    color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-  },
+  // Before a first thread: the chip asks for a repository.
+  ask: { color: { default: tokens.accent, ":hover": tokens.accent } },
   text: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   mark: { display: "flex", flexShrink: 0 },
   claude: { color: CLAUDE },
   model: { color: tokens.text },
+  // A line kept for a note, so that the composer stays put when one shows.
   hint: {
+    minHeight: "1.6em",
     marginTop: 8,
     marginBottom: 0,
     marginInline: 8,
@@ -561,7 +599,6 @@ const styles = stylex.create({
     fontFamily: tokens.ui,
     fontSize: 12,
     lineHeight: 1.6,
-    display: { default: "block", ":empty": "none" },
   },
   error: { color: tokens.red },
 });
