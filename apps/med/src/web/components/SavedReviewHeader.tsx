@@ -5,9 +5,10 @@ import type { PullRequestSummary } from "../../shared/protocol";
 import type { ReviewController, ReviewControllerSnapshot } from "../data/controller";
 import { tokens, ui } from "../theme.stylex";
 import { checkoutNameFor } from "../data/checkout-names";
-import { tooltip } from "./ToolButton";
 import { paneHandle } from "./PaneTree";
-import { Icon, iconPath } from "./Icon";
+import { CommentsButton } from "./CommentsPanel";
+import type { ListedComment } from "../data/listed-comments";
+import { Icon, IconShapes } from "./Icon";
 import {
   CodexReviewPanel,
   PullRequestPanel,
@@ -31,12 +32,17 @@ export function SavedReviewHeader({
   codexReviews,
   findingPlacement,
   compact = false,
+  comments,
+  onOpenComment,
   ref,
 }: {
+  /** The thread's comments for All comments, and where one opens. */
+  comments?: readonly ListedComment[];
+  onOpenComment?(comment: ListedComment): void;
   /**
    * The thread beside it names the review, so the header leaves the name out
-   * and keeps one action, Copy comments: comments go to an agent from its
-   * session, and the rest is in ⌘K.
+   * and keeps one action, All comments, which copies them too: comments go
+   * to an agent from its session, and the rest is in ⌘K.
    */
   compact?: boolean;
   ref?: Ref<SavedReviewActions>;
@@ -159,15 +165,26 @@ export function SavedReviewHeader({
         </span>
       )}
       <span {...stylex.props(styles.grow)} />
+      {comments && onOpenComment && (
+        <CommentsButton
+          comments={comments}
+          onOpen={onOpenComment}
+          onCopy={
+            busy || saved.commentCount === 0
+              ? undefined
+              : () =>
+                  void run("copy", async () => {
+                    const comments = await controller.copyFeedback();
+                    setCopied({ count: comments.count });
+                  })
+          }
+        />
+      )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}
-      {(!compact || saved.commentCount > 0) && (
+      {!compact && (
         <button
           {...stylex.props(ui.button, ui.pressable, styles.fixed)}
           aria-label="Copy comments"
-          {...(compact &&
-            tooltip(
-              `Copy ${saved.commentCount} ${saved.commentCount === 1 ? "comment" : "comments"}`,
-            ))}
           data-copied={copied !== null}
           disabled={operation === "clear" || saved.commentCount === 0}
           aria-disabled={busy || saved.commentCount === 0}
@@ -180,7 +197,7 @@ export function SavedReviewHeader({
           }
         >
           <CopyCommentsIcon copied={copied !== null} />
-          {!compact && <span {...stylex.props(styles.desktop)}>Copy comments</span>}
+          <span {...stylex.props(styles.desktop)}>Copy comments</span>
           <span {...stylex.props(styles.count)}>{saved.commentCount}</span>
         </button>
       )}
@@ -271,20 +288,18 @@ function CopyCommentsIcon({ copied }: { copied: boolean }) {
     <svg
       width="14"
       height="14"
-      viewBox="0 0 256 256"
+      viewBox="0 0 16 16"
       aria-hidden="true"
       {...stylex.props(styles.copyIcon)}
     >
+      <g fill="currentColor" {...stylex.props(styles.copyShape, copied && styles.copyHidden)}>
+        <IconShapes name="copy" />
+      </g>
       <path
-        d={iconPath("copy")}
-        fill="currentColor"
-        {...stylex.props(styles.copyShape, copied && styles.copyHidden)}
-      />
-      <path
-        d="M40 136l56 56L216 72"
+        d="M2.5 8.5l3.5 3.5L13.5 4.5"
         fill="none"
         stroke="currentColor"
-        strokeWidth="20"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength="1"
@@ -390,7 +405,7 @@ const styles = stylex.create({
   copyShape: {
     opacity: 1,
     transform: "scale(1)",
-    transformOrigin: "128px 128px",
+    transformOrigin: "8px 8px",
     transitionProperty: "opacity, transform",
     transitionTimingFunction: "ease-in-out",
     transitionDuration: {

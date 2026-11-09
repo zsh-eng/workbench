@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { comparisonSchema, type ReviewResponse, type SourceResponse } from "./protocol";
+import { browseSourceSchema } from "./browse";
+import {
+  comparisonSchema,
+  noteAuthorSchema,
+  type ReviewResponse,
+  type SourceResponse,
+} from "./protocol";
 import {
   reviewGuideSchema,
   savedCommitSchema,
@@ -111,6 +117,53 @@ export const briefCommentMutationSchema = z.union([
   z.object({ remove: z.string().min(1).max(64) }),
 ]);
 export type BriefCommentMutation = z.infer<typeof briefCommentMutationSchema>;
+
+/** Lines that a comment on a file quotes, at most. */
+export const MAX_FILE_COMMENT_LINES = 400;
+/**
+ * A comment on lines of a file in the thread's checkout or at a commit, not
+ * on a review's change: `gc` in a file. It goes to the thread's agent as a
+ * review comment does, with the lines it quotes. The agent answers in its
+ * thread with `med reply`, and `--resolve` marks it done; the user can open it
+ * again. The ID is a UUID, so `med reply` takes its first characters.
+ */
+export const fileCommentInputSchema = z.object({
+  source: browseSourceSchema,
+  path: z.string().min(1).max(4096),
+  line: z.number().int().positive(),
+  endLine: z.number().int().positive().optional(),
+  /** The lines as the user saw them, from `line`. */
+  quote: z.string().max(64 * 1024),
+  text: commentTextSchema,
+});
+export type FileCommentInput = z.infer<typeof fileCommentInputSchema>;
+export const fileCommentReplySchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  /** The agent that answered with `med reply`; none for the user's reply. */
+  author: noteAuthorSchema.optional(),
+  createdAt: z.string(),
+});
+export type FileCommentReply = z.infer<typeof fileCommentReplySchema>;
+export const fileCommentSchema = fileCommentInputSchema.extend({
+  id: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  replies: z.array(fileCommentReplySchema).max(200),
+  /** Done: the agent resolved it (`med reply --resolve`), or the user did. */
+  resolved: z.object({ at: z.string(), by: noteAuthorSchema.optional() }).optional(),
+});
+export type FileComment = z.infer<typeof fileCommentSchema>;
+const commentIdSchema = z.string().min(1).max(64);
+export const fileCommentMutationSchema = z.union([
+  z.object({ add: fileCommentInputSchema }),
+  z.object({ edit: z.object({ id: commentIdSchema, text: commentTextSchema }) }),
+  z.object({ remove: commentIdSchema }),
+  z.object({ reply: z.object({ id: commentIdSchema, text: commentTextSchema }) }),
+  z.object({ resolve: commentIdSchema }),
+  z.object({ reopen: commentIdSchema }),
+]);
+export type FileCommentMutation = z.infer<typeof fileCommentMutationSchema>;
 
 /** A name the agent chooses for its task, such as its branch. Creating a
  * review again with the same key adds an iteration to that review instead of
@@ -359,6 +412,8 @@ export const savedReviewSchema = z.object({
   pins: z.array(savedPinSchema).optional(),
   /** Comments on passages of the Notes. `commentCount` counts them. */
   briefComments: z.array(briefCommentSchema).optional(),
+  /** Comments on lines of files, not of a change. `commentCount` counts them. */
+  fileComments: z.array(fileCommentSchema).optional(),
   prDraft: savedPrDraftSchema.optional(),
   createdAt: z.string(),
   revision: z.number().int().nonnegative(),

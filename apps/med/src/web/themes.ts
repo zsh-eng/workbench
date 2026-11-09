@@ -1546,7 +1546,11 @@ export const READING = {
 } as const;
 
 /** The aesthetic's CSS variables. theme.stylex.ts reads them; it lists their defaults. */
-export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<string, string> {
+export function aestheticVariables({
+  aesthetic: look,
+  palette,
+  appearance,
+}: Theme): Record<string, string> {
   const fill = look.selection === "fill";
   const accentPrimary = look.primary === "accent";
   return {
@@ -1590,6 +1594,8 @@ export function aestheticVariables({ aesthetic: look, palette }: Theme): Record<
     "--med-label-size": `${look.labels.size}px`,
     "--med-label-weight": String(look.labels.weight),
     "--med-shadow": look.depth === "flat" ? "none" : palette.shadow,
+    // Menus on the page's own background in a light theme; lifted in a dark one.
+    "--med-menu": appearance === "light" ? palette.canvas : palette.raised,
   };
 }
 

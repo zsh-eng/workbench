@@ -50,8 +50,28 @@ import { LineBlame, lineBlameCSS } from "./LineBlame";
 import type { MarkdownModel } from "../markdown/model";
 import SyntaxWorker from "../highlighting/editor.worker?worker";
 import { fileTitle } from "./QuietChrome";
+import { createPortal } from "react-dom";
+import { MAX_FILE_COMMENT_LINES } from "../../shared/saved-review";
+import { FileCommentBox, FileCommentThread } from "./FileComments";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./SymbolHover";
+import {
+  CommentSlots,
+  editorComments,
+  placeCommentSlots,
+  selectedLines,
+  type CommentSlot,
+} from "./editor-comments";
 import "./FileEditor.css";
 
+class CommentCell extends GutterMarker {
+  toDOM() {
+    const cell = document.createElement("span");
+    cell.textContent = "+";
+    cell.title = "Comment on this line (gc)";
+    return cell;
+  }
+}
+const commentCell = new CommentCell();
 class AttributionCell extends GutterMarker {
   constructor(readonly line: number) {
     super();
@@ -196,6 +216,8 @@ const actions = new WeakMap<
     saveAndClose: () => void;
     definition: () => void;
     scroll: (y: "start" | "end") => void;
+    annotate: (kind: "comment" | "ask") => void;
+    hover: () => void;
   }
 >();
 Vim.defineAction("medDefinition", (cm) => actions.get(cm)?.definition());
@@ -207,6 +229,19 @@ for (const [keys, y] of [
   Vim.defineAction(`med-${keys}`, (cm) => actions.get(cm)?.scroll(y));
   for (const context of ["normal", "visual"] as const)
     Vim.mapCommand(keys, "action", `med-${keys}`, {}, { context });
+}
+// `gc` comments on the cursor's line or the lines selected, and `ga` asks the
+// thread's agent about them. `gc` takes the place of Vim's operator that
+// comments out code, which did nothing here: the editor has no language's
+// comment syntax.
+Vim.defineAction("medComment", (cm) => actions.get(cm)?.annotate("comment"));
+Vim.defineAction("medAsk", (cm) => actions.get(cm)?.annotate("ask"));
+// `K` shows the definition of the name under the cursor, as a hover does.
+Vim.defineAction("medHover", (cm) => actions.get(cm)?.hover());
+Vim.mapCommand("K", "action", "medHover", {}, { context: "normal" });
+for (const context of ["normal", "visual"] as const) {
+  Vim.mapCommand("gc", "action", "medComment", {}, { context });
+  Vim.mapCommand("ga", "action", "medAsk", {}, { context });
 }
 Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
@@ -276,6 +311,67 @@ export default function FileEditor({
   const latest = useRef({ write, onClose, onDocumentChange, onSourcePosition, context });
   useLayoutEffect(() => {
     latest.current = { write, onClose, onDocumentChange, onSourcePosition, context };
+  });
+  // Comments on the file's lines, and the box that `gc` or the + opens, under
+  // their last lines. The box stays while the draft does, and its text while
+  // it scrolls out of the view.
+  const comments = context.comments;
+  const [box, setBox] = useState<{ path: string; line: number; endLine: number } | null>(null);
+  const shownBox = comments && box?.path === draft.file.path ? box : null;
+  // A box out of the view is gone; its text waits here for its return.
+  const [boxText, setBoxText] = useState("");
+  const [slots] = useState(() => new CommentSlots());
+  const slotElements = useSyncExternalStore(slots.subscribe, slots.get);
+  const threads = comments?.threads;
+  const wantedSlots = useMemo<CommentSlot[]>(
+    () => [
+      ...(threads ?? []).map((comment) => ({
+        key: comment.id,
+        line: comment.endLine ?? comment.line,
+      })),
+      ...(shownBox ? [{ key: "box", line: shownBox.endLine }] : []),
+    ],
+    [threads, shownBox],
+  );
+  const placedSlots = useRef({ wanted: wantedSlots, writing: shownBox ?? undefined });
+  useLayoutEffect(() => {
+    placedSlots.current = { wanted: wantedSlots, writing: shownBox ?? undefined };
+    if (view.current) placeCommentSlots(view.current, slots, wantedSlots, shownBox ?? undefined);
+  }, [slots, wantedSlots, shownBox]);
+  const editorLines = (line: number, endLine: number) => {
+    const doc = view.current?.state.doc;
+    if (!doc) return [];
+    const lines = [];
+    for (let at = line; at <= Math.min(endLine, doc.lines); at++) lines.push(doc.line(at).text);
+    return lines;
+  };
+  const annotate = useRef((_kind: "comment" | "ask", _line: number, _endLine: number) => {});
+  useLayoutEffect(() => {
+    annotate.current = (kind, line, endLine) => {
+      const current = latest.current.context.comments;
+      if (!current) return;
+      endLine = Math.min(endLine, line + MAX_FILE_COMMENT_LINES - 1);
+      if (kind === "ask") current.ask?.({ line, endLine, text: editorLines(line, endLine) });
+      else {
+        setBoxText("");
+        setBox({ path: draft.file.path, line, endLine });
+      }
+    };
+  });
+  const refocus = () => view.current?.focus();
+  // A name that the pointer rests on, or `K`, shows its definition.
+  const { loadHover, onOpenDefinition, file: readFile } = context;
+  const hoverSource = useMemo<SymbolHoverSource | undefined>(
+    () =>
+      loadHover && onOpenDefinition && readFile?.kind === "text"
+        ? { key: readFile.identity, load: loadHover, open: onOpenDefinition }
+        : undefined,
+    [loadHover, onOpenDefinition, readFile],
+  );
+  const symbolHover = useSymbolHover(hoverSource);
+  const hoverRef = useRef(hoverSource ? symbolHover : undefined);
+  useLayoutEffect(() => {
+    hoverRef.current = hoverSource ? symbolHover : undefined;
   });
   const { loadChanges, stale, onNavigationReady, onSymbolPreviewReady, onSelectionReaderReady } =
     context;
@@ -536,7 +632,43 @@ export default function FileEditor({
     let firstInsert = false,
       joinChange = false;
     const code = codeColors(active);
+    /** Where a word is on screen, for its card. */
+    const wordBounds = (from: number, to: number) => () => {
+      const start = view.current?.coordsAtPos(from, 1);
+      const end = view.current?.coordsAtPos(to, -1);
+      return start && end
+        ? new DOMRect(start.left, start.top, end.right - start.left, end.bottom - start.top)
+        : undefined;
+    };
     const extensions = [
+      editorComments(),
+      // Pointer events come before the card's own, so leaving for the card keeps it.
+      EditorView.domEventHandlers({
+        pointermove(event, editor) {
+          const hover = hoverRef.current;
+          if (!hover) return false;
+          const pos = editor.posAtCoords({ x: event.clientX, y: event.clientY });
+          const word = pos === null ? null : editor.state.wordAt(pos);
+          const bounds = word && wordBounds(word.from, word.to)();
+          const name = word && hoverName(editor.state.sliceDoc(word.from, word.to));
+          if (
+            !word ||
+            !bounds ||
+            !name ||
+            event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom
+          )
+            hover.leave();
+          else hover.enter(String(word.from), name, wordBounds(word.from, word.to));
+          return false;
+        },
+        pointerleave() {
+          hoverRef.current?.leave();
+          return false;
+        },
+      }),
       EditorState.transactionFilter.of((transaction) => {
         if (
           !transaction.docChanged ||
@@ -570,6 +702,28 @@ export default function FileEditor({
         lineMarker: (view, line) => new AttributionCell(view.state.doc.lineAt(line.from).number),
       }),
       lineNumbers(),
+      ...(latest.current.context.comments
+        ? [
+            gutter({
+              class: "med-editor-comment-gutter",
+              lineMarker: () => commentCell,
+              domEventHandlers: {
+                mousedown(view, block, event) {
+                  event.preventDefault();
+                  const line = view.state.doc.lineAt(block.from).number;
+                  const selected = selectedLines(view);
+                  const inSelection =
+                    !view.state.selection.main.empty &&
+                    line >= selected.line &&
+                    line <= selected.endLine;
+                  if (inSelection) annotate.current("comment", selected.line, selected.endLine);
+                  else annotate.current("comment", line, line);
+                  return true;
+                },
+              },
+            }),
+          ]
+        : []),
       drawSelection(),
       highlightActiveLine(),
       EditorState.lineSeparator.of(draft.savedText.includes("\r\n") ? "\r\n" : "\n"),
@@ -666,8 +820,20 @@ export default function FileEditor({
     cursorLine.current(editor.state.doc.lineAt(editor.state.selection.main.head).number);
     // A draft from storage has its text; from now on, the editor holds it.
     drafts.update(draft, { state: editor.state, text: undefined });
+    placeCommentSlots(editor, slots, placedSlots.current.wanted, placedSlots.current.writing);
     const cm = getCM(editor)!;
     actions.set(cm, {
+      hover: () => {
+        const word = editor.state.wordAt(editor.state.selection.main.head);
+        const name = word && hoverName(editor.state.sliceDoc(word.from, word.to));
+        if (word && name) hoverRef.current?.show(name, wordBounds(word.from, word.to));
+      },
+      annotate: (kind) => {
+        const { line, endLine } = selectedLines(editor);
+        if (cm.state.vim?.visualMode)
+          Vim.exitVisualMode(cm as Parameters<typeof Vim.exitVisualMode>[0]);
+        annotate.current(kind, line, endLine);
+      },
       scroll: (y) => {
         const line = editor.state.doc.lineAt(editor.state.selection.main.head);
         placeLine(editor, y === "start" ? line.from : line.to, y);
@@ -685,6 +851,13 @@ export default function FileEditor({
           if (!draft.dirty && !draft.error) callbacks.current.close();
         });
       },
+    });
+    // A key that waits for more, such as g, z, or a count, keeps the block
+    // cursor; as in Vim, only an operator (d, c, y…) that waits for its motion
+    // draws the half block, which the cursor takes from a pending status.
+    cm.on("vim-keypress", () => {
+      const vim = cm.state.vim as { status?: string; inputState?: { operator?: unknown } };
+      if (vim && !vim.inputState?.operator) vim.status = "";
     });
     // Vim signals before executing the operator. Observe its completed yank in
     // the same input task; register 0 changes even when yanking identical text.
@@ -808,7 +981,7 @@ export default function FileEditor({
         editor.scrollDOM.removeEventListener(event, manualScroll);
       editor.destroy();
     };
-  }, [draft, drafts, active]);
+  }, [draft, drafts, active, slots]);
   // Another open at a line, such as a second link to this file, goes there.
   const { line: revealLine, endLine: revealEnd, revealed } = context;
   useLayoutEffect(() => {
@@ -922,6 +1095,56 @@ export default function FileEditor({
       )}
       {blameOpen && blameNotice && <div className="med-editor-message">{blameNotice}</div>}
       <div ref={body} className="med-editor-body" />
+      {comments &&
+        [...slotElements].map(([key, element]) => {
+          if (key === "box") {
+            if (!shownBox) return null;
+            const target = shownBox;
+            return createPortal(
+              <FileCommentBox
+                key={`${target.line}-${target.endLine}`}
+                line={target.line}
+                endLine={target.endLine}
+                agent={comments.agent}
+                initialText={boxText}
+                onTextChange={setBoxText}
+                onSubmit={async (text, how) => {
+                  await comments.add(
+                    {
+                      line: target.line,
+                      endLine: target.endLine,
+                      quote: editorLines(target.line, target.endLine).join("\n"),
+                    },
+                    text,
+                    how,
+                  );
+                  setBox(null);
+                  refocus();
+                }}
+                onCancel={() => {
+                  setBox(null);
+                  refocus();
+                }}
+              />,
+              element,
+              key,
+            );
+          }
+          const comment = threads?.find((thread) => thread.id === key);
+          if (!comment) return null;
+          return createPortal(
+            <FileCommentThread
+              comment={comment}
+              agent={comments.agent}
+              unsent={comments.unsent.has(comment.id)}
+              onMutate={comments.mutate}
+              onSend={(how) => comments.send(comment.id, how)}
+            />,
+            element,
+            key,
+          );
+        })}
+      {symbolHover.element}
       <BlameTooltips cells={cells} />
       <style>{lineBlameCSS(".med-editor .cm-line", active.palette.faint)}</style>
       <LineBlame

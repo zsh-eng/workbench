@@ -1334,7 +1334,7 @@ const styles = stylex.create({
     width: "min(560px, 92vw)",
     boxSizing: "border-box",
     borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",

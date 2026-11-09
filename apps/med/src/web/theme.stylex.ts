@@ -6,6 +6,9 @@ export const tokens = stylex.defineVars({
   canvas: "var(--med-canvas, #141416)",
   panel: "var(--med-panel, #0d0d0f)",
   raised: "var(--med-raised, #1b1b1e)",
+  /** Menus, palettes, and tooltips: the page's own background in a light
+   * theme, the raised one in a dark theme, where a lighter surface lifts. */
+  menu: "var(--med-menu, var(--med-raised, #1b1b1e))",
   hover: "var(--med-hover, #232327)",
   border: "var(--med-border, #28282d)",
   text: "var(--med-text, #ececef)",
@@ -172,7 +175,7 @@ export const ui = stylex.create({
     minWidth: 200,
     maxHeight: "min(420px, 70vh)",
     overflowY: "auto",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
@@ -213,7 +216,7 @@ export const ui = stylex.create({
     transform: "translateX(-50%)",
     width: "min(600px, calc(100vw - 32px))",
     boxSizing: "border-box",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12.5,

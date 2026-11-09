@@ -100,5 +100,7 @@ export async function run(args) {
     result: text,
     session_id: sessionId,
   });
+  // A question with "Linger" exits a moment after its answer, as Claude Code can.
+  if (prompt.includes("Linger")) await new Promise((resolve) => setTimeout(resolve, 500));
   process.exit(0);
 }

@@ -547,7 +547,7 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   expect(showSession.query()).toBeNull();
 });
 
-test("the review has Expand and Hide in its header, in ⋯ when the row is narrow, and comes back by Show review", async () => {
+test("the review has Expand and Hide in its header, in ⋯ when the row is narrow, and comes back by Restore", async () => {
   await page.viewport(1600, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -574,16 +574,16 @@ test("the review has Expand and Hide in its header, in ⋯ when the row is narro
   // Hide leaves the session, whose header shows the review again.
   await page.getByRole("button", { name: "Hide the review" }).click();
   await expect.poll(review).toBeUndefined();
-  const showReview = page.getByRole("button", { name: "Show review" });
+  const showReview = page.getByRole("button", { name: "Show the review" });
   await showReview.click();
   await expect.poll(review).toBeTruthy();
 
   // While the review hides, the session is the whole workspace: its header
-  // has Show review, as words, and no Hide. ⌘⇧B hides it and shows the
-  // review, so the workspace keeps a pane.
+  // has Restore, which shows the review, and no Hide. ⌘⇧B hides it and shows
+  // the review, so the workspace keeps a pane.
   await page.getByRole("button", { name: "Hide the review" }).click();
   await expect.poll(review).toBeUndefined();
-  await expect.element(showReview).toHaveTextContent("Show review");
+  await expect.element(showReview).toBeVisible();
   expect(page.getByRole("button", { name: /^Hide the session pane/ }).query()).toBeNull();
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   await expect.poll(review).toBeTruthy();

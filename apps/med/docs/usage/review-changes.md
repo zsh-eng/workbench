@@ -22,13 +22,21 @@ docs, config and data, and generated files.
 To ask the thread's agent about lines, select line numbers in Review, Changes,
 or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
 at the right of the review and names the file and the lines. Write the
-question and press `⌘↵`. Med asks a fork of the thread's Claude Code session,
-in plan mode, with the lines and their numbers. The answer shows in the pane;
-the thread does not get the question or the answer. Escape or **Stop** ends the
+question and press `⌘↵`. While the thread's agent waits, the question goes to
+the thread itself, as a message that asks it to answer and change nothing, and
+the answer shows in the thread, where the next message can build on it. While
+the agent works, Med asks a fork of the thread's Claude Code session instead,
+in plan mode, with the lines and their numbers, so the work goes on. The
+fork's answer shows in the pane; the thread does not get that question or its
+answer. Escape or **Stop** ends the
 answer. **Keep as comment** adds the question and the answer as a comment on
 the lines. **Close** discards them; Med keeps no copy of the question or the
 answer. A review has one question at a time, and Ask waits while an answer
-comes. A Codex thread is
+comes. The next question goes on in the same fork, which has the earlier
+questions too, while the thread's agent has not taken a turn since, its model
+and effort are the same, and less than 55 minutes have passed: the fork then
+reads Claude Code's cache and writes only the new question. Otherwise Med
+makes a new fork, and removes the old fork's transcript. A Codex thread is
 asked in the same way when Codex has `codex exec fork`; an older Codex answers
 from the lines only, and the pane says so.
 
@@ -90,9 +98,9 @@ from the file tree, and **Changes**, are live.
   **Edit**, and **Delete**. Med shows each change at once and saves it in the
   background; if a save fails, Med restores the comment, reports the error, and
   keeps your text.
-- **Ask** (`a`) asks the thread's agent about the selected lines, in a fork of
-  its session in plan mode. The thread does not get the question or the
-  answer. **Keep as comment** saves both as a comment on the lines
+- **Ask** (`a`) asks the thread's agent about the selected lines: in the
+  thread while its agent waits, else in a fork of its session in plan mode,
+  which the thread does not see. **Keep as comment** saves both as a comment on the lines
   (`Question: …`, then the agent's name and its answer); the agent gets it with
   the other comments.
 - **Copy comments** copies, as Markdown, the comments on every comparison that
@@ -161,6 +169,33 @@ The thread shows each sent message as taken, or queued while the agent works.
 A sent comment leaves the drafts until you edit it or reply to it. Each message keeps the version of
 each comment that it sent, from the same read as the agent's text, so an
 edit while Med sends stays a draft.
+
+### Comment on a file
+
+In a thread, you can comment on any file that you open, not only on the
+change: press `gc` on a line, or on lines selected in Visual mode, or click
+the **+** beside a line. A plain box opens under the lines. The round arrow
+(`⌘↵`) sends the comment to the agent now, or at its next step while it works;
+the clock (`⌥↵`) waits for its turn to end; the comment mark adds it to the
+thread's message with the other comments. `Esc` or **×** cancels. The comment
+stays under its last line, as on a page that people comment on together; its
+**Reply**, **Resolve**, and **Delete** show when the pointer is on it. The agent gets the file's path, the lines
+as they were, and your text; it answers in the comment's thread
+(`med reply <id>`) and, when it has done what you asked, resolves it
+(`med reply <id> --resolve`). A resolved comment says who resolved it;
+**Reopen** opens it again, and so does your reply. `ga` asks the agent about
+the lines instead, as **Ask** does in a diff. A
+comment covers at most 400 lines. Without a session that Med runs, the
+comment waits in the message box, to send or copy with the others.
+
+### All comments
+
+The comment button at the end of the review's header, with the count of open
+comments, lists the thread's comments: those on the diff's lines and those on
+files' lines, newest first. Each shows its file and lines, its time, its
+first two lines, and who answered it. A dot marks one that waits to be sent.
+The filter shows the resolved ones too, and the copy button copies them all
+for an agent elsewhere. Click one to open it at its lines.
 
 ## Full-file change markers
 

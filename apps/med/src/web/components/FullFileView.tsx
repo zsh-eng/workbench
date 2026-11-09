@@ -50,6 +50,53 @@ import { createLineBlame } from "../data/line-blame";
 import { LineBlame, lineBlameCSS } from "./LineBlame";
 import { fileTitle } from "./QuietChrome";
 import { HIGHLIGHTER } from "../pierre-theme";
+import {
+  MAX_FILE_COMMENT_LINES,
+  type FileComment,
+  type FileCommentMutation,
+} from "../../shared/saved-review";
+import {
+  FileCommentBox,
+  FileCommentThread,
+  type FileCommentAgent,
+  type FileCommentSend,
+} from "./FileComments";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./SymbolHover";
+import type { SymbolDefinition, SymbolHover } from "../../shared/symbols";
+
+/** Comments on the file's lines, for a file in a thread (FileComments.tsx). */
+export interface FileComments {
+  /** The thread's comments on this file, in this source. */
+  threads: readonly FileComment[];
+  /** Comments not sent since their last change. */
+  unsent: ReadonlySet<string>;
+  agent: FileCommentAgent | null;
+  add(
+    lines: { line: number; endLine: number; quote: string },
+    text: string,
+    how: FileCommentSend,
+  ): Promise<void>;
+  mutate(mutation: FileCommentMutation): Promise<void>;
+  send(id: string, how: Exclude<FileCommentSend, "keep">): Promise<void>;
+  /** `ga`: ask the thread's agent about the lines. */
+  ask?(lines: { line: number; endLine: number; text: string[] }): void;
+}
+/** A number that grows each time the comments or the box change. */
+function versionCounter() {
+  let version = 0;
+  let last: unknown[] = [];
+  return {
+    get(...inputs: unknown[]) {
+      if (inputs.some((input, index) => input !== last[index])) {
+        last = inputs;
+        version++;
+      }
+      return version;
+    },
+  };
+}
+/** What a file's line carries for Pierre: a comment, or the box to write one. */
+type FileAnnotation = { comment?: FileComment; box?: true };
 
 export interface FileSymbolPreview {
   readonly origin?: { line: number; column: number };
@@ -81,6 +128,9 @@ export interface FullFileViewProps {
   onNavigationReady?(command: FileNavigationCommand | null): void;
   onSelectionReaderReady?(read: (() => string) | null): void;
   onDefinition?(name: string): void;
+  /** A name's definitions, for the card that a hover or `K` shows. */
+  loadHover?(name: string, signal: AbortSignal): Promise<SymbolHover>;
+  onOpenDefinition?(definition: SymbolDefinition): void;
   highlightQuery?: string;
   compact?: boolean;
   initialScrollTop?: number;
@@ -106,6 +156,8 @@ export interface FullFileViewProps {
     write: FileWrite;
     autoEdit?: boolean;
   };
+  /** `gc` and the gutter's + comment on lines; `ga` asks about them. */
+  comments?: FileComments;
 }
 
 const notices = {
@@ -136,6 +188,8 @@ function ReadOnlyFileView({
   onNavigationReady,
   onSelectionReaderReady,
   onDefinition,
+  loadHover,
+  onOpenDefinition,
   onSymbolPreviewReady,
   highlightQuery = "",
   compact = false,
@@ -150,8 +204,25 @@ function ReadOnlyFileView({
   onRefresh,
   onEdit,
   openIn,
+  comments,
 }: FullFileViewProps) {
   const displayPath = path ?? file?.path;
+  // The box that `gc` or the gutter's + opens, under its lines. It stays while
+  // the file changes on disk, and goes with another file.
+  const [box, setBox] = useState<{ path: string; line: number; endLine: number } | null>(null);
+  const openBox = (from: number, to: number) => {
+    if (!file?.path) return;
+    const line = Math.min(from, to);
+    const endLine = Math.min(Math.max(from, to), line + MAX_FILE_COMMENT_LINES - 1);
+    setBox({ path: file.path, line, endLine });
+  };
+  const shownBox = box && box.path === file?.path && !compact ? box : null;
+  const commentsRef = useRef(comments);
+  commentsRef.current = comments;
+  const openBoxRef = useRef(openBox);
+  openBoxRef.current = openBox;
+  const fileLines = (from: number, to: number) =>
+    (file?.kind === "text" ? (file.text ?? "") : "").split("\n").slice(from - 1, to);
   const { active } = useTheme();
   const sourceCursorAt = useRef(0);
   const cursorLine = useRef((_line: number) => {});
@@ -167,8 +238,18 @@ function ReadOnlyFileView({
     [onSourcePosition],
   );
   const workingColor = active.appearance === "dark" ? "#7db4ff" : "#245ea8";
-  const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
-  const vim = useFileVim({
+  const hoverSource = useMemo<SymbolHoverSource | undefined>(
+    () =>
+      !compact && loadHover && onOpenDefinition && file?.kind === "text"
+        ? { key: file.identity, load: loadHover, open: onOpenDefinition }
+        : undefined,
+    [compact, loadHover, onOpenDefinition, file],
+  );
+  const symbolHover = useSymbolHover(hoverSource);
+  const { enter: hoverEnter, leave: hoverLeave } = symbolHover;
+  const hovering = !!hoverSource;
+  const viewer = useRef<CodeViewHandle<FileAnnotation, undefined>>(null);
+  const vim = useFileVim<FileAnnotation>({
     text: file?.kind === "text" ? (file.text ?? "") : "",
     identity: file?.identity ?? "",
     enabled: vimEnabled && !compact,
@@ -179,6 +260,13 @@ function ReadOnlyFileView({
     onNavigationReady,
     onDefinition,
     onPosition: followCursor,
+    onHover: symbolHover.show,
+    onAnnotate(kind, from, to) {
+      const current = commentsRef.current;
+      if (!current) return;
+      if (kind === "comment") openBoxRef.current(from, to);
+      else current.ask?.({ line: from, endLine: to, text: fileLines(from, to) });
+    },
   });
   // A cited range, such as src/a.ts:8-17 from an agent's reply, shows selected.
   const identity = file?.kind === "text" && !loading ? file.identity : undefined;
@@ -353,16 +441,29 @@ function ReadOnlyFileView({
   const plain = !!file?.plain;
   const language = getFiletypeFromFileName(file?.path ?? "");
   const unsupportedSyntax = useSyntaxSupport(language) === false;
-  const items = useMemo<CodeViewItem<undefined>[]>(() => {
+  const threads = comments?.threads;
+  const annotationVersions = useMemo(() => versionCounter(), []);
+  const items = useMemo<CodeViewItem<FileAnnotation>[]>(() => {
     if (file?.kind !== "text" || typeof file.text !== "string") return [];
+    const annotations = [
+      ...(threads ?? []).map((comment) => ({
+        lineNumber: comment.endLine ?? comment.line,
+        metadata: { comment },
+      })),
+      ...(shownBox ? [{ lineNumber: shownBox.endLine, metadata: { box: true as const } }] : []),
+    ];
+    // Pierre draws an item's annotations again when its version changes.
+    const version = annotationVersions.get(threads, shownBox);
     return [
       {
         id: file.identity,
         type: "file",
         file: pierreFile(file),
+        ...(annotations.length ? { annotations } : {}),
+        ...(version ? { version } : {}),
       },
     ];
-  }, [file]);
+  }, [file, threads, shownBox, annotationVersions]);
   const workerPool = useWorkerPool();
   useLayoutEffect(() => {
     if (loading || file?.kind !== "text" || file.plain || !workerPool?.isWorkingPool()) return;
@@ -384,8 +485,34 @@ function ReadOnlyFileView({
   }, [file, loading, workerPool]);
   const visualName = vim.visualName;
   const activeSearchName = vim.activeSearchName;
-  const options = useMemo<CodeViewReactOptions<undefined, undefined>>(
+  const commenting = !!comments && !compact;
+  const options = useMemo<CodeViewReactOptions<FileAnnotation, undefined>>(
     () => ({
+      // The gutter's + on a line, or on lines dragged in the gutter, opens a comment.
+      enableGutterUtility: commenting,
+      onGutterUtilityClick(range) {
+        openBoxRef.current(range.start, range.end);
+      },
+      // A name that the pointer rests on shows its definition.
+      ...(hovering
+        ? {
+            onTokenEnter(token: {
+              lineNumber: number;
+              lineCharStart: number;
+              tokenText: string;
+              tokenElement: HTMLElement;
+            }) {
+              const name = hoverName(token.tokenText);
+              if (!name) return hoverLeave();
+              hoverEnter(`${token.lineNumber}:${token.lineCharStart}`, name, () =>
+                token.tokenElement.getBoundingClientRect(),
+              );
+            },
+            onTokenLeave() {
+              hoverLeave();
+            },
+          }
+        : {}),
       theme: active.pierreTheme,
       preferredHighlighter: HIGHLIGHTER,
       themeType: active.appearance,
@@ -439,6 +566,10 @@ function ReadOnlyFileView({
       canBlame,
       changes,
       workingColor,
+      commenting,
+      hovering,
+      hoverEnter,
+      hoverLeave,
     ],
   );
   useLayoutEffect(() => {
@@ -582,6 +713,51 @@ function ReadOnlyFileView({
                 ref={viewer}
                 items={items}
                 options={options}
+                renderAnnotation={(...args) => {
+                  const current = commentsRef.current;
+                  const shown = args[0].metadata;
+                  if (!current || !shown) return null;
+                  if (shown.box) {
+                    const target = shownBox;
+                    if (!target) return null;
+                    return (
+                      <FileCommentBox
+                        key={`${target.line}-${target.endLine}`}
+                        line={target.line}
+                        endLine={target.endLine}
+                        agent={current.agent}
+                        onSubmit={async (text, how) => {
+                          await current.add(
+                            {
+                              line: target.line,
+                              endLine: target.endLine,
+                              quote: fileLines(target.line, target.endLine).join("\n"),
+                            },
+                            text,
+                            how,
+                          );
+                          setBox(null);
+                          vim.pane.current?.focus({ preventScroll: true });
+                        }}
+                        onCancel={() => {
+                          setBox(null);
+                          vim.pane.current?.focus({ preventScroll: true });
+                        }}
+                      />
+                    );
+                  }
+                  const comment = shown.comment;
+                  if (!comment) return null;
+                  return (
+                    <FileCommentThread
+                      comment={comment}
+                      agent={current.agent}
+                      unsent={current.unsent.has(comment.id)}
+                      onMutate={current.mutate}
+                      onSend={(how) => current.send(comment.id, how)}
+                    />
+                  );
+                }}
                 onScroll={(top) => {
                   onScrollPosition?.(top);
                   if (performance.now() - sourceCursorAt.current >= 200)
@@ -606,6 +782,7 @@ function ReadOnlyFileView({
                 aria-hidden="true"
                 {...stylex.props(styles.caret)}
               />
+              {symbolHover.element}
             </div>
           ) : (
             <div {...stylex.props(styles.notice)}>
@@ -1011,6 +1188,7 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
               {props.sourceLabel.replace(/^Working files\b/, "Working file")}
             </span>
           )}
+          <CopyPageButton text={markdownModel.getText} />
           {props.openIn && !draft?.editing && (
             <OpenInMenu
               actions={props.openIn.actions}
@@ -1056,3 +1234,32 @@ export const FullFileView = memo(function FullFileView(props: FullFileViewProps)
     </div>
   );
 });
+
+/** The note's Markdown, as written, to paste into a chat or another note. */
+function CopyPageButton({ text }: { text(): string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 1500);
+    return () => clearTimeout(timer);
+  }, [state]);
+  return (
+    <ToolButton
+      label={
+        state === "copied"
+          ? "Copied"
+          : state === "failed"
+            ? "Copying needs clipboard access"
+            : "Copy page as Markdown"
+      }
+      aria-label="Copy page"
+      icon={state === "copied" ? "check" : "copy"}
+      onClick={() =>
+        void navigator.clipboard.writeText(text()).then(
+          () => setState("copied"),
+          () => setState("failed"),
+        )
+      }
+    />
+  );
+}

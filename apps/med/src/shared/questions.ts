@@ -28,6 +28,9 @@ export const questionExcerptSchema = z.object({
       }),
     )
     .max(MAX_QUESTION_LINES),
+  /** For lines of a file, not of a change: where the file is, such as "in
+   * the working tree". The prompt says it in place of "after the change". */
+  where: z.string().max(120).optional(),
 });
 export type QuestionExcerpt = z.infer<typeof questionExcerptSchema>;
 
@@ -95,7 +98,8 @@ export function questionPrompt(question: string, excerpt: QuestionExcerpt) {
     excerpt.start === excerpt.end
       ? `line ${excerpt.start}`
       : `lines ${excerpt.start}–${excerpt.end}`;
-  const version = excerpt.side === "old" ? "before the change" : "after the change";
+  const version =
+    excerpt.where ?? (excerpt.side === "old" ? "before the change" : "after the change");
   const width = String(Math.max(0, ...excerpt.lines.map((line) => line.number))).length;
   const body = excerpt.lines
     .map((line) => `${String(line.number).padStart(width)} ${line.mark} ${line.text}`.trimEnd())

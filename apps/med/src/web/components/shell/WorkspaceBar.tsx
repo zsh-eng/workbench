@@ -214,7 +214,8 @@ const styles = stylex.create({
     flexShrink: 0,
     minWidth: 0,
     height: "var(--med-top-row)",
-    paddingInlineStart: 8,
+    // The checkout's name starts at the thread's text edge (22 pixels in).
+    paddingInlineStart: 14,
     // Clear of the window controls at the right, as on Windows and Linux.
     paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 8px)",
     color: tokens.muted,

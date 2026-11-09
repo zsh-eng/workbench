@@ -279,17 +279,15 @@ const within = (path: string, folder: string) => path === folder || path.startsW
 
 type Listed = { agent: FoundAgent; path: string; mtimeMs: number; size: number };
 
-/** Claude Code transcripts in the project folders of the registered checkouts
- * and of folders inside them. */
-async function claudeFiles(home: string, checkouts: readonly Checkout[], since: number) {
+/** Claude Code transcripts that changed since `since`, in every project folder. */
+async function claudeFiles(home: string, since: number) {
   const projects = join(home, ".claude", "projects");
+  // Every folder: Claude Code files a transcript under the folder where the
+  // session started, and a session can start outside the repositories, as in
+  // a notes folder, then work in a checkout. Its last `cwd` places it.
   const folders = await readdir(projects).catch(() => [] as string[]);
-  const prefixes = checkouts.map((checkout) => claudeProjectFolder(checkout.path));
-  const wanted = folders.filter((folder) =>
-    prefixes.some((prefix) => folder === prefix || folder.startsWith(`${prefix}-`)),
-  );
   const files: Listed[] = [];
-  for (const folder of wanted) {
+  for (const folder of folders) {
     const entries = await readdir(join(projects, folder), { withFileTypes: true }).catch(() => []);
     await Promise.all(
       entries
@@ -496,7 +494,7 @@ export function createFoundSessions(options: {
       return;
     }
     const since = now() - WINDOW_MS;
-    const listed = [...(await claudeFiles(home(), checkouts, since)), ...(await recentCodex(since))]
+    const listed = [...(await claudeFiles(home(), since)), ...(await recentCodex(since))]
       .sort((a, b) => b.mtimeMs - a.mtimeMs)
       .slice(0, MAX_READS);
     const names = listed.some((file) => file.agent === "codex")

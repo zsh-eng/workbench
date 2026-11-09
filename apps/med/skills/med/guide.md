@@ -183,6 +183,7 @@ act on threads the user names.
 ```sh
 med thread list [--history] [--json]     # ID, state, repository/branch, title
 med thread open <id> | close <id>        # close keeps the agent running
+med thread send <id> "<message>"         # to a thread's agent; --after-turn waits
 med thread find tide prediction          # sessions of any age, newest first
 med thread adopt claude:<session-id>     # make a session a thread; prints its link
 med thread show --paths src/a.ts --guide -   # add a version to your session's thread
@@ -192,4 +193,7 @@ med thread show --paths src/a.ts --guide -   # add a version to your session's t
   `--repo <checkout>` when the session's folder is not registered.
 - `thread show` takes `--paths`, `--base <ref>`, `--commit`, `--working`,
   `--manifest`, `--guide` and `--brief`.
+- `thread send` labels a message from another Med thread with its name, such
+  as `From the Superagent:`; a thread cannot send to itself. Send only what the
+  user asked to pass on.
 - For one current file or line, `med open <file> --line N` prints a link.

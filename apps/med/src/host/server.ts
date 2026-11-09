@@ -4,7 +4,7 @@ import { mediaType } from "../shared/media";
 import { fileChangesRequestSchema } from "../shared/file-changes";
 import { fileChanges } from "./repository/file-changes";
 import { markdownAsset } from "./markdown-assets";
-import { browseSourceSchema } from "../shared/browse";
+import { browseSourceSchema, type BrowseRead } from "../shared/browse";
 import { LocalFiles } from "./local-files";
 import { ChannelResponse, channelRequest, LIVE_PATH, liveInputSchema } from "./live-streams";
 import { PullJobs } from "./pull-workspace";
@@ -83,7 +83,15 @@ import {
 import { listBrowse, readBrowse, writeBrowse } from "./repository/browse";
 import { browseBlameRequestSchema, browseSearchRequestSchema } from "../shared/inspect";
 import { blameBrowse } from "./repository/inspect";
-import { symbolSearchRequestSchema } from "../shared/symbols";
+import {
+  symbolHoverRequestSchema,
+  symbolSearchRequestSchema,
+  type SymbolHover,
+  type SymbolHoverRequest,
+  type SymbolSearch,
+} from "../shared/symbols";
+import { definitionText } from "../shared/definition-text";
+import { PullInboxReader } from "./pull-inbox";
 import { FileSymbolService, WorkingTreeSymbols } from "./search/symbols";
 import { type SearchOptions } from "./search/service";
 import { BasePulls } from "./repository/base-pull";
@@ -92,6 +100,14 @@ import { Memo } from "./repository/cache";
 import { CheckoutRevisions } from "./repository/events";
 import { removeWorktree } from "./repository/worktrees";
 import { runProcess } from "./runtime/process";
+import {
+  prepareSuperagentFolder,
+  SUPERAGENT_CHOICES,
+  SUPERAGENT_KEY,
+  SUPERAGENT_TITLE,
+  superagentBrief,
+  superagentFolder,
+} from "./superagent";
 import { acceptWebSocket } from "./runtime/websocket";
 import { CodexReviews } from "./codex-reviews";
 import { SavedReviewStore, type CommitLens } from "./saved-reviews";
@@ -167,6 +183,7 @@ import type { SessionEvent } from "../shared/agent-session";
 import {
   pinMutationSchema,
   briefCommentMutationSchema,
+  fileCommentMutationSchema,
   reviewKeySchema,
   savedReviewCreateSchema,
   savedReviewDetailsSchema,
@@ -253,6 +270,8 @@ function revealInFileManager(path: string) {
   child.unref();
 }
 const MAX_BODY = 128 * 1024;
+/** Definitions that a hover shows; `gd` lists all of them. */
+const MAX_HOVER_DEFINITIONS = 3;
 // A brief holds up to 100,000 characters; UTF-8 can need four bytes for one.
 const MAX_BRIEF_BODY = 512 * 1024;
 // A guide holds up to 200,000 characters of JSON.
@@ -348,10 +367,80 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const notes = new NoteService(reviews);
   const symbols = new FileSymbolService();
   const workingSymbols = new WorkingTreeSymbols();
+  /** The definitions of a name that a hover shows: in its own file first,
+   * then in the project, as `gd` looks; each with its declaration and doc
+   * comment from its file. */
+  const hoverSymbol = async (
+    input: SymbolHoverRequest,
+    signal: AbortSignal,
+  ): Promise<SymbolHover> => {
+    const base = {
+      source: input.source,
+      path: input.path,
+      identity: input.identity,
+      name: input.name,
+      definitions: [],
+      more: 0,
+    };
+    const exact = (search: SymbolSearch) =>
+      search.matches
+        .filter((match) => match.name === input.name)
+        .map((match) => ({ match, source: search.resultSource ?? search.source }));
+    const local = await symbols.search(
+      { source: input.source, path: input.path, identity: input.identity, query: input.name },
+      signal,
+    );
+    // A diff's side names no identity: its version is the commit's, or the
+    // working tree's now.
+    if (input.identity && local.identity !== input.identity)
+      return { ...base, unavailable: local.unavailable ?? "This file changed." };
+    let found = exact(local);
+    let unavailable = local.unavailable;
+    if (!found.length) {
+      const project =
+        (input.source.kind === "worktree" &&
+          (await workingSymbols.search(input.source.repo, input.name, signal))) ||
+        (await registry.withSearch(input.source.repo, (search) =>
+          search.symbols(input.source, input.name, signal),
+        ));
+      found = exact(project);
+      unavailable = project.unavailable;
+    }
+    const reads = new Map<string, Promise<BrowseRead | undefined>>();
+    const definitions = await Promise.all(
+      found.slice(0, MAX_HOVER_DEFINITIONS).map(async ({ match, source }) => {
+        const key = JSON.stringify([source, match.path]);
+        let read = reads.get(key);
+        if (!read) {
+          read = readBrowse(source, match.path, signal).catch(() => undefined);
+          reads.set(key, read);
+        }
+        const file = await read;
+        const text =
+          file?.kind === "text" && file.text !== undefined
+            ? definitionText(file.text, match.line)
+            : { signature: [], doc: [] };
+        return { ...match, source, ...text };
+      }),
+    );
+    return {
+      ...base,
+      definitions,
+      more: found.length - definitions.length,
+      ...(!definitions.length && unavailable ? { unavailable } : {}),
+    };
+  };
   const localFiles = new LocalFiles();
   const temporaryState = options.stateDir
     ? undefined
     : await mkdtemp(join(tmpdir(), "med-reviews-"));
+  // The Superagent's folder (superagent.ts), which the lists of repositories
+  // leave out.
+  const superagentPath = superagentFolder(options.stateDir ?? temporaryState!);
+  let superagentReal = existsSync(superagentPath) ? await realpath(superagentPath) : superagentPath;
+  const isSuperagentRepo = (path: string) => path === superagentReal || path === superagentPath;
+  const visibleRepositories = () =>
+    registry.snapshot().filter((entry) => !isSuperagentRepo(entry.path));
   // Open tabs and cold history (thread-tabs.ts). Past the byte budget, the
   // threads that closed first give up their captures, as pruning does.
   const tabs = createThreadTabs({ file: join(options.stateDir ?? temporaryState!, "tabs.json") });
@@ -587,7 +676,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const threads = createThreadService({
     savedReviews,
     tabs,
-    repositories: () => registry.snapshot(),
+    repositories: visibleRepositories,
     status: reviewStatus,
     lastMessage: (reviewId) => inbox.last(reviewId),
     found,
@@ -801,11 +890,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     },
   });
   const pullStreams = new Set<ServerResponse>();
+  const pullInbox = new PullInboxReader({
+    repositories: () => registry.snapshot(),
+    gh: options.gh ?? { command: "gh", args: [] },
+  });
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
   }
   await options.service?.attach(registry);
+  // The Superagent's folder, once Med has made it, so its thread opens after
+  // a restart; the service registers only its own sources.
+  if (existsSync(join(superagentPath, ".git")))
+    await registry.register(superagentPath).catch(() => {});
   // Tabs come from the saved reviews on the first start; history prunes now and daily.
   await threads.start();
   releaseClosedTabs();
@@ -1308,6 +1405,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ).catch(() => response.end());
           return;
         }
+        // The pull requests page: open ones that wait on you, and yours.
+        if (url.pathname === "/api/pull-requests" && request.method === "GET") {
+          send(
+            await pullInbox.read(
+              url.searchParams.get("all") === "1",
+              url.searchParams.get("refresh") === "1",
+            ),
+          );
+          return;
+        }
         // A pull request that opens as a workspace, and its progress.
         if (url.pathname === "/api/pulls" && request.method === "POST") {
           const input = pullStartSchema.parse(await readBody(request));
@@ -1624,7 +1731,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               }
             const comments = await savedReviews.comments(reviewId);
             // The events stream asks again on each change; read the review again.
-            const { briefComments, sessions, revision } = await savedReviews.get(reviewId);
+            const { briefComments, fileComments, sessions, revision } =
+              await savedReviews.get(reviewId);
             const unsent = (comment: { id: string; updatedAt: string }) =>
               !versions.get(comment.id)?.has(comment.updatedAt) &&
               (sentAt.get(comment.id) ?? "") < comment.updatedAt;
@@ -1651,6 +1759,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                   text: comment.text,
                   replies: 0,
                 })),
+                ...(fileComments ?? [])
+                  .filter((comment) => !comment.resolved && unsent(comment))
+                  .map((comment) => ({
+                    id: comment.id,
+                    path: comment.path,
+                    line: comment.line,
+                    ...(comment.endLine ? { endLine: comment.endLine } : {}),
+                    text: comment.text,
+                    replies: comment.replies.length,
+                  })),
               ],
             };
           };
@@ -1859,6 +1977,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                     id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
                   })
                   .optional(),
+                /** A comment on a file is done (`med reply --resolve`). */
+                resolve: z.boolean().optional(),
               })
               .parse(await readBody(request));
             const session =
@@ -1876,7 +1996,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               : input.session
                 ? { agent: input.session.agent, sessionId: input.session.id }
                 : { agent: "acp" as const };
-            const note = await savedReviews.reply(reviewId, input.commentId, input.text, author);
+            const note = await savedReviews.reply(
+              reviewId,
+              input.commentId,
+              input.text,
+              author,
+              undefined,
+              { resolve: input.resolve },
+            );
             // Open pages read the comments again.
             inbox.touch(reviewId);
             send({ note });
@@ -2222,6 +2349,45 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } satisfies SessionAdopted);
             return;
           }
+          // The Superagent's thread: made, with its folder and session, the
+          // first time; opened as a tab after that.
+          if (url.pathname === "/api/superagent" && request.method === "POST") {
+            const input = z
+              .object({ preset: z.string().min(1).max(200).default("claude") })
+              .parse(await readBody(request));
+            const known = await savedReviews.byKey(SUPERAGENT_KEY).catch(() => undefined);
+            if (known) {
+              await registry.register(superagentPath, abort.signal).catch(() => {});
+              await threads.open(known.id, { restore: true }).catch(() => {});
+              send({ review: known, created: false });
+              return;
+            }
+            assertRequestAccess();
+            await prepareSuperagentFolder(superagentPath);
+            const cwd = await realpath(superagentPath);
+            superagentReal = cwd;
+            await registry.register(cwd, abort.signal);
+            const runner = await ownedSessions.start(input.preset, cwd, {
+              key: SUPERAGENT_KEY,
+              choices: { ...SUPERAGENT_CHOICES },
+            });
+            const review = await savedReviews.create(
+              {
+                title: SUPERAGENT_TITLE,
+                key: SUPERAGENT_KEY,
+                sessions: [runner.session],
+                targets: [],
+              },
+              captureTarget,
+              assertRequestAccess,
+              await placeCheckout(cwd),
+            );
+            const brief = superagentBrief();
+            await threads.opened(review, brief);
+            await runner.prompt(brief);
+            send({ review, created: true });
+            return;
+          }
           // A new thread: a branch in a new worktree (or the checkout itself),
           // its review, and an agent that starts on the task there.
           if (url.pathname === "/api/threads" && request.method === "POST") {
@@ -2483,7 +2649,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const savedRoute =
-            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
+            /^\/api\/reviews\/([^/]+)(?:\/targets\/([^/]+)\/(review|source|notes|drift)|\/(feedback|clear|brief|guide|brief-comments|file-comments|pins|iterations|delete-notes|details|pull-request|pull-request-live|pull-request-log|pull-request-image|codex-reviews|since|approval|read|pr-draft|pr-draft-create))?$/.exec(
               url.pathname,
             );
           if (savedRoute) {
@@ -2750,6 +2916,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
               return;
             }
+            if (request.method === "POST" && action === "file-comments") {
+              const input = fileCommentMutationSchema.parse(await readBody(request));
+              assertRequestAccess();
+              send(await savedReviews.commentFile(id!, input, assertRequestAccess));
+              inbox.touch(id!);
+              return;
+            }
             if (request.method === "POST" && action === "brief-comments") {
               const input = briefCommentMutationSchema.parse(await readBody(request));
               assertRequestAccess();
@@ -2951,7 +3124,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               );
             }
             if (request.method === "GET") {
-              send({ repositories: await registry.list(abort.signal) });
+              const repositories = await registry.list(abort.signal);
+              send({ repositories: repositories.filter((entry) => !isSuperagentRepo(entry.path)) });
               return;
             }
             if (request.method === "POST") {
@@ -3177,6 +3351,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                       search.symbols(input.source, input.query, abort.signal),
                     )),
             );
+            return;
+          }
+          if (url.pathname === "/api/browse/hover" && request.method === "POST") {
+            const input = symbolHoverRequestSchema.parse(await readBody(request));
+            input.source.repo = await requireRepo(input.source.repo);
+            send(await hoverSymbol(input, abort.signal));
             return;
           }
           if (url.pathname === "/api/browse/search" && request.method === "POST") {

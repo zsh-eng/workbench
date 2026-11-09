@@ -7,6 +7,7 @@ import {
   savedFeedbackSchema,
   threadCheckout,
   type BriefCommentMutation,
+  type FileCommentMutation,
   type PinMutation,
   type SavedCheckout,
   type SavedIteration,
@@ -231,6 +232,9 @@ export interface ReviewController {
   deleteNotes(notes: { iteration?: number; briefFrom?: number }): Promise<void>;
   /** Comment on a passage of the Notes, or edit or remove such a comment. */
   commentBrief(mutation: BriefCommentMutation): Promise<void>;
+  /** Comment on lines of a file, or change such a comment; returns the
+   * review as the host has it then. */
+  commentFile(mutation: FileCommentMutation): Promise<SavedReview | undefined>;
   /** Opens the saved review's pull request draft on GitHub with gh, and
    * returns its URL and the local images that GitHub did not get. */
   createPullRequest(asDraft: boolean): Promise<{ url: string; left: string[] }>;
@@ -2497,6 +2501,28 @@ export function createReviewController(options: ReviewControllerOptions = {}): R
                   (current.briefComments?.length ?? 0),
               },
       });
+    },
+    async commentFile(mutation) {
+      const saved = snapshot.savedReview;
+      if (!saved) throw new Error("Open a thread to comment on its files.");
+      const next = await api.json(
+        `/api/reviews/${encodeURIComponent(saved.id)}/file-comments`,
+        savedReviewSchema,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mutation),
+        },
+      );
+      if (disposed || snapshot.savedReview?.id !== saved.id) return next;
+      const current = snapshot.savedReview;
+      update({
+        savedReview:
+          next.revision >= current.revision
+            ? next
+            : { ...current, fileComments: next.fileComments, commentCount: next.commentCount },
+      });
+      return next;
     },
     async startSession(preset, options = {}) {
       const saved = snapshot.savedReview;

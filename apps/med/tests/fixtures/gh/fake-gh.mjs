@@ -7,6 +7,7 @@
 // FAKE_GH_DELAY_MS slows each command, to watch progress by hand. `pr create`
 // copies its --body-file to FAKE_GH_BODY_OUT and prints FAKE_GH_CREATED, or
 // with FAKE_GH_EXISTS fails as gh does for a branch whose pull request is open.
+// `api graphql` answers a pull request search from FAKE_GH_SEARCH.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, copyFileSync } from "node:fs";
 
@@ -18,7 +19,18 @@ const [command, action, selector, ...rest] = argv;
 const pull = JSON.parse(process.env.FAKE_GH_PULL ?? "{}");
 const git = (...args) => execFileSync("git", args, { stdio: ["ignore", "pipe", "inherit"] });
 
-if (command === "pr" && action === "view") {
+if (command === "api" && action === "graphql") {
+  // A search: FAKE_GH_SEARCH has the nodes of review requests ("review") and
+  // of your own pull requests ("author"), and the login ("viewer").
+  const query = argv.find((arg) => arg.startsWith("q=")) ?? "";
+  const search = JSON.parse(process.env.FAKE_GH_SEARCH ?? "{}");
+  const nodes = query.includes("review-requested:@me") ? search.review : search.author;
+  process.stdout.write(
+    JSON.stringify({
+      data: { viewer: { login: search.viewer ?? "you" }, search: { nodes: nodes ?? [] } },
+    }),
+  );
+} else if (command === "pr" && action === "view") {
   process.stdout.write(JSON.stringify(pull));
 } else if (command === "pr" && action === "checkout") {
   git("fetch", "-q", process.env.FAKE_GH_REMOTE, `refs/pull/${selector}/head`);

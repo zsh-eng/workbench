@@ -18,6 +18,7 @@ export const threadHelp = `Usage: med thread list [--history] [--json]
        med thread close <id> | --key <key> [--remove-worktree]
        med thread reopen
        med thread delete <id> | --key <key>
+       med thread send <id> | --key <key> [--after-turn] <message>
        med thread find [<words>] [--limit <n>] [--json]
        med thread adopt <session> [--repo <path>] [--title <title>] [--open] [--json]
        med thread show --paths <path>... | --base <ref> | --commit <ref> | --working | --manifest <path>
@@ -37,6 +38,10 @@ close        sends a tab to history. Its agent keeps working; Med stops
 reopen       opens the thread that closed last.
 delete       deletes a thread: its saved review, comments, and history entry.
              Its agent sessions stay in Claude Code and Codex.
+send         sends a message to the thread's agent, which Med runs. While the
+             agent works, the message joins its turn at its next step;
+             --after-turn waits until the turn ends. From another thread that
+             Med started, such as the Superagent, the message says so.
 find, adopt  find a Claude Code or Codex session of any age and make it a
              thread, which opens as a tab. med thread find --help tells more.
 show         adds a version to the Review of your session's thread: what you
@@ -46,7 +51,7 @@ show         adds a version to the Review of your session's thread: what you
 thread that Med started.
 Options: --port <port>, --state-dir <path> (or MED_STATE_DIR)`;
 
-const actions = ["list", "open", "close", "reopen", "delete"] as const;
+const actions = ["list", "open", "close", "reopen", "delete", "send"] as const;
 
 export interface ThreadCommand {
   kind: "help" | (typeof actions)[number];
@@ -55,6 +60,9 @@ export interface ThreadCommand {
   history?: boolean;
   json?: boolean;
   removeWorktree?: boolean;
+  /** send: the message, and whether it waits for the turn's end. */
+  message?: string;
+  afterTurn?: boolean;
   port: number;
   stateDir: string;
 }
@@ -74,14 +82,17 @@ export async function parseThreadCommand(
       history: { type: "boolean" },
       json: { type: "boolean" },
       "remove-worktree": { type: "boolean" },
+      "after-turn": { type: "boolean" },
     },
   });
   values["state-dir"] ??= environment.MED_STATE_DIR || undefined;
   const stateDir = getStateDirectory(values["state-dir"]);
   const port = await clientPort(stateDir, values.port, environment);
-  const [action, id, ...rest] = positionals;
+  const [action, ...words] = positionals;
   if (values.help || !action) return { kind: "help", port, stateDir };
-  if (!actions.includes(action as (typeof actions)[number]) || rest.length)
+  // send's words after the thread are its message.
+  const [id, ...rest] = action === "send" && values.key ? [undefined, ...words] : words;
+  if (!actions.includes(action as (typeof actions)[number]) || (rest.length && action !== "send"))
     throw new UsageError(threadHelp);
   const kind = action as (typeof actions)[number];
   const command: ThreadCommand = { kind, port, stateDir };
@@ -107,6 +118,12 @@ export async function parseThreadCommand(
     if (!key.success) throw new Error(key.error.issues[0]!.message);
     command.key = key.data;
   }
+  if (kind === "send") {
+    const message = rest.join(" ").trim();
+    if (!message) throw new Error(`Write the message after the thread.\n\n${threadHelp}`);
+    command.message = message;
+    command.afterTurn = !!values["after-turn"];
+  } else if (values["after-turn"]) throw new Error("Use --after-turn with send.");
   if (values["remove-worktree"]) {
     if (kind !== "close") throw new Error("Use --remove-worktree with close.");
     command.removeWorktree = true;
@@ -181,6 +198,42 @@ export async function runThreadCommand(
       }),
     );
     print(closed ? `Closed ${id}; it is in history.` : `${id} was not open.`);
+  } else if (command.kind === "send") {
+    const thread = threadListSchema
+      .parse(await call("/api/threads"))
+      .threads.find((entry) => entry.id === id);
+    const session = thread?.sessions?.at(-1);
+    if (!thread || !session)
+      throw new Error(
+        thread
+          ? `"${thread.title}" has no agent session to send to.`
+          : `${id} is not an open thread. ${medCommand(command, "thread open", id)} opens it from history.`,
+      );
+    // A message from another thread that Med started names it.
+    const from = (options.environment ?? process.env).MED_THREAD_KEY;
+    if (from) {
+      const own = await call("/api/reviews/by-key", { key: from }).catch(() => undefined);
+      if (z.object({ id: z.string() }).safeParse(own).data?.id === id)
+        throw new Error("A thread can't send a message to itself.");
+    }
+    const sender = from === "superagent" ? "the Superagent" : from ? `the thread ${from}` : "";
+    const text = sender ? `From ${sender}:\n\n${command.message}` : command.message!;
+    const { message } = z
+      .object({ message: z.object({ delivery: z.string().optional() }).passthrough() })
+      .parse(
+        await call(`/api/reviews/${id}/agent/messages`, {
+          id: crypto.randomUUID(),
+          sessionId: session.id,
+          text,
+          noteIds: [],
+          ...(command.afterTurn && { afterTurn: true }),
+        }),
+      );
+    print(
+      message.delivery === "pending"
+        ? `Queued for "${thread.title}" (${id}): it goes ${command.afterTurn ? "when its turn ends" : "at its next step"}.`
+        : `Sent to "${thread.title}" (${id}).`,
+    );
   } else {
     await call(`/api/threads/${id}/delete`, {});
     print(`Deleted ${id}.`);

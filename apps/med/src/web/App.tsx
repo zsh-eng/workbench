@@ -52,7 +52,6 @@ import {
   ReviewHeader,
   ReviewTitle,
   ReviewTitleRow,
-  SessionToggle,
   type DisplayOptions,
   type ReviewPage,
 } from "./components/ReviewHeader";
@@ -129,6 +128,7 @@ import {
   FullFileView,
   preloadFileEditor,
   type BeginFileSymbolPreview,
+  type FileComments,
 } from "./components/FullFileView";
 import { preloadable } from "./components/preloadable";
 import { FileViewTabs } from "./components/FileViewTabs";
@@ -153,6 +153,7 @@ import {
 } from "./data/pending-review";
 import { placeThreads } from "./data/pull-request";
 import type { CodexFinding, CodexReviewRun } from "../shared/codex-review";
+import { listComments, type ListedComment } from "./data/listed-comments";
 import {
   PullRequestTitle,
   SavedReviewHeader,
@@ -187,10 +188,20 @@ import { createEditorDrafts } from "./data/editor-drafts";
 import { createFilePrefetch } from "./data/file-prefetch";
 import { createRenderDiagnostics } from "./data/render-diagnostics";
 import { findDefinitions } from "./data/definitions";
-import type { SymbolSearch } from "../shared/symbols";
+import type { SymbolDefinition, SymbolSearch } from "../shared/symbols";
+import { hoverName, useSymbolHover, type SymbolHoverSource } from "./components/SymbolHover";
+
+/** A token that the pointer entered, as Pierre gives it; a diff's has a side. */
+interface DiffTokenEvent {
+  side?: "deletions" | "additions";
+  lineNumber: number;
+  lineCharStart: number;
+  tokenText: string;
+  tokenElement: HTMLElement;
+}
 import { matchReviewFile, parseBriefHref } from "./data/brief";
 import { questionExcerpt, useQuestion } from "./data/questions";
-import { questionComment } from "../shared/questions";
+import { MAX_QUESTION_LINES, questionComment, questionPrompt } from "../shared/questions";
 import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
@@ -856,6 +867,28 @@ export function App({
   useEffect(() => {
     return () => definitionRequest.current?.abort();
   }, [fileState.file, state.sourceRevision]);
+  // A hover over a name in a file: its definitions and doc comments.
+  const hoverFile = fileState.file;
+  const loadHover = useMemo(() => {
+    const file = hoverFile;
+    const hover = browseApi.hover;
+    if (!file || !isBrowseFile(file) || file.kind !== "text" || !hover) return undefined;
+    return (name: string, signal: AbortSignal) =>
+      hover(file.source, file.path, file.identity, name, signal);
+  }, [hoverFile, browseApi]);
+  const openDefinition = useCallback(
+    (definition: SymbolDefinition) => {
+      const source = definition.source;
+      fileWorkspace.open(
+        definition.path,
+        definition.line,
+        source,
+        source.kind === "commit" ? `Commit ${source.oid.slice(0, 8)}` : sourceLabel,
+        definition.column,
+      );
+    },
+    [fileWorkspace, sourceLabel],
+  );
   const goToDefinition = useCallback(
     (name: string) => {
       const file = fileState.file;
@@ -998,19 +1031,18 @@ export function App({
     [reviewVisible, sessionVisible, closePane, showPane],
   );
   /** The session's header. While the review is hidden, the session is the
-   * whole workspace: it has Show review, as words, and no Hide, which would
-   * only show the review in its place. */
+   * whole workspace: it has Restore, which shows the review again, and no
+   * Hide, which would only show the review in its place. */
   const withShowReview = (controls: ReactNode) =>
     reviewVisible ? (
       controls
     ) : (
-      <button
-        type="button"
-        {...stylex.props(ui.button, ui.pressable)}
+      <ToolButton
+        label="Show the review"
+        icon="restore"
+        data-pane-show="review"
         onClick={() => showPane("review")}
-      >
-        Show review
-      </button>
+      />
     );
   useEffect(() => {
     if (!workspaceId) return;
@@ -2229,6 +2261,25 @@ export function App({
     },
     [notes, controller, reviewVisible, showPane, revealLine],
   );
+  // All comments, in the review's header: the diff's and the files'.
+  const savedFileComments = state.savedReview?.fileComments;
+  const draftIds = inboxState?.drafts;
+  const listedComments = useMemo(
+    () =>
+      listComments(
+        notes,
+        savedFileComments ?? [],
+        new Set(draftIds?.map((draft) => draft.id) ?? []),
+      ),
+    [notes, savedFileComments, draftIds],
+  );
+  const openListedComment = useCallback(
+    (comment: ListedComment) => {
+      if (comment.kind === "diff") openComment(comment.id);
+      else openFromPane(comment.path, comment.line);
+    },
+    [openComment, openFromPane],
+  );
   /** Shows a GitHub thread at its line, from the Pull request tab. */
   const showPullThread = useCallback(
     (thread: PullRequestThread) => {
@@ -2466,6 +2517,29 @@ export function App({
     items,
   ]);
 
+  // A name in the diff that the pointer rests on shows its definition, read
+  // at the side's version: the base commit for deletions, the head commit or
+  // the working tree for additions. A place in the diff names the file and
+  // the side's version, then the name's line and column.
+  const diffHoverReview = state.review;
+  const diffHoverSource = useMemo<SymbolHoverSource | undefined>(() => {
+    const review = diffHoverReview;
+    const hover = browseApi.hover;
+    if (!review || !hover || state.session?.repository.git === false) return undefined;
+    const placeOf = (at: string) => JSON.parse(at) as [BrowseSource, string, number, number];
+    return {
+      key: JSON.stringify(["diff", review.id, review.base, review.head]),
+      load(name, signal, at) {
+        const [source, path] = placeOf(at);
+        return hover(source, path, "", name, signal);
+      },
+      scopeOf: (at) => JSON.stringify(placeOf(at).slice(0, 2)),
+      open: openDefinition,
+    };
+  }, [diffHoverReview, browseApi, state.session?.repository.git, openDefinition]);
+  const diffHover = useSymbolHover(diffHoverSource);
+  const { enter: diffHoverEnter, leave: diffHoverLeave } = diffHover;
+  const diffHovering = !!diffHoverSource;
   const options = useMemo<CodeViewReactOptions<Annotation, undefined>>(
     () => ({
       theme: activeTheme.pierreTheme,
@@ -2488,6 +2562,42 @@ export function App({
           ?.querySelector("[data-utility-button]")
           ?.setAttribute("aria-label", "Add note to line");
       },
+      ...(diffHovering
+        ? {
+            // CodeView hands the token callbacks to each diff itself, so the
+            // diffs mark their tokens only when asked.
+            useTokenTransformer: true,
+            onTokenEnter(token: DiffTokenEvent, _event: PointerEvent, context: { type: string }) {
+              const review = controller.getSnapshot().review;
+              const name = hoverName(token.tokenText);
+              if (
+                !name ||
+                !review ||
+                !token.side ||
+                context.type !== "diff" ||
+                !("item" in context)
+              )
+                return diffHoverLeave();
+              const file = (context as { item: { fileDiff: FileDiffMetadata } }).item.fileDiff;
+              const old = token.side === "deletions";
+              const oid = old ? review.base : review.head;
+              const commit = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(oid);
+              if (old && !commit) return diffHoverLeave();
+              const source: BrowseSource = commit
+                ? { kind: "commit", repo: review.repo, oid }
+                : { kind: "worktree", repo: review.repo };
+              const path = old ? (file.prevName ?? file.name) : file.name;
+              diffHoverEnter(
+                JSON.stringify([source, path, token.lineNumber, token.lineCharStart]),
+                name,
+                () => token.tokenElement.getBoundingClientRect(),
+              );
+            },
+            onTokenLeave() {
+              diffHoverLeave();
+            },
+          }
+        : {}),
       onLineSelectionEnd(range, context) {
         if (!draft || context.type !== "diff") return;
         if (!range || (range.endSide && range.side !== range.endSide)) {
@@ -2572,7 +2682,20 @@ export function App({
           );
       },
     }),
-    [controller, theme, activeTheme, mode, wrap, reviewId, diagnostics, draft, findHighlights],
+    [
+      controller,
+      theme,
+      activeTheme,
+      mode,
+      wrap,
+      reviewId,
+      diagnostics,
+      draft,
+      findHighlights,
+      diffHovering,
+      diffHoverEnter,
+      diffHoverLeave,
+    ],
   );
 
   // Find in the diff: each line that matches, in the order the diff reads.
@@ -2728,17 +2851,93 @@ export function App({
     paneRoot,
     mainElement,
   ]);
+  // `ga` in a file: the same pane, about the file's lines as they are.
+  const askAboutFile = useCallback(
+    (
+      source: BrowseSource,
+      path: string,
+      lines: { line: number; endLine: number; text: string[] },
+    ) => {
+      if (!askThread || !askAgent) return;
+      const end = Math.min(lines.endLine, lines.line + MAX_QUESTION_LINES - 1);
+      const text = lines.text.slice(0, end - lines.line + 1);
+      const where =
+        source.kind === "commit" ? `at commit ${source.oid.slice(0, 12)}` : "in the working tree";
+      const opened = openQuestion({
+        thread: askThread,
+        agent: askAgent,
+        reviewId: undefined,
+        note: { path, side: "new", line: lines.line, endLine: end },
+        file: { source, path, line: lines.line, endLine: end, quote: text.join("\n") },
+        excerpt: {
+          path,
+          side: "new",
+          start: lines.line,
+          end,
+          where,
+          lines: text.map((line, index) => ({
+            number: lines.line + index,
+            mark: " ",
+            text: line.slice(0, 4000),
+          })),
+        },
+      });
+      if (!opened) return;
+      if (!paneOpen("question")) questionLayout.current = paneRoot;
+      const place = PANE_PLACES.question!;
+      const row = mainElement?.closest("[data-pane-tree]")?.clientWidth ?? 0;
+      const share = row ? Math.min(0.5, Math.max(place.share, QUESTION_WIDTH / row)) : place.share;
+      showInTree("question", { ...place, share });
+    },
+    [askThread, askAgent, openQuestion, showInTree, paneOpen, paneRoot, mainElement],
+  );
   const closeQuestion = useCallback(() => {
     discardQuestion();
     closePaneTo("question", questionLayout.current);
     questionLayout.current = null;
   }, [discardQuestion, closePaneTo]);
+  // A question goes to the thread itself while its agent, which Med runs,
+  // waits: the answer stays in its context, and costs no fork. While the
+  // agent works, a fork answers at once, as before (data/questions.ts).
+  const askInThread = !!commentAgent && !!leadSession && !agentWorking;
+  const sendQuestion = useCallback(
+    async (text: string) => {
+      const view = question.view;
+      if (!view || !askInThread || !leadSession) return question.send(text);
+      await sendAgentMessage({
+        id: crypto.randomUUID(),
+        sessionId: leadSession.id,
+        text: `A question; answer it, and change nothing yet.\n\n${questionPrompt(text, view.target.excerpt)}`,
+        noteIds: [],
+        attachments: [],
+        images: [],
+      });
+      closeQuestion();
+      showPane("session");
+    },
+    [askInThread, leadSession, question, sendAgentMessage, closeQuestion, showPane],
+  );
   /** Saves the question and its answer as a comment on the lines, through
    * the review's comments, and closes the question. */
   const questionView = question.view;
   const keepQuestion = useCallback(async () => {
     const view = questionView;
     if (!view?.asked || !view.state?.answer.trim()) return;
+    if (view.target.file) {
+      try {
+        await controller.commentFile({
+          add: {
+            ...view.target.file,
+            text: questionComment(view.asked, view.target.agent, view.state.answer),
+          },
+        });
+      } catch (error) {
+        failQuestion(error instanceof Error ? error.message : "Could not save the comment.");
+        return;
+      }
+      closeQuestion();
+      return;
+    }
     if (controller.getSnapshot().review?.id !== view.target.reviewId) {
       failQuestion(
         "The review shows other changes now. Show these lines again to keep the answer.",
@@ -2760,6 +2959,69 @@ export function App({
     setShowNotes(true);
     closeQuestion();
   }, [questionView, controller, failQuestion, closeQuestion]);
+  // Comments on the open file's lines go to the thread's agent as the
+  // review's comments do: they wait in the message box until sent, and the
+  // agent answers and resolves them in their threads (FileComments.tsx).
+  const savedThread = state.savedReview;
+  const activeFileSource = activeFile?.source;
+  const activeFilePath = activeFile?.path;
+  const fileComments = useMemo<FileComments | undefined>(() => {
+    if (!savedThread || activeFilePath === undefined || !activeFileSource) return undefined;
+    if (activeFileSource.kind === "vault") return undefined;
+    const source = activeFileSource;
+    const same = (other: BrowseSource) =>
+      other.kind === source.kind &&
+      other.repo === source.repo &&
+      (other.kind !== "commit" || (source.kind === "commit" && other.oid === source.oid));
+    const send = async (id: string, how: "send" | "queue") => {
+      if (!leadSession) throw new Error("This thread has no agent to send to.");
+      await sendAgentMessage({
+        id: crypto.randomUUID(),
+        sessionId: leadSession.id,
+        text: "",
+        noteIds: [id],
+        attachments: [],
+        images: [],
+        ...(how === "queue" ? { afterTurn: true } : {}),
+      });
+    };
+    return {
+      threads: (savedThread.fileComments ?? []).filter(
+        (comment) => comment.path === activeFilePath && same(comment.source),
+      ),
+      unsent: new Set(inboxState?.drafts.map((draft) => draft.id) ?? []),
+      agent: commentAgent ? { name: commentAgent.name, mark: commentAgent.mark } : null,
+      async add(lines, text, how) {
+        const before = new Set(
+          (controller.getSnapshot().savedReview?.fileComments ?? []).map((comment) => comment.id),
+        );
+        const next = await controller.commentFile({
+          add: { source, path: activeFilePath, ...lines, text },
+        });
+        const added = next?.fileComments?.find((comment) => !before.has(comment.id));
+        if (how !== "keep" && added) await send(added.id, how);
+      },
+      async mutate(mutation) {
+        await controller.commentFile(mutation);
+      },
+      send,
+      ...(askThread && askAgent
+        ? { ask: (lines) => askAboutFile(source, activeFilePath, lines) }
+        : {}),
+    };
+  }, [
+    savedThread,
+    activeFileSource,
+    activeFilePath,
+    leadSession,
+    sendAgentMessage,
+    inboxState,
+    commentAgent,
+    controller,
+    askThread,
+    askAgent,
+    askAboutFile,
+  ]);
   // A layout kept from before a reload names a question that is gone.
   const questionShown = panes.isOpen("question");
   useEffect(() => {
@@ -3976,6 +4238,30 @@ export function App({
       run: () => runFileNavigation(keys, control),
     })),
     {
+      id: "vim-file-comment",
+      managesFocus: true,
+      label: "Comment on the file's line or selected lines, for the agent",
+      shortcut: "gc",
+      disabled: !fileComments || fileState.file?.kind !== "text",
+      run: () => runFileNavigation("gc"),
+    },
+    {
+      id: "vim-file-hover",
+      managesFocus: true,
+      label: "Show the definition of the name at the cursor",
+      shortcut: "K",
+      disabled: !loadHover,
+      run: () => runFileNavigation("K"),
+    },
+    {
+      id: "vim-file-ask",
+      managesFocus: true,
+      label: "Ask the agent about the file's line or selected lines",
+      shortcut: "ga",
+      disabled: !fileComments?.ask || fileState.file?.kind !== "text",
+      run: () => runFileNavigation("ga"),
+    },
+    {
       id: "file-symbols",
       managesFocus: true,
       label: "Search symbols in current file",
@@ -4002,6 +4288,13 @@ export function App({
       shortcut: "⌘ O",
       disabled: !gitAvailable,
       run: () => openBranchPicker(false, true),
+    },
+    {
+      id: "pull-requests",
+      managesFocus: true,
+      label: "Pull requests…",
+      disabled: !workspace,
+      run: () => workspace?.openPullRequests(),
     },
     {
       id: "open-branch",
@@ -5543,6 +5836,8 @@ export function App({
         controller={controller}
         state={state}
         compact={compact}
+        comments={listedComments}
+        onOpenComment={openListedComment}
         pullRequest={pullRequest}
         threadPlacement={pullRequestThreads.placement}
         codexReviews={codexReviews}
@@ -5664,7 +5959,6 @@ export function App({
           <InTitleBand
             lead={
               <>
-                {sessionToggle && <SessionToggle {...sessionToggle} />}
                 {leading}
                 {reviewName}
               </>
@@ -5695,14 +5989,8 @@ export function App({
       </>
     );
   };
-  // The session's toggle, while the session hides.
-  const sessionToggle =
-    !sessionVisible && (state.savedReview || found)
-      ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
-      : undefined;
   // The second row's parts, also where the review's one row ends the band.
   const barProps = (controls: ReactNode) => ({
-    session: sessionToggle,
     lead: leading,
     tools: pageTools,
     more: rowMore,
@@ -6030,7 +6318,7 @@ export function App({
                   key={questionView.key}
                   view={questionView}
                   controls={controls}
-                  onSend={(text) => void question.send(text)}
+                  onSend={(text) => void sendQuestion(text)}
                   onStop={() => void question.stop()}
                   onKeep={keepQuestion}
                   root={state.review?.repo}
@@ -6104,6 +6392,16 @@ export function App({
       icon: "diff",
       fixed: true,
       hide: REVIEW_HIDE,
+      // While the session hides, the review's Expand is Restore, which shows it.
+      ...(!sessionVisible &&
+        (state.savedReview || found) && {
+          restore: {
+            label: "Show agent session",
+            shortcut: "Mod+Shift+B",
+            onRestore: toggleSession,
+            pane: "session",
+          },
+        }),
       // The review hides only beside another pane.
       ...(sessionVisible && { onClose: () => closePane("review") }),
       render: (controls: ReactNode, place: PanePlace | null) => (
@@ -6428,6 +6726,7 @@ export function App({
                         </button>
                       </div>
                     )}
+                    {diffHover.element}
                     {items.length > 0 ? (
                       <ReviewCodeView
                         key={`${streamScope}:${state.review?.id}`}
@@ -6592,6 +6891,7 @@ export function App({
             {activeFile && (
               <FullFileView
                 editor={fileEditor}
+                comments={fileComments}
                 file={fileState.file}
                 // A vault's file names its vault: the workspace names only its checkout.
                 path={
@@ -6617,6 +6917,8 @@ export function App({
                 onNavigationReady={onNavigationReady}
                 onSelectionReaderReady={onSelectionReaderReady}
                 onDefinition={goToDefinition}
+                loadHover={loadHover}
+                onOpenDefinition={openDefinition}
                 onSymbolPreviewReady={onSymbolPreviewReady}
                 onRefresh={refreshFile}
                 onClose={closeActiveFile}

@@ -45,9 +45,15 @@ async function claude(
   home: string,
   cwd: string,
   id: string,
-  { prompt, title, working = false }: { prompt: string; title?: string; working?: boolean },
+  {
+    prompt,
+    title,
+    working = false,
+    startedIn = cwd,
+  }: { prompt: string; title?: string; working?: boolean; startedIn?: string },
 ) {
-  const folder = join(home, ".claude", "projects", claudeProjectFolder(cwd));
+  // Claude Code files a transcript under the folder that the session started in.
+  const folder = join(home, ".claude", "projects", claudeProjectFolder(startedIn));
   await mkdir(folder, { recursive: true });
   const path = join(folder, `${id}.jsonl`);
   const base = { cwd, sessionId: id, gitBranch: "main", isSidechain: false };
@@ -390,6 +396,22 @@ test("the thread list finds Claude Code and Codex sessions in the registered che
     state: "working",
     open: false,
     closedAt: expect.any(Number),
+  });
+});
+
+test("a session that started outside the repositories shows in the checkout where it works now", async () => {
+  const { list, glossary, home, directory } = await fixture();
+  // As a desktop session started in a notes folder, then moved to a worktree.
+  const notes = join(directory, "notes");
+  await mkdir(notes);
+  const id = "88888888-8888-4888-8888-888888888888";
+  await claude(home, glossary, id, { prompt: "Started in the notes", startedIn: notes });
+  const latest = await list();
+  await vi.waitFor(() => expect(foundIn(latest.value)).toContain("Started in the notes"), {
+    timeout: 10_000,
+  });
+  expect(latest.value!.threads.find((thread) => thread.id === `found-claude-${id}`)).toMatchObject({
+    checkout: glossary,
   });
 });
 

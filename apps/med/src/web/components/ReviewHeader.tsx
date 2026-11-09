@@ -23,19 +23,8 @@ export interface DisplayOptions {
   size: { value: CodeSize; set(size: CodeSize): void };
 }
 
-/** Claude's orange, as on New thread; other agents keep the text's colour. */
-const CLAUDE = "#d97757";
-
-/** The session's toggle, with its agent's mark, while the session hides. */
-export interface SessionToggleProps {
-  agent: IconName;
-  shown: boolean;
-  toggle(): void;
-}
-
 /** What the review's second row holds; in the title band, all of one row. */
 export interface ReviewBarProps {
-  session?: SessionToggleProps;
   /** The review's sidebar's toggle, while the sidebar hides. */
   lead?: ReactNode;
   pages: readonly ReviewPage[];
@@ -75,11 +64,9 @@ export function ReviewHeader({
 
 /**
  * The second row's parts. In the title band, where the review fills the
- * window, they end the band's one row (`actions` after them); the session's
- * toggle leads the band there, before the title.
+ * window, they end the band's one row (`actions` after them).
  */
 export function ReviewBar({
-  session,
   lead,
   pages,
   page,
@@ -95,7 +82,6 @@ export function ReviewBar({
       {...(inBand && { role: "group", "aria-label": "Review header" })}
       {...stylex.props(inBand ? styles.barInBand : styles.bar)}
     >
-      {!inBand && session && <SessionToggle {...session} />}
       {!inBand && lead}
       {tools}
       <span data-row-grow="" {...stylex.props(styles.grow)} />
@@ -122,25 +108,6 @@ export function ReviewBar({
       {actions}
       {controls}
     </div>
-  );
-}
-
-/** Shows or hides the session, in its agent's mark. */
-export function SessionToggle({ agent, shown, toggle }: SessionToggleProps) {
-  return (
-    <button
-      type="button"
-      aria-label={shown ? "Hide agent session" : "Show agent session"}
-      aria-pressed={shown}
-      data-pane-show="session"
-      {...tooltip(shown ? "Hide agent session" : "Show agent session", "Mod+Shift+B")}
-      onClick={toggle}
-      {...stylex.props(ui.button, ui.iconButton, ui.pressable, styles.session)}
-    >
-      <span {...stylex.props(agent === "claude" && styles.claude)}>
-        <Icon name={agent} size={15} />
-      </span>
-    </button>
   );
 }
 
@@ -485,8 +452,6 @@ const styles = stylex.create({
   },
   width: (width: number) => ({ width: `calc(${width}px - var(--med-titlebar-right))` }),
   actions: { display: "flex", alignItems: "center", flexShrink: 0, gap: 2 },
-  session: { color: tokens.muted },
-  claude: { display: "flex", color: CLAUDE },
   // The branch hides first, then the title shortens, so the row never
   // overflows. No cap in percent: in the title band its box is its own size.
   title: {

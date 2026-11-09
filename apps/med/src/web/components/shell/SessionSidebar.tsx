@@ -17,6 +17,8 @@ import { needsYou, tabOrder, type SessionRow } from "../../data/threads";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
 import { RenameField } from "./RenameField";
+import { tooltip } from "../ToolButton";
+import { motion } from "../session/session-styles";
 
 /** Where a dragged row would land: a place among the pins, or Recent. */
 type DropTarget = { pinned: true; at: number } | { pinned: false };
@@ -57,6 +59,8 @@ export function SessionSidebar({
   onNewThread,
   onHide,
   onSettings,
+  onPullRequests,
+  onSuperagent,
   onArchive,
   onDelete,
   onPrefetch,
@@ -80,6 +84,10 @@ export function SessionSidebar({
   onNewThread(): void;
   onHide(): void;
   onSettings(): void;
+  /** Shows the open pull requests that wait on you, and yours. */
+  onPullRequests?(): void;
+  /** Opens the Superagent's thread, and makes it the first time. */
+  onSuperagent?(): void;
   onArchive(thread: Thread): void;
   onDelete(thread: Thread): void;
   /** Reads a session ahead of a click, while the pointer rests on its row. */
@@ -93,7 +101,12 @@ export function SessionSidebar({
 }) {
   // A drop shows at once: the pins as dropped, until the host's list agrees.
   const [placed, setPlaced] = useState<readonly string[] | null>(null);
-  const ordered = tabOrder(threads, current);
+  // The Superagent has its own row on top, apart from the sessions.
+  const superagent = threads.find((thread) => thread.superagent);
+  const ordered = tabOrder(
+    threads.filter((thread) => !thread.superagent),
+    current,
+  );
   const pinnedIds = ordered.filter((thread) => thread.pinned).map((thread) => thread.id);
   const settled =
     placed !== null &&
@@ -302,6 +315,29 @@ export function SessionSidebar({
         </button>
       </div>
       <div ref={scroller} {...stylex.props(styles.scroll)}>
+        {onSuperagent && (
+          <button
+            type="button"
+            aria-current={superagent && superagent.id === current ? "page" : undefined}
+            {...tooltip("Superagent: one thread that sees the others")}
+            onClick={() => (superagent ? onOpen(superagent) : onSuperagent())}
+            {...stylex.props(
+              styles.row,
+              styles.superagent,
+              !newThread && !!superagent && superagent.id === current && styles.current,
+            )}
+          >
+            <span {...stylex.props(styles.mark, styles.spark)}>
+              <Icon name="superagent" size={14} />
+            </span>
+            <span {...stylex.props(styles.name, superagent?.state === "working" && motion.shimmer)}>
+              Superagent
+            </span>
+            {superagent && read.isUnread(superagent) && (
+              <span aria-label="New" {...stylex.props(styles.newDot)} />
+            )}
+          </button>
+        )}
         {/* While a row drags, Pinned shows even with no pins, to drop into. */}
         {(pinnedShown.length > 0 || drag) && (
           <section ref={pinnedBox} aria-label="Pinned">
@@ -337,6 +373,16 @@ export function SessionSidebar({
         </div>
       )}
       {notice}
+      {onPullRequests && (
+        <button
+          type="button"
+          onClick={onPullRequests}
+          {...stylex.props(styles.row, styles.settings)}
+        >
+          <Icon name="pullRequest" size={15} />
+          <span {...stylex.props(styles.name)}>Pull requests</span>
+        </button>
+      )}
       <button type="button" onClick={onSettings} {...stylex.props(styles.row, styles.settings)}>
         <Icon name="settings" size={15} />
         <span {...stylex.props(styles.name)}>Settings</span>
@@ -660,7 +706,8 @@ const styles = stylex.create({
     cursor: "default",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  current: { backgroundColor: { default: tokens.hover, ":hover": tokens.hover } },
+  // As the file on screen in the tabs: a firmer fill than the pointer's.
+  current: { backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong } },
   held: { backgroundColor: tokens.fill },
   editing: { backgroundColor: tokens.raised, boxShadow: `inset 0 0 0 1px ${tokens.line}` },
   // The row is the field's box, so the field draws none of its own.
@@ -710,6 +757,16 @@ const styles = stylex.create({
   },
   moreShown: { opacity: 1 },
   settings: { flex: "none", color: tokens.muted },
+  superagent: { flex: "none", marginBottom: 8, color: tokens.text },
+  spark: { color: tokens.accent },
+  newDot: {
+    flexShrink: 0,
+    width: 6,
+    height: 6,
+    marginInlineStart: "auto",
+    borderRadius: 3,
+    backgroundColor: tokens.accent,
+  },
   positioner: { zIndex: 60 },
   menu: { minWidth: 180, width: "max-content", borderRadius: 12 },
   item: { borderRadius: 8, whiteSpace: "nowrap" },

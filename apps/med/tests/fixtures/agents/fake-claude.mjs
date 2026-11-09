@@ -50,7 +50,7 @@ writeFileSync(
 );
 let model = flag("--model") ?? "default";
 let mode = flag("--permission-mode") ?? "default";
-const effort = flag("--effort") ?? "default";
+let effort = flag("--effort") ?? "default";
 const asks = new Map();
 let waiting = false;
 
@@ -212,6 +212,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         });
       case "set_model":
         model = request.model ?? "default";
+        return ok();
+      // As Claude Code 2.1 does: the running session's effort, from its flag
+      // settings; it drops a level that the settings do not take, such as max.
+      case "apply_flag_settings":
+        if (["low", "medium", "high", "xhigh"].includes(request.settings?.effortLevel))
+          effort = request.settings.effortLevel;
         return ok();
       case "set_permission_mode":
         // As Claude Code 2.1 does, Bypass needs leave at the start.

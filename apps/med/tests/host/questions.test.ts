@@ -222,16 +222,63 @@ test("a question forks the lead Claude session in plan mode; the lead, the found
   expect(search.data.sessions.map((session) => session.id)).not.toContain(forkId);
   expect(await readFile(join(stateDir, "question-forks.json"), "utf8")).toContain(forkId);
 
-  // Close discards the question and removes the fork's transcript.
+  // Close discards the question. The fork stays as the thread's spare, for
+  // the next question, still left out.
   expect((await api("/api/questions/close", { id: asked.data.id })).data).toEqual({ closed: true });
-  await expect(readFile(join(project, `${forkId}.jsonl`))).rejects.toThrow(/ENOENT/);
+  expect(await readFile(join(project, `${forkId}.jsonl`), "utf8")).toContain(forkId);
   expect((await readFile(lead)).equals(leadBytes)).toBe(true);
-  expect(await readFile(join(stateDir, "question-forks.json"), "utf8")).not.toContain(forkId);
+  expect(await readFile(join(stateDir, "question-forks.json"), "utf8")).toContain(forkId);
   expect((await api(`/api/questions/stop`, { id: asked.data.id })).status).toBe(404);
 });
 
-test("Close keeps a fork's transcript, still left out, when a record names another session", async () => {
-  const { api, ask, watch, project, foundAfterScan } = await fixture();
+test("the next question goes on in the spare fork until the lead moves, and the old fork then goes", async () => {
+  const { api, ask, watch, project, lead, stateDir, claudeRun } = await fixture();
+  const forks = async () =>
+    (await readdir(project))
+      .filter((name) => name.endsWith(".jsonl"))
+      .map((name) => name.replace(/\.jsonl$/, ""))
+      .filter((name) => name !== LEAD);
+  // Its process exits a moment after the answer; the next question waits for it.
+  const first = await ask(`found-claude-${LEAD}`, "Why minutes? Linger");
+  await (await watch(first.data.id)).until((state) => state.status === "done");
+  const [spare] = await forks();
+  await api("/api/questions/close", { id: first.data.id });
+
+  // The same fork answers, with the question before it in its context.
+  const second = await ask(`found-claude-${LEAD}`, "And why not seconds?");
+  const answered = await (await watch(second.data.id)).until((state) => state.status === "done");
+  expect(answered.answer).toMatch(/You asked: And why not seconds\?$/);
+  expect(await forks()).toEqual([spare]);
+  expect((await claudeRun(spare!)).slice(0, 5)).toEqual([
+    "-p",
+    "--resume",
+    spare,
+    "--permission-mode",
+    "plan",
+  ]);
+  const transcript = await readFile(join(project, `${spare}.jsonl`), "utf8");
+  expect(transcript).toContain("Why minutes?");
+  expect(transcript).toContain("And why not seconds?");
+
+  // The lead's next turn: the next question needs a fork that has read it.
+  await appendFile(
+    lead,
+    `${JSON.stringify({ type: "user", uuid: "turn-2", sessionId: LEAD, message: { role: "user", content: "Now hours." } })}\n`,
+  );
+  const third = await ask(`found-claude-${LEAD}`, "Why hours?");
+  await (await watch(third.data.id)).until((state) => state.status === "done");
+  const fresh = (await forks()).find((name) => name !== spare)!;
+  expect((await claudeRun(fresh)).slice(0, 4)).toEqual(["-p", "--resume", LEAD, "--fork-session"]);
+  // The old fork goes when its last question closes; the new one is the spare.
+  await api("/api/questions/close", { id: second.data.id });
+  await vi.waitFor(async () => expect(await forks()).toEqual([fresh]));
+  const kept = await readFile(join(stateDir, "question-forks.json"), "utf8");
+  expect(kept).toContain(fresh);
+  expect(kept).not.toContain(spare);
+});
+
+test("a fork's transcript stays, still left out, when a record names another session", async () => {
+  const { api, ask, watch, project, lead, foundAfterScan } = await fixture();
   const asked = await ask(`found-claude-${LEAD}`, "Why minutes?");
   await (await watch(asked.data.id)).until((state) => state.status === "done");
   const forkId = (await readdir(project))
@@ -241,6 +288,14 @@ test("Close keeps a fork's transcript, still left out, when a record names anoth
   // A record that the check cannot place: Med is not sure the file is the fork's.
   await appendFile(forkPath, `${JSON.stringify({ type: "user", sessionId: LEAD })}\n`);
   await api("/api/questions/close", { id: asked.data.id });
+  // The lead moves on, so a new fork replaces the spare, and the old one would go.
+  await appendFile(
+    lead,
+    `${JSON.stringify({ type: "user", uuid: "turn-2", sessionId: LEAD, message: { role: "user", content: "Now hours." } })}\n`,
+  );
+  const next = await ask(`found-claude-${LEAD}`, "Why hours?");
+  await (await watch(next.data.id)).until((state) => state.status === "done");
+  await api("/api/questions/close", { id: next.data.id });
   expect(await readFile(forkPath, "utf8")).toContain(forkId);
   expect(await foundAfterScan()).not.toContain(`found-claude-${forkId}`);
 });

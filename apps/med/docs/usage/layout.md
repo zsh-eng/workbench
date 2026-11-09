@@ -13,11 +13,11 @@ at the start of the review's second row. Each page keeps its own choice. The
 Commit page keeps its files, with the message and Push, beside the diff.
 
 Every pane and panel hides, and the review hides while the session shows
-beside it, so the workspace always keeps a pane. A thread's **Session** leaves a
-button at the start of the review's second row while it is hidden, with its
-agent's mark. A hidden review leaves **Show review** in the session's header,
-in place of the session's own **Hide**, since the session is then the whole
-workspace. **Files**, which you open yourself, opens again from `⌘K`. A
+beside it, so the workspace always keeps a pane. While one hides, the other's
+**Expand** turns into **Restore** (two arrows pointing in), which shows it
+again: the review's shows a hidden **Session**, and the session's a hidden
+review, in place of the session's own **Hide**, since the session is then the
+whole workspace. **Files**, which you open yourself, opens again from `⌘K`. A
 pane's **Hide** (a line, as a window's minimize) is in its header, where its ×
 would be, with **Expand** before it while other panes show. The panel icon,
 shaded on the side where the panel is, is only for sidebars: the page's
@@ -41,15 +41,15 @@ Sources, names itself, so in a browser tab it reaches the window's top, and
 **Show sidebar** sits in its top left corner while the sidebar hides. The
 installed app keeps the title band there for its window controls.
 
-| Pane or panel                           | Hide                                                                              | Show again                                                                 |
-| --------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                                      | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`        |
-| Review                                  | **Hide the review** in its header, or **Hide review** in `⌘K`, beside the session | **Show review** in the session's header, `⌘K`, or opening a page or a file |
-| Session                                 | **Hide** in its header, `⌘⇧B`                                                     | **Show agent session** at the start of the review's header, `⌘⇧B`, or `⌘K` |
-| Files                                   | The × in its header                                                               | **Show files sidebar** in `⌘K`                                             |
-| A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`                              | The same button, or **Show files sidebar** in `⌘K`                         |
-| A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab                  | The button at the start of the review's header, `⌘⌥B`, or `⌘K`             |
-| The session's side panel                | The button in the session's row, `⌘⌥⇧B`                                           | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`      |
+| Pane or panel                           | Hide                                                                              | Show again                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Sidebar (the threads)                   | **Hide sidebar** in it, `⌘B`                                                      | **Show sidebar** at the top left, `⌘B`, or **Show threads** in `⌘K`    |
+| Review                                  | **Hide the review** in its header, or **Hide review** in `⌘K`, beside the session | **Restore** in the session's header, `⌘K`, or opening a page or a file |
+| Session                                 | **Hide** in its header, `⌘⇧B`                                                     | **Restore** in the review's header, `⌘⇧B`, or `⌘K`                     |
+| Files                                   | The × in its header                                                               | **Show files sidebar** in `⌘K`                                         |
+| A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`                              | The same button, or **Show files sidebar** in `⌘K`                     |
+| A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab                  | The button at the start of the review's header, `⌘⌥B`, or `⌘K`         |
+| The session's side panel                | The button in the session's row, `⌘⌥⇧B`                                           | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`  |
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts

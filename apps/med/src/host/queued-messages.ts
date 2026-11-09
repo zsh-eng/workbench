@@ -37,14 +37,30 @@ export function createQueuedMessages(options: {
     watched.delete(name);
   };
 
+  /** Gives the session's due messages to its agent. False once nothing
+   * waits, or the session stopped, so the watcher can go. */
   const release = async (reviewId: string, sessionId: string) => {
     const runner = options.runner(sessionId);
     // A session that the user stopped keeps its messages; they show as queued.
-    if (!runner || runner.state().status === "exited") return stop(key(reviewId, sessionId));
+    if (!runner || runner.state().status === "exited") return false;
     const { status, halt } = runner.state();
-    if (halt) return;
+    if (halt) return true;
     if (status === "idle")
-      await options.inbox.deliverPending(reviewId, sessionId, (body) => runner.prompt(body));
+      await options.inbox.deliverPending(
+        reviewId,
+        sessionId,
+        (body) => runner.prompt(body),
+        undefined,
+        {
+          only: () => true,
+          // Checked again inside the inbox's lock: a turn that began
+          // meanwhile keeps the ones queued for its end.
+          when: () => {
+            const now = runner.state();
+            return now.status === "idle" && !now.halt;
+          },
+        },
+      );
     else if (status === "working") {
       // During the turn, only the messages sent now, where the agent can take
       // them: Claude Code while its tools run, Codex by steering the turn.
@@ -54,7 +70,7 @@ export function createQueuedMessages(options: {
         : runner.steer
           ? (body: string) => runner.steer!(body)
           : undefined;
-      if (!take) return;
+      if (!take) return true;
       // Checked again inside the inbox's lock: a turn that ended meanwhile
       // takes them all, in order, as its next prompt.
       const when = () => {
@@ -66,7 +82,7 @@ export function createQueuedMessages(options: {
         when,
       });
     }
-    if (!(await options.inbox.pending(reviewId, sessionId))) stop(key(reviewId, sessionId));
+    return options.inbox.pending(reviewId, sessionId);
   };
 
   /** Gives the session's queued messages to its agent when it takes them. */
@@ -84,13 +100,17 @@ export function createQueuedMessages(options: {
           return;
         }
         running = release(reviewId, sessionId)
-          .catch(() => {})
-          .finally(() => {
+          .catch(() => true)
+          .then((waits) => {
             running = undefined;
-            if (again && watched.has(name)) {
+            if (watched.get(name)?.check !== check) return;
+            // A change while it ran asks again, even when the release found
+            // nothing left: a message sent meanwhile can be missing from
+            // what it read.
+            if (again) {
               again = false;
               check();
-            }
+            } else if (!waits) stop(name);
           });
       };
       watched.set(name, { check, unsubscribe: runner.subscribe(check), running: () => running });

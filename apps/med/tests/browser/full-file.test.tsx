@@ -8,7 +8,13 @@ import PierreWorker from "@pierre/diffs/worker/worker.js?worker";
 import type { BrowseRead } from "../../src/shared/browse";
 import type { BrowseBlame } from "../../src/shared/inspect";
 import type { BlameLoader, CommitLoader } from "../../src/web/data/blame";
-import { FullFileView, type BeginFileSymbolPreview } from "../../src/web/components/FullFileView";
+import {
+  FullFileView,
+  type BeginFileSymbolPreview,
+  type FileComments,
+} from "../../src/web/components/FullFileView";
+import type { FileComment } from "../../src/shared/saved-review";
+import type { SymbolDefinition, SymbolHover } from "../../src/shared/symbols";
 import { createEditorDrafts } from "../../src/web/data/editor-drafts";
 import { FileViewTabs } from "../../src/web/components/FileViewTabs";
 import { initializeTheme } from "../../src/web/themes";
@@ -2083,4 +2089,244 @@ test("Open in says Push to open while the branch has no page on its host", async
     .toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByRole("menuitem", { name: "Copy link" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
+});
+
+function commentProps(threads: FileComment[] = []) {
+  return {
+    threads,
+    unsent: new Set<string>(),
+    agent: { name: "Claude", mark: "claude" as const },
+    add: vi.fn<FileComments["add"]>(async () => {}),
+    mutate: vi.fn<FileComments["mutate"]>(async () => {}),
+    send: vi.fn<FileComments["send"]>(async () => {}),
+    ask: vi.fn<NonNullable<FileComments["ask"]>>(),
+  };
+}
+const fourLines = "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n";
+
+test("gc comments on the visual lines, and ga asks about the cursor's line", async () => {
+  const comments = commentProps();
+  render(
+    <FullFileView
+      {...props}
+      vimEnabled
+      file={{ ...base, text: fourLines, size: fourLines.length, identity: "four:1" }}
+      comments={comments}
+    />,
+  );
+  const pane = page.getByRole("textbox", { name: "File navigation" });
+  await expect.element(pane).toBeVisible();
+  (pane.element() as HTMLElement).focus();
+  await userEvent.keyboard("jVjgc");
+  const box = page.getByRole("form", { name: "Comment on lines 2–3" });
+  await expect.element(box).toBeVisible();
+  await expect.element(box.getByRole("button", { name: /Send to Claude/ })).toBeDisabled();
+  await userEvent.keyboard("Log it once.");
+  await userEvent.keyboard("{Alt>}{Enter}{/Alt}");
+  await expect.poll(() => comments.add.mock.calls.length).toBe(1);
+  expect(comments.add.mock.calls[0]).toEqual([
+    { line: 2, endLine: 3, quote: "const b = 2;\nconst c = 3;" },
+    "Log it once.",
+    "queue",
+  ]);
+  // The box closes, and the file has the keys again.
+  await expect.element(box).not.toBeInTheDocument();
+  await userEvent.keyboard("jga");
+  expect(comments.ask).toHaveBeenCalledWith({ line: 4, endLine: 4, text: ["const d = 4;"] });
+});
+
+test("in the editor, gc opens the box under the lines, whose keys are its own, and ga asks", async () => {
+  const comment: FileComment = {
+    id: "5d1c0a2e-0000-4000-8000-000000000002",
+    source: { kind: "worktree", repo: "/fixture" },
+    path: "src/example.ts",
+    line: 1,
+    quote: "const a = 1;",
+    text: "Rename it to retries.",
+    createdAt: "2026-11-08T05:00:00.000Z",
+    updatedAt: "2026-11-08T05:00:00.000Z",
+    replies: [],
+  };
+  const comments = commentProps([comment]);
+  render(
+    <FullFileView
+      {...props}
+      file={{ ...base, text: fourLines, size: fourLines.length, identity: "four:3" }}
+      editor={{
+        drafts: createEditorDrafts(),
+        key: "four",
+        autoEdit: true,
+        write: async () => ({ ...base, identity: "four:4" }),
+      }}
+      comments={comments}
+    />,
+  );
+  // The thread sits under its line, in the editor's text.
+  await expect.element(page.getByRole("article", { name: "Comment on line 1" })).toBeVisible();
+  await expect.poll(() => document.querySelector(".cm-activeLine")).not.toBeNull();
+  document.querySelector<HTMLElement>(".cm-content")!.focus();
+  await userEvent.keyboard("jVjgc");
+  const box = page.getByRole("form", { name: "Comment on lines 2–3" });
+  await expect.element(box).toBeVisible();
+  expect(document.querySelectorAll(".med-cited-line")).toHaveLength(2);
+  // Vim's keys type into the box, and Esc closes it without a change.
+  await userEvent.keyboard("dd ggx");
+  await expect.element(box.getByRole("textbox")).toHaveValue("dd ggx");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(box).not.toBeInTheDocument();
+  expect(document.querySelector(".med-save-dot")?.getAttribute("data-dirty")).toBe("false");
+  // The editor has the keys again; the cursor stayed on line 3.
+  await userEvent.keyboard("gc");
+  await expect.element(page.getByRole("form", { name: "Comment on line 3" })).toBeVisible();
+  await userEvent.keyboard("Log it once.");
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+  await expect.poll(() => comments.add.mock.calls.length).toBe(1);
+  expect(comments.add.mock.calls[0]).toEqual([
+    { line: 3, endLine: 3, quote: "const c = 3;" },
+    "Log it once.",
+    "send",
+  ]);
+  await expect.poll(() => document.activeElement?.classList.contains("cm-content")).toBe(true);
+  await userEvent.keyboard("Vkga");
+  expect(comments.ask).toHaveBeenCalledWith({
+    line: 2,
+    endLine: 3,
+    text: ["const b = 2;", "const c = 3;"],
+  });
+});
+
+test("a comment that the agent resolved says so, and opens again", async () => {
+  const comment: FileComment = {
+    id: "5d1c0a2e-0000-4000-8000-000000000001",
+    source: { kind: "worktree", repo: "/fixture" },
+    path: "src/example.ts",
+    line: 1,
+    quote: "const a = 1;",
+    text: "Rename it to retries.",
+    createdAt: "2026-11-08T05:00:00.000Z",
+    updatedAt: "2026-11-08T05:00:00.000Z",
+    replies: [
+      {
+        id: "r1",
+        text: "Renamed it in the three places that read it.",
+        author: { agent: "claude" },
+        createdAt: "2026-11-08T05:02:00.000Z",
+      },
+    ],
+    resolved: { at: "2026-11-08T05:02:00.000Z", by: { agent: "claude" } },
+  };
+  const comments = commentProps([comment]);
+  render(
+    <FullFileView
+      {...props}
+      vimEnabled
+      file={{ ...base, text: fourLines, size: fourLines.length, identity: "four:2" }}
+      comments={comments}
+    />,
+  );
+  const card = page.getByRole("article", { name: "Comment on line 1" });
+  await expect.element(card).toBeVisible();
+  await expect.element(card.getByText("Resolved by Claude")).toBeVisible();
+  await expect
+    .element(card.getByText("Renamed it in the three places that read it."))
+    .toBeVisible();
+  await card.getByRole("button", { name: "Reopen" }).click();
+  expect(comments.mutate).toHaveBeenCalledWith({ reopen: comment.id });
+});
+
+function hoverProps() {
+  const definition: SymbolDefinition = {
+    name: "retries",
+    kind: "constant",
+    path: "src/limits.ts",
+    line: 3,
+    source: { kind: "worktree", repo: "/fixture" },
+    signature: ["export const retries = 3;"],
+    doc: ["How often a request goes again, as `fetch` does."],
+  };
+  return {
+    loadHover: vi.fn<(name: string, signal: AbortSignal) => Promise<SymbolHover>>(async (name) => ({
+      source: base.source,
+      path: base.path,
+      identity: "hover:1",
+      name,
+      definitions: name === "retries" ? [definition] : [],
+      more: 0,
+    })),
+    onOpenDefinition: vi.fn<(definition: SymbolDefinition) => void>(),
+    definition,
+  };
+}
+const hoverText = "const total = retries + 1;\nconst unknown = other;\n";
+
+test("a name's card shows its definition, from the pointer or K, and opens it", async () => {
+  const hover = hoverProps();
+  render(
+    <FullFileView
+      {...props}
+      vimEnabled
+      file={{ ...base, text: hoverText, size: hoverText.length, identity: "hover:1" }}
+      loadHover={hover.loadHover}
+      onOpenDefinition={hover.onOpenDefinition}
+    />,
+  );
+  await expect.poll(() => lines()?.length).toBeGreaterThan(1);
+  // The pointer rests on the name: a moment later, its card.
+  const token = () =>
+    [...(lines()?.[0]?.querySelectorAll<HTMLElement>("span") ?? [])].find(
+      (span) => span.textContent === "retries" && !span.querySelector("span"),
+    );
+  await expect.poll(() => token()).toBeTruthy();
+  await userEvent.hover(token()!);
+  const card = page.getByRole("tooltip", { name: "Definition of retries" });
+  await expect.element(card).toBeVisible();
+  const text = card.element().textContent;
+  expect(text).toContain("export const retries = 3;");
+  expect(text).toContain("How often a request goes again, as fetch does.");
+  expect(card.element().querySelector("code")?.textContent).toBe("fetch");
+  expect(hover.loadHover).toHaveBeenCalledWith(
+    "retries",
+    expect.any(AbortSignal),
+    expect.any(String),
+  );
+  await userEvent.click(card.getByRole("button", { name: "limits.ts:3" }));
+  expect(hover.onOpenDefinition).toHaveBeenCalledWith(hover.definition);
+  await expect.element(card).not.toBeInTheDocument();
+  // K shows the card of the name under the cursor; Esc puts it away.
+  const pane = page.getByRole("textbox", { name: "File navigation" });
+  (pane.element() as HTMLElement).focus();
+  await userEvent.keyboard("0wwwK");
+  await expect.element(card).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(card).not.toBeInTheDocument();
+  // A name with no definition shows nothing.
+  await userEvent.keyboard("j0wwwK");
+  await expect.poll(() => hover.loadHover.mock.calls.at(-1)?.[0]).toBe("other");
+  expect(document.querySelector("[data-symbol-hover]")).toBeNull();
+});
+
+test("in the editor, K shows the card of the name under the cursor", async () => {
+  const hover = hoverProps();
+  render(
+    <FullFileView
+      {...props}
+      file={{ ...base, text: hoverText, size: hoverText.length, identity: "hover:1" }}
+      editor={{
+        drafts: createEditorDrafts(),
+        key: "hover",
+        autoEdit: true,
+        write: async () => ({ ...base, identity: "hover:2" }),
+      }}
+      loadHover={hover.loadHover}
+      onOpenDefinition={hover.onOpenDefinition}
+    />,
+  );
+  await expect.poll(() => document.querySelector(".cm-activeLine")).not.toBeNull();
+  document.querySelector<HTMLElement>(".cm-content")!.focus();
+  await userEvent.keyboard("wwwK");
+  const card = page.getByRole("tooltip", { name: "Definition of retries" });
+  await expect.element(card).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(card).not.toBeInTheDocument();
+  expect(document.querySelector(".med-save-dot")?.getAttribute("data-dirty")).toBe("false");
 });

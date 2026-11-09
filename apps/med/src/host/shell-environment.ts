@@ -28,10 +28,46 @@ export function wantsShellEnvironment(env = process.env, platform = process.plat
   return platform === "darwin" && /^local\.med\.[0-9a-f]{12}$/.test(env.XPC_SERVICE_NAME ?? "");
 }
 
-/** Reads the login shell's environment once, when this process needs it. A
- * shell that fails or takes too long leaves Med's own environment. */
+// A Claude Code session that starts Med, as an agent's `med review` does when
+// no server runs, passes its own variables: its ID, its effort, the desktop
+// app's proxy and sign-in, and switches such as CLAUDE_CODE_DISABLE_CRON. A
+// Claude Code that Med starts with them fails to sign in, or acts as that
+// session's child. Such a Med gives its agents none of them; the user's own,
+// such as ANTHROPIC_API_KEY in ~/.zshrc, come from the login shell, which
+// Med reads without them.
+
+/** Claude Code's variables, and Anthropic's. */
+const CLAUDE_VARIABLE = /^(CLAUDECODE|CLAUDE_\w+|ANTHROPIC_\w+|USE_(LOCAL|STAGING)_OAUTH)$/;
+
+/** Whether a Claude Code session started this process: it marks its own. */
+export const startedByClaudeCode = (env = process.env) => env.CLAUDECODE === "1";
+
+/** `env` without the variables of the Claude Code session that started Med. */
+export function withoutClaudeSession(env: NodeJS.ProcessEnv) {
+  if (!startedByClaudeCode(env)) return { ...env };
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !CLAUDE_VARIABLE.test(name)));
+}
+
+/** What a terminal's login shell starts from, before its profile runs. */
+function loginBase(env = process.env): NodeJS.ProcessEnv {
+  const kept = ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG"].filter((name) => env[name]);
+  return {
+    ...Object.fromEntries(kept.map((name) => [name, env[name]])),
+    PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+  };
+}
+
+/** Reads the login shell's environment once, when this process needs it: as
+ * the login service, or when a Claude Code session started it. A shell that
+ * fails or takes too long leaves Med's own environment. */
 export async function loadShellEnvironment() {
-  resolved = wantsShellEnvironment() ? await readShellEnvironment().catch(() => ({})) : {};
+  const session = startedByClaudeCode() && process.env.MED_SHELL_ENVIRONMENT !== "0";
+  resolved =
+    session || wantsShellEnvironment()
+      ? await readShellEnvironment(undefined, undefined, session ? loginBase() : process.env).catch(
+          () => ({}),
+        )
+      : {};
 }
 
 /** Runs the user's shell as a terminal would (interactive, login), and reads
@@ -40,6 +76,7 @@ export async function loadShellEnvironment() {
 export function readShellEnvironment(
   shell = process.env.SHELL || "/bin/zsh",
   timeoutMs = SHELL_TIMEOUT_MS,
+  base: NodeJS.ProcessEnv = process.env,
 ): Promise<NodeJS.ProcessEnv> {
   const mark = randomUUID();
   return new Promise((resolve, reject) => {
@@ -48,7 +85,7 @@ export function readShellEnvironment(
       ["-i", "-l", "-c", `printf '%s' '${mark}'; command env -0; printf '%s' '${mark}'`],
       {
         cwd: userHome(),
-        env: { ...process.env, MED_RESOLVING_ENVIRONMENT: "1" },
+        env: { ...base, MED_RESOLVING_ENVIRONMENT: "1" },
         stdio: ["ignore", "pipe", "ignore"],
         // Its own process group, so a timeout also ends what the profile started.
         detached: true,

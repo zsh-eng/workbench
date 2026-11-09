@@ -21,6 +21,10 @@ import type { AgentInboxState, AgentMessage } from "../shared/agent-inbox";
 import type { AgentStatus } from "../shared/agent-status";
 import type { Note, NoteMutation, NoteState, RegisteredRepository } from "../shared/protocol";
 import type { SavedReview } from "../shared/saved-review";
+import type { BrowseRead } from "../shared/browse";
+import type { SymbolHoverRequest } from "../shared/symbols";
+import { definitionText } from "../shared/definition-text";
+import type { PullInbox, PullInboxRow } from "../shared/pull-inbox";
 import type { ThreadList } from "../shared/threads";
 import type { WorkingStatus } from "../shared/git-actions";
 
@@ -68,6 +72,80 @@ const recording: Recording = await fetch(new URL(file, document.baseURI)).then((
   response.json(),
 );
 if (scene === "replies") answerComment(recording);
+if (scene === "files" || scene === "comments") commentedFile(recording);
+
+/** Med runs the thread's session, so a comment goes to it from the comment. */
+function ownSessions(recording: Recording) {
+  const rewrite = (text: string, change: (value: any) => void) =>
+    text.replace(/^data: (.*)$/gm, (_line, json: string) => {
+      const value = JSON.parse(json);
+      change(value);
+      return `data: ${JSON.stringify(value)}`;
+    });
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET") continue;
+    const path = entry.url.split("?")[0]!;
+    if (!/\/agent(\/events)?$/.test(path)) continue;
+    const own = (state: AgentInboxState) => {
+      const review = recording.entries.find(
+        (other) => other.method === "GET" && /^\/api\/reviews\/r_[a-f0-9]+$/.test(other.url),
+      );
+      const sessions = review ? (JSON.parse(review.text) as SavedReview).sessions : undefined;
+      state.owned = [
+        ...new Set([
+          ...state.messages.map((message) => message.sessionId),
+          ...(sessions ?? []).map((session) => session.id),
+        ]),
+      ];
+    };
+    if (path.endsWith("/events")) {
+      entry.text = rewrite(entry.text, own);
+      for (const chunk of entry.chunks ?? []) chunk.text = rewrite(chunk.text, own);
+    } else {
+      const state = JSON.parse(entry.text) as AgentInboxState;
+      own(state);
+      entry.text = JSON.stringify(state);
+    }
+  }
+}
+
+/**
+ * The files scene: a comment on lines of a file that the agent answered and
+ * resolved (`med reply --resolve`), and Med runs the agent's session.
+ */
+function commentedFile(recording: Recording) {
+  ownSessions(recording);
+  const at = (minutes: number) => new Date(recording.recordedAt - minutes * 60_000).toISOString();
+  for (const entry of recording.entries) {
+    if (entry.method !== "GET" || !/^\/api\/reviews\/r_[a-f0-9]+$/.test(entry.url)) continue;
+    const saved = JSON.parse(entry.text) as SavedReview;
+    saved.fileComments = [
+      {
+        id: "f11e0c00-0000-4000-8000-000000000001",
+        source: { kind: "worktree", repo: "/work/trailhead" },
+        path: "src/search/query.ts",
+        line: 18,
+        endLine: 22,
+        quote:
+          '  return value\n    .normalize("NFD")\n    .replace(/[\\u0300-\\u036f]/g, "")\n    .toLowerCase()\n    .trim();',
+        text: "This runs on every keystroke for every trail. Normalize the names once, when the trails load.",
+        createdAt: at(14),
+        updatedAt: at(14),
+        replies: [
+          {
+            id: "f11e0c00-0000-4000-8000-000000000002",
+            text: "Done: the index keeps each trail's normalized name, built once in `loadTrails`, and the search compares against it. The 2,400-trail fixture filters in 3 ms instead of 41.",
+            author: { agent: "claude" },
+            createdAt: at(9),
+          },
+        ],
+        resolved: { at: at(9), by: { agent: "claude" } },
+      },
+    ];
+    saved.commentCount += 2;
+    entry.text = JSON.stringify(saved);
+  }
+}
 
 /**
  * The replies scene: Med runs the agent's session, and the agent has
@@ -342,7 +420,23 @@ function threadList(): ThreadList {
           sessions: saved.sessions,
         }
       : undefined;
-  return { threads: earlier ? [thread, earlier] : [thread], repositories };
+  // In the superagent scene, the Superagent's thread is on top of the sidebar.
+  const superagent: ThreadList["threads"][number] | undefined =
+    scene === "superagent"
+      ? {
+          id: "r_demo_superagent",
+          title: "Superagent",
+          createdAt: saved.createdAt,
+          updatedAt: Date.parse(saved.createdAt) + 60_000,
+          superagent: true,
+          agent: "claude",
+          state: "idle",
+        }
+      : undefined;
+  return {
+    threads: [...(superagent ? [superagent] : []), thread, ...(earlier ? [earlier] : [])],
+    repositories,
+  };
 }
 
 /** The thread list's stream: the list now, and again when the agent's state
@@ -453,6 +547,85 @@ function status(repo: string): WorkingStatus {
 type Handler = (url: URL, body: any, match: RegExpMatchArray) => unknown;
 // The settings file, kept in the page: Settings writes it, and Open in reads it.
 const demoSettings: Record<string, unknown> = {};
+
+/** Open pull requests on an invented GitHub, as the pull requests page reads them. */
+function pullInbox(all: boolean): PullInbox {
+  const hours = (count: number) => new Date(Date.now() - count * 3_600_000).toISOString();
+  const pull = (
+    repository: string,
+    number: number,
+    title: string,
+    author: string,
+    age: number,
+    change: Partial<PullInboxRow> = {},
+  ): PullInboxRow => ({
+    url: `https://github.com/${repository}/pull/${number}`,
+    number,
+    title,
+    repository,
+    author,
+    createdAt: hours(age + 30),
+    updatedAt: hours(age),
+    draft: false,
+    review: "required",
+    checks: "pass",
+    conflicts: false,
+    additions: 120,
+    deletions: 18,
+    ...change,
+  });
+  return {
+    viewer: "you",
+    scope: all ? "all" : "registered",
+    repositories: all ? [] : ["acme/elevation", "acme/trailhead"],
+    readAt: new Date(Date.now() - 60_000).toISOString(),
+    waiting: [
+      pull("acme/trailhead", 418, "Cache map tiles by zoom level", "maya", 3, {
+        why: "review requested",
+        additions: 340,
+        deletions: 51,
+      }),
+      pull("acme/trailhead", 419, "Show elevation on the trail card", "ines", 26, {
+        why: "review requested of acme/maps",
+        checks: "pending",
+        additions: 64,
+        deletions: 9,
+      }),
+      pull("acme/trailhead", 412, "Retry the upload queue with backoff", "you", 5, {
+        why: "changes requested",
+        review: "changes-requested",
+        checks: "fail",
+        additions: 128,
+        deletions: 40,
+      }),
+    ],
+    yours: [
+      pull("acme/trailhead", 420, "Search filters: chips in the search bar", "you", 1, {
+        additions: 212,
+        deletions: 33,
+        stack: [
+          {
+            url: "https://github.com/acme/trailhead/pull/421",
+            number: 421,
+            title: "Search filters: clear all",
+          },
+        ],
+      }),
+      pull("acme/elevation", 77, "Bump the elevation API client", "you", 50, {
+        review: "approved",
+        additions: 14,
+        deletions: 14,
+      }),
+      pull("acme/trailhead", 405, "Offline packs for saved trails", "you", 120, {
+        draft: true,
+        review: "none",
+        checks: "none",
+        additions: 860,
+        deletions: 120,
+      }),
+    ],
+  };
+}
 
 const handlers: [method: string, path: RegExp, handler: Handler][] = [
   // Settings › Open in: Trailhead's code hosts, and the editors on this Mac.
@@ -610,6 +783,111 @@ const handlers: [method: string, path: RegExp, handler: Handler][] = [
             text: comment.text,
             replies: 0,
           })),
+        ],
+      });
+      return saved;
+    },
+  ],
+  // The pull requests page, from an invented GitHub.
+  ["GET", /^\/api\/pull-requests$/, (url) => pullInbox(url.searchParams.get("all") === "1")],
+  // A hover finds a name's declaration in the files that the recording read,
+  // the hovered file first, as Med's index would.
+  [
+    "POST",
+    /^\/api\/browse\/hover$/,
+    (_url, body: SymbolHoverRequest) => {
+      const files = recording.entries
+        .filter((entry) => entry.url === "/api/browse/read" && entry.body)
+        .map((entry) => JSON.parse(entry.text) as BrowseRead)
+        .filter((file) => file.kind === "text" && file.text !== undefined)
+        .sort((a, b) => Number(b.path === body.path) - Number(a.path === body.path));
+      const declaration = new RegExp(
+        `^\\s*(?:export\\s+)?(?:async\\s+)?(function|const|let|class|interface|type|enum)\\s+${body.name}\\b`,
+      );
+      const kinds: Record<string, string> = { const: "constant", let: "variable" };
+      for (const file of files) {
+        const lines = file.text!.split("\n");
+        const index = lines.findIndex((line) => declaration.test(line));
+        if (index < 0) continue;
+        const kind = declaration.exec(lines[index]!)![1]!;
+        return {
+          ...body,
+          definitions: [
+            {
+              name: body.name,
+              kind: kinds[kind] ?? kind,
+              path: file.path,
+              line: index + 1,
+              source: file.source,
+              ...definitionText(file.text!, index + 1),
+            },
+          ],
+          more: 0,
+        };
+      }
+      return { ...body, definitions: [], more: 0 };
+    },
+  ],
+  [
+    "POST",
+    /^\/api\/reviews\/([^/]+)\/file-comments$/,
+    (_url, body, [, id]) => {
+      const now = new Date().toISOString();
+      const saved = changeReview(id!, (saved) => {
+        const comments = saved.fileComments ?? [];
+        const find = (target: string) => comments.find((item) => item.id === target);
+        if ("add" in body) {
+          comments.push({
+            ...body.add,
+            id: crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+            replies: [],
+          });
+          saved.commentCount += 1;
+        } else if ("edit" in body) {
+          const comment = find(body.edit.id);
+          if (comment) Object.assign(comment, { text: body.edit.text, updatedAt: now });
+        } else if ("reply" in body) {
+          const comment = find(body.reply.id);
+          comment?.replies.push({ id: crypto.randomUUID(), text: body.reply.text, createdAt: now });
+          if (comment) {
+            comment.updatedAt = now;
+            delete comment.resolved;
+          }
+          saved.commentCount += 1;
+        } else if ("resolve" in body) {
+          const comment = find(body.resolve);
+          if (comment) comment.resolved = { at: now };
+        } else if ("reopen" in body) {
+          const comment = find(body.reopen);
+          if (comment) delete comment.resolved;
+        } else {
+          const index = comments.findIndex((item) => item.id === body.remove);
+          if (index >= 0) {
+            saved.commentCount -= 1 + comments[index]!.replies.length;
+            comments.splice(index, 1);
+          }
+        }
+        saved.fileComments = comments;
+      });
+      const state = inbox(id!);
+      const files = new Set((saved.fileComments ?? []).map((comment) => comment.id));
+      const sent = new Set(state.messages.flatMap((message) => message.noteIds));
+      setInbox(id!, {
+        ...state,
+        drafts: [
+          ...state.drafts.filter((draft) => !files.has(draft.id)),
+          ...(saved.fileComments ?? [])
+            .filter((comment) => !comment.resolved && !sent.has(comment.id))
+            .map((comment) => ({
+              id: comment.id,
+              path: comment.path,
+              line: comment.line,
+              ...(comment.endLine ? { endLine: comment.endLine } : {}),
+              text: comment.text,
+              replies: comment.replies.length,
+            })),
         ],
       });
       return saved;
@@ -1042,6 +1320,122 @@ const scenes: Record<string, () => Promise<void>> = {
       await until(() => marks("unstage").length > count);
     }
   },
+  // A file in the thread: a comment that the agent resolved, and a new one
+  // that `gc` opened under the lines that Visual mode selected.
+  async files() {
+    await review({ sidebar: false, session: true }, "Review");
+    dispatchEvent(
+      new KeyboardEvent("keydown", { key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
+    );
+    await until(() => visible("input[aria-label='Find file']"));
+    const find = visible("input[aria-label='Find file']") as HTMLInputElement;
+    await type(find, "query.ts", 0);
+    await until(() =>
+      all<HTMLElement>("[role='option']").some((node) => node.textContent?.includes("query.ts")),
+    );
+    find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    // A file of the worktree opens in the editor, where Vim takes the keys.
+    const content = () => visible("section[aria-label='File editor'] .cm-content");
+    await until(() => content() && visible("[data-file-comment]"));
+    const [{ EditorView }, { Vim, getCM }] = await Promise.all([
+      import("@codemirror/view"),
+      import("@replit/codemirror-vim"),
+    ]);
+    const editor = EditorView.findFromDOM(content()!)!;
+    editor.focus();
+    const cm = getCM(editor)!;
+    for (const key of "36GVjgc") Vim.handleKey(cm, key, "user");
+    await until(() => visible("[data-file-comment-box] textarea"));
+    await type(
+      visible("[data-file-comment-box] textarea") as HTMLTextAreaElement,
+      "Accept miles too, as under:8mi, and convert them to km here.",
+      0,
+    );
+  },
+  // A name's definition, as the pointer or K shows it, in another file.
+  async hover() {
+    await review({ sidebar: false, session: false }, "Review");
+    dispatchEvent(
+      new KeyboardEvent("keydown", { key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
+    );
+    await until(() => visible("input[aria-label='Find file']"));
+    const find = visible("input[aria-label='Find file']") as HTMLInputElement;
+    await type(find, "search/index.ts", 0);
+    await until(() =>
+      all<HTMLElement>("[role='option']").some((node) => node.textContent?.includes("index.ts")),
+    );
+    find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const content = () => visible("section[aria-label='File editor'] .cm-content");
+    await until(content);
+    const [{ EditorView }, { Vim, getCM }] = await Promise.all([
+      import("@codemirror/view"),
+      import("@replit/codemirror-vim"),
+    ]);
+    const editor = EditorView.findFromDOM(content()!)!;
+    editor.focus();
+    const cm = getCM(editor)!;
+    for (const key of "14Gfp") Vim.handleKey(cm, key, "user");
+    await until(() => editor.state.doc.lineAt(editor.state.selection.main.head).number === 14);
+    Vim.handleKey(cm, "K", "user");
+    await until(() => visible("[data-symbol-hover]"));
+  },
+  // All comments, from the header: the diff's comment, with the file's
+  // resolved one on request.
+  async comments() {
+    await review({ sidebar: false, session: true }, "Review");
+    await allFiles();
+    await until(() => visible("button[aria-label='All comments']"));
+    visible("button[aria-label='All comments']")!.click();
+    await until(() => visible("ul[aria-label='Comments'] li"));
+    (visible("button[aria-label='Show resolved']") as HTMLButtonElement | undefined)?.click();
+  },
+  // A name's definition in the diff, as the pointer rests on it.
+  async "diff-hover"() {
+    await review({ sidebar: false, session: false }, "Review");
+    await allFiles();
+    localStorage.setItem("med:mode", "unified");
+    dispatchEvent(new StorageEvent("storage", { key: "med:mode" }));
+    const token = () => {
+      for (const host of all<HTMLElement>("diffs-container"))
+        for (const node of host.shadowRoot?.querySelectorAll<HTMLElement>("[data-char]") ?? [])
+          if (node.textContent === "parseQuery" && node.checkVisibility()) return node;
+      return undefined;
+    };
+    await until(token);
+    token()!.scrollIntoView({ block: "center" });
+    await pause(200);
+    const box = token()!.getBoundingClientRect();
+    token()!.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse",
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+    await until(() => visible("[data-symbol-hover]"));
+  },
+  // The Superagent's thread, on top of the sidebar.
+  async superagent() {
+    await review({ sidebar: true, session: true }, "Review");
+    await until(() =>
+      all<HTMLButtonElement>("nav[aria-label='Sessions'] button").some((node) =>
+        node.textContent?.includes("Superagent"),
+      ),
+    );
+  },
+  // Open pull requests that wait on you, and yours.
+  async pulls() {
+    await review({ sidebar: true, session: true }, "Review");
+    const button = () =>
+      all<HTMLButtonElement>("nav[aria-label='Sessions'] button").find(
+        (node) => node.textContent === "Pull requests",
+      );
+    await until(button);
+    button()!.click();
+    await until(() => visible("[role='listbox'][aria-label='Pull requests'] [role='option']"));
+  },
   // A note in the vault, as it reads.
   async notes() {
     // The file tree renders in its own shadow root. A click selects the
@@ -1072,6 +1466,8 @@ const parts: Record<string, () => HTMLElement | undefined> = {
       ? (visible("[aria-label='Changed files']")?.parentElement ?? undefined)
       : visible("[role='tabpanel'][aria-label='Commit']"),
   notes: () => visible("#vault-file-panel"),
+  files: () => visible("section[aria-label='Full file']"),
+  hover: () => visible("section[aria-label='Full file']"),
 };
 // The Screens page shows the whole window (`?full`).
 const find = params.has("full") ? undefined : parts[scene];

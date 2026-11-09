@@ -63,6 +63,9 @@ export interface PaneSpec {
   /** The close button, when closing only hides what the pane shows, such as
    * an agent's session that keeps working: its name, icon, and shortcut. */
   hide?: { label: string; icon: IconName; shortcut?: string };
+  /** While another pane hides, such as the session beside the review: the
+   * pane's Expand turns into Restore, which shows that pane again. */
+  restore?: { label: string; shortcut?: string; onRestore(): void; pane: string };
   /** The pane with its header; `controls` go at the header's end. `place`
    * says where the pane is on screen, or null while it is hidden or behind. */
   render(controls: ReactNode, place: PanePlace | null): ReactNode;
@@ -490,6 +493,7 @@ export function PaneControls({
   onZoom,
   onClose,
   hide,
+  restore,
 }: {
   label: string;
   zoomed: boolean;
@@ -498,10 +502,21 @@ export function PaneControls({
   onZoom(): void;
   onClose?(): void;
   hide?: PaneSpec["hide"];
+  restore?: PaneSpec["restore"];
 }) {
   const name = label.toLowerCase();
   return (
     <>
+      {restore && !several && !zoomed && (
+        <ToolButton
+          label={restore.label}
+          icon="restore"
+          {...(restore.shortcut && { shortcut: restore.shortcut })}
+          // Where focus goes when that pane hides (App.tsx).
+          data-pane-show={restore.pane}
+          onClick={restore.onRestore}
+        />
+      )}
       {(several || zoomed) && (
         <ToolButton
           label={zoomed ? `Restore the other panes` : `Expand ${name}`}
@@ -766,6 +781,7 @@ export function PaneTree({
                 several={several}
                 onZoom={() => state.toggleZoom(pane.id)}
                 {...(pane.hide && { hide: pane.hide })}
+                {...(pane.restore && { restore: pane.restore })}
                 onClose={
                   pane.onClose ? pane.onClose : pane.fixed ? undefined : () => state.close(pane.id)
                 }

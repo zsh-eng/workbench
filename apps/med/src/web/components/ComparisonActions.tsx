@@ -379,7 +379,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     padding: 20,
     borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",

@@ -80,9 +80,10 @@ number, and goes up into the title band where the review reaches the
 window's top right; the rest is in `⌘K`, Settings and each of its sections
 too. Every pane's
 header has **Expand** (`⌘E`) and **Hide** (a line). The review hides while the
-session shows beside it; the session's header then has **Show review**.
+session shows beside it; the session's header then has **Restore**, which
+shows it again.
 
-![The review hidden, and Show review in the session's header](screenshots/app/review-hidden.webp)
+![The review hidden, and Restore in the session's header](screenshots/app/review-hidden.webp)
 
 ## Where a message goes
 

@@ -1,0 +1,15 @@
+/* A comment's actions show while the pointer or the focus is on it, and stay
+   for a pointer without hover. */
+[data-file-comment] > [data-comment-actions] {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+[data-file-comment]:hover > [data-comment-actions],
+[data-file-comment]:focus-within > [data-comment-actions] {
+  opacity: 1;
+}
+@media (hover: none) {
+  [data-file-comment] > [data-comment-actions] {
+    opacity: 1;
+  }
+}

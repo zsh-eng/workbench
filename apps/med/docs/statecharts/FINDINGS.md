@@ -6,15 +6,22 @@ behavioural test that failed before it. Bug 3 is narrowed, not fixed: a save
 now stops when another program writes during any of its checks, but a write
 between the last check and the rename is still lost.
 
+8 November 2026: `AgentQueue.tla` models the queue of messages to an agent
+that Med runs. TLC found bugs 13 to 16. Bugs 15 and 16 are fixed, each with
+a test that failed before the fix. Bugs 13 and 14 are open: both need the
+agent to say which messages it read. `AgentQueue.tla` has no chart yet; TLC
+ran it directly.
+
 ## What is modelled, and why
 
 Three flows can lose or corrupt the reader's work, so they are modelled:
 
-| Model              | What it holds                                                                                                                                                                                       | Harm when it is wrong                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `EditorDrafts.tla` | One working file in the editor: its draft, the host's checked save, the workspace that keeps the draft, the question before a close, Med's own close of a landed tab, a reload, and another writer. | Lost text. A close that hides a draft. A save that replaces another's change. |
-| `CommitTab.tla`    | The Commit tab of one checkout: Space, Commit and Commit all, Git's answers, a hook that stops the commit, and another program that writes or stages files.                                         | A commit that holds other files, or other content, than the tab showed.       |
-| `SentComments.tla` | One comment, Send to the agent, and an edit while the host sends it.                                                                                                                                | The agent gets old text, and the edit leaves the drafts.                      |
+| Model              | What it holds                                                                                                                                                                                                                                      | Harm when it is wrong                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `EditorDrafts.tla` | One working file in the editor: its draft, the host's checked save, the workspace that keeps the draft, the question before a close, Med's own close of a landed tab, a reload, and another writer.                                                | Lost text. A close that hides a draft. A save that replaces another's change.             |
+| `CommitTab.tla`    | The Commit tab of one checkout: Space, Commit and Commit all, Git's answers, a hook that stops the commit, and another program that writes or stages files.                                                                                        | A commit that holds other files, or other content, than the tab showed.                   |
+| `SentComments.tla` | One comment, Send to the agent, and an edit while the host sends it.                                                                                                                                                                               | The agent gets old text, and the edit leaves the drafts.                                  |
+| `AgentQueue.tla`   | One Claude Code session that Med runs, and two messages, each sent now or queued for the turn's end: a turn with one round of tools, Send now, Esc, Stop, the process ending, and a restart of the host, which the process outlives in its holder. | A message lost, given twice, out of order, or in the turn that it was queued to wait for. |
 
 These were read in the code, not modelled:
 
@@ -23,6 +30,10 @@ These were read in the code, not modelled:
 - Panes and layout.
 - Saved-review files. They are written atomically under a lock.
 - The note write queue. It has race tests.
+
+[IMPLICIT.md](IMPLICIT.md) lists the other flows whose state is spread over
+several flags, and which of them to model next.
+
 - The page's outbox. Each message has an ID, and the host sends it once.
 - Push. It pushes an exact commit, and the host checks HEAD.
 
@@ -48,6 +59,8 @@ Critique of the choice:
 - A bug model (`<Name>.tla`) describes main at d53abaa8, before the fixes.
   A fix model (`fix/<Name>.tla`) describes this branch after the fixes, and
   cites its lines. Paths in the models start at `apps/med/src`.
+  `AgentQueue.tla` describes this branch at 70f8731c, and its fix model
+  3b3bd77f.
 - Each model has a `.cfg` with its rules and a `.map.mjs` with the reader's
   labels. The fix model uses the same map.
 - `<Name>-statechart/` holds what the tool wrote: `chart.mmd` and
@@ -71,6 +84,19 @@ breaks rules that its fix model keeps. Copy the outputs back, then run
 `bunx oxfmt docs/statecharts` in `apps/med`. Quote counts only from
 `summary.json`.
 
+`AgentQueue.tla` ran in TLC alone, one rule at a time, in a scratch copy of
+this folder (Java from mise):
+
+```sh
+java -jar tla2tools.jar -config AgentQueue.cfg -workers 6 -deadlock AgentQueue.tla
+```
+
+Its `.cfg` sets `Gaps`. `TRUE` lets the host stop between a write to the
+agent and the inbox's record of it, Stop or an end of the process leave
+lines unread, and Med write to a holder that has gone. `FALSE` leaves those
+steps out, and shows what holds apart from bugs 13 and 14. `-deadlock` is
+needed: a run that has given both messages has no step left.
+
 ## Results
 
 From each `summary.json`, and from TLC's run of each fix model:
@@ -80,6 +106,17 @@ From each `summary.json`, and from TLC's run of each fix model:
 | EditorDrafts | 83996            | 405198                | 253112           | 87 of 162    | 95 of 1053        | 17 work, 97 fixed, 19 still wrong, 29 wrong only with the fix |
 | CommitTab    | 71283            | 189801                | 33816            | 123 of 602   | 132 of 2790       | 409 work, 193 fixed, 0 still wrong, 0 wrong only with the fix |
 | SentComments | 150              | 203                   | 131              | 14           | 19                | 10 work, 4 fixed, 0 still wrong, 0 wrong only with the fix    |
+
+`AgentQueue.tla`, from TLC's runs: one run for each rule that breaks, since
+TLC stops at the first broken rule, and one full run for the rules that
+hold.
+
+| Model | `Gaps` | Rules broken      | Distinct states of the full run     |
+| ----- | ------ | ----------------- | ----------------------------------- |
+| Bug   | TRUE   | 13, 14, 16 and 17 | 1,452,828: rule 15 holds            |
+| Bug   | FALSE  | 16 and 17         | 354,520: rules 13, 14 and 15 hold   |
+| Fix   | TRUE   | 13 and 14         | 1,761,642: rules 15, 16 and 17 hold |
+| Fix   | FALSE  | None              | 404,290: all five hold              |
 
 - `--cover` draws a path to each state, not each transition.
 - Each guard in each model cites a line (`uncited` is empty).
@@ -116,9 +153,16 @@ From each `summary.json`, and from TLC's run of each fix model:
 | 10  | A comment leaves your drafts only when the agent's message has its newest text.                                                           | `SentIsNewest`              | Broken: bug 6     | Holds             |
 | 11  | Once the agent's message has a comment's newest text, the comment is not in your drafts.                                                  | `NewestLeavesDrafts`        | Holds             | Holds             |
 | 12  | The thread shows each sent comment as the agent's message has it.                                                                         | `ThreadShowsSent`           | Broken: bug 6b    | Holds             |
+| 13  | The agent reads each message at most once.                                                                                                | `Once`                      | Broken: bug 13    | Broken (expected) |
+| 14  | A message that the thread shows as delivered reached the agent, or waits in its input.                                                    | `Reaches`                   | Broken: bug 14    | Broken (expected) |
+| 15  | Med never gives the agent a message before an earlier one that waits for the same step. Send now on a later message makes it go first.    | `InOrder`                   | Holds             | Holds             |
+| 16  | Med does not give a queued message while it shows the turn that ran when the user queued it.                                              | `QueueWaits`                | Broken: bug 15    | Holds             |
+| 17  | A message that waits reaches the agent, unless the session stopped or a cut turn waits for the reader.                                    | `Taken`                     | Broken: bug 16    | Holds             |
 
 Bugs 9 and 12 break no modelled rule: bug 9 is a choice that the editor did
-not offer, and bug 12 is a limit of the operating system.
+not offer, and bug 12 is a limit of the operating system. For rules 13 to 17,
+"After" is the fix model with `Gaps = TRUE`; with `Gaps = FALSE` the fix
+model keeps all five.
 
 ## Bugs
 
@@ -344,6 +388,97 @@ Not modelled.
   take up to 32 MB (`shared/git-actions.ts`, `shared/routes.ts`,
   `host/routes.ts`).
 
+### 13. A host that stops between a delivery and its record gives a message twice (rule 13)
+
+TLC's path: the user sends a message to the idle session, the host stops
+before it writes the inbox's file, the agent reads the message, and when the
+host is back the page sends it again. Lines are at 70f8731c.
+
+- **Code:** both ways in write the agent's line first, then the inbox's
+  file: a queued message (`host/agent-inbox.ts:211`, then `:216-229` and the
+  rename at `:62-69`), and one sent to an idle session with the ones that
+  waited (`:315`, then `:317-327`). A message sent to an idle session is not
+  in the file before that, so when the page sends it again with its ID,
+  `once()` (`:240`) does not find it. A queued one stays `pending` in the
+  file, and the host gives it again when it starts
+  (`host/server.ts:521-522`). `close()` does not wait for the inbox's writes
+  (`host/server.ts:3820-3825`).
+- **How likely:** the window is one file write and a rename, a few
+  milliseconds, and the host has to stop in it: a crash, a kill, or a quit
+  while a message goes.
+- **Not fixed.** A fix: record a batch as `sending`, with its line's text,
+  before the write. When the host starts, look for that line among the
+  lines that the holder's log says Med wrote (the `i` entries that
+  `host/owned-sessions.ts:805` replays). There, it was delivered; not there,
+  it waits again. With no holder left, nothing can say, so it waits, and the
+  thread asks the reader.
+
+### 14. A message shows as delivered that the agent never read (rule 14)
+
+TLC's path: the turn ends, the process ends, the host reads the turn's end
+but not yet the exit, the user sends a message, and the host writes it to
+the holder that has gone.
+
+- **Code:** the inbox marks a message delivered once Med has written its
+  line (`host/agent-inbox.ts:227`). Claude Code reads a line written during
+  its tools when they end (`host/queued-messages.ts:11-14`). Stop
+  (`host/owned-sessions.ts:1103-1107`), or the process ending, before then
+  loses it. A line to a holder that has gone is lost without an error
+  (`host/held-agent.ts:183`).
+- **How likely:** Stop during a long tool call after Send now is the likely
+  way in. The thread shows the message as sent, and Claude's transcript has
+  no `queued_command` for it.
+- **Not fixed.** Med needs to know what the agent read. Two signals:
+  Claude Code's `--replay-user-messages`, which echoes each user message
+  from its input on its output, or the transcript's `queued_command`
+  attachment, which the thread reads already
+  (`shared/agent-session-claude.ts:581`). With either, the inbox would keep
+  a written message as `written` until the agent reads it, and one still
+  `written` when the process ends would wait again. To check first: when
+  Claude Code echoes a message that it reads at its tools' end, and what
+  Codex (`turn/steer`) and ACP agents confirm.
+
+### 15. A turn that begins meanwhile takes the messages queued for its end (rule 16)
+
+TLC's path, with `Gaps = FALSE`: Send now during the tools, and Esc before
+they end, so Claude Code keeps the line for its next turn. The turn's end
+makes the release read idle. Before it has the inbox's lock, the agent
+starts its next turn with that line, Med shows that turn, and the user
+queues a message for its end. The release gives it anyway.
+
+- **Code (70f8731c):** between turns, the release read the state once,
+  before it waited for the inbox's lock, and then gave every waiting message
+  (`host/queued-messages.ts:44-47`). During a turn it checks again inside
+  the lock (`:60-67`, `host/agent-inbox.ts:206`).
+- **Reproduced:** yes. `tests/host/queued-messages.test.ts`, "a turn that
+  begins while Med gives the waiting messages keeps the ones queued for its
+  end".
+- **Fix (3b3bd77f):** between turns too, the release checks inside the lock
+  that the agent is still idle, with no cut turn
+  (`host/queued-messages.ts:48-63`). The change that began the turn asks the
+  watcher again, and the turn's rule applies.
+
+### 16. A message queued as a delivery ends waits with no one to give it (rule 17)
+
+TLC's path, with `Gaps = FALSE`, after a restart: the release gives a
+message and reads the inbox, which has nothing left. The user queues a
+message for the turn's end. Its send calls `watch`, which finds the release
+running and asks it to look again. The release then stops the watcher on
+what it read, the turn ends, and nothing gives the message.
+
+- **Code (70f8731c):** the release stopped the watcher when its read found
+  nothing (`host/queued-messages.ts:69`), and its `finally` looked again
+  only while the watcher was there (`:88-93`). The read can miss a message
+  whose write lands while the file is read: Node reads a file in several
+  steps.
+- **Reproduced:** yes. `tests/host/queued-messages.test.ts`, "a message
+  queued while a delivery ends still goes when the turn ends". The message
+  stayed `pending` while the agent was idle, until another message took it
+  along.
+- **Fix (3b3bd77f):** a change while a release runs always makes it look
+  again; only a release with no change during it, and nothing left, stops
+  the watcher (`host/queued-messages.ts:102-114`).
+
 ## What the models leave out
 
 - EditorDrafts: one file and one other write. Vault and standalone files,
@@ -363,6 +498,22 @@ Not modelled.
 - SentComments: one comment, one edit and one message. Replies and comments
   on the Notes use the same code. Failed delivery, and two windows that send
   one message. Two edits in the same millisecond have one version.
+- AgentQueue: Codex and ACP agents (steering, and no messages during a
+  turn). Take back (Edit and Remove), which runs under the same lock.
+  Images. The `starting` status. A turn that Claude Code begins on its own.
+  More than one round of tools in a turn. Two sessions, and Continue in Med,
+  which gives the waiting messages to a fork (`host/server.ts:1600-1606`).
+  The holder's log replays in one step. A write that fails other than to a
+  holder that has gone. The model assumes that Claude Code keeps a line that
+  it has not read when Esc stops the turn, and reads it as its next prompt;
+  that is not checked against Claude Code.
+- AgentQueue, rule 16: it is about Med's view, which comes after the
+  agent's. When a line sent now reaches Claude Code after its tools, or Esc
+  stops the turn first, Claude Code starts its next turn with that line. A
+  Queue message that Med gives when it reads the old turn's end can then
+  join the new turn at its tools' end. The user saw that message wait for
+  the turn's end, and it came after it, so the rule allows it. Only the
+  agent saying when it takes a line, as for bug 14, would close this.
 
 ## Decisions
 
@@ -381,3 +532,10 @@ The open questions of the first pass were settled as follows:
 5. **Content drift (bug 11):** the commit holds what the tab showed, or
    stops with a message, and the message stays.
 6. **Very many files (bug 12):** paths go to Git on standard input.
+
+Open, for the reader:
+
+7. **Bugs 13 and 14:** which signal says what the agent read
+   (`--replay-user-messages`, or the transcript's `queued_command`), and
+   what the thread shows for a message that Med wrote and the agent has not
+   read yet. Both bugs need this before **Queue** reaches files and the desk.

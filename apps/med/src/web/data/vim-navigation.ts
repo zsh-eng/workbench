@@ -21,6 +21,10 @@ export type VimMotion = {
   lineCommand?: true;
   copy?: true;
   definition?: string;
+  /** `gc` comments on the selected lines, or the cursor's; `ga` asks about them. */
+  annotate?: "comment" | "ask";
+  /** `K`: the name under the cursor, whose definition a card shows. */
+  hover?: string;
 };
 export type VisualMode = "character" | "line";
 export interface VisualRange {
@@ -479,6 +483,8 @@ export class VimNavigation {
     if (prefix === "g") {
       if (key === "g") this.jumpTo(explicit ? n - 1 : 0);
       if (key === "d") return { handled: true, definition: this.wordAtCursor() };
+      if (key === "c" || key === "a")
+        return { handled: true, annotate: key === "c" ? "comment" : "ask" };
       return { handled: true };
     }
     if (prefix === "z") {
@@ -487,6 +493,7 @@ export class VimNavigation {
       if (align && explicit) this.jumpTo(n - 1, this.desired, true);
       return { handled: true, ...(align ? { align } : {}) };
     }
+    if (key === "K" && !control) return { handled: true, hover: this.wordAtCursor() };
     if (key === "v" || key === "V") {
       this.objectRange = null;
       const mode = key === "v" ? "character" : "line";

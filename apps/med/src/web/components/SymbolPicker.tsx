@@ -447,7 +447,7 @@ const styles = stylex.create({
     maxHeight: "80vh",
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     fontFamily: tokens.ui,
     borderRadius: `calc(12px * ${tokens.round})`,

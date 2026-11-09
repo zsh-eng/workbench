@@ -92,6 +92,8 @@ load it or read its agents until you open it again.
   - **Effort**, such as **High effort**, while the model has efforts. Claude
     Code starts on Opus 5.5 at medium effort and Codex on `gpt-6-astra`; Med
     keeps your last choice for each agent.
+- **Superagent**, at the top of the sidebar, is one thread that sees the
+  others ([The Superagent](#the-superagent)).
 - `⌃Tab` steps through recent workspaces: hold Control, press Tab to step, and
   release to go.
 - Rest the pointer on a row, and Med reads the thread before you click.
@@ -119,6 +121,25 @@ load it or read its agents until you open it again.
   the registered repositories and vaults.
 - `⌘B`, or the button beside **New thread**, shows or hides the sidebar. In a window narrower than 760 pixels, the
   sidebar opens over the workspace, and a choice closes it.
+
+## The Superagent
+
+The Superagent is a thread for the other threads: ask it where things stand,
+which threads wait on you and why, or to pass a direction to one of them. The
+first click on **Superagent** starts it. Med makes it a folder of its own in
+its state folder, which no list of repositories shows, and starts Claude Code
+there on Opus at high effort with a brief: what the Superagent is for, and how
+it works through `med`. After that it is a thread like any other: change its
+model and effort in the message box, queue messages, or stop it. There is one
+Superagent; the next click opens it.
+
+It reads the threads with `med thread list --json` and their transcripts, and
+sends a message to a thread with `med thread send <id> "<message>"`, which the
+thread's agent gets as `From the Superagent:` and the message, at its next
+step, or after its turn with `--after-turn`. It answers no permission
+request, approves, merges, pushes, and deletes nothing, and edits no thread's
+files itself. Med schedules nothing; the Superagent uses Claude Code's own
+scheduling when you ask for a check later.
 
 ## A thread's pane
 
@@ -198,8 +219,9 @@ app.
 
 ## Agent sessions
 
-A review that records its agent session has a Claude or Codex button in the
-toolbar, and **Show agent session** in the palette. Both open the Session pane:
+A review that records its agent session has **Show agent session**: the
+review's **Restore**, at its top right, while the session hides, and the
+palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
@@ -220,8 +242,8 @@ background shells and agents. It follows the session live.
   installed agent.
 - **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
-  shows its state. **Show agent session**, with the agent's mark at the start
-  of the review's row, `⌘K`, or `⌘⇧B` again, shows the pane.
+  shows its state. The review's **Restore**, at its top right where
+  **Expand** was, `⌘K`, or `⌘⇧B` again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
   to a prompt from **Turns**.
 - A finished turn shows its prompt and final reply; its other work folds into
@@ -283,7 +305,9 @@ Antigravity (`agy`) is off unless the server starts with `MED_AGY=1`
 ([agent workspaces](../AGENT_WORKSPACES.md#antigravity-is-off)). To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
+and mode pickers, `/` commands, and **Stop** (or `Esc`). Model and effort
+change while the agent works too, from its next step; Claude Code's max
+effort, or its default, waits for the turn to end. A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**
 (`⌘↩`) sends a message at its next step: Claude Code reads it after the
 tools that run, in the same turn, and Codex takes it in the turn that runs.

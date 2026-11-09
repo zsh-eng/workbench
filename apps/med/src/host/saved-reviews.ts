@@ -53,6 +53,10 @@ import {
   MAX_SESSIONS,
   pinSourceSchema,
   briefCommentSchema,
+  fileCommentSchema,
+  MAX_FILE_COMMENT_LINES,
+  type FileComment,
+  type FileCommentMutation,
   savedPrDraftSchema,
   type SavedPrDraft,
   endpointNamesSchema,
@@ -173,6 +177,10 @@ const savedSchema = z.object({
     .array(briefCommentSchema.extend({ id: z.string().regex(/^c_[a-f0-9]{12}$/) }))
     .max(MAX_NOTES)
     .optional(),
+  fileComments: z
+    .array(fileCommentSchema.extend({ id: z.string().uuid() }))
+    .max(MAX_NOTES)
+    .optional(),
   prDraft: savedPrDraftSchema.optional(),
   sessions: z.array(agentSessionSchema).max(MAX_SESSIONS).optional(),
   iterations: z
@@ -290,10 +298,15 @@ function savedGuide(guide: ReviewGuide, updatedAt = new Date().toISOString()) {
   return savedGuideSchema.parse({ ...guide, updatedAt });
 }
 
-/** Comments on the captured comparisons and on the Notes. */
+/** Comments on the captured comparisons, on the Notes, and on files, with
+ * their replies, as a review's notes count theirs. */
 const countComments = (record: SavedRecord) =>
   record.captures.reduce((sum, capture) => sum + capture.notes.notes.length, 0) +
-  (record.saved.briefComments?.length ?? 0);
+  (record.saved.briefComments?.length ?? 0) +
+  (record.saved.fileComments ?? []).reduce((sum, comment) => sum + 1 + comment.replies.length, 0);
+
+/** A short commit for the agent's message. */
+const shortOid = (oid: string) => oid.slice(0, 12);
 
 /** Rebuild only a selected slice of captured patch rows. Large added files must
  * not repeat their complete initial-add hunk for every comment. */
@@ -1901,8 +1914,10 @@ export class SavedReviewStore {
       let known = this.commentIds.get(id);
       if (known?.identity !== identity) {
         const ids = await this.read(id).then(
-          (record) =>
-            record.captures.flatMap((target) => target.notes.notes.map((note) => note.id)),
+          (record) => [
+            ...record.captures.flatMap((target) => target.notes.notes.map((note) => note.id)),
+            ...(record.saved.fileComments ?? []).map((comment) => comment.id),
+          ],
           () => undefined,
         );
         if (!ids) continue;
@@ -2539,6 +2554,70 @@ export class SavedReviewStore {
     }, beforeCommit);
   }
 
+  /** Comment on lines of a file, or edit, remove, answer, resolve, or open
+   * such a comment again. */
+  commentFile(
+    id: string,
+    mutation: FileCommentMutation,
+    beforeCommit?: () => void,
+  ): Promise<SavedReview> {
+    return this.writing(async () => {
+      const record = await this.read(id, true);
+      const saved = record.saved;
+      const comments = saved.fileComments ?? [];
+      const now = new Date().toISOString();
+      const find = (target: string) => {
+        const comment = comments.find((entry) => entry.id === target);
+        if (!comment) throw new HostError("note-not-found", "The comment does not exist.", 404);
+        return comment;
+      };
+      const growing = "add" in mutation || "reply" in mutation;
+      if (growing && saved.commentCount >= MAX_NOTES)
+        throw new HostError("too-many-notes", "A saved review can contain at most 500 notes.", 413);
+      if ("add" in mutation) {
+        const input = mutation.add;
+        const end = input.endLine ?? input.line;
+        if (end < input.line || end - input.line >= MAX_FILE_COMMENT_LINES)
+          throw new HostError(
+            "invalid-lines",
+            `A comment covers at most ${MAX_FILE_COMMENT_LINES} lines.`,
+            400,
+          );
+        comments.push({
+          ...input,
+          ...(end !== input.line ? { endLine: end } : { endLine: undefined }),
+          id: randomUUID(),
+          createdAt: now,
+          updatedAt: now,
+          replies: [],
+        });
+        if (comments.at(-1)!.endLine === undefined) delete comments.at(-1)!.endLine;
+      } else if ("edit" in mutation) {
+        const comment = find(mutation.edit.id);
+        comment.text = mutation.edit.text;
+        comment.updatedAt = now;
+      } else if ("remove" in mutation) {
+        comments.splice(comments.indexOf(find(mutation.remove)), 1);
+      } else if ("reply" in mutation) {
+        // The user's reply is a change of the thread: it waits to be sent.
+        const comment = find(mutation.reply.id);
+        comment.replies.push({ id: randomUUID(), text: mutation.reply.text, createdAt: now });
+        comment.updatedAt = now;
+        delete comment.resolved;
+      } else if ("resolve" in mutation) {
+        find(mutation.resolve).resolved = { at: now };
+      } else {
+        delete find(mutation.reopen).resolved;
+      }
+      if (comments.length) saved.fileComments = comments;
+      else delete saved.fileComments;
+      saved.commentCount = countComments(record);
+      saved.revision++;
+      await this.write(record, beforeCommit);
+      return this.describe(record);
+    }, beforeCommit);
+  }
+
   clear(id: string, expectedRevision: number, beforeCommit?: () => void): Promise<SavedReview> {
     return this.writing(async () => {
       const record = await this.read(id, true);
@@ -2553,6 +2632,7 @@ export class SavedReviewStore {
         target.notes.revision++;
       }
       delete record.saved.briefComments;
+      delete record.saved.fileComments;
       record.saved.commentCount = 0;
       record.saved.revision++;
       await this.write(record, beforeCommit);
@@ -2587,7 +2667,8 @@ export class SavedReviewStore {
     text: string,
     author: NoteAuthor,
     beforeCommit?: () => void,
-  ): Promise<Note> {
+    options: { resolve?: boolean } = {},
+  ): Promise<Note | FileComment> {
     return this.writing(async () => {
       const record = await this.read(id, true);
       const wanted = commentId.toLowerCase();
@@ -2596,9 +2677,40 @@ export class SavedReviewStore {
       const matches = record.captures.flatMap((target) =>
         target.notes.notes.filter((note) => named(note.id)).map((note) => ({ target, note })),
       );
+      const files = (record.saved.fileComments ?? []).filter((comment) => named(comment.id));
+      if (files.length && !matches.length) {
+        const comment =
+          files.find((entry) => entry.id === wanted) ?? (files.length === 1 ? files[0] : undefined);
+        if (!comment)
+          throw new HostError(
+            "comment-ambiguous",
+            "More than one comment of this review has an ID that starts so. Give more of the ID.",
+            409,
+          );
+        if (record.saved.commentCount >= MAX_NOTES)
+          throw new HostError(
+            "too-many-notes",
+            "A saved review can contain at most 500 notes.",
+            413,
+          );
+        validateReviewNoteText(text);
+        const now = new Date().toISOString();
+        comment.replies.push({ id: randomUUID(), text, author, createdAt: now });
+        if (options.resolve) comment.resolved = { at: now, by: author };
+        record.saved.revision++;
+        record.saved.commentCount = countComments(record);
+        await this.write(record, beforeCommit);
+        return comment;
+      }
       const found =
         matches.find((match) => match.note.id === wanted) ??
         (matches.length === 1 ? matches[0] : undefined);
+      if (options.resolve)
+        throw new HostError(
+          "resolve-unsupported",
+          "Only a comment on a file can be resolved. A comment on the review is done when you hand off the next version.",
+          409,
+        );
       if (matches.length > 1 && !found)
         throw new HostError(
           "comment-ambiguous",
@@ -2807,6 +2919,54 @@ export class SavedReviewStore {
           "",
         );
       }
+      let fileExample: string | undefined;
+      for (const comment of record.saved.fileComments ?? []) {
+        if (include && !include.has(comment.id)) continue;
+        if (!include && comment.resolved) continue;
+        const shortId = shortCommentId(comment.id, [
+          ...ids,
+          ...(record.saved.fileComments ?? []).map((entry) => entry.id),
+        ]);
+        example ??= shortId;
+        fileExample ??= shortId;
+        index++;
+        const end = comment.endLine ?? comment.line;
+        const where =
+          comment.source.kind === "commit"
+            ? `at commit ${shortOid(comment.source.oid)}`
+            : "in the working tree";
+        const repository =
+          comment.source.repo.split(/[\\/]/).filter(Boolean).at(-1) ?? comment.source.repo;
+        appendText(
+          `## ${shortId} · ${comment.path}:${comment.line === end ? comment.line : `${comment.line}-${end}`} (a file, not the review's change; ${where} of ${repository})`,
+        );
+        const quoted = comment.quote
+          .split("\n")
+          .slice(0, end - comment.line + 1)
+          .map((line, offset) => `${comment.line + offset} | ${line}`);
+        const longest = Math.max(
+          2,
+          ...quoted.flatMap((line) => [...line.matchAll(/`+/g)].map((match) => match[0].length)),
+        );
+        const fence = "`".repeat(longest + 1);
+        appendText(fence, quoted.join("\n"), fence);
+        appendText("", comment.text, "");
+        for (const reply of comment.replies)
+          appendText(
+            reply.author ? `${agentName(reply.author)} replied:` : "The user replied:",
+            reply.text,
+            "",
+          );
+        threadsOut.set(comment.id, {
+          version: comment.updatedAt,
+          comment: {
+            path: comment.path,
+            line: comment.line,
+            ...(comment.endLine ? { endLine: comment.endLine } : {}),
+            text: comment.text,
+          },
+        });
+      }
       if (example)
         appendText(
           "Answer a comment in its thread with `med reply <id>`, the answer on standard input:",
@@ -2818,6 +2978,12 @@ export class SavedReviewStore {
           "```",
           "",
           "Answer there when the user asks a question, or to say why you left a change out. Your final message still says what you did.",
+          ...(fileExample
+            ? [
+                "",
+                `A comment on a file has no next review version to show the change, so add \`--resolve\` when you have done what it asks: \`med reply ${fileExample} --resolve <<'END'\`, then what you did. The user can open it again.`,
+              ]
+            : []),
         );
       if (!index) appendText("No comments.");
       return {

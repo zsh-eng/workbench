@@ -49,6 +49,7 @@ import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
+import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
   needsYou,
@@ -142,6 +143,8 @@ interface WorkspaceActions {
   openPull(url: string, agent?: string): void;
   /** Asks the host again for a pull request that it could not open. */
   retryPull(id: string): void;
+  /** Shows the open pull requests that wait on you, and yours. */
+  openPullRequests(): void;
   /** Removes the workspace's linked worktree, then closes each workspace in
    * it. Rejects with Git's reason when Git keeps the worktree. */
   removeWorktree(id: string): Promise<void>;
@@ -750,6 +753,10 @@ export function WorkspaceHost({
         show(id);
         beginPull(id, address.url, agent);
       },
+      openPullRequests() {
+        rememberFocus();
+        openPullRequests();
+      },
       retryPull(id) {
         const workspace = store.getSnapshot().workspaces.find((entry) => entry.id === id);
         if (workspace?.kind === "pull") beginPull(id, workspace.url, workspace.agent);
@@ -770,6 +777,15 @@ export function WorkspaceHost({
     }),
     [beginPull, fetcher, rememberFocus, show, store],
   );
+  // The pull requests page opens a row through the workspaces.
+  useEffect(() => {
+    const open = (event: Event) => {
+      const { url, agent } = (event as CustomEvent<OpenPull>).detail;
+      actions.openPull(url, agent);
+    };
+    window.addEventListener(OPEN_PULL_EVENT, open);
+    return () => window.removeEventListener(OPEN_PULL_EVENT, open);
+  }, [actions]);
   // A pull request's workspace takes the title once the host reads it, and
   // becomes the review's workspace once the review is saved.
   const settlePull = useCallback(
@@ -1153,6 +1169,20 @@ export function WorkspaceHost({
   const kept = useRef(new Set<string>());
 
   const [notice, setNotice] = useState<TabNotice | null>(null);
+  // The Superagent's thread: Med makes it the first time (superagent.ts),
+  // then it opens as any thread does.
+  const startSuperagent = useCallback(async () => {
+    try {
+      const { review } = await createApi(fetcher, readBrowserToken()).json(
+        "/api/superagent",
+        z.object({ review: z.object({ id: z.string(), title: z.string() }) }),
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      actions.open({ kind: "review", reviewId: review.id, title: review.title });
+    } catch (reason) {
+      setNotice({ problem: true, text: errorText(reason, "Med could not start the Superagent.") });
+    }
+  }, [actions, fetcher]);
   useEffect(() => {
     if (!notice || notice.stays) return;
     const timer = setTimeout(() => setNotice(null), notice.problem ? 8000 : 6000);
@@ -1700,6 +1730,14 @@ export function WorkspaceHost({
                               }}
                               onHide={toggleSidebar}
                               onSettings={() => openSettings()}
+                              onPullRequests={() => {
+                                setOverlay(false);
+                                openPullRequests();
+                              }}
+                              onSuperagent={() => {
+                                setOverlay(false);
+                                void startSuperagent();
+                              }}
                               onArchive={(thread) =>
                                 void closeTabs([thread], { removeWorktree: false })
                               }
@@ -3193,7 +3231,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     padding: 6,
     borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     boxShadow: `0 0 0 1px ${tokens.lineStrong}, ${tokens.shadow}`,
     color: tokens.text,
     fontFamily: tokens.ui,
