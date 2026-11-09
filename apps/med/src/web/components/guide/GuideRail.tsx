@@ -4,6 +4,7 @@ import type { ParsedReviewFile } from "../../../shared/review";
 import type { GuideScope, GuideSection } from "../../data/guide";
 import { picked, tokens, ui } from "../../theme.stylex";
 import { ColumnHandle, useColumnWidth } from "../ColumnResize";
+import { LineCounts } from "../DiffStat";
 import { Icon } from "../Icon";
 import { PathLabel } from "../PathLabel";
 import { clippedTooltip } from "../ToolButton";
@@ -118,6 +119,7 @@ export const GuideRail = memo(function GuideRail({
                         <span>
                           {section.fileIds.length} {section.fileIds.length === 1 ? "file" : "files"}
                         </span>
+                        <LineCounts additions={section.additions} deletions={section.deletions} />
                         {section.notes.length > 0 && (
                           <span {...stylex.props(styles.notes)}>
                             <Icon name="note" size={11} />
@@ -140,7 +142,15 @@ export const GuideRail = memo(function GuideRail({
                               {...clippedTooltip(file.path)}
                               {...stylex.props(styles.file)}
                             >
-                              <PathLabel path={file.path} folder={false} />
+                              <span {...stylex.props(styles.fileName)}>
+                                <PathLabel path={file.path} folder={false} />
+                              </span>
+                              <span {...stylex.props(styles.fileLines)}>
+                                <LineCounts
+                                  additions={file.info.additions}
+                                  deletions={file.info.deletions}
+                                />
+                              </span>
                             </button>
                           </li>
                         );
@@ -288,6 +298,8 @@ const styles = stylex.create({
     paddingInlineEnd: 0,
   },
   fileRow: { display: "flex", alignItems: "center", gap: 2 },
+  fileName: { display: "flex", flex: "1", minWidth: 0 },
+  fileLines: { fontSize: 10.5 },
   file: {
     display: "flex",
     alignItems: "center",

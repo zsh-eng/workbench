@@ -526,7 +526,7 @@ file, so the next call reads only the new lines.
 
 A session pane at least 900 pixels wide shows a side panel at its right, as
 Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
-([above](#spend-and-context); the Spend title opens each model's tokens),
+([above](#spend-and-context)),
 **Background** (the dock moves here from under the thread, through a portal
 from the thread, so a task still scrolls the thread to its call),
 **Subagents** (the tabs over the thread move here the same way, as a list of
@@ -544,6 +544,24 @@ the subagents are tabs over the thread again, and the header's chip shows the
 context and spend. The header's button, `⌘⌥⇧B`, or **Hide the
 session's side panel** in `⌘K` closes it, and
 Med keeps that choice (`med:session-panel`).
+
+Context, Spend, and Subagents fold and unfold from their titles, as Claude
+Desktop's cards do, and Med keeps each card's choice for every thread
+(`med:session-panel-cards`). Context starts open: the share in use, a bar of
+what fills the window, and under it the details. Spend starts folded, with
+its total: open, it has each model's cost with its tokens under it. Subagents
+starts folded, with how many there are and how many work.
+
+For a Claude session that Med runs, Context shows what Claude Code's
+`/context` shows, from its `get_context_usage` reply, which Med asks for when
+the session starts and at each turn's end (`contextBreakdown` in
+`owned-session.ts`): each part in use, largest first, with its tokens and its
+share of the window, then the autocompact buffer and the free space; the
+deferred tools, which load only when the agent uses them, apart and without
+a share; and lists that open in place, of the MCP tools by server, the memory
+files, the custom agents, and the skills. Med keeps none of the reply's
+account usage. For a session that Med finds, Context shows the transcript's
+reading, with where the window and the compaction point come from.
 
 ## Limits and next steps
 

@@ -859,12 +859,18 @@ function AgentTabs({
     </div>
   );
   return card ? (
+    // Folded at first, with how many; open, the list.
     <SidePanelCard
       label="Subagents"
-      figure={working ? `${working} working` : String(agents.length)}
-    >
-      {tabs}
-    </SidePanelCard>
+      folded
+      figure={[
+        `${agents.length} ${agents.length === 1 ? "agent" : "agents"}`,
+        working ? `${working} working` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      details={tabs}
+    />
   ) : (
     tabs
   );

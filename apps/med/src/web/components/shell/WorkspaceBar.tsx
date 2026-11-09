@@ -28,7 +28,12 @@ export type BarContext =
 
 /** A thread names the checkout it works in; a repository workspace, the one
  * it reports once it loads. A worktree goes by its repository's name. */
-export function barContext(workspace: Workspace | undefined, list: ThreadList | null) {
+export function barContext(
+  workspace: Workspace | undefined,
+  list: ThreadList | null,
+  /** The session's name, which stands for any of its reviews. */
+  name?: string,
+) {
   if (!workspace) return undefined;
   if (workspace.kind === "vault")
     return { kind: "label", icon: "vault", text: workspace.title ?? "Vault" } as const;
@@ -41,7 +46,7 @@ export function barContext(workspace: Workspace | undefined, list: ThreadList | 
       branch: thread.branch,
       path: thread.checkout,
       linked: !!thread.linked,
-      title: thread.title,
+      title: name ?? thread.title,
     } as const;
   }
   if (workspace.kind === "pull")

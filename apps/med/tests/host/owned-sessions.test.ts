@@ -318,7 +318,25 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
     expect(replies()).toEqual(["Model opus, effort medium, mode auto: Format the durations."]),
   );
   const answered = await session.until((state) => state.context !== undefined);
-  expect(answered.context).toEqual({ used: 2500, total: 10_000 });
+  // What fills the window, as Claude Code's /context shows it.
+  expect(answered.context).toEqual({
+    used: 2500,
+    total: 10_000,
+    breakdown: {
+      categories: [
+        { name: "System prompt", tokens: 400, kind: "used" },
+        { name: "MCP tools (deferred)", tokens: 900, kind: "deferred" },
+        { name: "Messages", tokens: 2100, kind: "used" },
+        { name: "Autocompact buffer", tokens: 1000, kind: "buffer" },
+        { name: "Free space", tokens: 6500, kind: "free" },
+      ],
+      mcpServers: [{ name: "docs", tools: 2, tokens: 900 }],
+      memoryFiles: [{ path: "/repo/CLAUDE.md", tokens: 120 }],
+      agents: [{ name: "reviewer", tokens: 40 }],
+      skills: [{ name: "med", tokens: 80 }],
+      at: expect.any(Number),
+    },
+  });
 
   // An effort change applies to the running Claude Code, which goes on as it
   // started: no new process, so the turn and its cache go on.

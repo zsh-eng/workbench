@@ -9,6 +9,7 @@ import type { SessionEvent, SessionUpdate } from "../shared/agent-session";
 import {
   AGENT_CAPABILITIES,
   AGENT_DEFAULTS,
+  contextBreakdown,
   ownedQuestionSchema,
   ownedSettingSchema,
   type AgentChoices,
@@ -558,8 +559,18 @@ export function startClaude(
     },
     get_context_usage(value) {
       const { totalTokens, maxTokens } = (value ?? {}) as Record<string, unknown>;
-      if (typeof totalTokens === "number" && typeof maxTokens === "number" && maxTokens > 0)
-        store.set({ context: { used: totalTokens, total: maxTokens } });
+      if (typeof totalTokens !== "number" || typeof maxTokens !== "number" || maxTokens <= 0)
+        return;
+      // What fills the window, as Claude Code's `/context` shows it.
+      let breakdown;
+      try {
+        breakdown = contextBreakdown(value, Date.now());
+      } catch {
+        breakdown = undefined;
+      }
+      store.set({
+        context: { used: totalTokens, total: maxTokens, ...(breakdown && { breakdown }) },
+      });
     },
     set_model(_value, request) {
       chosen.model = typeof request.model === "string" ? request.model : "default";
@@ -897,11 +908,15 @@ export function startClaude(
       },
       events(token),
     );
-    void control({ subtype: "initialize" }).catch((error: unknown) => {
-      // The process ended; the exit says why.
-      if (active === token)
-        store.set({ error: error instanceof Error ? error.message : String(error) });
-    });
+    void control({ subtype: "initialize" }).then(
+      // What fills the window before the first turn ends.
+      () => void control({ subtype: "get_context_usage" }).catch(() => {}),
+      (error: unknown) => {
+        // The process ended; the exit says why.
+        if (active === token)
+          store.set({ error: error instanceof Error ? error.message : String(error) });
+      },
+    );
   };
   /**
    * The process ended, and Med did not stop it. The session waits without a

@@ -52,6 +52,35 @@ describe("a session's reviews", () => {
     // On screen, a review of the pinned session stands for it.
     expect(tabOrder(pinned, "chips")[0]!.id).toBe("chips");
   });
+
+  test("keep the session's name and pin when another of its reviews is on screen", () => {
+    const at = (day: number) => `2026-11-0${day}T00:00:00.000Z`;
+    const named = [
+      { ...thread("search", 30, ["s1"], 1), title: "Med", agentTitle: "Search", createdAt: at(2) },
+      { ...thread("chips", 50, ["s1"]), createdAt: at(3) },
+      { ...thread("docs", 10, ["s2"]), createdAt: at(1) },
+    ];
+    for (const current of [undefined, "search", "chips"]) {
+      const row = tabOrder(named, current)[0]!;
+      expect([row.title, row.agentTitle, row.pinned, row.owner]).toEqual([
+        "Med",
+        "Search",
+        1,
+        "search",
+      ]);
+    }
+    expect(tabOrder(named, "chips")[0]!.id).toBe("chips");
+    // Unnamed and unpinned, a session goes by the first review it handed off.
+    const plain = named.map(({ agentTitle: _agentTitle, pinned: _pinned, ...each }) => ({
+      ...each,
+      title: each.id,
+    }));
+    expect(sessionRows(plain).map((row) => [row.id, row.title])).toEqual([
+      ["chips", "search"],
+      ["docs", "docs"],
+    ]);
+    expect(sessionRows(plain, "chips")[0]!.title).toBe("search");
+  });
 });
 
 describe("the find bar's pattern", () => {

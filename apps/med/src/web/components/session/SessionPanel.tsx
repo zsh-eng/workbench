@@ -767,6 +767,12 @@ export function SessionPanel({
       : ownedState?.context
         ? { used: ownedState.context.used, window: ownedState.context.total, windowFrom: "agent" }
         : undefined;
+  // What fills the context, as Claude Code tells the agent that Med runs: the
+  // side panel's Context card shows its parts, from the same reading.
+  const breakdown = ownedState?.context?.breakdown;
+  const panelContext: ShownContext | undefined = breakdown
+    ? { used: ownedState!.context!.used, window: ownedState!.context!.total, windowFrom: "agent" }
+    : shownContext;
   const panel = useRef<HTMLElement>(null);
   // The side panel shows where the thread's column keeps its width beside it,
   // unless the reader closed it.
@@ -997,7 +1003,9 @@ export function SessionPanel({
         {side && (
           <SessionSidePanel
             usage={usage}
-            context={shownContext}
+            context={panelContext}
+            breakdown={breakdown}
+            working={running}
             links={links}
             place={sessionPlace}
             backgroundRef={setBackground}

@@ -237,11 +237,27 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         ok({ mode });
         return send({ type: "system", subtype: "status", status: null, permissionMode: mode });
       case "get_context_usage":
+        // As Claude Code answers it, cut down.
         return ok({
-          categories: [{ name: "Messages", tokens: 2500, kind: "used" }],
+          categories: [
+            { name: "System prompt", tokens: 400, color: "promptBorder", kind: "used" },
+            { name: "MCP tools (deferred)", tokens: 900, isDeferred: true, kind: "deferred" },
+            { name: "Messages", tokens: 2100, color: "purple_FOR_SUBAGENTS_ONLY", kind: "used" },
+            { name: "Autocompact buffer", tokens: 1000, color: "inactive", kind: "buffer" },
+            { name: "Free space", tokens: 6500, color: "promptBorder", kind: "free" },
+          ],
           totalTokens: 2500,
           maxTokens: 10000,
           percentage: 25,
+          memoryFiles: [{ path: "/repo/CLAUDE.md", type: "Project", tokens: 120 }],
+          mcpTools: [
+            { name: "mcp__docs__read", serverName: "docs", tokens: 500, isLoaded: false },
+            { name: "mcp__docs__write", serverName: "docs", tokens: 400, isLoaded: false },
+          ],
+          agents: [{ agentType: "reviewer", source: "plugin", tokens: 40 }],
+          skills: { totalSkills: 1, tokens: 80, skillFrontmatter: [{ name: "med", tokens: 80 }] },
+          // Claude Code names the account's usage too; Med keeps none of it.
+          apiUsage: { input_tokens: 2 },
         });
       case "interrupt":
         ok({ still_queued: [] });
