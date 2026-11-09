@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
   threadClosedSchema,
@@ -85,8 +85,13 @@ export const readHistory = (fetcher: typeof fetch) =>
 
 // ------------------------------------------------------------- read state
 
-const SEEN_KEY = "med:thread-seen";
-const SINCE_KEY = "med:thread-seen-since";
+// The host keeps what the reader saw of each tab, by the tab's `updatedAt`
+// (`Thread.seen`, src/host/thread-tabs.ts), so every window and the CLI agree
+// on what is new. This browser keeps marks for subagents' results only. The
+// marks that it kept for tabs before go to the host once.
+
+const OLD_SEEN_KEY = "med:thread-seen";
+const OLD_SINCE_KEY = "med:thread-seen-since";
 const SUBAGENTS_SEEN_KEY = "med:subagent-seen";
 const SUBAGENTS_SINCE_KEY = "med:subagent-seen-since";
 
@@ -114,6 +119,23 @@ function since(key: string) {
   return now;
 }
 
+/** Tells the host that the reader saw a tab's changes up to `at`. */
+export const seeThread = (id: string, at: number, fetcher: typeof fetch) =>
+  api(fetcher).json(`/api/threads/${id}/seen`, z.object({ ok: z.boolean() }), post({ at }));
+
+/** The marks that this browser kept for tabs before the host kept them, for
+ * the tabs listed: a tab without one counts as seen up to the first visit. */
+function oldMarks(threads: readonly Thread[]) {
+  const first = readJson<number>(OLD_SINCE_KEY, 0);
+  if (!first) return undefined;
+  const marks = readJson<Record<string, number>>(OLD_SEEN_KEY, {});
+  return Object.fromEntries(
+    threads
+      .filter((thread) => thread.seen !== undefined)
+      .map((thread) => [thread.id, marks[thread.id] ?? first]),
+  );
+}
+
 export interface ReadState {
   /** A result that the reader has not seen: the thread changed since it was shown. */
   isUnread(thread: Thread): boolean;
@@ -123,27 +145,107 @@ export interface ReadState {
   seeSubagent(subagent: ThreadSubagent): void;
 }
 
+/** A mark that this window sent, until the host's list has it: `base` is
+ * the host's mark when it went. One that the host refused counts no longer,
+ * and the window does not send it again. */
+interface SentMark {
+  at: number;
+  base: number | undefined;
+  refused?: boolean;
+}
+
+/** A tab's mark: this window's while the host's list lacks it, else the host's. */
+const markOf = (marks: ReadonlyMap<string, SentMark>, thread: Thread) => {
+  const mark = marks.get(thread.id);
+  return mark && !mark.refused ? mark.at : thread.seen;
+};
+
 /**
  * Which tabs and subagents changed since the reader last looked at them. The
- * thread on screen counts as seen, with its subagents' results. Work from
- * before the first visit starts as seen, so old work does not show as new.
+ * thread on screen counts as seen once its work stops, with its subagents'
+ * results. The host keeps the tabs' marks; a mark that this window sets
+ * counts at once, until the host's list carries it or another window's.
  */
-export function useReadState(threads: readonly Thread[], current: string | null): ReadState {
-  const [threadsSince] = useState(() => since(SINCE_KEY));
+export function useReadState(
+  threads: readonly Thread[],
+  current: string | null,
+  fetcher: typeof fetch,
+): ReadState {
   const [subagentsSince] = useState(() => since(SUBAGENTS_SINCE_KEY));
-  const [seen, setSeen] = useState<Record<string, number>>(() => readJson(SEEN_KEY, {}));
   const [agents, setAgents] = useState<Record<string, number>>(() =>
     readJson(SUBAGENTS_SEEN_KEY, {}),
   );
-  // The shown thread is seen as it changes, and so are its subagents' results.
-  const shown = threads.find((thread) => thread.id === current);
-  if (shown && (seen[shown.id] ?? 0) < shown.updatedAt) {
-    const next = { ...seen, [shown.id]: shown.updatedAt };
-    // Forget threads that are no longer tabs; history reads as seen.
-    for (const id of Object.keys(next))
-      if (!threads.some((thread) => thread.id === id)) delete next[id];
-    setSeen(next);
+  const [sent, setSent] = useState<ReadonlyMap<string, SentMark>>(() => new Map());
+  // A sent mark goes once the host's mark for the tab changes, to it or to
+  // another window's, or once the tab leaves.
+  let marks = sent;
+  for (const [id, mark] of sent) {
+    const thread = threads.find((entry) => entry.id === id);
+    if (thread && thread.seen === mark.base) continue;
+    if (marks === sent) marks = new Map(sent);
+    (marks as Map<string, SentMark>).delete(id);
   }
+  // The shown thread is seen once its work stops: the unread rule leaves
+  // working threads out, so a mark while it works would change nothing.
+  const shown = threads.find((thread) => thread.id === current);
+  if (
+    shown &&
+    shown.seen !== undefined &&
+    shown.state !== "working" &&
+    (markOf(marks, shown) ?? 0) < shown.updatedAt &&
+    marks.get(shown.id)?.at !== shown.updatedAt
+  ) {
+    if (marks === sent) marks = new Map(sent);
+    (marks as Map<string, SentMark>).set(shown.id, { at: shown.updatedAt, base: shown.seen });
+  }
+  if (marks !== sent) setSent(marks);
+
+  // The host gets each mark once, a moment after it is set.
+  const posted = useRef(new Map<string, number>());
+  useEffect(() => {
+    for (const id of [...posted.current.keys()]) if (!sent.has(id)) posted.current.delete(id);
+    const due = [...sent].filter(
+      ([id, mark]) => !mark.refused && posted.current.get(id) !== mark.at,
+    );
+    if (!due.length) return;
+    const timer = setTimeout(() => {
+      for (const [id, mark] of due) {
+        posted.current.set(id, mark.at);
+        seeThread(id, mark.at, fetcher).catch(() =>
+          setSent((value) =>
+            value.get(id)?.at === mark.at
+              ? new Map(value).set(id, { ...mark, refused: true })
+              : value,
+          ),
+        );
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [fetcher, sent]);
+
+  // Once, the marks that this browser kept before the host kept them.
+  const moved = useRef(false);
+  useEffect(() => {
+    if (moved.current || !threads.some((thread) => thread.seen !== undefined)) return;
+    moved.current = true;
+    const old = oldMarks(threads);
+    if (!old) return;
+    void api(fetcher)
+      .json("/api/threads/seen", z.object({ ok: z.boolean() }), post({ marks: old }))
+      .then(() => {
+        try {
+          localStorage.removeItem(OLD_SEEN_KEY);
+          localStorage.removeItem(OLD_SINCE_KEY);
+        } catch {
+          /* The host keeps the larger marks: sending them again does no harm. */
+        }
+      })
+      .catch(() => {
+        moved.current = false;
+      });
+  }, [fetcher, threads]);
+
+  // The shown thread's subagents' results are seen as they finish.
   const finished = shown?.subagents?.filter(
     (subagent) => subagent.state === "idle" && (agents[subagent.id] ?? 0) < subagent.updatedAt,
   );
@@ -156,25 +258,31 @@ export function useReadState(threads: readonly Thread[], current: string | null)
       .slice(0, 200);
     setAgents(Object.fromEntries(kept));
   }
-  useEffect(() => writeJson(SEEN_KEY, seen), [seen]);
   useEffect(() => writeJson(SUBAGENTS_SEEN_KEY, agents), [agents]);
   return useMemo<ReadState>(
     () => ({
-      isUnread: (thread) =>
-        thread.id !== current &&
-        thread.state !== "working" &&
-        thread.updatedAt > (seen[thread.id] ?? threadsSince),
+      isUnread: (thread) => {
+        const mark = markOf(marks, thread);
+        return (
+          thread.id !== current &&
+          thread.state !== "working" &&
+          mark !== undefined &&
+          thread.updatedAt > mark
+        );
+      },
       setUnread: (thread, unread) =>
-        setSeen((value) => ({
-          ...value,
-          [thread.id]: unread ? thread.updatedAt - 1 : thread.updatedAt,
-        })),
+        setSent((value) =>
+          new Map(value).set(thread.id, {
+            at: unread ? thread.updatedAt - 1 : thread.updatedAt,
+            base: thread.seen,
+          }),
+        ),
       isSubagentUnread: (subagent) =>
         subagent.state === "idle" && subagent.updatedAt > (agents[subagent.id] ?? subagentsSince),
       seeSubagent: (subagent) =>
         setAgents((value) => ({ ...value, [subagent.id]: subagent.updatedAt })),
     }),
-    [agents, current, seen, subagentsSince, threadsSince],
+    [agents, current, marks, subagentsSince],
   );
 }
 

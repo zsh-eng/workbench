@@ -194,6 +194,9 @@ med thread show --paths src/a.ts --guide -   # add a version to your session's t
 - `thread show` takes `--paths`, `--base <ref>`, `--commit`, `--working`,
   `--manifest`, `--guide` and `--brief`.
 - `thread send` labels a message from another Med thread with its name, such
-  as `From the Superagent:`; a thread cannot send to itself. Send only what the
-  user asked to pass on.
+  as `From the Superagent (an agent in Med, not the user):`; a thread cannot
+  send to itself. Send only what the user asked to pass on.
+- `thread wait [<id>...]` waits until a thread comes to need the user or
+  finishes its work (`--until needs-you|done|idle`). A timeout, 100 s by
+  default, is a check-in: wait again rather than list in a loop.
 - For one current file or line, `med open <file> --line N` prints a link.

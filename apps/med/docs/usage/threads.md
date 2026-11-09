@@ -13,8 +13,9 @@ gave it, else its first review's title. Its
 side panel's **Reviews** lists them all, newest first, and opens each one;
 **Archive** on the row archives them all. `⌘1`–`⌘9` open the session at that place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
-when something is new since you looked, amber when the work stopped. While the
-agent works, its name dims under a passing light. **New thread**, a row at
+in a ring when the agent needs you, blue when its work finished since you
+looked, amber when the work stopped. While the agent works, its name dims
+under a passing light. **New thread**, a row at
 the top, starts a thread, and **Settings** is at the foot.
 
 Tabs stay loaded and Med follows their agents. History is cold: Med does not
@@ -29,10 +30,13 @@ load it or read its agents until you open it again.
 - A Med with another state folder than `~/.local/state/med` lists only its
   own threads: found sessions start hidden there. **Show sessions not kept in
   Med** in the palette shows them.
-- A row's blue dot shows when a turn ended while you were elsewhere, while
-  the agent waits for a permission answer or for your review, and after a turn
-  that ended on a question, until you send a message from Med. `⌘0` opens the
-  next tab that needs you, or else the next tab whose agent works.
+- A row's ringed dot shows while the agent waits for a permission answer, and
+  after a turn that ended on a question, until you send a message from Med.
+  Its plain blue dot shows when its work finished while you were elsewhere.
+  Med keeps what you saw of each tab, so every window and `med thread list`
+  agree: open a tab in one window, and its dot goes in all of them. `⌘0`
+  opens the next tab that needs you, else the next whose work finished since
+  you looked, else the next whose agent works.
 - When you look elsewhere, Med tells you only that a tab needs you. While the
   sidebar is hidden, **Show sidebar** has a dot, and its name gives the count,
   such as "Show sidebar · 1 needs you". The installed app's Dock icon shows
@@ -139,8 +143,12 @@ Superagent; the next click opens it.
 
 It reads the threads with `med thread list --json` and their transcripts, and
 sends a message to a thread with `med thread send <id> "<message>"`, which the
-thread's agent gets as `From the Superagent:` and the message, at its next
-step, or after its turn with `--after-turn`. It answers no permission
+thread's agent gets as `From the Superagent (an agent in Med, not the
+user):` and the message, at its next step, or after its turn with
+`--after-turn`. The Med skill tells the agent to read it as a report from
+another agent, and to ask you before anything you did not ask for. `med thread
+wait <id>` waits until the thread needs you or finishes, so the Superagent does
+not ask again and again. It answers no permission
 request, approves, merges, pushes, and deletes nothing, and edits no thread's
 files itself. Med schedules nothing; the Superagent uses Claude Code's own
 scheduling when you ask for a check later.

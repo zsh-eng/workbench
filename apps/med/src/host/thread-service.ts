@@ -378,7 +378,7 @@ export function createThreadService(options: ThreadServiceOptions) {
       );
       return {
         threads: options.checkoutWork.annotate(
-          threads.map(named),
+          threads.map((thread) => ({ ...named(thread), seen: tabs.seen(thread.id) })),
           repositories,
           (thread) => !!thread.found || onWorking.has(thread.id),
         ),
@@ -590,6 +590,20 @@ export function createThreadService(options: ThreadServiceOptions) {
         throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
       tabs.setName(id, name.trim() || undefined);
       await tabs.save();
+    },
+
+    /** The reader saw the tab's changes up to `at`, in some window: every
+     * window and the CLI read it as seen. A lower mark makes the later
+     * changes new again (Mark as unread). */
+    async see(id: string, at: number) {
+      if (!tabs.known(id))
+        throw new HostError("thread-not-found", "Med has no thread with this ID.", 404);
+      if (tabs.see(id, at)) await tabs.save();
+    },
+
+    /** The marks that a browser kept before the host kept them. */
+    async mergeSeen(marks: Readonly<Record<string, number>>) {
+      if (tabs.mergeSeen(marks)) await tabs.save();
     },
 
     /** Pins a thread at `at` among the pins (under the others without it),

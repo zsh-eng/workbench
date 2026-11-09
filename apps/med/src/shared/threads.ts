@@ -105,6 +105,11 @@ export const threadSchema = z.object({
    * or more than one thread works in it. Changes then offer "Only this
    * session's files". */
   shared: z.boolean().optional(),
+  /** The newest change that the reader has seen, by `updatedAt`: the host
+   * keeps it for each tab (src/host/thread-tabs.ts), so every window and the
+   * CLI agree on what is new. A tab's change from before Med kept marks
+   * counts as seen. */
+  seen: z.number().optional(),
   /** A tab: the thread stays warm and shows in the sidebar. False in history. */
   open: z.boolean().optional(),
   /** When the thread went to history, in milliseconds. */
@@ -194,6 +199,100 @@ export type ThreadList = z.infer<typeof threadListSchema>;
 /** `GET /api/threads/history`: closed threads and found sessions that are
  * not tabs, newest first. */
 export const threadHistorySchema = z.object({ threads: z.array(threadSchema) });
+
+/** The user sent a message from Med after the turn ended. */
+const answered = (thread: Thread) =>
+  !!thread.replied && thread.replied.at > (thread.turn?.endedAt ?? 0);
+
+/** A permission request, a question that waits for an answer, or work that
+ * stopped until the reader acts (`halt`). */
+export const needsYou = (thread: Thread) =>
+  thread.state === "waiting" || !!thread.halt || (!!thread.turn?.asks && !answered(thread));
+
+/** The thread's work finished, or its agent stopped, after the change that
+ * the reader saw last. A thread without marks, such as one in history, has
+ * nothing new. */
+export const finishedUnseen = (thread: Thread) =>
+  thread.state !== "working" && thread.seen !== undefined && thread.updatedAt > thread.seen;
+
+/**
+ * What a thread asks of the reader, most first: it needs them (a permission
+ * request, a question, or stopped work); its work finished since they looked
+ * (done); it works; or nothing (idle). ⌘0, the sidebar's marks, and `med
+ * thread list` follow it, as herdr ranks blocked, done, working, and idle.
+ */
+export type ThreadAttention = "needs-you" | "done" | "working" | "idle";
+export const ATTENTION_ORDER: readonly ThreadAttention[] = ["needs-you", "done", "working", "idle"];
+
+export function threadAttention(thread: Thread): ThreadAttention {
+  if (needsYou(thread)) return "needs-you";
+  if (thread.state === "working") return "working";
+  return finishedUnseen(thread) ? "done" : "idle";
+}
+
+/** `POST /api/threads/:id/seen`: the reader saw the thread's changes up to
+ * `at` (its `updatedAt`); a lower mark makes the later ones new again. */
+export const threadSeenSchema = z.object({ at: z.number().nonnegative() });
+/** `POST /api/threads/seen`: the marks that a browser kept before the host
+ * kept them. A mark the host has already stays when it is newer. */
+export const threadMarksSchema = z.object({
+  marks: z.record(threadIdSchema, z.number().nonnegative()),
+});
+
+/** `POST /api/threads/next`: the tabs once they differ from the list of
+ * `version`, or as they are after `waitMs`. `med thread wait` asks again
+ * until what it waits for happens. */
+export const threadNextSchema = z.object({
+  version: z.string().max(80).optional(),
+  waitMs: z.number().int().min(0).max(25_000).default(20_000),
+});
+export const threadNextListSchema = z.object({
+  version: z.string(),
+  list: threadListSchema,
+});
+
+/** What `med thread wait` waits for. */
+export const THREAD_WAITS = ["needs-you", "done", "idle"] as const;
+export type ThreadWait = (typeof THREAD_WAITS)[number] | "stopped";
+
+/** A thread's state as a wait sees it. A message that Med sent after its
+ * turn ended counts as work until the turn that reads it ends; a thread that
+ * left the tabs is closed. */
+export type WaitState = "needs-you" | "working" | "finished" | "closed";
+export function waitState(thread: Thread | undefined): WaitState {
+  if (!thread) return "closed";
+  if (needsYou(thread)) return "needs-you";
+  const sent =
+    !!thread.replied &&
+    thread.replied.delivery !== "failed" &&
+    thread.replied.at > (thread.turn?.endedAt ?? 0);
+  return thread.state === "working" || sent ? "working" : "finished";
+}
+
+/**
+ * Whether a wait is over, from the threads' states in the list before and in
+ * this one; `before` is undefined for the first list. Only a change counts,
+ * so a thread that needed the reader already does not end the next wait: one
+ * that comes to need them ends `needs-you`; one whose work finishes ends
+ * `done`; either ends `stopped` (the default). `idle` ends when none of them
+ * works. With no work under way when the wait begins, nothing can change, and
+ * it ends at once.
+ */
+export function waitOver(
+  until: ThreadWait,
+  before: ReadonlyMap<string, WaitState> | undefined,
+  now: ReadonlyMap<string, WaitState>,
+) {
+  const working = [...now.values()].includes("working");
+  if (until === "idle" || !before) return !working;
+  return [...now].some(([id, state]) => {
+    const was = before.get(id);
+    if (state === was) return false;
+    const needs = state === "needs-you";
+    const done = state === "finished" && was === "working";
+    return until === "needs-you" ? needs : until === "done" ? done : needs || done;
+  });
+}
 
 /** `POST /api/threads/:id/open`: `restore` puts a closed tab back at its
  * place, as Undo and Reopen closed tab do; otherwise it goes to the top of its

@@ -39,9 +39,10 @@ const DRAG_START = 4;
 /**
  * The sessions: New at the top, then the pinned sessions in the reader's
  * order, then every other one, newest activity first. A row is the agent's
- * mark, the session's name, and at most one dot: accent when something is new
- * since the reader looked, amber when the work stopped. A session at work
- * dims its name under a passing light. Settings is the one way out, at the foot.
+ * mark, the session's name, and at most one dot, by what it asks of the
+ * reader, as ⌘0 ranks it: an accent dot in a ring when it needs them, a plain
+ * accent dot when its work finished since they looked, amber when the work
+ * stopped. A session at work dims its name under a passing light. Settings is the one way out, at the foot.
  *
  * A row drags into Pinned, to a place among the pins, and out of it again.
  * While it drags, the list shows where it would land: the other rows make
@@ -437,8 +438,15 @@ const SessionRow = memo(function SessionRow({
   const rest = useRef<ReturnType<typeof setTimeout>>(undefined);
   const halted = !!thread.halt;
   const working = thread.state === "working" && !halted;
-  // A question waits for the reader like news does.
-  const dot = halted ? "halted" : (unread || needsYou(thread)) && !current ? "new" : null;
+  const dot = halted
+    ? "halted"
+    : current
+      ? null
+      : needsYou(thread)
+        ? "needs"
+        : unread
+          ? "new"
+          : null;
   const menuOpen = menu !== null;
   // Where the dragged row would land: an empty place, as tall as the row.
   if (placeholder)
@@ -487,8 +495,14 @@ const SessionRow = memo(function SessionRow({
           {dot && (
             <span
               role="img"
-              aria-label={dot === "new" ? "New since you looked" : "Stopped"}
-              {...stylex.props(styles.dot, dot === "halted" ? styles.halted : styles.fresh)}
+              aria-label={
+                dot === "needs" ? "Needs you" : dot === "new" ? "New since you looked" : "Stopped"
+              }
+              {...stylex.props(
+                styles.dot,
+                dot === "halted" ? styles.halted : styles.fresh,
+                dot === "needs" && styles.needs,
+              )}
             />
           )}
         </button>
@@ -738,6 +752,8 @@ const styles = stylex.create({
   },
   dot: { flex: "none", width: 7, height: 7, marginInlineEnd: 3, borderRadius: "50%" },
   fresh: { backgroundColor: tokens.accent },
+  // Louder than news: the work waits on the reader.
+  needs: { boxShadow: `0 0 0 2.5px ${tokens.accentSoft}` },
   halted: { backgroundColor: tokens.warning },
   // The menu's button takes the dot's place while the pointer is on the row.
   more: {

@@ -76,7 +76,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Show the next tab that needs you",
             keys: ["Mod+0"],
-            note: "Else the next tab whose agent works",
+            note: "Else the next whose work finished since you looked, else the next that works",
             command: "next-needs-you",
           },
           {

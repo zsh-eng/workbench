@@ -16,6 +16,8 @@ import { keepAside } from "./runtime/state-file";
 // that was a tab keeps one too, so it stays listed after Med stops finding it.
 
 const DAY = 24 * 60 * 60 * 1000;
+/** The seen marks that the file keeps, the newest first. */
+const SEEN_KEPT = 1000;
 /** A closed thread keeps its captures this long; then only its stub stays. */
 export const CAPTURES_KEPT_MS = 30 * DAY;
 /** A stub stays in history this long after its thread closed. */
@@ -63,6 +65,12 @@ const stateSchema = z.object({
   pins: z.array(z.string().max(200)).max(1000).optional(),
   /** The last pruning, in milliseconds. */
   prunedAt: z.number().optional(),
+  /** The newest change of each thread that the reader has seen, by its
+   * `updatedAt`, so every window and the CLI agree on what is new. */
+  seen: z.record(z.string().max(200), z.number()).optional(),
+  /** When Med began to keep the marks: a thread's change from before it, and
+   * a thread without a mark, count as seen up to it. */
+  seenSince: z.number().optional(),
 });
 type TabsState = z.infer<typeof stateSchema>;
 
@@ -96,6 +104,16 @@ function readTabs(text: string): { state?: TabsState; partial: boolean } {
     .slice(0, 1000);
   return { state: { version: 1, order, entries }, partial: true };
 }
+
+/** The newest marks, at most `SEEN_KEPT` of them. */
+const keepSeen = (marks: Record<string, number>) =>
+  Object.keys(marks).length <= SEEN_KEPT
+    ? marks
+    : Object.fromEntries(
+        Object.entries(marks)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, SEEN_KEPT),
+      );
 
 /** The tabs store. Changes apply in memory at once; `save()` writes them. */
 export function createThreadTabs(options: { file: string; now?: () => number }) {
@@ -287,11 +305,41 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
       state.pins = pins.includes(to) ? pins.toSpliced(at, 1) : pins.with(at, to);
       changed();
     },
+    /** The newest change of the thread that the reader has seen. */
+    seen(id: string) {
+      // The file keeps it with the next change: a read alone writes nothing.
+      state.seenSince ??= now();
+      return state.seen?.[id] ?? state.seenSince;
+    },
+    /** The reader saw the thread's changes up to `at`; a lower mark makes
+     * the later ones new again. False when the mark was the same. */
+    see(id: string, at: number) {
+      if (state.seen?.[id] === at) return false;
+      state.seen = keepSeen({ ...state.seen, [id]: at });
+      changed();
+      return true;
+    },
+    /** The marks that a browser kept before the host did: each fills a mark
+     * that the host does not have, or moves one forward. */
+    mergeSeen(marks: Readonly<Record<string, number>>) {
+      const next = { ...state.seen };
+      let moved = false;
+      for (const [id, at] of Object.entries(marks)) {
+        if (!(id in state.entries) || (next[id] !== undefined && next[id] >= at)) continue;
+        next[id] = at;
+        moved = true;
+      }
+      if (!moved) return false;
+      state.seen = keepSeen(next);
+      changed();
+      return true;
+    },
     /** Removes the thread from tabs and history. */
     forget(id: string) {
       if (!(id in state.entries) && !state.order.includes(id)) return false;
       state.order = state.order.filter((other) => other !== id);
       if (state.pins?.includes(id)) state.pins = state.pins.filter((other) => other !== id);
+      if (state.seen) delete state.seen[id];
       delete state.entries[id];
       changed();
       return true;

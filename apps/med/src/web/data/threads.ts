@@ -139,14 +139,7 @@ export const tabOrder = (threads: readonly Thread[], current?: string | null): S
   ];
 };
 
-/** The user sent a message from Med after the turn ended. */
-const answered = (thread: Thread) =>
-  !!thread.replied && thread.replied.at > (thread.turn?.endedAt ?? 0);
-
-/** A permission request, a question that waits for an answer, or work that
- * stopped until the reader acts (`halt`). */
-export const needsYou = (thread: Thread) =>
-  thread.state === "waiting" || !!thread.halt || (!!thread.turn?.asks && !answered(thread));
+export { needsYou } from "../../shared/threads";
 
 /** A short age: now, 4m, 3h, 2d, then the date. */
 export function shortAge(at: number, now: number) {

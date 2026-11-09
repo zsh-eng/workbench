@@ -16,7 +16,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Symbols in this file                   | `⌘⇧O`           |
 | Open a branch or worktree              | `⌘⇧G`           |
 | Open tab 1–9                           | `⌘1`–`⌘9`       |
-| Next tab that needs you                | `⌘0`            |
+| Next tab that needs you, or new        | `⌘0`            |
 | Close tab / reopen closed tab          | `⌘⌥W` / `⌘⌥T`   |
 | Move the focused tab                   | `⌥↑` / `⌥↓`     |
 | Layer above / below in a stack         | `⌥↑` / `⌥↓`     |

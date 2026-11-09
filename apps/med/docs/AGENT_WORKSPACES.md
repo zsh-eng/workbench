@@ -304,7 +304,9 @@ The thread list shows each lead's state from `GET /api/threads/events`
 ended on a question that no message from Med answers,
 and an unread dot for **Done**. A working row shows the running tool in place
 of its branch (`src/host/thread-turns.ts` reads the transcript's tail). The
-browser keeps the last update that you saw (`med:thread-seen`). An attached
+host keeps the last update of each tab that you saw (`seen` in `tabs.json`,
+`POST /api/threads/:id/seen`), so every window and `med thread list` agree; a
+browser sends the marks that it kept before (`med:thread-seen`) once. An attached
 Claude session cannot show a waiting permission prompt, because the transcript
 does not record it.
 
