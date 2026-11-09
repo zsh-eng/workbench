@@ -1666,9 +1666,15 @@ export function WorkspaceHost({
     });
   }, [hasSessions]);
   useEffect(() => {
+    // ⌥N, or ⌘N where the browser lets the page have it, as the installed
+    // app does; a browser tab keeps ⌘N for a new window. Control+N stays the
+    // editor's on macOS.
+    const mac = /Mac/.test(navigator.platform);
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey) return;
-      if (!event.altKey || event.code !== "KeyN") return;
+      if (event.defaultPrevented || event.shiftKey || event.code !== "KeyN") return;
+      const option = event.altKey && !event.metaKey && !event.ctrlKey;
+      const command = !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey);
+      if (!option && !command) return;
       event.preventDefault();
       setNewThread(true);
     };

@@ -31,6 +31,8 @@ import { Elapsed, formatDuration } from "./Elapsed";
 import { ScheduleFactsContext, useScheduleFacts } from "./ScheduleCard";
 import { SessionMarkdown } from "./SessionMarkdown";
 import { TurnRecap, type TurnRecapProps } from "./TurnRecap";
+import { PromptRail, type RailPrompt } from "./PromptRail";
+import type { SessionTurn } from "../../data/session-stream";
 import { ImageThumbs } from "./ImageThumbs";
 import { promptBlocks, type PromptBlock } from "./prompt-blocks";
 import { isSubagent, OpenAgentContext, RowOpen, ToolCall, useRowOpen } from "./ToolCall";
@@ -693,6 +695,19 @@ const isMessage = (
   unit: Unit,
 ): unit is { key: string; item: Extract<SessionItem, { kind: "user" | "agent" }> } =>
   "item" in unit && (unit.item.kind === "user" || unit.item.kind === "agent");
+/** A prompt that the agent took, which { and } and the prompt rail go to. */
+const isPrompt = (unit: Unit) => isMessage(unit) && unit.item.kind === "user" && !unit.item.queued;
+/** A prompt's words on one line, without Med's markers. */
+const promptLine = (item: Extract<SessionItem, { kind: "user" }>) =>
+  item.content
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join(" ")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+/** A prompt on a page of the session that has not loaded, from its index. */
+const TURN_KEY = "turn:";
 /** The item, or a call in a subagent's thread under it. */
 const holds = (item: SessionItem, id: string): boolean =>
   item.id === id || (item.kind === "tool" && item.items.some((inner) => holds(inner, id)));
@@ -1002,7 +1017,14 @@ export function SessionThread({
   backgroundIn,
   agentsIn,
   footer,
+  turns,
+  onTurn,
 }: {
+  /** The session's prompts from its index (SessionPanel), so the prompt
+   * rail also lists those on pages that have not loaded. */
+  turns?: readonly SessionTurn[];
+  /** Loads the pages back to a prompt from the index, then shows it. */
+  onTurn?(turn: SessionTurn): void;
   /** The side panel's place for the Background dock; without it, the dock
    * shows under the thread. */
   backgroundIn?: HTMLElement | null;
@@ -1517,11 +1539,45 @@ export function SessionThread({
     };
   }, []);
 
+  // The prompts, for the rail and { and }: those on pages that have not
+  // loaded, from the session's index, then the thread's own.
+  const loadedPrompts = useMemo<RailPrompt[]>(
+    () =>
+      all.flatMap((unit) =>
+        isPrompt(unit) && "item" in unit && unit.item.kind === "user"
+          ? [{ key: unit.key, at: unit.item.at, text: promptLine(unit.item) }]
+          : [],
+      ),
+    [all],
+  );
+  const earlierTurns = useMemo(() => {
+    if (!turns?.length) return [];
+    const first = loadedPrompts[0]?.at ?? Infinity;
+    const loaded = new Set(loadedPrompts.map((prompt) => prompt.at));
+    return turns.filter((turn) => turn.at < first && !loaded.has(turn.at));
+  }, [turns, loadedPrompts]);
+  const prompts = useMemo<RailPrompt[]>(
+    () => [
+      ...earlierTurns.map((turn) => ({
+        key: `${TURN_KEY}${turn.offset}`,
+        at: turn.at,
+        text: turn.text,
+      })),
+      ...loadedPrompts,
+    ],
+    [earlierTurns, loadedPrompts],
+  );
+  const latestTurns = useRef({ earlierTurns, onTurn });
+  useLayoutEffect(() => {
+    latestTurns.current = { earlierTurns, onTurn };
+  });
+
   // [ and ] step through the prompts and replies, as through hunks in
-  // Changes. The message they reach is marked while the thread has focus.
+  // Changes; { and } through the prompts alone. The message they reach is
+  // marked while the thread has focus.
   const [current, setCurrent] = useState<string>();
   const step = useCallback(
-    (direction: 1 | -1) => {
+    (direction: 1 | -1, promptsOnly = false) => {
       const node = scroller.current;
       const { all, offsets, index } = latest.current.model;
       if (!node || !all.length || !latest.current.metrics) return;
@@ -1537,7 +1593,15 @@ export function SessionThread({
         at = indexAt(offsets, y);
         if (direction > 0 ? offsets[at]! <= y + 1 : offsets[at]! >= y - 1) at += direction;
       }
-      while (at >= 0 && at < all.length && !isMessage(all[at]!)) at += direction;
+      const reached = (unit: Unit) => (promptsOnly ? isPrompt(unit) : isMessage(unit));
+      while (at >= 0 && at < all.length && !reached(all[at]!)) at += direction;
+      if (at < 0 && promptsOnly) {
+        // Before the first loaded prompt, the one before it from the index.
+        const { earlierTurns, onTurn } = latestTurns.current;
+        const turn = earlierTurns.at(-1);
+        if (turn && onTurn) onTurn(turn);
+        return;
+      }
       if (at < 0 || at >= all.length) return;
       setCurrent(all[at]!.key);
       list.current?.go(all[at]!.key);
@@ -1548,13 +1612,13 @@ export function SessionThread({
     const node = scroller.current;
     if (!node) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key !== "[" && event.key !== "]") return;
+      if (!["[", "]", "{", "}"].includes(event.key)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement;
       if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       event.preventDefault();
       event.stopPropagation();
-      step(event.key === "]" ? 1 : -1);
+      step(event.key === "]" || event.key === "}" ? 1 : -1, event.key === "{" || event.key === "}");
     };
     // The mark is for the keys: a click in the thread takes it away.
     const pointerdown = () => setCurrent(undefined);
@@ -1565,6 +1629,50 @@ export function SessionThread({
       node.removeEventListener("pointerdown", pointerdown);
     };
   }, [step]);
+  // The prompt of the turn that the view reads: the last that starts above
+  // the view's top third, or the first loaded one, above it.
+  const [reading, setReading] = useState<string>();
+  const findReading = useCallback(() => {
+    const node = scroller.current;
+    const { all, offsets } = latest.current.model;
+    if (!node || !all.length) return;
+    const y = node.scrollTop - (head.current?.offsetTop ?? 0) + node.clientHeight / 3;
+    let at = Math.min(indexAt(offsets, y), all.length - 1);
+    while (at >= 0 && !isPrompt(all[at]!)) at--;
+    if (at < 0) at = all.findIndex(isPrompt);
+    setReading(at < 0 ? undefined : all[at]!.key);
+  }, []);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    let frame = 0;
+    const onScroll = () => {
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          findReading();
+        });
+    };
+    node.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      node.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [findReading]);
+  // A new prompt, or a page of earlier ones, changes which one the view reads.
+  useEffect(findReading, [findReading, model]);
+  const goToPrompt = (key: string) => {
+    if (key.startsWith(TURN_KEY)) {
+      const offset = Number(key.slice(TURN_KEY.length));
+      const turn = earlierTurns.find((entry) => entry.offset === offset);
+      if (turn) onTurn?.(turn);
+      return;
+    }
+    setCurrent(key);
+    list.current?.go(key);
+    // The keys go on from the prompt it reached.
+    scroller.current?.focus({ preventScroll: true });
+  };
   const holdUnit = useCallback((key: string) => list.current?.hold(key), []);
   const toggleWork = (key: string) => {
     list.current?.hold(key);
@@ -1830,6 +1938,13 @@ export function SessionThread({
                   {footer !== undefined && <div aria-hidden="true" style={{ height: room }} />}
                 </div>
               </div>
+              <PromptRail
+                prompts={prompts}
+                current={reading}
+                onGo={goToPrompt}
+                bottom={footer !== undefined ? room : 0}
+                scroller={scroller}
+              />
               {!atBottom && (
                 <button
                   type="button"

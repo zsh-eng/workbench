@@ -90,7 +90,8 @@ const turnTime = (at: number) =>
 
 /**
  * The session's menu, named for its agent, in place of a row of icons: the
- * review's sessions, Show work, the turns to go to, and new sessions.
+ * review's sessions and Show work. ⌘N starts a new session, and the prompt
+ * rail at the thread's edge goes to a prompt (PromptRail).
  */
 function SessionMenu({
   agent,
@@ -99,9 +100,6 @@ function SessionMenu({
   onChoose,
   showWork,
   onToggleWork,
-  loadTurns,
-  onTurn,
-  starter,
 }: {
   agent: string;
   sessions: AgentSession[];
@@ -109,14 +107,7 @@ function SessionMenu({
   onChoose(id: string): void;
   showWork: boolean;
   onToggleWork(): void;
-  /** The session's prompts; without it the menu has no Turns. */
-  loadTurns?(): Promise<SessionTurn[]>;
-  onTurn(turn: SessionTurn): void;
-  starter?: SessionStarter;
 }) {
-  const [turns, setTurns] = useState<SessionTurn[] | null>(null);
-  const [error, setError] = useState(false);
-  const available = starter?.agents?.filter((entry) => entry.available) ?? [];
   const item = (state: { highlighted: boolean }) =>
     stylex.props(ui.menuItem, styles.menuItem, state.highlighted && [ui.menuHighlighted, picked])
       .className;
@@ -126,7 +117,7 @@ function SessionMenu({
     <QuietMenuRoot open={open} onOpenChange={setOpen} look={agent}>
       <Menu.Trigger
         aria-label={`${agent} session menu`}
-        {...tooltip("Sessions, work, and turns")}
+        {...tooltip(sessions.length > 1 ? "Sessions and work" : "Show work")}
         {...stylex.props(ui.button, ui.pressable, styles.menuTrigger, styles.leadTrigger)}
       >
         {agent}
@@ -162,68 +153,6 @@ function SessionMenu({
               )}
               <span {...stylex.props(styles.menuLabel)}>Show work</span>
             </Menu.CheckboxItem>
-            {loadTurns && (
-              <Menu.SubmenuRoot
-                onOpenChange={(open) => {
-                  if (!open) return;
-                  setError(false);
-                  loadTurns().then(setTurns, () => setError(true));
-                }}
-              >
-                <Menu.SubmenuTrigger className={item}>
-                  {check(null)}
-                  <span {...stylex.props(styles.menuLabel)}>Turns</span>
-                  <span {...stylex.props(styles.submenuArrow)}>
-                    <Icon name="chevron" size={12} />
-                  </span>
-                </Menu.SubmenuTrigger>
-                <Menu.Portal>
-                  <Menu.Positioner sideOffset={4} {...stylex.props(styles.menuPositioner)}>
-                    <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.turns)}>
-                      {turns === null || error ? (
-                        <p {...stylex.props(styles.turnsNote)}>
-                          {error ? "The turns did not load." : "Reading the session…"}
-                        </p>
-                      ) : turns.length === 0 ? (
-                        <p {...stylex.props(styles.turnsNote)}>No prompts yet.</p>
-                      ) : (
-                        [...turns].reverse().map((turn) => (
-                          <Menu.Item
-                            key={turn.offset}
-                            onClick={() => onTurn(turn)}
-                            className={(state) =>
-                              stylex.props(
-                                ui.menuItem,
-                                styles.turn,
-                                state.highlighted && [ui.menuHighlighted, picked],
-                              ).className
-                            }
-                          >
-                            <span {...stylex.props(styles.turnTime)}>{turnTime(turn.at)}</span>
-                            <span {...stylex.props(styles.turnText)}>{turn.text}</span>
-                          </Menu.Item>
-                        ))
-                      )}
-                    </Menu.Popup>
-                  </Menu.Positioner>
-                </Menu.Portal>
-              </Menu.SubmenuRoot>
-            )}
-            {available.length > 0 && (
-              <>
-                <Menu.Separator {...stylex.props(ui.separator)} />
-                {available.map((entry) => (
-                  <Menu.Item
-                    key={entry.id}
-                    onClick={() => void starter!.start(entry.id).catch(() => {})}
-                    className={item}
-                  >
-                    {check(null)}
-                    <span {...stylex.props(styles.menuLabel)}>New {entry.name} session</span>
-                  </Menu.Item>
-                ))}
-              </>
-            )}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
@@ -356,7 +285,6 @@ export function SessionPanel({
   onRemoveAttachment,
   pins,
   controls,
-  starter,
   lead,
   mentions,
   onMentionsWanted,
@@ -390,8 +318,6 @@ export function SessionPanel({
   /** The pane is on screen, so a new workspace shows once this has its
    * thread, before its review loads (see WorkspaceViews). */
   lead?: boolean;
-  /** Starts new sessions; without it the header has no New session menu. */
-  starter?: SessionStarter;
   /** The column's pane controls, in place of the close button. */
   controls?: ReactNode;
   /** Without it, replies have no Pin to review. */
@@ -503,6 +429,23 @@ export function SessionPanel({
         : undefined,
     [pageable, start, loadingEarlier, earlierFailed, loadPage],
   );
+  // The session's prompts, for the prompt rail, while earlier pages have not
+  // loaded: read once for each first view of a long session.
+  const [index, setIndex] = useState<{ generation?: number; turns: SessionTurn[] } | null>(null);
+  const indexed = index && index.generation === state.generation ? index.turns : undefined;
+  const longSession = pageable && (state.start ?? 0) > 0;
+  useEffect(() => {
+    if (!longSession) return;
+    const generation = state.generation;
+    let live = true;
+    loadSessionTurns(reviewId, session.id, fetcher).then(
+      (turns) => live && setIndex({ generation, turns }),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [longSession, reviewId, session.id, fetcher, state.generation]);
   // A turn from the index: load pages until its prompt is in the thread.
   const showTurn = async (turn: SessionTurn) => {
     let from = start;
@@ -865,9 +808,6 @@ export function SessionPanel({
       onChoose={setChosen}
       showWork={showWork}
       onToggleWork={toggleWork}
-      loadTurns={pageable ? () => loadSessionTurns(reviewId, session.id, fetcher) : undefined}
-      onTurn={(turn) => void showTurn(turn).catch(() => {})}
-      starter={starter}
     />
   );
 
@@ -980,6 +920,8 @@ export function SessionPanel({
                     reveal={reveal}
                     openAgent={openAgent}
                     showWork={showWork}
+                    turns={indexed}
+                    onTurn={(turn) => void showTurn(turn).catch(() => {})}
                     recap={turnRecap}
                     endMark={endMark}
                     backgroundIn={side ? background : undefined}
@@ -1089,17 +1031,6 @@ const styles = stylex.create({
   menuLabel: { flex: "1", minWidth: 0 },
   check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
-  submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
-  turns: { width: 340, maxWidth: "calc(100vw - 32px)" },
-  turnsNote: { margin: 0, padding: 10, color: tokens.faint, fontSize: 12 },
-  turn: { justifyContent: "flex-start", gap: 10, minWidth: 0 },
-  turnTime: {
-    flexShrink: 0,
-    color: tokens.faint,
-    fontSize: 11,
-    fontVariantNumeric: "tabular-nums",
-  },
-  turnText: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   note: { margin: 0, marginBottom: 8, color: tokens.faint, fontSize: 11.5, textAlign: "center" },
   stopped: { flexShrink: 0, marginInline: 12, marginBlock: 12 },
   takeError: { color: tokens.red },

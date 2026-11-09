@@ -253,6 +253,15 @@ function unreadable(error: unknown) {
 }
 
 /** Reads the page's pull requests, sharing a read for a minute. */
+/** Each value, once every search has ended: a host's failed search does not
+ * leave its other searches running past the read. The first failure throws. */
+async function settled<T>(work: Promise<T>[]) {
+  const results = await Promise.allSettled(work);
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
+
 export class PullInboxReader {
   private reads = new Map<string, { at: number; value: Promise<PullInbox> }>();
   constructor(private host: PullInboxHost) {}
@@ -363,10 +372,10 @@ export class PullInboxReader {
     const base = "is:pr is:open archived:false";
     const read = async (host: string, names: string[]) => {
       const each = (qualifier: string) =>
-        Promise.all(
+        settled(
           searchQueries(`${base} ${qualifier}`, names).map((query) => this.search(host, query)),
         );
-      const [requests, authored] = await Promise.all([
+      const [requests, authored] = await settled([
         each("review-requested:@me"),
         each("author:@me"),
       ]);

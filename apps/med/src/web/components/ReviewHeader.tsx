@@ -7,12 +7,14 @@ import { openSettings } from "./settings/settings-commands";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { paneHandle } from "./PaneTree";
-import { tooltip } from "./ToolButton";
+import { clippedTooltip, tooltip } from "./ToolButton";
 
 /** A review's pages, which the header's switch and the keys 1–3 choose. */
 export interface ReviewPage {
   value: string;
   label: string;
+  /** The page's icon in the switch, which names it in a tooltip. */
+  icon: IconName;
 }
 
 /** The diff's options where the reader reads them (the Display button). */
@@ -27,6 +29,8 @@ export interface DisplayOptions {
 export interface ReviewBarProps {
   /** The review's sidebar's toggle, while the sidebar hides. */
   lead?: ReactNode;
+  /** The pages, which the title row holds; the band's one row, where the
+   * review fills the window. */
   pages: readonly ReviewPage[];
   /** The page on screen; null while a file shows. */
   page: string | null;
@@ -41,11 +45,11 @@ export interface ReviewBarProps {
 
 /**
  * The review's header, in two rows. The title row names the review and holds
- * what acts on all of it: Copy comments, ⋯, and Display (ReviewTitleRow).
- * Where the review reaches the window's top right, that row is in the title
- * band above it, and this header is the second row only: the toggles of the
- * session and the review's sidebar and the page's own controls, then the
- * pages and the pane's controls at its end, where they keep their places.
+ * its pages and what acts on all of it: Copy comments, ⋯, and Display
+ * (ReviewTitleRow). Where the review reaches the window's top right, that row
+ * is in the title band above it, and this header is the second row only: the
+ * toggles of the session and the review's sidebar and the page's own
+ * controls, then the pane's controls at its end, where they keep their places.
  */
 export function ReviewHeader({
   identity,
@@ -64,7 +68,7 @@ export function ReviewHeader({
 
 /**
  * The second row's parts. In the title band, where the review fills the
- * window, they end the band's one row (`actions` after them).
+ * window, they end the band's one row, with the pages (`actions` after them).
  */
 export function ReviewBar({
   lead,
@@ -86,40 +90,71 @@ export function ReviewBar({
       {tools}
       <span data-row-grow="" {...stylex.props(styles.grow)} />
       {more}
-      {pages.length > 1 && (
-        <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
-          {pages.map((entry, index) => (
-            <button
-              key={entry.value}
-              type="button"
-              role="radio"
-              aria-checked={page === entry.value}
-              {...tooltip(entry.label, String(index + 1))}
-              onClick={() => onPage(entry.value)}
-              {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
-            >
-              <span data-truncates="" {...stylex.props(styles.name)}>
-                {entry.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      {inBand && <PageSwitch pages={pages} page={page} onPage={onPage} />}
       {actions}
       {controls}
     </div>
   );
 }
 
-/** The review's title, with Med's mark when it is a saved review. */
+/**
+ * The pages as icons side by side, the one on screen filled: Review's
+ * signpost (its Guide walks through the change), Changes' plus and minus,
+ * and Commit's Git mark. A tooltip names each, with its number key.
+ */
+export function PageSwitch({
+  pages,
+  page,
+  onPage,
+}: Pick<ReviewBarProps, "pages" | "page" | "onPage">) {
+  if (pages.length < 2) return null;
+  return (
+    <div role="radiogroup" aria-label="Page" {...stylex.props(styles.pages)}>
+      {pages.map((entry, index) => (
+        <button
+          key={entry.value}
+          type="button"
+          role="radio"
+          aria-checked={page === entry.value}
+          aria-label={entry.label}
+          {...tooltip(entry.label, String(index + 1))}
+          onClick={() => onPage(entry.value)}
+          {...stylex.props(ui.button, styles.page, page === entry.value && styles.pageOn)}
+        >
+          <Icon name={entry.icon} size={15} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The review's title, with Med's mark when it is a saved review. A title
+ * that the row cuts fades out at its end, and a tooltip has all of it.
+ */
 export function ReviewTitle({ title, reviewed }: { title: string; reviewed: boolean }) {
   return (
-    <h2 {...stylex.props(styles.title, reviewed && styles.marked)} title={title}>
+    <h2 {...clippedTooltip(title)} {...stylex.props(styles.title, reviewed && styles.marked)}>
       {reviewed && <MedMark />}
-      <span data-truncates="" {...stylex.props(styles.name)}>
-        {title}
-      </span>
+      <FadingName text={title} />
     </h2>
+  );
+}
+
+/**
+ * A name on one line that fades out at its end while the line cuts it, its
+ * ellipsis faint (TitleRow.css: a scroll timeline, so only a name that
+ * overflows has the fade; without one, the ellipsis alone).
+ */
+export function FadingName({ text, style }: { text: string; style?: stylex.StyleXStyles }) {
+  return (
+    <span
+      data-truncates=""
+      data-clip=""
+      className={`med-fading-name ${stylex.props(styles.name, style).className ?? ""}`}
+    >
+      {text}
+    </span>
   );
 }
 
@@ -140,20 +175,22 @@ export function ReviewActions({
 }
 
 /**
- * The review's title row: its title, its branch, then ReviewActions. In the
- * title band it covers the band above the review, `width` wide, with the
- * line between the panes running up its start; in the pane it is the
- * header's first row.
+ * The review's title row: its title, its branch, then its pages and
+ * ReviewActions. In the title band it covers the band above the review,
+ * `width` wide, with the line between the panes running up its start; in the
+ * pane it is the header's first row.
  */
 export function ReviewTitleRow({
   name,
   branch,
+  pages,
   actions,
   display,
   width,
 }: {
   name: ReactNode;
   branch?: string;
+  pages?: Pick<ReviewBarProps, "pages" | "page" | "onPage">;
   actions?: ReactNode;
   display?: DisplayOptions;
   /** In the title band: the width it covers, from the line between the panes. */
@@ -169,6 +206,7 @@ export function ReviewTitleRow({
       {name}
       {branch && <BranchLabel branch={branch} />}
       <span {...stylex.props(styles.grow)} />
+      {pages && <PageSwitch {...pages} />}
       <ReviewActions actions={actions} display={display} />
     </div>
   );
@@ -482,11 +520,11 @@ const styles = stylex.create({
   },
   grow: { flex: "1", minWidth: 0 },
   display: { width: 28, height: 28, marginInlineEnd: 6, color: tokens.muted },
-  // The pages' names shorten last, once the title is down to its mark.
+  // Icons, so the pages keep their width; the title gives way first.
   pages: {
     display: "flex",
-    flexShrink: 0.001,
-    minWidth: 0,
+    flexShrink: 0,
+    marginInline: 4,
     gap: 2,
     padding: 2,
     borderRadius: `calc(9px * ${tokens.round})`,
@@ -494,12 +532,13 @@ const styles = stylex.create({
     backgroundColor: tokens.canvas,
   },
   page: {
-    minWidth: 0,
+    justifyContent: "center",
+    width: 30,
+    minWidth: 30,
     height: 24,
-    paddingInline: 10,
+    paddingInline: 0,
     borderRadius: `calc(7px * ${tokens.round})`,
     color: { default: tokens.muted, ":hover": tokens.text },
-    fontSize: 12.5,
   },
   // The same weight on and off, so the pages keep their places.
   pageOn: { backgroundColor: tokens.fill, color: tokens.text },

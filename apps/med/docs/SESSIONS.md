@@ -129,8 +129,8 @@ shell command makes, such as `sed -i` or a formatter, do not count.
    screens, so the first view is small and the thread does not load an earlier
    page at once. Transcripts of long sessions reach hundreds of megabytes; one
    of 294 MB opened with 186 kB of updates, not 1.9 MB. The thread loads
-   earlier pages of 4 MiB when you scroll to its top, and **Turns** jumps to
-   any prompt
+   earlier pages of 4 MiB when you scroll to its top, and the prompt rail goes
+   to any prompt
    ([long sessions](AGENT_WORKSPACES.md#long-sessions-load-earlier-work)).
 3. It sends a `reset` event with the updates, `idle`, and the file's
    modification time, in parts of up to 1 MiB. The `reset` gives the number

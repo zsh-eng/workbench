@@ -64,8 +64,10 @@ list back: it hides the tasks until one starts or fails.
   past its neighbor.
 - Drag a gap between panes to resize them, or focus the gap and press the
   arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
-- `⌘E` zooms the focused pane to the whole workspace. Press it again, or click
-  **Restore the other panes** in the pane's header, to show the others.
+- `⌘E` zooms the focused pane to the whole workspace, wherever the focus is:
+  in a pane, a text field, the editor, the title band, or the sidebar. Press
+  it again, or click **Restore the other panes** in the pane's header, to show
+  the others.
   Opening a file shows the others too, so the file shows in the review.
 - A pane does not get narrower than 220 pixels or lower than 120. When the
   window is too small for all of them, Med hides panes until the rest fit, and
@@ -78,8 +80,10 @@ The review's header has two rows, and each thing shows once: the session's
 row names the agent and its state.
 
 - The title row names the review, after Med's mark (or its pull request),
-  and holds what acts on all of it: **Copy comments** with their number while
-  the review has comments, **⋯**, and **Display** (an icon). Where the review
+  then holds the pages and what acts on all of it: **Copy comments** with
+  their number while the review has comments, **⋯**, and **Display** (an
+  icon). A title that the row cuts fades out at its end; the pointer on it
+  shows all of it. Where the review
   reaches the window's top right, the title row goes up into the title band:
   beside the session it covers the band above the review, with the line
   between the panes running up through it, and the band's start keeps the
@@ -89,14 +93,16 @@ row names the agent and its state.
   while the session is hidden (with its agent's mark), the page's sidebar's
   button while it hides (the changed files' tree, or the guide's signpost),
   what the page compares or steps through, the comparison's **+/−** totals
-  on Review and Changes, then the pages and the pane's **Expand** and
-  **Hide**.
+  on Review and Changes, then the pane's **Expand** and **Hide**.
 - Where the review fills the window, its header is one row, in the title
   band: the session's button and the title lead it, the checkout follows,
-  quieter, and the second row's parts and the title row's actions end it.
-- The pages are **Review**, **Changes**, and **Commit**, or **Pull request**
-  for a thread with one. The number keys `1` to `3` switch between them while
-  the focus is not in a text field, the diff, or the session.
+  quieter, and the second row's parts, the pages, and the title row's
+  actions end it.
+- The pages are icons side by side, and a tooltip names each: **Review**, a
+  signpost, as its Guide walks through the change; **Changes**, a plus and a
+  minus; and **Commit**, Git's mark, or **Pull request** for a thread with
+  one. The number keys `1` to `3` switch between them while the focus is not
+  in a text field, the diff, or the session.
 - **Display**, the sliders icon, has a row for each choice, as Pierre lays its own out: the
   diff's **Layout** (**Split** or **Unified**, two icons, `S`), **Wrap long
   lines** (`W`), **Comments in the diff** (`C`), the code's text size, and
@@ -116,8 +122,8 @@ row names the agent and its state.
 - At its end, the pane's **Expand** and **Hide the review**, while the session
   shows beside it. A header narrower than 520 pixels puts them in **⋯**.
 - A narrow header gives way in this order: what the diff compares (in
-  Review, or while Changes' sidebar hides) moves into **⋯**, the title shortens to Med's mark, the
-  branch hides, and last the pages' names shorten.
+  Review, or while Changes' sidebar hides) moves into **⋯**, the branch
+  hides, and the title shortens to Med's mark. The pages keep their width.
 - **Find** (`⌘F`) is one bar at the top right, the same in the diff and in a
   file: the query, **Match case** (`⌥C`), **Whole word** (`⌥W`), **Regular
   expression** (`⌥R`), how many lines match and which shows, and Previous and

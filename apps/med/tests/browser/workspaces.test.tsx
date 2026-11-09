@@ -800,8 +800,9 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   // The band's start names the branch; above the review, the band holds the
   // review's title row; the session's header names only its agent. No
   // toolbar or status bar.
+  await expect.element(band.getByRole("button", { name: "fixture. Copy the path" })).toBeVisible();
   await expect
-    .element(band.getByRole("button", { name: "fixture, main. Copy path" }))
+    .element(band.getByRole("button", { name: "main. Copy the branch name" }))
     .toBeVisible();
   await expect
     .element(band.getByRole("heading", { level: 2, name: "Talk review", exact: true }))

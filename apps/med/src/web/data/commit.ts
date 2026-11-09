@@ -11,6 +11,11 @@ import type { ReviewFile } from "../../shared/protocol";
 import { reviewSchema, type createApi } from "./api";
 
 export type { CommitResult, FileChanges, ShownFile, WorkingFile, WorkingStatus };
+
+/** `q` in a file's Vim Normal or Visual mode: the workspace on screen opens
+ * its Commit tab, or goes back, as `q` does outside the file (App.tsx). */
+export const COMMIT_KEY = "med:commit-key";
+export const pressCommitKey = () => window.dispatchEvent(new Event(COMMIT_KEY));
 /** A commit as the tab sends it; the host adds the checkout. */
 export type CommitInput = Omit<CommitRequest, "repo">;
 /** Every change from HEAD to the working files, as one patch. */

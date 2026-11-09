@@ -8,6 +8,8 @@ import type { Comparison } from "../../src/shared/protocol";
 import type { SavedCheckout } from "../../src/shared/saved-review";
 import type { Thread } from "../../src/shared/threads";
 import { initializeTheme, themeController } from "../../src/web/themes";
+// The title band's sizes, which the review's title row in the band reads.
+import "../../src/web/components/TitleRow.css";
 
 // Sessions that Med found by itself (src/host/found-sessions.ts) list as
 // threads; one opens as a workspace on its checkout, with its session.

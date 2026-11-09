@@ -37,6 +37,7 @@ import { MultiFileDiff } from "@pierre/diffs/react";
 import { useTheme } from "../themes";
 import { codeColors } from "../code-colors";
 import type { EditorDraft, EditorDrafts } from "../data/editor-drafts";
+import { pressCommitKey } from "../data/commit";
 import type { FileRead, FileWrite } from "../../shared/local-file";
 import { HttpError } from "../data/api";
 import { diffSurfaceStyle } from "./diff-surface";
@@ -240,6 +241,11 @@ Vim.mapCommand("K", "action", "medHover", {}, { context: "normal" });
 for (const context of ["normal", "visual"] as const) {
   Vim.mapCommand("gc", "action", "medComment", {}, { context });
 }
+// `q` goes to the Commit tab, as it does outside the editor; Vim's macros,
+// which `q` records, have no use here. `@` still replays a register.
+Vim.defineAction("medCommit", () => pressCommitKey());
+for (const context of ["normal", "visual"] as const)
+  Vim.mapCommand("q", "action", "medCommit", {}, { context });
 Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
 Vim.defineEx("wq", undefined, (cm) => actions.get(cm)?.saveAndClose());

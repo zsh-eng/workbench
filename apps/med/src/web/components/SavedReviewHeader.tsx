@@ -9,6 +9,8 @@ import { paneHandle } from "./PaneTree";
 import { CommentsButton } from "./CommentsPanel";
 import type { ListedComment } from "../data/listed-comments";
 import { Icon, IconShapes } from "./Icon";
+import { FadingName } from "./ReviewHeader";
+import { clippedTooltip } from "./ToolButton";
 import {
   CodexReviewPanel,
   PullRequestPanel,
@@ -345,12 +347,12 @@ export function PullRequestTitle({
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`Open pull request #${number}: ${heading}`}
-        title={`#${number} ${heading}`}
+        {...clippedTooltip(`#${number} ${heading}`)}
         {...stylex.props(styles.pullLink)}
       >
         <Icon name="github" size={14} />
         <span {...stylex.props(styles.pullNumber)}>#{number}</span>
-        <span {...stylex.props(styles.ellipsis, styles.pullTitle)}>{heading}</span>
+        <FadingName text={heading} style={styles.pullTitle} />
         <Icon name="external" size={12} />
       </a>
       {pull && (
@@ -381,7 +383,7 @@ const styles = stylex.create({
     textDecoration: { default: "none", ":hover": "underline" },
   },
   pullNumber: { flexShrink: 0, color: tokens.muted, fontVariantNumeric: "tabular-nums" },
-  /** A long title stops at about 48 characters of text; the link's tooltip has all of it. */
+  /** A long title stops at about 48 characters of text and fades; the link's tooltip has all of it. */
   pullTitle: { maxWidth: "36ch" },
   pullAuthor: {
     display: { default: "block", "@container (max-width: 520px)": "none" },

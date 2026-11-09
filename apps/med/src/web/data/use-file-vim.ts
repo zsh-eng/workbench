@@ -15,6 +15,7 @@ import VimSearchWorker from "./vim-search.worker?worker";
 import { createVisualSelection } from "./visual-selection";
 import { createActiveSearchHighlight } from "./active-search-highlight";
 import { MAX_VIM_MATCHES, VimNavigation, type VisualMode } from "./vim-navigation";
+import { pressCommitKey } from "./commit";
 
 type SearchResult = { identity: string; message: string; query: string; wholeWord: boolean };
 type SearchSession = {
@@ -518,7 +519,15 @@ export function useFileVim<Annotation = undefined>({
       event.ctrlKey,
       Math.max(1, Math.floor((pane.current?.clientHeight ?? 400) / 40)),
     );
-    if (!result.handled) return;
+    if (!result.handled) {
+      // `q` goes to the Commit tab, as it does outside the file (App.tsx),
+      // once no motion waits for a letter, as `f` and `m` do.
+      if (event.key === "q" && !event.ctrlKey) {
+        event.preventDefault();
+        pressCommitKey();
+      }
+      return;
+    }
     event.preventDefault();
     active.current = true;
     if (result.search) {

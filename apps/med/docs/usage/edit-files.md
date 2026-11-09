@@ -49,9 +49,11 @@ repository. The browser must have opened the launch URL first.
 
 ## Commit and push
 
-Press `q` in a review of live changes, or click the **Commit** tab, to stage
-files, commit them, and push the branch. Press `q` again to go back to the tab
-that showed before.
+Press `q` in a review of live changes, or click the **Commit** page's Git
+icon, to stage files, commit them, and push the branch. Press `q` again to go
+back to the tab that showed before. In a file, `q` works from Vim's Normal and
+Visual modes, so it does not record a macro; after `f`, `t`, or `m` it is the
+letter that the motion waits for.
 
 - **Files.** The list shows each changed file: ● staged, ◐ partly staged, ○ not
   staged. Their diffs follow in the same order. `j` and `k` move through the

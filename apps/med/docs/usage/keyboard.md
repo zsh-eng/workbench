@@ -24,10 +24,10 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Toggle the sidebar / session           | `⌘B` / `⌘⇧B`    |
 | Toggle the page's sidebar / side panel | `⌘⌥B` / `⌘⌥⇧B`  |
 | Next permission mode (message)         | `⇧Tab`          |
-| New thread                             | `⌥N`            |
+| New thread                             | `⌥N` or `⌘N`    |
 | Focus the next pane                    | `⌘⌥←`           |
 | Move the focused pane                  | `⌘⌥⇧←`          |
-| Zoom the focused pane                  | `⌘E`            |
+| Zoom the focused pane, from anywhere   | `⌘E`            |
 | Balance the panes                      | `⌘⌃=`           |
 | Review / Changes / Commit page         | `1` / `2` / `3` |
 | Comment on selected lines              | `c`             |
@@ -35,6 +35,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | A name's definition, in Vim            | `K`             |
 | Next / previous guide segment          | `j` / `k`       |
 | Next / previous excerpt or reply       | `]` / `[`       |
+| Next / previous prompt, in the thread  | `}` / `{`       |
 | Resume search                          | `⌥R`            |
 | Show tab 1–8 / the last tab            | `⌥1`–`⌥9`       |
 | Previous / next tab                    | `⌘⇧[` / `⌘⇧]`   |

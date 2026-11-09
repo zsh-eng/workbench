@@ -4,7 +4,7 @@ import type { Thread, ThreadList } from "../../../shared/threads";
 import type { Workspace } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { ToolButton, tooltip } from "../ToolButton";
+import { ToolButton } from "../ToolButton";
 import { RenameField } from "./RenameField";
 
 const basename = (path: string) =>
@@ -154,8 +154,15 @@ export function WorkspaceBar({
   );
 }
 
-/** The repository, the branch, and a linked worktree's folder. A click copies
- * the checkout's path. */
+/** Which part of the checkout a click copied, for a moment. */
+type Copied = "repository" | "branch" | "folder";
+
+/**
+ * The repository, the branch, and a linked worktree's folder. The branch
+ * copies its name; the folder, and the repository's name, copy the checkout's
+ * path. The part that copied turns to the accent, its icon a check, for a
+ * moment. No tooltip: each part says what it is.
+ */
 function Checkout({
   repository,
   branch,
@@ -167,44 +174,70 @@ function Checkout({
   after: boolean;
   secondary: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<Copied | null>(null);
   useEffect(() => {
     if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1400);
+    const timer = setTimeout(() => setCopied(null), 1400);
     return () => clearTimeout(timer);
   }, [copied]);
+  const copy = (part: Copied, text: string) =>
+    void navigator.clipboard.writeText(text).then(
+      () => setCopied(part),
+      () => {},
+    );
+  const part = (which: Copied) =>
+    stylex.props(ui.button, ui.pressable, styles.part, copied === which && styles.copied);
+  const folder = basename(path);
   return (
-    <button
-      type="button"
-      aria-label={`${repository}, ${branch ?? "detached HEAD"}${linked ? `, worktree ${basename(path)}` : ""}. Copy path`}
-      {...tooltip(copied ? "Copied" : `Copy path · ${path}`)}
-      onClick={() =>
-        void navigator.clipboard.writeText(path).then(
-          () => setCopied(true),
-          () => {},
-        )
-      }
-      {...stylex.props(
-        ui.button,
-        ui.pressable,
-        styles.checkout,
-        styles.copy,
-        secondary && styles.secondary,
-      )}
-    >
-      <span {...stylex.props(styles.name, after && styles.nameAfter)}>{repository}</span>
-      <span {...stylex.props(styles.part)}>
-        <Icon name="branch" size={13} />
-        <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
-      </span>
-      {/* A worktree folder that has the branch's name says nothing more. */}
-      {linked && basename(path) !== branch && (
-        <span {...stylex.props(styles.part, styles.worktree)}>
-          <Icon name="folder" size={13} />
-          <span {...stylex.props(styles.ellipsis)}>{basename(path)}</span>
+    <span {...stylex.props(styles.checkout, secondary && styles.secondary)}>
+      <button
+        type="button"
+        aria-label={`${repository}. Copy the path`}
+        onClick={() => copy("repository", path)}
+        {...part("repository")}
+      >
+        <span
+          {...stylex.props(
+            styles.name,
+            after && styles.nameAfter,
+            copied === "repository" && styles.copied,
+          )}
+        >
+          {repository}
         </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`${branch ?? "Detached HEAD"}. Copy the branch name`}
+        disabled={!branch}
+        onClick={() => branch && copy("branch", branch)}
+        {...part("branch")}
+      >
+        <Icon name={copied === "branch" ? "check" : "branch"} size={13} />
+        <span {...stylex.props(styles.ellipsis)}>{branch ?? "Detached HEAD"}</span>
+      </button>
+      {/* A worktree folder that has the branch's name says nothing more. */}
+      {linked && folder !== branch && (
+        <button
+          type="button"
+          aria-label={`${folder}. Copy the path`}
+          onClick={() => copy("folder", path)}
+          {...stylex.props(
+            ui.button,
+            ui.pressable,
+            styles.part,
+            styles.worktree,
+            copied === "folder" && styles.copied,
+          )}
+        >
+          <Icon name={copied === "folder" ? "check" : "folder"} size={13} />
+          <span {...stylex.props(styles.ellipsis)}>{folder}</span>
+        </button>
       )}
-    </button>
+      <span role="status" {...stylex.props(styles.announce)}>
+        {copied === "branch" ? "Copied the branch name" : copied ? "Copied the path" : ""}
+      </span>
+    </span>
   );
 }
 
@@ -219,8 +252,8 @@ const styles = stylex.create({
     flexShrink: 0,
     minWidth: 0,
     height: "var(--med-top-row)",
-    // The checkout's name starts at the thread's text edge (22 pixels in).
-    paddingInlineStart: 14,
+    // The checkout's name starts close to the band's start (12 pixels in).
+    paddingInlineStart: 6,
     // Clear of the window controls at the right, as on Windows and Linux.
     paddingInlineEnd: "max(calc(var(--med-titlebar-right) + 4px), 8px)",
     color: tokens.muted,
@@ -244,19 +277,9 @@ const styles = stylex.create({
   checkout: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 10,
+    gap: 2,
     minWidth: 0,
-    height: 28,
-    paddingInline: 8,
     whiteSpace: "nowrap",
-  },
-  copy: {
-    borderWidth: 0,
-    backgroundColor: { default: "transparent", ":hover": tokens.fill },
-    color: tokens.muted,
-    fontFamily: tokens.ui,
-    fontSize: 12.5,
-    cursor: "default",
   },
   // After a workspace's own title, the checkout keeps its width up to a
   // limit, and goes where the band is narrow.
@@ -306,7 +329,31 @@ const styles = stylex.create({
     fontSize: 13,
     fontWeight: 500,
   },
-  part: { display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 },
+  // Each part copies on its own, so each has its own hover.
+  part: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+    height: 26,
+    paddingInline: 6,
+    borderWidth: 0,
+    backgroundColor: { default: "transparent", ":hover:not(:disabled)": tokens.fill },
+    color: tokens.muted,
+    fontFamily: tokens.ui,
+    fontSize: 12.5,
+    cursor: "default",
+  },
   worktree: { color: tokens.faint },
+  copied: { color: tokens.accent },
+  // Read out once, by a screen reader; nothing to see.
+  announce: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+  },
   ellipsis: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
 });

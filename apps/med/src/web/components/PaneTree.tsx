@@ -628,12 +628,6 @@ export function PaneTree({
       // Vim keeps Control in the editor on macOS (Control+E scrolls).
       const inEditor = (key.target as HTMLElement).closest?.(".cm-editor");
       if (inEditor && key.ctrlKey && !key.metaKey && /Mac/.test(navigator.platform)) return;
-      if (mod && !key.altKey && !key.shiftKey && key.key.toLowerCase() === "e") {
-        if (state.open.length < 2) return;
-        key.preventDefault();
-        state.toggleZoom(state.zoom ?? state.focused());
-        return;
-      }
       const arrows: Record<string, Direction> = {
         ArrowLeft: "left",
         ArrowRight: "right",
@@ -660,6 +654,28 @@ export function PaneTree({
     };
     scope.addEventListener("keydown", keydown);
     return () => scope.removeEventListener("keydown", keydown);
+  }, [element, state]);
+  // ⌘E expands the focused pane, and restores the others, wherever the focus
+  // is: in a pane, a text field, the editor, the title band, or the sidebar.
+  // It goes to the workspace on screen, before the focused element's own keys.
+  useEffect(() => {
+    if (!element) return;
+    const keydown = (key: KeyboardEvent) => {
+      if (key.isComposing || key.altKey || key.shiftKey) return;
+      if (!(key.metaKey || key.ctrlKey) || key.key.toLowerCase() !== "e") return;
+      // Vim keeps Control in the editor on macOS (Control+E scrolls).
+      const target = key.target as HTMLElement | null;
+      if (key.ctrlKey && !key.metaKey && /Mac/.test(navigator.platform)) return;
+      // A dialog over the workspace keeps its keys; a hidden workspace has none.
+      if (!element.offsetParent || target?.closest?.('[role="dialog"], [role="alertdialog"]'))
+        return;
+      if (state.open.length < 2) return;
+      key.preventDefault();
+      key.stopPropagation();
+      state.toggleZoom(state.zoom ?? state.focused());
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
   }, [element, state]);
 
   const byId = new Map(panes.map((pane) => [pane.id, pane]));

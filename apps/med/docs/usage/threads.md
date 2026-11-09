@@ -73,7 +73,9 @@ load it or read its agents until you open it again.
 
 ## New threads and the sidebar
 
-- **New thread** (`⌥N`) asks one thing in its middle: **Where to work**.
+- **New thread** (`⌥N`, or `⌘N` where the browser lets Med have it, as the
+  installed app does; a browser tab keeps `⌘N` for a new window) asks one
+  thing in its middle: **Where to work**.
   Your repositories are one list: those of your newest threads, tabs and
   history first, newest first, up to 5, then the others. The chosen one has a
   check. The list scrolls when it is long. Type in its filter to narrow it;
@@ -192,8 +194,9 @@ scheduling when you ask for a check later.
   started, keeps that capture as version 1; an empty capture alone is not a
   Review.
 - The band above the workspace names the checkout that it shows: the
-  repository, the branch, and a linked worktree's folder. Click it to copy the
-  checkout's path. In a thread with a pull request, the pull request leads the
+  repository, the branch, and a linked worktree's folder. Click the branch to
+  copy its name, or the repository or the folder to copy the checkout's path;
+  the part turns to the accent for a moment. In a thread with a pull request, the pull request leads the
   band, and the checkout follows it. With the installed app's title bar hidden, the band is the
   title bar, beside the window controls; while the sidebar is hidden, the band
   starts with **Show sidebar**.
@@ -240,14 +243,18 @@ background shells and agents. It follows the session live.
   in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
-  review's sessions, **Show work**, **Turns**, and a new session with each
-  installed agent.
+  review's sessions and **Show work**. **New thread** (`⌥N`, or `⌘N` where
+  the browser lets Med have it) starts another session.
 - **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
   shows its state. The review's **Restore**, at its top right where
   **Expand** was, `⌘K`, or `⌘⇧B` again, shows the pane.
-- A long session opens on its latest work. Scroll up for earlier work, or jump
-  to a prompt from **Turns**.
+- A long session opens on its latest work. Scroll up for earlier work, or go
+  to a prompt from the prompt rail.
+- The **prompt rail** at the thread's right edge has a dash for each prompt,
+  the first at the top; the dash of the turn in view is longer and darker.
+  The pointer on the rail, or the focus in it, lists the prompts with their
+  times, and a click goes to one, loading the earlier pages back to it.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn, or **Show work** to
   open every turn.
@@ -263,8 +270,9 @@ background shells and agents. It follows the session live.
   **Done** leaves after a few seconds, and **Failed** stays until you open it,
   hide the list, or send the next prompt. With nothing to show, the list is
   gone. × hides it until a new task starts.
-- With focus in the thread, `[` and `]` step through prompts and replies. A
-  task in **Background** goes to its call.
+- With focus in the thread, `[` and `]` step through prompts and replies, and
+  `{` and `}` through the prompts alone. A task in **Background** goes to its
+  call.
 - A turn that ended while you did not see its session ends with a recap,
   under the last reply. The recap is one line of facts that Med knows, such as
   `2 files · +14 −3 · bun test 5 pass · tsc fail`, then **Review** and

@@ -52,6 +52,8 @@ const ICONS: Record<string, string | [string, number]> = {
   read: "Book",
   diff: "SymbolDiffstat",
   commit: "Commit",
+  // The Commit page: staging, committing, and pushing, all of Git.
+  git: "BrandGit",
   push: "Pushed",
   compare: ["ArrowsUpDown", 90],
   github: "BrandGithub",

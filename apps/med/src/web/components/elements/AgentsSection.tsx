@@ -29,7 +29,6 @@ function RunningSession({ preset }: { preset: AgentPreset }) {
   useEffect(() => () => agent.dispose(), [agent]);
   const state = useSyncExternalStore(agent.subscribeInbox, agent.inbox);
   const inbox = useMemo<AgentInbox>(() => ({ state, send: agent.send }), [state, agent]);
-  const starter = useMemo(() => ({ agents: demoAgents, start: async () => {} }), []);
   return (
     <div {...stylex.props(styles.frame)}>
       <SessionPanel
@@ -37,7 +36,6 @@ function RunningSession({ preset }: { preset: AgentPreset }) {
         sessions={[agent.session]}
         fetcher={agent.fetcher}
         inbox={inbox}
-        starter={starter}
         onOpenPath={() => {}}
         onClose={() => {}}
       />

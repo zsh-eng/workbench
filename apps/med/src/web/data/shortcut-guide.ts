@@ -159,7 +159,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Open or close the Commit tab",
             keys: ["q"],
-            note: "Live changes, outside text fields and files",
+            note: "Live changes, outside text fields; in a file, in Vim's Normal or Visual mode",
             command: "commit",
           },
           {
@@ -210,6 +210,12 @@ export const guideContexts: GuideContext[] = [
             note: "While its recap shows: what is new since you last looked, or the overview",
           },
           { label: "Hide the recap until the next turn", keys: ["Esc"], note: "In the recap" },
+          { label: "Next / previous message", keys: ["]", "["], note: "In the thread" },
+          {
+            label: "Next / previous prompt",
+            keys: ["}", "{"],
+            note: "In the thread; the rail at its right edge lists every prompt",
+          },
         ],
       },
       {
@@ -217,6 +223,11 @@ export const guideContexts: GuideContext[] = [
         entries: [
           { label: "Toggle the sidebar", keys: ["Mod+B"], command: "sidebar" },
           { label: "Toggle the agent session", keys: ["Mod+Shift+B"], command: "agent-session" },
+          {
+            label: "Expand the focused pane, or restore the others",
+            keys: ["Mod+E"],
+            note: "Wherever the focus is",
+          },
           {
             label: "Toggle the page's sidebar",
             keys: ["Mod+Alt+B"],

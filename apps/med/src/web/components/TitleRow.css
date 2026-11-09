@@ -52,3 +52,18 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+
+/* A title that its row cuts fades out at its end, and its ellipsis with it
+   (ReviewHeader's FadingName). The fade follows the name's own horizontal
+   scroll timeline, which is active only while the text overflows, so a name
+   that fits has none. A browser without scroll timelines shows the ellipsis. */
+@keyframes med-fading-name {
+  from,
+  to {
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), rgb(0 0 0 / 0.25));
+  }
+}
+.med-fading-name {
+  animation: med-fading-name linear both;
+  animation-timeline: scroll(self inline);
+}

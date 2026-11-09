@@ -2500,6 +2500,62 @@ describe("graphical review", () => {
       .toBe("Checked against the current source");
     await expect.element(page.getByText("Preserve this concern", { exact: true })).toBeVisible();
   });
+  test("q goes to the Commit tab from a file's Vim Normal and Visual modes, and types in Insert", async () => {
+    const repository = createFakeRepository({
+      upstream: false,
+      hookFails: false,
+      pushRejected: false,
+      slow: false,
+    });
+    await mountApp({ commitApi: repository.api });
+    const commitPage = page.getByRole("radio", { name: "Commit", exact: true });
+    const fileTab = page.getByRole("tab", { name: "alpha.ts", exact: true });
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Edit src/alpha.ts", exact: true });
+    await expect.element(editor).toBeVisible();
+    await editor.click();
+    // Insert mode types the letter; the file has none before.
+    expect(editor.element().textContent).not.toContain("q");
+    await userEvent.keyboard("iq{Escape}");
+    await expect.poll(() => editor.element().textContent).toContain("q");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "false");
+    // Normal mode: q goes to Commit, not into a macro.
+    await userEvent.keyboard("q");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
+    // q goes back to the file, and from Visual mode to Commit again.
+    await userEvent.keyboard("q");
+    await expect.element(fileTab).toHaveAttribute("aria-selected", "true");
+    await editor.click();
+    await userEvent.keyboard("V");
+    await userEvent.keyboard("q");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("q goes to the Commit tab from the read-only file view, unless a motion waits for a letter", async () => {
+    const repository = createFakeRepository({
+      upstream: false,
+      hookFails: false,
+      pushRejected: false,
+      slow: false,
+    });
+    await mountApp({ commitApi: repository.api, readOnly: true });
+    const commitPage = page.getByRole("radio", { name: "Commit", exact: true });
+    await page.getByRole("link", { name: "src/alpha.ts", exact: true }).click();
+    const pane = page.getByRole("textbox", { name: "File navigation", exact: true });
+    await expect.poll(() => document.activeElement).toBe(pane.element());
+    // `f` takes the q as the letter to find.
+    await userEvent.keyboard("fq");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "false");
+    await userEvent.keyboard("q");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
+    // In Visual mode too.
+    await userEvent.keyboard("q");
+    await expect.poll(() => document.activeElement).toBe(pane.element());
+    await userEvent.keyboard("v");
+    await userEvent.keyboard("q");
+    await expect.element(commitPage).toHaveAttribute("aria-checked", "true");
+  });
+
   test("q opens the Commit tab, where keys stage, commit, and push a new branch", async () => {
     // An unsent message is kept per checkout; start without one.
     for (const key of Object.keys(localStorage))
@@ -4239,18 +4295,31 @@ describe("agent session", () => {
       .element(panel.getByText("The session is long", { exact: false }))
       .not.toBeInTheDocument();
 
-    // The session menu's Turns lists the prompts, newest first.
-    await panel.getByRole("button", { name: "Claude session menu" }).click();
-    await page.getByRole("menuitem", { name: "Turns" }).click();
-    const first = page.getByRole("menuitem", { name: /First prompt/ });
+    // The prompt rail at the thread's edge lists the prompts, the first at
+    // the top, and goes to one; the session menu has no list of its own.
+    const rail = panel.getByRole("navigation", { name: "Prompts" });
+    await rail.getByRole("button", { name: "2 prompts" }).click();
+    const first = rail.getByRole("button", { name: /^First prompt/ });
     await expect.element(first).toBeVisible();
     expect(
-      [
-        ...first.element().parentElement!.querySelectorAll('[role="menuitem"] > span:last-child'),
-      ].map((text) => text.textContent),
-    ).toEqual(["Second prompt", "First prompt"]);
+      [...rail.element().querySelectorAll("time")].map(
+        (time) => time.previousElementSibling?.textContent,
+      ),
+    ).toEqual(["First prompt", "Second prompt"]);
     await first.click();
-    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+    await expect.element(first).not.toBeInTheDocument();
+    const current = () =>
+      document.querySelector<HTMLElement>('[data-message="user"][data-current]')?.textContent;
+    await expect.poll(current).toContain("First prompt");
+    // } and { step through the prompts alone, as [ and ] through every message.
+    await userEvent.keyboard("}");
+    await expect.poll(current).toContain("Second prompt");
+    await userEvent.keyboard("{{");
+    await expect.poll(current).toContain("First prompt");
+    await panel.getByRole("button", { name: "Claude session menu" }).click();
+    await expect.element(page.getByRole("menuitemcheckbox", { name: "Show work" })).toBeVisible();
+    expect(page.getByRole("menuitem").elements()).toHaveLength(0);
+    await userEvent.keyboard("{Escape}");
   });
 
   test("the header shows the thread's context and spend, and a click shows where they come from", async () => {

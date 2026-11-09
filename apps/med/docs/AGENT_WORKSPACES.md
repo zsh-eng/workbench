@@ -386,7 +386,8 @@ before a byte offset, and `GET …/turns` lists each prompt with its offset from
 an index that grows with the file. The store keeps a result whose call is on an
 earlier page until that page arrives. The thread renders at most 600 top-level
 rows, loads the earlier page near its top, and keeps the first visible row in
-place. **Turns** jumps to a prompt by loading each page back to it.
+place. The prompt rail at the thread's edge lists the prompts from that index
+with the thread's own, and goes to one by loading each page back to it.
 
 ## Model, effort, and commands
 

@@ -457,7 +457,7 @@ test("a pull request is the thread's title in the window's band, before its chec
   const band = link.element().closest<HTMLElement>('header[aria-label="Workspace"]')!;
   expect(band).not.toBeNull();
   await expect.poll(() => band.textContent).toMatch(/#7\s*Rename the export.*Open\s*mira/);
-  const checkout = page.getByRole("button", { name: /^fixture, feature/ });
+  const checkout = page.getByRole("button", { name: "fixture. Copy the path", exact: true });
   await expect.element(checkout).toBeVisible();
   expect(
     link.element().compareDocumentPosition(checkout.element()) & Node.DOCUMENT_POSITION_FOLLOWING,

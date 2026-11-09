@@ -357,7 +357,7 @@ test("the Commit tab's Stage all is in the review's row, and the tab does not na
   await expect.poll(() => stage()).toBeUndefined();
 });
 
-test("a narrow row shortens the comparison, then moves it into ⋯, and keeps ⋯ in view", async () => {
+test("a narrow row keeps ⋯ in view, and the comparison and Stage all keep their room", async () => {
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await openThread("A thread about the export");
@@ -390,40 +390,37 @@ test("a narrow row shortens the comparison, then moves it into ⋯, and keeps �
   // Review names no comparison at any width.
   expect([...seen.keys()]).toEqual(["⋯"]);
 
-  // In Changes, a narrow row puts the comparisons first in ⋯.
+  // In Changes, beside the session, the comparison keeps its place in the
+  // row at every width, whole: the pages are in the title row, so the second
+  // row has room for it, and ⋯ stays in view.
   await page.getByRole("radio", { name: /^Changes/ }).click();
-  let narrow = 1280;
-  for (; narrow >= 600; narrow -= 20) {
-    await page.viewport(narrow, 800);
+  for (let width = 1280; width >= 600; width -= 40) {
+    await page.viewport(width, 800);
     await frame();
-    if (!comparison()) break;
+    const line = row()!;
+    const more = [...line.querySelectorAll('[aria-label="More actions"]')].at(-1)!;
+    expect(more.getBoundingClientRect().right, `⋯ at ${width} px`).toBeLessThanOrEqual(
+      line.getBoundingClientRect().right,
+    );
+    const value = () => comparison()?.querySelector<HTMLElement>("[data-choice-value]");
+    await expect.poll(() => value()?.textContent, { timeout: 1000 }).toBe("Working changes");
+    await expect
+      .poll(() => value()!.scrollWidth - value()!.clientWidth, { timeout: 1000 })
+      .toBeLessThanOrEqual(1);
   }
-  await expect.poll(() => comparison()).toBeFalsy();
-  const more = () =>
-    [...row()!.querySelectorAll<HTMLElement>('[aria-label="More actions"]')].at(-1)!;
-  more().click();
-  await page.getByRole("menuitem", { name: "Working changes" }).hover();
-  await expect
-    .element(page.getByRole("menuitemcheckbox", { name: "Staged changes" }))
-    .not.toBeChecked();
-  await userEvent.keyboard("{Escape}{Escape}");
 
-  // 600 px: the tabs keep their place and ⋯ its own.
-  await page.viewport(600, 800);
-  await frame();
-  const changes = row()!.querySelector<HTMLElement>('[role="radio"]')!;
+  // 600 px: the pages keep their place in the title row.
+  const changes = page.getByRole("radio", { name: "Changes", exact: true }).element();
   expect(changes.getBoundingClientRect().width).toBeGreaterThan(0);
 
-  // On the Commit page, a row without room for Stage all gives it back to
-  // the view's header, and the pages keep that room. It returns to the row
-  // once the row has room for it beside the title.
+  // On the Commit page, Stage all is in the row beside the title at every
+  // width: the pages left the row the room for it.
   await page.getByRole("radio", { name: "Commit", exact: true }).click();
   const stage = () =>
     [...row()!.querySelectorAll("button")].find((button) =>
       /^(Un)?[Ss]tage /.test(button.textContent ?? ""),
     );
-  await expect.element(page.getByRole("button", { name: /^(Un)?[Ss]tage all$/ })).toBeVisible();
-  await expect.poll(() => stage()).toBeUndefined();
+  await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
   await page.viewport(2400, 800);
   await expect.poll(() => stage()?.textContent).toMatch(/^(Un)?[Ss]tage all$/);
 });
@@ -434,10 +431,13 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
   await openThread("A thread about the export");
   await expect.poll(() => shown()?.dataset.reviewId).toBe("talk-target");
   const names = ["Review", "Changes", "Commit"];
+  // The pages are in the review's title row, in the band above it here.
   const tab = (name: string) =>
-    [...row()!.querySelectorAll<HTMLElement>('[role="radio"]')].find(
-      (radio) => radio.textContent === name,
-    )!;
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="radiogroup"][aria-label="Page"] [role="radio"]',
+      ),
+    ].find((radio) => radio.checkVisibility() && radio.getAttribute("aria-label") === name)!;
   const boxes = () =>
     names.map((name) => {
       const box = tab(name).getBoundingClientRect();
@@ -455,9 +455,8 @@ test("the tabs keep their places as you switch between Review, Changes, and Comm
       seen.push(boxes());
     }
     for (const entry of seen) expect(entry, `at ${width} px`).toEqual(seen[0]);
-    // Changes has no count in a thread with a Review: it could not keep one
-    // while Review shows.
-    expect(tab("Changes").textContent).toBe("Changes");
+    // The pages are icons: no count or name that could change their width.
+    expect(tab("Changes").textContent).toBe("");
   }
 });
 

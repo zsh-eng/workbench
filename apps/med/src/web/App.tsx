@@ -135,7 +135,7 @@ import { FileViewTabs } from "./components/FileViewTabs";
 import { checkoutNameFor } from "./data/checkout-names";
 import { readBrowserToken } from "./data/auth";
 import { createApi } from "./data/api";
-import { createCommitApi, type CommitApi } from "./data/commit";
+import { COMMIT_KEY, createCommitApi, type CommitApi } from "./data/commit";
 import {
   PullRequestThreadCard,
   AgentReplyContext,
@@ -1836,10 +1836,14 @@ export function App({
   const reviewAvailable = !!state.savedReview && hasReview(state.savedReview);
   const reviewPages = useMemo<ReviewPage[]>(
     () => [
-      ...(reviewAvailable ? [{ value: "review", label: "Review" }] : []),
-      { value: "changes", label: "Changes" },
-      ...(commitApi && !livePullUrl ? [{ value: "commit", label: "Commit" }] : []),
-      ...(hasPullTab ? [{ value: "brief", label: "Pull request" }] : []),
+      ...(reviewAvailable ? [{ value: "review", label: "Review", icon: "guide" as const }] : []),
+      { value: "changes", label: "Changes", icon: "diff" },
+      ...(commitApi && !livePullUrl
+        ? [{ value: "commit", label: "Commit", icon: "git" as const }]
+        : []),
+      ...(hasPullTab
+        ? [{ value: "brief", label: "Pull request", icon: "pullRequest" as const }]
+        : []),
     ],
     [reviewAvailable, commitApi, livePullUrl, hasPullTab],
   );
@@ -2164,6 +2168,16 @@ export function App({
       fileWorkspace.getSnapshot().active === "commit" ? fileWorkspace.previous() : "commit",
     );
   }, [fileWorkspace]);
+  // `q` in a file's Vim Normal or Visual mode (FileEditor, use-file-vim),
+  // which keeps the key from the handler below: the workspace on screen.
+  useEffect(() => {
+    if (!commitApi) return;
+    const press = () => {
+      if (shown() && !visibleElement('[role="dialog"]')) toggleCommit();
+    };
+    window.addEventListener(COMMIT_KEY, press);
+    return () => window.removeEventListener(COMMIT_KEY, press);
+  }, [commitApi, shown, toggleCommit]);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const showToast = useCallback(
     (text: string) => setToast((current) => ({ id: (current?.id ?? 0) + 1, text })),
@@ -5799,6 +5813,7 @@ export function App({
             cover={
               <ReviewTitleRow
                 name={reviewName}
+                pages={pageSwitch}
                 actions={reviewActions}
                 display={display}
                 width={place.treeWidth - place.x + PANE_GAP}
@@ -5811,14 +5826,14 @@ export function App({
       </>
     );
   };
+  // The pages, in the title row; where the review fills the window, in the band's one row.
+  const pageSwitch = { pages: plainHeader ? [] : reviewPages, page: shownPage, onPage: selectTab };
   // The second row's parts, also where the review's one row ends the band.
   const barProps = (controls: ReactNode) => ({
     lead: leading,
     tools: pageTools,
     more: rowMore,
-    pages: plainHeader ? [] : reviewPages,
-    page: shownPage,
-    onPage: selectTab,
+    ...pageSwitch,
     controls: (
       <span
         ref={setPaneSlot}
@@ -5836,6 +5851,7 @@ export function App({
           titled && (
             <ReviewTitleRow
               name={reviewName}
+              pages={pageSwitch}
               branch={
                 identityShown
                   ? undefined
@@ -6045,7 +6061,6 @@ export function App({
                     onClose={hideSession}
                     onSideRoom={setSessionSideRoom}
                     controls={withShowReview(controls)}
-                    starter={sessionStarter}
                     lead={sessionVisible}
                     mentions={mentionSources}
                     onMentionsWanted={wantMentions}
