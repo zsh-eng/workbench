@@ -42,6 +42,7 @@ import { useTheme } from "../themes";
 import { tokens, ui } from "../theme.stylex";
 import { ActionMenu } from "./Controls";
 import { DiagramBlock } from "./DiagramBlock";
+import { useTableCopy } from "./TableCopy";
 import { loadMarkdownImages, markdownImageUrl } from "../markdown/images";
 import { scrollPaneTo } from "../markdown/scroll";
 import { DiffStat } from "./DiffStat";
@@ -286,6 +287,8 @@ export default function BriefView({
   const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
   const pane = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null);
+  // A table copies as its Markdown, from the notes' joined text, and as a table.
+  useTableCopy(article, () => text);
   const [slots, setSlots] = useState<Map<string, HTMLElement>>(() => new Map());
   const [linked, setLinked] = useState<string | null>(null);
   // One note draft at a time, in the excerpt where it started, as in Changes.

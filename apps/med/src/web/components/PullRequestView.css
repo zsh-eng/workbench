@@ -47,7 +47,8 @@
   font-size: var(--med-md-size, 15px);
 }
 /* It starts level with the status beside it, however its text starts. */
-.med-pull-prose .med-md-block:first-child > :first-child {
+.med-pull-prose .med-md-block:first-child > :first-child,
+.med-pull-prose .med-md-block:first-child > .med-md-table:first-child > table {
   margin-top: 0;
 }
 .med-pull-prose img {

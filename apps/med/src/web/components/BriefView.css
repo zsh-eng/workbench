@@ -55,12 +55,13 @@
 .med-brief-prose .med-md-block > pre {
   margin-inline: calc(-1 * var(--med-brief-bleed, 0px));
 }
-/* A table or a lone image widens its block on both sides. */
-.med-note > .med-md-block:has(> table),
+/* A table or a lone image widens its block on both sides. A table sits in
+   its Copy button's frame (TableCopy.ts). */
+.med-note > .med-md-block:has(> table, > .med-md-table),
 .med-note > .med-md-block:has(> p > img:only-child) {
   margin-inline: calc(-1 * var(--med-brief-wide));
 }
-.med-note > .med-md-block:has(> table) {
+.med-note > .med-md-block:has(> table, > .med-md-table) {
   overflow-x: auto;
 }
 /* Notes after the first keep a clear break above their head. */
@@ -69,10 +70,14 @@
 }
 /* A table takes the width its content needs, up to the widened block. The
    browser then gives long text columns more room, so rows stay short. */
-.med-brief-prose .med-md-block > table {
+.med-brief-prose .med-md-block > table,
+.med-brief-prose .med-md-block > .med-md-table > table {
   display: table;
   width: max-content;
   max-width: 100%;
+  margin-inline: auto;
+}
+.med-brief-prose .med-md-block > .med-md-table {
   margin-inline: auto;
 }
 .med-brief-prose img {

@@ -20,7 +20,16 @@ export interface PointMenuState {
  * React, such as a Markdown image or diagram. The owner opens it from its
  * own `contextmenu` listener, so text elsewhere keeps the browser's menu.
  */
-export function PointMenu({ menu, onClose }: { menu: PointMenuState | null; onClose(): void }) {
+export function PointMenu({
+  menu,
+  onClose,
+  layer,
+}: {
+  menu: PointMenuState | null;
+  onClose(): void;
+  /** "dialog": the menu opens over a dialog, as on a full-screen diagram. */
+  layer?: "dialog";
+}) {
   const anchor = useMemo(
     () =>
       menu && {
@@ -37,7 +46,7 @@ export function PointMenu({ menu, onClose }: { menu: PointMenuState | null; onCl
           side="bottom"
           align="start"
           sideOffset={2}
-          {...stylex.props(styles.positioner)}
+          {...stylex.props(styles.positioner, layer === "dialog" && styles.overDialog)}
         >
           <Menu.Popup aria-label={menu?.label} {...stylex.props(ui.popup, styles.menu)}>
             {menu?.items.map((item, index) =>
@@ -65,6 +74,8 @@ export function PointMenu({ menu, onClose }: { menu: PointMenuState | null; onCl
 
 const styles = stylex.create({
   positioner: { zIndex: 60 },
+  // Above the dialogs' popups (111).
+  overDialog: { zIndex: 120 },
   menu: { minWidth: 180 },
   separator: { height: 1, marginBlock: 4, marginInline: 4, backgroundColor: tokens.line },
 });

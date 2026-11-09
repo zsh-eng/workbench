@@ -32,18 +32,22 @@ for its fonts.
 
 - **Copy page** (above the text) copies the file's Markdown as written, with
   unsaved edits.
-- A table's **Copy** button shows while the pointer is on it. It copies the
-  table's Markdown, and the table itself for editors and spreadsheets that
-  paste one, without a quote's or a list's `>` or indent.
+- A table's **Copy** button shows while the pointer or the focus is on it.
+  It copies the table's Markdown, and the table itself for editors and
+  spreadsheets that paste one, without a quote's or a list's `>` or indent.
 - Right-click an image for **Copy image** (as PNG), its address or path, and
   **Open image in new tab**. A remote image that does not allow reading copies
   as its address.
-- **Full screen**, at a diagram's corner while the pointer is on it, shows
-  the diagram over the page, up to three times its size, with zoom and drag.
-  Escape or × closes it.
-- Right-click a diagram for **Copy image**: a PNG at twice its size, on its
-  background. **Copy SVG** keeps its colors and fonts, so it draws the same
-  elsewhere; **Copy Mermaid source** copies the code inside its fence.
+- **Copy** and **Full screen** sit at a diagram's corner while the pointer or
+  the focus is on it. **Full screen** shows the diagram over the page, up to
+  three times its size, with zoom and drag. Escape or × closes it.
+- Right-click a diagram, or open its **Copy** menu, for **Copy as image**: a
+  PNG at twice its size, on its background. **Copy as SVG** keeps its colors
+  and fonts, so it draws the same elsewhere; **Copy text** copies its Mermaid
+  code. In the **Copy** menu, `I`, `S`, or `T` chooses one. Full screen has
+  the same menu in its header and on right-click.
+- The tables and diagrams in an agent's replies, the Guide, Notes, and a pull
+  request's description copy the same way.
 - Text keeps the browser's own right-click menu.
 
 Try [the reading queue design note](../examples/reading-queue.md).

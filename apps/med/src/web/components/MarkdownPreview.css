@@ -211,42 +211,53 @@
   display: block;
   margin-inline: auto;
 }
-/* Full screen sits at the diagram's corner, and Pele's zoom, when a diagram
- * has to shrink to fit, under it. The buttons show while the pointer or the
- * focus is in the diagram, so they do not cover it. */
+/* Copy and Full screen sit at the diagram's corner, and Pele's zoom, when a
+ * diagram has to shrink to fit, under them. The buttons show while the
+ * pointer or the focus is in the diagram, so they do not cover it, and stay
+ * while their menu is open or a copy's note shows. */
 .med-md-prose pre[data-rendered="true"] .med-md-diagram {
   --pele-zoom-top: 18px;
 }
-.med-md-expand {
+.med-md-diagram-tools {
   position: absolute;
   top: 8px;
   right: 8px;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--med-text) 20%, var(--med-md-surface, var(--med-panel)));
-  border-radius: calc(6px * var(--med-round, 1));
-  background: var(--med-md-surface, var(--med-panel));
-  color: var(--med-text);
-  cursor: pointer;
+  display: flex;
+  gap: 4px;
   opacity: 0;
   transition: opacity 120ms;
-}
-.med-md-expand:hover {
-  background: color-mix(in srgb, var(--med-text) 7%, var(--med-md-surface, var(--med-panel)));
-}
-.med-md-expand:focus-visible {
-  outline: 2px solid var(--med-accent);
-  outline-offset: -2px;
 }
 pre .med-md-diagram .pele-zoom {
   opacity: 0;
   transition: opacity 120ms;
 }
-pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-expand, .pele-zoom) {
+pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-diagram-tools, .pele-zoom),
+.med-md-diagram-tools:is([data-noted], :has([data-popup-open])) {
   opacity: 1;
+}
+/* What a copy put on the clipboard, or why it could not, beside the buttons
+ * that made it. Empty between copies, it stays as a live region. */
+.med-md-copy-note {
+  padding: 4px 8px;
+  border-radius: calc(6px * var(--med-round, 1));
+  background: var(--med-raised);
+  box-shadow: 0 0 0 1px var(--med-border);
+  color: var(--med-text);
+  font-family: var(--med-font-ui);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.med-md-copy-note:empty {
+  padding: 0;
+  box-shadow: none;
+}
+.med-md-diagram-tools > .med-md-copy-note {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 6px);
+  translate: 0 -50%;
 }
 /* In the full-screen dialog, on the page's color. The diagram takes the
  * whole room, so zoom grows into it, and the zoom buttons sit at its corner. */
@@ -269,15 +280,26 @@ pre[data-rendered="true"]:is(:hover, :focus-within) :is(.med-md-expand, .pele-zo
   margin: 1.7em auto;
   border-radius: calc(8px * var(--med-round, 1));
 }
-/* A table's frame holds its Copy button, in the margin above its right end. */
+/* A table's frame holds its Copy button, in the margin above its right end.
+ * The frame has no margins, so the table's collapse through it and a thread
+ * keeps the height that thread-heights.ts expects. The preview keeps its own. */
 .med-md-table {
   position: relative;
   width: fit-content;
   max-width: 100%;
+}
+.med-markdown .med-md-table {
   margin: 1.55em 0;
 }
-.med-md-table > table {
+.med-markdown .med-md-table > table {
   margin: 0;
+}
+/* A copy's note, left of the button, where a page has no other notice. */
+.med-md-table > .med-md-copy-note {
+  position: absolute;
+  right: 30px;
+  bottom: 100%;
+  translate: 0 -1px;
 }
 .med-md-copy {
   position: absolute;

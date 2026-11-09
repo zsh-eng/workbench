@@ -152,7 +152,7 @@ test("Full screen draws a diagram larger over the page, with zoom; Escape closes
   await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
 });
 
-test("a diagram's right-click offers its image, SVG, and Mermaid source; text keeps the browser's menu", async () => {
+test("a diagram's right-click offers it as an image, as an SVG, and its text; text keeps the browser's menu", async () => {
   const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   const items: ClipboardItem[] = [];
   vi.spyOn(navigator.clipboard, "write").mockImplementation(async (next) => {
@@ -176,9 +176,9 @@ test("a diagram's right-click offers its image, SVG, and Mermaid source; text ke
   svg.dispatchEvent(event);
   expect(event.defaultPrevented).toBe(true);
   const menu = page.getByRole("menu", { name: "Diagram actions" });
-  await expect.element(menu.getByRole("menuitem", { name: "Copy image" })).toBeVisible();
-  await expect.element(menu.getByRole("menuitem", { name: "Copy SVG" })).toBeVisible();
-  await menu.getByRole("menuitem", { name: "Copy Mermaid source" }).click();
+  await expect.element(menu.getByRole("menuitem", { name: "Copy as image" })).toBeVisible();
+  await expect.element(menu.getByRole("menuitem", { name: "Copy as SVG" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Copy text" }).click();
   await expect.poll(() => write.mock.calls.at(-1)?.[0]).toBe("flowchart LR\n  A --> B");
   svg.dispatchEvent(
     new MouseEvent("contextmenu", {
@@ -190,7 +190,7 @@ test("a diagram's right-click offers its image, SVG, and Mermaid source; text ke
   );
   await page
     .getByRole("menu", { name: "Diagram actions" })
-    .getByRole("menuitem", { name: "Copy SVG" })
+    .getByRole("menuitem", { name: "Copy as SVG" })
     .click();
   await expect.poll(() => write.mock.calls.length).toBe(2);
   const exported = write.mock.calls[1]![0];
@@ -208,9 +208,12 @@ test("a diagram's right-click offers its image, SVG, and Mermaid source; text ke
   );
   await page
     .getByRole("menu", { name: "Diagram actions" })
-    .getByRole("menuitem", { name: "Copy image" })
+    .getByRole("menuitem", { name: "Copy as image" })
     .click();
-  await expect.element(reading.getByRole("status")).toHaveTextContent("Diagram copied");
+  // The diagram says so beside its buttons.
+  await expect
+    .element(reading.getByRole("status").filter({ hasText: "Diagram copied" }))
+    .toBeVisible();
   // Drawn at twice its size, on the diagram's surface.
   const png = await createImageBitmap(await items[0]!.getType("image/png"));
   expect([png.width, png.height]).toEqual([
