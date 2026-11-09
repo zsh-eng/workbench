@@ -3660,6 +3660,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path.startsWith("/file/") ||
         path === "/files" ||
         path === "/search" ||
+        path === "/pulls" ||
+        path === "/history" ||
         path === "/" ||
         /^\/review\/[a-zA-Z0-9_-]+$/.test(path);
       const file = resolve(webRoot, `.${appRoute ? "/index.html" : path}`);

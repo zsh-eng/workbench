@@ -7,15 +7,15 @@ import { Icon, type IconName } from "../Icon";
 import { ContextDetails, ContextSummary } from "./ContextPanel";
 import { dollars, modelName, SpendBlock, type ShownContext } from "./ThreadUsage";
 
-// The session's side panel in a wide pane, as Claude Desktop has one: quiet
-// cards for the context, the spend, the background tasks, the thread's
-// reviews, and where the agent works. docs/SESSIONS.md#side-panel.
+// The session rail in a wide pane, as Claude Desktop has one: quiet cards for
+// the context, the spend, the background tasks, the thread's reviews, and
+// where the agent works. docs/SESSIONS.md#session-rail.
 
 /** The narrowest pane that shows the panel: a 540 pixel column for the
  * thread, 30 pixels at each of its sides, and the panel's 300. Beside the
  * panel the thread's column (session-styles.ts) narrows to the room that is
  * left, down to 540 pixels, as Claude Desktop's transcript narrows beside its
- * side panel. */
+ * session rail. */
 export const SIDE_PANEL_MIN_PANE = 900;
 
 /** A row of the Reviews card: one of the reviews that the session handed
@@ -193,7 +193,7 @@ export function SessionSidePanel({
   agentsRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <aside aria-label="Session details" {...slim(stylex.props(styles.panel))}>
+    <aside aria-label="Session rail" {...slim(stylex.props(styles.panel))}>
       {context && (
         <SidePanelCard
           label="Context"

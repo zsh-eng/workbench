@@ -3077,14 +3077,14 @@ export function App({
           return;
         }
       }
-      // ⌘⌥⇧B shows or hides the session's side panel where the pane has room for it.
+      // ⌘⌥⇧B shows or hides the session rail where the pane has room for it.
       if (
         (event.metaKey || event.ctrlKey) &&
         event.altKey &&
         event.shiftKey &&
         event.code === "KeyB"
       ) {
-        const toggle = visibleElement("[data-session-panel] [data-side-panel-toggle]");
+        const toggle = visibleElement("[data-session-panel] [data-session-rail-toggle]");
         if (!toggle) return;
         event.preventDefault();
         event.stopPropagation();
@@ -4626,15 +4626,12 @@ export function App({
           },
         ]
       : []),
-    // As the side panel's own button: where the session's pane has room.
+    // As the session rail's own button: where the session's pane has room.
     ...(sessionVisible && sessionSideRoom
       ? [
           {
-            id: "session-side-panel",
-            label:
-              sessionPanelChoice === "closed"
-                ? "Show the session's side panel"
-                : "Hide the session's side panel",
+            id: "session-rail",
+            label: sessionPanelChoice === "closed" ? "Show session rail" : "Hide session rail",
             shortcut: "⌘⌥⇧B",
             run: () =>
               viewSettings.sessionPanel.set(sessionPanelChoice === "closed" ? "auto" : "closed"),

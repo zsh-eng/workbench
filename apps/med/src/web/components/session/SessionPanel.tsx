@@ -888,11 +888,11 @@ export function SessionPanel({
         {!side && <UsageChip usage={usage} context={shownContext} />}
         {roomy && (
           <ToolButton
-            icon="panelRight"
-            label={side ? "Hide the side panel" : "Show the side panel"}
+            icon="sessionRail"
+            label={side ? "Hide session rail" : "Show session rail"}
             shortcut="Mod+Alt+Shift+B"
             aria-pressed={side}
-            data-side-panel-toggle=""
+            data-session-rail-toggle=""
             onClick={() => viewSettings.sessionPanel.set(side ? "closed" : "auto")}
           />
         )}

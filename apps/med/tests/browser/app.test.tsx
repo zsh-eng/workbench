@@ -4404,8 +4404,8 @@ describe("agent session", () => {
       .toHaveAttribute("href", "https://platform.claude.com/docs/en/about-claude/pricing");
   });
 
-  test("a wide session pane shows the side panel, which the reader closes and opens again", async () => {
-    // Room for the side panel, with the thread's column under its widest.
+  test("a wide session pane shows the session rail, which the reader closes and opens again", async () => {
+    // Room for the session rail, with the thread's column under its widest.
     await page.viewport(2200, 900);
     await mountApp({
       savedReview: true,
@@ -4463,7 +4463,7 @@ describe("agent session", () => {
     });
     await page.getByRole("button", { name: "Show agent session" }).click();
     const pane = page.getByRole("region", { name: "Agent session" });
-    const side = pane.getByRole("complementary", { name: "Session details" });
+    const side = pane.getByRole("complementary", { name: "Session rail" });
     await expect.element(side).toBeVisible();
     // Beside the panel, the thread's column takes the room that is left: the
     // message box is that room less its 12 pixel sides, and once it is over
@@ -4501,7 +4501,7 @@ describe("agent session", () => {
       .element(pane.getByRole("button", { name: /^Context \d+% full/ }))
       .not.toBeInTheDocument();
 
-    await pane.getByRole("button", { name: "Hide the side panel" }).click();
+    await pane.getByRole("button", { name: "Hide session rail" }).click();
     await expect.element(side).not.toBeInTheDocument();
     expect(localStorage.getItem("med:session-panel")).toBe("closed");
     await expect.element(pane.getByRole("button", { name: /^Context \d+% full/ })).toBeVisible();
@@ -4515,7 +4515,9 @@ describe("agent session", () => {
     // A pane without room for the column and the panel has neither the panel nor its button.
     await page.viewport(1100, 900);
     await expect.element(side).not.toBeInTheDocument();
-    await expect.element(pane.getByRole("button", { name: /side panel/ })).not.toBeInTheDocument();
+    await expect
+      .element(pane.getByRole("button", { name: /session rail/ }))
+      .not.toBeInTheDocument();
   });
 
   test("@ names a file or a vault's note, and the agent gets its absolute path", async () => {

@@ -190,9 +190,10 @@ own threads until the reader shows the others.
 
 A found session opens as a tab once, when Med first sees its agent work
 (`src/host/thread-service.ts`). The others, and the ones that the user
-closed, are in history, where `⌃Tab` and `med thread list --history` find
-them. A found tab keeps a short record (title, checkout, branch, sessions), so
-it stays a tab after its session leaves the 7-day window.
+closed, are in history, where `⌃Tab`, the History page (`/history`), and
+`med thread list --history` find them. A found tab keeps a short record
+(title, checkout, branch, sessions), so it stays a tab after its session
+leaves the 7-day window.
 
 - Claude Code: the project folders of the registered checkouts.
 - Codex files a rollout under the day that its session started. Each scan
@@ -522,28 +523,27 @@ file, so the next call reads only the new lines.
   Med does not read managed settings, `--autocompact`, or a terminal's
   environment, so a session started with those can differ.
 
-## Side panel
+## Session rail
 
-A session pane at least 900 pixels wide shows a side panel at its right, as
-Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
+A session pane at least 900 pixels wide shows the session rail at its right,
+as Claude Desktop does (`SessionSidePanel.tsx`): **Context** and **Spend**
 ([above](#spend-and-context)),
 **Background** (the dock moves here from under the thread, through a portal
 from the thread, so a task still scrolls the thread to its call),
 **Subagents** (the tabs over the thread move here the same way, as a list of
-rows with each subagent's state, so they never meet the panel's first card;
+rows with each subagent's state, so they never meet the rail's first card;
 the arrow keys go down and up the list),
 **Reviews** (each review that the session handed off, newest first, with
 the one on screen marked; then its live Changes and its pull request), and
 **Environment** (the checkout, its branch, and the agent with its model and
 what runs it). The thread's column has Claude Desktop's 768 pixel text
 measure (`session-styles.ts`). 900 pixels is a 540 pixel column, 30 pixels
-at each of its sides, and the panel's 300: beside the panel the column
+at each of its sides, and the rail's 300: beside the rail the column
 narrows to the room that is left, as Claude Desktop's transcript narrows
-beside its side panel. In a narrower pane, the panel and its button are gone,
+beside its session rail. In a narrower pane, the rail and its button are gone,
 the subagents are tabs over the thread again, and the header's chip shows the
-context and spend. The header's button, `⌘⌥⇧B`, or **Hide the
-session's side panel** in `⌘K` closes it, and
-Med keeps that choice (`med:session-panel`).
+context and spend. The header's list button, `⌘⌥⇧B`, or **Hide session
+rail** in `⌘K` closes it, and Med keeps that choice (`med:session-panel`).
 
 Context, Spend, and Subagents fold and unfold from their titles, as Claude
 Desktop's cards do, and Med keeps each card's choice for every thread

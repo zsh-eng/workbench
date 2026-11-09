@@ -105,7 +105,7 @@ export const viewSettings = {
   filePreview: viewSetting("med:picker-preview", "on", ["on", "off"]),
   /** The work of finished turns in a session, folded into one row or shown. */
   work: viewSetting("med:work", "folded", ["folded", "shown"]),
-  /** The session's side panel, which shows in a wide pane unless closed. */
+  /** The session rail beside a thread, which shows in a wide pane unless closed. */
   sessionPanel: viewSetting("med:session-panel", "auto", ["auto", "closed"]),
   /** What ⌘↩ does with a message while the agent works: send it now, at the
    * agent's next step, or queue it for the turn's end. ⇧⌘↩ does the other. */

@@ -722,6 +722,98 @@ test("every tab loads out of sight and stays, as open terminal tabs do; history 
   for (const id of inView) expect(slot(id)).not.toBeNull();
 });
 
+test("the History page lists history by day, searches it, opens a thread as a tab, and deletes one", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const day = 24 * 60 * 60 * 1000;
+  const midnight = new Date().setHours(0, 0, 0, 0);
+  host.setThreads([thread("agent")]);
+  host.setHistory([
+    thread("third", { agent: "claude", updatedAt: Date.now() - 1000 }),
+    thread("second", { agent: "codex", branch: "feature", updatedAt: midnight - 60 * 60 * 1000 }),
+    thread("older", { updatedAt: Date.now() - 20 * day, prompt: "Trim the export" }),
+  ]);
+  await expect.poll(threadRows).toEqual(["Agent review"]);
+
+  // History is at the sidebar's foot.
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "History", level: 1 })).toBeVisible();
+  expect(location.pathname).toBe("/history");
+  const list = page.getByRole("listbox", { name: "History" });
+  const days = () =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="listbox"][aria-label="History"] [role="group"]',
+      ),
+    ].map((group) => [
+      group.getAttribute("aria-label"),
+      [...group.querySelectorAll('[role="option"]')].map((row) => row.getAttribute("aria-label")),
+    ]);
+  await expect.poll(days).toEqual([
+    ["Today", ["Third review, fixture · main, Claude"]],
+    ["Yesterday", ["Second review, fixture · feature, Codex"]],
+    [
+      new Date(Date.now() - 20 * day).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        ...(new Date(Date.now() - 20 * day).getFullYear() !== new Date().getFullYear() && {
+          year: "numeric",
+        }),
+      }),
+      ["Older review, fixture · main"],
+    ],
+  ]);
+  // The tab is not history.
+  expect(list.getByRole("option", { name: /^Agent review/ }).query()).toBeNull();
+  await expect
+    .element(list.getByRole("option", { name: /^Third review/ }))
+    .toHaveAttribute("aria-selected", "true");
+
+  // A letter in the list starts a search, as the switcher's does, over the
+  // first prompt too.
+  await userEvent.keyboard("t");
+  const search = page.getByRole("combobox", { name: "Search history" });
+  await expect.element(search).toHaveFocus();
+  await userEvent.keyboard("rim");
+  await expect.poll(days).toEqual([[expect.any(String), ["Older review, fixture · main"]]]);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(search).toHaveValue("");
+  await expect.poll(() => days().length).toBe(3);
+
+  // ↓ and ↵ open a thread as a tab, as the switcher does; the page leaves.
+  await userEvent.keyboard("{Escape}");
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.poll(() => shown()?.dataset.reviewId).toBe("second-target");
+  expect(host.threadRequests.at(-1)).toEqual({
+    path: "/api/threads/second/open",
+    body: { restore: false },
+  });
+  await expect
+    .element(page.getByRole("heading", { name: "History", level: 1 }))
+    .not.toBeInTheDocument();
+  await expect.poll(threadRows).toContain("Second review(current)");
+
+  // ⌘K opens it again; the thread that opened is a tab now.
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("History");
+  await page.getByRole("option", { name: "History", exact: true }).click();
+  await expect.poll(days).toEqual([
+    ["Today", ["Third review, fixture · main, Claude"]],
+    [expect.any(String), ["Older review, fixture · main"]],
+  ]);
+
+  // ⌘⌫ asks; a second ↵ deletes the thread for good.
+  (document.querySelector('[role="listbox"][aria-label="History"]') as HTMLElement).focus();
+  await userEvent.keyboard("{End}{Control>}{Backspace}{/Control}");
+  await expect
+    .element(list.getByRole("option", { name: /^Older review/ }))
+    .toMatchTextContent(/^Delete “Older review” for good\?/);
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(days).toEqual([["Today", ["Third review, fixture · main, Claude"]]]);
+  expect(host.threadRequests.at(-1)).toEqual({ path: "/api/threads/older/delete", body: {} });
+});
+
 test("a thread with its session on screen shows its session first, and its diff after", async () => {
   const host = createHost();
   render(host);

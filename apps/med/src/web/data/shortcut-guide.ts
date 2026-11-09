@@ -235,10 +235,10 @@ export const guideContexts: GuideContext[] = [
             command: "changes-rail",
           },
           {
-            label: "Toggle the session's side panel",
+            label: "Toggle the session rail",
             keys: ["Mod+Alt+Shift+B"],
             note: "In a session pane with room beside its thread",
-            command: "session-side-panel",
+            command: "session-rail",
           },
         ],
       },
