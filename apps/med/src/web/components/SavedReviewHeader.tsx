@@ -92,20 +92,23 @@ export function SavedReviewHeader({
     const timer = setTimeout(() => setCopied(null), 2000);
     return () => clearTimeout(timer);
   }, [copied]);
+  /** False when the action failed; one already under way takes no other. */
   const run = async (kind: "copy" | "clear", action: () => Promise<string | void>) => {
-    if (inFlight.current) return;
+    if (inFlight.current) return true;
     inFlight.current = true;
     setOperation(kind);
     setNotice(null);
     try {
       const text = await action();
       if (text) setNotice({ text, error: false });
+      return true;
     } catch (error) {
       setCopied(null);
       setNotice({
         text: error instanceof Error ? error.message : "The request failed.",
         error: true,
       });
+      return false;
     } finally {
       inFlight.current = false;
       setOperation(null);
@@ -170,14 +173,15 @@ export function SavedReviewHeader({
           comments={comments}
           onOpen={onOpenComment}
           onCopy={
-            busy || saved.commentCount === 0
+            saved.commentCount === 0
               ? undefined
               : () =>
-                  void run("copy", async () => {
+                  run("copy", async () => {
                     const comments = await controller.copyFeedback();
                     setCopied({ count: comments.count });
                   })
           }
+          copied={copied !== null}
         />
       )}
       {/* During copy, handlers block actions without native disabled dimming both buttons. */}

@@ -23,11 +23,15 @@ export function CommentsButton({
   comments,
   onOpen,
   onCopy,
+  copied = false,
 }: {
   comments: readonly ListedComment[];
   onOpen(comment: ListedComment): void;
-  /** Copies the comments for an agent elsewhere; none while there are none. */
-  onCopy?(): void;
+  /** Copies the comments for an agent elsewhere; none while there are none.
+   * False when the copy failed: the panel closes, so the error shows. */
+  onCopy?(): Promise<boolean>;
+  /** The copy has just reached the clipboard: the button shows a check. */
+  copied?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [resolved, setResolved] = useState(false);
@@ -76,11 +80,16 @@ export function CommentsButton({
                 <button
                   type="button"
                   aria-label="Copy comments"
-                  {...tooltip("Copy comments")}
-                  onClick={onCopy}
+                  data-copied={copied}
+                  {...tooltip(copied ? "Copied" : "Copy comments")}
+                  onClick={() =>
+                    void onCopy().then((done) => {
+                      if (!done) setOpen(false);
+                    })
+                  }
                   {...stylex.props(ui.button, ui.iconButton)}
                 >
-                  <Icon name="copy" size={14} />
+                  <Icon name={copied ? "check" : "copy"} size={14} />
                 </button>
               )}
               <Popover.Close
