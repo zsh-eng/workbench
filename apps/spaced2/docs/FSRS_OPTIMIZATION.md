@@ -1,10 +1,43 @@
 # Personal FSRS-6 parameters
 
-Fitted locally on 19 September 2026 using the official Python
-`fsrs-optimizer==6.5.0`, Python 3.11, and the verified production backup from
-19 September. Review history was not uploaded. The source database was read-only.
+## 9 November 2026 refit (active)
 
-## Status
+The active weights were refitted on 9 November 2026 and the maximum interval
+raised from 100 to 365 days. The 19 September fit below is kept for history.
+
+Why: grading changed on 16 Sep 2026. Before then Hard was the user's default
+pass and Again was almost never pressed; since then Good is the default and
+Again is about 8%. The 19 September weights were fitted almost entirely on the
+old grading, and they predict the honest reviews worst of the options below.
+
+Data: the Workbench backup's `spaced.sqlite` `reviews` table (undone reviews
+already removed), 66,337 reviews to 7 Nov 2026. Same optimizer, time zone and
+day boundary as before. The one-off comparison script (`fsrs-refit.py`), its
+`compare.json` and the fits are in `optimizer.local/run-2026-11-09/`.
+
+Test: train on reviews before 9 Oct 2026 04:00 SGT, score the 1,187 later
+next-day targets. All of them are honest grading. Observed recall 93.3%.
+
+| Weights (lower is better) | Log loss | Brier | Mean predicted recall |
+| --- | ---: | ---: | ---: |
+| 19 Sep personal (were active) | 0.3223 | 0.0711 | 95.0% |
+| FSRS-6 defaults | 0.3072 | 0.0770 | 89.9% |
+| **Refit, grades as recorded (adopted)** | **0.3004** | **0.0684** | 95.2% |
+| Refit, old-era Hard read as Good | 0.2988 | 0.0686 | 95.1% |
+| Refit, old-era Hard→Good and Good→Easy | 0.3051 | 0.0690 | 95.0% |
+
+The adopted refit beats the old weights by 0.0219 log loss (paired bootstrap
+95% CI 0.0175–0.0265). Reading old-era Hard as Good scored about the same
+(0.0016 better), but the user rejected that reading: Hard means recalled with
+effort. The final weights refit all history with grades as recorded. A new
+card still starts at about 34–36 days of stability for Hard, Good or Easy,
+because the history holds almost no honest first reviews (new cards stopped
+in June 2026). The model is still somewhat overconfident. Refit again around
+March 2027 when more honest reviews exist.
+
+## 19 September 2026 fit (superseded)
+
+### Status
 
 The 21 fitted weights in `src/lib/review/fsrs6-personal-parameters.ts` are now
 active in the production ts-fsrs 5.4.2 scheduler. The migration preserves existing
