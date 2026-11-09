@@ -1,17 +1,17 @@
 /**
- * FSRS-6 defaults fitted locally with fsrs-optimizer 6.5.0.
- * See docs/FSRS_OPTIMIZATION.md for data preparation and held-out validation.
+ * FSRS-6 weights refitted locally on 9 November 2026 with fsrs-optimizer 6.5.0.
+ * Grades are used as recorded (Hard = recalled with effort, per the user);
+ * see docs/FSRS_OPTIMIZATION.md for the held-out check.
  * Active defaults for ts-fsrs 5.4.2.
- * User confirmed Hard means successful recall with effort.
  */
 export const FSRS6_PERSONAL_PARAMETERS = {
   w: [
-    0.9975, 35.782, 33.9744, 36.2856, 6.2805, 1.1704, 3.0851, 0.1093, 2.0351,
-    0.2441, 0.9816, 1.436, 0.0656, 0.2007, 1.5786, 0.6156, 1.0157, 0.5682,
-    0.0765, 0.0991, 0.1005,
+    0.9811, 36.0372, 34.1467, 36.2352, 6.2087, 1.0955, 3.0722, 0.1613, 2.1501,
+    0.4327, 1.0978, 1.5664, 0.0524, 0.441, 1.7096, 0.8456, 1.0, 0.5288,
+    0.0643, 0.1047, 0.1001,
   ],
   request_retention: 0.9,
-  maximum_interval: 100,
+  maximum_interval: 365,
   enable_fuzz: true,
   enable_short_term: true,
   learning_steps: ["1m", "10m"],

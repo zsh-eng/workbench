@@ -11,6 +11,7 @@ import {
   reviewLogToReviewLogOperation,
 } from "@/lib/review/review";
 import { CardWithMetadata } from "@/lib/types";
+import { FSRS6_PERSONAL_PARAMETERS } from "@/lib/review/fsrs6-personal-parameters";
 import { Operation, gradeCardOperation } from "@/lib/sync/operation";
 import { db, rawDb } from "@/lib/db/persistence";
 import MemoryDB from "@/lib/db/memory";
@@ -119,7 +120,10 @@ test("preview and grade share the maximum interval for a mature card", () => {
   };
   const now = new Date();
   const preview = previewGradeSchedule(mature, now);
-  expect(preview[Rating.Easy].card.scheduled_days).toBeLessThan(110);
+  // ts-fsrs can overshoot the cap by a day or two when separating grades.
+  expect(preview[Rating.Easy].card.scheduled_days).toBeLessThan(
+    FSRS6_PERSONAL_PARAMETERS.maximum_interval + 10,
+  );
   expect(gradeCard(mature, Rating.Easy, now).nextCard).toEqual({
     ...mature,
     ...preview[Rating.Easy].card,
