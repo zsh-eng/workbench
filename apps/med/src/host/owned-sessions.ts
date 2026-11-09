@@ -324,6 +324,9 @@ const modelOption = (entry: ClaudeModel) => ({
   name: entry.displayName ?? entry.value,
   ...(entry.description ? { description: entry.description } : {}),
 });
+/** The efforts that a running Claude Code takes at once (apply_flag_settings);
+ * it starts again for max, or for its default. */
+const LIVE_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const effortOptions = (levels: string[]) => [
   { value: "default", name: "Default effort" },
   ...levels.map((level) => ({
@@ -509,7 +512,6 @@ export function startClaude(
               category: "effort" as const,
               value: efforts.includes(chosen.effort) ? chosen.effort : "default",
               options: effortOptions(efforts),
-              idleOnly: true,
             },
           ]
         : []),
@@ -1063,16 +1065,21 @@ export function startClaude(
         await control({ subtype: "set_model", ...(value === "default" ? {} : { model: value }) });
       } else if (id === "mode" && (value !== BYPASS || bypassable)) {
         await control({ subtype: "set_permission_mode", mode: value });
+      } else if (id === "effort" && LIVE_EFFORTS.has(value)) {
+        // Claude Code takes the running session's effort from its flag
+        // settings, at its next request, also during a turn.
+        await control({ subtype: "apply_flag_settings", settings: { effortLevel: value } });
+        chosen.effort = value;
       } else if (id === "mode" || id === "effort") {
-        // Claude Code takes the effort, and leave to bypass permissions, when
-        // it starts, so it starts again, once the holder of the process
-        // before has ended.
+        // Claude Code takes max or its default effort, and leave to bypass
+        // permissions, when it starts, so it starts again, once the holder of
+        // the process before has ended.
         if (store.get().status === "working")
           throw new HostError(
             "agent-busy",
             id === "mode"
               ? "Switch to Bypass permissions when the turn ends."
-              : "Change the effort when the turn ends.",
+              : `Change to ${value === "default" ? "the default effort" : `${value} effort`} when the turn ends.`,
             409,
           );
         chosen[id] = value;

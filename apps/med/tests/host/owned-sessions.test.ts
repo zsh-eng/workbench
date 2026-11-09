@@ -239,7 +239,11 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   // A host that a Claude Code session started has the session's variables,
   // such as its bare mode; Claude Code that Med starts uses the user's login.
   vi.stubEnv("CLAUDE_CODE_SIMPLE", "1");
-  const { api, review, thread, start } = await fixture();
+  const { api, review, thread, start, home } = await fixture();
+  const args = async (id: string) =>
+    JSON.parse(
+      await readFile(join(home, ".claude", "projects", "-fake-repo", `${id}.args.json`), "utf8"),
+    ) as string[];
   const agents = await api<{ agents: unknown[] }>("/api/agents");
   // Each says what Med can do with it, so the page shows only what works.
   expect(agents.data.agents).toEqual([
@@ -316,13 +320,15 @@ test("Med starts Claude Code, sends review messages as prompts, and answers its 
   const answered = await session.until((state) => state.context !== undefined);
   expect(answered.context).toEqual({ used: 2500, total: 10_000 });
 
-  // An effort change starts Claude Code again with the same session.
+  // An effort change applies to the running Claude Code, which goes on as it
+  // started: no new process, so the turn and its cache go on.
+  const launched = await args(session.id);
   expect((await session.act({ action: "setting", id: "effort", value: "high" })).status).toBe(200);
-  await session.until((state) => state.status === "idle");
   await session.act({ action: "prompt", text: "Check the summary." });
   await vi.waitFor(() =>
     expect(replies().at(-1)).toBe("Model opus, effort high, mode auto: Check the summary."),
   );
+  expect(await args(session.id)).toEqual(launched);
   // A model change applies at once. Haiku has no effort levels, so the picker goes.
   const haiku = await session.act({ action: "setting", id: "model", value: "haiku" });
   expect(haiku.data.settings.map((setting) => setting.id)).toEqual(["model", "mode"]);

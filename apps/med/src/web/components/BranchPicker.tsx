@@ -598,7 +598,7 @@ const styles = stylex.create({
     width: "min(620px, 92vw)",
     maxHeight: "80vh",
     overflowY: "auto",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     fontFamily: tokens.ui,
     fontSize: 12,

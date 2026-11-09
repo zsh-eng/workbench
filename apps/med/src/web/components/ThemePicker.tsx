@@ -169,7 +169,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
     borderRadius: `calc(12px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     boxShadow: tokens.shadow,
     fontFamily: tokens.ui,

@@ -71,7 +71,7 @@ export function BlameTooltips({ cells }: { cells: BlameCell[] }) {
 const styles = stylex.create({
   positioner: { zIndex: 100 },
   popup: {
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     borderWidth: 1,
     borderStyle: "solid",

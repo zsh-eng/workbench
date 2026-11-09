@@ -6,6 +6,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import * as stylex from "@stylexjs/stylex";
 import type { BrowseEntry, BrowseSource } from "../../shared/browse";
 import { picked, tokens, ui } from "../theme.stylex";
+import { FileIcon } from "./FileIcon";
 import { Icon } from "./Icon";
 import { FullFileView } from "./FullFileView";
 import {
@@ -897,20 +898,19 @@ function PickerContents({
                                       : "File"
                               }
                             >
-                              <Icon
-                                name={
-                                  entry.repository
-                                    ? isVault(entry.repository)
-                                      ? "vault"
-                                      : "branch"
-                                    : entry.note
-                                      ? "vault"
-                                      : isTestFile(entry.path)
-                                        ? "testFile"
-                                        : "file"
-                                }
-                                size={14}
-                              />
+                              {entry.repository || entry.note ? (
+                                <Icon
+                                  name={
+                                    entry.repository && !isVault(entry.repository)
+                                      ? "branch"
+                                      : "vault"
+                                  }
+                                  size={14}
+                                />
+                              ) : (
+                                // The tree's icon for the file's type, as the tabs show.
+                                <FileIcon path={entry.path} />
+                              )}
                             </span>
                             <span {...stylex.props(styles.itemText)}>
                               <span {...stylex.props(styles.itemTop)}>
@@ -1112,7 +1112,7 @@ const styles = stylex.create({
     maxHeight: "80vh",
     display: "flex",
     flexDirection: "column",
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     fontFamily: tokens.ui,
     borderRadius: `calc(12px * ${tokens.round})`,

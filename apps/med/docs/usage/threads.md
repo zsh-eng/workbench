@@ -219,8 +219,9 @@ app.
 
 ## Agent sessions
 
-A review that records its agent session has a Claude or Codex button in the
-toolbar, and **Show agent session** in the palette. Both open the Session pane:
+A review that records its agent session has **Show agent session**: the
+review's **Restore**, at its top right, while the session hides, and the
+palette. Both open the Session pane:
 prompts, replies, thoughts, tool calls with output and diffs, the plan, and
 background shells and agents. It follows the session live.
 
@@ -241,8 +242,8 @@ background shells and agents. It follows the session live.
   installed agent.
 - **Hide**, at the pane's top right, hides the pane (`⌘⇧B`). It does not stop
   or close the session: the agent keeps working, and its row in the sidebar
-  shows its state. **Show agent session**, with the agent's mark at the start
-  of the review's row, `⌘K`, or `⌘⇧B` again, shows the pane.
+  shows its state. The review's **Restore**, at its top right where
+  **Expand** was, `⌘K`, or `⌘⇧B` again, shows the pane.
 - A long session opens on its latest work. Scroll up for earlier work, or jump
   to a prompt from **Turns**.
 - A finished turn shows its prompt and final reply; its other work folds into
@@ -304,7 +305,9 @@ Antigravity (`agy`) is off unless the server starts with `MED_AGY=1`
 ([agent workspaces](../AGENT_WORKSPACES.md#antigravity-is-off)). To have a thread's agent hand off its work with a guide, add the
 lines from `med skills instructions` to your CLAUDE.md or AGENTS.md. The agent
 gets your messages from Med as new turns. The message box has model, effort,
-and mode pickers, `/` commands, and **Stop** (or `Esc`). A tool call that
+and mode pickers, `/` commands, and **Stop** (or `Esc`). Model and effort
+change while the agent works too, from its next step; Claude Code's max
+effort, or its default, waits for the turn to end. A tool call that
 needs an answer shows **Allow** and **Deny**. While the agent works, **Send now**
 (`⌘↩`) sends a message at its next step: Claude Code reads it after the
 tools that run, in the same turn, and Codex takes it in the turn that runs.

@@ -706,7 +706,8 @@ const styles = stylex.create({
     cursor: "default",
     outline: { default: "none", ":focus-visible": `2px solid ${tokens.accentLine}` },
   },
-  current: { backgroundColor: { default: tokens.hover, ":hover": tokens.hover } },
+  // As the file on screen in the tabs: a firmer fill than the pointer's.
+  current: { backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong } },
   held: { backgroundColor: tokens.fill },
   editing: { backgroundColor: tokens.raised, boxShadow: `inset 0 0 0 1px ${tokens.line}` },
   // The row is the field's box, so the field draws none of its own.

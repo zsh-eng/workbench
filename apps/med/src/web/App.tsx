@@ -52,7 +52,6 @@ import {
   ReviewHeader,
   ReviewTitle,
   ReviewTitleRow,
-  SessionToggle,
   type DisplayOptions,
   type ReviewPage,
 } from "./components/ReviewHeader";
@@ -1032,19 +1031,18 @@ export function App({
     [reviewVisible, sessionVisible, closePane, showPane],
   );
   /** The session's header. While the review is hidden, the session is the
-   * whole workspace: it has Show review, as words, and no Hide, which would
-   * only show the review in its place. */
+   * whole workspace: it has Restore, which shows the review again, and no
+   * Hide, which would only show the review in its place. */
   const withShowReview = (controls: ReactNode) =>
     reviewVisible ? (
       controls
     ) : (
-      <button
-        type="button"
-        {...stylex.props(ui.button, ui.pressable)}
+      <ToolButton
+        label="Show the review"
+        icon="restore"
+        data-pane-show="review"
         onClick={() => showPane("review")}
-      >
-        Show review
-      </button>
+      />
     );
   useEffect(() => {
     if (!workspaceId) return;
@@ -5961,7 +5959,6 @@ export function App({
           <InTitleBand
             lead={
               <>
-                {sessionToggle && <SessionToggle {...sessionToggle} />}
                 {leading}
                 {reviewName}
               </>
@@ -5992,14 +5989,8 @@ export function App({
       </>
     );
   };
-  // The session's toggle, while the session hides.
-  const sessionToggle =
-    !sessionVisible && (state.savedReview || found)
-      ? { agent: found?.agent ?? leadIcon, shown: false, toggle: toggleSession }
-      : undefined;
   // The second row's parts, also where the review's one row ends the band.
   const barProps = (controls: ReactNode) => ({
-    session: sessionToggle,
     lead: leading,
     tools: pageTools,
     more: rowMore,
@@ -6401,6 +6392,16 @@ export function App({
       icon: "diff",
       fixed: true,
       hide: REVIEW_HIDE,
+      // While the session hides, the review's Expand is Restore, which shows it.
+      ...(!sessionVisible &&
+        (state.savedReview || found) && {
+          restore: {
+            label: "Show agent session",
+            shortcut: "Mod+Shift+B",
+            onRestore: toggleSession,
+            pane: "session",
+          },
+        }),
       // The review hides only beside another pane.
       ...(sessionVisible && { onClose: () => closePane("review") }),
       render: (controls: ReactNode, place: PanePlace | null) => (

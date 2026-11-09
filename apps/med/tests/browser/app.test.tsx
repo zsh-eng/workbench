@@ -3940,10 +3940,10 @@ describe("saved reviews", () => {
 
   test("⌘⇧B shows and hides the agent session", async () => {
     await mountApp({ savedReview: true });
-    // The toggle shows while the pane is closed; the pane closes from its header.
+    // While the pane hides, the review's Expand is Restore, which shows it.
     const session = page.getByRole("button", { name: "Show agent session" });
     const pane = page.getByRole("region", { name: "Agent session" });
-    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await expect.element(session).toBeVisible();
     await userEvent.keyboard("{Control>}{Shift>}B{/Shift}{/Control}");
     await expect.element(pane).toBeVisible();
     await expect.element(session).not.toBeInTheDocument();
@@ -3951,7 +3951,7 @@ describe("saved reviews", () => {
     await expect
       .poll(() => document.querySelector('[data-pane="session"]')?.checkVisibility() ?? false)
       .toBe(false);
-    await expect.element(session).toHaveAttribute("aria-pressed", "false");
+    await expect.element(session).toBeVisible();
   });
 
   test("shows Codex review findings read-only, at their lines or in the Codex panel", async () => {

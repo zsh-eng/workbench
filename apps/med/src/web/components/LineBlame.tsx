@@ -119,7 +119,7 @@ const styles = stylex.create({
     visibility: { default: "visible", ":is([data-anchor-hidden])": "hidden" },
   },
   popup: {
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,

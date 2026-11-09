@@ -286,8 +286,9 @@ export function PullRequestsPage({
         <div {...stylex.props(styles.column)}>
           <div {...stylex.props(styles.heading)}>
             <h1 {...stylex.props(styles.pageTitle)}>Pull requests</h1>
+            {/* While GitHub answers again, the refresh turns and the time stays. */}
             <span role="status" {...stylex.props(styles.readAt)}>
-              {reading ? "Reading…" : shown ? relativeTime(Date.parse(shown.readAt), now) : ""}
+              {shown ? relativeTime(Date.parse(shown.readAt), now) : ""}
             </span>
             <ToolButton
               label="Read GitHub again"
@@ -319,6 +320,7 @@ export function PullRequestsPage({
             ref={list}
             role="listbox"
             aria-label="Pull requests"
+            aria-busy={reading}
             tabIndex={0}
             aria-activedescendant={rows[selected] ? `${id}-row-${selected}` : undefined}
             onKeyDown={(event) => {
@@ -354,7 +356,7 @@ export function PullRequestsPage({
                 {section("Yours", shown.yours, shown.waiting.length, "None open.")}
               </>
             ) : (
-              !error && <p {...stylex.props(styles.notice)}>Reading GitHub…</p>
+              !error && <PullSkeleton />
             )}
           </div>
         </div>
@@ -362,6 +364,58 @@ export function PullRequestsPage({
     </div>
   );
 }
+
+/** The page's shape while GitHub first answers: its sections, and rows as
+ * the real ones lie, with bars where their words go. */
+function PullSkeleton() {
+  const sections: [string, [number, number][]][] = [
+    [
+      "Waiting on you",
+      [
+        [62, 34],
+        [48, 28],
+        [70, 38],
+      ],
+    ],
+    [
+      "Yours",
+      [
+        [54, 30],
+        [40, 26],
+      ],
+    ],
+  ];
+  return (
+    // The list says it is busy; its shape is for the eye only.
+    <div aria-hidden="true">
+      {sections.map(([title, rows]) => (
+        <section key={title} {...stylex.props(styles.section)}>
+          <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
+          <div {...stylex.props(styles.card)}>
+            {rows.map(([line, facts], at) => (
+              <div
+                key={at}
+                {...stylex.props(styles.row, styles.boneRow, at === 0 && styles.firstRow)}
+              >
+                <span {...stylex.props(styles.bone, styles.boneDot)} />
+                <span {...stylex.props(styles.text)}>
+                  <span {...stylex.props(styles.bone, styles.boneLine(line))} />
+                  <span {...stylex.props(styles.bone, styles.boneFacts(facts))} />
+                </span>
+                <span {...stylex.props(styles.bone, styles.boneEnd)} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+const pulse = stylex.keyframes({
+  from: { opacity: 1 },
+  to: { opacity: 0.45 },
+});
 
 const styles = stylex.create({
   page: {
@@ -382,7 +436,8 @@ const styles = stylex.create({
     marginInline: "auto",
     paddingInline: 44,
     paddingTop: 56,
-    paddingBottom: 72,
+    // Room below the end, so the last section scrolls up out of the bottom third.
+    paddingBottom: "max(72px, 33vh)",
   },
   heading: { display: "flex", alignItems: "center", gap: 8, minHeight: 32 },
   pageTitle: {
@@ -476,4 +531,24 @@ const styles = stylex.create({
   wait: { color: tokens.warning },
   empty: { margin: 0, paddingBlock: 22, paddingInline: 20, color: tokens.muted },
   notice: { margin: 0, marginTop: 44, color: tokens.muted, fontSize: 14 },
+  // The skeleton's rows: the real rows' box, without the pointer's fill.
+  boneRow: {
+    cursor: "default",
+    backgroundColor: { default: "transparent", ":hover": "transparent" },
+  },
+  bone: {
+    display: "block",
+    flexShrink: 0,
+    borderRadius: 4,
+    backgroundColor: `color-mix(in srgb, ${tokens.text} 8%, transparent)`,
+    animationName: { default: pulse, "@media (prefers-reduced-motion: reduce)": "none" },
+    animationDuration: "1.1s",
+    animationTimingFunction: "ease-in-out",
+    animationIterationCount: "infinite",
+    animationDirection: "alternate",
+  },
+  boneDot: { width: 16, height: 16, borderRadius: "50%" },
+  boneLine: (width: number) => ({ width: `${width}%`, height: 12, marginBlock: 2 }),
+  boneFacts: (width: number) => ({ width: `${width}%`, height: 10, marginBlock: 2 }),
+  boneEnd: { width: 64, height: 10 },
 });

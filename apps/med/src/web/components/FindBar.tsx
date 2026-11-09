@@ -181,7 +181,7 @@ const styles = stylex.create({
     paddingInlineStart: 10,
     paddingInlineEnd: 4,
     borderRadius: `calc(9px * ${tokens.round})`,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,

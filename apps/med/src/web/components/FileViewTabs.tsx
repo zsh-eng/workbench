@@ -247,24 +247,26 @@ const tabEnter = stylex.keyframes({
   to: { opacity: 1, transform: "none" },
 });
 const styles = stylex.create({
-  // Plain rectangles, a line between each. The strip's bottom line is a
-  // shadow inside it, so the current tab, on the file's color, covers it
-  // and joins the file below.
+  // Plain tabs: a name on the page's own background, filled while the pointer
+  // is on it and more firmly for the file on screen.
   root: {
     display: "flex",
-    alignItems: "stretch",
+    alignItems: "center",
+    gap: 4,
     flexShrink: 0,
     minWidth: 0,
-    height: 32,
-    minHeight: 32,
+    height: 34,
+    minHeight: 34,
     boxSizing: "border-box",
-    backgroundColor: tokens.panel,
+    paddingInline: 6,
+    backgroundColor: tokens.canvas,
     boxShadow: `inset 0 -1px 0 ${tokens.line}`,
   },
   // The tabs narrow as more open and never scroll.
   list: {
     display: "flex",
-    alignItems: "stretch",
+    alignItems: "center",
+    gap: 2,
     flex: "1",
     minWidth: 0,
     overflow: "hidden",
@@ -272,26 +274,28 @@ const styles = stylex.create({
   // Longhands win over the list's flex shorthand. In a narrow row the tabs
   // narrow before the row's last controls shrink.
   keep: { flexBasis: "auto", flexShrink: 100 },
+  // A tab is as wide as its name, to a limit, and narrows as more open.
   item: {
     position: "relative",
     display: "flex",
-    alignItems: "stretch",
+    alignItems: "center",
     flexGrow: 0,
     flexShrink: 1,
-    flexBasis: 200,
+    flexBasis: "auto",
     minWidth: 56,
+    maxWidth: 240,
   },
   tab: {
     display: "flex",
     alignItems: "center",
-    gap: 7,
+    gap: 6,
+    height: 26,
     minWidth: 0,
     borderWidth: 0,
-    borderRadius: 0,
-    boxShadow: `inset -1px 0 0 ${tokens.line}`,
+    borderRadius: `calc(6px * ${tokens.round})`,
     backgroundColor: { default: "transparent", ":hover": tokens.fill },
     color: { default: tokens.muted, ":hover": tokens.text },
-    paddingInline: 12,
+    paddingInline: 8,
     fontFamily: tokens.ui,
     fontSize: 12,
     fontWeight: 450,
@@ -306,19 +310,19 @@ const styles = stylex.create({
     animationDuration: "200ms",
     animationTimingFunction: tokens.easeOut,
   },
-  fileTab: { width: "100%", paddingInlineStart: 10, paddingInlineEnd: 28 },
+  fileTab: { width: "100%", paddingInlineStart: 8, paddingInlineEnd: 26 },
   active: {
     color: { default: tokens.text, ":hover": tokens.text },
-    backgroundColor: { default: tokens.canvas, ":hover": tokens.canvas },
+    backgroundColor: { default: tokens.fillStrong, ":hover": tokens.fillStrong },
   },
-  // A long name fades at the tab's edge; a short one never reaches it.
+  // A long name ends in an ellipsis where the tab stops.
   name: {
     flex: "1",
     minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
     textAlign: "start",
-    maskImage: "linear-gradient(to right, #000 calc(100% - 18px), transparent)",
   },
   query: { maxWidth: 180, whiteSpace: "pre" },
   count: {
@@ -337,7 +341,7 @@ const styles = stylex.create({
   dirty: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 12,
+    insetInlineEnd: 10,
     top: "calc(50% - 3px)",
     width: 6,
     height: 6,
@@ -349,7 +353,7 @@ const styles = stylex.create({
   close: {
     position: "absolute",
     zIndex: 2,
-    insetInlineEnd: 6,
+    insetInlineEnd: 4,
     top: "calc(50% - 9px)",
     display: "flex",
     alignItems: "center",

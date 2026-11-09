@@ -381,7 +381,8 @@ const styles = stylex.create({
     marginInline: "auto",
     paddingInline: 44,
     paddingTop: 56,
-    paddingBottom: 72,
+    // Room below the end, so the last section scrolls up out of the bottom third.
+    paddingBottom: "max(72px, 33vh)",
   },
   title: {
     margin: 0,

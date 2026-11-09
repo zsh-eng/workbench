@@ -60,13 +60,20 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   when chosen. `initialize` gives the commands, models, and modes; Med drops
   the account field. `can_use_tool` becomes **Allow**, **Allow for this
   session**, or **Deny**. `interrupt`, `set_model`, and `set_permission_mode`
-  change a running session; a new effort restarts it with `--resume` between
-  turns. `get_context_usage` gives the window for the header's context chip. The thread reads the
+  change a running session, and `apply_flag_settings` with `effortLevel` its
+  effort, also during a turn; max effort, or its default, restarts it with
+  `--resume` between turns. `get_context_usage` gives the window for the header's context chip. The thread reads the
   transcript and shows streamed text until the transcript has it.
 - Every agent starts without the variables of a Claude Code session or app
   that started the Med host, such as `CLAUDE_CODE_SESSION_ID` and
   `CLAUDE_CODE_SIMPLE`. Bare mode (`CLAUDE_CODE_SIMPLE=1`) never reads the
-  keychain login, so each new session said "Not logged in".
+  keychain login, so each new session said "Not logged in". A host that a
+  Claude Code session started (`CLAUDECODE=1`), as an agent's `med review` does
+  when no server runs, gives its agents none of its `CLAUDE_*`, `ANTHROPIC_*`,
+  or `USE_*_OAUTH` variables: the desktop app's proxy and sign-in refresh made
+  each session fail with "OAuth session expired". The user's own, such as an
+  API key that `~/.zshrc` exports, come from the login shell, which Med reads
+  without them (`src/host/shell-environment.ts`).
 - **Codex** (`src/host/codex-runner.ts`): `codex app-server`, JSON-RPC over
   stdio, with `initialize`, `model/list`, `thread/start` or `thread/resume`,
   `turn/start`, `turn/steer`, and `turn/interrupt`. Codex names the thread,

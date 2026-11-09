@@ -354,7 +354,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: tokens.lineStrong,
-    backgroundColor: tokens.raised,
+    backgroundColor: tokens.menu,
     color: tokens.text,
     boxShadow: tokens.shadow,
     fontFamily: tokens.ui,
