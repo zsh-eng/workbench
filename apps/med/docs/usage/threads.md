@@ -10,12 +10,13 @@ grouping by repository. A session that handed off several reviews, such as
 one for each branch, is one row: the review on screen, else the newest. The
 row keeps the session's name and pin whichever review you open: the name you
 gave it, else its first review's title. Its
-side panel's **Reviews** lists them all, newest first, and opens each one;
+session rail's **Reviews** lists them all, newest first, and opens each one;
 **Archive** on the row archives them all. `⌘1`–`⌘9` open the session at that place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue
 when something is new since you looked, amber when the work stopped. While the
 agent works, its name dims under a passing light. **New thread**, a row at
-the top, starts a thread, and **Settings** is at the foot.
+the top, starts a thread. **History**, **Pull requests**, and **Settings**
+are at the foot.
 
 Tabs stay loaded and Med follows their agents. History is cold: Med does not
 load it or read its agents until you open it again.
@@ -62,6 +63,13 @@ load it or read its agents until you open it again.
   and first prompt, newest first. A history row has a hollow mark. `↵` opens
   it as a tab. **Open from history…** in `⌘K` lists history at once. `⌘⌫` on a
   history row, or its trash button, deletes the thread after you confirm.
+- **The History page.** **History** at the sidebar's foot, or **History** in
+  `⌘K`, shows all of history as a page: newest first, under a heading for
+  each day, each thread with its repository and branch, its agent, and when
+  it was last active. Type in its field (`/` or `⌘F` goes there, and a letter
+  in the list starts a search) to search as `⌃Tab` does. `↑` and `↓` (or `j`
+  and `k`) choose a thread, and `↵` or a click opens it as a tab. `⌘⌫` or a
+  row's trash button deletes a thread after a second `↵`.
 - **Delete…** in a row's menu deletes the thread after you confirm: its saved
   review, its Review versions, and its comments. The agent's session stays in
   Claude Code or Codex; Med does not show it as a found session again.
@@ -241,7 +249,7 @@ background shells and agents. It follows the session live.
 - In a wide pane, the thread keeps to a column in the middle of the pane,
   with text 768 pixels wide as in Claude Desktop: the replies, the code
   blocks and tool output, the cards under the thread, and the message box.
-  A narrower pane, or the side panel, narrows the column. The pane keeps the
+  A narrower pane, or the session rail, narrows the column. The pane keeps the
   width that you give it; drag its edge to give the review the room beside
   the column. Markdown files, pull request drafts, and the Guide read at the
   same width.
@@ -339,10 +347,10 @@ The pane's header
 shows how full
 the context is and what the thread has spent, subagents included; click it
 for where autocompact starts and each model's tokens. A pane with room beside
-its thread shows a side panel instead: the context, the spend, the background
+its thread shows the session rail instead: the context, the spend, the background
 tasks, the subagents, links to the thread's Review, Changes, and pull request,
 and where the agent works. There the subagents are a list, with each one's
-state, in place of the tabs over the thread. Its button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
+state, in place of the tabs over the thread. Its list button in the header, `⌘⌥⇧B`, or `⌘K` hides or shows it.
 
 - **Mode** shows the mode that Claude Code reports, also after an approved
   plan changes it: **Ask**, **Accept edits**, **Plan**, **Auto**, **Don't

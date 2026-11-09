@@ -514,7 +514,7 @@ test("the Changes page's sidebar hides from its heading, comes back by the heade
   expect(changesSidebar()).toBeUndefined();
 });
 
-test("a hidden session pane comes back by its button where it was, and ⌘K hides the session's side panel where it has room", async () => {
+test("a hidden session pane comes back by its button where it was, and ⌘K hides the session rail where it has room", async () => {
   await page.viewport(1920, 900);
   render();
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -526,12 +526,12 @@ test("a hidden session pane comes back by its button where it was, and ⌘K hide
   // The session is open, so the review's row has no button for it.
   expect(showSession.query()).toBeNull();
 
-  // Its side panel has room: ⌘K hides it as its own button does.
-  const side = () => visible("[data-side-panel-toggle]");
+  // Its session rail has room: ⌘K hides it as its own button does.
+  const side = () => visible("[data-session-rail-toggle]");
   await expect.poll(() => side()?.getAttribute("aria-pressed")).toBe("true");
   await userEvent.keyboard("{Control>}k{/Control}");
-  await page.getByRole("combobox", { name: "Search commands" }).fill("side panel");
-  await page.getByRole("option", { name: /^Hide the session's side panel/ }).click();
+  await page.getByRole("combobox", { name: "Search commands" }).fill("session rail");
+  await page.getByRole("option", { name: /^Hide session rail/ }).click();
   await expect.poll(() => side()?.getAttribute("aria-pressed")).toBe("false");
   expect(localStorage.getItem("med:session-panel")).toBe("closed");
 
@@ -630,8 +630,8 @@ async function painted(watched: Element, read: () => string, act: () => Promise<
   return [...frames.values()].filter((value, index, all) => value !== all[index - 1]);
 }
 
-test("the sidebar moves the session pane and its side panel in one frame, as wide as they end", async () => {
-  // With the sidebar, the session pane is too narrow for its side panel;
+test("the sidebar moves the session pane and its session rail in one frame, as wide as they end", async () => {
+  // With the sidebar, the session pane is too narrow for its session rail;
   // without it, the panel has room.
   await page.viewport(2050, 900);
   render();
@@ -641,7 +641,7 @@ test("the sidebar moves the session pane and its side panel in one frame, as wid
   await expect.poll(pane).toBeTruthy();
   // The pane's width, and where its side panel starts when it has one.
   const read = () =>
-    `${pane()!.clientWidth} ${visible('[aria-label="Session details"]')?.getBoundingClientRect().x ?? "none"}`;
+    `${pane()!.clientWidth} ${visible('[aria-label="Session rail"]')?.getBoundingClientRect().x ?? "none"}`;
   const start = read();
   expect(start).toMatch(/ none$/);
   const hidden = await painted(pane()!, read, () =>

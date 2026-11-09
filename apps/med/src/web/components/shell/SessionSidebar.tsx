@@ -42,7 +42,8 @@ const DRAG_START = 4;
  * order, then every other one, newest activity first. A row is the agent's
  * mark, the session's name, and at most one dot: accent when something is new
  * since the reader looked, amber when the work stopped. A session at work
- * dims its name under a passing light. Settings is the one way out, at the foot.
+ * dims its name under a passing light. History, Pull requests, and Settings
+ * are at the foot.
  *
  * A row drags into Pinned, to a place among the pins, and out of it again.
  * While it drags, the list shows where it would land: the other rows make
@@ -60,6 +61,7 @@ export function SessionSidebar({
   onNewThread,
   onHide,
   onSettings,
+  onHistory,
   onPullRequests,
   onSuperagent,
   onArchive,
@@ -85,6 +87,8 @@ export function SessionSidebar({
   onNewThread(): void;
   onHide(): void;
   onSettings(): void;
+  /** Shows the History page: the threads that are not tabs. */
+  onHistory?(): void;
   /** Shows the open pull requests that wait on you, and yours. */
   onPullRequests?(): void;
   /** Opens the Superagent's thread, and makes it the first time. */
@@ -375,6 +379,12 @@ export function SessionSidebar({
         </div>
       )}
       {notice}
+      {onHistory && (
+        <button type="button" onClick={onHistory} {...stylex.props(styles.row, styles.settings)}>
+          <Icon name="history" size={15} />
+          <span {...stylex.props(styles.name)}>History</span>
+        </button>
+      )}
       {onPullRequests && (
         <button
           type="button"

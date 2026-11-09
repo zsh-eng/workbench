@@ -148,6 +148,22 @@ const answered = (thread: Thread) =>
 export const needsYou = (thread: Thread) =>
   thread.state === "waiting" || !!thread.halt || (!!thread.turn?.asks && !answered(thread));
 
+/** Whether each word of the query is in one of the fields. */
+export function matches(words: readonly string[], fields: (string | undefined)[]) {
+  if (!words.length) return true;
+  const text = fields.filter(Boolean).join("\n").toLowerCase();
+  return words.every((word) => text.includes(word));
+}
+/** What a search of tabs and history reads of a thread: its title, branch,
+ * repository, checkout, and first prompt. */
+export const threadFields = (thread: Thread) => [
+  thread.title,
+  thread.branch,
+  thread.repository?.name,
+  thread.checkout?.split("/").at(-1),
+  thread.prompt,
+];
+
 /** A short age: now, 4m, 3h, 2d, then the date. */
 export function shortAge(at: number, now: number) {
   const seconds = Math.max(0, Math.round((now - at) / 1000));

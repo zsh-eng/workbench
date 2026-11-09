@@ -44,6 +44,8 @@ const ICONS: Record<string, string | [string, number]> = {
   external: "Share",
   panelLeft: "SidebarLeft",
   panelRight: "Sidebar",
+  // The session rail beside a thread, as Claude Desktop marks it: a list.
+  sessionRail: "ListUnordered",
   plus: "Plus",
   edit: "Pencil",
   trash: "Trash",

@@ -49,15 +49,18 @@ import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
+import { HistoryPage, HISTORY_PATH, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
+  matches,
   needsYou,
   NO_THREADS,
   sessionGroups,
   sessionRows,
   shortAge,
   tabOrder,
+  threadFields,
   useThreads,
   type SessionRow,
 } from "../data/threads";
@@ -227,6 +230,8 @@ interface TabActions {
   openHistory(): void;
   /** Opens New thread. */
   newThread(): void;
+  /** Shows the History page. */
+  showHistory(): void;
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
   /** Shows the name field of the thread. */
@@ -272,6 +277,7 @@ export function useTabCommands(): ReviewCommand[] {
         label: "Open from history…",
         run: tabs.openHistory,
       },
+      { id: "history-page", managesFocus: true, label: "History", run: tabs.showHistory },
       { id: "next-needs-you", label: "Next tab that needs you", shortcut: "⌘ 0", run: tabs.next },
       {
         id: "rename-thread",
@@ -1149,6 +1155,8 @@ export function WorkspaceHost({
 
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
+  // The History page covers them too, at its own address.
+  const historyPage = pathname === HISTORY_PATH;
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
@@ -1587,6 +1595,7 @@ export function WorkspaceHost({
         setSwitcher({ held: false, reverse: false, history: true });
       },
       newThread: () => setNewThread(true),
+      showHistory: openHistoryPage,
       next: () => void latest.current.nextAttention(),
       rename(id) {
         if (find(id)) setRenaming(id);
@@ -1763,6 +1772,11 @@ export function WorkspaceHost({
                               }}
                               onHide={toggleSidebar}
                               onSettings={() => openSettings()}
+                              onHistory={() => {
+                                setOverlay(false);
+                                setNewThread(false);
+                                openHistoryPage();
+                              }}
                               onPullRequests={() => {
                                 setOverlay(false);
                                 openPullRequests();
@@ -1855,11 +1869,22 @@ export function WorkspaceHost({
                               />
                             </span>
                           )}
-                          <div inert={newThread || undefined} {...stylex.props(styles.shellLayer)}>
+                          <div
+                            inert={newThread || historyPage || undefined}
+                            {...stylex.props(styles.shellLayer)}
+                          >
                             <Band value={band.value}>
                               <Warm value={warm}>{children}</Warm>
                             </Band>
                           </div>
+                          {historyPage && (
+                            <HistoryPage
+                              tabs={order}
+                              fetcher={fetcher}
+                              onOpen={(thread) => void openFromHistory(thread)}
+                              onDelete={deleteNow}
+                            />
+                          )}
                           {!showsSidebar && noticeBar}
                           {newThread && (
                             <NewThread
@@ -2555,19 +2580,6 @@ type SwitchRow =
   | { kind: "tab"; key: string; thread: Thread }
   | { kind: "history"; key: string; thread: Thread };
 
-/** Whether each word of the query is in one of the fields. */
-function matches(words: readonly string[], fields: (string | undefined)[]) {
-  if (!words.length) return true;
-  const text = fields.filter(Boolean).join("\n").toLowerCase();
-  return words.every((word) => text.includes(word));
-}
-const threadFields = (thread: Thread) => [
-  thread.title,
-  thread.branch,
-  thread.repository?.name,
-  thread.checkout?.split("/").at(-1),
-  thread.prompt,
-];
 /** The most history rows that the switcher shows at once. */
 const HISTORY_ROWS = 60;
 const optionId = (key: string) => `workspace-switch-${key.replace(/[^\w-]/g, "-")}`;

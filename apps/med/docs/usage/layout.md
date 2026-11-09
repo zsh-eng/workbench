@@ -20,9 +20,10 @@ review, in place of the session's own **Hide**, since the session is then the
 whole workspace. **Files**, which you open yourself, opens again from `⌘K`. A
 pane's **Hide** (a line, as a window's minimize) is in its header, where its ×
 would be, with **Expand** before it while other panes show. The panel icon,
-shaded on the side where the panel is, is only for sidebars: the page's
-sidebar, the threads, and the session's side panel. Med keeps each choice: a
-pane's in the thread's layout, the others in the view settings.
+shaded on the side where the panel is, is only for the sidebar of threads. A
+rail's button shows what the rail lists: the guide's signpost, the changed
+files' tree, and the session rail's list, as in Claude Desktop. Med keeps
+each choice: a pane's in the thread's layout, the others in the view settings.
 
 The panes are flat, as in Claude's desktop app: they meet edge to edge, with a
 1 px line between them, on the same color as every page in the window (New
@@ -49,7 +50,7 @@ installed app keeps the title band there for its window controls.
 | Files                                   | The × in its header                                                               | **Show files sidebar** in `⌘K`                                         |
 | A vault's files sidebar                 | The folder button, or **Hide files sidebar** in `⌘K`                              | The same button, or **Show files sidebar** in `⌘K`                     |
 | A page's sidebar (guide, changed files) | The button at its heading's end, `⌘⌥B`, or `⌘B` in a browser tab                  | The button at the start of the review's header, `⌘⌥B`, or `⌘K`         |
-| The session's side panel                | The button in the session's row, `⌘⌥⇧B`                                           | The same button, `⌘⌥⇧B`, or **Show the session's side panel** in `⌘K`  |
+| The session rail                        | The list button in the session's row, `⌘⌥⇧B`                                      | The same button, `⌘⌥⇧B`, or **Show session rail** in `⌘K`              |
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts
@@ -153,7 +154,7 @@ every workspace and window, except where the table says "each window" or
 | Vim keys and line blame in files               | On                        | `med:vim`, `med:line-blame`                           |
 | Find file's preview                            | On                        | `med:picker-preview`                                  |
 | Show work, background tasks (Session pane)     | Folded, open              | `med:work`, `med:background`                          |
-| Session side panel                             | Shown                     | `med:session-panel`                                   |
+| Session rail                                   | Shown                     | `med:session-panel`                                   |
 | Sidebar shown, its width (each window)         | Shown, 272                | `med:sidebar`, `med:sidebar-width`                    |
 | Panes: open, hidden, sizes, zoom (each thread) | Per layout                | `med:panes:v1:<workspace>`                            |
 | Changes rail, Guide, and Commit list widths    | Per pane                  | `med:column:v1:<kind>`                                |
