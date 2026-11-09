@@ -238,7 +238,7 @@ import { sendsNow } from "./components/SendNow";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionStarter } from "./components/session/SessionPanel";
 import type { ThreadLink } from "./components/session/SessionSidePanel";
-import { useAgentPresets } from "./data/owned-session";
+import { forkSession, useAgentPresets } from "./data/owned-session";
 import { useFoundCommands } from "./data/found-threads";
 import { createFileIndex } from "./data/file-refs";
 import { CommentRefsContext, type FileRefs } from "./components/FileRefs";
@@ -1336,6 +1336,16 @@ export function App({
       showPane("session");
     },
     [controller, showPane],
+  );
+  // Fork from here: the new thread opens as a tab of its own, in front.
+  const forkFromHere = useCallback(
+    async (sessionId: string, at: string) => {
+      const reviewId = state.savedReview?.id;
+      if (!reviewId) return;
+      const forked = await forkSession(reviewId, sessionId, { at }, sessionFetch);
+      workspace?.open({ kind: "review", reviewId: forked.id, title: forked.title });
+    },
+    [state.savedReview?.id, sessionFetch, workspace],
   );
   // The lead session: the latest one. Its agent names the reply controls.
   const leadSession = agentSessions.at(-1);
@@ -6067,6 +6077,7 @@ export function App({
                     openAgent={openAgent}
                     recap={recapProps}
                     onContinue={continueInMed}
+                    onFork={forkFromHere}
                     links={sessionLinks}
                     place={
                       threadTarget

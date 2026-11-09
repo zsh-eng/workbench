@@ -217,6 +217,98 @@ export async function transcriptPrompt(session: Pick<AgentSession, "agent" | "id
   return undefined;
 }
 
+/** How far a search for a reply's model and effort reads before the point. */
+const CHOICE_BYTES = 16 * 1024 * 1024;
+
+/** A point in a Claude Code session: the model and effort of its last reply
+ * up to there, and the byte offset where the point's line ends. */
+export interface TranscriptPoint {
+  end: number;
+  /** The model, as Claude Code names it, such as `claude-opus-5-5`. */
+  model?: string;
+  effort?: string;
+}
+
+/**
+ * Reads a Claude Code transcript from its end, to the line of message `at`
+ * (or the end, without `at`), and on to the last reply there: a session that
+ * Med resumes or forks goes on with that reply's model and effort, so it reads
+ * the prompt cache that the session wrote. Undefined when no line is `at`.
+ */
+export async function transcriptPoint(
+  path: string,
+  at?: string,
+): Promise<TranscriptPoint | undefined> {
+  const handle = await open(path, "r");
+  try {
+    const size = (await handle.stat()).size;
+    const needle = at === undefined ? undefined : `"uuid":"${at}"`;
+    let end = at === undefined ? size : undefined;
+    let model: string | undefined;
+    let effort: string | undefined;
+    let position = size;
+    let read = 0;
+    // The start of a line that began in an earlier block, without its newline.
+    let carry = Buffer.alloc(0);
+    while (position > 0 && !(model && effort) && (end === undefined || read < CHOICE_BYTES)) {
+      const length = Math.min(PAGE_BYTES, position);
+      position -= length;
+      const block = Buffer.alloc(length);
+      await handle.read(block, 0, length, position);
+      const chunk = carry.length ? Buffer.concat([block, carry]) : block;
+      const newline = chunk.indexOf(10);
+      if (position > 0 && newline < 0) {
+        carry = chunk;
+        continue;
+      }
+      const skip = position > 0 ? newline + 1 : 0;
+      carry = chunk.subarray(0, Math.max(0, skip - 1));
+      const lines = chunk.toString("utf8", skip).split("\n");
+      // Where each line starts; it ends after its newline.
+      let offset = position + skip;
+      const starts = lines.map((line) => {
+        const start = offset;
+        offset += Buffer.byteLength(line) + 1;
+        return start;
+      });
+      for (let index = lines.length - 1; index >= 0; index--) {
+        const line = lines[index]!;
+        const bytes = Buffer.byteLength(line);
+        const after = Math.min(size, starts[index]! + bytes + 1);
+        if (end !== undefined) read += bytes + 1;
+        if (!line) continue;
+        if (end === undefined) {
+          if (!line.includes(needle!)) continue;
+          if (parseLine(line)?.uuid !== at) continue;
+          end = after;
+        }
+        if (!line.includes('"type":"assistant"')) continue;
+        const entry = parseLine(line);
+        if (!entry || entry.type !== "assistant" || entry.isSidechain) continue;
+        // Claude Code's own name for the model, with its context window, such
+        // as `claude-opus-5-5[1m]`; the API's (message.model) has no window.
+        const id = entry.requestedModel;
+        if (typeof id === "string" && id && id !== "<synthetic>") model ??= id;
+        if (typeof entry.effort === "string" && entry.effort) effort ??= entry.effort;
+        if (model && effort) break;
+      }
+    }
+    if (end === undefined) return undefined;
+    return { end, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+  } finally {
+    await handle.close();
+  }
+}
+
+const parseLine = (line: string): Record<string, unknown> | undefined => {
+  try {
+    const value: unknown = JSON.parse(line);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** The updates in the transcript's tail, without its subagents. */
 export async function readTranscriptTail(
   session: Pick<AgentSession, "agent" | "id">,

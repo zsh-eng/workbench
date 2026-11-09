@@ -315,6 +315,19 @@ export const ownedStartSchema = z.object({
     .optional(),
 });
 
+/** Fork from here: a new thread whose Claude Code session starts from this
+ * session's history, up to one of its replies. */
+export const sessionForkSchema = z.object({
+  /** The reply's message, by its ID in the transcript. */
+  at: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  /** The new thread's name; without it, Med names it for the thread it forks. */
+  title: z.string().trim().min(1).max(120).optional(),
+});
+export type SessionFork = z.infer<typeof sessionForkSchema>;
+/** The new thread of a fork. */
+export const sessionForkedSchema = z.object({ id: z.string(), title: z.string() });
+export type SessionForked = z.infer<typeof sessionForkedSchema>;
+
 export const ownedActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prompt"), text: z.string().trim().min(1).max(100_000) }),
   z.object({

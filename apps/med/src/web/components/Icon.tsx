@@ -17,6 +17,7 @@ type DrawnName =
   | "testFile"
   | "restore"
   | "focusExit"
+  | "fork"
   | "play"
   | "pause";
 export type IconName = PierreName | DrawnName;
@@ -57,6 +58,11 @@ const drawn: Record<DrawnName, ReactNode> = {
   // Pierre's ArrowsExpand, turned inward.
   restore: <path d="M9.75 1.75v4.5h4.5M10.25 5.75l4-4M6.25 14.25v-4.5h-4.5M5.75 10.25l-4 4" />,
   focusExit: <path d="M9.75 1.75v4.5h4.5M10.25 5.75l4-4M6.25 14.25v-4.5h-4.5M5.75 10.25l-4 4" />,
+  // A path that splits in two, each way an arrow: a session forked from a
+  // reply goes on in a thread of its own. Pierre's Branch is Git's.
+  fork: (
+    <path d="M1.75 8h3.5c1.6 0 2.4-.9 3.4-2.1l2.6-3.15M5.25 8c1.6 0 2.4.9 3.4 2.1l2.6 3.15M8.5 2.25h3.25V5.5M8.5 13.75h3.25V10.5" />
+  ),
   play: <path d="M4.75 3.25v9.5L12.5 8z" />,
   pause: <path d="M5.5 3.25v9.5M10.5 3.25v9.5" />,
 };

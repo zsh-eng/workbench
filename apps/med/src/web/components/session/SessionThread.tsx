@@ -17,12 +17,13 @@ import { createPortal, flushSync } from "react-dom";
 import type { SentComment } from "../../../shared/agent-inbox";
 import type { SentMessage } from "../../data/agent-inbox";
 import type { PlanEntry } from "../../../shared/agent-session";
-import { useMinuteClock } from "../../data/relative-time";
+import { relativeTime, useMinuteClock } from "../../data/relative-time";
 import type { SessionItem, SessionSnapshot } from "../../data/session-store";
 import { renderBrief } from "../../markdown/brief-render";
 import { tokens } from "../../theme.stylex";
 import { useTheme } from "../../themes";
 import { Icon } from "../Icon";
+import { tooltip } from "../ToolButton";
 import { LinkedText } from "../FileRefs";
 import { column, motion, rowStyles } from "./session-styles";
 import { BackgroundDock } from "./BackgroundDock";
@@ -65,12 +66,17 @@ type AgentItem = Extract<SessionItem, { kind: "agent" }>;
 /** What a reader can do with an agent's reply, from the panel that shows the session. */
 export interface ReplyActions {
   /** The pin of this reply, when it is pinned to the review. */
-  pinned(itemId: string): string | undefined;
-  pin(item: AgentItem): Promise<void>;
+  pinned?(itemId: string): string | undefined;
+  pin?(item: AgentItem): Promise<void>;
   /** Show the pinned reply in the review's Notes. */
-  showPin(pinId: string): void;
+  showPin?(pinId: string): void;
+  /** Fork from here: a new thread whose session starts from this one's
+   * history up to the reply. This thread stays as it is. */
+  fork?(item: AgentItem): Promise<void>;
 }
 export const ReplyActionsContext = createContext<ReplyActions | null>(null);
+/** The reply that ends the thread's latest turn, whose actions stay in view. */
+const LatestReplyContext = createContext<string | undefined>(undefined);
 
 /** A subagent's own steps, inside the call that started it. */
 function Thread({
@@ -261,6 +267,7 @@ const Item = memo(function Item({
         <div {...stylex.props(styles.userRow)}>
           {item.queued && !item.sent && <span {...stylex.props(styles.queued)}>Queued</span>}
           <div {...stylex.props(styles.user)}>
+            <CopyPrompt item={item} />
             {images.length > 0 && <ImageThumbs images={images} />}
             <PromptText
               id={item.id}
@@ -321,63 +328,148 @@ const Item = memo(function Item({
   }
 });
 
+/** Copies text, and says so on its button for a moment. */
+function useCopy() {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = (text: string) =>
+    void navigator.clipboard.writeText(text).then(
+      () => setCopied(true),
+      () => {},
+    );
+  return [copied, copy] as const;
+}
+
+/** A prompt's text as the user wrote it, for Copy. */
+const promptText = (item: Extract<SessionItem, { kind: "user" }>) =>
+  item.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n\n");
+
+/** Copy beside a prompt, while the pointer or the focus is on its message. */
+function CopyPrompt({ item }: { item: Extract<SessionItem, { kind: "user" }> }) {
+  const [copied, copy] = useCopy();
+  const text = promptText(item);
+  if (!text.trim()) return null;
+  return (
+    <span data-message-actions="" {...stylex.props(styles.promptActions)}>
+      <button
+        type="button"
+        aria-label={copied ? "Copied" : "Copy prompt"}
+        {...tooltip(copied ? "Copied" : "Copy prompt")}
+        onClick={() => copy(text)}
+        {...stylex.props(styles.replyAction)}
+      >
+        <Icon name={copied ? "check" : "copy"} size={13} />
+      </button>
+    </span>
+  );
+}
+
 /**
- * Copy and Pin to review under the reply that ends a turn. A pinned reply
- * keeps a Pinned mark wherever it is, which shows it in the Notes.
+ * The actions under the reply that ends a turn, as Claude Desktop has them:
+ * Copy, Fork from here, Pin to review, and when the reply came. They show
+ * while the pointer or the focus is on the reply; the latest reply's stay. A
+ * pinned reply keeps a Pinned mark wherever it is, which shows it in the
+ * Notes.
  */
 function ReplyBar({ item, final }: { item: AgentItem; final: boolean }) {
   const actions = useContext(ReplyActionsContext);
-  const [copied, setCopied] = useState(false);
+  const latest = useContext(LatestReplyContext) === item.id;
+  const [copied, copy] = useCopy();
   const [pinning, setPinning] = useState(false);
-  const pinId = actions?.pinned(item.id);
+  const [forking, setForking] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const now = useMinuteClock(final);
+  const pinId = actions?.pinned?.(item.id);
   if (!final && pinId === undefined) return null;
-  const copy = () =>
-    navigator.clipboard.writeText(item.text).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      },
-      () => {},
-    );
+  const fork = final ? actions?.fork : undefined;
   return (
-    <div {...stylex.props(styles.replyBar)}>
+    <div
+      data-message-actions=""
+      data-shown={latest || pinId !== undefined || forking || failed ? "" : undefined}
+      {...stylex.props(styles.replyBar)}
+    >
       {final && (
         <button
           type="button"
           aria-label={copied ? "Copied" : "Copy reply"}
-          title="Copy reply"
-          onClick={() => void copy()}
+          {...tooltip(copied ? "Copied" : "Copy reply")}
+          onClick={() => copy(item.text)}
           {...stylex.props(styles.replyAction)}
         >
           <Icon name={copied ? "check" : "copy"} size={13} />
         </button>
       )}
-      {actions &&
+      {fork && (
+        <button
+          type="button"
+          aria-label="Fork from here"
+          disabled={forking}
+          {...tooltip(
+            forking ? "Forking…" : "Fork from here",
+            undefined,
+            undefined,
+            "Starts a new session from this point. This one stays as it is.",
+          )}
+          onClick={() => {
+            setForking(true);
+            setFailed(null);
+            fork(item)
+              .catch((reason: unknown) =>
+                setFailed(reason instanceof Error ? reason.message : "Med did not fork it."),
+              )
+              .finally(() => setForking(false));
+          }}
+          {...stylex.props(styles.replyAction)}
+        >
+          <Icon name="fork" size={13} />
+        </button>
+      )}
+      {actions?.showPin &&
         (pinId !== undefined ? (
           <button
             type="button"
-            title="Show in Notes"
-            onClick={() => actions.showPin(pinId)}
+            {...tooltip("Show in Notes")}
+            onClick={() => actions.showPin!(pinId)}
             {...stylex.props(styles.replyAction, styles.replyPinned)}
           >
             <Icon name="pin" size={13} />
             Pinned
           </button>
         ) : (
-          <button
-            type="button"
-            disabled={pinning}
-            title="Keep this reply in the review's Notes"
-            onClick={() => {
-              setPinning(true);
-              actions.pin(item).finally(() => setPinning(false));
-            }}
-            {...stylex.props(styles.replyAction)}
-          >
-            <Icon name="pin" size={13} />
-            Pin to review
-          </button>
+          actions.pin && (
+            <button
+              type="button"
+              disabled={pinning}
+              {...tooltip("Keep this reply in the review's Notes")}
+              onClick={() => {
+                setPinning(true);
+                actions.pin!(item).finally(() => setPinning(false));
+              }}
+              {...stylex.props(styles.replyAction)}
+            >
+              <Icon name="pin" size={13} />
+              Pin to review
+            </button>
+          )
         ))}
+      {final && (
+        <time
+          dateTime={new Date(item.at).toISOString()}
+          {...tooltip(new Date(item.at).toLocaleString())}
+          {...stylex.props(styles.replyTime)}
+        >
+          {relativeTime(item.at, Math.max(now, item.at))}
+        </time>
+      )}
+      {failed && (
+        <span role="alert" {...stylex.props(styles.replyFailed)}>
+          {failed}
+        </span>
+      )}
     </div>
   );
 }
@@ -1097,6 +1189,8 @@ export function SessionThread({
 
   const plain = useMemo(() => units(snapshot.items), [snapshot.items]);
   const finals = useMemo(() => finalReplies(plain, snapshot.running), [plain, snapshot.running]);
+  // finalReplies reads from the end: its first is the latest.
+  const latestReply = useMemo(() => finals.values().next().value, [finals]);
   // Turns that the reader opened or folded, against the switch.
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
   const [switched, setSwitched] = useState(showWork);
@@ -1870,30 +1964,32 @@ export function SessionThread({
                   )}
                   <div ref={head} {...stylex.props(styles.space(above))} />
                   <RowOpen value={rows}>
-                    {all.slice(start, end).map((unit, offset) => {
-                      const at = start + offset;
-                      return (
-                        <div
-                          key={unit.key}
-                          ref={unitRef}
-                          data-unit={unit.key}
-                          data-rise={appended.has(unit.key) ? "" : undefined}
-                          data-message={isMessage(unit) ? unit.item.kind : undefined}
-                          data-current={unit.key === current ? "" : undefined}
-                          {...stylex.props(styles.unit)}
-                        >
-                          <UnitBody
-                            unit={unit}
-                            last={snapshot.running && at === count - 1}
-                            final={"item" in unit && finals.has(unit.item.id)}
-                            renderThread={renderThread}
-                            onOpenLink={onOpenLink}
-                            onWork={toggleWork}
-                            onHold={holdUnit}
-                          />
-                        </div>
-                      );
-                    })}
+                    <LatestReplyContext.Provider value={latestReply}>
+                      {all.slice(start, end).map((unit, offset) => {
+                        const at = start + offset;
+                        return (
+                          <div
+                            key={unit.key}
+                            ref={unitRef}
+                            data-unit={unit.key}
+                            data-rise={appended.has(unit.key) ? "" : undefined}
+                            data-message={isMessage(unit) ? unit.item.kind : undefined}
+                            data-current={unit.key === current ? "" : undefined}
+                            {...stylex.props(styles.unit)}
+                          >
+                            <UnitBody
+                              unit={unit}
+                              last={snapshot.running && at === count - 1}
+                              final={"item" in unit && finals.has(unit.item.id)}
+                              renderThread={renderThread}
+                              onOpenLink={onOpenLink}
+                              onWork={toggleWork}
+                              onHold={holdUnit}
+                            />
+                          </div>
+                        );
+                      })}
+                    </LatestReplyContext.Provider>
                   </RowOpen>
                   <div {...stylex.props(styles.space(below))} />
                   {snapshot.running ? (
@@ -2325,6 +2421,30 @@ const styles = stylex.create({
     transitionDuration: "120ms",
   },
   replyPinned: { color: { default: tokens.accent, ":hover": tokens.accent } },
+  replyTime: {
+    marginInlineStart: 6,
+    color: tokens.faint,
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+    whiteSpace: "nowrap",
+  },
+  replyFailed: {
+    marginInlineStart: 6,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: tokens.red,
+    fontFamily: tokens.ui,
+    fontSize: 11.5,
+  },
+  // Beside the prompt's bubble, at its last line, off the text.
+  promptActions: {
+    position: "absolute",
+    right: "100%",
+    bottom: 4,
+    marginInlineEnd: 4,
+  },
   userRow: {
     display: "flex",
     flexDirection: "column",
@@ -2334,6 +2454,7 @@ const styles = stylex.create({
   },
   // Its text ends at the thread's edge; the bubble reaches past it.
   user: {
+    position: "relative",
     maxWidth: "86%",
     marginInlineEnd: -10,
     paddingBlock: 9,

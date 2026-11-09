@@ -177,3 +177,26 @@ details[open] > summary .med-context-chevron {
 summary:has(.med-context-chevron)::-webkit-details-marker {
   display: none;
 }
+
+/* A message's actions show while the pointer or the focus is on it, as in
+   Claude Desktop; they keep their room, so the thread does not move. The
+   latest reply's stay, as do a pinned reply's. A touch screen has no pointer
+   to rest, so it shows them all. */
+[data-message-actions] {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+[data-unit]:is(:hover, :focus-within) [data-message-actions],
+[data-message-actions][data-shown] {
+  opacity: 1;
+}
+@media (hover: none) {
+  [data-message-actions] {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-message-actions] {
+    transition: none;
+  }
+}

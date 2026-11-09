@@ -23,7 +23,7 @@ import {
   type PermissionReply,
 } from "../shared/owned-session";
 import type { AgentSession } from "../shared/saved-review";
-import { compactUpdate } from "./agent-transcripts";
+import { compactUpdate, findTranscript, transcriptPoint } from "./agent-transcripts";
 import { heldLocks, lockFolders, processCwd } from "./agent-locks";
 import { agyHistory, agyTitle, probeAgy, startAgy } from "./agy-runner";
 import { probeCodex, startCodex, type CodexModel } from "./codex-runner";
@@ -336,12 +336,42 @@ const effortOptions = (levels: string[]) => [
   })),
 ];
 
+/** A model's ID as Claude Code names it, such as `claude-opus-5-5[1m]`. */
+const MODEL_ID = /^claude-[a-z0-9.-]+(?:\[[a-z0-9]+\])?$/;
+/** The context window that a model's value or ID names, such as `[1m]`. */
+const windowOf = (value: string) => /\[[a-z0-9]+\]$/.exec(value)?.[0] ?? "";
+
+/**
+ * The value that Claude Code's models offer for a model's ID, such as `opus`
+ * for `claude-opus-5-5`, whose name is Opus 5.5. An ID that no model names
+ * stays as it is: `--model` takes it, and the session reads its own cache.
+ */
+export function claudeModelValue(models: ClaudeModel[], id: string) {
+  if (id === "default" || models.some((entry) => entry.value === id)) return id;
+  const window = windowOf(id);
+  const base = id.slice(0, id.length - window.length).replace(/-\d{8}$/, "");
+  const named = models.find(
+    (entry) =>
+      entry.value !== "default" &&
+      windowOf(entry.value) === window &&
+      !!entry.displayName &&
+      `claude-${entry.displayName
+        .replace(/\s*\(.*\)\s*$/, "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s.]+/g, "-")}` === base,
+  );
+  return named?.value ?? id;
+}
+
 /** The model and effort that Claude Code offers, from the wanted ones. */
 function claudeChoices(models: ClaudeModel[], wanted: AgentChoices) {
-  const model = models.find((entry) => entry.value === wanted.model);
+  const value = wanted.model ? claudeModelValue(models, wanted.model) : "default";
+  const model = models.find((entry) => entry.value === value);
   const levels = (model ?? models[0])?.supportedEffortLevels ?? [];
   return {
-    model: model?.value ?? "default",
+    // A model's ID that Claude Code does not list, as a session's own, stays.
+    model: model || MODEL_ID.test(value) ? value : "default",
     effort: wanted.effort && levels.includes(wanted.effort) ? wanted.effort : "default",
   };
 }
@@ -426,6 +456,9 @@ export function startClaude(
     /** A new session that starts from this one's history (`--fork-session`),
      * until its first prompt makes its own transcript. */
     fork?: string;
+    /** The message of `fork` where the new session's history ends
+     * (`--resume-session-at`); the history goes to the end without it. */
+    forkAt?: string;
     /** Whether another process runs a session (session-processes.ts). */
     elsewhere?: (sessionId: string) => Promise<boolean>;
     /** What stopped the work before the host restarted, such as a cut turn. */
@@ -490,9 +523,15 @@ export function startClaude(
   const write = (message: object) => {
     if (!replaying) held?.write(JSON.stringify(message));
   };
+  /** A model's ID, as a resumed session's own, shows as the model that names it. */
+  const settle = () => {
+    if (models.length) chosen.model = claudeModelValue(models, chosen.model);
+  };
+  settle();
   const settings = (): OwnedSetting[] => {
     const model = models.find((entry) => entry.value === chosen.model) ?? models[0];
     const efforts = model?.supportedEffortLevels ?? [];
+    const options = models.map(modelOption);
     return [
       ...(models.length
         ? [
@@ -501,7 +540,10 @@ export function startClaude(
               name: "Model",
               category: "model" as const,
               value: chosen.model,
-              options: models.map(modelOption),
+              // A model that Claude Code does not list, as a session's own.
+              options: options.some((option) => option.value === chosen.model)
+                ? options
+                : [...options, { value: chosen.model, name: chosen.model }],
             },
           ]
         : []),
@@ -542,6 +584,7 @@ export function startClaude(
       const parsed = claudeInitSchema.safeParse(value);
       if (!parsed.success) return;
       models = parsed.data.models;
+      settle();
       // Claude Code reports the mode that it started in: the session's own,
       // or for a new one, the mode that Med asked for.
       if (parsed.data.current_permission_mode) chosen.mode = parsed.data.current_permission_mode;
@@ -882,7 +925,14 @@ export function startClaude(
       ...(exists
         ? ["--resume", sessionId]
         : options.fork
-          ? ["--resume", options.fork, "--fork-session", "--session-id", sessionId]
+          ? [
+              "--resume",
+              options.fork,
+              "--fork-session",
+              ...(options.forkAt ? ["--resume-session-at", options.forkAt] : []),
+              "--session-id",
+              sessionId,
+            ]
           : ["--session-id", sessionId]),
       ...(chosen.model !== "default" ? ["--model", chosen.model] : []),
       ...(chosen.effort !== "default" ? ["--effort", chosen.effort] : []),
@@ -959,6 +1009,7 @@ export function startClaude(
     void Promise.resolve(options.models).then((offered) => {
       if (models.length || !offered?.length) return;
       models = offered;
+      settle();
       store.set({ settings: settings() });
     });
     if (options.attach) {
@@ -1909,8 +1960,10 @@ const recordSchema = z.object({
   stopped: z.boolean().optional(),
   /** An agent's own ID for the session: an ACP agent's, or agy's conversation. */
   agentSessionId: z.string().max(200).optional(),
-  /** A fork (Continue in Med) before its first prompt: the session it starts from. */
+  /** A fork before its first prompt: the session it starts from. */
   forkOf: z.string().max(128).optional(),
+  /** Where its history ends in that session (Fork from here): a message's ID. */
+  forkAt: z.string().max(128).optional(),
   /** A turn that has not ended. After a restart, it is a turn that the
    * restart cut, which waits for the reader to continue it. */
   turn: z.object({ startedAt: z.number() }).optional(),
@@ -2341,7 +2394,8 @@ export class OwnedSessions {
       holders: this.options.holderDirectory,
       sessionId: session.id,
       env: () => this.environment(key, session.cwd),
-      resume: {},
+      // The model and effort of its last reply, so it reads its prompt cache.
+      resume: await this.sessionChoices(session),
       models: this.models(agent),
       elsewhere: (id) => this.runsElsewhere(id),
     });
@@ -2407,17 +2461,26 @@ export class OwnedSessions {
     this.save();
   }
   /**
-   * Continue in Med: a new Claude Code session that starts from `session`'s
-   * history (`--resume <id> --fork-session --session-id <new ID>`), while
-   * another process keeps the original. The fork is a session of the thread,
-   * not a question's fork.
+   * A new Claude Code session that starts from `session`'s history
+   * (`--resume <id> --fork-session --session-id <new ID>`), to message `at`
+   * (`--resume-session-at`) or to its end. Continue in Med forks the whole
+   * session, while another process keeps the original; Fork from here forks a
+   * reply, for a thread of its own. The fork takes the model and effort of
+   * its last reply, so its first prompt reads the session's prompt cache.
    */
-  async fork(session: AgentSession, { key }: { key?: string } = {}): Promise<OwnedRunner> {
+  async fork(
+    session: AgentSession,
+    { key, at }: { key?: string; at?: string } = {},
+  ): Promise<OwnedRunner> {
     const agent = await this.claude(session.cwd);
+    const choices = await this.sessionChoices(session, at);
+    if (!choices) throw new HostError("message-not-found", "The session has no such message.", 404);
     const runner = startClaude(agent, session.cwd, {
       holders: this.options.holderDirectory,
       fork: session.id,
+      ...(at ? { forkAt: at } : {}),
       env: () => this.environment(key, session.cwd),
+      choices,
       models: await this.models(agent),
       elsewhere: (id) => this.runsElsewhere(id),
     });
@@ -2429,9 +2492,34 @@ export class OwnedSessions {
       ...(key ? { key } : {}),
       choices: {},
       forkOf: session.id,
+      ...(at ? { forkAt: at } : {}),
       updatedAt: Date.now(),
     });
     return runner;
+  }
+  /**
+   * The model and effort of a Claude Code session's last reply, up to message
+   * `at`, from its transcript; none when Med cannot read them. Undefined when
+   * the transcript has no message `at`.
+   */
+  private async sessionChoices(
+    session: AgentSession,
+    at?: string,
+  ): Promise<AgentChoices | undefined> {
+    const path = await findTranscript(session).catch(() => undefined);
+    const point = path ? await transcriptPoint(path, at).catch(() => undefined) : undefined;
+    if (!point) return at ? undefined : {};
+    return {
+      ...(point.model ? { model: point.model } : {}),
+      ...(point.effort ? { effort: point.effort } : {}),
+    };
+  }
+  /** A fork before its first prompt: the session and message where its
+   * history ends, which its thread shows until it has its own transcript. */
+  forkPoint(sessionId: string): { of: string; at?: string } | undefined {
+    const record = this.records[sessionId];
+    if (!record?.forkOf) return undefined;
+    return { of: record.forkOf, ...(record.forkAt ? { at: record.forkAt } : {}) };
   }
   /**
    * Brings back the sessions that this host started before it restarted. A
@@ -2472,6 +2560,7 @@ export class OwnedSessions {
           resume: record.choices,
           attach: true,
           ...(record.forkOf ? { fork: record.forkOf } : {}),
+          ...(record.forkOf && record.forkAt ? { forkAt: record.forkAt } : {}),
           ...(record.turn
             ? {
                 halt: { kind: "interrupted" as const, detail: "Med restarted during the turn" },
@@ -2569,10 +2658,10 @@ export class OwnedSessions {
         turn === current.turn
       )
         return;
-      const { forkOf, turn: _turn, ...rest } = current;
+      const { forkOf, forkAt, turn: _turn, ...rest } = current;
       this.records[id] = {
         ...rest,
-        ...(forkOf && !forked ? { forkOf } : {}),
+        ...(forkOf && !forked ? { forkOf, ...(forkAt ? { forkAt } : {}) } : {}),
         ...(turn ? { turn } : {}),
         choices,
         updatedAt: Date.now(),

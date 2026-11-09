@@ -231,7 +231,8 @@ Claude Code session that Med did not start. A message to it
 
 - **No process runs the session.** Med resumes it as a session that Med runs
   (`OwnedSessions.resume`: `claude -p --resume <id>` with `stream-json`) and
-  sends the message as its next prompt. Med keeps its record in
+  sends the message as its next prompt. It resumes with the model and effort
+  of the session's last reply ([model and effort](#model-and-effort-of-a-session-med-did-not-start)). Med keeps its record in
   `owned-sessions.json`, so it resumes after a restart too, and the thread
   shows the turn live.
 - **Another process runs it**, such as Claude Code in a terminal or in the
@@ -255,6 +256,48 @@ session of the thread that Med runs, after the original in the thread's
 sessions, so the thread follows it, and the message box opens on it. The
 terminal or app keeps its session as it is. Unlike a question's fork, this
 fork is not left out of the found sessions or session search.
+
+**Fork from here**, under a Claude Code session's reply, makes a new thread on
+the session's checkout (`POST /api/reviews/:id/sessions/:session/fork` with
+`at`, the reply's message ID in the transcript). Its session is a fork as
+above, with `--resume-session-at <at>`, so its history ends at that reply;
+Claude Code keeps the lines up to the message with that ID. The thread is
+named for the one it forks, with "(fork)", and opens as a tab in front. The
+thread that it forks keeps its session. Only Claude Code forks at a message,
+so only its sessions have Fork from here.
+
+A fork has no transcript until its first prompt. Until then, its thread's
+stream shows the transcript of the session that it forks, up to the fork's
+message (its line's end), and earlier pages read that transcript too; the
+fork's own transcript, which starts with the same lines, replaces it when the
+first prompt writes it. Med keeps the fork's origin in `owned-sessions.json`
+(`forkOf`, `forkAt`) until then, also across a restart.
+
+### Model and effort of a session Med did not start
+
+A session that Med resumes or forks goes on with the model and effort of its
+last reply up to the point where it goes on. Med reads them from the
+transcript, from the end back (`transcriptPoint` in
+`src/host/agent-transcripts.ts`): each assistant line of Claude Code 2.1
+holds `requestedModel`, Claude Code's name for the model with its context
+window, and `effort`. Subagent lines and API errors do not count. Med starts
+the agent with `--model` and `--effort`, and the message box's pickers show
+them. A model's ID shows as the model of Claude Code's list that names it,
+such as `opus` for `claude-opus-5-5` (Opus 5.5); an ID that the list does not
+name stays as it is, as an extra choice.
+
+The prompt cache is the reason. A cache entry belongs to one model, and the
+same system prompt and tools; a request on another model reads none of the
+session's history from the cache. Claude Code 2.1.295 keeps the session's
+model on `--resume` and `--fork-session` itself, but the pickers said
+**Default**, and a change of setting could start the agent on another
+model. Measured with Claude Haiku 5.5 on a two-turn session: a fork of the
+whole session on its own model read 23,815 tokens from the cache and wrote
+about 680; at another effort it read the same, so the effort does not change
+the cache; on Sonnet 5.5 it read 10,481 (the shared system prompt and tools)
+and wrote 13,874. A session that the Claude app runs has its own system
+prompt, so a fork from one in Med, which runs Claude Code with `-p`, writes
+the cache again.
 
 **Detection** (`src/host/session-processes.ts`). Claude Code keeps a record
 for each running process in `~/.claude/sessions/<pid>.json`. Med reads only
