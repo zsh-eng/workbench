@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderBrief, renderedBrief } from "../../markdown/brief-render";
 import { loadMarkdownImages, markdownImageUrl } from "../../markdown/images";
 import type { MarkdownResult } from "../../markdown/model";
@@ -6,7 +6,7 @@ import { useTheme } from "../../themes";
 import { fileRefOf } from "../../data/file-refs";
 import { DiagramBlock } from "../DiagramBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
-import { ReviewLinkCard } from "./HandoffCard";
+import { HandoffContext, medReviewId, openMedReview, ReviewLinkCard } from "./HandoffCard";
 import "../MarkdownPreview.css";
 
 /**
@@ -42,11 +42,15 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   const fileRefs = useRef(refs);
   const blocks = useFileRefBlocks(result?.blocks);
   const reviewLinks = useMemo(() => blocks?.map((block) => reviewLinkOf(block.html)), [blocks]);
+  // A link to a review of this Med's opens it here, not in a new window.
+  const handoff = useContext(HandoffContext);
+  const reviews = useRef(handoff);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };
     open.current = onOpenLink;
     fileRefs.current = refs;
+    reviews.current = handoff;
   });
 
   useEffect(() => {
@@ -62,7 +66,10 @@ export const SessionMarkdown = memo(function SessionMarkdown({
     if (renderedBrief(theme.pierreTheme, text, "session") || state.running) return;
     const run = (request: typeof latest.current) => {
       state.running = true;
-      renderBrief(request.theme, request.text, true, { cache: "session", keep: !request.streaming })
+      renderBrief(request.theme, request.text, true, {
+        cache: "session",
+        keep: !request.streaming,
+      })
         .then((next) => {
           if (state.mounted) setRendered(next);
         })
@@ -90,7 +97,14 @@ export const SessionMarkdown = memo(function SessionMarkdown({
       }
       const link = (event.target as Element).closest<HTMLElement>("a[data-brief-href]");
       const href = link?.dataset.briefHref;
-      if (!href || /^https?:/i.test(href)) return;
+      if (!href) return;
+      const review = reviews.current && medReviewId(href);
+      if (review && !(event.metaKey || event.ctrlKey || event.shiftKey)) {
+        event.preventDefault();
+        openMedReview(review, reviews.current);
+        return;
+      }
+      if (/^https?:/i.test(href)) return;
       event.preventDefault();
       open.current?.(href);
     };
@@ -127,8 +141,6 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   );
 });
 
-// A review of Med's, as `med review create` prints it: on this machine.
-const REVIEW_URL = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/review\/([\w-]+)\/?$/i;
 const reviewLinks = new Map<string, { id: string; href: string; text: string } | null>();
 /** A paragraph that is only a link to a review of Med's, which shows as the
  * review's card (ReviewLinkCard); null for any other block. */
@@ -146,7 +158,7 @@ function reviewLinkOf(html: string) {
     link instanceof HTMLAnchorElement
       ? (link.dataset.briefHref ?? link.getAttribute("href"))
       : null;
-  const id = !others.length && !rest.length && href ? REVIEW_URL.exec(href)?.[1] : undefined;
+  const id = !others.length && !rest.length && href ? medReviewId(href) : undefined;
   const found = id ? { id, href: href!, text: link!.textContent?.trim() || "Review" } : null;
   if (reviewLinks.size > 200) reviewLinks.clear();
   reviewLinks.set(html, found);
