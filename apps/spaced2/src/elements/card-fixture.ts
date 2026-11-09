@@ -54,6 +54,20 @@ export const CARD_SAMPLES = {
     ].join("\n"),
     back: "`[10, 100, 9]`. Without a compare function, `sort()` compares the values as strings.",
   },
+  diagram: {
+    front: [
+      "What happens to a card after you grade it **Again**?",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  New --> Learning",
+      "  Learning -->|Good| Review",
+      "  Review -->|Again| Relearning",
+      "  Relearning -->|Good| Review",
+      "```",
+    ].join("\n"),
+    back: "It goes to **Relearning**, with short steps, and back to **Review** after a Good.",
+  },
   image: {
     front: `Which side is the hypotenuse?\n\n![A right triangle with sides a, b and c](${TRIANGLE})`,
     back: "**c**, the side opposite the right angle: $c^2 = a^2 + b^2$.",

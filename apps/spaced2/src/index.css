@@ -161,3 +161,168 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+  Card Markdown (components/flashcard-content.tsx), from the Markdown worker
+  (lib/markdown). Code blocks fill the card's height instead of scrolling on
+  their own, so that a short card with a long block stays readable.
+*/
+.card-markdown :where(code) {
+  white-space: pre-wrap;
+}
+.card-markdown pre {
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+.card-markdown pre > code {
+  display: block;
+  padding: 1em;
+  border-radius: inherit;
+  background: #faf4ed;
+  color: #575279;
+}
+.card-markdown .card-code span {
+  color: var(--hls-light);
+  font-style: var(--hls-light-font-style, normal);
+  font-weight: var(--hls-light-font-weight, normal);
+}
+/* Rosé Pine Moon, the colors of cards before Pierre's highlighter. */
+.dark .card-markdown pre > code {
+  background: #232136;
+  color: #e0def4;
+}
+.dark .card-markdown .card-code span {
+  color: var(--hls-dark);
+  font-style: var(--hls-dark-font-style, normal);
+  font-weight: var(--hls-dark-font-weight, normal);
+}
+@media (width >= 40rem) {
+  .card-markdown pre {
+    border-radius: 0;
+  }
+}
+.card-plain {
+  white-space: pre-wrap;
+}
+/* A wide table scrolls inside the card. */
+.card-markdown .card-table {
+  align-self: stretch;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.card-markdown .card-table > table {
+  margin-inline: auto;
+}
+
+/*
+  Mermaid diagrams, drawn by Pele (lib/markdown/diagrams.ts). Pele draws in
+  these colors and fonts, so a diagram follows the theme without drawing
+  again. It sits on the card, with its nodes as raised surfaces.
+*/
+.card-markdown pre[data-mermaid] {
+  position: relative;
+  align-self: stretch;
+  margin-block: 0.5em;
+  border-radius: 0;
+}
+.card-markdown pre[data-mermaid]:is([data-drawing], [data-rendered]) > code {
+  display: none;
+}
+/* Kept as code when it does not draw, with the reason above it. */
+.card-markdown pre[data-diagram-error]::before {
+  content: "Mermaid diagram · check its syntax";
+  display: block;
+  margin-bottom: 0.25em;
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+.card-diagram {
+  --pele-bg: hsl(var(--background));
+  --pele-fg: hsl(var(--foreground));
+  --pele-muted: hsl(var(--muted-foreground));
+  --pele-line: color-mix(in srgb, var(--pele-fg) 45%, var(--pele-bg));
+  --pele-surface: hsl(var(--muted));
+  --pele-surface-alt: color-mix(in srgb, var(--pele-fg) 5%, var(--pele-bg));
+  --pele-border: color-mix(in srgb, var(--pele-fg) 18%, var(--pele-bg));
+  --pele-accent: hsl(var(--primary));
+  --pele-critical: hsl(var(--destructive));
+  --pele-error: hsl(var(--destructive));
+  --pele-series-1: hsl(var(--chart-2));
+  --pele-series-2: hsl(var(--chart-1));
+  --pele-series-3: hsl(var(--chart-3));
+  --pele-series-4: hsl(var(--chart-4));
+  --pele-series-5: hsl(var(--chart-5));
+  --pele-series-6: hsl(var(--muted-foreground));
+  --pele-series-7: color-mix(in srgb, hsl(var(--chart-2)) 50%, hsl(var(--chart-5)));
+  --pele-series-8: color-mix(in srgb, hsl(var(--chart-1)) 50%, hsl(var(--chart-4)));
+  --pele-font: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --pele-font-mono: var(--font-mono, ui-monospace, monospace);
+  --pele-radius: calc(var(--radius) - 2px);
+  /* Pele's zoom sits under the Full screen button. */
+  --pele-zoom-top: 36px;
+  --pele-zoom-right: 0px;
+  white-space: normal;
+  line-height: normal;
+}
+/* The dark card is the page raised by the muted surface. */
+.dark .card-diagram {
+  --pele-bg: color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background)));
+}
+/* The card form's preview sits on the muted surface (create-flashcard.tsx). */
+.card-preview .card-diagram {
+  --pele-bg: color-mix(in srgb, hsl(var(--muted)) 40%, hsl(var(--background)));
+}
+.card-diagram > svg {
+  display: block;
+  margin-inline: auto;
+}
+.card-diagram-expand {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--pele-border, hsl(var(--border)));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.card-diagram-expand:hover {
+  background: hsl(var(--muted));
+}
+.card-diagram-expand:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.card-diagram .pele-zoom {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+/* The buttons show while the pointer or the focus is in the diagram, and
+   always on a touch screen, which has no hover. */
+pre[data-rendered]:is(:hover, :focus-within) :is(.card-diagram-expand, .pele-zoom) {
+  opacity: 1;
+}
+@media (hover: none) {
+  pre[data-rendered] :is(.card-diagram-expand, .pele-zoom) {
+    opacity: 1;
+  }
+}
+/* Full screen: the diagram takes the whole room, so zoom grows into it. */
+.card-diagram-large {
+  --pele-zoom-top: 0px;
+  --pele-zoom-right: 0px;
+  display: flex;
+  align-items: safe center;
+  height: 100%;
+}
+.card-diagram-large > svg {
+  width: var(--card-diagram-width, auto);
+}

@@ -6,7 +6,7 @@ import { test, expect, afterEach, spyOn } from "bun:test";
 import { act } from "react";
 import { MemoryRouter } from "react-router";
 import { createEmptyCard, Rating } from "ts-fsrs";
-import { render } from "./dom";
+import { render, untilText } from "./dom";
 import MemoryDB, { memoryReady } from "@/lib/db/memory";
 import ReviewRoute from "@/routes/Review";
 import type { CardWithMetadata } from "@/lib/types";
@@ -54,7 +54,7 @@ async function mount() {
     </MemoryRouter>,
   );
   views.push(v);
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
   return v;
 }
 test("keeps the active card when an earlier-sorted due card arrives", async () => {
@@ -65,7 +65,7 @@ test("keeps the active card when an earlier-sorted due card arrives", async () =
     MemoryDB.putCard(card("X"));
     MemoryDB.notify();
   });
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
   expect(v.container.textContent).not.toContain("Question X");
 });
 test("keeps the active card when another card becomes due", async () => {
@@ -77,7 +77,7 @@ test("keeps the active card when another card becomes due", async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
   });
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
   expect(v.container.textContent).not.toContain("Question X");
 });
 
@@ -94,11 +94,11 @@ test("grade advances to the new queue head and Undo restores the graded card", a
   await act(async () => {
     await gradeCardOperation(y, Rating.Good);
   });
-  expect(v.container.textContent).toContain("Question X");
+  await untilText(v.container, "Question X");
   await act(async () => {
     await undoGradeCard();
   });
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
 });
 test("a remote deletion keeps the visible card and requires explicit next", async () => {
   const y = card("Y");
@@ -110,13 +110,13 @@ test("a remote deletion keeps the visible card and requires explicit next", asyn
     MemoryDB.putCard(card("X"));
     MemoryDB.notify();
   });
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
   expect(v.container.textContent).toContain("This card is no longer available");
   const next = [...v.container.querySelectorAll("button")].find(
     (b) => b.textContent === "Next card",
   )!;
   await act(async () => next.click());
-  expect(v.container.textContent).toContain("Question X");
+  await untilText(v.container, "Question X");
 });
 test("same-ID background content updates do not change the visible snapshot", async () => {
   const y = card("Y");
@@ -127,7 +127,7 @@ test("same-ID background content updates do not change the visible snapshot", as
     MemoryDB.putCard({ ...y, front: "Changed elsewhere" });
     MemoryDB.notify();
   });
-  expect(v.container.textContent).toContain("Question Y");
+  await untilText(v.container, "Question Y");
   expect(v.container.textContent).not.toContain("Changed elsewhere");
 });
 
@@ -149,7 +149,7 @@ test("Skip advances explicitly while a failed grade keeps the current card", asy
         "Storage unavailable",
       );
     });
-    expect(v.container.textContent).toContain("Question Y");
+    await untilText(v.container, "Question Y");
     expect(reviewSession.getSnapshot()?.id).toBe("Y");
   } finally {
     fail.mockRestore();
@@ -157,5 +157,5 @@ test("Skip advances explicitly while a failed grade keeps the current card", asy
   await act(async () => {
     await handleCardSuspend(y);
   });
-  expect(v.container.textContent).toContain("Question X");
+  await untilText(v.container, "Question X");
 });

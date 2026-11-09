@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { act, type ComponentType } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { click, render } from "./dom";
+import { click, render, until, untilText } from "./dom";
 
 const globals = ["IntersectionObserver", "matchMedia", "fetch"] as const;
 const saved = globals.map((key) =>
@@ -78,9 +78,10 @@ test("Elements shows sample specimens, changes states, drives demos and frames",
     expect(button(motion, "Replay").dataset.action).toBe("replay");
 
     const content = specimen(page.container, "Flashcard content");
+    await untilText(content, "What does spaced repetition schedule?");
     expect(content.querySelector(".katex")).toBeNull();
     await click(button(content, "Maths"));
-    expect(content.querySelector(".katex-display")).not.toBeNull();
+    await until(() => content.querySelector(".katex-display") !== null);
     expect(button(content, "Maths").getAttribute("aria-pressed")).toBe("true");
 
     // Choosing a state replays the card's fade. Home goes back to the start,
@@ -117,9 +118,7 @@ test("Elements shows sample specimens, changes states, drives demos and frames",
         }),
       );
     });
-    expect(frame.container.textContent).toContain(
-      "What does spaced repetition schedule?",
-    );
+    await untilText(frame.container, "What does spaced repetition schedule?");
   } finally {
     await frame.unmount();
     window.history.replaceState(null, "", "/");
