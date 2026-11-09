@@ -897,11 +897,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   if (repository.git !== false) {
     await registry.register(repository.path);
     for (const path of options.repos ?? []) await registry.register(path);
-    // The Superagent's folder, once Med has made it, so its thread opens.
-    if (existsSync(join(superagentPath, ".git")))
-      await registry.register(superagentPath).catch(() => {});
   }
   await options.service?.attach(registry);
+  // The Superagent's folder, once Med has made it, so its thread opens after
+  // a restart; the service registers only its own sources.
+  if (existsSync(join(superagentPath, ".git")))
+    await registry.register(superagentPath).catch(() => {});
   // Tabs come from the saved reviews on the first start; history prunes now and daily.
   await threads.start();
   releaseClosedTabs();

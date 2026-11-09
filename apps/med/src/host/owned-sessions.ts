@@ -40,7 +40,7 @@ import { HostError } from "./runtime/errors";
 import { readRecords, writeStateFile } from "./runtime/state-file";
 import { userHome } from "./service/discover";
 import { createSessionProcesses, type SessionProcesses } from "./session-processes";
-import { shellEnvironment } from "./shell-environment";
+import { shellEnvironment, withoutClaudeSession } from "./shell-environment";
 import type { PromptImage } from "../shared/agent-inbox";
 
 /** An installed agent with the command that starts it. */
@@ -190,7 +190,7 @@ const SESSION_VARIABLES = [
  * shell's variables when Med runs as the login service (shell-environment.ts),
  * without the variables of the session that started Med, and with `extra`. */
 export function agentEnvironment(extra: Record<string, string> = {}) {
-  const env = { ...process.env, ...shellEnvironment() };
+  const env = { ...withoutClaudeSession(process.env), ...shellEnvironment() };
   for (const name of SESSION_VARIABLES) delete env[name];
   return { ...env, ...extra };
 }

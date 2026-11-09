@@ -21,6 +21,8 @@ export default defineConfig({
           name: "integration",
           include: ["tests/host/**/*.test.ts", "tests/integration/**/*.test.ts"],
           environment: "node",
+          // As in CI, whether or not Claude Code runs the tests.
+          env: { CLAUDECODE: "" },
           testTimeout: 30000,
         },
       },

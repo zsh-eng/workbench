@@ -9,6 +9,7 @@ import type { SavedReview } from "../../src/shared/saved-review";
 import type { ThreadList } from "../../src/shared/threads";
 import { runThreadCommand } from "../../src/cli/thread";
 import { startHost, type RunningHost } from "../../src/host/server";
+import { ServiceManager } from "../../src/host/service/manager";
 import { removeFolder } from "./remove-folder";
 
 // The Superagent: one thread, made once, in a folder of Med's that the lists
@@ -25,6 +26,17 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => removeFolder(path)));
   vi.unstubAllEnvs();
 });
+
+const agents = async () => [
+  {
+    id: "claude",
+    name: "Claude Code",
+    kind: "claude" as const,
+    available: true,
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../fixtures/agents/fake-claude.mjs", import.meta.url))],
+  },
+];
 
 const git = (cwd: string, args: string[]) =>
   execFileSync("git", args, {
@@ -52,22 +64,7 @@ async function fixture() {
   await mkdir(home);
   vi.stubEnv("MED_HOME_DIR", home);
   const stateDir = join(directory, "state");
-  const host = await startHost({
-    repo,
-    repos: [repo],
-    stateDir,
-    port: 0,
-    agents: async () => [
-      {
-        id: "claude",
-        name: "Claude Code",
-        kind: "claude",
-        available: true,
-        command: process.execPath,
-        args: [fileURLToPath(new URL("../fixtures/agents/fake-claude.mjs", import.meta.url))],
-      },
-    ],
-  });
+  const host = await startHost({ repo, repos: [repo], stateDir, port: 0, agents });
   hosts.push(host);
   const api = async <T>(path: string, body?: unknown) => {
     const response = await fetch(`http://127.0.0.1:${host.port}${path}`, {
@@ -170,4 +167,33 @@ test("`med thread send` from the Superagent reaches another thread's agent, labe
   await expect(send(superagent.id, "superagent")).rejects.toThrow(
     "A thread can't send a message to itself.",
   );
+});
+
+test("the Superagent's folder is a repository again when Med's service starts", async () => {
+  const { api, host, stateDir } = await fixture();
+  await api("/api/superagent", {});
+  hosts.splice(hosts.indexOf(host), 1);
+  await host.close();
+
+  // Med's service: a host of the state folder, whose sources the service adds.
+  const service = await ServiceManager.open(stateDir);
+  const again = await startHost({
+    repo: stateDir,
+    fileMode: true,
+    port: 0,
+    stateDir,
+    service,
+    agents,
+  });
+  hosts.push(again);
+  const get = (path: string) =>
+    fetch(`http://127.0.0.1:${again.port}${path}`, {
+      headers: { authorization: `Bearer ${again.token}` },
+    });
+  const folder = await realpath(join(stateDir, "superagent"));
+  expect((await get(`/api/branches?repo=${encodeURIComponent(folder)}`)).status).toBe(200);
+  const listed = (await (await get("/api/repositories")).json()) as {
+    repositories: { path: string }[];
+  };
+  expect(listed.repositories.map((entry) => entry.path)).not.toContain(folder);
 });
