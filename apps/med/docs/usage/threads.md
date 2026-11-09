@@ -85,21 +85,19 @@ load it or read its agents until you open it again.
 ## New threads and the sidebar
 
 - **New thread** (`⌥N`; `⌘N` in the installed app, or `⌘K` › **New thread**)
-  puts the task box in the middle of the page, as Claude's new session page
-  does. A browser tab keeps `⌘N` for a new window; the installed app's window
-  gives Med every key, so `⌘N` opens New thread there. `↵` starts the agent
-  on the task, and `⇧↵` adds a line; `⌘↵` starts from anywhere on the page.
-  Under the box, one line of choices:
-  - **Repository**, on the left, opens the list of where to work: your
-    repositories, those of your newest threads, tabs and history first, newest
-    first, up to 5, then the others. The chosen one has a check. The list
-    scrolls when it is long. Its filter has the focus: type to narrow it; `↑`
-    and `↓` move, and `↵` picks. The first `Esc` clears the filter, the next
-    closes the list. **Add a folder…** at its foot opens Sources, where you
-    register another repository or vault. Med chooses the repository on
-    screen, else your last choice or your newest thread's. Before your first
-    thread, it asks you to choose, unless you have only one; `↵` in the task
-    then opens the list.
+  asks one thing: **Where to work**. A browser tab keeps `⌘N` for a new
+  window; the installed app's window gives Med every key, so `⌘N` opens New
+  thread there. Your repositories are one list: those of your newest threads,
+  tabs and history first, newest first, up to 5, then the others. The chosen
+  one has a check. The list scrolls when it is long. Type in its filter to
+  narrow it; `↑` and `↓` move, and `↵` picks. A first `Esc` clears the
+  filter. **Add a folder…** at its foot opens Sources, where you register
+  another repository or vault.
+- The task box sits right under the list, and the two keep to the page's
+  middle. `↵` starts the agent on the task, and `⇧↵` adds a line; `⌘↵` starts
+  from anywhere on the page. Under the box, one line of choices:
+  - **Repository**, on the left, the same choice as the list. With only one
+    repository, its name is plain text.
   - **Where the agent works**: **New worktree**, the default, makes a branch
     named for the task in a new linked worktree, so the work stays apart from
     your checkout; **Checkout** works on the checkout's current branch. A

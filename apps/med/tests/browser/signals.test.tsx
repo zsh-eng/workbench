@@ -478,15 +478,8 @@ test("New thread lists every repository, the newest threads' first, and filters 
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  const repository = dialog.getByRole("button", { name: "Repository" });
-  const task = dialog.getByRole("combobox", { name: "Task" });
-  // The repository's chip opens the list, with the focus in its filter.
-  await expect.element(repository).toHaveTextContent("tide");
-  await repository.click();
-  const list = page.getByRole("listbox", { name: "Repositories" });
+  const list = dialog.getByRole("listbox", { name: "Repositories" });
   await expect.element(list).toBeVisible();
-  const filter = page.getByRole("combobox", { name: "Filter repositories" });
-  await expect.element(filter).toHaveFocus();
   // Newest first, each once, at most five, then the others in the host's
   // order; the current choice is marked. The list scrolls.
   const choices = () =>
@@ -506,39 +499,37 @@ test("New thread lists every repository, the newest threads' first, and filters 
       ...archives.map((entry) => entry.name),
     ]);
   expect(list.element().scrollHeight).toBeGreaterThan(list.element().clientHeight);
+  const task = dialog.getByRole("combobox", { name: "Task" });
 
-  // One click chooses and closes the list; the task has the focus.
+  // One click chooses, and the task keeps the focus.
   await list.getByRole("option", { name: /^buoys/ }).click();
-  await expect.element(list).not.toBeInTheDocument();
-  await expect.element(repository).toHaveTextContent("buoys");
+  expect(choices().slice(0, 4)).toEqual(["charts", "tide", "buoys ✓", "harbour"]);
   await expect.element(task).toHaveFocus();
 
-  // Typing filters; Enter picks. Escape clears the filter, then closes the
-  // list, and New thread stays.
-  await repository.click();
+  // Typing filters; Enter picks. Escape clears the filter, not New thread.
+  const filter = dialog.getByRole("combobox", { name: "Filter repositories" });
+  await filter.click();
   await userEvent.keyboard("archive-9");
   await expect.poll(choices).toEqual(["station-archive-9"]);
   await userEvent.keyboard("{Enter}");
   await expect.element(task).toHaveFocus();
-  await expect.element(repository).toHaveTextContent("station-archive-9");
-  await repository.click();
-  await userEvent.keyboard("x{Escape}");
+  await filter.click();
+  await userEvent.keyboard("{Escape}");
   await expect.element(filter).toHaveValue("");
-  await expect.element(list).toBeVisible();
+  await expect.element(dialog).toBeVisible();
   expect(choices()).toContain("station-archive-9 ✓");
   // The arrows move from the choice; Enter picks.
   await userEvent.keyboard("{ArrowUp}{ArrowUp}{Enter}");
-  await expect.element(repository).toHaveTextContent("station-archive-7");
-  await repository.click();
-  await userEvent.keyboard("{Escape}");
-  await expect.element(list).not.toBeInTheDocument();
-  await expect.element(dialog).toBeVisible();
+  await expect.poll(choices).toContain("station-archive-7 ✓");
+  await expect
+    .element(dialog.getByRole("button", { name: "Repository" }))
+    .toHaveTextContent("station-archive-7");
   await task.fill("Add the moon's phase");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await expect.poll(() => host.started).toMatchObject([{ repositoryId: "archive-7" }]);
 });
 
-test("New thread chooses an only repository, and Add a folder… opens Sources", async () => {
+test("New thread names its only repository as plain text, and Add a folder… opens Sources", async () => {
   const host = createHost([thread("agent"), thread("second")], {
     past: [thread("third")],
   });
@@ -546,36 +537,9 @@ test("New thread chooses an only repository, and Add a folder… opens Sources",
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
   await userEvent.keyboard("{Alt>}n{/Alt}");
   const dialog = page.getByRole("dialog", { name: "New thread" });
-  const repository = dialog.getByRole("button", { name: "Repository" });
-  await expect.element(repository).toHaveTextContent("tide");
-  await repository.click();
-  await expect.element(page.getByRole("option", { name: /^tide/, selected: true })).toBeVisible();
-  await page.getByRole("button", { name: "Add a folder…" }).click();
+  await expect.element(dialog.getByRole("option", { name: /^tide/, selected: true })).toBeVisible();
+  await expect.element(dialog.getByRole("button", { name: "Repository" })).not.toBeInTheDocument();
+  await dialog.getByRole("button", { name: "Add a folder…" }).click();
   await expect.element(dialog).not.toBeInTheDocument();
   expect(location.pathname).toBe("/sources");
-});
-
-test("a first thread asks for its repository, unless there is only one", async () => {
-  // No thread yet, and no repository of theirs on screen.
-  const host = createHost([], {
-    listedRepositories: [listed("repo-a", "tide"), listed("repo-b", "harbour")],
-  });
-  render(host);
-  await userEvent.keyboard("{Alt>}n{/Alt}");
-  const dialog = page.getByRole("dialog", { name: "New thread" });
-  const repository = dialog.getByRole("button", { name: "Repository" });
-  await expect.element(repository).toHaveTextContent("Choose a repository");
-  await expect
-    .element(dialog.getByText("Choose the repository that the agent works in."))
-    .toBeVisible();
-  // Enter with a task opens the list instead of starting.
-  await dialog.getByRole("combobox", { name: "Task" }).fill("Chart the tides");
-  await userEvent.keyboard("{Enter}");
-  const list = page.getByRole("listbox", { name: "Repositories" });
-  await expect.element(list).toBeVisible();
-  expect(host.started).toEqual([]);
-  await list.getByRole("option", { name: /^harbour/ }).click();
-  await expect.element(repository).toHaveTextContent("harbour");
-  await userEvent.keyboard("{Enter}");
-  await expect.poll(() => host.started).toMatchObject([{ repositoryId: "repo-b" }]);
 });

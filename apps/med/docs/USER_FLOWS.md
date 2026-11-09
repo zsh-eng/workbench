@@ -15,11 +15,10 @@ defines the words (thread, session, hand-off, review), and the pages under
 
 ## An agent changes code, and you review it
 
-1. **New thread** (`⌥N`, or `⌘N` in the installed app) puts the task box in
-   the middle of the page. Under it, choose the repository and where to work:
-   a new worktree (the default) or its checkout. Write the task, and Med
-   starts the agent there. An agent that runs in a terminal or the Claude app gets its
-   own thread when it hands off.
+1. **New thread** (`⌥N`, or `⌘N` in the installed app) asks where to work: a
+   repository, then a new worktree (the default) or its checkout. Write the
+   task, and Med starts the agent there. An agent that runs in a terminal or
+   the Claude app gets its own thread when it hands off.
 2. The agent works, then runs `med review create`. The hand-off is a card in
    the conversation, and the review opens beside the session.
 3. Read it: **Review** has the agent's guide when it wrote one, **Changes**
