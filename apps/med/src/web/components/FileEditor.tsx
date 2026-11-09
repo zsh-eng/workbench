@@ -1134,7 +1134,7 @@ export default function FileEditor({
               agent={comments.agent}
               unsent={comments.unsent.has(comment.id)}
               onMutate={comments.mutate}
-              onSend={(how) => comments.send(comment.id, how)}
+              onSend={() => comments.send(comment.id)}
             />,
             element,
             key,

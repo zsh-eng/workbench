@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { viewSettings } from "../../src/web/data/view-settings";
 import { page, userEvent } from "vitest/browser";
 import { useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -2103,7 +2104,7 @@ function commentProps(threads: FileComment[] = []) {
 }
 const fourLines = "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n";
 
-test("gc comments on the visual lines, and on the cursor's line", async () => {
+test("gc comments on the visual lines, and on the cursor's line; Send to Claude now decides whether it goes", async () => {
   const comments = commentProps();
   render(
     <FullFileView
@@ -2119,19 +2120,30 @@ test("gc comments on the visual lines, and on the cursor's line", async () => {
   await userEvent.keyboard("jVjgc");
   const box = page.getByRole("form", { name: "Comment on lines 2–3" });
   await expect.element(box).toBeVisible();
-  await expect.element(box.getByRole("button", { name: /Send to Claude/ })).toBeDisabled();
+  // One Comment button; the checkbox, ticked at first, sends it as it is saved.
+  await expect.element(box.getByRole("button", { name: "Comment" })).toBeDisabled();
+  await expect.element(box.getByRole("checkbox", { name: "Send to Claude now" })).toBeChecked();
   await userEvent.keyboard("Log it once.");
-  await userEvent.keyboard("{Alt>}{Enter}{/Alt}");
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
   await expect.poll(() => comments.add.mock.calls.length).toBe(1);
   expect(comments.add.mock.calls[0]).toEqual([
     { line: 2, endLine: 3, quote: "const b = 2;\nconst c = 3;" },
     "Log it once.",
-    "queue",
+    "send",
   ]);
   // The box closes, and the file has the keys again.
   await expect.element(box).not.toBeInTheDocument();
   await userEvent.keyboard("jgc");
-  await expect.element(page.getByRole("form", { name: "Comment on line 4" })).toBeVisible();
+  const next = page.getByRole("form", { name: "Comment on line 4" });
+  await expect.element(next).toBeVisible();
+  // Not ticked, the comment waits in the message box; Med keeps the choice.
+  await next.getByRole("checkbox", { name: "Send to Claude now" }).click();
+  await next.getByRole("textbox", { name: "Comment text" }).fill("Later.");
+  await next.getByRole("button", { name: "Comment" }).click();
+  await expect.poll(() => comments.add.mock.calls.length).toBe(2);
+  expect(comments.add.mock.calls[1]![2]).toBe("keep");
+  expect(viewSettings.commentsSendNow.get()).toBe("off");
+  viewSettings.commentsSendNow.set("on");
 });
 
 test("in the editor, gc opens the box under the lines, whose keys are its own", async () => {

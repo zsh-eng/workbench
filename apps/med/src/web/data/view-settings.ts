@@ -110,6 +110,9 @@ export const viewSettings = {
   /** What ⌘↩ does with a message while the agent works: send it now, at the
    * agent's next step, or queue it for the turn's end. ⇧⌘↩ does the other. */
   followUp: viewSetting("med:follow-up", "now", ["now", "queue"]),
+  /** "Send to the agent now" under a new comment: it goes to the agent that
+   * Med runs as you save it, or waits in the message box until you send. */
+  commentsSendNow: viewSetting("med:comment-send-now", "on", ["on", "off"]),
   /** Whether the host pulls each repository's base branch now and then. */
   pullBase: viewSetting("med:pull-base", "on", ["on", "off"]),
   /** The background tasks dock under a session. */
