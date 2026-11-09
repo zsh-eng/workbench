@@ -26,6 +26,7 @@ import { tokens, ui } from "../theme.stylex";
 import { Fold } from "./Fold";
 import { useTheme } from "../themes";
 import { DiagramBlock } from "./DiagramBlock";
+import { useTableCopy } from "./TableCopy";
 import { Icon, type IconName } from "./Icon";
 import { CommentRefsContext, FileRefsContext, useFileRefBlocks, useFileRefs } from "./FileRefs";
 import {
@@ -100,6 +101,8 @@ function DescriptionText({
   const host = useRef<HTMLDivElement>(null);
   const refs = useFileRefs();
   const blocks = useFileRefBlocks(result?.blocks);
+  // A table copies as its Markdown, from the description, and as a table.
+  useTableCopy(host, () => body);
   useEffect(() => {
     let current = true;
     renderBrief(theme.pierreTheme, body, true, { cache: "description" }).then(

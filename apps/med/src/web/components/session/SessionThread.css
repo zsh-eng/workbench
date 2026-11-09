@@ -14,7 +14,8 @@
   margin: 0 0 0.75em;
 }
 .med-session-prose > .med-md-block:last-child > :last-child,
-.med-session-prose > .med-md-block:last-child > :last-child > li:last-child {
+.med-session-prose > .med-md-block:last-child > :last-child > li:last-child,
+.med-session-prose > .med-md-block:last-child > .med-md-table:last-child > table {
   margin-bottom: 0;
 }
 .med-session-prose :is(h1, h2, h3) {

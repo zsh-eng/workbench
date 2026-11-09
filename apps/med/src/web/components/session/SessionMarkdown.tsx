@@ -6,6 +6,7 @@ import { useTheme } from "../../themes";
 import { fileRefOf } from "../../data/file-refs";
 import { DiagramBlock } from "../DiagramBlock";
 import { useFileRefBlocks, useFileRefs } from "../FileRefs";
+import { useTableCopy } from "../TableCopy";
 import { HandoffContext, medReviewId, openMedReview, ReviewLinkCard } from "./HandoffCard";
 import "../MarkdownPreview.css";
 
@@ -45,6 +46,8 @@ export const SessionMarkdown = memo(function SessionMarkdown({
   // A link to a review of this Med's opens it here, not in a new window.
   const handoff = useContext(HandoffContext);
   const reviews = useRef(handoff);
+  // A table copies as its Markdown, from this reply's text, and as a table.
+  useTableCopy(host, () => text);
 
   useLayoutEffect(() => {
     latest.current = { text, theme: theme.pierreTheme, streaming };

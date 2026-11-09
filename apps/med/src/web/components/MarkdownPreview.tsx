@@ -25,30 +25,10 @@ import "katex/dist/katex.min.css";
 import "./MarkdownPreview.css";
 import { relativeFileLink } from "../markdown/file-link";
 import { markdownImageUrl } from "../markdown/images";
-import { copyDiagram, copyDiagramSvg, copyImage, copyTable, diagramSource } from "../markdown/copy";
-import { iconMarkup } from "./Icon";
+import { copyDiagram, copyDiagramSvg, copyImage, diagramSource } from "../markdown/copy";
 import { PointMenu, type PointMenuState } from "./PointMenu";
-
-const COPY_ICON = iconMarkup("copy", 14);
-const COPIED_ICON = iconMarkup("check", 14);
-
-/** Each table in a frame with its Copy button, which shows while the pointer is on the table. */
-function frameTables(host: HTMLElement) {
-  for (const table of host.querySelectorAll<HTMLTableElement>("table")) {
-    if (table.parentElement?.classList.contains("med-md-table")) continue;
-    const frame = document.createElement("div");
-    frame.className = "med-md-table";
-    table.before(frame);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "med-md-copy";
-    button.dataset.copy = "table";
-    button.setAttribute("aria-label", "Copy table");
-    button.title = "Copy table as Markdown";
-    button.innerHTML = COPY_ICON;
-    frame.append(table, button);
-  }
-}
+import { useTableCopy } from "./TableCopy";
+import { copyFailure, useCopyNote } from "./DiagramCopy";
 
 const Block = memo(
   function Block({
@@ -87,7 +67,6 @@ const Block = memo(
           image.title = `Image unavailable: ${raw}`;
         };
       }
-      frameTables(host);
       // A diagram inside a list or a quote; a top-level one is a DiagramBlock.
       const diagrams: Mounted[] = [];
       const observer = new IntersectionObserver(
@@ -183,8 +162,10 @@ export default function MarkdownPreview({
   const [error, setError] = useState("");
   const [heading, setHeading] = useState("");
   const [menu, setMenu] = useState<PointMenuState | null>(null);
-  const [copied, setCopied] = useState<{ id: number; text: string } | null>(null);
+  // What a copy put on the clipboard, briefly, at the foot of the page.
+  const [copied, say] = useCopyNote();
   const scroller = useRef<HTMLDivElement>(null);
+  useTableCopy(scroller, model.getText, say);
   const contents = useRef<HTMLElement>(null);
   const scrollController = useRef<ReturnType<typeof connectPreviewScroll> | null>(null);
   const worker = useRef<Worker | null>(null);
@@ -282,41 +263,15 @@ export default function MarkdownPreview({
     return () => pane.removeEventListener("click", followLink);
   }, [file.path, onOpenFile]);
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(null), 1600);
-    return () => clearTimeout(timer);
-  }, [copied]);
-  useEffect(() => {
     const pane = scroller.current;
     if (!pane) return;
-    const done = (text: string) => setCopied((current) => ({ id: (current?.id ?? 0) + 1, text }));
+    const done = (text: string) => say(text);
     // A page without clipboard access, or an image that does not load, says so briefly.
-    const failed = (cause: unknown) =>
-      done(
-        cause instanceof DOMException && cause.name === "NotAllowedError"
-          ? "Copying needs clipboard access"
-          : cause instanceof Error && cause.message
-            ? cause.message
-            : "Could not copy",
-      );
-    const copyButton = (event: MouseEvent) => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-        "button.med-md-copy[data-copy='table']",
-      );
-      const table = button?.parentElement?.querySelector<HTMLElement>(":scope > table");
-      if (!button || !table) return;
-      copyTable(model.getText(), table).then(() => {
-        button.innerHTML = COPIED_ICON;
-        button.dataset.copied = "";
-        setTimeout(() => {
-          button.innerHTML = COPY_ICON;
-          delete button.dataset.copied;
-        }, 1400);
-        done("Table copied");
-      }, failed);
-    };
+    const failed = (cause: unknown) => say(copyFailure(cause), true);
     // Images and diagrams have Med's menu; text keeps the browser's.
     const openMenu = (event: MouseEvent) => {
+      // A diagram block opens its own menu (DiagramBlock).
+      if (event.defaultPrevented) return;
       const target = event.target as Element;
       const image = target.closest<HTMLImageElement>(
         ".med-md-prose img[src]:not(.med-web-link-icon)",
@@ -363,17 +318,17 @@ export default function MarkdownPreview({
           label: "Diagram actions",
           items: [
             {
-              label: "Copy image",
+              label: "Copy as image",
               run: () => copyDiagram(svg).then(() => done("Diagram copied"), failed),
             },
             {
-              label: "Copy SVG",
+              label: "Copy as SVG",
               run: () => copyDiagramSvg(svg).then(() => done("SVG copied"), failed),
             },
             ...(start && end
               ? [
                   {
-                    label: "Copy Mermaid source",
+                    label: "Copy text",
                     run: () =>
                       navigator.clipboard
                         .writeText(diagramSource(model.getText(), start, end))
@@ -385,13 +340,9 @@ export default function MarkdownPreview({
         });
       }
     };
-    pane.addEventListener("click", copyButton);
     pane.addEventListener("contextmenu", openMenu);
-    return () => {
-      pane.removeEventListener("click", copyButton);
-      pane.removeEventListener("contextmenu", openMenu);
-    };
-  }, [model]);
+    return () => pane.removeEventListener("contextmenu", openMenu);
+  }, [model, say]);
   const toc = result ? contentsOf(result.headings) : [];
   // The heading being read: the last one above a line near the pane's top,
   // or the last one once the pane reaches the document's end.

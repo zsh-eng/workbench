@@ -19,9 +19,14 @@ export function tableMarkdown(text: string, table: HTMLElement) {
   if (!start || !end) return tableText(table);
   const lines = sourceLines(text, start, end);
   const prefix = lines[0]?.match(/^[\s>]*/)?.[0] ?? "";
-  return lines
-    .map((line) => (line.startsWith(prefix) ? line.slice(prefix.length) : line.trimStart()))
-    .join("\n");
+  const markdown = lines.map((line) =>
+    line.startsWith(prefix) ? line.slice(prefix.length) : line.trimStart(),
+  );
+  // Lines that are not a table's, as from a text that changed since it
+  // rendered, copy as cells.
+  if (!markdown[0]?.includes("|") || !/^\s*\|?\s*:?-+/.test(markdown[1] ?? ""))
+    return tableText(table);
+  return markdown.join("\n");
 }
 
 /** Tab-separated cells, for a table without its source. */

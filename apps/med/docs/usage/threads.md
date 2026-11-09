@@ -264,6 +264,9 @@ background shells and agents. It follows the session live.
   replies read at 14.5 (a little smaller in Paper, as its documents are), so
   a line holds about as many characters as Claude Desktop's. Code and tables
   in either read at 0.867 of the text; diffs stay at 12 pixel monospace.
+- A table in a reply has **Copy** above its right end, and a diagram has
+  **Copy** and **Full screen** at its corner, as in a Markdown file
+  ([Copy](markdown.md#copy)).
 
 - The session's menu has the agent's name, such as **Claude**. It holds the
   review's sessions and **Show work**. **New thread** (`⌥N`, or `⌘N` in the

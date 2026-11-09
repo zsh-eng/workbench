@@ -5,7 +5,15 @@ import type { Mounted } from "pele/lazy";
 import { mountDiagram } from "../markdown/diagrams";
 import { tokens, ui } from "../theme.stylex";
 import { useTheme } from "../themes";
+import {
+  CopyNoteText,
+  DiagramCopyMenu,
+  diagramCopies,
+  pointItems,
+  useCopyNote,
+} from "./DiagramCopy";
 import { Icon } from "./Icon";
+import { PointMenu, type PointMenuState } from "./PointMenu";
 
 /** The most that the dialog enlarges a diagram, against its size on the page. */
 const MAX_FIT = 3;
@@ -19,7 +27,8 @@ const BOTTOM = 32;
 /**
  * A Mermaid diagram over the page, as large as the window lets it be: the SVG
  * scales, so its text stays sharp, and Pele's zoom and drag go further.
- * Escape or × closes it.
+ * Copy, in the header, and right-click copy it as on the page. Escape or ×
+ * closes it.
  */
 export function DiagramDialog({
   source,
@@ -36,7 +45,10 @@ export function DiagramDialog({
   const [width, setWidth] = useState<number>();
   const [mounted, setMounted] = useState<Mounted>();
   const [failed, setFailed] = useState(false);
+  const [menu, setMenu] = useState<PointMenuState | null>(null);
+  const [note, say] = useCopyNote();
   const theme = useTheme().active.id;
+  const figure = () => element;
   // The width that fills the room in both directions, as the window resizes.
   useLayoutEffect(() => {
     if (!room || !natural?.width || !natural.height) return;
@@ -77,9 +89,19 @@ export function DiagramDialog({
         <Dialog.Popup {...stylex.props(styles.popup, ui.instant)}>
           <div {...stylex.props(styles.header)}>
             <Dialog.Title {...stylex.props(styles.title)}>Diagram</Dialog.Title>
-            <Dialog.Close aria-label="Close" {...stylex.props(ui.button, ui.iconButton)}>
-              <Icon name="close" size={15} />
-            </Dialog.Close>
+            <div {...stylex.props(styles.actions)}>
+              <CopyNoteText note={note} />
+              <DiagramCopyMenu
+                figure={figure}
+                source={source}
+                say={say}
+                copied={!!note && !note.failed}
+                layer="dialog"
+              />
+              <Dialog.Close aria-label="Close" {...stylex.props(ui.button, ui.iconButton)}>
+                <Icon name="close" size={15} />
+              </Dialog.Close>
+            </div>
           </div>
           <div ref={setRoom} {...stylex.props(styles.room)}>
             {failed ? (
@@ -90,12 +112,24 @@ export function DiagramDialog({
                 className="med-md-diagram med-md-diagram-large"
                 role={mounted ? "img" : undefined}
                 aria-label={mounted ? "Mermaid diagram" : undefined}
+                onContextMenu={(event) => {
+                  if (!mounted) return;
+                  event.preventDefault();
+                  setMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    label: "Diagram actions",
+                    items: pointItems(diagramCopies(figure, source, say)),
+                  });
+                }}
                 style={
                   width ? ({ "--med-diagram-width": `${width}px` } as CSSProperties) : undefined
                 }
               />
             )}
           </div>
+          {/* In the popup, so the dialog counts the menu as its own. */}
+          {menu && <PointMenu menu={menu} onClose={() => setMenu(null)} layer="dialog" />}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -128,6 +162,7 @@ const styles = stylex.create({
     paddingLeft: 14,
     paddingRight: 6,
   },
+  actions: { display: "flex", alignItems: "center", gap: 2 },
   title: {
     margin: 0,
     color: tokens.muted,

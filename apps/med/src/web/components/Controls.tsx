@@ -261,6 +261,7 @@ export function ActionMenu({
   sections,
   trigger,
   align = "end",
+  layer,
 }: {
   children?: ReactNode;
   label?: string;
@@ -269,6 +270,8 @@ export function ActionMenu({
   /** The trigger's look, in place of a toolbar button. */
   trigger?: stylex.StyleXStyles;
   align?: "start" | "end";
+  /** "dialog": the menu opens over a dialog, as from its header. */
+  layer?: "dialog";
 }) {
   const [open, setOpen] = useState(false);
   // While the menu is open, a letter chooses its item as a click does, also
@@ -303,7 +306,11 @@ export function ActionMenu({
         {children ?? <Icon name="display" size={15} />}
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}>
+        <Menu.Positioner
+          align={align}
+          sideOffset={6}
+          {...stylex.props(styles.positioner, layer === "dialog" && styles.overDialog)}
+        >
           <Menu.Popup {...stylex.props(ui.popup, ui.pop, styles.menu)}>
             <MenuSections sections={sections} />
           </Menu.Popup>
@@ -637,6 +644,8 @@ export function SegmentedControl<T extends string>({
 const styles = stylex.create({
   disabled: { opacity: 0.45 },
   positioner: { zIndex: 100, outline: "none" },
+  // Above the dialogs' popups (111).
+  overDialog: { zIndex: 120 },
   check: { display: "inline-flex", flexShrink: 0, width: 14, color: tokens.accent },
   indicator: { display: "inline-flex", color: tokens.accent },
   submenuArrow: { display: "inline-flex", transform: "rotate(-90deg)", color: tokens.faint },
