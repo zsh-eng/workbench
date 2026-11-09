@@ -8,6 +8,7 @@ import {
   Fragment,
   isValidElement,
   memo,
+  useId,
   useEffect,
   useRef,
   useState,
@@ -89,6 +90,24 @@ export function ChoiceSelect({
   /** The trigger's text in place of the choice's label, such as a short one. */
   display?: string;
 }) {
+  // Two choices need no menu: a click switches to the other.
+  if (choices.length === 2 && !actions.length)
+    return (
+      <FlipChoice
+        label={label}
+        value={value}
+        choices={choices}
+        onChange={onChange}
+        trigger={trigger}
+        disabled={disabled}
+        triggerRef={triggerRef}
+      >
+        {icon}
+        <span data-choice-value="" {...stylex.props(styles.value)}>
+          {display ?? (choices.find((choice) => choice.value === value) ?? choices[0]!).label}
+        </span>
+      </FlipChoice>
+    );
   return (
     <Select.Root
       value={value}
@@ -180,6 +199,59 @@ export function ChoiceSelect({
         </Select.Positioner>
       </Select.Portal>
     </Select.Root>
+  );
+}
+
+/**
+ * A choice of two, such as a new worktree or the checkout: the control shows
+ * the current one, and a click switches to the other, which its tooltip
+ * names. Its name says the choice; its description, the switch.
+ */
+export function FlipChoice({
+  label,
+  value,
+  choices,
+  onChange,
+  trigger,
+  disabled,
+  triggerRef,
+  children,
+}: {
+  label: string;
+  value: string;
+  /** The two choices; a label can say more than the control shows. */
+  choices: readonly Choice[];
+  onChange(value: string): void;
+  /** The control's look, in place of a toolbar button. */
+  trigger?: stylex.StyleXStyles;
+  disabled?: boolean;
+  triggerRef?: Ref<HTMLButtonElement>;
+  /** What the control shows, such as an icon and a short name. */
+  children: ReactNode;
+}) {
+  const id = useId();
+  const current = choices.find((choice) => choice.value === value) ?? choices[0]!;
+  const other = choices.find((choice) => choice !== current) ?? current;
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-label={`${label}: ${current.label}`}
+        aria-describedby={id}
+        data-flip=""
+        onClick={() => onChange(other.value)}
+        {...tooltip(`Switch to ${other.label}`)}
+        {...stylex.props(ui.button, ui.strong, styles.flip, trigger)}
+      >
+        {children}
+      </button>
+      {/* A hidden element still describes the control. */}
+      <span id={id} hidden>
+        Switch to {other.label}
+      </span>
+    </>
   );
 }
 
@@ -595,6 +667,7 @@ const styles = stylex.create({
   },
   // In a narrow toolbar the value truncates before the trigger overflows.
   trigger: { gap: 4, minWidth: 0, paddingInlineEnd: 5 },
+  flip: { gap: 4, minWidth: 0 },
   value: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
   chevron: { display: "inline-flex", color: tokens.faint },
   backdrop: { zIndex: 110 },

@@ -19,7 +19,7 @@ import {
   type MentionCandidate,
   type MentionSources,
 } from "../data/mentions";
-import { tokens } from "../theme.stylex";
+import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 
 const ICONS = { file: "file", note: "vault", thread: "sessions" } as const;
@@ -29,7 +29,9 @@ const GROUPS = { file: "Files", note: "Notes", thread: "Threads" } as const;
  * @ in a message box: a menu of files, vault notes, and threads, chips for the
  * chosen ones, and the message with their absolute paths. The box renders
  * `menu`, then `field(textarea)`, and spreads `textarea` on its text area.
- * `input` is the text area's style, which the chips' backdrop copies.
+ * `input` is the text area's style, which the chips' backdrop copies. The
+ * menu opens over what is above the box, which must be positioned, so the
+ * box keeps its size.
  */
 export function useMentions({
   text,
@@ -81,6 +83,10 @@ export function useMentions({
   const at = live && (options.length > 0 || !/\s/.test(query)) ? found : null;
   const open = !!at;
   const active = Math.min(highlight, Math.max(0, options.length - 1));
+  // The arrows keep their option in view.
+  useEffect(() => {
+    if (open) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, id, open]);
 
   const choose = (candidate: MentionCandidate) => {
     if (!at || !sources) return;
@@ -144,7 +150,12 @@ export function useMentions({
   };
 
   const menu: ReactNode = at && (
-    <div id={`${id}-menu`} role="listbox" aria-label="Mentions" {...stylex.props(styles.menu)}>
+    <div
+      id={`${id}-menu`}
+      role="listbox"
+      aria-label="Mentions"
+      {...stylex.props(ui.popup, mentionPopover.over, styles.menu)}
+    >
       {options.length === 0 && (
         <span {...stylex.props(styles.empty)}>
           {query
@@ -251,15 +262,7 @@ const styles = stylex.create({
     // Wider than the token, without moving the text.
     boxShadow: `0 0 0 2px ${tokens.accentSoft}`,
   },
-  menu: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 1,
-    maxHeight: 280,
-    marginInline: -6,
-    overflowY: "auto",
-    scrollbarWidth: "thin",
-  },
+  menu: { display: "flex", flexDirection: "column", gap: 1, scrollbarWidth: "thin" },
   group: {
     display: "block",
     paddingTop: 6,
@@ -302,5 +305,19 @@ const styles = stylex.create({
     color: tokens.faint,
     fontFamily: tokens.ui,
     fontSize: 12,
+  },
+});
+
+/**
+ * A message box's list, such as @ mentions or / commands: a popover over what
+ * is above the box, as wide as the box, so the box keeps its size.
+ */
+export const mentionPopover = stylex.create({
+  over: {
+    position: "absolute",
+    insetInline: 0,
+    bottom: "calc(100% + 6px)",
+    maxHeight: "min(280px, 40vh)",
+    overflowY: "auto",
   },
 });

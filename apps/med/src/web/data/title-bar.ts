@@ -37,3 +37,15 @@ export const useTitleBarOverlay = () =>
     () => root().dataset.titlebar === "overlay",
     () => false,
   );
+
+/** Whether Med runs as the installed app, in its own window. */
+export const isInstalledApp = () =>
+  typeof matchMedia === "function" &&
+  matchMedia("(display-mode: standalone), (display-mode: window-controls-overlay)").matches;
+
+/**
+ * New thread's keys: ⌘N in the installed app, whose window gives the page
+ * every key; ⌥N in a browser tab, which keeps ⌘N for a new window. Both work
+ * where the page gets them.
+ */
+export const newThreadKeys = () => (isInstalledApp() ? "Mod+N" : "Alt+N");

@@ -82,7 +82,7 @@ import {
 import type { ReviewCommand } from "./Controls";
 import { barContext, WorkspaceBar } from "./shell/WorkspaceBar";
 import { ToolButton } from "./ToolButton";
-import { useTitleBarOverlay } from "../data/title-bar";
+import { newThreadKeys, useTitleBarOverlay } from "../data/title-bar";
 import { NoticeBar, type TabNotice } from "./shell/NoticeBar";
 import { SessionSidebar } from "./shell/SessionSidebar";
 import { NewThread } from "./shell/NewThread";
@@ -225,6 +225,8 @@ interface TabActions {
   close(threadId: string): void;
   reopen(): void;
   openHistory(): void;
+  /** Opens New thread. */
+  newThread(): void;
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
   /** Shows the name field of the thread. */
@@ -249,6 +251,13 @@ export function useTabCommands(): ReviewCommand[] {
     if (!tabs) return [];
     const run = (action: (id: string) => void) => () => thread && action(thread);
     return [
+      {
+        id: "new-thread",
+        managesFocus: true,
+        label: "New thread",
+        shortcut: newThreadKeys(),
+        run: tabs.newThread,
+      },
       {
         id: "close-tab",
         label: "Close tab",
@@ -1577,6 +1586,7 @@ export function WorkspaceHost({
         rememberFocus();
         setSwitcher({ held: false, reverse: false, history: true });
       },
+      newThread: () => setNewThread(true),
       next: () => void latest.current.nextAttention(),
       rename(id) {
         if (find(id)) setRenaming(id);
@@ -1602,7 +1612,7 @@ export function WorkspaceHost({
         return () => void tabListeners.delete(listener);
       },
     };
-  }, [rememberFocus, tabListeners, setRenaming]);
+  }, [rememberFocus, tabListeners, setRenaming, setNewThread]);
 
   // The tabs load ahead, as open terminal tabs stay loaded; the one under the
   // pointer first. History never loads ahead.
@@ -1666,20 +1676,25 @@ export function WorkspaceHost({
     });
   }, [hasSessions]);
   useEffect(() => {
-    // ⌥N, or ⌘N where the browser lets the page have it, as the installed
-    // app does; a browser tab keeps ⌘N for a new window. Control+N stays the
-    // editor's on macOS.
+    // ⌥N, or ⌘N where the browser lets the page have it: the installed app
+    // gets every key first (Chrome reserves none in an app's window), and a
+    // browser tab keeps ⌘N for a new window. Before any other handler, so the
+    // app's window never opens a second window instead. Control+N stays the
+    // editor's on macOS. In another dialog, ⌘N does nothing.
     const mac = /Mac/.test(navigator.platform);
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.shiftKey || event.code !== "KeyN") return;
+      if (event.shiftKey || event.code !== "KeyN" || event.isComposing) return;
       const option = event.altKey && !event.metaKey && !event.ctrlKey;
       const command = !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey);
       if (!option && !command) return;
       event.preventDefault();
+      const target = event.target instanceof Element ? event.target : null;
+      const dialog = target?.closest('[role="dialog"], [role="alertdialog"]');
+      if (dialog && dialog.getAttribute("aria-label") !== "New thread") return;
       setNewThread(true);
     };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
   }, []);
   // ⌘B anywhere, such as in a vault; a review handles it first.
   useEffect(() => {
