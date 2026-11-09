@@ -168,3 +168,12 @@
 [data-thread-footer] > * {
   pointer-events: auto;
 }
+
+/* The Context card's lists (ContextPanel.tsx): the chevron turns down while
+ * a list is open, and the browser's own marker is gone. */
+details[open] > summary .med-context-chevron {
+  transform: none;
+}
+summary:has(.med-context-chevron)::-webkit-details-marker {
+  display: none;
+}

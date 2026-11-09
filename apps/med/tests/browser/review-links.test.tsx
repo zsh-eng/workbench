@@ -23,7 +23,7 @@ function show(text: string) {
   frame = document.createElement("div");
   document.body.append(frame);
   root = createRoot(frame);
-  const own = vi.fn();
+  const own = vi.fn<() => void>();
   root.render(
     <HandoffContext.Provider value={{ title: "Own review", open: own, id: "r_own" }}>
       <SessionMarkdown text={text} streaming={false} />

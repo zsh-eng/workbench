@@ -600,15 +600,21 @@ test("beside the side panel, the subagents are a list in its card, not tabs over
   const side = document.createElement("div");
   document.body.append(side);
   try {
+    localStorage.removeItem("med:session-panel-cards");
     root!.render(<SessionThread snapshot={store.getSnapshot()} agentsIn={side} showWork />);
+    // The card starts folded, with how many and how many work; its title opens it.
+    const card = page.getByRole("region", { name: "Subagents" });
+    await expect.element(card).toHaveTextContent("Subagents3 agents · 1 working");
+    const toggle = card.getByRole("button", { name: "Subagents" });
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelectorAll('[role="tablist"]')).toHaveLength(0);
+    await userEvent.click(toggle);
     const tabs = page.getByRole("tablist", { name: "Session and subagents" });
     await expect.element(tabs).toHaveAttribute("aria-orientation", "vertical");
     // The list is the card's, and the thread has no row of tabs over it.
-    const card = page.getByRole("region", { name: "Subagents" });
     expect(side.contains(card.element())).toBe(true);
     expect(side.contains(tabs.element())).toBe(true);
     expect(document.querySelectorAll('[role="tablist"]')).toHaveLength(1);
-    await expect.element(card).toMatchTextContent(/^Subagents1 working/);
     // Each row says how its subagent is doing, in words.
     await expect
       .element(tabs)
@@ -627,6 +633,7 @@ test("beside the side panel, the subagents are a list in its card, not tabs over
     await expect.element(view).not.toBeInTheDocument();
   } finally {
     side.remove();
+    localStorage.removeItem("med:session-panel-cards");
   }
 });
 

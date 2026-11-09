@@ -71,6 +71,7 @@ const storedPreferences = [
   // Every view setting, at its default.
   ...Object.values(viewSettings).map((setting) => setting.key),
   "med:history",
+  "med:session-panel-cards",
   "med:pane-layout",
   "med:pane-width",
   "med:work",
@@ -4407,11 +4408,17 @@ describe("agent session", () => {
       .poll(() => [24, 36].some((less) => Math.abs(room() - less - box()) < 0.5))
       .toBe(true);
     const context = side.getByRole("region", { name: "Context" });
-    await expect.element(context).toMatchTextContent(/^Context31%/);
+    await expect.element(context).toMatchTextContent(/^Context31% used312\.9k \/ 1M/);
     await expect.element(context.getByText("Autocompact at 500k")).toBeVisible();
-    await expect
-      .element(side.getByRole("region", { name: "Spend" }))
-      .toMatchTextContent(/^Spend\$230\.62/);
+    // Spend starts folded, with its total; its title unfolds it in place.
+    const spend = side.getByRole("region", { name: "Spend" });
+    await expect.element(spend).toMatchTextContent(/^Spend\$230\.62$/);
+    await spend.getByRole("button", { name: "Spend" }).click();
+    await expect.element(spend.getByText("$40.44 by 4 subagents")).toBeVisible();
+    await expect.element(spend.getByText("Opus 5.5")).toBeVisible();
+    await expect.element(spend.getByText("41k in · 690k out", { exact: false })).toBeVisible();
+    await spend.getByRole("button", { name: "Spend" }).click();
+    await expect.element(spend.getByText("Opus 5.5")).not.toBeInTheDocument();
     await expect
       .element(
         side.getByRole("region", { name: "Reviews" }).getByRole("button", { name: /Changes/ }),

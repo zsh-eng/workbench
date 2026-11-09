@@ -155,6 +155,84 @@ export const ownedPermissionSchema = z.object({
 });
 export type OwnedPermission = z.infer<typeof ownedPermissionSchema>;
 
+/** Claude Code's account of the context window, as `/context` shows it, read
+ * at a turn's end: what fills it, and what it defers until a tool is used. */
+export const contextBreakdownSchema = z.object({
+  categories: z
+    .array(
+      z.object({
+        name: z.string(),
+        tokens: z.number(),
+        kind: z.enum(["used", "deferred", "buffer", "free"]),
+      }),
+    )
+    .max(40),
+  /** The MCP servers' tools, by server. */
+  mcpServers: z
+    .array(z.object({ name: z.string(), tools: z.number(), tokens: z.number() }))
+    .max(200),
+  memoryFiles: z.array(z.object({ path: z.string(), tokens: z.number() })).max(200),
+  agents: z.array(z.object({ name: z.string(), tokens: z.number() })).max(200),
+  skills: z.array(z.object({ name: z.string(), tokens: z.number() })).max(500),
+  /** When Med read it. */
+  at: z.number(),
+});
+export type ContextBreakdown = z.infer<typeof contextBreakdownSchema>;
+
+/** Claude Code's `get_context_usage` reply as Med keeps it; undefined for a
+ * reply without categories. */
+export function contextBreakdown(value: unknown, at: number): ContextBreakdown | undefined {
+  const reply = (value ?? {}) as Record<string, unknown>;
+  const list = (key: string) =>
+    (Array.isArray(reply[key]) ? reply[key] : []).filter(
+      (entry): entry is Record<string, unknown> => !!entry && typeof entry === "object",
+    );
+  const tokens = (entry: Record<string, unknown>) =>
+    typeof entry.tokens === "number" && entry.tokens >= 0 ? entry.tokens : 0;
+  const text = (entry: Record<string, unknown>, key: string) =>
+    typeof entry[key] === "string" ? (entry[key] as string) : "";
+  const kinds = ["used", "deferred", "buffer", "free"] as const;
+  const categories = list("categories").flatMap((entry) => {
+    const name = text(entry, "name");
+    const kind =
+      kinds.find((each) => each === entry.kind) ?? (entry.isDeferred ? "deferred" : "used");
+    return name ? [{ name, tokens: tokens(entry), kind }] : [];
+  });
+  if (!categories.length) return undefined;
+  const servers = new Map<string, { name: string; tools: number; tokens: number }>();
+  for (const tool of list("mcpTools")) {
+    const name = text(tool, "serverName") || "MCP";
+    const server = servers.get(name) ?? { name, tools: 0, tokens: 0 };
+    server.tools++;
+    server.tokens += tokens(tool);
+    servers.set(name, server);
+  }
+  const skills = reply.skills as { skillFrontmatter?: unknown } | undefined;
+  return contextBreakdownSchema.parse({
+    categories: categories.slice(0, 40),
+    mcpServers: [...servers.values()].sort((a, b) => b.tokens - a.tokens).slice(0, 200),
+    memoryFiles: list("memoryFiles")
+      .flatMap((entry) => {
+        const path = text(entry, "path");
+        return path ? [{ path, tokens: tokens(entry) }] : [];
+      })
+      .slice(0, 200),
+    agents: list("agents")
+      .flatMap((entry) => {
+        const name = text(entry, "agentType") || text(entry, "name");
+        return name ? [{ name, tokens: tokens(entry) }] : [];
+      })
+      .slice(0, 200),
+    skills: (Array.isArray(skills?.skillFrontmatter) ? skills.skillFrontmatter : [])
+      .flatMap((entry: Record<string, unknown>) => {
+        const name = entry && typeof entry.name === "string" ? entry.name : "";
+        return name ? [{ name, tokens: tokens(entry) }] : [];
+      })
+      .slice(0, 500),
+    at,
+  });
+}
+
 export const ownedStateSchema = z.object({
   sessionId: z.string(),
   preset: z.string(),
@@ -165,8 +243,10 @@ export const ownedStateSchema = z.object({
   permission: ownedPermissionSchema.optional(),
   /** The reply that streams now, before the transcript has it. */
   streaming: z.object({ id: z.string(), text: z.string() }).optional(),
-  /** Tokens in the context window, after the last turn. */
-  context: z.object({ used: z.number(), total: z.number() }).optional(),
+  /** Tokens in the context window, after the last turn, and what fills it. */
+  context: z
+    .object({ used: z.number(), total: z.number(), breakdown: contextBreakdownSchema.optional() })
+    .optional(),
   /** Turns sent so far; the first one starts the transcript. */
   turns: z.number().int().nonnegative(),
   /** The agent takes images in a prompt. */

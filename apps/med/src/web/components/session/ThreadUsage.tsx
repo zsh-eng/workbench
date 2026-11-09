@@ -87,6 +87,17 @@ export function ContextBlock({ context }: { context: ShownContext }) {
           />
         )}
       </div>
+      <ContextNotes context={context} />
+    </div>
+  );
+}
+
+/** How many tokens, where the window and compaction come from, and whether
+ * the session compacted since. */
+export function ContextNotes({ context }: { context: ShownContext }) {
+  const at = context.compaction?.at;
+  return (
+    <>
       <p {...stylex.props(styles.line)}>
         <span>
           {context.used.toLocaleString()} of {tokenCount(context.window)} tokens
@@ -118,7 +129,7 @@ export function ContextBlock({ context }: { context: ShownContext }) {
           Compacted since; the next request tells the new size.
         </p>
       )}
-    </div>
+    </>
   );
 }
 
@@ -177,15 +188,22 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
           </tbody>
         </table>
       ) : (
+        // The side panel's narrow card: each model's cost, and its tokens under it.
         spend.models.map((model) => (
-          <p key={model.model} {...stylex.props(styles.line)}>
-            <span>{modelName(model.model)}</span>
-            <span {...stylex.props(styles.note)}>
-              {model.cost === null
-                ? `${tokenCount(model.input + model.cacheRead + model.output)} tokens`
-                : dollars(model.cost)}
-            </span>
-          </p>
+          <div key={model.model}>
+            <p {...stylex.props(styles.line)}>
+              <span>{modelName(model.model)}</span>
+              <span>{model.cost === null ? "No price" : dollars(model.cost)}</span>
+            </p>
+            <p {...stylex.props(styles.line, styles.note)}>
+              {[
+                `${tokenCount(model.input)} in`,
+                `${tokenCount(model.output)} out`,
+                `${tokenCount(model.cacheRead)} cache read`,
+                `${tokenCount(model.cacheWrite5m + model.cacheWrite1h)} cache write`,
+              ].join(" · ")}
+            </p>
+          </div>
         ))
       )}
       {unpriced.length > 0 && (
@@ -200,37 +218,33 @@ export function SpendBlock({ usage, table = true }: { usage: ThreadUsage; table?
           transcript.
         </p>
       )}
-      {!table ? (
-        <p {...stylex.props(styles.line, styles.note)}>An estimate at list price</p>
-      ) : (
-        <p {...stylex.props(styles.line, styles.note)}>
-          An estimate at list price from the transcripts; Claude Code also makes small requests that
-          they leave out. Prices read {usage.prices.readAt} from{" "}
-          <a
-            href={usage.prices.source}
-            target="_blank"
-            rel="noreferrer"
-            {...stylex.props(styles.link)}
-          >
-            Anthropic's pricing page
-          </a>
-          {usage.prices.openai && (
-            <>
-              {" "}
-              and {usage.prices.openai.readAt} from{" "}
-              <a
-                href={usage.prices.openai.source}
-                target="_blank"
-                rel="noreferrer"
-                {...stylex.props(styles.link)}
-              >
-                OpenAI's
-              </a>
-            </>
-          )}
-          .
-        </p>
-      )}
+      <p {...stylex.props(styles.line, styles.note)}>
+        An estimate at list price from the transcripts; Claude Code also makes small requests that
+        they leave out. Prices read {usage.prices.readAt} from{" "}
+        <a
+          href={usage.prices.source}
+          target="_blank"
+          rel="noreferrer"
+          {...stylex.props(styles.link)}
+        >
+          Anthropic's pricing page
+        </a>
+        {usage.prices.openai && (
+          <>
+            {" "}
+            and {usage.prices.openai.readAt} from{" "}
+            <a
+              href={usage.prices.openai.source}
+              target="_blank"
+              rel="noreferrer"
+              {...stylex.props(styles.link)}
+            >
+              OpenAI's
+            </a>
+          </>
+        )}
+        .
+      </p>
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { Popover } from "@base-ui/react/popover";
-import type { ReactNode, Ref } from "react";
+import { useId, useState, type ReactNode, type Ref } from "react";
 import type { ThreadUsage } from "../../../shared/model-usage";
+import type { ContextBreakdown } from "../../../shared/owned-session";
 import { tokens, ui } from "../../theme.stylex";
 import { Icon, type IconName } from "../Icon";
-import { ContextBlock, dollars, modelName, SpendBlock, type ShownContext } from "./ThreadUsage";
+import { ContextDetails, ContextSummary } from "./ContextPanel";
+import { dollars, modelName, SpendBlock, type ShownContext } from "./ThreadUsage";
 
 // The session's side panel in a wide pane, as Claude Desktop has one: quiet
 // cards for the context, the spend, the background tasks, the thread's
@@ -42,58 +43,78 @@ export interface SessionEnvironment {
   runs: string;
 }
 
+const FOLDS = "med:session-panel-cards";
+const readFolds = (): Record<string, boolean> => {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(FOLDS) ?? "{}");
+    return value && typeof value === "object" ? (value as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+};
+
+/** Whether a card is open: as the reader left it, in any thread. */
+function useCardOpen(label: string, initial: boolean) {
+  const [open, setOpen] = useState(() => readFolds()[label] ?? initial);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(FOLDS, JSON.stringify({ ...readFolds(), [label]: next }));
+    } catch {
+      // The choice lasts until the page reloads.
+    }
+  };
+  return [open, toggle] as const;
+}
+
 /** A card of the panel, also for what the thread puts here (SessionThread.tsx). */
 export function SidePanelCard({
   label,
   figure,
   children,
   details,
+  folded = false,
 }: {
   label: string;
-  figure?: string;
+  figure?: ReactNode;
   children?: ReactNode;
-  /** Opens a popover with these from the card's title. */
+  /** Shows under the card's body while it is open. The card's title folds
+   * and unfolds it, as a card in Claude Desktop's side panel does. */
   details?: ReactNode;
+  /** Starts folded, until the reader opens it. */
+  folded?: boolean;
 }) {
-  const title = (
-    <>
-      <span {...stylex.props(styles.cardLabel)}>{label}</span>
-      {details && (
-        <span {...stylex.props(styles.chevron)}>
-          <Icon name="chevron" size={11} />
-        </span>
-      )}
-    </>
-  );
+  const [open, toggle] = useCardOpen(label, !folded);
+  const body = useId();
   return (
     <section aria-label={label} {...stylex.props(styles.card)}>
       <div {...stylex.props(styles.cardHead)}>
         {details ? (
-          <Popover.Root>
-            <Popover.Trigger
-              aria-label={`${label} details`}
-              {...stylex.props(ui.button, styles.cardTrigger)}
-            >
-              {title}
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Positioner
-                side="left"
-                align="start"
-                sideOffset={10}
-                {...stylex.props(styles.positioner)}
-              >
-                <Popover.Popup {...stylex.props(ui.popup, styles.popup)}>{details}</Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={body}
+            onClick={toggle}
+            {...stylex.props(ui.button, styles.cardTrigger)}
+          >
+            <span {...stylex.props(styles.cardLabel)}>{label}</span>
+            <span {...stylex.props(styles.chevron, !open && styles.chevronFolded)}>
+              <Icon name="chevron" size={11} />
+            </span>
+          </button>
         ) : (
-          <span {...stylex.props(styles.cardTitle)}>{title}</span>
+          <span {...stylex.props(styles.cardTitle, styles.cardLabel)}>{label}</span>
         )}
         <span {...stylex.props(ui.grow)} />
         {figure && <span {...stylex.props(styles.figure)}>{figure}</span>}
       </div>
       {children}
+      {details && open && (
+        <div id={body} {...stylex.props(styles.details)}>
+          {details}
+        </div>
+      )}
     </section>
   );
 }
@@ -151,6 +172,8 @@ export const slim = (props: ReturnType<typeof stylex.props>, more = "") => ({
 export function SessionSidePanel({
   usage,
   context,
+  breakdown,
+  working = false,
   links,
   place,
   backgroundRef,
@@ -158,6 +181,10 @@ export function SessionSidePanel({
 }: {
   usage: ThreadUsage | null;
   context: ShownContext | undefined;
+  /** What fills the context, from the agent that Med runs. */
+  breakdown?: ContextBreakdown;
+  /** A turn runs, at whose end the breakdown is read again. */
+  working?: boolean;
   links?: ThreadLink[];
   place: SessionEnvironment;
   /** Where the thread puts its Background dock. */
@@ -165,28 +192,23 @@ export function SessionSidePanel({
   /** Where the thread puts its list of subagents, in place of the tabs over it. */
   agentsRef?: Ref<HTMLDivElement>;
 }) {
-  const percent =
-    context && context.window ? `${Math.round((context.used / context.window) * 100)}%` : undefined;
   return (
     <aside aria-label="Session details" {...slim(stylex.props(styles.panel))}>
       {context && (
-        <SidePanelCard label="Context" figure={percent}>
-          <ContextBlock context={context} />
+        <SidePanelCard
+          label="Context"
+          details={<ContextDetails context={context} breakdown={breakdown} working={working} />}
+        >
+          <ContextSummary context={context} breakdown={breakdown} />
         </SidePanelCard>
       )}
       {usage && (
         <SidePanelCard
           label="Spend"
           figure={dollars(usage.spend.total)}
-          details={
-            <div {...stylex.props(styles.details)}>
-              <h3 {...stylex.props(ui.label, styles.detailsHeading)}>Spend in this thread</h3>
-              <SpendBlock usage={usage} />
-            </div>
-          }
-        >
-          <SpendBlock usage={usage} table={false} />
-        </SidePanelCard>
+          folded
+          details={<SpendBlock usage={usage} table={false} />}
+        />
       )}
       <div ref={backgroundRef} {...stylex.props(styles.slot)} />
       <div ref={agentsRef} {...stylex.props(styles.slot)} />
@@ -262,7 +284,13 @@ const styles = stylex.create({
     color: tokens.text,
   },
   cardLabel: { color: tokens.text, fontSize: 12.5, fontWeight: 500 },
-  chevron: { display: "inline-flex", color: tokens.faint, transform: "rotate(-90deg)" },
+  chevron: {
+    display: "inline-flex",
+    color: tokens.faint,
+    transitionProperty: "transform",
+    transitionDuration: "120ms",
+  },
+  chevronFolded: { transform: "rotate(-90deg)" },
   figure: { color: tokens.muted, fontSize: 12, fontVariantNumeric: "tabular-nums" },
   rows: { display: "flex", flexDirection: "column", gap: 2, marginInline: -6 },
   row: {
@@ -296,8 +324,5 @@ const styles = stylex.create({
     color: tokens.faint,
     fontSize: 12,
   },
-  positioner: { zIndex: 100, outline: "none" },
-  popup: { width: 420, maxWidth: "calc(100vw - 24px)", maxHeight: "min(560px, 80vh)" },
-  details: { paddingInline: 10, paddingBlock: 8 },
-  detailsHeading: { margin: 0, marginBottom: 8 },
+  details: { display: "flex", flexDirection: "column", gap: 8, minWidth: 0 },
 });
