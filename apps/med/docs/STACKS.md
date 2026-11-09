@@ -74,7 +74,7 @@ lost, but no comparison or comment is.
   **Ungroup**, and **Treat as a set** / **Treat as a stack**. Grouping moves the
   dragged thread's current comparisons, with their comments and guide, its pull
   request, key, and sessions; what stays (its brief, pins, and older versions)
-  goes to history with it. Ungroup makes each part above the first a thread
+  is archived with it. Ungroup makes each part above the first a thread
   again, with its comparison and comments.
 
 ## Diff semantics

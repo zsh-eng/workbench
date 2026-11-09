@@ -19,23 +19,26 @@ import { picked, tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { tooltip } from "./ToolButton";
 
-// History as a page: every thread that is not a tab, closed threads and found
-// sessions, newest first, by day. It reads what the switcher's history lists
-// (GET /api/threads/history), searches it as the switcher does, and opens a
-// row as a tab the same way. Laid out as the Pull requests page is: one
+// The Archived page: every thread that is not a tab, the ones that you or Med
+// archived and found sessions, newest first, by day. It reads what the
+// switcher lists as archived (GET /api/threads/history), searches it as the
+// switcher does, and opens a row as a tab the same way. Laid out as the Pull requests page is: one
 // column, the day's heading and the rows' text on one left edge, the cards 20
 // pixels past it.
 
 /** The page's address. */
-export const HISTORY_PATH = "/history";
+export const ARCHIVED_PATH = "/archived";
+/** The page's address, or its old one, /history, which still opens it. */
+export const isArchivedAddress = (pathname: string) =>
+  pathname === ARCHIVED_PATH || pathname === "/history";
 
 /** Opens the page. */
 export function openHistoryPage() {
-  if (location.pathname !== HISTORY_PATH) history.pushState(null, "", HISTORY_PATH);
+  if (location.pathname !== ARCHIVED_PATH) history.pushState(null, "", ARCHIVED_PATH);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-/** A thread's last activity, as the host orders history: its last change, or
+/** A thread's last activity, as the host orders archived threads: its last change, or
  * its close when that came later. */
 const lastActive = (thread: Thread) => Math.max(thread.closedAt ?? 0, thread.updatedAt);
 
@@ -76,20 +79,20 @@ export function HistoryPage({
   onOpen,
   onDelete,
 }: {
-  /** The tabs: history lists the other threads, and is read again as they change. */
+  /** The tabs: the page lists the other threads, and reads them again as the tabs change. */
   tabs: readonly Thread[];
   fetcher: typeof fetch;
-  /** Opens a thread from history as a tab, as the switcher does. */
+  /** Opens an archived thread as a tab, as the switcher does. */
   onOpen(thread: Thread): void;
-  /** Deletes a thread for good: its saved review, comments, and history entry. */
+  /** Deletes a thread for good: its saved review, comments, and archive entry. */
   onDelete(thread: Thread): Promise<void>;
 }) {
-  useDocumentTitle("History", 3);
+  useDocumentTitle("Archived", 3);
   const id = useId();
   const [past, setPast] = useState<readonly Thread[] | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  // Typing stays quick in a long history: the list follows a moment later.
+  // Typing stays quick in a long list: the list follows a moment later.
   const searched = useDeferredValue(query);
   const [active, setActive] = useState(0);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -97,7 +100,7 @@ export function HistoryPage({
   const list = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
 
-  // A tab that closes goes to history, and one that opens leaves it: read it
+  // A tab that closes is archived, and one that opens leaves the list: read it
   // again when the tabs change.
   const open = useMemo(() => new Set(tabs.map((thread) => thread.id)), [tabs]);
   const tabKey = [...open].sort().join(" ");
@@ -112,7 +115,9 @@ export function HistoryPage({
       },
       (cause: unknown) => {
         if (current)
-          setError(cause instanceof Error ? cause.message : "Med could not read history.");
+          setError(
+            cause instanceof Error ? cause.message : "Med could not read the archived threads.",
+          );
       },
     );
     return () => {
@@ -218,7 +223,7 @@ export function HistoryPage({
 
   return (
     // The workspace under the page gets none of the plain keys, and ⌘F finds
-    // in history; ⌘K and the window's other shortcuts still work.
+    // in the archive; ⌘K and the window's other shortcuts still work.
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       onKeyDown={(event) => {
@@ -234,7 +239,7 @@ export function HistoryPage({
       <div {...stylex.props(styles.scroller)}>
         <div {...stylex.props(styles.column)}>
           <div {...stylex.props(styles.heading)}>
-            <h1 {...stylex.props(styles.pageTitle)}>History</h1>
+            <h1 {...stylex.props(styles.pageTitle)}>Archived</h1>
             <span role="status" {...stylex.props(styles.count)}>
               {past === null
                 ? ""
@@ -254,7 +259,7 @@ export function HistoryPage({
               aria-expanded="true"
               aria-controls={`${id}-list`}
               aria-activedescendant={current ? optionId(current) : undefined}
-              aria-label="Search history"
+              aria-label="Search archived threads"
               placeholder="Search by title, branch, repository, or first prompt"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -275,7 +280,7 @@ export function HistoryPage({
             ref={list}
             id={`${id}-list`}
             role="listbox"
-            aria-label="History"
+            aria-label="Archived"
             aria-busy={past === null}
             tabIndex={0}
             aria-activedescendant={current ? optionId(current) : undefined}
@@ -331,10 +336,10 @@ export function HistoryPage({
             {!rows.length && !error && (
               <p {...stylex.props(styles.notice)}>
                 {past === null
-                  ? "Reading history…"
+                  ? "Reading archived threads…"
                   : words.length
                     ? `Nothing matches “${searched}”.`
-                    : "History is empty. Threads that you archive show here."}
+                    : "Nothing is archived. Threads that you archive show here."}
               </p>
             )}
           </div>
@@ -344,9 +349,9 @@ export function HistoryPage({
   );
 }
 
-/** A thread in history: its agent's mark, its title, where it worked, its
+/** An archived thread: its agent's mark, its title, where it worked, its
  * agent, and when. A row renders again only for its own changes, so a long
- * history moves its selection at once. */
+ * list moves its selection at once. */
 const HistoryRow = memo(function HistoryRow({
   thread,
   index,
@@ -488,7 +493,7 @@ const styles = stylex.create({
     letterSpacing: "-0.022em",
   },
   count: { color: tokens.faint, fontSize: 13, fontVariantNumeric: "tabular-nums" },
-  // The field stays in view over a long history, as wide as the cards.
+  // The field stays in view over a long list, as wide as the cards.
   searchRow: {
     position: "sticky",
     top: 0,

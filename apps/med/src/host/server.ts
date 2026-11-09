@@ -623,7 +623,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const threads = new Map<string, { id: string; archived?: boolean }>();
     for (const review of reviews)
       for (const session of review.sessions ?? [])
-        // `archived`: the thread is in history, not a tab.
+        // `archived`: the thread is archived, not a tab.
         threads.set(session.id, {
           id: review.id,
           ...(!tabs.isOpen(review.id) && { archived: true }),
@@ -3589,7 +3589,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           if (url.pathname === "/api/threads/reopen" && request.method === "POST") {
             const thread = await threads.reopen();
             if (!thread)
-              throw new HostError("thread-not-found", "History has no thread to reopen.", 404);
+              throw new HostError("thread-not-found", "No archived thread to reopen.", 404);
             send({ thread });
             return;
           }
@@ -3833,6 +3833,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         path === "/files" ||
         path === "/search" ||
         path === "/pulls" ||
+        path === "/archived" ||
         path === "/history" ||
         path === "/" ||
         /^\/review\/[a-zA-Z0-9_-]+$/.test(path);

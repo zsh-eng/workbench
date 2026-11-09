@@ -49,7 +49,7 @@ import { endReplies } from "./session/thread-model";
 import { themeController } from "../themes";
 import { parsePullUrl } from "../../shared/pull-workspace";
 import { startPull, usePullJob } from "../data/pull-jobs";
-import { HistoryPage, HISTORY_PATH, openHistoryPage } from "./HistoryPage";
+import { HistoryPage, isArchivedAddress, openHistoryPage } from "./HistoryPage";
 import { OPEN_PULL_EVENT, openPullRequests, type OpenPull } from "./PullRequestsPage";
 import { PullWorkspaceView, pullTitle, type PullState } from "./PullWorkspace";
 import {
@@ -230,7 +230,7 @@ interface TabActions {
   openHistory(): void;
   /** Opens New thread. */
   newThread(): void;
-  /** Shows the History page. */
+  /** Shows the Archived page. */
   showHistory(): void;
   /** Shows the next tab that needs the reader, else the next that works. */
   next(): void;
@@ -274,10 +274,17 @@ export function useTabCommands(): ReviewCommand[] {
       {
         id: "open-history",
         managesFocus: true,
-        label: "Open from history…",
+        label: "Open archived thread…",
+        keywords: "history",
         run: tabs.openHistory,
       },
-      { id: "history-page", managesFocus: true, label: "History", run: tabs.showHistory },
+      {
+        id: "history-page",
+        managesFocus: true,
+        label: "Archived",
+        keywords: "history",
+        run: tabs.showHistory,
+      },
       { id: "next-needs-you", label: "Next tab that needs you", shortcut: "⌘ 0", run: tabs.next },
       {
         id: "rename-thread",
@@ -675,7 +682,7 @@ export function WorkspaceHost({
   const [switcher, setSwitcher] = useState<{
     held: boolean;
     reverse: boolean;
-    /** From "Open from history…": the switcher lists history. */
+    /** From "Open archived thread…": the switcher lists archived threads. */
     history?: boolean;
   } | null>(null);
   // A vault keeps its own address, such as the open file, between visits.
@@ -1044,7 +1051,7 @@ export function WorkspaceHost({
   }, []);
 
   // ⌃Tab opens the switcher: the tabs and the other workspaces, the most
-  // recently shown first. Typing in it searches history too.
+  // recently shown first. Typing in it searches archived threads too.
   const hostHasTabs = useRef(false);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -1155,8 +1162,8 @@ export function WorkspaceHost({
 
   // A new thread covers the workspaces until it starts or the reader leaves.
   const [newThread, setNewThread] = useState(false);
-  // The History page covers them too, at its own address.
-  const historyPage = pathname === HISTORY_PATH;
+  // The Archived page covers them too, at its own address.
+  const historyPage = isArchivedAddress(pathname);
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
@@ -2619,8 +2626,9 @@ function ThreadState({ thread, unread }: { thread: Thread | undefined; unread?: 
  * The switcher: the tabs and the other workspaces, most recently shown first,
  * then the tabs not shown in this window yet. Held ⌃Tab steps through them
  * and releasing Control shows the selection, as an app switcher does. A typed
- * word searches them and history: closed threads and found sessions that are
- * not tabs, by title, branch, repository, and first prompt, newest first.
+ * word searches them and archived threads: closed threads and found sessions
+ * that are not tabs, by title, branch, repository, and first prompt, newest
+ * first.
  * From the palette it stays open until Return, a click, or Escape.
  */
 function WorkspaceSwitcher({
@@ -2822,7 +2830,7 @@ function WorkspaceSwitcher({
     <div {...stylex.props(styles.scrim)} onPointerDown={onCancel}>
       <div
         role="dialog"
-        aria-label={historyMode ? "Open from history" : "Switch workspace"}
+        aria-label={historyMode ? "Open archived thread" : "Switch workspace"}
         data-workspace-switcher
         onPointerDown={(event) => event.stopPropagation()}
         {...stylex.props(styles.switcher)}
@@ -2834,12 +2842,12 @@ function WorkspaceSwitcher({
             aria-expanded="true"
             aria-controls="workspace-switch-list"
             aria-activedescendant={selected ? optionId(selected.key) : undefined}
-            aria-label={hasHistory ? "Search tabs and history" : "Search workspaces"}
+            aria-label={hasHistory ? "Search tabs and archived threads" : "Search workspaces"}
             placeholder={
               historyMode
-                ? "Search history"
+                ? "Search archived threads"
                 : hasHistory
-                  ? "Search tabs and history"
+                  ? "Search tabs and archived threads"
                   : "Search workspaces"
             }
             value={query}
@@ -2852,7 +2860,7 @@ function WorkspaceSwitcher({
           id="workspace-switch-list"
           role="listbox"
           tabIndex={-1}
-          aria-label={historyMode ? "History" : "Recent workspaces"}
+          aria-label={historyMode ? "Archived" : "Recent workspaces"}
           aria-activedescendant={selected ? optionId(selected.key) : undefined}
           {...stylex.props(styles.switchList)}
         >
@@ -2866,7 +2874,7 @@ function WorkspaceSwitcher({
                 tabIndex={-1}
                 aria-selected={isSelected}
                 data-history={row.kind === "history" || undefined}
-                aria-label={row.kind === "history" ? `${row.thread.title}, in history` : undefined}
+                aria-label={row.kind === "history" ? `${row.thread.title}, archived` : undefined}
                 onPointerMove={() => setIndex(position)}
                 onClick={() => choose(row)}
                 onKeyDown={(event) => {
@@ -2888,7 +2896,7 @@ function WorkspaceSwitcher({
                 role="presentation"
                 {...stylex.props(ui.label, styles.groupLabel)}
               >
-                History
+                Archived
               </div>
             );
             if (row.kind === "workspace") {
@@ -2987,11 +2995,11 @@ function WorkspaceSwitcher({
           {!rows.length && (
             <p {...stylex.props(styles.switchEmpty)}>
               {past === null && (historyMode || words.length)
-                ? "Reading history…"
+                ? "Reading archived threads…"
                 : words.length
                   ? `Nothing matches “${query}”.`
                   : historyMode
-                    ? "History is empty. Closed tabs show here."
+                    ? "Nothing is archived. Tabs that you archive show here."
                     : "No other workspaces."}
             </p>
           )}

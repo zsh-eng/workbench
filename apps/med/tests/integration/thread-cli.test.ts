@@ -319,7 +319,7 @@ test("adopt makes a Claude Code or Codex session a thread by ID or by path, and 
   const tabIds = async () =>
     (await api<ThreadList>("/api/threads")).data.threads.map((thread) => thread.id);
   expect(await tabIds()).toContain(tides.id);
-  // Again: the same thread, also back from history as a tab.
+  // Again: the same thread, also back from the archive as a tab.
   expect((await api(`/api/threads/${tides.id}/close`, {})).status).toBe(200);
   expect(await tabIds()).not.toContain(tides.id);
   expect(adopted(await run("adopt", `claude:${ids.tides}`))).toEqual({ ...tides, again: true });
@@ -508,22 +508,23 @@ test("list, close, reopen, open, and delete tabs from the command line", async (
     [tides.id, true],
   ]);
 
-  // close sends a tab to history; its agent's session stays.
-  expect(await run("close", feet.id)).toBe(`Closed ${feet.id}; it is in history.`);
+  // close archives a tab; its agent's session stays.
+  expect(await run("close", feet.id)).toBe(`Archived ${feet.id}.`);
   expect(await run("close", feet.id)).toBe(`${feet.id} was not open.`);
   expect(ids_(await run("list"))).toEqual([tides.id]);
-  const history = (await run("list", "--history")).split("\n");
-  expect(history[0]).toBe(`${feet.id}\tclosed\ttide/main\tHeights in feet`);
+  const archived = (await run("list", "--archived")).split("\n");
+  expect(archived[0]).toBe(`${feet.id}\tclosed\ttide/main\tHeights in feet`);
+  // --history, its old name, still works.
   expect(ids_(await run("list", "--history"))).not.toContain(tides.id);
 
   // reopen brings back the tab that closed last, at its place.
   expect(await run("reopen")).toBe(`Opened "Heights in feet" (${feet.id}).`);
   expect(ids_(await run("list"))).toEqual([feet.id, tides.id]);
-  await expect(run("reopen")).rejects.toThrow("History has no thread to reopen.");
+  await expect(run("reopen")).rejects.toThrow("No archived thread to reopen.");
 
-  // A key names a thread too; open puts a thread from history at the top.
+  // A key names a thread too; open puts an archived thread at the top.
   const key = (await api<SavedReview>(`/api/reviews/${tides.id}`)).data.key!;
-  expect(await run("close", "--key", key)).toBe(`Closed ${tides.id}; it is in history.`);
+  expect(await run("close", "--key", key)).toBe(`Archived ${tides.id}.`);
   expect(await run("open", tides.id)).toBe(
     `Opened "Explain the tide prediction model in the README" as a tab (${tides.id}).`,
   );
@@ -533,7 +534,7 @@ test("list, close, reopen, open, and delete tabs from the command line", async (
   expect(await run("delete", feet.id)).toBe(`Deleted ${feet.id}.`);
   expect((await api(`/api/reviews/${feet.id}`)).status).toBe(404);
   expect(ids_(await run("list"))).toEqual([tides.id]);
-  expect(await run("list", "--history")).not.toContain(feet.id);
+  expect(await run("list", "--archived")).not.toContain(feet.id);
   expect(await run("find", "feet")).toContain(`codex:${ids.feet}`);
 
   // Mistakes say what to do.

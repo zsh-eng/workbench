@@ -177,11 +177,11 @@ message the same way, until the user says the task is done.
 
 ## Threads and earlier sessions
 
-The threads the user has open are tabs in Med; the others are history. Only
+The threads the user has open are tabs in Med; the others are archived. Only
 act on threads the user names.
 
 ```sh
-med thread list [--history] [--json]     # ID, state, repository/branch, title
+med thread list [--archived] [--json]    # ID, state, repository/branch, title
 med thread open <id> | close <id>        # close keeps the agent running
 med thread send <id> "<message>"         # to a thread's agent; --after-turn waits
 med thread find tide prediction          # sessions of any age, newest first

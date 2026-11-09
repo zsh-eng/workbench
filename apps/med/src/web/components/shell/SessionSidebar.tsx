@@ -43,7 +43,7 @@ const DRAG_START = 4;
  * mark, the session's name, and at most one dot, by what it asks of the
  * reader, as ⌘0 ranks it: an accent dot in a ring when it needs them, a plain
  * accent dot when its work finished since they looked, amber when the work
- * stopped. A session at work dims its name under a passing light. History,
+ * stopped. A session at work dims its name under a passing light. Archived,
  * Pull requests, and Settings are at the foot.
  *
  * A row drags into Pinned, to a place among the pins, and out of it again.
@@ -88,7 +88,7 @@ export function SessionSidebar({
   onNewThread(): void;
   onHide(): void;
   onSettings(): void;
-  /** Shows the History page: the threads that are not tabs. */
+  /** Shows the Archived page: the threads that are not tabs. */
   onHistory?(): void;
   /** Shows the open pull requests that wait on you, and yours. */
   onPullRequests?(): void;
@@ -383,7 +383,7 @@ export function SessionSidebar({
       {onHistory && (
         <button type="button" onClick={onHistory} {...stylex.props(styles.row, styles.settings)}>
           <Icon name="history" size={15} />
-          <span {...stylex.props(styles.name)}>History</span>
+          <span {...stylex.props(styles.name)}>Archived</span>
         </button>
       )}
       {onPullRequests && (
