@@ -14,6 +14,7 @@ import {
   devicePage,
 } from "./cli-auth";
 import { cliLinkPushProblem } from "./cli-links";
+import { cliSpacedWriteProblem } from "./cli-spaced";
 import { createFileRoutes } from "./files";
 import { loginPage } from "./login";
 import { nativeAuth } from "./native-auth";
@@ -147,6 +148,19 @@ app.use("/api/apps/:namespace/*", requireUser, async (c, next) => {
   // exact records; any other write there is refused here, before the route.
   if (c.get("cli") && namespace === "arctic" && c.req.method !== "GET") {
     const problem = await cliLinkPushProblem(c);
+    if (problem)
+      return c.json({ error: `Not allowed for a CLI credential: ${problem}` }, 403);
+  }
+  // A CLI credential changes Spaced cards only through the records the app
+  // writes for edits, suspensions and new cards, and uploads only images for
+  // them; see cli-spaced.ts.
+  if (
+    c.get("cli") &&
+    namespace === "spaced" &&
+    c.req.method !== "GET" &&
+    !cliBatchReadPath(c.req.method, c.req.path)
+  ) {
+    const problem = await cliSpacedWriteProblem(c);
     if (problem)
       return c.json({ error: `Not allowed for a CLI credential: ${problem}` }, 403);
   }

@@ -35,12 +35,16 @@ browser opening to you. Credentials expire after 90 days; sign in again when
 needed. `auth logout` revokes the current CLI credential and keeps local data.
 Browser sign-out does not revoke this independent CLI credential.
 
-`wb sync` only downloads. The credential may write two things, and the server
-checks both: Arctic article text (`arctic-content`), which `wb arctic` and
-`apps/arctic/Browser/scripts/upload.ts` upload, and Arctic links: a new link in
+`wb sync` only downloads. The credential may write three things, and the
+server checks each: Arctic article text (`arctic-content`), which `wb arctic`
+and `apps/arctic/Browser/scripts/upload.ts` upload; Arctic links: a new link in
 the phone's three records, a link from History saved again, or a link's
-preview where it has none (its `imageURL`, `faviconURL` or `subtitle`). It
-cannot change or remove any other record or field.
+preview where it has none (its `imageURL`, `faviconURL` or `subtitle`); and
+Spaced cards (`wb spaced apply`): card content, suspension, deletion, decks,
+deck membership and new cards, and images for them: PNG, JPEG, WebP, GIF or
+AVIF files of up to 2 MiB (`apps/sync-server/src/cli-spaced.ts`). It
+cannot write a Spaced review log, change an existing card's schedule, or
+change or remove any other record or field.
 
 This is a first-party device-code flow, not a general OAuth authorization
 server. Device grants expire after ten minutes, can be approved/exchanged once,
@@ -245,8 +249,101 @@ the current mirror while sync runs. Refresh the viewer after a sync. For a fixed
 recovery point, open a snapshot's `records.sqlite` read-only instead. Basic views
 include `live_records`, `table_counts`, `reader_books`, `spaced_operations` and
 `arctic_articles` (URL, title, library state, saved date and tag names).
-Spaced operations are not a reconstructed card/deck model. Values and record
-versions remain unmodified. There is no outbox or outbound change processing.
+Spaced operations are not a reconstructed card/deck model; `wb spaced build`
+(below) makes one. Values and record versions remain unmodified. There is no
+outbox or outbound change processing.
+
+### Spaced cards for analysis
+
+`wb spaced build` reads the mirror (offline) and writes `spaced.sqlite` next to
+it with plain, indexed tables: `cards` (content, decks, FSRS state, deleted,
+suspension, bookmark, sibling metadata and current retrievability from the
+FSRS-6 decay in Spaced's personal parameters), `decks`, `card_decks` and
+`reviews` (without the reviews that Undo removed). Views: `active_cards` (not
+deleted and not suspended forever), `card_stats` and `deck_summary`. The file
+is rebuilt from scratch on each run, takes under a second for ~100k records,
+and is safe to delete. `wb spaced path` prints its path. DuckDB can read it
+with `ATTACH '<path>' (TYPE sqlite)`. `cards.created_at` comes from the card
+record; cards migrated in September 2026 carry the migration time, so use the
+first review in `reviews` as the creation date for older cards.
+
+```sh
+bun run wb sync && bun run wb spaced build
+sqlite3 -readonly "$(bun run --silent wb spaced path)" "SELECT * FROM deck_summary"
+```
+
+### Changing Spaced cards
+
+`wb spaced apply FILE` syncs Spaced, then previews a `spaced-changes-v1` change
+set against the cards: what each change would do and why any is skipped.
+`--apply` pushes it and writes `FILE.undo-<time>.json` beside it, then syncs
+again and rebuilds `spaced.sqlite`. To undo, apply that file.
+
+Who changed a card: Spaced keeps only the device ID on each record, and every
+`wb spaced apply` push uses `wb-spaced`. Pass `--model NAME --effort LEVEL` to
+record the author in `spaced-ledger.jsonl`, private to this device's data
+directory and never synced. `spaced.sqlite` then fills `cards.content_by`,
+`suspended_by` and `deleted_by` (for example `claude-opus-5-5 · high ·
+2026-11-09`) while `wb spaced apply`'s version is still the current one. A
+later edit on another device clears the column. To back the ledger up, make
+it a symlink to a file somewhere that is (the vault's `agent/flashcards/`).
+
+```json
+{
+  "version": "spaced-changes-v1",
+  "title": "Work cards 8 Nov",
+  "changes": [
+    { "action": "create", "deck": "Concepts", "front": "Q", "back": "A" },
+    { "action": "edit", "cardId": "<uuid>", "front": "Q", "back": "A",
+      "expect": { "front": "old Q", "back": "old A" } },
+    { "action": "suspend", "cardId": "<uuid>" },
+    { "action": "suspend", "cardId": "<uuid>", "until": "2026-12-01T00:00:00Z" },
+    { "action": "unsuspend", "cardId": "<uuid>" },
+    { "action": "delete", "cardId": "<uuid>" },
+    { "action": "undelete", "cardId": "<uuid>" }
+  ]
+}
+```
+
+A change may carry `expect` (`front`, `back`, `suspended` as an ISO time or
+null, `deleted`): the card state it was written for. A card that no longer
+matches is skipped as "changed since this file was made", so an old file,
+such as an undo file run days later, never overwrites a newer edit. A card
+named twice stops the whole file. A create may carry `"note"` (and optionally
+`"variant"`, default `c1`, `c2`, …): creates in one file with the same note
+become siblings, which Spaced buries together for the day, like the cloze or
+reverse cards its import makes. `create` makes the deck when no deck has
+that name. Changes are pushed in chunks of 200; each push is newer than every
+record in the mirror. A push is not repeated; if one fails, the command stops
+and the undo file covers the chunks that were stored.
+
+#### Images
+
+A create or edit may link a local image by a path relative to the change set:
+`![fig](./figs/raft.png)`. The preview reads each file, checks that it is a
+PNG, JPEG, WebP, GIF or AVIF image (by its first bytes) of up to 2 MiB, and
+shows the card text with the link already changed to the Spaced file URL,
+`ORIGIN/api/apps/spaced/files/xxh64:<hash>`, as the app writes it. Any other
+file, a missing one, an absolute path or a path outside the change set's
+folder is a problem, and nothing is applied. So is a local link in another
+form (a reference definition, `<img src>`, brackets in the alt text or
+parentheses in the path), which would show as a broken image.
+These limits are the server's (`apps/sync-server/src/files.ts`): a Spaced file
+may be at most 2 MiB (larger gives HTTP 413), and only these five types are
+served inline; any other type downloads as an attachment, so a card could not
+show it. SVG is not accepted, as it can carry script.
+Links in code, `https:` links and Spaced URLs are kept as they are.
+`--apply` uploads each image that an applied change uses before it pushes any
+card. An edit's `expect` gets the same URLs, so it matches the card. Files
+are stored by their hash, so a second upload of the same bytes
+stores nothing new. The undo file holds the changed links, so it matches the
+cards. The server accepts these uploads from a CLI credential only after a
+deploy of the change to `cli-spaced.ts` that allows them.
+
+The records are the ones Spaced writes for these changes
+(`apps/spaced2/src/lib/sync/records.ts`); the test decodes each with Spaced's
+own decoder. Grading, review logs and schedules are never written: a new card
+starts as New, due now.
 
 `snapshot create` uses SQLite `VACUUM INTO`, copies downloaded objects (using
 copy-on-write where available), verifies SQLite integrity and every SHA-256 and

@@ -192,15 +192,22 @@ export const cliBatchReadPath = (method: string, path: string) =>
  * record by record before it reaches the sync route. It never writes Reader,
  * Spaced, highlights or reading time, and never removes an Arctic record or
  * changes one except to save a link or fill an empty preview field.
+ * And Spaced card changes: a push to `spaced` of card content, suspension,
+ * deletion, decks, deck membership and new cards, which `cliSpacedWriteProblem`
+ * checks before the sync route. It never writes a review log or changes an
+ * existing card's schedule. And images for those cards: a Spaced file that
+ * `cliSpacedWriteProblem` accepts only as a PNG, JPEG, WebP, GIF or AVIF
+ * image, within the files route's 2 MiB and content-hash checks.
  */
 export const cliWritePath = (method: string, path: string) => {
   const decoded = decodeURIComponent(path);
   return (
     (method === "POST" &&
       (decoded === "/api/apps/arctic-content/sync/v3/push" ||
-        decoded === "/api/apps/arctic/sync/v3/push")) ||
+        decoded === "/api/apps/arctic/sync/v3/push" ||
+        decoded === "/api/apps/spaced/sync/v3/push")) ||
     (method === "PUT" &&
-      /^\/api\/apps\/arctic-content\/files\/xxh64:[a-f0-9]{16}$/.test(decoded))
+      /^\/api\/apps\/(arctic-content|spaced)\/files\/xxh64:[a-f0-9]{16}$/.test(decoded))
   );
 };
 
@@ -235,8 +242,9 @@ export function devicePage(local: boolean) {
       <h1>Authorize Workbench CLI</h1>
       <p>
         This allows a CLI to download your Reader, Spaced and Arctic data and
-        files for 90 days, to save links to Arctic and to upload their text.
-        It cannot change anything else. Only enter a code from a login you
+        files for 90 days, to save links to Arctic and to upload their text,
+        and to change Spaced cards and upload their images. It cannot change
+        review history or anything else. Only enter a code from a login you
         started.
       </p>
       <p id="identity"></p>

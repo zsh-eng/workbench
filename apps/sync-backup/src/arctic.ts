@@ -52,6 +52,29 @@ const ALLOWED: [method: string, path: RegExp][] = [
 
 /** A fetch that sends the credential with these requests and refuses all others. */
 export function arcticFetch(origin: string, token: string): typeof fetch {
+  return scopedFetch(origin, token, {
+    allowed: ALLOWED,
+    refusal: "wb arctic refused a request outside Arctic's links and text",
+    // A link push is not repeated: if a lost answer hid a stored push, the
+    // server would refuse the repeat as already saved.
+    once: ["/api/apps/arctic/sync/v3/push"],
+  });
+}
+
+/**
+ * A fetch to `origin` that sends the credential with the `allowed` requests
+ * only, and retries rate limits and server errors except on `once` paths.
+ */
+export function scopedFetch(
+  origin: string,
+  token: string,
+  options: {
+    allowed: [method: string, path: RegExp][];
+    refusal: string;
+    once: string[];
+  },
+): typeof fetch {
+  const { allowed: ALLOWED, refusal, once } = options;
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
       typeof input === "string"
@@ -70,15 +93,11 @@ export function arcticFetch(origin: string, token: string): typeof fetch {
         ([allowed, pattern]) => allowed === method && pattern.test(path),
       )
     )
-      throw Error(
-        "wb arctic refused a request outside Arctic's links and text",
-      );
+      throw Error(refusal);
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Bearer ${token}`);
     headers.set("User-Agent", "WorkbenchBackup/1");
-    // A link push is not repeated: if a lost answer hid a stored push, the
-    // server would refuse the repeat as already saved.
-    const retries = path === "/api/apps/arctic/sync/v3/push" ? 0 : 3;
+    const retries = once.includes(path) ? 0 : 3;
     for (let attempt = 0; ; attempt++) {
       const response = await fetch(url, {
         ...init,
