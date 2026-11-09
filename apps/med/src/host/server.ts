@@ -140,6 +140,7 @@ import {
   codeHosts,
   createHostProbe,
   findEditors,
+  hostKind,
   launchEditor,
   listedEditors,
   openInLinks,
@@ -874,6 +875,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   const pullInbox = new PullInboxReader({
     repositories: () => registry.snapshot(),
     gh: options.gh ?? { command: "gh", args: [] },
+    // As Open in reads a host's kind: Settings' choice, else its answer.
+    isGitHub: async (name) =>
+      name === "github.com" ||
+      (await hostKind(
+        name,
+        openInSettings((await settingsFile.snapshot()).settings),
+        openInIsGitHub,
+      )) === "github",
   });
   if (repository.git !== false) {
     await registry.register(repository.path);

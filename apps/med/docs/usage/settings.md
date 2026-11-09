@@ -37,7 +37,7 @@ repositories' remotes and from this Mac.
   repositories use it. github.com is GitHub; another host that answers as
   GitHub does is GitHub Enterprise. A host that Med does not recognise is
   left out of Open in until you choose its kind: **GitHub**, **GitLab**, or
-  **Leave out**.
+  **Leave out**. The pull requests page searches each GitHub host too.
 - **Sourcegraph**: your instance's address. Open in then has **Sourcegraph**,
   at the same line: the address, then the host, the repository, and the
   branch.

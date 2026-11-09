@@ -115,3 +115,21 @@ test("without gh, or with no GitHub remote, the sheet says why", async () => {
     .toBeVisible();
   expect(document.querySelectorAll("[role='option']")).toHaveLength(0);
 });
+
+test("a GitHub host that gh cannot read says why above the others' pull requests", async () => {
+  setup(async (all) => ({
+    ...inbox(all),
+    skipped: [
+      {
+        host: "github.acme.build",
+        reason: "You are not logged into any accounts on github.acme.build",
+      },
+    ],
+  }));
+  await expect
+    .element(page.getByRole("note"))
+    .toHaveTextContent(
+      "Med could not read github.acme.build: You are not logged into any accounts on github.acme.build",
+    );
+  await expect.element(page.getByRole("option", { name: /Cache map tiles/ })).toBeVisible();
+});

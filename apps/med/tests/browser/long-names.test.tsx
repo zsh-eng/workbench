@@ -313,7 +313,8 @@ test("a Guide segment's title wraps to two lines; a longer one shows whole in th
   await away();
   await segments.getByRole("button", { name: /^2\. Docs/ }).hover();
   await new Promise((resolve) => setTimeout(resolve, 800));
-  expect(tooltip()).toBeNull();  // The segment's files and lines changed, and, open, each file's.
+  expect(tooltip()).toBeNull();
+  // The segment's files and lines changed, and, open, each file's.
   await expect.element(first).toMatchTextContent(/1 file\+1−1$/);
   await first.click();
   const files = guide.getByRole("list", { name: /^Files in Move the refresh token/ });
