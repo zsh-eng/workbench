@@ -330,11 +330,13 @@ export function createThreadService(options: ThreadServiceOptions) {
         const session = parseFoundThreadId(id);
         const owner = session && owners.get(session.id);
         if (!owner) continue;
-        // The review keeps the name that the reader gave the session.
+        // The review keeps the name and the pin that the reader gave the session.
         const name = tabs.entry(id)?.name;
         if (name && !tabs.entry(owner)?.name) tabs.setName(owner, name);
-        if (tabs.isOpen(owner)) tabs.forget(id);
-        else tabs.open(owner, { replace: id });
+        if (tabs.isOpen(owner)) {
+          tabs.handPin(id, owner);
+          tabs.forget(id);
+        } else tabs.open(owner, { replace: id });
       }
       const live = new Map(found.map((thread) => [thread.id, thread]));
       // The tabs as this read lists them: a tab that opens while it waits is
@@ -467,6 +469,7 @@ export function createThreadService(options: ThreadServiceOptions) {
           options.found.threads(reviews).find((entry) => entry.id === foundId) ??
           fromStub(foundId, stub);
         const name = tabs.entry(id)?.name;
+        tabs.handPin(id, foundId);
         tabs.forget(id);
         tabs.open(foundId, { group: groupOf(thread), ...place });
         if (name) tabs.setName(foundId, name);

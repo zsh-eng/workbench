@@ -318,6 +318,31 @@ test("a pinned thread stays pinned across a restart and in history, and a delete
   expect((await api(`/api/threads/${first.id}/pin`, { pinned: "yes" })).status).toBe(400);
 });
 
+test("a pinned session keeps its pin when a review saves it", async () => {
+  const { api, save, repo, home } = await fixture();
+  const session = "34343434-3434-4434-8434-343434343434";
+  const folder = join(home, ".claude", "projects", claudeProjectFolder(repo));
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    join(folder, `${session}.jsonl`),
+    transcript(repo, session, "Draw the tide chart.", "runs"),
+  );
+  const found = `found-claude-${session}`;
+  const pins = async () =>
+    (await api<ThreadList>("/api/threads")).data.threads.map((thread) => [
+      thread.id,
+      thread.pinned,
+    ]);
+  // A session that Med sees work opens as a tab, and the reader pins it.
+  await expect.poll(pins).toEqual([[found, undefined]]);
+  expect((await api(`/api/threads/${found}/pin`, { pinned: true })).status).toBe(200);
+  expect(await pins()).toEqual([[found, 1]]);
+
+  // Its agent hands off a review: the review takes the session's tab and pin.
+  const review = await save("Tide chart", [{ agent: "claude", id: session, cwd: repo }]);
+  expect(await pins()).toEqual([[review.id, 1]]);
+});
+
 test("a tabs file with an entry that Med cannot read keeps the other tabs and their names, and a copy of the file", async () => {
   const { api, save, tabs, start, stop, stateDir } = await fixture();
   const first = await save("Forgiving station search");
@@ -355,6 +380,7 @@ test("a closed thread keeps its captures for 30 days, then a stub that opens its
   ).data;
   const year = await save("Closed half a year ago");
   const kept = await save("Closed last week");
+  expect((await api(`/api/threads/${month.id}/pin`, { pinned: true })).status).toBe(200);
   for (const thread of [month, year, kept])
     expect((await api(`/api/threads/${thread.id}/close`, {})).status).toBe(200);
 
@@ -388,7 +414,11 @@ test("a closed thread keeps its captures for 30 days, then a stub that opens its
   // A stub opens as its session, which Med finds again.
   const opened = await api<{ thread: Thread }>(`/api/threads/${month.id}/open`, {});
   expect(opened.status).toBe(200);
-  expect(opened.data.thread).toMatchObject({ id: `found-claude-${session}`, found: true });
+  expect(opened.data.thread).toMatchObject({
+    id: `found-claude-${session}`,
+    found: true,
+    pinned: 1,
+  });
   const tabIds = async () =>
     (await api<ThreadList>("/api/threads")).data.threads.map((thread) => thread.id);
   expect(await tabIds()).toContain(`found-claude-${session}`);

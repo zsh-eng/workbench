@@ -196,9 +196,10 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
         // The saved thread is the session now; history does not list it twice.
         at = replaced;
         state.order.splice(replaced, 1);
-        // It keeps the name that the reader gave the session.
+        // It keeps the name and the pin that the reader gave the session.
         const name = state.entries[place.replace!]?.name;
         if (name && !item.name) item.name = name;
+        tabs.handPin(place.replace!, id);
         delete state.entries[place.replace!];
       } else if (place.restore && item.place !== undefined)
         at = Math.min(item.place, state.order.length);
@@ -276,6 +277,15 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
       if (JSON.stringify(item.stub) === JSON.stringify(next)) return;
       item.stub = next;
       dirty = true;
+    },
+    /** `to` takes `from`'s place among the pins, as a review takes the place
+     * of the session that it saves. Nothing when `from` is not pinned. */
+    handPin(from: string, to: string) {
+      const pins = state.pins ?? [];
+      const at = pins.indexOf(from);
+      if (at < 0 || from === to) return;
+      state.pins = pins.includes(to) ? pins.toSpliced(at, 1) : pins.with(at, to);
+      changed();
     },
     /** Removes the thread from tabs and history. */
     forget(id: string) {
