@@ -824,8 +824,20 @@ test("the History page lists history by day, searches it, opens a thread as a ta
     [expect.any(String), ["Older review, fixture · main"]],
   ]);
 
-  // ⌘⌫ asks; a second ↵ deletes the thread for good.
-  (document.querySelector('[role="listbox"][aria-label="History"]') as HTMLElement).focus();
+  // ⌘⌫ asks. ↵ on Keep keeps the thread.
+  const listbox = () =>
+    document.querySelector('[role="listbox"][aria-label="History"]') as HTMLElement;
+  listbox().focus();
+  await userEvent.keyboard("{End}{Control>}{Backspace}{/Control}");
+  const keep = list.getByRole("button", { name: "Keep" });
+  await expect.element(keep).toBeVisible();
+  const asked = host.threadRequests.length;
+  (keep.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(keep).not.toBeInTheDocument();
+  expect(host.threadRequests.length).toBe(asked);
+  // ⌘⌫ asks again; a second ↵ deletes the thread for good.
+  listbox().focus();
   await userEvent.keyboard("{End}{Control>}{Backspace}{/Control}");
   await expect
     .element(list.getByRole("option", { name: /^Older review/ }))

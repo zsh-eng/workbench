@@ -289,7 +289,8 @@ export function waitOver(
     const was = before.get(id);
     if (state === was) return false;
     const needs = state === "needs-you";
-    const done = state === "finished" && was === "working";
+    // A thread that closes while the wait runs is done with, as one that finishes.
+    const done = (state === "finished" && was === "working") || (state === "closed" && !!was);
     return until === "needs-you" ? needs : until === "done" ? done : needs || done;
   });
 }

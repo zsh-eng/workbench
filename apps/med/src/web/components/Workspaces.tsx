@@ -1703,14 +1703,23 @@ export function WorkspaceHost({
     // editor's on macOS. In another dialog, ⌘N does nothing.
     const mac = /Mac/.test(navigator.platform);
     const keydown = (event: KeyboardEvent) => {
-      if (event.shiftKey || event.code !== "KeyN" || event.isComposing) return;
-      const option = event.altKey && !event.metaKey && !event.ctrlKey;
-      const command = !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey);
+      if (event.shiftKey || event.isComposing) return;
+      // ⌥N by the key's place, as macOS types a dead key for it; ⌘N by its
+      // letter, so other layouts keep their own ⌘ keys.
+      const option = event.code === "KeyN" && event.altKey && !event.metaKey && !event.ctrlKey;
+      const command =
+        event.key.toLowerCase() === "n" &&
+        !event.altKey &&
+        (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey);
       if (!option && !command) return;
-      event.preventDefault();
       const target = event.target instanceof Element ? event.target : null;
       const dialog = target?.closest('[role="dialog"], [role="alertdialog"]');
-      if (dialog && dialog.getAttribute("aria-label") !== "New thread") return;
+      if (dialog && dialog.getAttribute("aria-label") !== "New thread") {
+        // Another dialog keeps ⌥N for its text; ⌘N still opens no window.
+        if (command) event.preventDefault();
+        return;
+      }
+      event.preventDefault();
       setNewThread(true);
     };
     window.addEventListener("keydown", keydown, true);

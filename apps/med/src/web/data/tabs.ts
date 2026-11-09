@@ -152,6 +152,8 @@ interface SentMark {
   at: number;
   base: number | undefined;
   refused?: boolean;
+  /** The posts that failed, such as while the host restarted. */
+  tries?: number;
 }
 
 /** A tab's mark: this window's while the host's list lacks it, else the host's. */
@@ -211,13 +213,22 @@ export function useReadState(
     const timer = setTimeout(() => {
       for (const [id, mark] of due) {
         posted.current.set(id, mark.at);
-        seeThread(id, mark.at, fetcher).catch(() =>
-          setSent((value) =>
-            value.get(id)?.at === mark.at
-              ? new Map(value).set(id, { ...mark, refused: true })
-              : value,
-          ),
-        );
+        // A failed post goes again later, as when the host restarts; after
+        // five tries the mark counts no longer and the host's stands.
+        seeThread(id, mark.at, fetcher).catch(() => {
+          const tries = (mark.tries ?? 0) + 1;
+          setTimeout(
+            () => {
+              posted.current.delete(id);
+              setSent((value) =>
+                value.get(id)?.at === mark.at
+                  ? new Map(value).set(id, { ...mark, tries, refused: tries >= 5 })
+                  : value,
+              );
+            },
+            Math.min(30_000, 1000 * 2 ** tries),
+          );
+        });
       }
     }, 150);
     return () => clearTimeout(timer);

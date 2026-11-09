@@ -324,8 +324,11 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
     mergeSeen(marks: Readonly<Record<string, number>>) {
       const next = { ...state.seen };
       let moved = false;
+      state.seenSince ??= now();
       for (const [id, at] of Object.entries(marks)) {
-        if (!(id in state.entries) || (next[id] !== undefined && next[id] >= at)) continue;
+        // A thread without a mark counts as seen from seenSince: an older
+        // browser mark would make it new again.
+        if (!(id in state.entries) || (next[id] ?? state.seenSince) >= at) continue;
         next[id] = at;
         moved = true;
       }

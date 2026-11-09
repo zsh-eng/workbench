@@ -2399,6 +2399,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               120,
             );
             const key = `${threadSlug(title)}-${randomUUID().slice(0, 4)}`;
+            // The checkout passes the request's checks before an agent starts there.
+            const checkout = await placeCheckout(place.checkout.path);
             assertRequestAccess();
             const runner = await ownedSessions.fork(session, { key, at: input.at });
             try {
@@ -2406,7 +2408,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
                 { title, key, sessions: [runner.session], targets: [] },
                 captureTarget,
                 assertRequestAccess,
-                await placeCheckout(place.checkout.path),
+                checkout,
               );
               // A new thread: it opens as a tab.
               await threads.opened(review);
@@ -3546,8 +3548,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           // tabs for every listener at once, as it does for the windows.
           if (url.pathname === "/api/threads/next" && request.method === "POST") {
             const input = threadNextSchema.parse((await readBody(request).catch(() => ({}))) ?? {});
+            // A caller that left while its body was read waits for nothing.
+            if (abort.signal.aborted) return;
             if (threadWaits.size >= 16)
               throw new HostError("too-many-waits", "Too many thread waits are open.", 503);
+            // A wait is cheap while it waits: it leaves its place among the
+            // host's busy requests to the others, and the cap above bounds it.
+            release();
             const version = (text: string) => createHash("sha256").update(text).digest("hex");
             // The list's text; undefined when the request ended first.
             let text = await new Promise<string | undefined>((settle) => {

@@ -279,7 +279,15 @@ export function HistoryPage({
             aria-busy={past === null}
             tabIndex={0}
             aria-activedescendant={current ? optionId(current) : undefined}
-            onKeyDown={(event) => listKey(event, false)}
+            onKeyDown={(event) => {
+              // A row's own button, such as Keep or Delete, acts on its own keys.
+              if (
+                event.target !== event.currentTarget &&
+                (event.key === "Enter" || event.key === " ")
+              )
+                return;
+              listKey(event, false);
+            }}
             {...stylex.props(styles.list)}
           >
             {error && (
