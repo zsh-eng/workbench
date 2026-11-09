@@ -556,9 +556,11 @@ med thread reopen                        # opens the tab that closed last, at it
 med thread delete r_6d1f…                # deletes the thread with its Review versions and comments
 ```
 
-The lines have tabs between the fields. The state is `working`, `needs-you`,
-`idle`, or, in history, `closed`. `--json` prints the threads with all their
-details. A thread's `turn` tells what the user sees at the end of its session:
+The lines have tabs between the fields. The state is, as `⌘0` ranks them,
+`needs-you` (a permission request, a question, or work that stopped), `done`
+(its work finished since the user last looked at it), `working`, or `idle`;
+in history, `closed`. `--json` prints the threads with all their details, and
+the state as `attention`. A thread's `turn` tells what the user sees at the end of its session:
 when the last turn ended, whether it asked a question, and `checks`, the last
 run of each test, type check, linter, or build in the turn, such as
 `{ "name": "bun test", "status": "passed", "pass": 5, "fail": 0 }`. Its
@@ -566,6 +568,33 @@ run of each test, type check, linter, or build in the turn, such as
 removes the linked worktree that Med made for the thread, when Git can do that
 without force; the branch stays. Close or delete only the threads that the
 user names.
+
+## Wait for other threads
+
+The Superagent, or a script, can wait for other threads' agents instead of
+asking `med thread list` again and again. `med thread wait` follows the host's
+list of tabs and ends when one of the threads comes to need the user or
+finishes its work:
+
+```sh
+med thread send r_6d1f… "Run the tests again."
+med thread wait r_6d1f…                  # until it needs the user or finishes
+med thread wait --until idle             # until no other tab works
+```
+
+Name the threads by ID or `--key`; without them, it waits on every tab but
+your own thread. `--until needs-you`, `done`, or `idle` waits for only that;
+`idle` means that none of them works. Only a change counts: a thread that
+needed the user already does not end the next wait. A message that Med sent
+counts as work until the turn that reads it ends, so send, then wait. With no
+work under way, the wait ends at once.
+
+It prints why it ended, then each thread's line as `list` prints it; `--json`
+gives `ended`, `reason` (`needs-you`, `done`, `idle`, `nothing`, or
+`timeout`), and each thread's `state`. `--timeout <seconds>` (default 100,
+inside a shell tool's two minutes) ends the wait as a check-in: the first line
+says so, and the command exits 0, so wait again to go on. The exit status is 3
+when a thread that you name is not a tab, and 4 when no Med runs.
 
 ## Find and adopt sessions
 

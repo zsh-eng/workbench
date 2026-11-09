@@ -1174,7 +1174,7 @@ export function WorkspaceHost({
   const activeThread = workspaceThread(activeEntry);
   // The thread on screen; none while a page covers the workspaces.
   const currentThread = newThread || overlayAddress(pathname) ? null : (activeThread ?? null);
-  const read = useReadState(tabs, currentThread);
+  const read = useReadState(tabs, currentThread, fetcher);
 
   const currentRef = useRef(currentThread);
   // When each tab was last on screen, or first listed in this window.
@@ -1443,8 +1443,19 @@ export function WorkspaceHost({
     },
     [openTab],
   );
-  // ⌘0: the next tab that needs the reader, else the next one that works.
-  const nextAttention = useCallback(() => nextTab(needsYou) || nextTab(isWorking), [nextTab]);
+  // ⌘0: the next tab that needs the reader, else the next one whose work
+  // finished since they looked, else the next one that works.
+  const readRef = useRef(read);
+  useLayoutEffect(() => {
+    readRef.current = read;
+  });
+  const nextAttention = useCallback(
+    () =>
+      nextTab(needsYou) ||
+      nextTab((thread) => !needsYou(thread) && readRef.current.isUnread(thread)) ||
+      nextTab(isWorking),
+    [nextTab],
+  );
 
   // While the reader looks elsewhere: the Dock badge counts the tabs that
   // need them, and an opt-in notification tells when one starts to.

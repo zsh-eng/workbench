@@ -499,3 +499,80 @@ test("a tab lists its Claude subagents: what each does now, and those that finis
     ]),
   );
 });
+
+test("the host keeps what the reader saw of each tab: one mark for every window and the CLI, across a restart", async () => {
+  const { api, save, restart, stateDir } = await fixture();
+  const first = await save("Forgiving station search");
+  const second = await save("Offline tides");
+  const listed = async () =>
+    new Map(
+      (await api<ThreadList>("/api/threads")).data.threads.map((thread) => [thread.id, thread]),
+    );
+  // Med began to keep marks with the first list: what changed before it is seen.
+  const before = await listed();
+  const since = before.get(first.id)!.seen!;
+  expect(since).toBeGreaterThanOrEqual(before.get(first.id)!.updatedAt);
+  expect(before.get(second.id)!.seen).toBe(since);
+
+  // A window marks a thread seen up to a change, and a lower mark makes the
+  // later changes new again, as Mark as unread does.
+  const at = before.get(first.id)!.updatedAt;
+  expect((await api(`/api/threads/${first.id}/seen`, { at: at - 1 })).status).toBe(200);
+  expect((await listed()).get(first.id)!.seen).toBe(at - 1);
+  expect((await api(`/api/threads/${first.id}/seen`, { at })).status).toBe(200);
+  await restart();
+  expect((await listed()).get(first.id)!.seen).toBe(at);
+
+  // A browser's marks from before go to the host once: they fill marks that
+  // the host lacks, move older ones forward, and leave newer ones.
+  const old = { [first.id]: at - 10, [second.id]: at - 20, [`r_${"0".repeat(24)}`]: 5 };
+  expect((await api("/api/threads/seen", { marks: old })).status).toBe(200);
+  const merged = await listed();
+  expect(merged.get(first.id)!.seen).toBe(at);
+  expect(merged.get(second.id)!.seen).toBe(at - 20);
+  const file = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+    seen?: Record<string, number>;
+  };
+  expect(Object.keys(file.seen ?? {}).toSorted()).toEqual([first.id, second.id].toSorted());
+
+  // A deleted thread leaves the marks, and Med marks only threads it knows.
+  expect((await api(`/api/threads/${second.id}/delete`, {})).status).toBe(200);
+  const after = JSON.parse(await readFile(join(stateDir, "tabs.json"), "utf8")) as {
+    seen?: Record<string, number>;
+  };
+  expect(Object.keys(after.seen ?? {})).toEqual([first.id]);
+  expect((await api(`/api/threads/r_${"0".repeat(24)}/seen`, { at: 1 })).status).toBe(404);
+  expect((await api(`/api/threads/${first.id}/seen`, { at: -1 })).status).toBe(400);
+});
+
+test("a long poll sends the tabs at once, then when they differ from the caller's, or after its wait", async () => {
+  const { api, save } = await fixture();
+  await save("Forgiving station search");
+  type Next = { version: string; list: ThreadList };
+  const first = await api<Next>("/api/threads/next", {});
+  expect(first.status).toBe(200);
+  expect(first.data.list.threads.map((thread) => thread.title)).toEqual([
+    "Forgiving station search",
+  ]);
+  // The same list: the host waits, then sends it as it is. The first lists
+  // can still change, as Git's work for the tab comes in.
+  let version = first.data.version;
+  let waited = 0;
+  for (let attempt = 0; attempt < 10 && waited < 350; attempt++) {
+    const started = Date.now();
+    const next = await api<Next>("/api/threads/next", { version, waitMs: 400 });
+    waited = Date.now() - started;
+    version = next.data.version;
+  }
+  expect(waited).toBeGreaterThanOrEqual(350);
+  // A change ends the wait early.
+  const waiting = api<Next>("/api/threads/next", { version, waitMs: 20_000 });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const at = Date.now();
+  await save("Offline tides");
+  const changed = await waiting;
+  expect(Date.now() - at).toBeLessThan(5_000);
+  expect(changed.data.version).not.toBe(version);
+  expect(changed.data.list.threads.map((thread) => thread.title)).toContain("Offline tides");
+  expect((await api("/api/threads/next", { waitMs: 60_000 })).status).toBe(400);
+});

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -543,4 +543,86 @@ test("list, close, reopen, open, and delete tabs from the command line", async (
     "Use --remove-worktree with close.",
   );
   expect(await run()).toContain("med thread adopt <session>");
+});
+
+test("list says which tabs need you, finished since you looked, work, or are idle; wait waits for a change", async () => {
+  const { run, api, adopted, glossaryPath, host, stateDir } = await fixture();
+  const glossary = adopted(await run("adopt", ids.glossary));
+  const tides = adopted(await run("adopt", ids.tides));
+  const listed = async () =>
+    new Map(
+      (await api<ThreadList>("/api/threads")).data.threads.map((thread) => [thread.id, thread]),
+    );
+  const state = async (id: string) =>
+    (await run("list"))
+      .split("\n")
+      .find((row) => row.startsWith(id))!
+      .split("\t")[1];
+  // The reader saw both threads as they are.
+  for (const thread of (await listed()).values())
+    await api(`/api/threads/${thread.id}/seen`, { at: thread.updatedAt });
+  expect(await state(glossary.id)).toBe("idle");
+
+  // A turn that works, and then ends while no one looks: done.
+  const turn = (role: "user" | "assistant") => ({
+    type: role,
+    cwd: dirname(glossaryPath),
+    sessionId: ids.glossary,
+    uuid: `${ids.glossary}-${role}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    message:
+      role === "user"
+        ? { role, content: "Add one more entry." }
+        : { role, stop_reason: "end_turn", content: [{ type: "text", text: "Added." }] },
+  });
+  await appendFile(glossaryPath, lines([turn("user")]));
+  await expect.poll(() => state(glossary.id), { timeout: 10_000 }).toBe("working");
+  const json = JSON.parse(await run("list", "--json")) as (Thread & { attention: string })[];
+  expect(json.find((thread) => thread.id === glossary.id)!.attention).toBe("working");
+
+  // wait ends when the turn ends, and says which thread finished.
+  const waiting = run("wait", glossary.id, "--timeout", "20");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await appendFile(glossaryPath, lines([turn("assistant")]));
+  const ended = (await waiting).split("\n");
+  expect(ended[0]).toBe("A thread finished its work.");
+  expect(ended[1]).toMatch(new RegExp(`^${glossary.id}\\tdone\\t`));
+  expect(await state(glossary.id)).toBe("done");
+  // Seen in a window, it is idle again.
+  const now = (await listed()).get(glossary.id)!;
+  await api(`/api/threads/${glossary.id}/seen`, { at: now.updatedAt });
+  expect(await state(glossary.id)).toBe("idle");
+
+  // With nothing at work, a wait ends at once; without names it waits on
+  // every tab but the caller's own thread.
+  const key = (await api<SavedReview>(`/api/reviews/${glossary.id}`)).data.key!;
+  const output: string[] = [];
+  await runThreadCommand(["wait", "--json", "--state-dir", stateDir, "--port", String(host.port)], {
+    print: (text) => output.push(text),
+    environment: { MED_THREAD_KEY: key },
+  });
+  const own = JSON.parse(output.join("\n")) as {
+    ended: boolean;
+    reason: string;
+    threads: { id: string; state: string }[];
+  };
+  expect(own).toMatchObject({ ended: true, reason: "nothing" });
+  expect(own.threads.map((thread) => thread.id)).toEqual([tides.id]);
+
+  // A timeout is a check-in: it says so and lists the states.
+  await appendFile(glossaryPath, lines([turn("user")]));
+  await expect.poll(() => state(glossary.id), { timeout: 10_000 }).toBe("working");
+  const check = (await run("wait", "--key", key, "--timeout", "1")).split("\n");
+  expect(check[0]).toBe("Timed out after 1 s, a check-in: 1 thread works. Wait again to go on.");
+  expect(check[1]).toMatch(new RegExp(`^${glossary.id}\\tworking\\t`));
+
+  // Mistakes say what to do.
+  await expect(run("wait", "--until", "soon")).rejects.toThrow(
+    "--until takes needs-you, done, idle.",
+  );
+  await expect(run("wait", "--timeout", "soon")).rejects.toThrow("--timeout takes seconds");
+  await expect(run("wait", `r_${"0".repeat(24)}`)).rejects.toThrow("is not a tab");
+  await expect(run("list", "--until", "done")).rejects.toThrow(
+    "Use --until and --timeout with wait.",
+  );
 });

@@ -160,7 +160,9 @@ test("`med thread send` from the Superagent reaches another thread's agent, labe
   await send(thread.id, "superagent");
   expect(printed.at(-1)).toBe(`Sent to "${thread.title}" (${thread.id}).`);
   await vi.waitFor(async () =>
-    expect((await said(session.id)).at(-1)).toBe("From the Superagent:\n\nSay how many there are."),
+    expect((await said(session.id)).at(-1)).toBe(
+      "From the Superagent (an agent in Med, not the user):\n\nSay how many there are.",
+    ),
   );
 
   // A thread does not send to itself.

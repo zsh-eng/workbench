@@ -170,9 +170,12 @@ import {
 import {
   threadCloseSchema,
   threadIdSchema,
+  threadMarksSchema,
+  threadNextSchema,
   threadOpenSchema,
   threadNameSchema,
   threadPinSchema,
+  threadSeenSchema,
   threadGroupSchema,
   threadShapeSchema,
   threadSlug,
@@ -566,6 +569,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   });
   // The windows' thread lists.
   const threadStreams = new Set<ServerResponse>();
+  // The `med thread wait` requests that wait for the next list.
+  const threadWaits = new Set<(text: string | undefined) => void>();
   /**
    * A token that stays the same while a checkout's commits, and with
    * `working` its files, stay the same (repository/cache.ts,
@@ -3529,6 +3534,51 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             send({ threads: await threads.history() });
             return;
           }
+          // The marks that a browser kept of what the reader saw, before
+          // the host kept them; once, from each browser.
+          if (url.pathname === "/api/threads/seen" && request.method === "POST") {
+            await threads.mergeSeen(threadMarksSchema.parse(await readBody(request)).marks);
+            send({ ok: true });
+            return;
+          }
+          // `med thread wait`: the tabs once they differ from the list that
+          // the caller has, or as they are after a while. The feed reads the
+          // tabs for every listener at once, as it does for the windows.
+          if (url.pathname === "/api/threads/next" && request.method === "POST") {
+            const input = threadNextSchema.parse((await readBody(request).catch(() => ({}))) ?? {});
+            if (threadWaits.size >= 16)
+              throw new HostError("too-many-waits", "Too many thread waits are open.", 503);
+            const version = (text: string) => createHash("sha256").update(text).digest("hex");
+            // The list's text; undefined when the request ended first.
+            let text = await new Promise<string | undefined>((settle) => {
+              let last: string | undefined;
+              const done = (answer: string | undefined) => {
+                clearTimeout(timer);
+                remove();
+                threadWaits.delete(done);
+                abort.signal.removeEventListener("abort", aborted);
+                settle(answer);
+              };
+              const aborted = () => done(undefined);
+              // A feed that has read nothing yet leaves an empty answer: the
+              // list is read below.
+              const timer = setTimeout(() => done(last ?? ""), input.waitMs);
+              threadWaits.add(done);
+              abort.signal.addEventListener("abort", aborted);
+              const remove = threadFeed.add((list) => {
+                last = list;
+                if (version(list) !== input.version) done(list);
+              });
+            });
+            if (text === undefined || abort.signal.aborted) return;
+            text ||= JSON.stringify(await threads.list());
+            response.writeHead(200, {
+              "content-type": "application/json",
+              "cache-control": "no-store",
+            });
+            response.end(`{"version":${JSON.stringify(version(text))},"list":${text}}`);
+            return;
+          }
           if (url.pathname === "/api/threads/reopen" && request.method === "POST") {
             const thread = await threads.reopen();
             if (!thread)
@@ -3562,7 +3612,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             return;
           }
           const threadAction =
-            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin)$/.exec(url.pathname);
+            /^\/api\/threads\/([\w-]+)\/(open|close|delete|archive|name|pin|seen)$/.exec(
+              url.pathname,
+            );
           if (threadAction && request.method === "POST") {
             const id = threadIdSchema.parse(threadAction[1]);
             const action = threadAction[2];
@@ -3581,6 +3633,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             } else if (action === "pin") {
               const pin = threadPinSchema.parse(body ?? {});
               await threads.pin(id, pin.pinned, pin.at);
+              send({ ok: true });
+            } else if (action === "seen") {
+              await threads.see(id, threadSeenSchema.parse(body ?? {}).at);
               send({ ok: true });
             } else {
               // Archive, from before tabs: it closes the thread, or opens it again.
@@ -3955,6 +4010,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       checkoutWork.close();
       pullRequestLinks.close();
       settingsFile.close();
+      for (const done of [...threadWaits]) done(undefined);
       threadFeed.close();
       checkoutChanges.close();
       threads.stop();

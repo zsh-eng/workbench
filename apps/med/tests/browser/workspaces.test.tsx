@@ -155,9 +155,15 @@ function createHost() {
     { id: "repo-0", name: "fixture", path: "/test/repo", branch: "main" },
   ];
   const threadStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  // What the reader saw of each tab, as the host keeps it: a tab without a
+  // mark counts as seen up to when the host began.
+  const seenSince = Date.now();
+  const seen = new Map<string, number>();
+  const listed = () =>
+    threads.map((entry) => ({ ...entry, seen: seen.get(entry.id) ?? seenSince }));
   const threadFrame = () =>
     new TextEncoder().encode(
-      `event: state\ndata: ${JSON.stringify({ threads, repositories: threadRepositories })}\n\n`,
+      `event: state\ndata: ${JSON.stringify({ threads: listed(), repositories: threadRepositories })}\n\n`,
     );
   const setThreads = (next: Thread[], repositories = threadRepositories) => {
     threads = next;
@@ -219,6 +225,20 @@ function createHost() {
       if (!last) return Response.json({ error: { message: "No closed tab." } }, { status: 404 });
       setThreads([last, ...threads]);
       return Response.json({ thread: { ...last, open: true } });
+    }
+    // A browser's marks from before the host kept them.
+    if (url.pathname === "/api/threads/seen" && init?.method === "POST") {
+      const { marks } = JSON.parse(String(init.body)) as { marks: Record<string, number> };
+      threadRequests.push({ path: url.pathname, body: { marks } });
+      for (const [id, at] of Object.entries(marks)) if ((seen.get(id) ?? -1) < at) seen.set(id, at);
+      for (const stream of threadStreams) stream.enqueue(threadFrame());
+      return Response.json({ ok: true });
+    }
+    const mark = /^\/api\/threads\/([\w-]+)\/seen$/.exec(url.pathname);
+    if (mark && init?.method === "POST") {
+      seen.set(mark[1]!, (JSON.parse(String(init.body)) as { at: number }).at);
+      for (const stream of threadStreams) stream.enqueue(threadFrame());
+      return Response.json({ ok: true });
     }
     const action = /^\/api\/threads\/([\w-]+)\/(open|close|delete|name|pin)$/.exec(url.pathname);
     if (action && init?.method === "POST") {
@@ -581,6 +601,7 @@ const threadRows = () =>
     return [
       button.title,
       dot === "New since you looked" && ", new",
+      dot === "Needs you" && ", needs you",
       dot === "Stopped" && ", stopped",
       button.getAttribute("aria-busy") && ", working",
       button.getAttribute("aria-current") && "(current)",
@@ -1253,6 +1274,71 @@ test("a tab's menu copies its resume command, marks it unread, and closes it", a
   await ask.getByRole("button", { name: "Delete" }).click();
   await expect.poll(threadRows).toEqual([]);
   expect(host.threadRequests.at(-1)).toEqual({ path: "/api/threads/second/delete", body: {} });
+});
+
+test("⌘0 goes to a tab that needs you, then one whose work finished since you looked, then one that works", async () => {
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  const later = Date.now() + 60_000;
+  const tabs = (fourth: Partial<Thread>) => [
+    thread("agent"),
+    thread("second", { state: "working", updatedAt: Date.now() - 30_000 }),
+    thread("third", { updatedAt: later }),
+    thread("fourth", { updatedAt: later - 1000, ...fourth }),
+  ];
+  host.setThreads(tabs({ state: "waiting" }));
+  /** The row of the thread whose title starts with this. */
+  const row = (name: string) => threadRows().find((entry) => entry.startsWith(name));
+  // The sidebar marks each as ⌘0 ranks it.
+  await expect
+    .poll(threadRows)
+    .toEqual([
+      "Third review, new",
+      "Fourth review, needs you",
+      "Second review, working",
+      "Agent review",
+    ]);
+  await userEvent.keyboard("{Control>}0{/Control}");
+  await expect.poll(() => row("Fourth")).toBe("Fourth review(current)");
+  // The tab on screen still needs you: the next is the one that finished.
+  await userEvent.keyboard("{Control>}0{/Control}");
+  await expect.poll(() => row("Third")).toBe("Third review(current)");
+  // Seen on screen, it is not new: the host has the mark, for every window
+  // and the CLI.
+  await expect
+    .poll(() => host.requested.filter((path) => path === "/api/threads/third/seen").length)
+    .toBeGreaterThan(0);
+  // The tab that needed you goes on: what it did since you looked is new.
+  host.setThreads(tabs({ updatedAt: later + 1000 }));
+  await expect.poll(() => row("Fourth")).toBe("Fourth review, new");
+  await userEvent.keyboard("{Control>}0{/Control}");
+  await expect.poll(() => row("Fourth")).toBe("Fourth review(current)");
+  await expect.poll(() => row("Third")).toBe("Third review");
+  // Nothing needs you or is new: the next is the one that works.
+  await userEvent.keyboard("{Control>}0{/Control}");
+  await expect.poll(() => row("Second")).toBe("Second review, working(current)");
+});
+
+test("the marks that a browser kept of what the reader saw go to the host once", async () => {
+  const before = Date.now() - 120_000;
+  localStorage.setItem("med:thread-seen-since", String(before));
+  localStorage.setItem("med:thread-seen", JSON.stringify({ agent: Date.now() }));
+  const host = createHost();
+  render(host);
+  await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
+  // The second tab changed after this browser's first visit, and it had no
+  // mark: it was new here, and stays new.
+  host.setThreads([thread("agent"), thread("second", { updatedAt: Date.now() - 90_000 })]);
+  await expect.poll(threadRows).toEqual(["Agent review", "Second review, new"]);
+  expect(host.threadRequests).toEqual([
+    {
+      path: "/api/threads/seen",
+      body: { marks: { agent: expect.any(Number), second: before } },
+    },
+  ]);
+  expect(localStorage.getItem("med:thread-seen")).toBeNull();
+  expect(localStorage.getItem("med:thread-seen-since")).toBeNull();
 });
 
 test("a row drags into Pinned, to a place among the pins, and out again; its menu moves a pin", async () => {
