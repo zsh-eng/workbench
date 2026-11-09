@@ -94,7 +94,7 @@ export const guideContexts: GuideContext[] = [
           {
             label: "Switch to a recent workspace",
             keys: ["Ctrl+Tab"],
-            note: "Hold Control and press Tab to step; type to search history",
+            note: "Hold Control and press Tab to step; type to search archived threads too",
             command: "switch-workspace",
           },
           {

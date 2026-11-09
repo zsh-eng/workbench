@@ -52,6 +52,8 @@ export interface ReviewCommand {
   managesFocus?: boolean;
   id: string;
   label: string;
+  /** Other words that find the command, such as an old name. */
+  keywords?: string;
   shortcut?: string;
   disabled?: boolean;
   /** Why a command cannot run yet, in its tooltip. */
@@ -461,7 +463,9 @@ export function CommandDialog({
   const [active, setActive] = useState(0);
   const resultList = useRef<HTMLDivElement>(null);
   const results = commands
-    .filter((command) => command.label.toLowerCase().includes(query.toLowerCase()))
+    .filter((command) =>
+      `${command.label}\n${command.keywords ?? ""}`.toLowerCase().includes(query.toLowerCase()),
+    )
     .sort((a, b) => Number(!!a.disabled) - Number(!!b.disabled));
   useEffect(() => {
     resultList.current

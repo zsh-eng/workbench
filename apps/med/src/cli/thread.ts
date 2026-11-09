@@ -20,7 +20,7 @@ import { request } from "./review";
 import { runThreadSessionsCommand } from "./thread-sessions";
 import { NotFoundError, UsageError } from "./exit-status";
 
-export const threadHelp = `Usage: med thread list [--history] [--json]
+export const threadHelp = `Usage: med thread list [--archived] [--json]
        med thread open <id> | --key <key>
        med thread close <id> | --key <key> [--remove-worktree]
        med thread reopen
@@ -33,21 +33,21 @@ export const threadHelp = `Usage: med thread list [--history] [--json]
 
 A thread is one task: an agent's session and its changes. Threads that the
 user opened are tabs: they show in Med's sidebar and stay loaded. The others
-are history, which Med does not watch.
+are archived, and Med does not watch them.
 
 list         prints the tabs in the sidebar's order, one per line: the ID, the
              state, the repository and branch, and the title. The states, as
              ⌘0 ranks them: needs-you (a permission request, a question, or
              work that stopped), done (its work finished since the user last
-             looked at it), working, and idle. --history prints history
-             instead, newest first; its threads are closed. --json prints the
-             threads as JSON, each with its state as "attention".
-open         opens a thread from history as a tab.
-close        sends a tab to history. Its agent keeps working; Med stops
+             looked at it), working, and idle. --archived prints the archived
+             threads instead, newest first; their state is closed. --json
+             prints the threads as JSON, each with its state as "attention".
+open         opens an archived thread as a tab.
+close        archives a tab. Its agent keeps working; Med stops
              watching it. --remove-worktree also removes the linked worktree
              that Med made for it, if Git can do that without --force.
 reopen       opens the thread that closed last.
-delete       deletes a thread: its saved review, comments, and history entry.
+delete       deletes a thread: its saved review, comments, and archive entry.
              Its agent sessions stay in Claude Code and Codex.
 send         sends a message to the thread's agent, which Med runs. While the
              agent works, the message joins its turn at its next step;
@@ -113,6 +113,8 @@ export async function parseThreadCommand(
       port: { type: "string" },
       "state-dir": { type: "string" },
       key: { type: "string", multiple: true },
+      archived: { type: "boolean" },
+      // The old name of --archived.
       history: { type: "boolean" },
       json: { type: "boolean" },
       "remove-worktree": { type: "boolean" },
@@ -139,7 +141,7 @@ export async function parseThreadCommand(
   const command: ThreadCommand = { kind, port, stateDir };
   if (kind === "list") {
     if (id) throw new Error("Use list without an ID.");
-    return { ...command, history: !!values.history, json: !!values.json };
+    return { ...command, history: !!(values.archived || values.history), json: !!values.json };
   }
   if (kind === "reopen") {
     if (id || key) throw new Error("Use reopen without an ID.");
@@ -180,7 +182,7 @@ function parseWait(
   >,
   command: Pick<ThreadCommand, "port" | "stateDir">,
 ): ThreadCommand {
-  for (const option of ["history", "remove-worktree", "after-turn"])
+  for (const option of ["archived", "history", "remove-worktree", "after-turn"])
     if (values[option]) throw new Error(`Use --${option} without wait.`);
   const until = values.until ?? "stopped";
   if (until !== "stopped" && !(THREAD_WAITS as readonly string[]).includes(until))
@@ -211,7 +213,7 @@ function parseWait(
   };
 }
 
-/** A thread's state as one word, as ⌘0 ranks them; closed in history. */
+/** A thread's state as one word, as ⌘0 ranks them; closed when archived. */
 function stateOf(thread: Thread) {
   return thread.open === false ? "closed" : threadAttention(thread);
 }
@@ -260,7 +262,7 @@ export async function runThreadCommand(
           2,
         ),
       );
-    else if (!threads.length) print(command.history ? "History is empty." : "No tabs are open.");
+    else if (!threads.length) print(command.history ? "Nothing is archived." : "No tabs are open.");
     else print(threads.map((thread) => line(thread)).join("\n"));
     return;
   }
@@ -290,7 +292,7 @@ export async function runThreadCommand(
         ...(command.removeWorktree && { removeWorktree: true }),
       }),
     );
-    print(closed ? `Closed ${id}; it is in history.` : `${id} was not open.`);
+    print(closed ? `Archived ${id}.` : `${id} was not open.`);
   } else if (command.kind === "send") {
     const thread = threadListSchema
       .parse(await call("/api/threads"))
@@ -300,7 +302,7 @@ export async function runThreadCommand(
       throw new Error(
         thread
           ? `"${thread.title}" has no agent session to send to.`
-          : `${id} is not an open thread. ${medCommand(command, "thread open", id)} opens it from history.`,
+          : `${id} is not an open thread. ${medCommand(command, "thread open", id)} opens it as a tab.`,
       );
     // A message from another thread that Med started names it, and says
     // that an agent sent it, not the user: the agent reads it as a report.
@@ -371,7 +373,7 @@ async function waitForThreads(
       const missing = named.filter((id) => !threads.has(id));
       if (missing.length)
         throw new NotFoundError(
-          `${missing.join(", ")} ${missing.length > 1 ? "are not tabs" : "is not a tab"}. ${medCommand(command, "thread list")} prints the tabs; ${medCommand(command, "thread open", "<id>")} opens one from history.`,
+          `${missing.join(", ")} ${missing.length > 1 ? "are not tabs" : "is not a tab"}. ${medCommand(command, "thread list")} prints the tabs; ${medCommand(command, "thread open", "<id>")} opens an archived one.`,
         );
       ids = named.length
         ? [...new Set(named)]

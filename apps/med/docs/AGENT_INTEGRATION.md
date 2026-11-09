@@ -539,18 +539,18 @@ as its next layer when its base is that thread's top head and the same session
 made both, or both are pull requests; the command then prints `Added layer N
 of M`. See [stacks and sets](STACKS.md).
 
-## Tabs and history
+## Tabs and archived threads
 
 The threads that the user has open are tabs, in Med's sidebar. The others are
-history: Med does not watch them. A thread that you hand off with
+archived: Med does not watch them. A thread that you hand off with
 `med review create` opens as a tab. When the user asks you to open, close, or
 list threads, use `med thread`:
 
 ```sh
 med thread list                          # the tabs: ID, state, repository/branch, title
-med thread list --history                # closed threads and found sessions, newest first
-med thread open r_6d1f…                  # opens a thread from history as a tab
-med thread close r_6d1f…                 # sends a tab to history; its agent keeps working
+med thread list --archived               # closed threads and found sessions, newest first
+med thread open r_6d1f…                  # opens an archived thread as a tab
+med thread close r_6d1f…                 # archives a tab; its agent keeps working
 med thread close --key "$MED_THREAD_KEY" --remove-worktree
 med thread reopen                        # opens the tab that closed last, at its place
 med thread delete r_6d1f…                # deletes the thread with its Review versions and comments
@@ -559,7 +559,7 @@ med thread delete r_6d1f…                # deletes the thread with its Review 
 The lines have tabs between the fields. The state is, as `⌘0` ranks them,
 `needs-you` (a permission request, a question, or work that stopped), `done`
 (its work finished since the user last looked at it), `working`, or `idle`;
-in history, `closed`. `--json` prints the threads with all their details, and
+when archived, `closed`. `--json` prints the threads with all their details, and
 the state as `attention`. A thread's `turn` tells what the user sees at the end of its session:
 when the last turn ended, whether it asked a question, and `checks`, the last
 run of each test, type check, linter, or build in the turn, such as
@@ -601,7 +601,7 @@ when a thread that you name is not a tab, and 4 when no Med runs.
 Med finds the Claude Code and Codex sessions of the last 7 days in the
 registered repositories by itself, also when no agent hands them off
 ([found sessions](SESSIONS.md#found-sessions)). One whose agent works opens as
-a tab; the others are in history (`med thread list --history`). When the user
+a tab; the others are archived (`med thread list --archived`). When the user
 asks for an older session, or one that Med did not find, find it and make it
 a Med thread.
 
@@ -631,7 +631,7 @@ med thread adopt claude:2f0c4a91-6b0e-4d55-9a57-1f3e8c2d7b10
 ```
 
 - A new thread opens as a tab. A session that a thread holds gives that
-  thread, and opens it as a tab when it is in history.
+  thread, and opens it as a tab when it is archived.
 - When no session matches, or more than one does, the command fails and says
   so; for more than one, it lists them.
 - When the session's folder is not in a registered repository, or no longer

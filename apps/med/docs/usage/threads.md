@@ -2,7 +2,7 @@
 
 A thread is one task: an agent's work and its changes, as a saved review, or
 a Claude Code or Codex session that Med found. The threads that you have open
-are **tabs**. All other threads are **history**.
+are **tabs**. All other threads are **archived**.
 
 The sidebar lists the tabs as sessions, one row each: **Pinned**, in the
 order you pinned them, then **Recent**, newest activity first. There is no
@@ -16,17 +16,17 @@ A row shows the agent's mark and the session's name, and at most one dot: blue
 in a ring when the agent needs you, blue when its work finished since you
 looked, amber when the work stopped. While the agent works, its name dims
 under a passing light. **New thread**, a row at the top, starts a thread.
-**History**, **Pull requests**, and **Settings** are at the foot.
+**Archived**, **Pull requests**, and **Settings** are at the foot.
 
-Tabs stay loaded and Med follows their agents. History is cold: Med does not
-load it or read its agents until you open it again.
+Tabs stay loaded and Med follows their agents. Archived threads are cold: Med
+does not load them or read their agents until you open one again.
 
 ## Tabs and their state
 
 - A thread opens as a tab when you start it, when an agent hands off its work
   (`med review create`), when you keep a found session in Med, and when you
-  open it from history. A found session opens as a tab once, when Med first
-  sees its agent work. After you close it, it stays in history.
+  open it from the archive. A found session opens as a tab once, when Med
+  first sees its agent work. After you close it, it stays archived.
 - A Med with another state folder than `~/.local/state/med` lists only its
   own threads: found sessions start hidden there. **Show sessions not kept in
   Med** in the palette shows them.
@@ -53,30 +53,31 @@ load it or read its agents until you open it again.
 
 - **Archive a session** with **Archive** in its row's menu, **Close tab** in
   `⌘K`, or `⌘⌥W`. Archiving does not stop the agent: Med stops its streams and
-  Git checks, and the thread goes to history. No notice announces it; `⌘⌥T`
-  (**Reopen closed tab**) opens it again, and `⌃Tab` finds it in history.
+  Git checks, and the thread is archived. No notice announces it; `⌘⌥T`
+  (**Reopen closed tab**) opens it again, and `⌃Tab` finds it.
 - Med archives a session on its own when its work has landed: you read it, it
   was off screen for 5 minutes, it does not need you, its agent does not work,
   and its branch has no commits ahead of its base and no uncommitted changes.
   The window that you used last does this. Med never archives a pinned
   session, one whose work it cannot check, or one with an unsaved draft.
-- **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
-  Type a word, also while you hold Control, to search history too: closed
-  threads and found sessions that are not tabs, by title, branch, repository,
-  and first prompt, newest first. A history row has a hollow mark. `↵` opens
-  it as a tab. **Open from history…** in `⌘K` lists history at once. `⌘⌫` on a
-  history row, or its trash button, deletes the thread after you confirm.
-- **The History page.** **History** at the sidebar's foot, or **History** in
-  `⌘K`, shows all of history as a page: newest first, under a heading for
-  each day, each thread with its repository and branch, its agent, and when
-  it was last active. Type in its field (`/` or `⌘F` goes there, and a letter
+- **Open an archived thread.** `⌃Tab` shows the tabs and other workspaces
+  first. Type a word, also while you hold Control, to search the archived
+  threads too: closed threads and found sessions that are not tabs, by title,
+  branch, repository, and first prompt, newest first. An archived row has a
+  hollow mark. `↵` opens it as a tab. **Open archived thread…** in `⌘K` lists
+  them at once. `⌘⌫` on an archived row, or its trash button, deletes the
+  thread after you confirm. In `⌘K`, "history" finds both commands.
+- **The Archived page.** **Archived** at the sidebar's foot, or **Archived**
+  in `⌘K`, shows every archived thread as a page (`/archived`; `/history`
+  opens it too): newest first, under a heading for each day, each thread
+  with its repository and branch, its agent, and when it was last active. Type in its field (`/` or `⌘F` goes there, and a letter
   in the list starts a search) to search as `⌃Tab` does. `↑` and `↓` (or `j`
   and `k`) choose a thread, and `↵` or a click opens it as a tab. `⌘⌫` or a
   row's trash button deletes a thread after a second `↵`.
 - **Delete…** in a row's menu deletes the thread after you confirm: its saved
   review, its Review versions, and its comments. The agent's session stays in
   Claude Code or Codex; Med does not show it as a found session again.
-- History does not grow without limit. Med keeps a closed thread's Review
+- The archive does not grow without limit. Med keeps a closed thread's Review
   versions and comments for 30 days. Then it keeps only the title, the
   repository, the branch, and the sessions, for 180 days after the close; such
   a thread opens as its agent's session. Med prunes when it starts and once a
@@ -88,7 +89,7 @@ load it or read its agents until you open it again.
   asks one thing: **Where to work**. A browser tab keeps `⌘N` for a new
   window; the installed app's window gives Med every key, so `⌘N` opens New
   thread there. Your repositories are one list: those of your newest threads,
-  tabs and history first, newest first, up to 5, then the others. The chosen
+  tabs and archived ones first, newest first, up to 5, then the others. The chosen
   one has a check. The list scrolls when it is long. Type in its filter to
   narrow it; `↑` and `↓` move, and `↵` picks. A first `Esc` clears the
   filter. **Add a folder…** at its foot opens Sources, where you register
@@ -125,7 +126,7 @@ load it or read its agents until you open it again.
   unread** or **Mark as read** (`U`), **Rename** (`R`), **Move up** and
   **Move down** for a pin, **Archive** (`A`), and **Delete** (`D`). While the
   menu is open, a letter runs its item. Med keeps the pins, also across a
-  restart and in history. A pinned session's first hand-off takes its pin.
+  restart and in the archive. A pinned session's first hand-off takes its pin.
 - **Drag a row into Pinned** to pin it at that place, within Pinned to move
   it, and out to Recent to unpin it. While it drags, the list shows where it
   would land: the other rows make room, and Pinned shows even with no pins.
@@ -135,7 +136,7 @@ load it or read its agents until you open it again.
   hidden, the field shows in the title band, where a double-click on the
   thread's name also renames it. `↵` keeps the new name, and `Esc` keeps the
   old one. The name shows in the sidebar, the title band, the window's title,
-  history, and the palette. Med keeps it, not the agent: a new hand-off does
+  the archive, and the palette. Med keeps it, not the agent: a new hand-off does
   not change it, and it stays after a restart. An empty name gives the thread
   its agent's title again.
 - **Settings**, at the foot of the sidebar, opens the Sources page for now:

@@ -66,7 +66,7 @@ How you work, through Med's command line (\`${command}\`):
 - \`${command} thread list --json\`: the open threads, each with its ID, title, repository, branch, state as "attention" (needs-you, done: finished since the user looked, working, idle), its last turn, its changes, and its sessions (each with its transcript's session ID and folder).
 - \`${command} thread send <id> "<message>"\`: sends a message to a thread's agent. While the agent works, the message joins its turn at its next step; add \`--after-turn\` to wait until its turn ends. The thread's agent reads it as a report from you, not as the user's words.
 - \`${command} thread wait [<id>...]\`: waits until a thread comes to need the user or finishes its work, then prints each thread's state. A timeout (100 s by default) is a check-in: wait again. Use it instead of listing again and again.
-- \`${command} thread open <id>\`, \`${command} thread close <id>\`: shows a thread from history as a tab, or sends a tab to history.
+- \`${command} thread open <id>\`, \`${command} thread close <id>\`: opens an archived thread as a tab, or archives a tab.
 - The user's pull requests: \`gh search prs --state=open --involves=@me\`, with the user's gh sign-in.
 - \`${command} --help\` and \`${command} <command> --help\` tell more.
 - A Claude Code transcript is ~/.claude/projects/<folder with each / as ->/<session ID>.jsonl; read its tail for detail.

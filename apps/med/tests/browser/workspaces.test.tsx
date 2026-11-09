@@ -289,7 +289,7 @@ function createHost() {
         }
         return Response.json({ ok: true });
       }
-      // A thread in history opens; one that the test does not list stays out.
+      // An archived thread opens; one that the test does not list stays out.
       if (closed) {
         past = past.filter((entry) => entry !== closed);
         const at = body.restore ? (places.get(closed.id) ?? 0) : 0;
@@ -743,7 +743,7 @@ test("every tab loads out of sight and stays, as open terminal tabs do; history 
   for (const id of inView) expect(slot(id)).not.toBeNull();
 });
 
-test("the History page lists history by day, searches it, opens a thread as a tab, and deletes one", async () => {
+test("the Archived page lists archived threads by day, searches them, opens one as a tab, and deletes one", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -757,15 +757,15 @@ test("the History page lists history by day, searches it, opens a thread as a ta
   ]);
   await expect.poll(threadRows).toEqual(["Agent review"]);
 
-  // History is at the sidebar's foot.
-  await page.getByRole("button", { name: "History", exact: true }).click();
-  await expect.element(page.getByRole("heading", { name: "History", level: 1 })).toBeVisible();
-  expect(location.pathname).toBe("/history");
-  const list = page.getByRole("listbox", { name: "History" });
+  // Archived is at the sidebar's foot.
+  await page.getByRole("button", { name: "Archived", exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "Archived", level: 1 })).toBeVisible();
+  expect(location.pathname).toBe("/archived");
+  const list = page.getByRole("listbox", { name: "Archived" });
   const days = () =>
     [
       ...document.querySelectorAll<HTMLElement>(
-        '[role="listbox"][aria-label="History"] [role="group"]',
+        '[role="listbox"][aria-label="Archived"] [role="group"]',
       ),
     ].map((group) => [
       group.getAttribute("aria-label"),
@@ -785,7 +785,7 @@ test("the History page lists history by day, searches it, opens a thread as a ta
       ["Older review, fixture · main"],
     ],
   ]);
-  // The tab is not history.
+  // The tab is not archived.
   expect(list.getByRole("option", { name: /^Agent review/ }).query()).toBeNull();
   await expect
     .element(list.getByRole("option", { name: /^Third review/ }))
@@ -794,7 +794,7 @@ test("the History page lists history by day, searches it, opens a thread as a ta
   // A letter in the list starts a search, as the switcher's does, over the
   // first prompt too.
   await userEvent.keyboard("t");
-  const search = page.getByRole("combobox", { name: "Search history" });
+  const search = page.getByRole("combobox", { name: "Search archived threads" });
   await expect.element(search).toHaveFocus();
   await userEvent.keyboard("rim");
   await expect.poll(days).toEqual([[expect.any(String), ["Older review, fixture · main"]]]);
@@ -811,14 +811,17 @@ test("the History page lists history by day, searches it, opens a thread as a ta
     body: { restore: false },
   });
   await expect
-    .element(page.getByRole("heading", { name: "History", level: 1 }))
+    .element(page.getByRole("heading", { name: "Archived", level: 1 }))
     .not.toBeInTheDocument();
   await expect.poll(threadRows).toContain("Second review(current)");
 
-  // ⌘K opens it again; the thread that opened is a tab now.
+  // ⌘K opens it again, also by its old name; the thread that opened is a tab now.
   await userEvent.keyboard("{Control>}k{/Control}");
-  await page.getByRole("combobox", { name: "Search commands" }).fill("History");
-  await page.getByRole("option", { name: "History", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search commands" }).fill("history");
+  await expect
+    .element(page.getByRole("option", { name: /^Open archived thread…/ }))
+    .toBeInTheDocument();
+  await page.getByRole("option", { name: "Archived", exact: true }).click();
   await expect.poll(days).toEqual([
     ["Today", ["Third review, fixture · main, Claude"]],
     [expect.any(String), ["Older review, fixture · main"]],
@@ -826,7 +829,7 @@ test("the History page lists history by day, searches it, opens a thread as a ta
 
   // ⌘⌫ asks. ↵ on Keep keeps the thread.
   const listbox = () =>
-    document.querySelector('[role="listbox"][aria-label="History"]') as HTMLElement;
+    document.querySelector('[role="listbox"][aria-label="Archived"]') as HTMLElement;
   listbox().focus();
   await userEvent.keyboard("{End}{Control>}{Backspace}{/Control}");
   const keep = list.getByRole("button", { name: "Keep" });
@@ -845,6 +848,15 @@ test("the History page lists history by day, searches it, opens a thread as a ta
   await userEvent.keyboard("{Enter}");
   await expect.poll(days).toEqual([["Today", ["Third review, fixture · main, Claude"]]]);
   expect(host.threadRequests.at(-1)).toEqual({ path: "/api/threads/older/delete", body: {} });
+
+  // Its old address, /history, opens it too.
+  await page.getByRole("button", { name: /^Agent review/ }).click();
+  await expect
+    .element(page.getByRole("heading", { name: "Archived", level: 1 }))
+    .not.toBeInTheDocument();
+  history.pushState(null, "", "/history");
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  await expect.element(page.getByRole("heading", { name: "Archived", level: 1 })).toBeVisible();
 });
 
 test("a thread with its session on screen shows its session first, and its diff after", async () => {
@@ -960,7 +972,7 @@ test("the review's header names the review, keeps its actions in ⌘K, and there
   await expect.element(band.getByText("Talk review", { exact: true })).toBeVisible();
 });
 
-test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it in history", async () => {
+test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it back; ⌃Tab finds it archived", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
@@ -971,7 +983,7 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   ]);
   await expect.poll(threadRows).toEqual(["Agent review", "Second review, working", "Third review"]);
 
-  // Archive in the row's menu sends the session to history; its agent keeps
+  // Archive in the row's menu archives the session; its agent keeps
   // working, and nothing announces it.
   await page.getByRole("button", { name: "Actions for Second review" }).click();
   await page.getByRole("menuitem", { name: /^Archive/ }).click();
@@ -1003,15 +1015,15 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   await userEvent.keyboard("{Enter}");
   await expect.poll(threadRows).toEqual(["Second review, working(current)", "Agent review"]);
 
-  // ⌃Tab with a typed word searches history too; Return opens the thread as
+  // ⌃Tab with a typed word searches archived threads too; Return opens it as
   // a tab, at the top. A letter with Control held searches and runs no
   // shortcut (⌃K is the palette).
   await userEvent.keyboard("{Control>}{Tab}k{/Control}");
-  const search = page.getByRole("combobox", { name: "Search tabs and history" });
+  const search = page.getByRole("combobox", { name: "Search tabs and archived threads" });
   await expect.element(search).toHaveValue("k");
   await userEvent.keyboard("{Backspace}third");
   await expect.element(search).toHaveValue("third");
-  const option = page.getByRole("option", { name: "Third review, in history" });
+  const option = page.getByRole("option", { name: "Third review, archived" });
   await expect.element(option).toBeVisible();
   await expect.element(option).toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{Enter}");
@@ -1022,14 +1034,14 @@ test("a tab closes by ×, ⌘⌥W, or the palette; Undo and ⌘⌥T bring it bac
   });
   await expect.poll(threadRows).toContain("Third review(current)");
 
-  // "Open from history…" lists the closed threads, newest first.
+  // "Open archived thread…" lists the closed threads, newest first.
   await page.getByRole("button", { name: "Actions for Agent review" }).click();
   await page.getByRole("menuitem", { name: /^Archive/ }).click();
   await expect.poll(threadRows).not.toContain("Agent review");
   await userEvent.keyboard("{Control>}k{/Control}");
-  await page.getByRole("combobox", { name: "Search commands" }).fill("Open from history");
+  await page.getByRole("combobox", { name: "Search commands" }).fill("Open archived thread");
   await userEvent.keyboard("{Enter}");
-  const history = page.getByRole("dialog", { name: "Open from history" });
+  const history = page.getByRole("dialog", { name: "Open archived thread" });
   await expect.element(history.getByRole("option", { name: /^Agent review/ })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(history).not.toBeInTheDocument();

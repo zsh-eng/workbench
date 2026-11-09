@@ -460,7 +460,7 @@ export function createThreadService(options: ThreadServiceOptions) {
         if (!session || session.agent === "acp")
           throw new HostError(
             "thread-no-session",
-            "History kept no session to resume for this thread.",
+            "Med kept no session to resume for this archived thread.",
             409,
           );
         const foundId = foundThreadId(session.agent, session.id);

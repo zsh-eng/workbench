@@ -190,8 +190,8 @@ own threads until the reader shows the others.
 
 A found session opens as a tab once, when Med first sees its agent work
 (`src/host/thread-service.ts`). The others, and the ones that the user
-closed, are in history, where `⌃Tab`, the History page (`/history`), and
-`med thread list --history` find them. A found tab keeps a short record
+closed, are archived, where `⌃Tab`, the Archived page (`/archived`), and
+`med thread list --archived` find them. A found tab keeps a short record
 (title, checkout, branch, sessions), so it stays a tab after its session
 leaves the 7-day window.
 
