@@ -118,11 +118,15 @@ const keepSeen = (marks: Record<string, number>) =>
 /** The tabs store. Changes apply in memory at once; `save()` writes them. */
 export function createThreadTabs(options: { file: string; now?: () => number }) {
   const now = options.now ?? Date.now;
+  // Med keeps seen marks from when this host started: a thread that changes
+  // after that, such as the first one made, is new until the reader sees it.
+  const started = now();
   let state: TabsState = { version: 1, order: [], entries: {} };
   let saving = Promise.resolve();
   let dirty = false;
   const listeners = new Set<() => void>();
   const changed = () => {
+    state.seenSince ??= started;
     dirty = true;
     for (const listener of listeners) listener();
   };
@@ -308,7 +312,7 @@ export function createThreadTabs(options: { file: string; now?: () => number }) 
     /** The newest change of the thread that the reader has seen. */
     seen(id: string) {
       // The file keeps it with the next change: a read alone writes nothing.
-      state.seenSince ??= now();
+      state.seenSince ??= started;
       return state.seen?.[id] ?? state.seenSince;
     },
     /** The reader saw the thread's changes up to `at`; a lower mark makes

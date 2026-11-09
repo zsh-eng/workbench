@@ -497,10 +497,11 @@ test("list, close, reopen, open, and delete tabs from the command line", async (
   const ids_ = (output: string) => output.split("\n").map((line) => line.split("\t")[0]);
 
   // The tabs in the sidebar's order: a new one at the top of its repository.
+  // Neither has been seen in Med yet, so each is done since you looked.
   const listed = await run("list");
   expect(listed.split("\n")).toEqual([
-    `${feet.id}\tidle\ttide/main\tHeights in feet`,
-    `${tides.id}\tidle\ttide/main\tExplain the tide prediction model in the README`,
+    `${feet.id}\tdone\ttide/main\tHeights in feet`,
+    `${tides.id}\tdone\ttide/main\tExplain the tide prediction model in the README`,
   ]);
   const json = JSON.parse(await run("list", "--json")) as Thread[];
   expect(json.map((thread) => [thread.id, thread.open])).toEqual([

@@ -114,7 +114,7 @@ try {
   // workspace.
   const checkout = page
     .getByRole("banner", { name: "Workspace", exact: true })
-    .getByRole("button", { name: "frontend, main. Copy path", exact: true });
+    .getByRole("button", { name: "frontend. Copy the path", exact: true });
   await page.goto(url);
   await page.locator('[data-review-status="ready"]:visible').waitFor();
   await checkout.waitFor();

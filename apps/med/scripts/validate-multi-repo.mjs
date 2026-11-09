@@ -101,10 +101,12 @@ try {
     window
       .locator('[data-review-status="ready"]:visible')
       .filter({ hasText: `project = "${repository}` });
+  // The band names the checkout's repository and branch, each a copy button.
   const shows = async (repository, branch, window = page) => {
-    await window
-      .getByRole("banner", { name: "Workspace", exact: true })
-      .getByRole("button", { name: `${repository}, ${branch}. Copy path`, exact: true })
+    const band = window.getByRole("banner", { name: "Workspace", exact: true });
+    await band.getByRole("button", { name: `${repository}. Copy the path`, exact: true }).waitFor();
+    await band
+      .getByRole("button", { name: `${branch}. Copy the branch name`, exact: true })
       .waitFor();
     await review(repository, window).waitFor();
   };
@@ -207,7 +209,7 @@ try {
   // dialog hides the band from the accessibility tree, not from the screen.
   await page
     .getByRole("banner", { name: "Workspace", exact: true, includeHidden: true })
-    .getByRole("button", { name: /^(frontend|backend), main\. Copy path$/, includeHidden: true })
+    .getByRole("button", { name: /^(frontend|backend)\. Copy the path$/, includeHidden: true })
     .waitFor();
   const after = await fetch(`${launch.origin}/api/repositories`, { headers }).then((r) => r.json());
   assert.equal(after.repositories.length, 2);

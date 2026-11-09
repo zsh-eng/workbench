@@ -508,10 +508,11 @@ test("the host keeps what the reader saw of each tab: one mark for every window 
     new Map(
       (await api<ThreadList>("/api/threads")).data.threads.map((thread) => [thread.id, thread]),
     );
-  // Med began to keep marks with the first list: what changed before it is seen.
+  // Med keeps marks from when the host started: a thread made after that,
+  // such as the first one, is new until the reader sees it.
   const before = await listed();
   const since = before.get(first.id)!.seen!;
-  expect(since).toBeGreaterThanOrEqual(before.get(first.id)!.updatedAt);
+  expect(since).toBeLessThan(before.get(first.id)!.updatedAt);
   expect(before.get(second.id)!.seen).toBe(since);
 
   // A window marks a thread seen up to a change, and a lower mark makes the
