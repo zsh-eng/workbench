@@ -19,26 +19,9 @@ keeps your line breaks; `$HOME` and `$3` stay text, and only `$$` starts math.
 the **+/−** totals in the review's header to split them into code, tests,
 docs, config and data, and generated files.
 
-To ask the thread's agent about lines, select line numbers in Review, Changes,
-or a Guide segment, and click **Ask** or press `a`. The **Question** pane opens
-at the right of the review and names the file and the lines. Write the
-question and press `⌘↵`. While the thread's agent waits, the question goes to
-the thread itself, as a message that asks it to answer and change nothing, and
-the answer shows in the thread, where the next message can build on it. While
-the agent works, Med asks a fork of the thread's Claude Code session instead,
-in plan mode, with the lines and their numbers, so the work goes on. The
-fork's answer shows in the pane; the thread does not get that question or its
-answer. Escape or **Stop** ends the
-answer. **Keep as comment** adds the question and the answer as a comment on
-the lines. **Close** discards them; Med keeps no copy of the question or the
-answer. A review has one question at a time, and Ask waits while an answer
-comes. The next question goes on in the same fork, which has the earlier
-questions too, while the thread's agent has not taken a turn since, its model
-and effort are the same, and less than 55 minutes have passed: the fork then
-reads Claude Code's cache and writes only the new question. Otherwise Med
-makes a new fork, and removes the old fork's transcript. A Codex thread is
-asked in the same way when Codex has `codex exec fork`; an older Codex answers
-from the lines only, and the pane says so.
+A comment can ask as well as tell. The agent reads each one in the thread, as
+one conversation: it answers a question in the comment's thread and changes
+nothing for it, and it does what a request asks.
 
 In a whole file, `⌥B` shows blame in the gutter; hover a label for the date and
 message. When the cursor rests on a line, its author, age, and commit subject
@@ -98,11 +81,6 @@ from the file tree, and **Changes**, are live.
   **Edit**, and **Delete**. Med shows each change at once and saves it in the
   background; if a save fails, Med restores the comment, reports the error, and
   keeps your text.
-- **Ask** (`a`) asks the thread's agent about the selected lines: in the
-  thread while its agent waits, else in a fork of its session in plan mode,
-  which the thread does not see. **Keep as comment** saves both as a comment on the lines
-  (`Question: …`, then the agent's name and its answer); the agent gets it with
-  the other comments.
 - **Copy comments** copies, as Markdown, the comments on every comparison that
   you visited in the review, including commits from the history. It uses the
   field names of Codex diff comments: **File**, **Workspace**, **Side**,
@@ -183,9 +161,8 @@ stays under its last line, as on a page that people comment on together; its
 as they were, and your text; it answers in the comment's thread
 (`med reply <id>`) and, when it has done what you asked, resolves it
 (`med reply <id> --resolve`). A resolved comment says who resolved it;
-**Reopen** opens it again, and so does your reply. `ga` asks the agent about
-the lines instead, as **Ask** does in a diff. A
-comment covers at most 400 lines. Without a session that Med runs, the
+**Reopen** opens it again, and so does your reply. A comment covers at most
+400 lines. Without a session that Med runs, the
 comment waits in the message box, to send or copy with the others.
 
 ### All comments

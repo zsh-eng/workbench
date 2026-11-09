@@ -134,6 +134,24 @@ test("a table copies as its Markdown and as an HTML table", async () => {
   expect(html).not.toMatch(/class=|data-|<wbr>/);
 });
 
+test("Full screen draws a diagram larger over the page, with zoom; Escape closes it", async () => {
+  const diagram = "# Flow\n\nIntro text.\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+  const reading = await show(diagram, 900, "Flow");
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+  const inline = reading.element().querySelector(".med-md-diagram > svg")!.getBoundingClientRect();
+  await reading.getByRole("button", { name: "Show the diagram full screen" }).click();
+  const dialog = page.getByRole("dialog", { name: "Diagram" });
+  const large = dialog.getByRole("img", { name: "Mermaid diagram" });
+  await expect.element(large).toBeVisible();
+  // Three times the page's size for a small diagram, the most that it grows.
+  const svg = large.element().querySelector("svg")!;
+  await expect.poll(() => svg.getBoundingClientRect().width).toBeCloseTo(inline.width * 3, -1);
+  await expect.element(dialog.getByRole("button", { name: "Zoom in" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(reading.getByRole("img", { name: "Mermaid diagram" })).toBeVisible();
+});
+
 test("a diagram's right-click offers its image, SVG, and Mermaid source; text keeps the browser's menu", async () => {
   const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   const items: ClipboardItem[] = [];

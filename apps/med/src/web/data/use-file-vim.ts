@@ -55,7 +55,7 @@ export function useFileVim<Annotation = undefined>({
   onDefinition?: (name: string) => void;
   onPosition?: (line: number, reason: "cursor") => void;
   /** `gc` or `ga`: the lines, from 1, of the selection or else the cursor. */
-  onAnnotate?: (kind: "comment" | "ask", line: number, endLine: number) => void;
+  onAnnotate?: (kind: "comment", line: number, endLine: number) => void;
   /** `K`: the name under the cursor, and where the cursor is. */
   onHover?: (name: string, anchor: () => DOMRect | undefined) => void;
 }) {
@@ -389,7 +389,7 @@ export function useFileVim<Annotation = undefined>({
   };
   // The visual lines, else the cursor's; the selection ends as the box opens.
   const annotate = useCallback(
-    (kind: "comment" | "ask") => {
+    (kind: "comment") => {
       const range = model.visualRange;
       const start = range ? range.startLine : model.line;
       const end = range ? range.endLine : model.line;

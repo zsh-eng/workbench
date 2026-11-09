@@ -22,10 +22,18 @@ const OPTIONS = {
  * (a narrow pane can turn a left-to-right flowchart downward) and offers zoom
  * when a diagram has to shrink. Rejects when the source does not draw, so the
  * caller shows it as code; Pele's own error text stays out of the page.
+ * `zoom` keeps Pele's zoom on, up to `maxScale`, also for a diagram that fits.
  */
-export async function mountDiagram(element: HTMLElement, source: string): Promise<Mounted> {
+export async function mountDiagram(
+  element: HTMLElement,
+  source: string,
+  { zoom }: { zoom?: { maxScale: number } } = {},
+): Promise<Mounted> {
   const { mountAsync } = await import("pele/lazy");
-  const mounted = await mountAsync(element, source, OPTIONS);
+  const mounted = await mountAsync(element, source, {
+    ...OPTIONS,
+    ...(zoom ? { zoom: { always: true, maxScale: zoom.maxScale } } : {}),
+  });
   if (mounted.error !== undefined) {
     mounted.destroy();
     element.replaceChildren();

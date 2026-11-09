@@ -1,5 +1,5 @@
 import { SessionMarkdown } from "./session/SessionMarkdown";
-// After the renderer's own styles, as in the Question pane.
+// After the renderer's own styles, as in the thread.
 import "./session/SessionThread.css";
 import "./CommentMarkdown.css";
 
@@ -26,8 +26,8 @@ function keepLineBreaks(text: string) {
 }
 
 /**
- * A comment's text as Markdown, rendered as the Question pane renders an
- * answer, in the card's type. The stored text stays as the reader wrote it.
+ * A comment's text as Markdown, rendered as the thread renders a reply, in
+ * the card's type. The stored text stays as the reader wrote it.
  */
 export default function CommentMarkdown({
   text,

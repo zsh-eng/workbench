@@ -2977,7 +2977,7 @@ export class SavedReviewStore {
           "END",
           "```",
           "",
-          "Answer there when the user asks a question, or to say why you left a change out. Your final message still says what you did.",
+          "A comment can be a question or a request. Answer a question there and change nothing for it; do what a request asks, and answer there to say why you left a change out. Your final message still says what you did.",
           ...(fileExample
             ? [
                 "",

@@ -117,8 +117,8 @@ export function createSessionProcesses(
     if (!started) return { verdict: alive(pid) ? "unsure" : "no" };
     // The pid belongs to a newer process now.
     if (started !== fields.procStart) return { verdict: "no" };
-    // A fork that answers a question (questions.ts) reads the session and
-    // writes its own transcript.
+    // A fork (Continue in Med) reads the session and writes its own
+    // transcript.
     const args = await ps(["-o", "args=", "-p", String(pid)]);
     if (args === undefined) return { verdict: "unsure", session };
     if (args.includes("--fork-session")) return { verdict: "no" };

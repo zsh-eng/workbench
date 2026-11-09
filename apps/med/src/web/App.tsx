@@ -200,9 +200,6 @@ interface DiffTokenEvent {
   tokenElement: HTMLElement;
 }
 import { matchReviewFile, parseBriefHref } from "./data/brief";
-import { questionExcerpt, useQuestion } from "./data/questions";
-import { MAX_QUESTION_LINES, questionComment, questionPrompt } from "../shared/questions";
-import { foundThreadId } from "../shared/found-sessions";
 import type { BriefLocation } from "./components/BriefView";
 import { prDraftImageUrl } from "./data/pr-draft";
 import { GuideRail } from "./components/guide/GuideRail";
@@ -290,8 +287,6 @@ const FoundSessionPane = lazy(() =>
     default: module.FoundSessionPane,
   })),
 );
-// The Question pane loads with the first question.
-const QuestionPane = lazy(() => import("./components/QuestionPane"));
 const NO_SESSIONS: AgentSession[] = [];
 /** What "Ask the agent to explain" puts in the session's message box (docs/PRACTICES.md). */
 const EXPLAIN_REQUEST =
@@ -400,7 +395,6 @@ const PANE_PLACES: Record<string, { near?: string; side: Side; share: number }> 
   files: { near: "review", side: "right", share: 0.26 },
   // At the right of the row, with room from the thread and the review alike,
   // so that an answer has room to read.
-  question: { side: "right", share: 0.3 },
 };
 
 /** The narrowest review pane that shows a split diff, in pixels. */
@@ -410,8 +404,6 @@ const SPLIT_MIN_WIDTH = 760;
 const GUIDE_RAIL_MIN_WIDTH = 721;
 /** Below this width, the line selection bar leaves out its label and keys. */
 const SELECTION_BAR_FULL_WIDTH = 420;
-/** The Question pane's width to aim for, in pixels; a narrow row gives it more. */
-const QUESTION_WIDTH = 320;
 
 export function App({
   controller,
@@ -777,21 +769,18 @@ export function App({
         : null,
     [browseSource, repositoryFiles.entries, repositoryFiles.truncated],
   );
-  // A file that a side pane opens shows in the review, also from a zoomed pane.
   const { show: revealPane } = panes;
   const fileRefs = useMemo<FileRefs>(
     () => ({
       index: fileIndex,
       // A tab like any other: closing it goes back to the tab before it.
-      open: (ref, background) => {
+      open: (ref, background) =>
         fileWorkspace.open(ref.path, ref.line, undefined, undefined, undefined, {
           background,
           endLine: ref.endLine ?? ref.line,
-        });
-        if (!background) revealPane("review");
-      },
+        }),
     }),
-    [fileIndex, fileWorkspace, revealPane],
+    [fileIndex, fileWorkspace],
   );
   // Notes show the cited lines of files that the change does not touch.
   const readCheckoutFile = useCallback(
@@ -1012,6 +1001,16 @@ export function App({
     [showInTree],
   );
   const showFiles = useCallback(() => showPane("files"), [showPane]);
+  // A file that opens shows: a zoomed pane, or a session that fills the row,
+  // makes room for the review, as Restore does.
+  const otherZoomed = !!panes.zoom && panes.zoom !== "review";
+  useEffect(
+    () =>
+      fileWorkspace.onShow(() => {
+        if (!reviewVisible || otherZoomed) showPane("review");
+      }),
+    [fileWorkspace, reviewVisible, otherZoomed, showPane],
+  );
   const toggleFilesSidebar = useCallback(() => {
     if (rightVisible) closePane("files");
     else showFiles();
@@ -2789,176 +2788,6 @@ export function App({
       endLine: Math.max(selection.range.start, selection.range.end),
     });
   }, [selection, streamFiles]);
-  // Ask about these lines: the thread's lead agent answers in the Question
-  // pane, and its thread gets nothing (data/questions.ts).
-  const question = useQuestion(sessionFetch);
-  const askThread =
-    state.savedReview?.id ?? (found ? foundThreadId(found.agent, found.id) : undefined);
-  const askLead = found ?? leadSession;
-  const askAgent =
-    askLead &&
-    (askLead.agent === "claude" ||
-      askLead.agent === "codex" ||
-      (askLead.agent === "acp" && askLead.name === "Codex"))
-      ? agentName(askLead)
-      : undefined;
-  const askBlocked = !askLead
-    ? "This thread has no agent to ask"
-    : !askAgent
-      ? "Ask works in Claude Code and Codex threads"
-      : question.busy
-        ? "Wait for the answer, or stop it"
-        : undefined;
-  const canAsk = !!askThread && !askBlocked;
-  const { open: openQuestion, discard: discardQuestion, fail: failQuestion } = question;
-  // The layout before the Question pane opened; Close gives it back.
-  const questionLayout = useRef<PaneNode | null>(null);
-  const { root: paneRoot, isOpen: paneOpen, closeTo: closePaneTo } = panes;
-  const startAsk = useCallback(() => {
-    if (!selection || !askThread || !askAgent) return;
-    const file = streamFiles.find((entry) => entry.id === selection.id);
-    if (!file) return;
-    if (selection.range.endSide && selection.range.side !== selection.range.endSide) {
-      setContextError("Select lines on one side to ask about them.");
-      return;
-    }
-    const side = selection.range.side === "deletions" ? "old" : "new";
-    const line = Math.min(selection.range.start, selection.range.end);
-    const endLine = Math.max(selection.range.start, selection.range.end);
-    const opened = openQuestion({
-      thread: askThread,
-      agent: askAgent,
-      reviewId: controller.getSnapshot().review?.id,
-      note: { path: file.path, side, line, endLine },
-      excerpt: questionExcerpt(file.path, file.metadata, side, line, endLine),
-    });
-    if (!opened) return;
-    if (!paneOpen("question")) questionLayout.current = paneRoot;
-    // A narrow row gives the question a larger share, so the answer stays readable.
-    const place = PANE_PLACES.question!;
-    const row = mainElement?.closest("[data-pane-tree]")?.clientWidth ?? 0;
-    const share = row ? Math.min(0.5, Math.max(place.share, QUESTION_WIDTH / row)) : place.share;
-    showInTree("question", { ...place, share });
-  }, [
-    selection,
-    askThread,
-    askAgent,
-    streamFiles,
-    openQuestion,
-    controller,
-    showInTree,
-    paneOpen,
-    paneRoot,
-    mainElement,
-  ]);
-  // `ga` in a file: the same pane, about the file's lines as they are.
-  const askAboutFile = useCallback(
-    (
-      source: BrowseSource,
-      path: string,
-      lines: { line: number; endLine: number; text: string[] },
-    ) => {
-      if (!askThread || !askAgent) return;
-      const end = Math.min(lines.endLine, lines.line + MAX_QUESTION_LINES - 1);
-      const text = lines.text.slice(0, end - lines.line + 1);
-      const where =
-        source.kind === "commit" ? `at commit ${source.oid.slice(0, 12)}` : "in the working tree";
-      const opened = openQuestion({
-        thread: askThread,
-        agent: askAgent,
-        reviewId: undefined,
-        note: { path, side: "new", line: lines.line, endLine: end },
-        file: { source, path, line: lines.line, endLine: end, quote: text.join("\n") },
-        excerpt: {
-          path,
-          side: "new",
-          start: lines.line,
-          end,
-          where,
-          lines: text.map((line, index) => ({
-            number: lines.line + index,
-            mark: " ",
-            text: line.slice(0, 4000),
-          })),
-        },
-      });
-      if (!opened) return;
-      if (!paneOpen("question")) questionLayout.current = paneRoot;
-      const place = PANE_PLACES.question!;
-      const row = mainElement?.closest("[data-pane-tree]")?.clientWidth ?? 0;
-      const share = row ? Math.min(0.5, Math.max(place.share, QUESTION_WIDTH / row)) : place.share;
-      showInTree("question", { ...place, share });
-    },
-    [askThread, askAgent, openQuestion, showInTree, paneOpen, paneRoot, mainElement],
-  );
-  const closeQuestion = useCallback(() => {
-    discardQuestion();
-    closePaneTo("question", questionLayout.current);
-    questionLayout.current = null;
-  }, [discardQuestion, closePaneTo]);
-  // A question goes to the thread itself while its agent, which Med runs,
-  // waits: the answer stays in its context, and costs no fork. While the
-  // agent works, a fork answers at once, as before (data/questions.ts).
-  const askInThread = !!commentAgent && !!leadSession && !agentWorking;
-  const sendQuestion = useCallback(
-    async (text: string) => {
-      const view = question.view;
-      if (!view || !askInThread || !leadSession) return question.send(text);
-      await sendAgentMessage({
-        id: crypto.randomUUID(),
-        sessionId: leadSession.id,
-        text: `A question; answer it, and change nothing yet.\n\n${questionPrompt(text, view.target.excerpt)}`,
-        noteIds: [],
-        attachments: [],
-        images: [],
-      });
-      closeQuestion();
-      showPane("session");
-    },
-    [askInThread, leadSession, question, sendAgentMessage, closeQuestion, showPane],
-  );
-  /** Saves the question and its answer as a comment on the lines, through
-   * the review's comments, and closes the question. */
-  const questionView = question.view;
-  const keepQuestion = useCallback(async () => {
-    const view = questionView;
-    if (!view?.asked || !view.state?.answer.trim()) return;
-    if (view.target.file) {
-      try {
-        await controller.commentFile({
-          add: {
-            ...view.target.file,
-            text: questionComment(view.asked, view.target.agent, view.state.answer),
-          },
-        });
-      } catch (error) {
-        failQuestion(error instanceof Error ? error.message : "Could not save the comment.");
-        return;
-      }
-      closeQuestion();
-      return;
-    }
-    if (controller.getSnapshot().review?.id !== view.target.reviewId) {
-      failQuestion(
-        "The review shows other changes now. Show these lines again to keep the answer.",
-      );
-      return;
-    }
-    try {
-      await controller.mutateNote({
-        type: "add",
-        note: {
-          ...view.target.note,
-          text: questionComment(view.asked, view.target.agent, view.state.answer),
-        },
-      });
-    } catch (error) {
-      failQuestion(error instanceof Error ? error.message : "Could not save the comment.");
-      return;
-    }
-    setShowNotes(true);
-    closeQuestion();
-  }, [questionView, controller, failQuestion, closeQuestion]);
   // Comments on the open file's lines go to the thread's agent as the
   // review's comments do: they wait in the message box until sent, and the
   // agent answers and resolves them in their threads (FileComments.tsx).
@@ -3005,9 +2834,6 @@ export function App({
         await controller.commentFile(mutation);
       },
       send,
-      ...(askThread && askAgent
-        ? { ask: (lines) => askAboutFile(source, activeFilePath, lines) }
-        : {}),
     };
   }, [
     savedThread,
@@ -3018,15 +2844,7 @@ export function App({
     inboxState,
     commentAgent,
     controller,
-    askThread,
-    askAgent,
-    askAboutFile,
   ]);
-  // A layout kept from before a reload names a question that is gone.
-  const questionShown = panes.isOpen("question");
-  useEffect(() => {
-    if (questionShown && !questionView) closePane("question");
-  }, [questionShown, questionView, closePane]);
   const navigateFile = useCallback(
     (delta: number) => {
       const index = streamFiles.findIndex((file) => file.id === state.selectedFileId);
@@ -3445,16 +3263,7 @@ export function App({
         event.preventDefault();
         event.stopPropagation();
         startNote();
-      } else if (event.key === "a" && selection && askThread) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (canAsk) startAsk();
       } else if (event.key === "Escape") {
-        // In the Question pane, Escape stops the answer and keeps the lines.
-        const inQuestion = event
-          .composedPath()
-          .some((node) => node instanceof HTMLElement && node.dataset.pane === "question");
-        if (inQuestion) return;
         setFindOpen(false);
         setDraft(null);
         setSelection(null);
@@ -3477,9 +3286,6 @@ export function App({
     stepHit,
     selection,
     startNote,
-    askThread,
-    canAsk,
-    startAsk,
     toggleReviewSidebar,
     toggleSession,
     state.savedReview,
@@ -4254,14 +4060,6 @@ export function App({
       run: () => runFileNavigation("K"),
     },
     {
-      id: "vim-file-ask",
-      managesFocus: true,
-      label: "Ask the agent about the file's line or selected lines",
-      shortcut: "ga",
-      disabled: !fileComments?.ask || fileState.file?.kind !== "text",
-      run: () => runFileNavigation("ga"),
-    },
-    {
       id: "file-symbols",
       managesFocus: true,
       label: "Search symbols in current file",
@@ -4824,17 +4622,6 @@ export function App({
       shortcut: "c",
       run: startNote,
     },
-    ...(askThread
-      ? [
-          {
-            id: "ask",
-            label: "Ask about the selection",
-            shortcut: "a",
-            disabled: !selection || !canAsk,
-            run: startAsk,
-          },
-        ]
-      : []),
   ];
   const guideContext: GuideContextId =
     activeFile && fileState.file?.kind === "text" ? (activeEditing ? "editor" : "file") : "review";
@@ -6303,33 +6090,6 @@ export function App({
           },
         ]
       : []),
-    // A question about lines, at the review's right, until Keep or Close.
-    ...(questionView
-      ? [
-          {
-            id: "question" as const,
-            label: "Question",
-            ariaLabel: "Question",
-            icon: "ask" as const,
-            onClose: closeQuestion,
-            render: (controls: ReactNode) => (
-              <Suspense fallback={null}>
-                <QuestionPane
-                  key={questionView.key}
-                  view={questionView}
-                  controls={controls}
-                  onSend={(text) => void sendQuestion(text)}
-                  onStop={() => void question.stop()}
-                  onKeep={keepQuestion}
-                  root={state.review?.repo}
-                  onOpenPath={openFromPane}
-                  fileRefs={fileRefs}
-                />
-              </Suspense>
-            ),
-          },
-        ]
-      : []),
   ];
   const branchPicker = gitAvailable && (
     <BranchPicker
@@ -6693,30 +6453,6 @@ export function App({
                           Add note
                           {!compactSelection && <kbd {...stylex.props(styles.selectionKey)}>c</kbd>}
                         </button>
-                        {/* In a thread, Ask stays in its place; it waits while an answer comes. */}
-                        {askThread && (
-                          <button
-                            type="button"
-                            {...stylex.props(
-                              ui.button,
-                              ui.pressable,
-                              styles.selectionAction,
-                              styles.selectionAsk,
-                            )}
-                            aria-label="Ask"
-                            title={askBlocked ?? `Ask ${askAgent} about these lines`}
-                            disabled={!canAsk}
-                            onClick={startAsk}
-                          >
-                            <Icon name="ask" size={14} />
-                            Ask
-                            {!compactSelection && (
-                              <kbd {...stylex.props(styles.selectionKey, styles.selectionAskKey)}>
-                                a
-                              </kbd>
-                            )}
-                          </button>
-                        )}
                         <button
                           {...stylex.props(ui.button, ui.iconButton, styles.selectionClose)}
                           aria-label="Clear line selection"
@@ -7460,8 +7196,6 @@ const styles = stylex.create({
     fontWeight: 500,
   },
   selectionClose: { width: 30, minWidth: 30, height: 30, minHeight: 30 },
-  selectionAsk: { color: { default: tokens.text, ":hover:not(:disabled)": tokens.text } },
-  selectionAskKey: { backgroundColor: tokens.fill },
   codeView: {
     flex: "1",
     minHeight: 0,

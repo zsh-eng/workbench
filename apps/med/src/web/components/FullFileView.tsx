@@ -78,8 +78,6 @@ export interface FileComments {
   ): Promise<void>;
   mutate(mutation: FileCommentMutation): Promise<void>;
   send(id: string, how: Exclude<FileCommentSend, "keep">): Promise<void>;
-  /** `ga`: ask the thread's agent about the lines. */
-  ask?(lines: { line: number; endLine: number; text: string[] }): void;
 }
 /** A number that grows each time the comments or the box change. */
 function versionCounter() {
@@ -156,7 +154,7 @@ export interface FullFileViewProps {
     write: FileWrite;
     autoEdit?: boolean;
   };
-  /** `gc` and the gutter's + comment on lines; `ga` asks about them. */
+  /** `gc` and the gutter's + comment on lines. */
   comments?: FileComments;
 }
 
@@ -261,11 +259,8 @@ function ReadOnlyFileView({
     onDefinition,
     onPosition: followCursor,
     onHover: symbolHover.show,
-    onAnnotate(kind, from, to) {
-      const current = commentsRef.current;
-      if (!current) return;
-      if (kind === "comment") openBoxRef.current(from, to);
-      else current.ask?.({ line: from, endLine: to, text: fileLines(from, to) });
+    onAnnotate(_kind, from, to) {
+      if (commentsRef.current) openBoxRef.current(from, to);
     },
   });
   // A cited range, such as src/a.ts:8-17 from an agent's reply, shows selected.

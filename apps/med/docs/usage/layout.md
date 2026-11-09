@@ -53,9 +53,8 @@ installed app keeps the title band there for its window controls.
 
 The review's header shows the buttons at its ends where it has room; a
 narrower header keeps its room for the title and the pages, and the shortcuts
-and `⌘K` still work. Two have no button to bring them back: the **Question** pane
-discards its question and answer unless you keep them as a comment, and the
-**Background** list's × hides the tasks until one starts or fails.
+and `⌘K` still work. The **Background** list's × has no button to bring the
+list back: it hides the tasks until one starts or fails.
 
 - A pane's header acts as a window's title bar. Drag it onto a side of another
   pane to place the pane there, or onto the middle to swap the two; Escape
@@ -67,6 +66,7 @@ discards its question and answer unless you keep them as a comment, and the
   arrow keys. Double-click a gap, or press `⌘⌃=`, to give the panes equal room.
 - `⌘E` zooms the focused pane to the whole workspace. Press it again, or click
   **Restore the other panes** in the pane's header, to show the others.
+  Opening a file shows the others too, so the file shows in the review.
 - A pane does not get narrower than 220 pixels or lower than 120. When the
   window is too small for all of them, Med hides panes until the rest fit, and
   shows them again when there is room.

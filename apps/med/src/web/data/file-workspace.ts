@@ -174,6 +174,8 @@ export function createFileWorkspace(
   };
   if (persist) globalThis.addEventListener?.("pagehide", flush);
   const listeners = new Set<() => void>();
+  // Told when the reader opens a file to look at, so its pane can show.
+  const shownListeners = new Set<() => void>();
   let snapshot: FileWorkspaceSnapshot = {
     key: "",
     source: null,
@@ -347,6 +349,14 @@ export function createFileWorkspace(
         listeners.delete(listener);
       };
     },
+    /** Calls `listener` each time a file or Search opens in front, also one
+     * that shows already. */
+    onShow(listener: () => void) {
+      shownListeners.add(listener);
+      return () => {
+        shownListeners.delete(listener);
+      };
+    },
     /** Show a workspace's files. `keep` is a tab that is not a file's, such as
      * the Notes of a saved review, that stays in front when the workspace
      * changes under it. */
@@ -397,6 +407,7 @@ export function createFileWorkspace(
       { background = false, endLine: rangeEnd }: { background?: boolean; endLine?: number } = {},
     ) {
       if (!source || disposed) return;
+      if (!background) for (const listener of shownListeners) listener();
       const endLine = line ? rangeEnd : undefined;
       const id = `${sourceKey(source)}:${path}`;
       const existing = snapshot.tabs.some((tab) => tab.id === id);
@@ -465,6 +476,7 @@ export function createFileWorkspace(
      * `query` replaces the tab's query; without one, the tab keeps its own. */
     openSearch(query?: string) {
       if (disposed) return;
+      for (const listener of shownListeners) listener();
       const shows = snapshot.active !== "search";
       publish({
         search: (query ?? snapshot.search ?? "").slice(0, 256),

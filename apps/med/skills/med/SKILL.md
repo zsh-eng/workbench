@@ -91,9 +91,11 @@ task is done. The version can be the whole change again or only what you
 changed for the comments (step 2), as the user asks.
 
 Each comment in the message starts with its ID, as `## 6f1c9e · path:line`.
-To answer one in its thread, where the user reads it (a question they asked on
-a line, or why you left a change out), run `med reply 6f1c9e <<'END'` with the
-answer, then `END`. Your final message still says what you did.
+A comment can be a question or a request: answer a question and change
+nothing for it, and do what a request asks. To answer one in its thread, where
+the user reads it (a question they asked on a line, or why you left a change
+out), run `med reply 6f1c9e <<'END'` with the answer, then `END`. Your final
+message still says what you did.
 
 A comment whose heading says "a file, not the review's change" is on a file
 in the thread's checkout. Do what it asks, then answer with

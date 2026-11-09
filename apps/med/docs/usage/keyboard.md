@@ -31,9 +31,7 @@ Enter runs a row that has a command. On Linux, use Ctrl for ⌘, Alt for ⌥, an
 | Balance the panes                      | `⌘⌃=`           |
 | Review / Changes / Commit page         | `1` / `2` / `3` |
 | Comment on selected lines              | `c`             |
-| Ask about selected lines               | `a`             |
 | Comment on a file's lines, in Vim      | `gc`            |
-| Ask about a file's lines, in Vim       | `ga`            |
 | A name's definition, in Vim            | `K`             |
 | Next / previous guide segment          | `j` / `k`       |
 | Next / previous excerpt or reply       | `]` / `[`       |
