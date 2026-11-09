@@ -32,7 +32,7 @@ test("All comments shows the open ones' count, lists them, shows resolved on req
   mount = document.createElement("div");
   document.body.append(mount);
   const onOpen = vi.fn<(comment: ListedComment) => void>();
-  const onCopy = vi.fn<() => void>();
+  const onCopy = vi.fn<() => Promise<boolean>>(async () => true);
   root = createRoot(mount);
   root.render(
     <CommentsButton
@@ -75,4 +75,31 @@ test("All comments shows the open ones' count, lists them, shows resolved on req
   expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "b", kind: "file" }));
   await expect.element(list).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
+});
+
+test("Copy comments shows a check once copied, and a failed copy closes the panel so its error shows", async () => {
+  initializeTheme();
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
+  const show = (onCopy: () => Promise<boolean>, copied: boolean) =>
+    root!.render(
+      <CommentsButton
+        comments={[comment("a")]}
+        onOpen={() => {}}
+        onCopy={onCopy}
+        copied={copied}
+      />,
+    );
+  show(async () => true, false);
+  await page.getByRole("button", { name: "All comments" }).click();
+  const list = page.getByRole("list", { name: "Comments" });
+  const copy = page.getByRole("button", { name: "Copy comments" });
+  await copy.click();
+  await expect.element(list).toBeVisible();
+  show(async () => true, true);
+  await expect.element(copy).toHaveAttribute("data-copied", "true");
+  show(async () => false, false);
+  await copy.click();
+  await expect.element(list).not.toBeInTheDocument();
 });

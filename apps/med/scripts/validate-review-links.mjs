@@ -373,22 +373,21 @@ try {
   });
   await page.reload();
   await page.waitForFunction(() => document.title === "Agent handoff validation");
-  await page.waitForFunction(() =>
-    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("2"),
-  );
-  const copyButton = header.getByRole("button", { name: "Copy comments", exact: true });
-  await copyButton.hover();
-  const restingCopyWidth = (await copyButton.boundingBox()).width;
-  await page.mouse.down();
-  await page.waitForFunction(() => {
-    const button = window.shown('button[aria-label="Copy comments"]');
-    return button && new DOMMatrix(getComputedStyle(button).transform).a < 0.99;
-  });
-  assert.ok((await copyButton.boundingBox()).width < restingCopyWidth * 0.99);
-  await page.mouse.up();
-  await page.waitForFunction(
-    () =>
-      window.shown('button[aria-label="Copy comments"]')?.getAttribute("data-copied") === "true",
+  // Copy comments is in All comments, at the end of the review's header; it
+  // copies the comments of every comparison, and says how many it copied.
+  const copyComments = async () => {
+    if (!(await page.getByRole("list", { name: "Comments" }).isVisible()))
+      await header.getByRole("button", { name: "All comments", exact: true }).click();
+    await page.getByRole("button", { name: "Copy comments", exact: true }).click();
+  };
+  const copiedNotice = header.getByText(/^Copied \d+ comments?$/);
+  await copyComments();
+  await header.getByText("Copied 2 comments", { exact: true }).waitFor({ state: "attached" });
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy comments", exact: true })
+      .getAttribute("data-copied"),
+    "true",
   );
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   // Each comment is a heading with its short ID and where it is, then its
@@ -408,22 +407,8 @@ try {
   ])
     assert.ok(clipboard.includes(expected), `Feedback must include ${expected}`);
 
-  // Copy state must remain in place, including when the external clipboard is slow.
-  // A settling press transition can round to identity while still moving.
-  await page.waitForFunction(() => {
-    const button = window.shown('[aria-label="Copy comments"]');
-    return (
-      button &&
-      !button.getAnimations().length &&
-      new DOMMatrix(getComputedStyle(button).transform).isIdentity
-    );
-  });
-  const copyBounds = await copyButton.boundingBox();
-  assert.equal(await copyButton.getAttribute("title"), null);
-  await page.waitForFunction(
-    () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "false",
-  );
-  assert.equal((await copyButton.boundingBox()).width, copyBounds.width);
+  // A slow clipboard: Med says it copied only once the clipboard has the text.
+  await copiedNotice.waitFor({ state: "detached" });
   await page.evaluate(() => {
     const original = navigator.clipboard.writeText.bind(navigator.clipboard);
     window.restoreClipboard = () => {
@@ -436,44 +421,26 @@ try {
       await original(text);
     };
   });
-  await copyButton.hover();
-  const appearance = () =>
-    header.evaluate((element) =>
-      [...element.querySelectorAll('[aria-label="Copy comments"]')].map((button) => {
-        const style = getComputedStyle(button);
-        return {
-          color: style.color,
-          background: style.backgroundColor,
-          opacity: style.opacity,
-          x: button.offsetLeft,
-          y: button.offsetTop,
-          width: button.offsetWidth,
-          height: button.offsetHeight,
-        };
-      }),
-    );
-  const beforeCopy = await appearance();
-  await copyButton.click();
+  await copyComments();
   await page.waitForFunction(() => typeof window.releaseClipboard === "function");
-  assert.deepEqual(await appearance(), beforeCopy);
+  assert.equal(await copiedNotice.count(), 0);
   await page.evaluate(() => window.releaseClipboard());
-  await page.waitForFunction(
-    () => window.shown('[aria-label="Copy comments"]')?.dataset.copied === "true",
-  );
-  assert.deepEqual(await appearance(), beforeCopy);
+  await copiedNotice.waitFor({ state: "attached" });
+  await copiedNotice.waitFor({ state: "detached" });
   await page.evaluate(() => {
     navigator.clipboard.writeText = async () => {
       throw new Error("Clipboard unavailable");
     };
   });
-  await copyButton.click();
+  await copyComments();
   const failed = header.getByRole("alert").filter({ hasText: "Clipboard unavailable" });
   await failed.waitFor();
-  assert.equal(await copyButton.getAttribute("data-copied"), "false");
+  assert.equal(await copiedNotice.count(), 0);
   // An error stays until it is dismissed.
   await failed.getByRole("button", { name: "Dismiss message" }).click();
   await failed.waitFor({ state: "detached" });
   await page.evaluate(() => window.restoreClipboard());
+  await page.keyboard.press("Escape");
 
   // Browse a commit outside the initial snapshot, then return and copy all scopes.
   // A commit opens as a range from its parent, from the command palette.
@@ -503,9 +470,10 @@ try {
     .getByRole("article")
     .getByText("Comment on an individual commit", { exact: true })
     .waitFor();
-  await page.waitForFunction(() =>
-    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
-  );
+  for (let tries = 0; (await api(`/api/reviews/${id}`)).commentCount !== 3; tries++) {
+    assert.ok(tries < 50, "The commit's comment must be saved");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
   // Push is in the command palette.
   await page.keyboard.press("Meta+k");
   await page
@@ -544,7 +512,8 @@ try {
   // The base branch comparison shows in Changes; the Review page shows the hand-off again.
   await page.getByRole("radio", { name: "Review", exact: true }).filter({ visible: true }).click();
   await page.locator('[data-review-status="ready"]').filter({ visible: true }).waitFor();
-  await copyButton.click();
+  await copyComments();
+  await page.keyboard.press("Escape");
   await page.waitForFunction(async () =>
     (await navigator.clipboard.readText()).includes("Comment on an individual commit"),
   );
@@ -566,9 +535,6 @@ try {
   assert.ok(!source.new.includes("changedAfterCapture"));
   await page.reload();
   await page.waitForFunction(() => document.title === "Agent handoff validation");
-  await page.waitForFunction(() =>
-    window.shown('button[aria-label="Copy comments"]')?.textContent?.trim().endsWith("3"),
-  );
   await page
     .getByRole("article")
     .getByText("Frontend feedback from the browser", { exact: true })
@@ -587,8 +553,10 @@ try {
   assert.equal((await api(`/api/reviews/${id}/feedback`)).count, 3);
   await clearAll();
   await page.getByRole("button", { name: "Confirm clear", exact: true }).click();
-  // With no comments left, the header has nothing to copy.
-  await page.waitForFunction(() => !window.shown('button[aria-label="Copy comments"]'));
+  // With no comments left, All comments counts none.
+  await page.waitForFunction(
+    () => window.shown('button[aria-label="All comments"]')?.textContent?.trim() === "",
+  );
   assert.equal((await api(`/api/reviews/${id}/feedback`)).count, 0);
   const otherComments = await api(`/api/reviews/${other.id}/feedback`);
   assert.equal(otherComments.count, 1);
