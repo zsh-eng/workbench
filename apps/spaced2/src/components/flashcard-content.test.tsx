@@ -78,6 +78,23 @@ test("existing cards render as before: maths, tables, code, images, links and cl
   }
 });
 
+test("single-dollar inline maths and a one-line $$ render as KaTeX", async () => {
+  // 96 active cards use $…$ inline; Spaced keeps remark-math's default.
+  const view = await render(
+    <FlashcardContent content={"Let $x_1$ be the first term of $$\\sum_i x_i$$."} />,
+  );
+  try {
+    const card = view.container.querySelector("article")!;
+    await until(() => card.querySelectorAll(".katex").length === 2);
+    const [single, double] = [...card.querySelectorAll(".katex annotation")];
+    expect(single!.textContent).toBe("x_1");
+    expect(double!.textContent).toBe("\\sum_i x_i");
+    expect(card.textContent).not.toContain("$");
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a dollar amount without a closing dollar stays text", async () => {
   const view = await render(
     <FlashcardContent content={"The ticket costs $5, and **$$** is text."} />,
