@@ -6,6 +6,7 @@ import type { SavedCommit } from "../../../shared/review-guide";
 import { AREA_LABELS, type GuideNote, type GuideSection } from "../../data/guide";
 import { relativeTime } from "../../data/relative-time";
 import { tokens, ui } from "../../theme.stylex";
+import { LineCounts } from "../DiffStat";
 import { Icon, type IconName } from "../Icon";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { GuideThread } from "./GuideThread";
@@ -68,6 +69,7 @@ export function SegmentHeader({
           <span>
             {section.fileIds.length} {section.fileIds.length === 1 ? "file" : "files"}
           </span>
+          <LineCounts additions={section.additions} deletions={section.deletions} />
           {section.notes.length > 0 && (
             <span {...stylex.props(styles.notes)}>
               <Icon name={agent.mark} size={12} />
