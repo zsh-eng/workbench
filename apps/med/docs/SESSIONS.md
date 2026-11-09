@@ -296,9 +296,15 @@ model. Measured with Claude Haiku 5.5 on a two-turn session: a fork of the
 whole session on its own model read 23,815 tokens from the cache and wrote
 about 680; at another effort it read the same, so the effort does not change
 the cache; on Sonnet 5.5 it read 10,481 (the shared system prompt and tools)
-and wrote 13,874. A session that the Claude app runs has its own system
-prompt, so a fork from one in Med, which runs Claude Code with `-p`, writes
-the cache again.
+and wrote 13,874.
+
+Med sets no system prompt: it passes the model, effort, and mode, and Claude
+Code builds the rest. A session from the terminal keeps its whole cache. A
+two-turn `claude` session in a terminal, forked as Med forks it (`-p` with
+stream-json, Auto or Default mode), read all 39,867 tokens of its history from
+the cache and wrote only the new message. A session that the Claude app runs
+has the app's own instructions and tools, which only the app has, so its first
+turn in Med writes the cache again.
 
 **Detection** (`src/host/session-processes.ts`). Claude Code keeps a record
 for each running process in `~/.claude/sessions/<pid>.json`. Med reads only
