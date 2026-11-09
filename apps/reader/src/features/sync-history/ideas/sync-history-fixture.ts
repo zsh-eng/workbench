@@ -15,6 +15,7 @@ import { SAMPLE_BOOKS } from "@/features/background-activity/ideas/sample-books"
 import type { DeviceType } from "@/types/session";
 import type { ReaderLookup } from "../reader-describe";
 import type { DeviceNamer } from "../RecentHistory";
+import { deviceHere, type DevicePillNamer } from "../device-pill";
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -27,7 +28,17 @@ const DEVICES: Record<string, { label: string; type: DeviceType }> = {
   mac: { label: "Mac", type: "desktop" },
 };
 
-export const SAMPLE_NAMES: DeviceNamer = {
+export const SAMPLE_NAMES: DeviceNamer & DevicePillNamer = {
+  pill(deviceId) {
+    if (deviceId === null) {
+      const here = deviceHere();
+      return { words: `this ${here.label}`, type: here.type, here: true };
+    }
+    const device = DEVICES[deviceId];
+    return device
+      ? { words: `your ${device.label}`, type: device.type, here: false }
+      : { words: "another device", type: null, here: false };
+  },
   name: (deviceId) =>
     deviceId && DEVICES[deviceId]
       ? `your ${DEVICES[deviceId].label}`
@@ -35,6 +46,13 @@ export const SAMPLE_NAMES: DeviceNamer = {
         ? "this device"
         : "another device",
   type: (deviceId) => (deviceId && DEVICES[deviceId]?.type) || null,
+};
+
+/** Reading checkpoints' whole-book progress, by device and book. */
+const SAMPLE_PLACES: Record<string, number> = {
+  "iphone:persuasion": 0.38,
+  "here:emma": 0.62,
+  "mac:dracula": 0.04,
 };
 
 type Table = "books" | "highlights" | "notes" | "readingState";
@@ -269,6 +287,9 @@ export function createSample(now = Date.now()) {
     journal: journal as SyncJournal,
     pending,
     iPhoneSyncs,
+    /** Where each device's place is, for the books that sample one. */
+    placeOf: (deviceId: string | null, bookId: string) =>
+      SAMPLE_PLACES[`${deviceId ?? "here"}:${bookId}`],
     /** Reader's describer reads this in place of the database; the iPhone's records join it. */
     lookup: {
       records,

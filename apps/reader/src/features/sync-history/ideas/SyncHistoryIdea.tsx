@@ -17,9 +17,14 @@ import { ActivityHistory } from "../ActivityHistory";
 import type { RecentArrangement } from "../history-rows";
 import { describeReaderRecord } from "../reader-describe";
 import { RecentHistory } from "../RecentHistory";
+import { BookActivityList } from "../BookActivityList";
 import { createSample, SAMPLE_NAMES } from "./sync-history-fixture";
 
-const ARRANGEMENTS: readonly RecentArrangement[] = [
+/** `books` is Account → Activity as it ships; the others are earlier ideas. */
+type Variant = "books" | RecentArrangement;
+
+const VARIANTS: readonly Variant[] = [
+  "books",
   "sections",
   "timeline",
   "devices",
@@ -28,15 +33,16 @@ const ARRANGEMENTS: readonly RecentArrangement[] = [
 /**
  * Design ideas → Sync history. A sample Library with Account → Activity
  * open: Now runs the background engine on simulated downloads (Try →
- * Download 5), and Recent shows six days of sample sync history, arranged
- * as `?variant=` says (`sections`, the choice; `timeline`; `devices`).
+ * Download 5), and the history shows six days of sample sync, by book
+ * (`books`, as Activity ships), or as `?variant=` says (`sections`,
+ * `timeline`, `devices`, earlier ideas by device).
  * Three seconds in, the iPhone sends one more highlight, and its row says
  * so in place.
  */
 export function SyncHistoryIdea() {
   const [params] = useSearchParams();
-  const raw = params.get("variant") as RecentArrangement | null;
-  const arrange = raw && ARRANGEMENTS.includes(raw) ? raw : "sections";
+  const raw = params.get("variant") as Variant | null;
+  const arrange = raw && VARIANTS.includes(raw) ? raw : "books";
   // Reset starts a new sample, and a new page so Recent arranges afresh.
   const [{ sample, round }, setSample] = useState(() => ({
     sample: createSample(),
@@ -93,7 +99,7 @@ function IdeaPage({
 }: {
   sample: ReturnType<typeof createSample>;
   sim: Simulation;
-  arrange: RecentArrangement;
+  arrange: Variant;
   onReset(): void;
 }) {
   const [open, setOpen] = useState(true);
@@ -174,12 +180,27 @@ function IdeaPage({
         open={open}
         onOpenChange={setOpen}
         anchor={account}
-        recent={
-          <RecentHistory
-            history={history}
-            names={SAMPLE_NAMES}
-            arrange={arrange}
-          />
+        recent={(offline) =>
+          !history.loaded ? null : arrange === "books" ? (
+            <BookActivityList
+              history={history}
+              names={SAMPLE_NAMES}
+              renderCover={(bookId) => {
+                const book = SAMPLE_BOOKS.find((entry) => entry.id === bookId);
+                return book ? (
+                  <SimCover {...book} compact className="size-full" />
+                ) : null;
+              }}
+              placeOf={sample.placeOf}
+              offline={offline}
+            />
+          ) : (
+            <RecentHistory
+              history={history}
+              names={SAMPLE_NAMES}
+              arrange={arrange}
+            />
+          )
         }
       />
     </div>

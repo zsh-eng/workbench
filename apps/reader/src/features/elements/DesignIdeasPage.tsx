@@ -460,13 +460,20 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
   },
   sync: {
     current: {
-      id: "sync-sections",
-      title: "Now, then Recent",
+      id: "sync-books",
+      title: "By book",
       description:
-        "The choice, shipped as Account → Activity. Now lists the background jobs as the glyph's sheet does; Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day. Three seconds in, the iPhone sends one more highlight: its row says so in place, and nothing moves.",
-      src: "/debug/ideas/sync-history?variant=sections",
+        "The choice, shipped as Account → Activity. Each book you touched, cover first, with a line for what each device did and a small tag for where: \"your iPhone\", and \"this iPhone\" with the ribbon. No device's state, and no lost edits, since sync keeps the newest edit. The title says Offline or Adding three books only when that's so. Three seconds in, the iPhone sends one more highlight and its book's line counts it.",
+      src: "/debug/ideas/sync-history?variant=books",
     },
     ideas: [
+      {
+        id: "sync-sections",
+        title: "Now, then Recent",
+        description:
+          "Shipped before By book. Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day.",
+        src: "/debug/ideas/sync-history?variant=sections",
+      },
       {
         id: "sync-timeline",
         title: "One timeline",

@@ -285,6 +285,9 @@ export function PaperChoices({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** The red of Reader's bookmark ribbon: on the chosen paper, and on the device you're holding. */
+export const RIBBON_RED = "#b23a2b";
+
 /**
  * A small open book for the account menu: the day paper on both pages for
  * Light, the night paper for Dark, one of each for Match system. The ribbon
@@ -355,7 +358,7 @@ export function OpenBookSwatch({
         opacity="0.12"
       />
       {selected && (
-        <path d="M56 72 H64 V95 L60 90.5 L56 95 Z" fill="#b23a2b" />
+        <path d="M56 72 H64 V95 L60 90.5 L56 95 Z" fill={RIBBON_RED} />
       )}
     </svg>
   );

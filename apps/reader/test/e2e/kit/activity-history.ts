@@ -10,6 +10,6 @@ export default async function activityHistory({ page }: { page: Page }) {
   const menu = await openAccountMenu(page);
   await menu.getByRole("menuitem", { name: "Activity", exact: true }).click();
   const sheet = await waitForSheet(page, "Activity");
-  await sheet.locator("[data-sync-history]").waitFor();
+  await sheet.locator("[data-book-activity]").waitFor();
   await waitForSheetToRest(sheet);
 }

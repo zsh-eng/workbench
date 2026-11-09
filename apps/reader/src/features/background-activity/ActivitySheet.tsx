@@ -331,9 +331,12 @@ export function ActivitySheetBody({
       Nothing in the background. Everything is on this device and synced.
     </p>
   ),
+  offlineNote = true,
 }: {
   /** What an empty sheet shows. */
   empty?: ReactNode;
+  /** Say offline in a note at the top; Account → Activity says it in its title instead. */
+  offlineNote?: boolean;
 }) {
   const { source } = useActivityEnvironment();
   const snapshot = useActivity(source);
@@ -342,7 +345,7 @@ export function ActivitySheetBody({
   const groups = sectionsOf(rows);
   return (
     <div className="px-1 pb-2" data-activity-sheet="">
-      {!snapshot.online && (
+      {offlineNote && !snapshot.online && (
         <p className="mb-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-[12.5px] text-muted-foreground">
           Offline. What needs the network waits until you are back online.
         </p>
