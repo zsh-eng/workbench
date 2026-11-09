@@ -178,8 +178,11 @@ adopted session, and the transcript tells, in the thread and in the thread list.
 
 Med also finds the Claude Code and Codex sessions that no agent handed off
 (`src/host/found-sessions.ts`). Med finds a session when its transcript
-changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and its
-folder is in a registered repository or one of its worktrees. Its thread ID is
+changed in the last 7 days (`FOUND_DAYS`, one window for both agents) and the
+folder where it works now, its transcript's last `cwd`, is in a registered
+repository or one of its worktrees. Claude Code files a transcript under the
+folder where the session started, which can be outside them, such as a notes
+folder, so Med reads every project folder. Its thread ID is
 `found-<agent>-<session>`, and the session routes accept it. A server of
 another state folder than `~/.local/state/med` starts with found sessions
 hidden (`startHost({ foundSessions: false })`), so a second Med lists only its

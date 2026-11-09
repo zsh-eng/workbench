@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -96,6 +97,26 @@ export function createSettingsFile(path = settingsPath()) {
       /* Without a watch, Med's own writes still apply. */
     }
   }
+  let writing: Promise<unknown> = Promise.resolve();
+  async function setNow(key: string, value: SettingValue) {
+    await ready;
+    let current: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = text.trim() ? JSON.parse(text) : {};
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        current = parsed as Record<string, unknown>;
+    } catch {
+      throw new Error(`${path} is not valid JSON; fix it before Med writes to it.`);
+    }
+    const next = `${JSON.stringify({ ...current, [key]: value }, null, 2)}\n`;
+    await mkdir(dirname(path), { recursive: true });
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, next);
+    await rename(temporary, path);
+    await read();
+    for (const listener of listeners) listener();
+    return { path, settings, error };
+  }
   return {
     path,
     /** The file as it is now, read again: a watch can miss a save. */
@@ -104,25 +125,13 @@ export function createSettingsFile(path = settingsPath()) {
       await read().catch(() => {});
       return { path, settings, error };
     },
-    /** Writes one key, keeping every other key and the file's other text as JSON. */
-    async set(key: string, value: SettingValue) {
-      await ready;
-      let current: Record<string, unknown> = {};
-      try {
-        const parsed: unknown = text.trim() ? JSON.parse(text) : {};
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-          current = parsed as Record<string, unknown>;
-      } catch {
-        throw new Error(`${path} is not valid JSON; fix it before Med writes to it.`);
-      }
-      const next = `${JSON.stringify({ ...current, [key]: value }, null, 2)}\n`;
-      await mkdir(dirname(path), { recursive: true });
-      const temporary = `${path}.${process.pid}.tmp`;
-      await writeFile(temporary, next);
-      await rename(temporary, path);
-      await read();
-      for (const listener of listeners) listener();
-      return { path, settings, error };
+    /** Writes one key, keeping every other key and the file's other text as
+     * JSON. Writes go one at a time, each over the file that the last one
+     * wrote, so two quick changes keep both, and the file stays whole. */
+    set(key: string, value: SettingValue) {
+      const write = writing.then(() => setNow(key, value));
+      writing = write.catch(() => {});
+      return write;
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
