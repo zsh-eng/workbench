@@ -365,9 +365,12 @@ export class SyncClient<Prepared> {
     await this.bindScope();
     const state = this.requireState();
     const pendingSnapshot = await this.storage.getPendingChanges();
+    // A change that can never be sent stays in the outbox and fails the pass
+    // once the others have gone, so it holds none of them back.
+    const { sendable, unsendable } = partitionPushChanges(pendingSnapshot);
     let pushed = 0;
 
-    for (const changes of createPushBatches(pendingSnapshot)) {
+    for (const changes of createPushBatches(sendable)) {
       const response = syncPushResponseSchema.parse(
         await this.remote.push(state.deviceId, changes),
       );
@@ -386,6 +389,7 @@ export class SyncClient<Prepared> {
       options.observer?.pushed({ sent: changes, results: response.results });
     }
 
+    if (unsendable.length > 0) throw unsendable[0];
     return pushed;
   }
 
@@ -463,30 +467,54 @@ function notePrimed(
     if (!kept.has(record.key)) primed.set(record.key, record.serverSeq);
 }
 
+const pushEncoder = new TextEncoder();
+const PUSH_ENVELOPE_BYTES = pushEncoder.encode(
+  JSON.stringify({ changes: [] }),
+).byteLength;
+
+/**
+ * The changes a push can send, and an error for each it never can. An
+ * outbox written before a limit applied can still hold such a value.
+ */
+function partitionPushChanges(changes: readonly SyncPushChange[]): {
+  sendable: SyncPushChange[];
+  unsendable: Error[];
+} {
+  const sendable: SyncPushChange[] = [];
+  const unsendable: Error[] = [];
+  for (const change of changes) {
+    try {
+      checkSyncValueSize(change.value, change.key);
+      const validation = syncPushChangeSchema.safeParse(change);
+      if (!validation.success) {
+        const issues = validation.error.issues.map((issue) => issue.message);
+        throw new SyncRecordError(
+          `Cannot synchronize record ${change.key}: ${issues.join("; ")}`,
+        );
+      }
+      const changeBytes = pushEncoder.encode(JSON.stringify(change)).byteLength;
+      if (PUSH_ENVELOPE_BYTES + changeBytes > MAX_SYNC_PUSH_BODY_BYTES) {
+        throw new SyncRecordError(
+          `Cannot synchronize record ${change.key}: encoded mutation exceeds the push body limit`,
+        );
+      }
+      sendable.push(change);
+    } catch (error) {
+      unsendable.push(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+  return { sendable, unsendable };
+}
+
 /** Count the actual JSON envelope, escaped values, commas, and UTF-8 bytes. */
 function* createPushBatches(changes: readonly SyncPushChange[]) {
-  const encoder = new TextEncoder();
-  const envelopeBytes = encoder.encode(
-    JSON.stringify({ changes: [] }),
-  ).byteLength;
+  const envelopeBytes = PUSH_ENVELOPE_BYTES;
   let batch: SyncPushChange[] = [];
   let bodyBytes = envelopeBytes;
   for (const change of changes) {
-    // An outbox written before a limit applied can still hold such a value.
-    checkSyncValueSize(change.value, change.key);
-    const validation = syncPushChangeSchema.safeParse(change);
-    if (!validation.success) {
-      const issues = validation.error.issues.map((issue) => issue.message);
-      throw new SyncRecordError(
-        `Cannot synchronize record ${change.key}: ${issues.join("; ")}`,
-      );
-    }
-    const changeBytes = encoder.encode(JSON.stringify(change)).byteLength;
-    if (envelopeBytes + changeBytes > MAX_SYNC_PUSH_BODY_BYTES) {
-      throw new SyncRecordError(
-        `Cannot synchronize record ${change.key}: encoded mutation exceeds the push body limit`,
-      );
-    }
+    const changeBytes = pushEncoder.encode(JSON.stringify(change)).byteLength;
     const commaBytes = batch.length === 0 ? 0 : 1;
     if (
       batch.length === MAX_SYNC_PUSH_CHANGES ||

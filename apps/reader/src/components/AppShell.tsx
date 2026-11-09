@@ -73,13 +73,16 @@ export function AppShell() {
   }, [canReveal]);
 
   // Opening a book shrinks the document before any effect can read scrollY,
-  // so remember the screen's position while it scrolls instead.
-  const returnScrollY = useRef(0);
-  const pendingScrollY = useRef<number | null>(null);
+  // so remember each screen's position while it scrolls instead. A book
+  // opened from Highlights still returns to the Library: each screen gets
+  // its own position back, not the last screen's.
+  const scrollByPath = useRef(new Map<string, number>());
+  const returningFromReader = useRef(false);
   useEffect(() => {
     const remember = () => {
-      if (!window.location.pathname.startsWith("/reader/"))
-        returnScrollY.current = window.scrollY;
+      const { pathname } = window.location;
+      if (!pathname.startsWith("/reader/"))
+        scrollByPath.current.set(pathname, window.scrollY);
     };
     window.addEventListener("scroll", remember, { passive: true });
     return () => window.removeEventListener("scroll", remember);
@@ -87,11 +90,11 @@ export function AppShell() {
 
   // The returning screen has its full height only once it reports ready.
   useLayoutEffect(() => {
-    if (isReaderRoute || !routeContentReady || pendingScrollY.current === null)
+    if (isReaderRoute || !routeContentReady || !returningFromReader.current)
       return;
-    window.scrollTo(0, pendingScrollY.current);
-    pendingScrollY.current = null;
-  }, [isReaderRoute, routeContentReady]);
+    window.scrollTo(0, scrollByPath.current.get(location.pathname) ?? 0);
+    returningFromReader.current = false;
+  }, [isReaderRoute, location.pathname, routeContentReady]);
 
   useLayoutEffect(() => {
     if (!isReaderRoute) return;
@@ -135,7 +138,7 @@ export function AppShell() {
       documentElement.style.overflow = previousDocumentStyles.overflow;
       documentElement.style.overscrollBehavior =
         previousDocumentStyles.overscrollBehavior;
-      pendingScrollY.current = returnScrollY.current;
+      returningFromReader.current = true;
     };
   }, [isReaderRoute]);
 

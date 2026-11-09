@@ -195,7 +195,8 @@ export function BookStatusPanel({
 
       <div className="flex flex-col gap-2">
         {READING_STATUS_OPTIONS.map((option) => {
-          const isSelected = status === option.value;
+          // No status yet reads as "Want to read", as the Library has it.
+          const isSelected = (status ?? "want-to-read") === option.value;
 
           return (
             <BookStatusOptionButton

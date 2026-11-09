@@ -342,6 +342,39 @@ describe("a reload", () => {
     expect(book.last("emma").context.resume).toEqual({ next: 3 });
   });
 
+  test("in a shared store, saved jobs wait for the page that claims them", async () => {
+    const book = controllable();
+    const { manager, storage, clock, network } = setup({ book: book.kind });
+    manager.start("book", "emma", { id: "emma" });
+    manager.dispose();
+    const shared = (paused = false) =>
+      createActivityManager({
+        kinds: { book: book.kind },
+        clock,
+        network,
+        persist: { storage, key: "jobs", shared: true },
+        paused,
+      });
+
+    // Another tab: it neither runs the saved jobs nor erases them.
+    const other = shared();
+    other.start("book", "persuasion", { id: "persuasion" });
+    other.cancel("persuasion");
+    await clock.advance(1_000);
+    expect(other.get("emma")).toBeUndefined();
+    expect(storage.getItem("jobs")).toContain('"emma"');
+
+    // The tab that claims them runs them and saves its own from then on.
+    const leader = shared();
+    leader.start("book", "sanditon", { id: "sanditon" });
+    leader.claimSaved();
+    await clock.advance(0);
+    expect(state(leader, "emma")).toBe("running");
+    expect(storage.getItem("jobs")).toContain('"sanditon"');
+    other.dispose();
+    leader.dispose();
+  });
+
   test("a job is saved as soon as it starts", () => {
     const book = controllable();
     const { manager, storage, make } = setup({ book: book.kind });

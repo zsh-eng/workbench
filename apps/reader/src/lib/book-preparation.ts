@@ -34,6 +34,23 @@ export interface BookPreparationResult {
 const pendingPreparations = new Map<string, Promise<BookPreparationResult>>();
 
 /**
+ * The book left the library, here or through sync, while its EPUB was being
+ * read. Nothing was written: writing it back would restore it everywhere.
+ */
+export class BookRemovedError extends Error {
+  constructor(bookId: string) {
+    super(`Book ${bookId} is no longer in your library`);
+    this.name = "BookRemovedError";
+  }
+}
+
+/** Inside a transaction over `db.books`: throws if the book has gone. */
+async function assertBookInLibrary(bookId: string): Promise<void> {
+  const current = await db.books.get(bookId);
+  if (!current || current.isDeleted) throw new BookRemovedError(bookId);
+}
+
+/**
  * Ensure one synchronized Book has all durable local artifacts required to
  * open. The same operation handles an established client and a new download.
  */
@@ -87,7 +104,10 @@ async function prepareBookOnce(
     // they cannot give it, they are damaged, and expanding again repairs them.
     const expanded = await readExpandedStructure(book).catch(() => null);
     if (expanded) {
-      await putBookStructure(book, expanded);
+      await db.transaction("rw", [db.books, db.bookStructures], async () => {
+        await assertBookInLibrary(book.id);
+        await putBookStructure(book, expanded);
+      });
       return {
         book: { ...book, ...expanded },
         bookChanged: !sameStructure(book, expanded),
@@ -151,6 +171,8 @@ async function commitMaterialization(
     "rw",
     [...fileTables, ...bookMaterializationTables()],
     async () => {
+      // An established book may have been removed while its EPUB was read.
+      if (!source) await assertBookInLibrary(book.id);
       // Another tab may have added the same file since the caller looked.
       const existing = source && (await getBookBySourceFileId(source.id));
       if (existing)

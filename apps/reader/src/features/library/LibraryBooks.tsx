@@ -231,7 +231,9 @@ function BookActions({
   const setStatus = useSetReadingStatus(book.id);
   const [removeOpen, setRemoveOpen] = useState(false);
   // The mutation owns the optimistic value until refreshed queries take over.
-  const displayStatus = setStatus.isPending ? setStatus.variables! : status;
+  // No status yet reads as "Want to read", as the filters and labels have it.
+  const displayStatus =
+    (setStatus.isPending ? setStatus.variables! : status) ?? "want-to-read";
 
   const handleSetStatus = (next: ReadingStatus) => {
     if (next === displayStatus || setStatus.isPending) return;
@@ -284,7 +286,7 @@ function BookActions({
           <DownloadForOfflineItem book={book} />
           <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
-            value={displayStatus ?? ""}
+            value={displayStatus}
             onValueChange={(value) => handleSetStatus(value as ReadingStatus)}
           >
             {READING_STATUS_OPTIONS.map((option) => (

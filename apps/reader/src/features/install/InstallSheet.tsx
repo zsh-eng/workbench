@@ -220,7 +220,10 @@ function ChromiumInstall({
   const [state, setState] = useState<"idle" | "asking" | "installed">("idle");
   const install = async () => {
     setState("asking");
-    const outcome = await onInstall();
+    const outcome = await onInstall().catch((error: unknown) => {
+      console.warn("[install] Install failed", error);
+      return "unavailable" as const;
+    });
     if (outcome !== "accepted") {
       onClose();
       return;

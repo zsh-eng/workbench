@@ -1,4 +1,5 @@
 import {
+  getLabRuntime,
   getRuntimeOnline,
   getRuntimeStorage,
   subscribeRuntimeOnline,
@@ -9,7 +10,7 @@ import {
   BOOK_IMPORT_KIND,
   bookImportKind,
 } from "@/lib/book-arrivals";
-import { prepareBook } from "@/lib/book-preparation";
+import { BookRemovedError, prepareBook } from "@/lib/book-preparation";
 import { getBook, type Book } from "@/lib/db";
 import { files } from "@/lib/files";
 import { SHARED_STORAGE_SUFFIX } from "@/lib/shared-api";
@@ -29,6 +30,13 @@ export interface BookDownloadInput {
 
 export const bookJobId = (bookId: string) => `book:${bookId}`;
 
+const removed = () =>
+  new JobError({
+    reason: "rejected",
+    message: "This book is no longer in your library",
+    retryable: false,
+  });
+
 const bookDownload: JobKind<BookDownloadInput> = {
   lane: "network",
   persist: true,
@@ -36,12 +44,7 @@ const bookDownload: JobKind<BookDownloadInput> = {
   title: (input) => input.title,
   async run(input, { signal, progress }) {
     const book = await getBook(input.bookId);
-    if (!book)
-      throw new JobError({
-        reason: "rejected",
-        message: "This book is no longer in your library",
-        retryable: false,
-      });
+    if (!book) throw removed();
     let blob: Blob | undefined;
     if (!(await files.hasLocal(book.sourceFileId))) {
       progress({ phase: "downloading" });
@@ -54,7 +57,13 @@ const bookDownload: JobKind<BookDownloadInput> = {
     signal.throwIfAborted();
     // Unzipping runs in fflate's workers; the main thread only stores.
     progress({ phase: "preparing" });
-    await prepareBook(book, blob);
+    try {
+      await prepareBook(book, blob);
+    } catch (error) {
+      // Removed while it downloaded: preparing wrote nothing back.
+      if (error instanceof BookRemovedError) throw removed();
+      throw error;
+    }
   },
 };
 
@@ -63,6 +72,8 @@ const bookDownload: JobKind<BookDownloadInput> = {
  * from their owners, record sync and the app update. It starts held and
  * runs after the first paint (`startBackgroundActivity`).
  */
+const ACTIVITY_STORAGE_KEY = "reader-activity-v1" + SHARED_STORAGE_SUFFIX;
+
 export const activity = createActivityManager({
   kinds: {
     "book-download": bookDownload,
@@ -73,7 +84,8 @@ export const activity = createActivityManager({
   network: { isOnline: getRuntimeOnline, subscribe: subscribeRuntimeOnline },
   persist: {
     storage: getRuntimeStorage(),
-    key: "reader-activity-v1" + SHARED_STORAGE_SUFFIX,
+    key: ACTIVITY_STORAGE_KEY,
+    shared: true,
   },
   paused: true,
 });
@@ -134,5 +146,25 @@ export function startBackgroundActivity(): void {
   activity.track("sync", syncAsJob(syncService.controller));
   const update = getAppUpdate();
   if (update) activity.track("app-update", update.asJob());
+  claimSavedJobs();
   activity.resume();
+}
+
+/**
+ * Tabs share the saved queue. The first tab to ask runs and saves it for as
+ * long as it is open; the next takes over when it closes. Without Web Locks
+ * every tab claims it, as before.
+ */
+function claimSavedJobs(): void {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) {
+    activity.claimSaved();
+    return;
+  }
+  // Sync Lab's devices share this page's locks; each has its own queue.
+  const lab = getLabRuntime()?.databaseName ?? "";
+  void locks.request(`reader-activity:${lab}${ACTIVITY_STORAGE_KEY}`, () => {
+    activity.claimSaved();
+    return new Promise<never>(() => {});
+  });
 }

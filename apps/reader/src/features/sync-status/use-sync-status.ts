@@ -27,7 +27,7 @@ export function useSyncStatus() {
     const operations = await db.fileUploadOperations.toArray();
     return {
       waiting: operations.length,
-      failed: operations.filter((item) => item.lastFailure.kind === "failed")
+      failed: operations.filter((item) => item.lastFailure.kind !== "none")
         .length,
     };
   }, []);

@@ -43,7 +43,7 @@ export function ReaderBookActionsSheet({
   }, [isLoading, status]);
 
   const handleSelectStatus = (nextStatus: ReadingStatus) => {
-    if (nextStatus === displayStatus || isUpdating) return;
+    if (nextStatus === (displayStatus ?? "want-to-read") || isUpdating) return;
 
     const previousStatus = displayStatus;
     setDisplayStatus(nextStatus);

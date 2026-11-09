@@ -1,5 +1,8 @@
 import { APP_HEADER_BUTTON } from "@/components/app-header-styles";
-import { APPEARANCE_MODES, OpenBookSwatch } from "@/components/appearance/Paper";
+import {
+  APPEARANCE_MODES,
+  OpenBookSwatch,
+} from "@/components/appearance/Paper";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -131,7 +134,8 @@ export function AccountMenu() {
 
   const handleSync = async () => {
     try {
-      files.retryUploads();
+      // Signed out, a retry would only meet another 401.
+      if (isAuthenticated) files.retryUploads();
       await triggerSync();
     } catch (error) {
       console.error("Error syncing:", error);

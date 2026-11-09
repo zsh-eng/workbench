@@ -156,6 +156,9 @@ export function Library() {
   const [view, setViewState] = useState(readViewPreferences);
   const placeSearch = usePlaceSearch();
   const [isDragging, setIsDragging] = useState(false);
+  // Enters and leaves come in pairs from every element the drag crosses;
+  // the drag has left the page only when they balance.
+  const dragDepth = useRef(0);
   const { terms } = placeSearch;
 
   const setView = (next: Partial<LibraryViewPreferences>) =>
@@ -375,14 +378,17 @@ export function Library() {
 
   const handleDragEnter = (event: DragEvent) => {
     event.preventDefault();
+    dragDepth.current += 1;
     setIsDragging(true);
   };
   const handleDragLeave = (event: DragEvent) => {
     event.preventDefault();
-    if (event.currentTarget === event.target) setIsDragging(false);
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setIsDragging(false);
   };
   const handleDrop = async (event: DragEvent) => {
     event.preventDefault();
+    dragDepth.current = 0;
     setIsDragging(false);
     await importFiles(event.dataTransfer.files);
   };

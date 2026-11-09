@@ -341,6 +341,17 @@ export function Reader() {
     );
   }
 
+  if (sessionState.status === "error") {
+    return (
+      <ReaderStateScreen
+        title="This book couldn’t open"
+        message="Something went wrong while opening it on this device. Nothing was changed, and your place is kept."
+        titleTone="destructive"
+        action={{ label: "Try again", onClick: () => window.location.reload() }}
+      />
+    );
+  }
+
   if (!sessionState.book) {
     return (
       <div className="relative h-dvh overflow-hidden overscroll-none bg-background">

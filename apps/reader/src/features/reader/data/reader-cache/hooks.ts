@@ -13,6 +13,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import {
   buildHighlightSignature,
@@ -106,6 +107,8 @@ export interface ReaderChapterArtifactsLoader {
   getChapterBlocks: (chapterIndex: number) => ParsedChapterBlocks | null;
   subscribe: (listener: ReaderChapterArtifactSubscriber) => () => void;
   resumeBackgroundLoad: () => void;
+  /** A chapter of this book could not be built: it cannot open. */
+  failed: boolean;
 }
 
 /**
@@ -145,6 +148,7 @@ export function useReaderChapterArtifactsLoader(options: {
   const backgroundLoadAllowedRef = useRef(false);
   const backgroundLoadWaitersRef = useRef<Set<() => void>>(new Set());
   const activeBookIdRef = useRef<string | undefined>(undefined);
+  const [failedBookId, setFailedBookId] = useState<string | null>(null);
 
   const highlightsBySpineItemId = useMemo(
     () => buildHighlightsBySpineItemId(highlights),
@@ -256,6 +260,8 @@ export function useReaderChapterArtifactsLoader(options: {
     const resolvedSourceFileId = sourceFileId;
     const resolvedBaseContentByChapter = baseContentByChapter;
     const resolvedInitialLocation = initialLocation;
+    // A newer load (new highlights, settings or book) replaces this one.
+    let cancelled = false;
 
     async function loadArtifacts() {
       const chapterLoadOrder = buildReaderChapterLoadOrder(
@@ -306,6 +312,7 @@ export function useReaderChapterArtifactsLoader(options: {
               { afterChapterIndex: firstChapterIndex ?? 0 },
             );
             await waitForBackgroundLoad();
+            if (cancelled) return;
             revealGateWaitMs = performance.now() - gateStartedAtMs;
             endReaderTraceSpan(gateSpan, {
               waitMs: Math.round(revealGateWaitMs * 10) / 10,
@@ -332,6 +339,7 @@ export function useReaderChapterArtifactsLoader(options: {
               : null;
             const yieldStartedAtMs = performance.now();
             await yieldToMainThreadTask();
+            if (cancelled) return;
             const yieldWaitMs = performance.now() - yieldStartedAtMs;
             taskYieldCount += 1;
             totalTaskYieldWaitMs += yieldWaitMs;
@@ -380,6 +388,7 @@ export function useReaderChapterArtifactsLoader(options: {
           const cachedArtifact = queryClient.getQueryData(query.queryKey);
           const artifact =
             cachedArtifact ?? (await queryClient.ensureQueryData(query));
+          if (cancelled) return;
 
           if (cachedArtifact) cachedArtifactCount += 1;
           else builtArtifactCount += 1;
@@ -399,6 +408,7 @@ export function useReaderChapterArtifactsLoader(options: {
           if (currentSignature !== previousSignature) continue;
 
           await ensurePublisherFontsReadyFromBlocks(artifact.blocks);
+          if (cancelled) return;
 
           artifactsByChapterRef.current.set(chapterIndex, artifact);
           signaturesByChapterRef.current.set(chapterIndex, artifactSignature);
@@ -444,11 +454,16 @@ export function useReaderChapterArtifactsLoader(options: {
         };
         endReaderTraceSpan(firstArtifactSpan, details, "error");
         endReaderTraceSpan(allArtifactsSpan, details, "error");
-        throw error;
+        if (cancelled) return;
+        console.error("[reader] Could not build a chapter", error);
+        setFailedBookId(resolvedBookId);
       }
     }
 
     void loadArtifacts();
+    return () => {
+      cancelled = true;
+    };
   }, [
     baseContentByChapter,
     bookId,
@@ -490,5 +505,6 @@ export function useReaderChapterArtifactsLoader(options: {
     getChapterBlocks,
     subscribe,
     resumeBackgroundLoad,
+    failed: failedBookId !== null && failedBookId === bookId,
   };
 }
