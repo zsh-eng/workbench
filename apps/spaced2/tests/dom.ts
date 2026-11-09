@@ -44,12 +44,18 @@ export async function click(element: HTMLElement) {
  * compile or a file read finishes after React's turn.
  */
 export async function until(check: () => boolean, timeoutMs = 5_000) {
-  const end = Date.now() + timeoutMs;
+  // performance.now(): tests may hold Date.now() with setSystemTime.
+  const end = performance.now() + timeoutMs;
   while (!check()) {
-    if (Date.now() > end)
+    if (performance.now() > end)
       throw new Error("The page did not reach the expected state");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
   }
+}
+
+/** Waits until `container` shows `text`: card Markdown renders in a worker. */
+export async function untilText(container: HTMLElement, text: string) {
+  await until(() => container.textContent?.includes(text) ?? false);
 }

@@ -59,6 +59,25 @@ The entry chunk names every lazy file, so its name changes with every
 release. The app code that Stats shares with the first load has its own
 chunk, so Stats and its charts keep their names across a release.
 
+## Card Markdown
+
+Cards are GFM Markdown with KaTeX maths, code and Mermaid diagrams.
+`src/lib/markdown/render.worker.ts` renders them off the main thread with
+remark and rehype; the first load has none of that code. KaTeX and Pierre's
+highlighter (`@pierre/highlights`, as in Med) load in the worker only for a
+card that needs them, and KaTeX's CSS loads with the first card that has
+maths. `src/lib/markdown/cards.ts` keeps 256 rendered sides by text. Review
+renders the current card and the next 20 at a lower priority, so the next
+card after a grade paints from that cache. `$…$` stays inline maths, as
+existing cards use it. Raw HTML stays off.
+
+Pele (`pele`, as in Med) draws each ```` ```mermaid ```` block on the page,
+fitted to the card's width, with Full screen and zoom
+(`src/lib/markdown/diagrams.ts`). Its colors are CSS variables in
+`src/index.css`, so a theme change needs no new drawing. A source that does
+not draw stays as code. The card form's Preview shows a card as review
+shows it. Measurements: `docs/CARD_MARKDOWN.md`.
+
 ## Images
 
 `ImageCacheV2` separates metadata and image blobs. Review HTML checks the local

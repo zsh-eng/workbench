@@ -1,4 +1,7 @@
+import { CardMarkdown } from "@/components/flashcard-content";
 import { FormTextareaImageUpload } from "@/components/form/form-textarea-image-upload";
+import CachedImagesContainer from "@/components/images/cached-images-container";
+import { renderCard } from "@/lib/markdown/cards";
 import CmdEnterIcon from "@/components/keyboard/CmdEnterIcon";
 import { Button } from "@/components/ui/button";
 import { Form } from "@/components/ui/form";
@@ -9,15 +12,16 @@ import {
 import { isEventTargetInput } from "@/lib/utils";
 import VibrationPattern from "@/lib/vibrate";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Book } from "lucide-react";
+import { Book, Eye } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
+  useState,
   type MutableRefObject,
 } from "react";
-import { useForm, type UseFormReturn } from "react-hook-form";
+import { useForm, useWatch, type UseFormReturn } from "react-hook-form";
 import { toast } from "sonner";
 
 type CreateUpdateFlashcardFormProps = {
@@ -31,6 +35,48 @@ type CreateUpdateFlashcardFormProps = {
 };
 
 const FOCUS_QUESTION_KEY = " ";
+
+/**
+ * One side as the review screen shows it. A tap on it, outside its links
+ * and buttons, goes back to its text; the Preview button does the same
+ * from the keyboard.
+ */
+function SidePreview({
+  form,
+  name,
+  onEdit,
+}: {
+  form: UseFormReturn<CardContentFormValues>;
+  name: "front" | "back";
+  onEdit(): void;
+}) {
+  const content = useWatch({ control: form.control, name });
+  const label = name === "front" ? "Question" : "Answer";
+  return (
+    <CachedImagesContainer
+      renderItem={(ref) => (
+        <section
+          ref={ref}
+          aria-label={`${label} preview`}
+          onClick={(event) => {
+            if (!(event.target as Element).closest("a, button")) onEdit();
+          }}
+          className="card-preview grow min-h-32 max-h-[45dvh] overflow-y-auto rounded-lg bg-muted/40 px-3 py-2 cursor-text focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          {content.trim() ? (
+            <CardMarkdown
+              content={content}
+              keepPrevious
+              className="prose prose-sm dark:prose-invert max-w-none flex flex-col prose-img:rounded-lg"
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">No {label.toLowerCase()} yet</p>
+          )}
+        </section>
+      )}
+    />
+  );
+}
 /** The Create page keeps its unsaved card here. */
 export const LOCALSTORAGE_KEY = "create-flashcard-draft";
 
@@ -97,6 +143,15 @@ export function CreateUpdateFlashcardForm({
   const localSubmitLock = useRef(false);
   const submitting = submitLock ?? localSubmitLock;
   const submitError = form.formState.errors.root?.save?.message;
+  const [preview, setPreview] = useState(false);
+  const edit = useCallback(
+    (name: "front" | "back") => {
+      setPreview(false);
+      // After the text area shows again.
+      requestAnimationFrame(() => form.setFocus(name));
+    },
+    [form],
+  );
 
   useEffect(() => {
     if (isUpdateMode) return;
@@ -111,12 +166,16 @@ export function CreateUpdateFlashcardForm({
   const handleSubmit = useCallback(
     async (data: CardContentFormValues) => {
       form.clearErrors("root.save");
+      // An edited review card then shows its new text without an empty frame.
+      void renderCard(data.front);
+      void renderCard(data.back);
       try {
         await onSubmit(data);
         navigator?.vibrate?.(VibrationPattern.successConfirm);
 
         // Explicitly reset to empty instead of the default values (because they were fetched from localStorage)
         form.reset({ front: "", back: "" });
+        setPreview(false);
         // TODO: fix the focus not returning to the front input
         form.setFocus("front");
 
@@ -147,7 +206,8 @@ export function CreateUpdateFlashcardForm({
       if (submitting.current) return;
       submitting.current = true;
       try {
-        await form.handleSubmit(handleSubmit)(event);
+        // A field's error shows beside its text, so Preview gives way.
+        await form.handleSubmit(handleSubmit, () => setPreview(false))(event);
       } finally {
         submitting.current = false;
       }
@@ -163,7 +223,8 @@ export function CreateUpdateFlashcardForm({
         !isEventTargetInput(event) &&
         event.key === FOCUS_QUESTION_KEY
       ) {
-        form.setFocus("front");
+        if (preview) edit("front");
+        else form.setFocus("front");
         event.preventDefault();
         return;
       }
@@ -181,7 +242,7 @@ export function CreateUpdateFlashcardForm({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [form, submit]);
+  }, [form, submit, preview, edit]);
 
   return (
     <Form {...form}>
@@ -191,25 +252,25 @@ export function CreateUpdateFlashcardForm({
         className="flex flex-col gap-4 bg-background rounded-xl p-4 h-full justify-center"
       >
         <fieldset disabled={form.formState.isSubmitting} className="contents">
-          <div className="grow">
-            <FormTextareaImageUpload
-              onUploadImage={onImageUpload}
-              className="text-sm border-none shadow-none h-32"
-              form={form}
-              name="front"
-              placeholder="Enter the question"
-            />
-          </div>
-
-          <div className="grow">
-            <FormTextareaImageUpload
-              onUploadImage={onImageUpload}
-              className="text-sm border-none shadow-none h-32"
-              form={form}
-              name="back"
-              placeholder="Enter the answer"
-            />
-          </div>
+          {(["front", "back"] as const).map((name) => (
+            <div key={name} className="grow flex flex-col">
+              {/* The text area stays mounted, so the form keeps its field. */}
+              <div className={preview ? "hidden" : "grow"}>
+                <FormTextareaImageUpload
+                  onUploadImage={onImageUpload}
+                  className="text-sm border-none shadow-none h-32"
+                  form={form}
+                  name={name}
+                  placeholder={
+                    name === "front" ? "Enter the question" : "Enter the answer"
+                  }
+                />
+              </div>
+              {preview && (
+                <SidePreview form={form} name={name} onEdit={() => edit(name)} />
+              )}
+            </div>
+          ))}
 
           {submitError && (
             <p role="alert" className="text-sm text-destructive">
@@ -218,7 +279,7 @@ export function CreateUpdateFlashcardForm({
           )}
           <div className="flex justify-start">
             {numDecks !== undefined && (
-              <div className="flex gap-1 text-muted-foreground justify-center items-center font-semibold ml-2">
+              <div className="flex gap-1 text-muted-foreground justify-center items-center font-semibold ml-2 whitespace-nowrap">
                 <Book className="w-5 h-5" />
                 <span className="text-sm">
                   {numDecks} {numDecks === 1 ? "deck" : "decks"} selected
@@ -227,9 +288,22 @@ export function CreateUpdateFlashcardForm({
             )}
 
             <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              aria-pressed={preview}
+              title="Show the card as review shows it"
+              className="ml-auto self-end rounded-lg px-3 gap-1.5 text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground"
+              onClick={() => (preview ? edit("front") : setPreview(true))}
+            >
+              <Eye />
+              {/* Only the icon on a phone, where the deck count needs the room. */}
+              <span className="sr-only sm:not-sr-only">Preview</span>
+            </Button>
+            <Button
               type="submit"
               size="lg"
-              className="ml-auto self-end rounded-lg [&_svg]:size-3"
+              className="ml-2 self-end rounded-lg [&_svg]:size-3"
             >
               {isUpdateMode ? "Update" : "Create"}
               <CmdEnterIcon />

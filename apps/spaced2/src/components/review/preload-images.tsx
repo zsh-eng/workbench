@@ -1,8 +1,13 @@
 import { useEffect, useRef } from "react";
-import { prepareCardContent } from "@/lib/images/card-images";
+import { renderCard } from "@/lib/markdown/cards";
 import { ReviewImagePreloader } from "@/lib/images/preload";
 import type { CardWithMetadata } from "@/lib/types";
 
+/**
+ * Renders the current card and the next 20 in the Markdown worker, behind
+ * any card on screen, and keeps their images decoded. The next card after a
+ * grade then paints from the cache.
+ */
 export default function PreloadReviewImages({
   current,
   queue,
@@ -27,21 +32,20 @@ export default function PreloadReviewImages({
     };
   }, []);
   useEffect(() => {
-    // Parse future cards after the visible card can paint.
-    const preload = () => {
-      const contentsList: string[] = JSON.parse(contents);
-      preloader.current?.update([
-        ...new Set(
-          contentsList.flatMap((content) => prepareCardContent(content).images),
-        ),
-      ]);
+    let cancelled = false;
+    const contentsList: string[] = JSON.parse(contents);
+    const images: string[][] = [];
+    // In queue order, so the nearest cards' images load first.
+    contentsList.forEach((content, index) =>
+      renderCard(content, "later").then((card) => {
+        if (cancelled) return;
+        images[index] = card.images;
+        preloader.current?.update([...new Set(images.flat())]);
+      }),
+    );
+    return () => {
+      cancelled = true;
     };
-    if (window.requestIdleCallback) {
-      const id = window.requestIdleCallback(preload, { timeout: 1000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = window.setTimeout(preload, 32);
-    return () => window.clearTimeout(id);
   }, [contents]);
   return null;
 }
