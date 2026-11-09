@@ -7,7 +7,9 @@ are **tabs**. All other threads are **history**.
 The sidebar lists the tabs as sessions, one row each: **Pinned**, in the
 order you pinned them, then **Recent**, newest activity first. There is no
 grouping by repository. A session that handed off several reviews, such as
-one for each branch, is one row: the review on screen, else the newest. Its
+one for each branch, is one row: the review on screen, else the newest. The
+row keeps the session's name and pin whichever review you open: the name you
+gave it, else its first review's title. Its
 side panel's **Reviews** lists them all, newest first, and opens each one;
 **Archive** on the row archives them all. `⌘1`–`⌘9` open the session at that place in the list.
 A row shows the agent's mark and the session's name, and at most one dot: blue

@@ -94,10 +94,10 @@ export function SessionSidebar({
   onPrefetch(thread: Thread): void;
   onRenaming(thread: Thread | null): void;
   /** Names the session; an empty name gives it its agent's title again. */
-  onRename(thread: Thread, name: string): void;
+  onRename(thread: SessionRow, name: string): void;
   /** Pins the session at `at` among the pins (under the others without it),
    * moves a pinned one there, or unpins it. */
-  onPin(thread: Thread, pinned: boolean, at?: number): void;
+  onPin(thread: SessionRow, pinned: boolean, at?: number): void;
 }) {
   // A drop shows at once: the pins as dropped, until the host's list agrees.
   const [placed, setPlaced] = useState<readonly string[] | null>(null);

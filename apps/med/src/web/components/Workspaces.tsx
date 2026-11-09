@@ -55,9 +55,11 @@ import {
   needsYou,
   NO_THREADS,
   sessionGroups,
+  sessionRows,
   shortAge,
   tabOrder,
   useThreads,
+  type SessionRow,
 } from "../data/threads";
 import {
   isFoundThread,
@@ -1141,7 +1143,8 @@ export function WorkspaceHost({
   const activeEntry = snapshot.workspaces.find((entry) => entry.id === snapshot.active);
   // The thread on screen, which the title band names.
   const barId = workspaceThread(activeEntry);
-  const barThread = barId ? tabs.find((thread) => thread.id === barId) : undefined;
+  // As its session's row: the session's name, which the band shows and renames.
+  const barThread = barId ? sessionRows(tabs, barId).find((row) => row.id === barId) : undefined;
   // The band names the workspace on screen; none while a page covers them.
   const covered = newThread || !!overlayAddress(pathname);
   const band = useTitleBand(covered ? null : (activeEntry?.id ?? null));
@@ -1358,10 +1361,18 @@ export function WorkspaceHost({
   // while the sidebar hides.
   const [renaming, setRenaming] = useState<string | null>(null);
   if (renaming && !tabs.some((thread) => thread.id === renaming)) setRenaming(null);
+  // A session's name and pin are its owner's (sessionOwner), whichever of
+  // its reviews is on screen.
   const pinTo = useCallback(
-    async (thread: Thread, pinned: boolean, at?: number) => {
+    async (thread: SessionRow, pinned: boolean, at?: number) => {
+      const owner = thread.owner ?? thread.id;
       try {
-        await pinThread(thread.id, pinned, fetcher, at);
+        // A session has one pin: another of its reviews that kept one, as an
+        // older Med pinned them, gives it up.
+        for (const id of thread.members ?? [])
+          if (id !== owner && tabsRef.current.find((entry) => entry.id === id)?.pinned)
+            await pinThread(id, false, fetcher);
+        await pinThread(owner, pinned, fetcher, at);
       } catch (error) {
         setNotice({
           problem: true,
@@ -1374,19 +1385,20 @@ export function WorkspaceHost({
   /** Names a thread. An empty name, or its agent's own title, gives it its
    * agent's title again. */
   const renameTo = useCallback(
-    async (thread: Thread, value: string) => {
+    async (thread: SessionRow, value: string) => {
+      const owner = thread.owner ?? thread.id;
       const agent = thread.agentTitle ?? thread.title;
       const typed = value.trim();
       const name = typed === agent ? "" : typed;
       const want = name ? { title: name, agentTitle: agent } : { title: agent };
       if (want.title === thread.title && want.agentTitle === thread.agentTitle) return;
-      setNaming((current) => new Map(current).set(thread.id, want));
+      setNaming((current) => new Map(current).set(owner, want));
       try {
-        await renameThread(thread.id, name, fetcher);
+        await renameThread(owner, name, fetcher);
       } catch (error) {
         setNaming((current) => {
           const next = new Map(current);
-          next.delete(thread.id);
+          next.delete(owner);
           return next;
         });
         setNotice({
@@ -1786,7 +1798,9 @@ export function WorkspaceHost({
                         {!pageTop && (
                           <WorkspaceBar
                             context={
-                              covered ? undefined : barContext(activeEntry, threadList ?? null)
+                              covered
+                                ? undefined
+                                : barContext(activeEntry, threadList ?? null, barThread?.title)
                             }
                             slots={band.slots}
                             titled={band.titled}

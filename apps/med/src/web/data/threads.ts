@@ -69,8 +69,9 @@ export function useThreads(fetcher: typeof fetch): ThreadList | null {
 }
 
 /** A row of the sidebar: one agent session, by the thread that stands for
- * it, and the IDs of all its threads when it handed off several reviews. */
-export type SessionRow = Thread & { members?: readonly string[] };
+ * it, and the IDs of all its threads when it handed off several reviews.
+ * `owner` is the thread that holds the session's name and pin. */
+export type SessionRow = Thread & { members?: readonly string[]; owner?: string };
 
 /** The threads that share an agent session, together, each list newest
  * first. One session often hands off several reviews, one for each branch or
@@ -94,20 +95,36 @@ export function sessionGroups(threads: readonly Thread[]): Thread[][] {
   return [...groups.values()].map((group) => group.toSorted((a, b) => b.updatedAt - a.updatedAt));
 }
 
+/** The thread that holds a session's name and pin: its pinned one, else the
+ * one that the reader named, else the first that it handed off. Which review
+ * is on screen does not change it. */
+export function sessionOwner(group: readonly Thread[]): Thread {
+  const time = (thread: Thread) => Date.parse(thread.createdAt) || 0;
+  return (
+    group.filter((thread) => thread.pinned).toSorted((a, b) => a.pinned! - b.pinned!)[0] ??
+    group.find((thread) => thread.agentTitle !== undefined) ??
+    group.toSorted((a, b) => time(a) - time(b) || a.updatedAt - b.updatedAt)[0]!
+  );
+}
+
 /** One row for each session: the thread on screen when it is one of the
- * session's, else a pinned one, else the newest. The row has the session's
- * newest activity. */
+ * session's, else its pinned one, else the newest. The row has the session's
+ * name and pin, from its owner, and its newest activity. */
 export function sessionRows(threads: readonly Thread[], current?: string | null): SessionRow[] {
   return sessionGroups(threads).map((group) => {
     if (group.length === 1) return group[0]!;
+    const owner = sessionOwner(group);
     const lead =
-      group.find((thread) => thread.id === current) ??
-      group.find((thread) => thread.pinned) ??
-      group[0]!;
+      group.find((thread) => thread.id === current) ?? (owner.pinned ? owner : group[0]!);
+    const { agentTitle: _agentTitle, pinned: _pinned, ...rest } = lead;
     return {
-      ...lead,
+      ...rest,
+      title: owner.title,
+      ...(owner.agentTitle !== undefined && { agentTitle: owner.agentTitle }),
+      ...(owner.pinned && { pinned: owner.pinned }),
       updatedAt: Math.max(...group.map((thread) => thread.updatedAt)),
       members: group.map((thread) => thread.id),
+      owner: owner.id,
     };
   });
 }
