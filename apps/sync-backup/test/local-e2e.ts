@@ -1,7 +1,8 @@
 /** Run against the isolated Worker configured in README. No production access. */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { expect } from "bun:test";
 import { removeCredential } from "../src/auth";
 const { chromium } = await import(
@@ -89,7 +90,7 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in locally" }).click();
   await page.getByLabel("Device code").fill(code);
-  await page.getByRole("button", { name: "Approve read-only access" }).click();
+  await page.getByRole("button", { name: "Approve access" }).click();
   await page.getByText("Approved. Return to your terminal.").waitFor();
   expect(await login.exited).toBe(0);
   for (const args of [
@@ -112,6 +113,39 @@ try {
       expect(result.coverage.complete).toBe(true);
     console.log(`${args.join(" ")}: passed`);
   }
+  // wb spaced apply uploads a local image and links the new card to it.
+  const changes = join(directory, "changes");
+  mkdirSync(join(changes, "figs"), { recursive: true });
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7]);
+  const pngId = `xxh64:${Bun.hash.xxHash64(png).toString(16).padStart(16, "0")}`;
+  writeFileSync(join(changes, "figs/raft.png"), png);
+  writeFileSync(
+    join(changes, "set.json"),
+    JSON.stringify({
+      version: "spaced-changes-v1",
+      changes: [{ action: "create", deck: "e2e", front: "Leader? ![fig](./figs/raft.png)", back: "A" }],
+    }),
+  );
+  for (const apply of [false, true]) {
+    const run = command(["spaced", "apply", join(changes, "set.json"), "--json", ...(apply ? ["--apply"] : [])]);
+    const out = await new Response(run.stdout).text();
+    const err = await new Response(run.stderr).text();
+    if ((await run.exited) !== 0) throw Error(out + err);
+    const result = JSON.parse(out);
+    expect(result.images).toEqual([{ path: "./figs/raft.png", id: pngId, type: "image/png", bytes: png.length }]);
+    expect(result.applied).toBe(apply ? 1 : false);
+  }
+  const stored = await fetch(`${origin}/api/apps/spaced/files/${pngId}`, { headers: { Cookie: cookie } });
+  expect(stored.headers.get("Content-Type")).toBe("image/png");
+  expect(new Uint8Array(await stored.arrayBuffer())).toEqual(png);
+  const pathRun = command(["spaced", "path"]);
+  const spacedPath = (await new Response(pathRun.stdout).text()).trim();
+  const spaced = new Database(spacedPath, { readonly: true });
+  expect(spaced.query("SELECT front FROM cards WHERE front LIKE 'Leader?%'").all()).toEqual([
+    { front: `Leader? ![fig](${origin}/api/apps/spaced/files/${pngId})` },
+  ]);
+  spaced.close();
+  console.log("spaced apply with a local image: passed");
   const p = command(["auth", "logout"]);
   expect(await p.exited).toBe(0);
   console.log(

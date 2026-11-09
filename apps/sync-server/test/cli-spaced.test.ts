@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { expect, it } from "vitest";
+import xxhash from "xxhash-wasm";
 import worker from "../src/index";
 import { credential, signedIn } from "./accounts";
 
@@ -98,4 +99,35 @@ it("wb changes Spaced cards but never review history or an existing schedule", a
 
   // The browser session is unaffected by the CLI rule.
   expect((await push({ Cookie: cookie }, [card("c1")])).status).toBe(200);
+});
+
+it("wb uploads images for Spaced cards, and nothing else", async () => {
+  const cookie = await signedIn(call, origin);
+  const wb = { Authorization: `Bearer ${await credential(call, cookie, origin)}` };
+  const hash = await xxhash();
+  const put = (bytes: Uint8Array, type: string, id = `xxh64:${hash.h64Raw(bytes).toString(16).padStart(16, "0")}`) =>
+    call(`/api/apps/spaced/files/${id}`, { method: "PUT", headers: { ...wb, "Content-Type": type }, body: bytes });
+
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const stored = await put(png, "image/png");
+  expect(stored.status).toBe(200);
+  const { id } = (await stored.json()) as { id: string };
+  const served = await call(`/api/apps/spaced/files/${id}`, { headers: { Cookie: cookie } });
+  expect(served.headers.get("Content-Type")).toBe("image/png");
+  expect(new Uint8Array(await served.arrayBuffer())).toEqual(png);
+
+  const refused = async (response: Response) => {
+    expect(response.status).toBe(403);
+    return ((await response.json()) as { error: string }).error;
+  };
+  const page = new TextEncoder().encode("<script>alert(1)</script>");
+  expect(await refused(await put(page, "text/html"))).toContain("PNG, JPEG, WebP, GIF or AVIF");
+  expect(await refused(await put(page, "image/svg+xml"))).toContain("PNG, JPEG, WebP, GIF or AVIF");
+  // The files route still checks the hash.
+  expect((await put(png, "image/png", "xxh64:0000000000000000")).status).toBe(400);
+  // Other apps' files stay closed to the CLI.
+  expect(
+    (await call(`/api/apps/reader/files/${id}`, { method: "PUT", headers: { ...wb, "Content-Type": "image/png" }, body: png }))
+      .status,
+  ).toBe(403);
 });

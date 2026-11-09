@@ -41,7 +41,8 @@ and `apps/arctic/Browser/scripts/upload.ts` upload; Arctic links: a new link in
 the phone's three records, a link from History saved again, or a link's
 preview where it has none (its `imageURL`, `faviconURL` or `subtitle`); and
 Spaced cards (`wb spaced apply`): card content, suspension, deletion, decks,
-deck membership and new cards (`apps/sync-server/src/cli-spaced.ts`). It
+deck membership and new cards, and images for them: PNG, JPEG, WebP, GIF or
+AVIF files of up to 2 MiB (`apps/sync-server/src/cli-spaced.ts`). It
 cannot write a Spaced review log, change an existing card's schedule, or
 change or remove any other record or field.
 
@@ -315,6 +316,29 @@ reverse cards its import makes. `create` makes the deck when no deck has
 that name. Changes are pushed in chunks of 200; each push is newer than every
 record in the mirror. A push is not repeated; if one fails, the command stops
 and the undo file covers the chunks that were stored.
+
+#### Images
+
+A create or edit may link a local image by a path relative to the change set:
+`![fig](./figs/raft.png)`. The preview reads each file, checks that it is a
+PNG, JPEG, WebP, GIF or AVIF image (by its first bytes) of up to 2 MiB, and
+shows the card text with the link already changed to the Spaced file URL,
+`ORIGIN/api/apps/spaced/files/xxh64:<hash>`, as the app writes it. Any other
+file, a missing one, an absolute path or a path outside the change set's
+folder is a problem, and nothing is applied. So is a local link in another
+form (a reference definition, `<img src>`, brackets in the alt text or
+parentheses in the path), which would show as a broken image.
+These limits are the server's (`apps/sync-server/src/files.ts`): a Spaced file
+may be at most 2 MiB (larger gives HTTP 413), and only these five types are
+served inline; any other type downloads as an attachment, so a card could not
+show it. SVG is not accepted, as it can carry script.
+Links in code, `https:` links and Spaced URLs are kept as they are.
+`--apply` uploads each image that an applied change uses before it pushes any
+card. An edit's `expect` gets the same URLs, so it matches the card. Files
+are stored by their hash, so a second upload of the same bytes
+stores nothing new. The undo file holds the changed links, so it matches the
+cards. The server accepts these uploads from a CLI credential only after a
+deploy of the change to `cli-spaced.ts` that allows them.
 
 The records are the ones Spaced writes for these changes
 (`apps/spaced2/src/lib/sync/records.ts`); the test decodes each with Spaced's

@@ -55,8 +55,9 @@ Usage: wb <command> [options]
                                 active_cards, card_stats and deck_summary
   spaced path                   Print the spaced.sqlite path
   spaced apply FILE             Sync Spaced, then preview a spaced-changes-v1
-                                change set against your cards; --apply pushes
-                                it and writes an undo file beside FILE
+                                change set against your cards; --apply uploads
+                                its local images, pushes it and writes an undo
+                                file beside FILE
   snapshot create               Capture and verify dated records + files
   snapshot list                 List local snapshots
   snapshot verify ID            Verify SQLite and object checksums
@@ -96,7 +97,8 @@ Sync is download-only. Table selections have independent cursors. Counts are
 local, including tombstones. No remote restore or automatic pruning. The only
 writes are arctic save, arctic text and arctic backfill-previews --apply: new
 or restored links, their text, and previews where a link has none; and spaced
-apply --apply: card content, suspension, deletion, decks and new cards.
+apply --apply: card content, suspension, deletion, decks, new cards and
+their images.
 `;
 const options = {
   namespace: { type: "string", multiple: true },

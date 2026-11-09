@@ -20,12 +20,18 @@ const CARD_FIELDS = new Set([
   "updateDeckCard",
 ]);
 
+/** The images a card can show (apps/spaced2's image cache), as the files route serves them inline. */
+const IMAGE = /^image\/(png|jpeg|webp|gif|avif)$/;
+
 /** Why a Workbench Backup credential's write to `spaced` is refused, or undefined. */
-export async function cliSpacedPushProblem(c: Context<AppEnv>) {
-  if (
-    c.req.method !== "POST" ||
-    decodeURIComponent(c.req.path) !== "/api/apps/spaced/sync/v3/push"
-  )
+export async function cliSpacedWriteProblem(c: Context<AppEnv>) {
+  const path = decodeURIComponent(c.req.path);
+  // An image for a card. The files route checks its size and its hash.
+  if (c.req.method === "PUT" && /^\/api\/apps\/spaced\/files\/xxh64:[a-f0-9]{16}$/.test(path)) {
+    const type = (c.req.header("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    return IMAGE.test(type) ? undefined : "a Spaced file must be a PNG, JPEG, WebP, GIF or AVIF image";
+  }
+  if (c.req.method !== "POST" || path !== "/api/apps/spaced/sync/v3/push")
     return "only a sync push can change cards";
   const text = await boundedText(c);
   if (text === undefined) return "the push is too large";
