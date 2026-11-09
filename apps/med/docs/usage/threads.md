@@ -54,8 +54,8 @@ load it or read its agents until you open it again.
 - Med archives a session on its own when its work has landed: you read it, it
   was off screen for 5 minutes, it does not need you, its agent does not work,
   and its branch has no commits ahead of its base and no uncommitted changes.
-  The window that you used last does this. Med never archives a session whose
-  work it cannot check, or one with an unsaved draft.
+  The window that you used last does this. Med never archives a pinned
+  session, one whose work it cannot check, or one with an unsaved draft.
 - **Open from history.** `⌃Tab` shows the tabs and other workspaces first.
   Type a word, also while you hold Control, to search history too: closed
   threads and found sessions that are not tabs, by title, branch, repository,
@@ -106,7 +106,7 @@ load it or read its agents until you open it again.
   unread** or **Mark as read** (`U`), **Rename** (`R`), **Move up** and
   **Move down** for a pin, **Archive** (`A`), and **Delete** (`D`). While the
   menu is open, a letter runs its item. Med keeps the pins, also across a
-  restart and in history.
+  restart and in history. A pinned session's first hand-off takes its pin.
 - **Drag a row into Pinned** to pin it at that place, within Pinned to move
   it, and out to Recent to unpin it. While it drags, the list shows where it
   would land: the other rows make room, and Pinned shows even with no pins.

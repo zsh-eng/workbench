@@ -35,11 +35,15 @@ export const pullInboxSchema = z.object({
   viewer: z.string(),
   /** Your registered repositories' GitHub remotes, or all of GitHub. */
   scope: z.enum(["registered", "all"]),
+  /** owner/name on github.com, host/owner/name on another GitHub host. */
   repositories: z.array(z.string()),
   waiting: z.array(pullInboxRowSchema),
   yours: z.array(pullInboxRowSchema),
   readAt: z.string(),
   /** Why there is nothing to show, such as gh not signed in. */
   unavailable: z.string().optional(),
+  /** GitHub hosts that gh could not read, such as one it is not signed in
+   * to, while the others listed. */
+  skipped: z.array(z.object({ host: z.string(), reason: z.string() })).optional(),
 });
 export type PullInbox = z.infer<typeof pullInboxSchema>;

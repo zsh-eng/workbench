@@ -1007,19 +1007,26 @@ test("an unsaved draft outlasts a reload, and says when its file changed", async
     .toEqual([]);
 });
 
-test("a tab whose work has landed stays open while it has an unsaved draft", async () => {
+test("a tab whose work has landed stays open while it has an unsaved draft, or while it is pinned", async () => {
   const host = createHost();
   render(host);
   await expect.poll(() => shown()?.dataset.reviewStatus).toBe("ready");
-  // Three tabs whose work has landed on their base branch, read long ago.
-  const landed = (id: string) =>
+  // Four tabs whose work has landed on their base branch, read long ago.
+  const landed = (id: string, patch: Partial<Thread> = {}) =>
     thread(id, {
       agent: "claude",
       state: "idle",
       updatedAt: 1,
       unlanded: { base: "main", ahead: 0, uncommitted: false },
+      ...patch,
     });
-  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  const tabs = () => [
+    landed("talk", { pinned: 1 }),
+    landed("third"),
+    landed("fourth"),
+    landed("fifth"),
+  ];
+  host.setThreads(tabs());
   await page.getByRole("button", { name: /^Third review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("third-target");
   await page.getByRole("treeitem", { name: /alpha.ts/ }).dblClick();
@@ -1030,15 +1037,21 @@ test("a tab whose work has landed stays open while it has an unsaved draft", asy
   await page.getByRole("button", { name: /^Fourth review/ }).click();
   await expect.poll(() => shown()?.dataset.reviewId).toBe("fourth-target");
 
-  // Time passes with Third and Fifth off screen. Med closes Fifth on its
-  // own; Third keeps its tab, because closing it would hide the draft.
+  // Time passes with Talk, Third and Fifth off screen. Med closes Fifth on
+  // its own. Third keeps its tab, because closing it would hide the draft,
+  // and Talk keeps its tab because it is pinned.
   const realNow = Date.now.bind(Date);
   const later = vi.spyOn(Date, "now").mockImplementation(() => realNow() + AUTO_CLOSE_MS * 2);
   onTestFinished(() => later.mockRestore());
-  host.setThreads([landed("third"), landed("fourth"), landed("fifth")]);
+  host.setThreads(tabs());
   await expect
     .poll(() => threadRows().map((row) => row.split(/(?<=review)/)[0]))
-    .toEqual(["Third review", "Fourth review"]);
+    .toEqual(["Talk review", "Third review", "Fourth review"]);
+  expect(
+    host.threadRequests
+      .filter((request) => request.path.endsWith("/close"))
+      .map((request) => request.path),
+  ).toEqual(["/api/threads/fifth/close"]);
 });
 
 test("a thread takes a name from its menu, a double-click, or the palette; Esc keeps the old one, and an empty name gives the agent's title back", async () => {

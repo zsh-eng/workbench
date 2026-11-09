@@ -7,7 +7,9 @@
 // FAKE_GH_DELAY_MS slows each command, to watch progress by hand. `pr create`
 // copies its --body-file to FAKE_GH_BODY_OUT and prints FAKE_GH_CREATED, or
 // with FAKE_GH_EXISTS fails as gh does for a branch whose pull request is open.
-// `api graphql` answers a pull request search from FAKE_GH_SEARCH.
+// `api graphql` answers a pull request search from FAKE_GH_SEARCH, or from
+// its `hosts` entry for the --hostname given; FAKE_GH_SIGNED_OUT names a host
+// that it fails for, as gh does for a host that it is not signed in to.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, copyFileSync } from "node:fs";
 
@@ -23,7 +25,15 @@ if (command === "api" && action === "graphql") {
   // A search: FAKE_GH_SEARCH has the nodes of review requests ("review") and
   // of your own pull requests ("author"), and the login ("viewer").
   const query = argv.find((arg) => arg.startsWith("q=")) ?? "";
-  const search = JSON.parse(process.env.FAKE_GH_SEARCH ?? "{}");
+  const hostname = argv.includes("--hostname")
+    ? argv[argv.indexOf("--hostname") + 1]
+    : "github.com";
+  if (process.env.FAKE_GH_SIGNED_OUT === hostname) {
+    process.stderr.write(`gh: You are not logged into any accounts on ${hostname}\n`);
+    process.exit(1);
+  }
+  const answers = JSON.parse(process.env.FAKE_GH_SEARCH ?? "{}");
+  const search = answers.hosts?.[hostname] ?? answers;
   const nodes = query.includes("review-requested:@me") ? search.review : search.author;
   process.stdout.write(
     JSON.stringify({

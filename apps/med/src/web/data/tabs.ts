@@ -192,9 +192,9 @@ export const AUTO_CLOSE_MS = 5 * 60_000;
 
 /**
  * Whether a tab goes to history on its own: the reader has read it; it is not
- * on screen, does not need the reader, and does not work; and its branch has
- * no commits ahead of its base and no uncommitted changes. A tab whose work
- * Med cannot tell (no `unlanded`) never closes on its own.
+ * pinned, not on screen, does not need the reader, and does not work; and its
+ * branch has no commits ahead of its base and no uncommitted changes. A tab
+ * whose work Med cannot tell (no `unlanded`) never closes on its own.
  */
 export function landed(
   thread: Thread,
@@ -202,6 +202,7 @@ export function landed(
 ) {
   return (
     !context.unread &&
+    thread.pinned === undefined &&
     !context.onScreen &&
     context.quietFor >= AUTO_CLOSE_MS &&
     !needsYou(thread) &&

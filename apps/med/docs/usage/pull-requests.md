@@ -36,9 +36,13 @@ Claude there to review it; `⌥↵`, or the GitHub button, opens it on GitHub.
 Med finds them with two GitHub searches through your `gh` sign-in
 (`review-requested:@me` and `author:@me`), limited to the GitHub repositories
 that your registered repositories' remotes name; **All of GitHub** drops that
-limit. It reads when the list opens, when the window gets focus, and every
-five minutes while the page shows; nothing reads in the background. It merges
-and approves nothing, and reads only github.com.
+limit. A remote on another GitHub host, such as GitHub Enterprise, is searched
+on that host (`gh api --hostname`), when **Settings** › **Open in** counts the
+host as GitHub: your choice there, or a host that answers as GitHub does.
+When `gh` cannot read a host, such as one that it is not signed in to, the
+page says why above the others' pull requests. It reads when the list opens,
+when the window gets focus, and every five minutes while the page shows;
+nothing reads in the background. It merges and approves nothing.
 
 In a terminal, `med pr checkout 333` runs `gh pr checkout 333`, fetches the
 base branch, and opens a saved review from the merge base to the head. It

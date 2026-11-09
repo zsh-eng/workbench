@@ -352,6 +352,16 @@ export function PullRequestsPage({
               <p {...stylex.props(styles.notice)}>{shown.unavailable}</p>
             ) : shown ? (
               <>
+                {/* A GitHub host that gh could not read, while the others listed. */}
+                {!!shown.skipped?.length && (
+                  <div role="note" {...stylex.props(styles.skipped)}>
+                    {shown.skipped.map((entry) => (
+                      <p key={entry.host} {...stylex.props(styles.skippedHost)}>
+                        Med could not read {entry.host}: {entry.reason}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {section("Waiting on you", shown.waiting, 0, "Nothing waits on you.")}
                 {section("Yours", shown.yours, shown.waiting.length, "None open.")}
               </>
@@ -531,6 +541,8 @@ const styles = stylex.create({
   wait: { color: tokens.warning },
   empty: { margin: 0, paddingBlock: 22, paddingInline: 20, color: tokens.muted },
   notice: { margin: 0, marginTop: 44, color: tokens.muted, fontSize: 14 },
+  skipped: { marginTop: 24, color: tokens.muted, fontSize: 13, lineHeight: 1.5 },
+  skippedHost: { margin: 0 },
   // The skeleton's rows: the real rows' box, without the pointer's fill.
   boneRow: {
     cursor: "default",

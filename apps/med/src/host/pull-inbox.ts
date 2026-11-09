@@ -2,12 +2,14 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { RegisteredRepository } from "../shared/protocol";
 import type { PullInbox, PullInboxRow } from "../shared/pull-inbox";
+import { parseRemote } from "./open-in";
 import { ProcessFailure, runProcess } from "./runtime/process";
 
 // The pull requests page's read: two GitHub searches with the user's gh
 // sign-in, review requests for you and your own open pull requests, in the
 // GitHub repositories that Med's registered repositories push to, or in all
-// of GitHub. Nothing here writes to GitHub.
+// of GitHub. A remote on another GitHub host, such as GitHub Enterprise, is
+// searched on that host. Nothing here writes to GitHub.
 
 /** A read stays this long; the page asks again on focus and every five minutes. */
 const FRESH_MS = 60_000;
@@ -150,9 +152,9 @@ function yourTurn(entry: SearchNode) {
 
 const newest = (a: PullInboxRow, b: PullInboxRow) => b.updatedAt.localeCompare(a.updatedAt);
 
-/** The page's two lists from the searches' results: what waits on you
- * first, then your own pull requests; a stack of yours is one row. */
-export function inboxRows(viewer: string, requests: SearchNode[], authored: SearchNode[]) {
+/** One host's rows: review requests, your pull requests that wait on you,
+ * and the rest of yours; a stack of yours is one row. */
+function hostRows(viewer: string, requests: SearchNode[], authored: SearchNode[]) {
   const seen = new Set<string>();
   const waiting: PullInboxRow[] = [];
   for (const entry of requests)
@@ -198,7 +200,21 @@ export function inboxRows(viewer: string, requests: SearchNode[], authored: Sear
     };
     (why ? mine : yours).push(shown);
   }
-  return { waiting: [...waiting, ...mine.sort(newest)], yours: yours.sort(newest) };
+  return { requests: waiting, mine, yours };
+}
+
+/** The page's two lists from the hosts' rows: what waits on you first, review
+ * requests and then your own, then the rest of yours, each newest first. */
+function mergedRows(hosts: ReturnType<typeof hostRows>[]) {
+  const all = (part: "requests" | "mine" | "yours") =>
+    hosts.flatMap((rows) => rows[part]).sort(newest);
+  return { waiting: [...all("requests"), ...all("mine")], yours: all("yours") };
+}
+
+/** The page's two lists from one host's searches: what waits on you first,
+ * then your own pull requests; a stack of yours is one row. */
+export function inboxRows(viewer: string, requests: SearchNode[], authored: SearchNode[]) {
+  return mergedRows([hostRows(viewer, requests, authored)]);
 }
 
 /** `repo:` qualifiers in groups that keep each query under GitHub's limit. */
@@ -220,6 +236,20 @@ export function searchQueries(base: string, repositories: readonly string[]) {
 export interface PullInboxHost {
   repositories(): RegisteredRepository[];
   gh: { command: string; args: string[] };
+  /** Whether a remote's host is GitHub: github.com is; another host is when
+   * Settings' Open in says so, or when it answers as GitHub does. */
+  isGitHub(host: string): Promise<boolean>;
+}
+
+/** Why gh could not read a host, as the page says it; other failures throw. */
+function unreadable(error: unknown) {
+  if ((error as NodeJS.ErrnoException).code === "ENOENT")
+    return "Install the GitHub CLI (gh) and run gh auth login to list pull requests.";
+  if (error instanceof ProcessFailure && error.code === "command-failed")
+    return (
+      error.stderr.trim().split("\n").at(-1)?.replace(/^gh: /, "") || "gh could not search GitHub."
+    );
+  throw error;
 }
 
 /** Reads the page's pull requests, sharing a read for a minute. */
@@ -249,27 +279,51 @@ export class PullInboxReader {
     return stdout.toString("utf8");
   }
 
-  /** owner/name of each registered repository's github.com remotes. */
+  /** owner/name of each registered repository's GitHub remotes, by host. */
   private async gitHubRepositories() {
-    const names = new Set<string>();
+    const byHost = new Map<string, Set<string>>();
+    const verdicts = new Map<string, Promise<boolean>>();
+    const isGitHub = (host: string) => {
+      let verdict = verdicts.get(host);
+      if (!verdict) {
+        verdict = this.host.isGitHub(host).catch(() => false);
+        verdicts.set(host, verdict);
+      }
+      return verdict;
+    };
     await Promise.all(
       this.host.repositories().map(async (repository) => {
         const remotes = await this.run("git", ["remote", "-v"], repository.path).catch(() => "");
         for (const line of remotes.split("\n")) {
-          const slug = remoteSlug(line.split(/\s+/)[1] ?? "");
-          const match = /^github\.com\/([^/]+\/[^/]+)$/.exec(slug);
-          if (match) names.add(match[1]!);
+          const remote = parseRemote(line.split(/\s+/)[1] ?? "");
+          if (!remote || !(await isGitHub(remote.host))) continue;
+          const names = byHost.get(remote.host) ?? new Set();
+          names.add(`${remote.owner}/${remote.repo}`.toLowerCase());
+          byHost.set(remote.host, names);
         }
       }),
     );
-    return [...names].sort();
+    return new Map(
+      [...byHost]
+        .sort(([a], [b]) => (a === "github.com" ? -1 : b === "github.com" ? 1 : a.localeCompare(b)))
+        .map(([host, names]) => [host, [...names].sort()]),
+    );
   }
 
-  private async search(query: string) {
+  private async search(host: string, query: string) {
     const { command, args } = this.host.gh;
     const output = await this.run(
       command,
-      [...args, "api", "graphql", "-f", `query=${SEARCH}`, "-f", `q=${query}`],
+      [
+        ...args,
+        "api",
+        "graphql",
+        ...(host === "github.com" ? [] : ["--hostname", host]),
+        "-f",
+        `query=${SEARCH}`,
+        "-f",
+        `q=${query}`,
+      ],
       tmpdir(),
     );
     const { data } = answer.parse(JSON.parse(output));
@@ -284,42 +338,61 @@ export class PullInboxReader {
   private async load(all: boolean): Promise<PullInbox> {
     const scope = all ? "all" : "registered";
     const readAt = new Date().toISOString();
-    const repositories = all ? [] : await this.gitHubRepositories();
+    const byHost = await this.gitHubRepositories();
+    // All of GitHub: github.com, and each other GitHub host that a remote
+    // names, with no repository qualifiers.
+    const searched: [string, string[]][] = all
+      ? [
+          ["github.com", []],
+          ...[...byHost.keys()]
+            .filter((host) => host !== "github.com")
+            .map((host): [string, string[]] => [host, []]),
+        ]
+      : [...byHost];
+    const repositories = all
+      ? []
+      : searched.flatMap(([host, names]) =>
+          names.map((name) => (host === "github.com" ? name : `${host}/${name}`)),
+        );
     const empty: PullInbox = { viewer: "", scope, repositories, waiting: [], yours: [], readAt };
     if (!all && !repositories.length)
       return {
         ...empty,
         unavailable: "No registered repository has a GitHub remote. Show all of GitHub instead.",
       };
-    try {
-      const base = "is:pr is:open archived:false";
+    const base = "is:pr is:open archived:false";
+    const read = async (host: string, names: string[]) => {
       const each = (qualifier: string) =>
-        Promise.all(searchQueries(`${base} ${qualifier}`, repositories).map((q) => this.search(q)));
+        Promise.all(
+          searchQueries(`${base} ${qualifier}`, names).map((query) => this.search(host, query)),
+        );
       const [requests, authored] = await Promise.all([
         each("review-requested:@me"),
         each("author:@me"),
       ]);
       const viewer = requests[0]?.viewer ?? authored[0]?.viewer ?? "";
-      const rows = inboxRows(
+      return {
         viewer,
-        requests.flatMap((result) => result.nodes),
-        authored.flatMap((result) => result.nodes),
-      );
-      return { ...empty, viewer, ...rows };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT")
-        return {
-          ...empty,
-          unavailable: "Install the GitHub CLI (gh) and run gh auth login to list pull requests.",
-        };
-      if (error instanceof ProcessFailure && error.code === "command-failed")
-        return {
-          ...empty,
-          unavailable:
-            error.stderr.trim().split("\n").at(-1)?.replace(/^gh: /, "") ||
-            "gh could not search GitHub.",
-        };
-      throw error;
-    }
+        rows: hostRows(
+          viewer,
+          requests.flatMap((result) => result.nodes),
+          authored.flatMap((result) => result.nodes),
+        ),
+      };
+    };
+    const results = await Promise.allSettled(searched.map(([host, names]) => read(host, names)));
+    const skipped = results.flatMap((result, index) =>
+      result.status === "rejected"
+        ? [{ host: searched[index]![0], reason: unreadable(result.reason) }]
+        : [],
+    );
+    const done = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    if (!done.length) return { ...empty, unavailable: skipped[0]!.reason };
+    return {
+      ...empty,
+      viewer: done[0]!.viewer,
+      ...mergedRows(done.map((entry) => entry.rows)),
+      ...(skipped.length ? { skipped } : {}),
+    };
   }
 }

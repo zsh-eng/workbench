@@ -297,3 +297,130 @@ test("the pull requests page searches GitHub in the registered repositories' rem
     "q=is:pr is:open archived:false review-requested:@me",
   ]);
 });
+
+test("the pull requests page also searches the GitHub hosts that Settings names, and lists the rest when gh cannot read one", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "med pull hosts ")));
+  directories.push(directory);
+  const repository = async (name: string, remote: string) => {
+    const path = join(directory, name);
+    await mkdir(path);
+    git(path, "init", "-q", "-b", "main");
+    git(path, "remote", "add", "origin", remote);
+    return path;
+  };
+  const trailhead = await repository("trailhead", "git@github.com:acme/trailhead.git");
+  // GitHub Enterprise, which Settings names, and a host that answers as
+  // GitHub does but that Settings leaves out.
+  const charts = await repository("charts", "git@github.acme.build:Tides/Charts.git");
+  const notes = await repository("notes", "https://git.acme.build/tides/notes.git");
+  const log = join(directory, "gh.log");
+  const node = (number: number, author: string, host: string, repository: string, day: string) => ({
+    url: `https://${host}/${repository}/pull/${number}`,
+    number,
+    title: `Change ${number}`,
+    isDraft: false,
+    createdAt: "2026-11-01T00:00:00Z",
+    updatedAt: `2026-11-${day}T00:00:00Z`,
+    additions: 3,
+    deletions: 1,
+    headRefName: `topic-${number}`,
+    baseRefName: "main",
+    reviewDecision: "REVIEW_REQUIRED",
+    mergeable: "MERGEABLE",
+    author: { login: author },
+    repository: { nameWithOwner: repository },
+    commits: { nodes: [] },
+    reviewRequests: { nodes: [{ requestedReviewer: { __typename: "User", login: "you" } }] },
+  });
+  vi.stubEnv("FAKE_GH_LOG", log);
+  vi.stubEnv(
+    "FAKE_GH_SEARCH",
+    JSON.stringify({
+      review: [node(418, "maya", "github.com", "acme/trailhead", "02")],
+      author: [node(420, "you", "github.com", "acme/trailhead", "02")],
+      hosts: {
+        "github.acme.build": {
+          review: [node(7, "lena", "github.acme.build", "Tides/Charts", "03")],
+          author: [node(9, "you", "github.acme.build", "Tides/Charts", "03")],
+        },
+      },
+    }),
+  );
+  vi.stubEnv("MED_HOME_DIR", join(directory, "home"));
+  const host = await startHost({
+    repo: trailhead,
+    repos: [trailhead, charts, notes],
+    stateDir: join(directory, "state"),
+    port: 0,
+    gh: { command: process.execPath, args: [fixture("gh/fake-gh.mjs")] },
+    openIn: { isGitHub: async (name) => name === "git.acme.build" },
+  });
+  hosts.push(host);
+  const base = `http://127.0.0.1:${host.port}`;
+  const headers = { authorization: `Bearer ${host.token}`, "content-type": "application/json" };
+  const put = await fetch(`${base}/api/settings`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      key: "openIn.hosts",
+      value: { "github.acme.build": "github", "git.acme.build": "off" },
+    }),
+  });
+  expect(put.status).toBe(200);
+  const read = async (query = "") =>
+    (await (await fetch(`${base}/api/pull-requests${query}`, { headers })).json()) as {
+      repositories: string[];
+      waiting: { number: number }[];
+      yours: { number: number }[];
+      skipped?: { host: string; reason: string }[];
+    };
+  const numbers = (inbox: Awaited<ReturnType<typeof read>>) => ({
+    waiting: inbox.waiting.map((row) => row.number),
+    yours: inbox.yours.map((row) => row.number),
+  });
+  // Each search names its host, and goes there.
+  const searches = async () =>
+    (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const args = JSON.parse(line) as string[];
+        const at = args.indexOf("--hostname");
+        const query = args.find((arg) => arg.startsWith("q=")) ?? "";
+        return `${at < 0 ? "github.com" : args[at + 1]} ${query.replace("q=is:pr is:open archived:false ", "")}`;
+      });
+
+  const inbox = await read();
+  expect(inbox.repositories).toEqual(["acme/trailhead", "github.acme.build/tides/charts"]);
+  // Both hosts' pull requests, newest first: what waits on you, then yours.
+  expect(numbers(inbox)).toEqual({ waiting: [7, 418], yours: [9, 420] });
+  expect(inbox.skipped).toBeUndefined();
+  expect((await searches()).sort()).toEqual([
+    "github.acme.build author:@me repo:tides/charts",
+    "github.acme.build review-requested:@me repo:tides/charts",
+    "github.com author:@me repo:acme/trailhead",
+    "github.com review-requested:@me repo:acme/trailhead",
+  ]);
+
+  // A host that gh is not signed in to leaves the others listed, and says why.
+  vi.stubEnv("FAKE_GH_SIGNED_OUT", "github.acme.build");
+  const partial = await read("?refresh=1");
+  expect(numbers(partial)).toEqual({ waiting: [418], yours: [420] });
+  expect(partial.skipped).toEqual([
+    {
+      host: "github.acme.build",
+      reason: "You are not logged into any accounts on github.acme.build",
+    },
+  ]);
+
+  // All of GitHub searches every GitHub host, with no repository qualifiers.
+  vi.stubEnv("FAKE_GH_SIGNED_OUT", "");
+  await writeFile(log, "");
+  expect(numbers(await read("?all=1"))).toEqual({ waiting: [7, 418], yours: [9, 420] });
+  expect((await searches()).sort()).toEqual([
+    "github.acme.build author:@me",
+    "github.acme.build review-requested:@me",
+    "github.com author:@me",
+    "github.com review-requested:@me",
+  ]);
+});
