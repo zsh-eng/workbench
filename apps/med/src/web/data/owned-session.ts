@@ -4,10 +4,12 @@ import {
   agentOptionsSchema,
   agentPresetSchema,
   ownedStateSchema,
+  sessionForkedSchema,
   type AgentOptions,
   type AgentPreset,
   type OwnedAction,
   type OwnedState,
+  type SessionFork,
 } from "../../shared/owned-session";
 import { readBrowserToken } from "./auth";
 import { createApi } from "./api";
@@ -83,6 +85,28 @@ export function sendOwnedAction(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(action),
+    },
+  );
+}
+
+/**
+ * Fork from here: a new thread on the session's checkout, whose Claude Code
+ * session starts from this one's history up to reply `at`, with its model and
+ * effort. It answers with the new thread, which the caller opens.
+ */
+export function forkSession(
+  reviewId: string,
+  sessionId: string,
+  fork: SessionFork,
+  fetcher: typeof fetch = browserFetch,
+) {
+  return createApi(fetcher, readBrowserToken()).json(
+    `/api/reviews/${encodeURIComponent(reviewId)}/sessions/${encodeURIComponent(sessionId)}/fork`,
+    sessionForkedSchema,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(fork),
     },
   );
 }

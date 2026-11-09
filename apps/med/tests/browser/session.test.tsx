@@ -4,7 +4,11 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SessionSection } from "../../src/web/components/elements/SessionSection";
 import { HandoffContext } from "../../src/web/components/session/HandoffCard";
-import { SessionThread } from "../../src/web/components/session/SessionThread";
+import {
+  ReplyActionsContext,
+  SessionThread,
+  type ReplyActions,
+} from "../../src/web/components/session/SessionThread";
 import { estimateUnit, readMetrics } from "../../src/web/components/session/thread-heights";
 import { finalReplies, units as unitsOf } from "../../src/web/components/session/thread-model";
 import { withSentMessages, type SentMessage } from "../../src/web/data/agent-inbox";
@@ -1420,4 +1424,67 @@ test("a running turn's time ticks in whole seconds from 1 s and in minutes from 
   working(65 * 60_000);
   await expect.poll(() => time().textContent).toBe("1h 05m");
   expect(document.body.textContent).not.toMatch(/\d\.\d+s\b/);
+});
+
+test("a reply's actions show on hover and focus, the latest reply's stay, and a prompt has Copy", async () => {
+  await page.viewport(1280, 900);
+  initializeTheme();
+  const store = longThread(2);
+  const forks: string[] = [];
+  let failNext = false;
+  const actions: ReplyActions = {
+    fork: async (item) => {
+      if (failNext) throw new Error("The session has no such message.");
+      forks.push(item.id);
+    },
+  };
+  root!.render(
+    <ReplyActionsContext.Provider value={actions}>
+      <SessionThread snapshot={store.getSnapshot()} />
+    </ReplyActionsContext.Provider>,
+  );
+  const row = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-unit="${id}"] [data-message-actions]`)!;
+  const shown = (element: Element) => getComputedStyle(element).opacity === "1";
+  await expect.poll(() => row("r1")).toBeTruthy();
+  // The latest reply's actions stay; an earlier one's wait for the pointer.
+  expect(shown(row("r1"))).toBe(true);
+  await expect.poll(() => shown(row("r0"))).toBe(false);
+  await userEvent.hover(page.getByText("Reply 0.", { exact: false }));
+  await expect.poll(() => shown(row("r0"))).toBe(true);
+  // Copy, Fork from here, and when the reply came, which says how long ago.
+  const earlier = page.elementLocator(row("r0"));
+  await expect.element(earlier.getByRole("button", { name: "Copy reply" })).toBeInTheDocument();
+  expect(row("r0").querySelector("time")?.textContent).toMatch(/ago$/);
+  // The keyboard reaches them: the focus shows the row.
+  await userEvent.unhover(page.getByText("Reply 0.", { exact: false }));
+  (row("r0").querySelector("button") as HTMLButtonElement).focus();
+  await expect.poll(() => shown(row("r0"))).toBe(true);
+  // Its tooltip says what a fork does.
+  const fork = earlier.getByRole("button", { name: "Fork from here" });
+  await expect
+    .element(fork)
+    .toHaveAttribute(
+      "data-tooltip-detail",
+      "Starts a new session from this point. This one stays as it is.",
+    );
+  await userEvent.click(fork);
+  expect(forks).toEqual(["r0"]);
+  // A fork that fails says why, in the row.
+  failNext = true;
+  await userEvent.click(fork);
+  await expect
+    .poll(() => row("r0").querySelector('[role="alert"]')?.textContent)
+    .toMatch(/no such message/);
+
+  // A prompt has Copy beside its bubble, which copies its text.
+  const prompt = document.querySelector<HTMLElement>('[data-message="user"]')!;
+  await userEvent.hover(page.elementLocator(prompt).getByText("Prompt 0"));
+  const copy = page.elementLocator(prompt).getByRole("button", { name: "Copy prompt" });
+  await expect.poll(() => shown(prompt.querySelector("[data-message-actions]")!)).toBe(true);
+  // The bubble's height is the text's: the button takes no room in it.
+  const bubble = prompt.querySelector("p")!.parentElement!.parentElement!;
+  expect(copy.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+    bubble.getBoundingClientRect().left + 1,
+  );
 });

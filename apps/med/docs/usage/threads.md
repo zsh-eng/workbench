@@ -271,6 +271,16 @@ background shells and agents. It follows the session live.
   the first at the top; the dash of the turn in view is longer and darker.
   The pointer on the rail, or the focus in it, lists the prompts with their
   times, and a click goes to one, loading the earlier pages back to it.
+- Under a turn's final reply, as in Claude Desktop: **Copy**, which copies
+  the whole reply as Markdown; **Fork from here**; and how long ago the reply
+  came (hover it for the date and time). They show while the pointer or the
+  focus is on the reply, and stay under the latest one. A prompt has **Copy**
+  beside its bubble.
+- **Fork from here**, on a Claude Code session's reply, starts a new thread on
+  the same checkout. Its session starts from this one's history up to that
+  reply, with the reply's model and effort, so it reads the session's prompt
+  cache. The new thread opens in front and shows that history until you send
+  its first message; the thread that you forked stays as it is.
 - A finished turn shows its prompt and final reply; its other work folds into
   one **Worked for** row. Click the row to open that turn, or **Show work** to
   open every turn.
@@ -375,15 +385,17 @@ Med can run it:
 
 - When no process runs it, Med resumes it with your message as its next
   prompt. Med then runs the session, with the pickers and **Stop**, also
-  after a restart.
+  after a restart. The session goes on with the model and effort of its last
+  reply, which the pickers show, so it reads the prompt cache that it wrote.
 - When Claude Code has it open in a terminal, you read the thread in Med, and
   the message box is shut: "Claude has this session open in a terminal. Med
   can't type there." In the Claude app it says "open in the Claude app"; in
   any other app, "open in another app". Copy the comments into that session,
   or continue it here.
 - **Continue in Med**, on that line or in `⌘K`, forks the session into one
-  that Med runs, and the message box opens on the fork. The thread follows
-  the fork; the terminal or app keeps its own session.
+  that Med runs, with the model and effort of its last reply, and the message
+  box opens on the fork. The thread follows the fork; the terminal or app
+  keeps its own session.
 
 Type `@` in the message box, or in a new thread's task, to name a file in the
 checkout, a note in a registered vault, or another thread. A query can have

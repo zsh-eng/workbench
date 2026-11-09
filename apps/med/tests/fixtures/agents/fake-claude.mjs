@@ -24,16 +24,23 @@ const projects = join(process.env.MED_HOME_DIR, ".claude", "projects");
 const project = join(projects, "-fake-repo");
 mkdirSync(project, { recursive: true });
 const transcript = join(project, `${sessionId}.jsonl`);
-/** The resumed session's history, which a fork copies with its own ID. */
+/** The resumed session's history, which a fork copies with its own ID: to
+ * the message that `--resume-session-at` names, or to its end. */
 let forkOf = args.includes("--fork-session") ? flag("--resume") : undefined;
+const forkAt = flag("--resume-session-at");
 function copyHistory() {
   const folder = readdirSync(projects).find((name) =>
     existsSync(join(projects, name, `${forkOf}.jsonl`)),
   );
   if (folder)
-    for (const line of readFileSync(join(projects, folder, `${forkOf}.jsonl`), "utf8").split("\n"))
-      if (line.trim())
-        appendFileSync(transcript, `${JSON.stringify({ ...JSON.parse(line), sessionId })}\n`);
+    for (const line of readFileSync(join(projects, folder, `${forkOf}.jsonl`), "utf8").split(
+      "\n",
+    )) {
+      if (!line.trim()) continue;
+      const entry = JSON.parse(line);
+      appendFileSync(transcript, `${JSON.stringify({ ...entry, sessionId })}\n`);
+      if (forkAt && entry.uuid === forkAt) break;
+    }
   forkOf = undefined;
 }
 // A test reads the arguments and the variables that Med sets.

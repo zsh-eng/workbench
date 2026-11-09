@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInboxState, AgentMessage, SessionPlace } from "../../src/shared/agent-inbox";
-import type { OwnedState } from "../../src/shared/owned-session";
+import type { OwnedState, SessionForked } from "../../src/shared/owned-session";
+import type { SessionEvent } from "../../src/shared/agent-session";
 import type { SavedReview } from "../../src/shared/saved-review";
 import { claudeProjectFolder } from "../../src/host/found-sessions";
 import { startHost, type RunningHost } from "../../src/host/server";
@@ -50,7 +51,41 @@ const git = (cwd: string, args: string[]) =>
   });
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function fixture() {
+/** The session that the user ran in a terminal: one prompt and its reply. */
+const ONE_TURN = [
+  { type: "user", uuid: "u1", message: { role: "user", content: "Format the durations." } },
+  {
+    type: "assistant",
+    uuid: "a1",
+    message: {
+      id: "msg_1",
+      role: "assistant",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "The durations read in seconds now." }],
+    },
+  },
+];
+/** Two turns, each reply with the model and effort that Claude Code wrote. */
+const TWO_TURNS = [
+  ONE_TURN[0]!,
+  { ...ONE_TURN[1]!, requestedModel: "claude-opus-5-5", effort: "high" },
+  { type: "user", uuid: "u2", message: { role: "user", content: "Round them to minutes." } },
+  {
+    type: "assistant",
+    uuid: "a2",
+    requestedModel: "claude-haiku-5-5",
+    effort: "low",
+    message: {
+      id: "msg_2",
+      role: "assistant",
+      model: "claude-haiku-5-5",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "They round to minutes." }],
+    },
+  },
+];
+
+async function fixture(history: object[] = ONE_TURN) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "med adopted send ")));
   directories.push(directory);
   const repo = join(directory, "repo");
@@ -61,34 +96,14 @@ async function fixture() {
   git(repo, ["commit", "-q", "-m", "Start"]);
   const home = join(directory, "home");
   vi.stubEnv("MED_HOME_DIR", home);
-  // The session that the user ran in a terminal: one prompt and its reply.
+  // The session that the user ran in a terminal.
   const project = join(home, ".claude", "projects", claudeProjectFolder(repo));
   await mkdir(project, { recursive: true });
   const base = { cwd: repo, sessionId: session, timestamp: new Date().toISOString() };
   const original = join(project, `${session}.jsonl`);
   await writeFile(
     original,
-    [
-      {
-        ...base,
-        type: "user",
-        uuid: "u1",
-        message: { role: "user", content: "Format the durations." },
-      },
-      {
-        ...base,
-        type: "assistant",
-        uuid: "a1",
-        message: {
-          id: "msg_1",
-          role: "assistant",
-          stop_reason: "end_turn",
-          content: [{ type: "text", text: "The durations read in seconds now." }],
-        },
-      },
-    ]
-      .map((line) => `${JSON.stringify(line)}\n`)
-      .join(""),
+    history.map((line) => `${JSON.stringify({ ...base, ...line })}\n`).join(""),
   );
   const stateDir = join(directory, "state");
   const options: Parameters<typeof startHost>[0] = {
@@ -323,4 +338,120 @@ test("Continue in Med forks the session; the thread follows the fork, which take
   expect(started(session)).toBe(false);
   expect((await inbox()).elsewhere).toEqual({ [session]: "terminal" });
   await open.end();
+});
+
+/** The text of a session's first view, from its events stream. */
+async function firstView(port: number, token: string, reviewId: string, sessionId: string) {
+  const controller = new AbortController();
+  const response = await fetch(
+    `http://127.0.0.1:${port}/api/reviews/${reviewId}/sessions/${sessionId}/events`,
+    { headers: { authorization: `Bearer ${token}` }, signal: controller.signal },
+  );
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      const reset = /event: reset\ndata: (.*)\n\n/.exec(text);
+      if (!reset) continue;
+      const events = (JSON.parse(reset[1]!) as { events: SessionEvent[] }).events;
+      return events.flatMap(({ update }) =>
+        (update.sessionUpdate === "user_message_chunk" ||
+          update.sessionUpdate === "agent_message_chunk") &&
+        update.content.type === "text"
+          ? [update.content.text]
+          : [],
+      );
+    }
+  } finally {
+    controller.abort();
+  }
+  return [];
+}
+
+test("Fork from here makes a thread whose session starts from the history up to a reply, with that reply's model and effort", async () => {
+  const { api, id, original, args, prompts, started } = await fixture(TWO_TURNS);
+  const before = await readFile(original, "utf8");
+  const forked = await api<SessionForked>(`/api/reviews/${id}/sessions/${session}/fork`, {
+    at: "a1",
+  });
+  expect(forked.status).toBe(200);
+  expect(forked.data.title).toMatch(/ \(fork\)$/);
+  const thread = (await api<SavedReview>(`/api/reviews/${forked.data.id}`)).data;
+  const fork = thread.sessions![0]!.id;
+  expect(thread.sessions).toHaveLength(1);
+  expect(fork).not.toBe(session);
+  const forkArgs = await args(fork);
+  expect(forkArgs).toEqual(
+    expect.arrayContaining(["--resume", session, "--fork-session", "--session-id", fork]),
+  );
+  // The history ends at the reply, whose model and effort the fork takes.
+  expect(forkArgs[forkArgs.indexOf("--resume-session-at") + 1]).toBe("a1");
+  expect(forkArgs[forkArgs.indexOf("--model") + 1]).toBe("claude-opus-5-5");
+  expect(forkArgs[forkArgs.indexOf("--effort") + 1]).toBe("high");
+  // The message box shows them, also a model that Claude Code does not list.
+  const owned = (await api<OwnedState>(`/api/reviews/${forked.data.id}/owned/${fork}`)).data;
+  const model = owned.settings.find((setting) => setting.category === "model");
+  expect(model?.value).toBe("claude-opus-5-5");
+  expect(model?.options.map((option) => option.value)).toContain("claude-opus-5-5");
+  expect(owned.settings.find((setting) => setting.category === "effort")?.value).toBe("high");
+
+  // Before its first prompt, the thread shows the history it starts from.
+  const host = hosts.at(-1)!;
+  expect(await firstView(host.port, host.token, forked.data.id, fork)).toEqual([
+    "Format the durations.",
+    "The durations read in seconds now.",
+  ]);
+
+  // Its first message goes on from the reply, not from the turn after it.
+  const sent = await api<{ message: AgentMessage }>(
+    `/api/reviews/${forked.data.id}/agent/messages`,
+    { sessionId: fork, text: "Show them as a table.", noteIds: [] },
+  );
+  expect(sent.data.message.delivery).toBe("delivered");
+  await vi.waitFor(async () =>
+    expect(await prompts(fork)).toEqual(["Format the durations.", "Show them as a table."]),
+  );
+  // The thread it forks stays as it is.
+  expect(await readFile(original, "utf8")).toBe(before);
+  expect(started(session)).toBe(false);
+  expect((await api<SavedReview>(`/api/reviews/${id}`)).data.sessions?.map((s) => s.id)).toEqual([
+    session,
+  ]);
+  // A message that the transcript does not have forks nothing.
+  const missing = await api<{ error: { code: string } }>(
+    `/api/reviews/${id}/sessions/${session}/fork`,
+    { at: "no-such-message" },
+  );
+  expect(missing.status).toBe(404);
+  expect(missing.data.error.code).toBe("message-not-found");
+});
+
+test("a kept session resumes with its last reply's model and effort, and Continue in Med forks with them", async () => {
+  const { api, id, send, args, terminal } = await fixture(TWO_TURNS);
+  const open = await terminal();
+  // Continue in Med: the fork reads the session's prompt cache with its model.
+  const continued = await api<{ review: SavedReview; state: OwnedState }>(
+    `/api/reviews/${id}/owned`,
+    { preset: "claude", fork: session },
+  );
+  const fork = continued.data.state.sessionId;
+  const forkArgs = await args(fork);
+  expect(forkArgs).not.toContain("--resume-session-at");
+  expect(forkArgs[forkArgs.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+  expect(forkArgs[forkArgs.indexOf("--effort") + 1]).toBe("low");
+  await open.end();
+
+  // Once the terminal closes, a message resumes the session itself, as it ran.
+  expect((await send("Check the summary.")).message.delivery).toBe("delivered");
+  const resumed = await args(session);
+  expect(resumed[resumed.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+  expect(resumed[resumed.indexOf("--effort") + 1]).toBe("low");
+  const owned = (await api<OwnedState>(`/api/reviews/${id}/owned/${session}`)).data;
+  expect(owned.settings.find((setting) => setting.category === "model")?.value).toBe(
+    "claude-haiku-5-5",
+  );
 });

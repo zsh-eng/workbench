@@ -161,7 +161,10 @@ stdio --session-id <id>`, with `--model`, `--effort`, and `--permission-mode`
   as one that Keep in Med or `med thread adopt` saved, becomes an owned
   session when a message comes and no process runs it (`resume`), with a
   record as above. **Continue in Med** starts an owned fork of one that a
-  terminal runs (`--resume <id> --fork-session --session-id <new ID>`). A
+  terminal runs (`--resume <id> --fork-session --session-id <new ID>`), and
+  **Fork from here** forks a reply into a thread of its own
+  (`--resume-session-at`). Both, and `resume`, start with the model and effort
+  of the session's last reply ([SESSIONS.md](SESSIONS.md#model-and-effort-of-a-session-med-did-not-start)). A
   Codex thread resumes the same way through `thread/resume` when no other
   process has it open (`~/.codex/thread-writer-locks/<id>.lock`,
   `src/host/agent-locks.ts`); Med sends nothing to one that Codex Desktop or

@@ -292,6 +292,7 @@ export function SessionPanel({
   openAgent,
   recap,
   onContinue,
+  onFork,
   links,
   place,
 }: {
@@ -305,6 +306,9 @@ export function SessionPanel({
   /** Continue in Med: forks a Claude session that a terminal runs into one
    * that Med runs, which the thread then follows. */
   onContinue?(sessionId: string): Promise<void>;
+  /** Fork from here, on a Claude session's replies: a new thread whose
+   * session starts from this one's history up to the reply `at`. */
+  onFork?(sessionId: string, at: string): Promise<void>;
   /** In place of the message box of a session that the panel only reads,
    * such as one that Med found (FoundSession.tsx). */
   footer?: ReactNode;
@@ -539,18 +543,23 @@ export function SessionPanel({
     () => (fileRefs ? { ...fileRefs, cwd: session.cwd || undefined } : null),
     [fileRefs, session.cwd],
   );
-  const replyActions = useMemo<ReplyActions | null>(
-    () =>
-      pins
-        ? {
-            pinned: (itemId) => pins.pinned.get(`${session.id}/${itemId}`),
-            pin: (item) =>
-              pins.pin({ agent: session.agent, sessionId: session.id, itemId: item.id }, item.text),
-            showPin: pins.show,
-          }
-        : null,
-    [pins, session.id, session.agent],
-  );
+  const replyActions = useMemo<ReplyActions | null>(() => {
+    // Claude Code forks a session at a message of its transcript.
+    const fork =
+      onFork && session.agent === "claude"
+        ? (item: { id: string }) => onFork(session.id, item.id)
+        : undefined;
+    if (!pins && !fork) return null;
+    return {
+      ...(pins && {
+        pinned: (itemId: string) => pins.pinned.get(`${session.id}/${itemId}`),
+        pin: (item: { id: string; text: string }) =>
+          pins.pin({ agent: session.agent, sessionId: session.id, itemId: item.id }, item.text),
+        showPin: pins.show,
+      }),
+      ...(fork && { fork }),
+    };
+  }, [pins, onFork, session.id, session.agent]);
   const agent = agentName(session);
   const messages = inbox?.state?.messages;
   const streaming = ownedState?.streaming;

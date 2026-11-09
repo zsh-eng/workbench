@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { foundSessionThread, keepFoundThread } from "../../data/found-threads";
+import { forkSession } from "../../data/owned-session";
 import { resumeCommand, type WorkspaceSession } from "../../data/workspaces";
 import { tokens, ui } from "../../theme.stylex";
 import type { FileRefs } from "../FileRefs";
@@ -58,6 +59,20 @@ export function FoundSessionPane({
       ]
         .filter(Boolean)
         .join(" · ");
+  // Fork from here makes a saved thread, as Keep in Med does; this session
+  // stays where it runs. Stable, as each reply's actions read it.
+  const fork = useCallback(
+    async (sessionId: string, at: string) => {
+      const forked = await forkSession(
+        threadId,
+        sessionId,
+        { at, ...(title ? { title: `${title} (fork)`.slice(0, 120) } : {}) },
+        fetcher,
+      );
+      workspace?.open({ kind: "review", reviewId: forked.id, title: forked.title });
+    },
+    [threadId, title, fetcher, workspace],
+  );
   return (
     <SessionPanel
       reviewId={threadId}
@@ -72,6 +87,7 @@ export function FoundSessionPane({
       onClose={onClose}
       {...(onSideRoom && { onSideRoom })}
       {...(openAgent && { openAgent })}
+      {...(checkout && { onFork: fork })}
       footer={
         <FoundSessionBar
           session={session}

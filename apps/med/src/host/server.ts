@@ -118,6 +118,7 @@ import {
   createTranscriptFeeds,
   findTranscript,
   readTranscriptPage,
+  transcriptPoint,
   transcriptTurns,
 } from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
@@ -160,7 +161,12 @@ import {
   type SessionAdopt,
   type SessionAdopted,
 } from "../shared/found-sessions";
-import { ownedActionSchema, ownedStartSchema } from "../shared/owned-session";
+import {
+  ownedActionSchema,
+  ownedStartSchema,
+  sessionForkSchema,
+  type SessionForked,
+} from "../shared/owned-session";
 import {
   threadCloseSchema,
   threadIdSchema,
@@ -497,6 +503,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     agy: options.agy ?? process.env.MED_AGY === "1",
   });
   await ownedSessions.restore();
+  /** The history of a fork before its first prompt, which has no transcript
+   * yet: the transcript of the session that it forks, up to the fork's
+   * message (`end`, a byte offset). */
+  const forkSource = async (session: AgentSession) => {
+    const point = ownedSessions.forkPoint(session.id);
+    if (!point || session.agent !== "claude") return undefined;
+    const parent: AgentSession = { agent: "claude", id: point.of, cwd: session.cwd };
+    const path = await findTranscript(parent);
+    if (!path) return undefined;
+    const end = point.at ? (await transcriptPoint(path, point.at))?.end : (await stat(path)).size;
+    return end === undefined ? undefined : { session: parent, path, end };
+  };
   /**
    * The review's sessions that Med does not run now, or restored without a
    * process: those that another process has open, such as Claude Code in a
@@ -1261,13 +1279,35 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             (await found.session(sessionPage[1]!)) ??
             (await savedReviews.get(sessionPage[1]!)).sessions;
           const session = sessions?.find((entry) => entry.id === sessionPage[2]);
-          const path = session && session.agent !== "acp" && (await findTranscript(session));
+          const own = session && session.agent !== "acp" && (await findTranscript(session));
+          // A fork before its first prompt reads the session that it forks.
+          const fork =
+            session && !own && sessionPage[3] !== "transcript"
+              ? await forkSource(session)
+              : undefined;
+          const path = own || fork?.path;
           if (!session || !path)
             throw new HostError(
               "transcript-not-found",
               "The session's transcript is not on this computer.",
               404,
             );
+          if (fork) {
+            if (sessionPage[3] === "turns") {
+              const turns = await transcriptTurns(fork.session, fork.path);
+              send({ turns: turns.filter((turn) => turn.offset < fork.end) });
+              return;
+            }
+            const before = Math.min(Number(url.searchParams.get("before")), fork.end);
+            if (!Number.isSafeInteger(before) || before < 0)
+              throw new HostError(
+                "invalid-offset",
+                "Give the byte offset where the page ends.",
+                400,
+              );
+            send(await readTranscriptPage(fork.session, fork.path, before));
+            return;
+          }
           if (sessionPage[3] === "turns") {
             send({ turns: await transcriptTurns(session, path) });
             return;
@@ -1356,9 +1396,27 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             response.once("close", () => unsubscribe.forEach((stop) => stop?.()));
             return;
           }
-          // A session that Med started writes its transcript with the first turn.
-          if (!path)
-            write("reset", { events: [], idle: true, modifiedAt: Date.now(), truncated: false });
+          // A session that Med started writes its transcript with the first
+          // turn. Until then, a fork shows the session that it forks, up to
+          // the fork's message.
+          if (!path) {
+            const fork = await forkSource(session).catch(() => undefined);
+            const page = fork && (await readTranscriptPage(fork.session, fork.path, fork.end));
+            const all = page ? parts(page.events) : [[]];
+            all.forEach((part, index) =>
+              write(index ? "updates" : "reset", {
+                events: part,
+                idle: true,
+                modifiedAt: Date.now(),
+                ...(index
+                  ? {}
+                  : {
+                      truncated: !!page && page.start > 0,
+                      ...(page ? { start: page.start, parts: all.length } : {}),
+                    }),
+              }),
+            );
+          }
           while (!path && !abort.signal.aborted && !closing) {
             await new Promise((done) => setTimeout(done, 400));
             path = await findTranscript(session);
@@ -2300,6 +2358,58 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               created: true,
               session: entry!,
             } satisfies SessionAdopted);
+            return;
+          }
+          // Fork from here: a new thread on the session's checkout, whose
+          // Claude Code session starts from this one's history up to a reply.
+          // The thread it forks stays as it is.
+          const forkRoute =
+            /^\/api\/reviews\/([A-Za-z0-9_-]+)\/sessions\/([A-Za-z0-9_-]+)\/fork$/.exec(
+              url.pathname,
+            );
+          if (forkRoute && request.method === "POST") {
+            const input = sessionForkSchema.parse(await readBody(request));
+            const foundSessions = await found.session(forkRoute[1]!);
+            const bundle = foundSessions ? undefined : await savedReviews.get(forkRoute[1]!);
+            const session = (foundSessions ?? bundle?.sessions)?.find(
+              (entry) => entry.id === forkRoute[2],
+            );
+            if (!session)
+              throw new HostError(
+                "session-not-found",
+                "This thread has no such agent session.",
+                404,
+              );
+            if (session.agent !== "claude")
+              throw new HostError("fork-unsupported", "Med forks Claude Code sessions only.", 409);
+            const place = await found.locate(session.cwd);
+            if (!place?.checkout)
+              throw new HostError(
+                "session-checkout",
+                `The session's folder ${session.cwd} is not in a registered repository. Run ${medCommand({ port, stateDir: options.stateDir }, "add", "<repository>")} first.`,
+                409,
+              );
+            const title = (input.title ?? `${bundle?.title ?? "Agent session"} (fork)`).slice(
+              0,
+              120,
+            );
+            const key = `${threadSlug(title)}-${randomUUID().slice(0, 4)}`;
+            assertRequestAccess();
+            const runner = await ownedSessions.fork(session, { key, at: input.at });
+            try {
+              const review = await savedReviews.create(
+                { title, key, sessions: [runner.session], targets: [] },
+                captureTarget,
+                assertRequestAccess,
+                await placeCheckout(place.checkout.path),
+              );
+              // A new thread: it opens as a tab.
+              await threads.opened(review);
+              send({ id: review.id, title: review.title } satisfies SessionForked);
+            } catch (error) {
+              ownedSessions.end(runner);
+              throw error;
+            }
             return;
           }
           // The Superagent's thread: made, with its folder and session, the

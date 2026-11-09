@@ -12,13 +12,20 @@ type TooltipSide = "bottom" | "inline-start";
  * `AppTooltip`, serves all controls, so a control renders no tooltip parts
  * and a toolbar renders again as fast as its buttons.
  */
-export function tooltip(label: string | undefined, shortcut?: string, side?: TooltipSide) {
+export function tooltip(
+  label: string | undefined,
+  shortcut?: string,
+  side?: TooltipSide,
+  /** A line under the label that says what the control does, in smaller text. */
+  detail?: string,
+) {
   if (!label) return {};
   return {
     "data-tooltip": label,
     "data-tooltip-keys": shortcut,
     // Beside a menu's item, the tooltip goes to its side, off the items below.
     "data-tooltip-side": side,
+    "data-tooltip-detail": detail,
   };
 }
 
@@ -62,6 +69,7 @@ const GROUP_MS = 500;
 interface Tip {
   anchor: Element;
   label: string;
+  detail?: string;
   shortcut?: string;
   side: TooltipSide;
   /** No transition: in a delay group, for a key, or for a dismissal. */
@@ -71,6 +79,7 @@ interface Tip {
 const readTip = (element: Element, instant?: Tip["instant"]): Tip => ({
   anchor: element,
   label: labelOf(element),
+  detail: element.getAttribute("data-tooltip-detail") ?? undefined,
   shortcut: element.getAttribute("data-tooltip-keys") ?? undefined,
   side: element.getAttribute("data-tooltip-side") === "inline-start" ? "inline-start" : "bottom",
   instant,
@@ -148,7 +157,12 @@ export function AppTooltip() {
       watch.observe(document.body, { childList: true, subtree: true });
       watch.observe(trigger, {
         attributes: true,
-        attributeFilter: ["data-tooltip", "data-tooltip-keys", "data-tooltip-clipped"],
+        attributeFilter: [
+          "data-tooltip",
+          "data-tooltip-keys",
+          "data-tooltip-clipped",
+          "data-tooltip-detail",
+        ],
       });
     };
     const hide = (instant?: Tip["instant"]) => {
@@ -272,7 +286,14 @@ export function AppTooltip() {
             data-instant={tip?.instant}
             {...stylex.props(styles.popup, ui.pop)}
           >
-            <span>{tip?.label}</span>
+            {tip?.detail ? (
+              <span {...stylex.props(styles.lines)}>
+                <span>{tip.label}</span>
+                <span {...stylex.props(styles.detail)}>{tip.detail}</span>
+              </span>
+            ) : (
+              <span>{tip?.label}</span>
+            )}
             <ShortcutKeys value={tip?.shortcut} />
           </Tooltip.Popup>
         </Tooltip.Positioner>
@@ -338,6 +359,10 @@ const styles = stylex.create({
     animationIterationCount: "infinite",
   },
   positioner: { zIndex: 150 },
+  // A label with a line under it, as Claude Desktop's tooltips say what a
+  // control does.
+  lines: { display: "flex", flexDirection: "column", gap: 2, maxWidth: 240 },
+  detail: { color: tokens.muted },
   popup: {
     display: "flex",
     alignItems: "center",
