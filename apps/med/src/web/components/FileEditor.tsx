@@ -216,7 +216,7 @@ const actions = new WeakMap<
     saveAndClose: () => void;
     definition: () => void;
     scroll: (y: "start" | "end") => void;
-    annotate: (kind: "comment" | "ask") => void;
+    comment: () => void;
     hover: () => void;
   }
 >();
@@ -230,18 +230,15 @@ for (const [keys, y] of [
   for (const context of ["normal", "visual"] as const)
     Vim.mapCommand(keys, "action", `med-${keys}`, {}, { context });
 }
-// `gc` comments on the cursor's line or the lines selected, and `ga` asks the
-// thread's agent about them. `gc` takes the place of Vim's operator that
-// comments out code, which did nothing here: the editor has no language's
-// comment syntax.
-Vim.defineAction("medComment", (cm) => actions.get(cm)?.annotate("comment"));
-Vim.defineAction("medAsk", (cm) => actions.get(cm)?.annotate("ask"));
+// `gc` comments on the cursor's line or the lines selected. It takes the
+// place of Vim's operator that comments out code, which did nothing here: the
+// editor has no language's comment syntax.
+Vim.defineAction("medComment", (cm) => actions.get(cm)?.comment());
 // `K` shows the definition of the name under the cursor, as a hover does.
 Vim.defineAction("medHover", (cm) => actions.get(cm)?.hover());
 Vim.mapCommand("K", "action", "medHover", {}, { context: "normal" });
 for (const context of ["normal", "visual"] as const) {
   Vim.mapCommand("gc", "action", "medComment", {}, { context });
-  Vim.mapCommand("ga", "action", "medAsk", {}, { context });
 }
 Vim.defineEx("write", "w", (cm) => actions.get(cm)?.save());
 Vim.defineEx("quit", "q", (cm) => actions.get(cm)?.close());
@@ -345,17 +342,16 @@ export default function FileEditor({
     for (let at = line; at <= Math.min(endLine, doc.lines); at++) lines.push(doc.line(at).text);
     return lines;
   };
-  const annotate = useRef((_kind: "comment" | "ask", _line: number, _endLine: number) => {});
+  const comment = useRef((_line: number, _endLine: number) => {});
   useLayoutEffect(() => {
-    annotate.current = (kind, line, endLine) => {
-      const current = latest.current.context.comments;
-      if (!current) return;
-      endLine = Math.min(endLine, line + MAX_FILE_COMMENT_LINES - 1);
-      if (kind === "ask") current.ask?.({ line, endLine, text: editorLines(line, endLine) });
-      else {
-        setBoxText("");
-        setBox({ path: draft.file.path, line, endLine });
-      }
+    comment.current = (line, endLine) => {
+      if (!latest.current.context.comments) return;
+      setBoxText("");
+      setBox({
+        path: draft.file.path,
+        line,
+        endLine: Math.min(endLine, line + MAX_FILE_COMMENT_LINES - 1),
+      });
     };
   });
   const refocus = () => view.current?.focus();
@@ -716,8 +712,8 @@ export default function FileEditor({
                     !view.state.selection.main.empty &&
                     line >= selected.line &&
                     line <= selected.endLine;
-                  if (inSelection) annotate.current("comment", selected.line, selected.endLine);
-                  else annotate.current("comment", line, line);
+                  if (inSelection) comment.current(selected.line, selected.endLine);
+                  else comment.current(line, line);
                   return true;
                 },
               },
@@ -828,11 +824,11 @@ export default function FileEditor({
         const name = word && hoverName(editor.state.sliceDoc(word.from, word.to));
         if (word && name) hoverRef.current?.show(name, wordBounds(word.from, word.to));
       },
-      annotate: (kind) => {
+      comment: () => {
         const { line, endLine } = selectedLines(editor);
         if (cm.state.vim?.visualMode)
           Vim.exitVisualMode(cm as Parameters<typeof Vim.exitVisualMode>[0]);
-        annotate.current(kind, line, endLine);
+        comment.current(line, endLine);
       },
       scroll: (y) => {
         const line = editor.state.doc.lineAt(editor.state.selection.main.head);

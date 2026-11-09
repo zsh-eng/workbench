@@ -9,7 +9,7 @@ import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
 
-// The Question pane's Markdown renderer loads with the first comment, not with the review.
+// The thread's Markdown renderer loads with the first comment, not with the review.
 const CommentMarkdown = lazy(() => import("./CommentMarkdown"));
 
 export interface NoteTarget {

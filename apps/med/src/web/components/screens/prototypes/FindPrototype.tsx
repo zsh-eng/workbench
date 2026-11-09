@@ -221,7 +221,7 @@ function FileWithFind() {
 }
 
 function Window({ children }: { children: ReactNode }) {
-  const threads = useMemo(() => sidebarThreads(false), []);
+  const threads = useMemo(() => sidebarThreads(), []);
   return (
     <div {...stylex.props(styles.window)}>
       <aside {...stylex.props(styles.sidebar)}>

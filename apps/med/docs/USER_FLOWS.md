@@ -85,19 +85,17 @@ flowchart BT
 - **In the thread.** Type the question in the message box. The agent answers
   in the conversation, and its file references are links with the file's
   icon.
-- **On lines, without the thread.** Select line numbers in Review, Changes,
-  or a guide segment, and press `a` (**Ask**). The **Question** pane asks a fork of the
-  session, in plan mode, so the thread gets neither the question nor the
-  answer. **Keep as comment** saves both on the lines, for the agent to read
-  with the other comments.
+- **On lines.** Select line numbers in Review, Changes, or a guide segment,
+  press `c`, and write the question as a comment (`gc` in a file). The agent
+  answers in the comment's thread and changes nothing for a question; a
+  request, it carries out.
 
 ```mermaid
 flowchart LR
-  S["Select lines"] --> K{"a: Ask"}
-  K --> Q["A fork of the session,<br/>in plan mode, answers"]
-  Q --> X["Discard"]
-  Q --> C["Keep as comment"]
-  C --> T["Sent with the other comments"]
+  S["Select lines"] --> C{"c: Comment"}
+  C --> T["The thread gets it,<br/>with the lines"]
+  T --> Q["A question:<br/>an answer in its thread"]
+  T --> R["A request:<br/>the change, then resolved"]
 ```
 
 ## Review a pull request

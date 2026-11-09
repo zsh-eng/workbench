@@ -38,6 +38,9 @@ for its fonts.
 - Right-click an image for **Copy image** (as PNG), its address or path, and
   **Open image in new tab**. A remote image that does not allow reading copies
   as its address.
+- **Full screen**, at a diagram's corner while the pointer is on it, shows
+  the diagram over the page, up to three times its size, with zoom and drag.
+  Escape or × closes it.
 - Right-click a diagram for **Copy image**: a PNG at twice its size, on its
   background. **Copy SVG** keeps its colors and fonts, so it draws the same
   elsewhere; **Copy Mermaid source** copies the code inside its fence.

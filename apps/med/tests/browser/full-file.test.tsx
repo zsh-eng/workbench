@@ -2099,12 +2099,11 @@ function commentProps(threads: FileComment[] = []) {
     add: vi.fn<FileComments["add"]>(async () => {}),
     mutate: vi.fn<FileComments["mutate"]>(async () => {}),
     send: vi.fn<FileComments["send"]>(async () => {}),
-    ask: vi.fn<NonNullable<FileComments["ask"]>>(),
   };
 }
 const fourLines = "const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n";
 
-test("gc comments on the visual lines, and ga asks about the cursor's line", async () => {
+test("gc comments on the visual lines, and on the cursor's line", async () => {
   const comments = commentProps();
   render(
     <FullFileView
@@ -2131,11 +2130,11 @@ test("gc comments on the visual lines, and ga asks about the cursor's line", asy
   ]);
   // The box closes, and the file has the keys again.
   await expect.element(box).not.toBeInTheDocument();
-  await userEvent.keyboard("jga");
-  expect(comments.ask).toHaveBeenCalledWith({ line: 4, endLine: 4, text: ["const d = 4;"] });
+  await userEvent.keyboard("jgc");
+  await expect.element(page.getByRole("form", { name: "Comment on line 4" })).toBeVisible();
 });
 
-test("in the editor, gc opens the box under the lines, whose keys are its own, and ga asks", async () => {
+test("in the editor, gc opens the box under the lines, whose keys are its own", async () => {
   const comment: FileComment = {
     id: "5d1c0a2e-0000-4000-8000-000000000002",
     source: { kind: "worktree", repo: "/fixture" },
@@ -2187,12 +2186,8 @@ test("in the editor, gc opens the box under the lines, whose keys are its own, a
     "send",
   ]);
   await expect.poll(() => document.activeElement?.classList.contains("cm-content")).toBe(true);
-  await userEvent.keyboard("Vkga");
-  expect(comments.ask).toHaveBeenCalledWith({
-    line: 2,
-    endLine: 3,
-    text: ["const b = 2;", "const c = 3;"],
-  });
+  await userEvent.keyboard("Vkgc");
+  await expect.element(page.getByRole("form", { name: "Comment on lines 2–3" })).toBeVisible();
 });
 
 test("a comment that the agent resolved says so, and opens again", async () => {

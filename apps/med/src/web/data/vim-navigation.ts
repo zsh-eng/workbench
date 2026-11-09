@@ -22,7 +22,7 @@ export type VimMotion = {
   copy?: true;
   definition?: string;
   /** `gc` comments on the selected lines, or the cursor's; `ga` asks about them. */
-  annotate?: "comment" | "ask";
+  annotate?: "comment";
   /** `K`: the name under the cursor, whose definition a card shows. */
   hover?: string;
 };
@@ -483,8 +483,7 @@ export class VimNavigation {
     if (prefix === "g") {
       if (key === "g") this.jumpTo(explicit ? n - 1 : 0);
       if (key === "d") return { handled: true, definition: this.wordAtCursor() };
-      if (key === "c" || key === "a")
-        return { handled: true, annotate: key === "c" ? "comment" : "ask" };
+      if (key === "c") return { handled: true, annotate: "comment" };
       return { handled: true };
     }
     if (prefix === "z") {

@@ -121,7 +121,6 @@ import {
   transcriptTurns,
 } from "./agent-transcripts";
 import { AgentInbox } from "./agent-inbox";
-import { findCodex } from "./find-codex";
 import { createQueuedMessages } from "./queued-messages";
 import { createPrDrafts, MAX_PR_DRAFT_BODY, prDraftInputSchema } from "./pr-drafts";
 import {
@@ -134,7 +133,6 @@ import {
 import { loadShellEnvironment } from "./shell-environment";
 import { createAgentStatus } from "./agent-status";
 import { createFoundSessions } from "./found-sessions";
-import { Questions } from "./questions";
 import { createSessionSearch, sessionEntry, type SessionInfo } from "./session-search";
 import { createCheckoutWork } from "./checkout-work";
 import { createPullRequestLinks } from "./pull-request-links";
@@ -579,28 +577,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     stateDir: options.stateDir ?? temporaryState!,
     api: options.dependencyApi,
   });
-  // Questions about lines: one-shot runs of a thread's agent, whose answers
-  // go to the reader only. Their forks are not threads.
-  const questions = new Questions({
-    claude: async () =>
-      (await (options.agents ?? (() => findAgents(options.stateDir)))()).find(
-        (agent) => agent.kind === "claude" && agent.available,
-      ),
-    codex: () => findCodex(),
-    lead: async (thread) =>
-      ((await found.session(thread)) ?? (await savedReviews.get(thread)).sessions)?.at(-1),
-    recorded: (sessionId) => ownedSessions.recorded(sessionId),
-    forksFile: join(options.stateDir ?? temporaryState!, "question-forks.json"),
-  });
-  await questions.restore();
-  const questionStreams = new Set<ServerResponse>();
   // Claude Code and Codex sessions in the registered repositories that no
   // saved review names; the thread list shows them too.
   const found = createFoundSessions({
     repositories: () => registry.snapshot(),
     refreshRepositories: () => registry.list(),
     owned: () => ownedSessions.agentSessions(),
-    excluded: (agent, id) => questions.excludes(agent, id),
     settingsFile: join(options.stateDir ?? temporaryState!, "found-sessions.json"),
     changes: checkoutChanges,
     shown: options.foundSessions ?? true,
@@ -609,7 +591,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // Sessions of any age, for `med thread find` and `med thread adopt`.
   const sessionSearch = createSessionSearch({
     codexNames: () => found.codexNames(),
-    excluded: (agent, id) => questions.excludes(agent, id),
   });
   /** The saved thread that names a session: by its ID, or for a session
    * that Med runs through ACP, by the agent's own ID. */
@@ -1068,7 +1049,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         return { ...(window ? { window } : {}), env: startedAgentEnvironment() };
       });
     }),
-    ...questions.routes(),
   ]);
   // The editors on this machine, looked for again after a minute.
   let editorsFound: { at: number; editors: Promise<Editor[]> } | null = null;
@@ -1548,42 +1528,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const agentChoices = /^\/api\/agents\/([a-z0-9-]{1,40})\/choices$/.exec(url.pathname);
         if (agentChoices && request.method === "GET") {
           send(await ownedSessions.choices(agentChoices[1]!));
-          return;
-        }
-        // A question's answer as it streams, as `state` events. The stream
-        // ends when the reader closes the question.
-        const questionRoute = /^\/api\/questions\/([A-Za-z0-9_-]{1,64})\/events$/.exec(
-          url.pathname,
-        );
-        if (questionRoute && request.method === "GET") {
-          const id = questionRoute[1]!;
-          questions.state(id);
-          if (questionStreams.size >= 16)
-            throw new HostError("too-many-streams", "Too many question streams are open.", 503);
-          response.writeHead(200, {
-            "content-type": "text/event-stream",
-            "cache-control": "no-store",
-            connection: "keep-alive",
-            "x-accel-buffering": "no",
-          });
-          questionStreams.add(response);
-          let unsubscribe = () => {};
-          const push = () => {
-            try {
-              response.write(`event: state\ndata: ${JSON.stringify(questions.state(id))}\n\n`);
-            } catch {
-              // Closed: the question is gone.
-              unsubscribe();
-              questionStreams.delete(response);
-              response.end();
-            }
-          };
-          unsubscribe = questions.subscribe(id, push);
-          response.once("close", () => {
-            questionStreams.delete(response);
-            unsubscribe();
-          });
-          push();
           return;
         }
         // Sessions that Med starts in a review's repository and runs itself.
@@ -3885,8 +3829,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       basePulls.close();
       queuedMessages.stop();
       await ownedSessions.detachAll();
-      await questions.stopAll();
-      for (const stream of questionStreams) stream.end();
       closeTranscripts();
       found.close();
       checkoutWork.close();

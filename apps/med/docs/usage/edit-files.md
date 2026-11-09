@@ -7,8 +7,7 @@ named and black-hole registers keep their Vim behavior. Med's shortcuts come
 before Vim's, except on macOS: Control+B, Control+F, and Control+O reach Vim,
 because Command runs Med's shortcuts.
 
-In a thread, `gc` comments on the cursor's line or the selected lines, and
-`ga` asks the thread's agent about them
+In a thread, `gc` comments on the cursor's line or the selected lines
 ([Comment on a file](review-changes.md#comment-on-a-file)).
 
 `:w` or `⌘S` writes the file; `:wq` saves, then closes if the save succeeds;

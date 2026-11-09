@@ -110,22 +110,6 @@ export const screens: readonly Screen[] = [
     recording: "recording.json",
   },
   {
-    id: "ask-in-session",
-    label: "Prototype: ask in a file, in a session",
-    note: "Select lines in any file and press ga. While the agent waits, the question goes to its own thread, which answers it there. While it works, a fork of the session answers at once, so the work goes on; Reply asks the fork more.",
-    scene: "",
-    recording: "",
-    prototype: "ask-in-session",
-  },
-  {
-    id: "ask-in-workspace",
-    label: "Prototype: ask in a file, without a session",
-    note: "Outside a session, questions go to the repository's Questions session: one read-only Claude session per repository that Med keeps, so each answer builds on the last. Make a session starts a working session from the question.",
-    scene: "",
-    recording: "",
-    prototype: "ask-in-workspace",
-  },
-  {
     id: "find-bar",
     label: "Prototype: one find bar",
     note: "⌘F in the diff, ⌘F in a file, and Vim's / and ? open the same bar: Match case, Whole word, and Regular expression, the count, and Previous and Next. In a file it is CodeMirror's search panel, so n and N go on from its query.",
