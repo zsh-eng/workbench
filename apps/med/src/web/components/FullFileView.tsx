@@ -77,7 +77,7 @@ export interface FileComments {
     how: FileCommentSend,
   ): Promise<void>;
   mutate(mutation: FileCommentMutation): Promise<void>;
-  send(id: string, how: Exclude<FileCommentSend, "keep">): Promise<void>;
+  send(id: string): Promise<void>;
 }
 /** A number that grows each time the comments or the box change. */
 function versionCounter() {
@@ -749,7 +749,7 @@ function ReadOnlyFileView({
                       agent={current.agent}
                       unsent={current.unsent.has(comment.id)}
                       onMutate={current.mutate}
-                      onSend={(how) => current.send(comment.id, how)}
+                      onSend={() => current.send(comment.id)}
                     />
                   );
                 }}

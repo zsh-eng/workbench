@@ -187,6 +187,7 @@ function Files() {
   const blame = useViewSetting(viewSettings.lineBlame);
   const preview = useViewSetting(viewSettings.filePreview);
   const followUp = useViewSetting(viewSettings.followUp);
+  const sendNow = useViewSetting(viewSettings.commentsSendNow);
   const flip = (setting: typeof viewSettings.vim, value: "on" | "off") =>
     setting.set(value === "on" ? "off" : "on");
   return (
@@ -222,6 +223,16 @@ function Files() {
             { value: "queue", label: "Queue for the turn's end" },
           ]}
           onChange={(value) => viewSettings.followUp.set(value as "now" | "queue")}
+        />
+      </Row>
+      <Row
+        label="Send a new comment at once"
+        note="To the agent that Med runs; otherwise it waits in the message box. The box under a comment has it too."
+      >
+        <Switch
+          label="Send a new comment at once"
+          on={sendNow === "on"}
+          toggle={() => flip(viewSettings.commentsSendNow, sendNow)}
         />
       </Row>
     </Section>

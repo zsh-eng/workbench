@@ -8,6 +8,7 @@ import { CommentAgentContext, noteAuthor } from "../data/comment-agent";
 import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { SendNow } from "./SendNow";
 
 // The thread's Markdown renderer loads with the first comment, not with the review.
 const CommentMarkdown = lazy(() => import("./CommentMarkdown"));
@@ -75,6 +76,7 @@ export function CommentEditor({
   initialError = "",
   closeOnSave = true,
   submitLabel,
+  sendTo,
   onSave,
   onCancel,
 }: {
@@ -84,6 +86,8 @@ export function CommentEditor({
   initialError?: string;
   closeOnSave?: boolean;
   submitLabel: string;
+  /** The agent that a new comment can go to as it is saved: "Send to … now". */
+  sendTo?: string;
   onSave(text: string): Promise<void>;
   onCancel(): void;
 }) {
@@ -152,9 +156,13 @@ export function CommentEditor({
         </p>
       )}
       <div {...stylex.props(styles.actions)}>
-        <span {...stylex.props(styles.hint)}>
-          <ShortcutKeys value={/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ ↵" : "Ctrl ↵"} />
-        </span>
+        {sendTo ? (
+          <SendNow agent={sendTo} />
+        ) : (
+          <span {...stylex.props(styles.hint)}>
+            <ShortcutKeys value={/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ ↵" : "Ctrl ↵"} />
+          </span>
+        )}
         <span {...stylex.props(ui.grow)} />
         <button
           type="button"
@@ -187,6 +195,7 @@ export function NoteComposer({
   initialText,
   initialError,
   closeOnSave,
+  sendable = false,
   onSave,
   onCancel,
 }: {
@@ -197,16 +206,21 @@ export function NoteComposer({
   initialText?: string;
   initialError?: string;
   closeOnSave?: boolean;
+  /** A new comment whose save sends it to the agent that Med runs while
+   * "Send to … now" is ticked; the box shows the checkbox. */
+  sendable?: boolean;
   onSave(note: NoteInput): Promise<void>;
   onCancel(): void;
 }) {
   const reply = !!parentId || !!guideComment;
+  const agent = useContext(CommentAgentContext);
   return (
     <div data-comment-card {...stylex.props(styles.card, reply && styles.embedded)}>
       <CommentEditor
         label={reply ? "Reply text" : "Review note text"}
         formLabel={reply ? "Reply" : `Local comment on ${lineLabel(target)}`}
         submitLabel={reply ? "Reply" : "Save note"}
+        sendTo={sendable && !reply && agent ? agent.name : undefined}
         initialText={initialText}
         initialError={initialError}
         closeOnSave={closeOnSave}

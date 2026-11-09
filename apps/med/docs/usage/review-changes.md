@@ -118,7 +118,13 @@ them on their own, and the comment count opens the list, where a checkbox
 chooses which, and a comment's file and text show it at its line in Changes. A GitHub comment's reply button, or **Add all to**
 the agent in the pull request panel, adds GitHub comments. Press `⌘↵` or **Send**.
 
-When Med started the session and runs it, one comment can go on its own: hold
+When Med runs the session, a new comment's box has **Send to Claude now**
+(the agent's name). Ticked, **Comment** saves the comment and sends it at
+once, at the agent's next step while it works. Not ticked, the comment waits
+in the message box until you send it. Med keeps the choice for every box
+(`comments.sendNow`, also in Settings); it is ticked at first.
+
+A comment that waits can also go on its own: hold
 the pointer over it and select the agent's mark (**Send to Claude**). The
 comment then says **Sent to Claude** until you change it or reply. The agent
 can answer a comment in its thread (`med reply <id>`): its answer shows
@@ -152,10 +158,10 @@ edit while Med sends stays a draft.
 
 In a thread, you can comment on any file that you open, not only on the
 change: press `gc` on a line, or on lines selected in Visual mode, or click
-the **+** beside a line. A plain box opens under the lines. The round arrow
-(`⌘↵`) sends the comment to the agent now, or at its next step while it works;
-the clock (`⌥↵`) waits for its turn to end; the comment mark adds it to the
-thread's message with the other comments. `Esc` or **×** cancels. The comment
+the **+** beside a line. A plain box opens under the lines. **Comment** (`⌘↵`)
+saves it, and **Send to Claude now** decides where it goes, as for a comment
+on the diff ([Send comments to the agent](#send-comments-to-the-agent)).
+**Cancel** or `Esc` closes the box. The comment
 stays under its last line, as on a page that people comment on together; its
 **Reply**, **Resolve**, and **Delete** show when the pointer is on it. The agent gets the file's path, the lines
 as they were, and your text; it answers in the comment's thread

@@ -234,6 +234,7 @@ import { highlightRules } from "./code-colors";
 import { createDiffFindHighlights } from "./data/diff-find-highlights";
 import { openIn, useAgentInbox } from "./data/agent-inbox";
 import { CommentAgentContext, type CommentAgent } from "./data/comment-agent";
+import { sendsNow } from "./components/SendNow";
 import type { ComposerAttachment } from "./components/session/SessionComposer";
 import type { SessionStarter } from "./components/session/SessionPanel";
 import type { ThreadLink } from "./components/session/SessionSidePanel";
@@ -1386,6 +1387,32 @@ export function App({
       },
     };
   }, [leadSession, replyAgent, inboxState, sendAgentMessage]);
+  /** Saves a new comment on lines, and sends it to the agent that Med runs
+   * while "Send to … now" is ticked (SendNow). A send that fails leaves the
+   * comment saved, to send from the message box, and says why. */
+  const addNote = useCallback(
+    async (note: NoteInput) => {
+      const before = new Set(controller.getSnapshot().notes?.notes.map((entry) => entry.id));
+      await controller.mutateNote({ type: "add", note });
+      if (!commentAgent || !sendsNow()) return;
+      const added = controller
+        .getSnapshot()
+        .notes?.notes.find(
+          (entry) => !before.has(entry.id) && !entry.parentId && entry.text === note.text,
+        );
+      if (!added) return;
+      await commentAgent
+        .send(added.id)
+        .catch((error: unknown) =>
+          setContextError(
+            `The comment is saved, but did not reach ${commentAgent.name}: ${
+              error instanceof Error ? error.message : "the send failed"
+            }. Send it from the message box.`,
+          ),
+        );
+    },
+    [controller, commentAgent],
+  );
   // An agent's reply changes the review where the page does not write: the
   // inbox says so, and the page reads the comments again.
   const inboxRevision = inboxState?.revision;
@@ -2802,7 +2829,7 @@ export function App({
       other.kind === source.kind &&
       other.repo === source.repo &&
       (other.kind !== "commit" || (source.kind === "commit" && other.oid === source.oid));
-    const send = async (id: string, how: "send" | "queue") => {
+    const send = async (id: string) => {
       if (!leadSession) throw new Error("This thread has no agent to send to.");
       await sendAgentMessage({
         id: crypto.randomUUID(),
@@ -2811,7 +2838,6 @@ export function App({
         noteIds: [id],
         attachments: [],
         images: [],
-        ...(how === "queue" ? { afterTurn: true } : {}),
       });
     };
     return {
@@ -2828,7 +2854,15 @@ export function App({
           add: { source, path: activeFilePath, ...lines, text },
         });
         const added = next?.fileComments?.find((comment) => !before.has(comment.id));
-        if (how !== "keep" && added) await send(added.id, how);
+        if (how !== "send" || !added) return;
+        // A send that fails leaves the comment saved, with its Send button.
+        await send(added.id).catch((error: unknown) =>
+          setContextError(
+            `The comment is saved, but did not reach ${commentAgent?.name ?? "the agent"}: ${
+              error instanceof Error ? error.message : "the send failed"
+            }.`,
+          ),
+        );
       },
       async mutate(mutation) {
         await controller.commentFile(mutation);
@@ -5042,6 +5076,7 @@ export function App({
         <NoteComposer
           key={JSON.stringify(annotation.metadata.draft)}
           target={annotation.metadata.draft}
+          sendable
           initialText={
             pendingDraft?.target === annotation.metadata.draft ? pendingDraft.note.text : undefined
           }
@@ -5057,7 +5092,7 @@ export function App({
             };
             setPendingDraft(submission);
             try {
-              await controller.mutateNote({ type: "add", note });
+              await addNote(note);
             } catch (error) {
               setPendingDraft((current) =>
                 current === submission
@@ -5102,7 +5137,7 @@ export function App({
           onOpenLink={openCommentLink}
         />
       ) : null,
-    [pendingDraft, reviewId, notes, controller, guideAgent, openCommentLink],
+    [pendingDraft, reviewId, notes, controller, addNote, guideAgent, openCommentLink],
   );
   // The Guide's segment or commit heads the stream and ends it with the next part.
   const guideStray = useMemo(() => {
@@ -6561,7 +6596,14 @@ export function App({
                       readFile={readCheckoutFile}
                       onCopy={copyNotes}
                       notes={notes}
-                      onMutateNote={(mutation) => controller.mutateNote(mutation)}
+                      onMutateNote={(mutation) =>
+                        // A new comment on an excerpt, which its box can send.
+                        mutation.type === "add" &&
+                        !mutation.note.parentId &&
+                        !mutation.note.guideComment
+                          ? addNote(mutation.note)
+                          : controller.mutateNote(mutation)
+                      }
                       comments={briefComments}
                       onCommentBrief={(mutation) => controller.commentBrief(mutation)}
                       prDraft={prDraft}

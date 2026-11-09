@@ -1331,6 +1331,7 @@ function ExcerptCard({
                 <NoteComposer
                   key={JSON.stringify(draft.target)}
                   target={draft.target}
+                  sendable
                   initialText={submitted?.draft === draft ? submitted.note.text : undefined}
                   initialError={submitted?.draft === draft ? submitted.error : undefined}
                   onSave={(note) => onSave(draft, note)}

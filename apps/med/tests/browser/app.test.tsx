@@ -3357,6 +3357,47 @@ describe("review guide comments", () => {
     await expect.element(asked.getByRole("button", { name: "Send to Claude" })).toBeInTheDocument();
   });
 
+  test("a new comment goes to Claude as it is saved while Send to Claude now is ticked", async () => {
+    await page.viewport(1280, 800);
+    const { agentMessages, controller } = await mountApp({
+      savedReview: true,
+      session: `event: reset\ndata: ${JSON.stringify({ events: [], idle: true, modifiedAt: 0, truncated: false })}\n\n`,
+      inbox: { messages: [], owned: ["s1"], drafts: [] },
+    });
+    const write = async (text: string) => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+      );
+      await page.getByRole("combobox", { name: "Search commands" }).fill("Find in diff");
+      await page.getByRole("option", { name: /Find in diff contents/ }).click();
+      await page.getByRole("textbox", { name: "Find in changes" }).fill("after");
+      await page.getByRole("button", { name: "Next match" }).click();
+      await page.getByRole("button", { name: "Add note", exact: true }).click();
+      await page.getByRole("textbox", { name: "Review note text" }).fill(text);
+    };
+    await write("Rename it.");
+    const sendNow = page.getByRole("checkbox", { name: "Send to Claude now" });
+    await expect.element(sendNow).toBeChecked();
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect
+      .poll(() => controller.getSnapshot().notes?.notes.find((note) => note.text === "Rename it."))
+      .toBeTruthy();
+    const sent = controller.getSnapshot().notes!.notes.find((note) => note.text === "Rename it.")!;
+    await expect
+      .poll(() => agentMessages.at(-1))
+      .toMatchObject({ sessionId: "s1", text: "", noteIds: [sent.id] });
+
+    // Not ticked, it waits for Send in the message box.
+    await write("Later.");
+    await sendNow.click();
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect
+      .poll(() => controller.getSnapshot().notes?.notes.some((note) => note.text === "Later."))
+      .toBe(true);
+    expect(agentMessages).toHaveLength(1);
+    viewSettings.commentsSendNow.set("on");
+  });
+
   test("a comment has no Send when Med does not run the agent", async () => {
     await page.viewport(1280, 800);
     await mountApp({

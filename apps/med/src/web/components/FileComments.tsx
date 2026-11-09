@@ -6,6 +6,7 @@ import { relativeTime } from "../data/relative-time";
 import { tokens, ui } from "../theme.stylex";
 import { Icon, type IconName } from "./Icon";
 import { CommentEditor, CommentText } from "./NoteCard";
+import { SendNow, sendsNow } from "./SendNow";
 import { tooltip } from "./ToolButton";
 import "./FileComments.css";
 
@@ -15,8 +16,8 @@ import "./FileComments.css";
 // resolves it when done. You can open it again.
 
 /** How a new comment goes: to the agent now (at its next step while it
- * works), after its turn, or into the message box with the others. */
-export type FileCommentSend = "send" | "queue" | "keep";
+ * works), or into the message box with the others. */
+export type FileCommentSend = "send" | "keep";
 
 /** The agent that Med runs for the thread, which takes a comment from here. */
 export interface FileCommentAgent {
@@ -27,7 +28,8 @@ export interface FileCommentAgent {
 const lines = (line: number, endLine: number) =>
   line === endLine ? `line ${line}` : `lines ${line}–${endLine}`;
 
-/** The box under the lines that `gc` opens. */
+/** The box under the lines that `gc` opens. Comment saves it, and sends it
+ * to the agent too while "Send to … now" is ticked (SendNow). */
 export function FileCommentBox({
   line,
   endLine,
@@ -56,8 +58,9 @@ export function FileCommentBox({
     form.current?.scrollIntoView({ block: "nearest" });
     input.current?.focus({ preventScroll: true });
   }, []);
-  const submit = async (how: FileCommentSend) => {
+  const submit = async () => {
     if (!text.trim() || busy) return;
+    const how = agent && sendsNow() ? "send" : "keep";
     setBusy(how);
     setError("");
     try {
@@ -77,7 +80,7 @@ export function FileCommentBox({
       {...stylex.props(styles.card)}
       onSubmit={(event) => {
         event.preventDefault();
-        void submit(agent ? "send" : "keep");
+        void submit();
       }}
     >
       <textarea
@@ -95,11 +98,7 @@ export function FileCommentBox({
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             event.stopPropagation();
-            void submit(agent ? "send" : "keep");
-          } else if (event.key === "Enter" && event.altKey && agent) {
-            event.preventDefault();
-            event.stopPropagation();
-            void submit("queue");
+            void submit();
           } else if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
@@ -114,50 +113,25 @@ export function FileCommentBox({
         </p>
       )}
       <div {...stylex.props(styles.bar)}>
+        {agent && <SendNow agent={agent.name} />}
+        <span {...stylex.props(styles.grow)} />
         <button
           type="button"
           disabled={!!busy}
-          aria-label="Cancel"
           {...tooltip("Cancel", "Esc")}
           onClick={onCancel}
-          {...stylex.props(ui.button, ui.iconButton, styles.icon)}
+          {...stylex.props(ui.button, ui.pressable, styles.comment, styles.cancel)}
         >
-          <Icon name="close" size={13} />
+          Cancel
         </button>
-        <span {...stylex.props(styles.grow)} />
-        {agent && (
-          <>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label="Add to message"
-              {...tooltip("Add to message")}
-              onClick={() => void submit("keep")}
-              {...stylex.props(ui.button, ui.iconButton, styles.icon)}
-            >
-              <Icon name="commentAdd" size={14} />
-            </button>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label="Queue"
-              {...tooltip("After its turn", "⌥↵")}
-              onClick={() => void submit("queue")}
-              {...stylex.props(ui.button, ui.iconButton, styles.icon)}
-            >
-              <Icon name="clock" size={14} />
-            </button>
-          </>
-        )}
         <button
           type="submit"
           disabled={disabled}
-          aria-label={agent ? `Send to ${agent.name}` : "Add to message"}
           aria-busy={busy !== null}
-          {...tooltip(agent ? `Send to ${agent.name}` : "Add to message", "⌘↵")}
-          {...stylex.props(ui.button, styles.send)}
+          {...tooltip("Comment", "⌘↵")}
+          {...stylex.props(ui.button, ui.primary, ui.pressable, styles.comment)}
         >
-          <Icon name={agent ? "arrowUp" : "commentAdd"} size={13} />
+          Comment
         </button>
       </div>
     </form>
@@ -188,7 +162,7 @@ export function FileCommentThread({
   /** Not sent since its last change. */
   unsent: boolean;
   onMutate(mutation: FileCommentMutation): Promise<void>;
-  onSend(how: Exclude<FileCommentSend, "keep">): Promise<void>;
+  onSend(): Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
   const [error, setError] = useState("");
@@ -315,7 +289,7 @@ export function FileCommentThread({
             disabled={busy}
             aria-label={`Send to ${agent.name}`}
             {...tooltip(`Send to ${agent.name}`)}
-            onClick={() => void run(() => onSend("send"))}
+            onClick={() => void run(onSend)}
             {...stylex.props(ui.button, styles.send)}
           >
             <Icon name="arrowUp" size={13} />
@@ -370,7 +344,9 @@ const styles = stylex.create({
     outline: "none",
     "::placeholder": { color: tokens.faint },
   },
-  bar: { display: "flex", alignItems: "center", gap: 2, marginInline: -4, marginBottom: -2 },
+  bar: { display: "flex", alignItems: "center", gap: 4, marginInlineEnd: -4, marginBottom: -2 },
+  comment: { height: 26, paddingBlock: 0, paddingInline: 10, fontSize: 12 },
+  cancel: { color: tokens.muted },
   grow: { flex: "1" },
   icon: { width: 26, height: 26, color: tokens.muted },
   send: {
