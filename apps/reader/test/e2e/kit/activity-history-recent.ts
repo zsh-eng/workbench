@@ -4,7 +4,7 @@ import activityHistory from "./activity-history";
 
 /**
  * agent-kit `--steps`, with `two-devices.ts`: Account → Activity, dragged
- * up to full height so Recent shows whole.
+ * up to full height, for when its books run past the screen.
  */
 export default async function activityHistoryRecent({ page }: { page: Page }) {
   await activityHistory({ page });

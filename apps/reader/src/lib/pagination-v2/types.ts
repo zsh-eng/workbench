@@ -188,7 +188,13 @@ export interface ResolvedSpreadWindow {
   anchor?: ContentAnchor;
 }
 
-export type PaginationStatus = "idle" | "partial" | "recalculating" | "ready";
+/** `failed`: the layout worker crashed and did not come back. */
+export type PaginationStatus =
+  | "idle"
+  | "partial"
+  | "recalculating"
+  | "ready"
+  | "failed";
 
 /**
  * One chapter laid out as a single scroll column (prototype, Debug mode).

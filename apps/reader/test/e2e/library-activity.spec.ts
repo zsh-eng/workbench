@@ -1,10 +1,10 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, startRestore, test } from "./helpers/fixtures";
 
-// The activity glyph and its sheet show without a Debug switch. A restore
-// is the island at the top centre, which folds into the glyph when it is
-// near (LibraryRestoreIsland). Covers that fill as books download stay
-// behind Debug -> Offline downloads.
+// The activity glyph and its sheet. A restore is the island at the top
+// centre, which folds into the glyph when it is near
+// (LibraryRestoreIsland). Covers that fill as books download have their
+// own spec (library-offline-downloads).
 
 /** The island's place beside the glyph: its status, and its phase. */
 const island = (page: Page) => page.locator(".ba-island-slot");

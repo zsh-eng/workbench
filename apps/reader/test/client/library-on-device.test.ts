@@ -36,10 +36,6 @@ vi.mock("@/lib/background-activity", () => ({
 vi.mock("@/lib/files", () => ({
   files: { hasLocal: async (id: string) => world.here.has(id) },
 }));
-vi.mock("@/lib/debug-switch", () => ({
-  offlineDownloads: {},
-  useDebugSwitch: () => true,
-}));
 vi.mock("@/lib/app-update", () => ({
   appUpdateStore: { subscribe: () => () => {}, getSnapshot: () => null },
   getAppUpdate: () => null,
@@ -72,18 +68,16 @@ it("keeps the books it showed while on screen, and takes in a finished download 
   const view = renderHook(({ active }) => useOnDeviceFilter(books, active), {
     initialProps: { active: true },
   });
-  await waitFor(() =>
-    expect(view.result.current.ids).toEqual(new Set(["emma"])),
-  );
+  await waitFor(() => expect(view.result.current).toEqual(new Set(["emma"])));
 
   // Persuasion finishes downloading while you look: the grid holds.
   act(() => world.finish("file-persuasion", "book:persuasion"));
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(view.result.current.ids).toEqual(new Set(["emma"]));
+  expect(view.result.current).toEqual(new Set(["emma"]));
 
   // All, then On this device again: now it is there.
   view.rerender({ active: false });
-  expect(view.result.current.ids).toBeNull();
+  expect(view.result.current).toBeNull();
   view.rerender({ active: true });
-  expect(view.result.current.ids).toEqual(new Set(["emma", "persuasion"]));
+  expect(view.result.current).toEqual(new Set(["emma", "persuasion"]));
 });

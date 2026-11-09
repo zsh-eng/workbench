@@ -7,7 +7,7 @@ import {
 import type { AppEnv } from "./env";
 
 /** The body, read once up to the push limit; undefined when it is larger. */
-async function boundedText(c: Context<AppEnv>) {
+export async function boundedText(c: Context<AppEnv>) {
   const declared = c.req.header("Content-Length");
   if (declared !== undefined && !(Number(declared) <= MAX_SYNC_PUSH_BODY_BYTES))
     return undefined;

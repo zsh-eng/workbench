@@ -1,3 +1,4 @@
+import { SURFACE_TITLE_TYPE } from "@/components/type-voices";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
@@ -165,7 +166,7 @@ export function DetentSheet({
                 )}
                 <Heading
                   slot="title"
-                  className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+                  className={cn("truncate text-center", SURFACE_TITLE_TYPE)}
                 >
                   {title}
                 </Heading>

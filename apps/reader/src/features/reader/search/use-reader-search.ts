@@ -40,6 +40,8 @@ export const SEARCH_RESULT_LIMIT = 1000;
 const READER_RESULTS_PLACED = 32;
 /** Results drawn at a time; a long list grows as it scrolls. */
 const RESULTS_PAGE = 30;
+/** Times a search worker is started for one book, counting the first. */
+const MAX_SEARCH_WORKER_STARTS = 3;
 const QUERY_KEY_PREFIX = "epub-reader-search-query:";
 
 export interface ReaderSearchResult extends TextMatch {
@@ -352,6 +354,9 @@ export function useReaderSearch({
   // The worker starts when the page is first idle, or when search opens,
   // and lives as long as the book.
   const [warmed, setWarmed] = useState(false);
+  // A worker that fails is started again, a few times, and the search runs
+  // again on its fresh copy of the text.
+  const [workerStarts, setWorkerStarts] = useState(0);
   useEffect(() => {
     if (!warm || warmed || enabled) return;
     return whenIdle(() => setWarmed(true));
@@ -374,10 +379,24 @@ export function useReaderSearch({
         });
       queued.push(event.data);
     };
+    worker.onerror = (event) => {
+      console.error("[reader search worker]", event);
+      worker.terminate();
+      if (workerRef.current !== worker) return;
+      workerRef.current = null;
+      sentBook.current = "";
+      if (running.current) {
+        running.current = null;
+        setPending(false);
+        setStatus("done");
+      }
+      if (workerStarts < MAX_SEARCH_WORKER_STARTS - 1)
+        setWorkerStarts((starts) => starts + 1);
+    };
     workerRef.current = worker;
     sentTexts.current.clear();
     setTextVersion((version) => version + 1);
-  }, [handleMessage, started]);
+  }, [handleMessage, started, workerStarts]);
   useEffect(
     () => () => {
       workerRef.current?.terminate();

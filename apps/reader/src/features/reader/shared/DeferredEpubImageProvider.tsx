@@ -107,11 +107,7 @@ export function DeferredEpubImageProvider({
 
         if (!resourceBlob) {
           console.warn("[LazyImage] Deferred image not found:", resourcePath);
-          endReaderTraceSpan(
-            resourceLoadSpan,
-            { found: false },
-            "error",
-          );
+          endReaderTraceSpan(resourceLoadSpan, { found: false }, "error");
           return null;
         }
 
@@ -223,10 +219,17 @@ export function useDeferredEpubImage(src: string) {
       };
     }
 
-    void deferredStore.loadUrl(resourcePath).then((loadedUrl) => {
-      if (cancelled) return;
-      setLoadedSrc({ resourcePath, src: loadedUrl });
-    });
+    // A read that fails settles as a missing image, so the page can show.
+    void deferredStore
+      .loadUrl(resourcePath)
+      .catch((error: unknown) => {
+        console.warn("[reader] Could not read image", resourcePath, error);
+        return null;
+      })
+      .then((loadedUrl) => {
+        if (cancelled) return;
+        setLoadedSrc({ resourcePath, src: loadedUrl });
+      });
 
     return () => {
       cancelled = true;

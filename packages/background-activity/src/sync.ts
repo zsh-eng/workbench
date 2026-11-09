@@ -60,7 +60,7 @@ export function syncAsJob(
           state: "waiting",
           waitingFor: "sign-in",
           attention: true,
-          detail: `${changes(status.pending)} only on this device. Sign in to keep them.`,
+          detail: `${changes(status.pending)} only on this device. Sign in to keep ${status.pending === 1 ? "it" : "them"}.`,
         };
       if (status.pending > 0 && status.connection === "offline")
         return {

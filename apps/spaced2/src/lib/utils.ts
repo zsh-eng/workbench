@@ -1,29 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
-import rehypeHighlight from "rehype-highlight";
-import rehypeKatex from "rehype-katex";
-import rehypeStringify from "rehype-stringify";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
 import { twMerge } from "tailwind-merge";
-import { unified } from "unified";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-const markdownProcessor = unified()
-  .use(remarkParse)
-  .use(remarkMath)
-  .use(remarkGfm)
-  .use(remarkRehype)
-  .use(rehypeKatex)
-  .use(rehypeHighlight)
-  .use(rehypeStringify);
-
-export function markdownToHtml(markdown: string) {
-  return markdownProcessor.processSync(markdown).toString();
 }
 
 /**

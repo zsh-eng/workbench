@@ -89,8 +89,9 @@ describe("sync v2 client", () => {
     );
   });
 
-  it("keeps an oversized restored mutation in the outbox with a record-specific error", async () => {
-    const key = encodeSyncKey("notes", "oversized");
+  it("keeps an oversized restored mutation in the outbox with a record-specific error, and sends the rest", async () => {
+    // Keys sort "notes:a…" before "notes:oversized…": the bad one comes first.
+    const key = encodeSyncKey("notes", "a-oversized");
     await syncDb._sync_outbox.put({
       key,
       value: "x".repeat(MAX_SYNC_VALUE_BYTES + 1),
@@ -98,11 +99,32 @@ describe("sync v2 client", () => {
       schemaVersion: 1,
       hlc: { wallTimeMs: 1000, counter: 0 },
     });
+    await db.notes.add({
+      id: "z-fine",
+      bookId: "book-a",
+      kind: "note",
+      content: "Behind the oversized one",
+      anchor: {
+        spineItemId: "chapter",
+        startOffset: 0,
+        endOffset: 0,
+        textBefore: "",
+        textAfter: "",
+      },
+      createdAt: 1000,
+      updatedAt: 1000,
+      isDeleted: false,
+    });
     await expect(client.push()).rejects.toThrow(
       `Cannot synchronize record ${key}`,
     );
-    expect(remote.pushRequests).toHaveLength(0);
+    expect(remote.pushRequests.flat().map((change) => change.key)).toEqual([
+      encodeSyncKey("notes", "z-fine"),
+    ]);
     expect(await db._sync_outbox.get(key)).toBeDefined();
+    expect(
+      await db._sync_outbox.get(encodeSyncKey("notes", "z-fine")),
+    ).toBeUndefined();
   });
 
   it("syncs notebook entries, resolves remote edits, and reconciles deletions without syncing drafts", async () => {

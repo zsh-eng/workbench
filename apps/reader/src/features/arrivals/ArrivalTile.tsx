@@ -150,7 +150,7 @@ function ArrivalPlaceTile({ arrival }: { arrival: Arrival }) {
     <>
       <h3
         className={cn(
-          "mt-3 line-clamp-2 text-[13px] leading-snug font-normal",
+          "mt-3 line-clamp-2 font-serif text-[15.5px] leading-[1.18] font-normal",
           arrival.title === null && "min-h-[2lh] text-muted-foreground",
         )}
       >

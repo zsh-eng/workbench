@@ -1,3 +1,4 @@
+import { GROUP_LABEL_TYPE } from "@/components/type-voices";
 import { cn } from "@/lib/utils";
 import {
   describeJob,
@@ -41,8 +42,7 @@ const APP_ROW_HEIGHT = 72;
 const HEADING_HEIGHT = 30;
 
 /** A section's title in the sheet: Now, Waiting, This app, Recent. */
-export const SECTION_HEADING =
-  "flex h-[30px] items-end pb-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase";
+export const SECTION_HEADING = `flex h-[30px] items-end pb-1 ${GROUP_LABEL_TYPE}`;
 
 /**
  * Amber for what needs you: the mark, and its words. The darker words keep
@@ -275,7 +275,15 @@ function Row({
     >
       <Leading job={job} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14px] text-foreground">
+        {/* A book's title in the serif, as everywhere a book is named. */}
+        <span
+          className={cn(
+            "block truncate text-foreground",
+            isBook(job)
+              ? "font-serif text-[16.5px] leading-tight"
+              : "text-[14px]",
+          )}
+        >
           {renderTitle?.(job) ?? job.title}
         </span>
         <span
@@ -331,9 +339,12 @@ export function ActivitySheetBody({
       Nothing in the background. Everything is on this device and synced.
     </p>
   ),
+  offlineNote = true,
 }: {
   /** What an empty sheet shows. */
   empty?: ReactNode;
+  /** Say offline in a note at the top; Account → Activity says it in its title instead. */
+  offlineNote?: boolean;
 }) {
   const { source } = useActivityEnvironment();
   const snapshot = useActivity(source);
@@ -342,7 +353,7 @@ export function ActivitySheetBody({
   const groups = sectionsOf(rows);
   return (
     <div className="px-1 pb-2" data-activity-sheet="">
-      {!snapshot.online && (
+      {offlineNote && !snapshot.online && (
         <p className="mb-3 rounded-xl bg-foreground/[0.04] px-3 py-2 text-[12.5px] text-muted-foreground">
           Offline. What needs the network waits until you are back online.
         </p>

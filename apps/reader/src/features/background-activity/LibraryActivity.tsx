@@ -7,7 +7,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { activity, downloadBooks } from "@/lib/background-activity";
 import type { Book } from "@/lib/db";
-import { offlineDownloads, useDebugSwitch } from "@/lib/debug-switch";
 import { files } from "@/lib/files";
 import { CloudDownload } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -67,14 +66,13 @@ function usePhoneLayout(): boolean {
   );
 }
 
-/** A cover's download, with Debug -> Offline downloads. */
+/** A cover's download, drawn on the cover. */
 export function LibraryCoverActivity(props: {
   bookId: string;
   className?: string;
   compact?: boolean;
 }) {
-  const downloads = useDebugSwitch(offlineDownloads);
-  return downloads ? <CoverActivity {...props} /> : null;
+  return <CoverActivity {...props} />;
 }
 
 async function missingBooks(books: readonly Book[]): Promise<Book[]> {
@@ -86,9 +84,7 @@ async function missingBooks(books: readonly Book[]): Promise<Book[]> {
 
 /** "Download all for offline", in the Library's view menu. */
 export function DownloadAllForOffline({ books }: { books: readonly Book[] }) {
-  const downloads = useDebugSwitch(offlineDownloads);
   const { toast } = useToast();
-  if (!downloads) return null;
   return (
     <>
       <DropdownMenuSeparator />
@@ -122,9 +118,7 @@ export function DownloadAllForOffline({ books }: { books: readonly Book[] }) {
 
 /** "Download for offline", in a book's menu. */
 export function DownloadForOfflineItem({ book }: { book: Book }) {
-  const downloads = useDebugSwitch(offlineDownloads);
   const { toast } = useToast();
-  if (!downloads) return null;
   return (
     <DropdownMenuItem
       onClick={() => {
@@ -159,7 +153,6 @@ function finishedDownloads(): string {
 /** The ids of the books on this device; null until they are known. */
 function useBooksOnDevice(
   books: readonly Book[] | undefined,
-  enabled: boolean,
 ): ReadonlySet<string> | null {
   // Only a finished download changes the answer; progress does not render.
   const finished = useSyncExternalStore(
@@ -169,7 +162,7 @@ function useBooksOnDevice(
   );
   const [ids, setIds] = useState<ReadonlySet<string> | null>(null);
   useEffect(() => {
-    if (!enabled || !books) return;
+    if (!books) return;
     let cancelled = false;
     void Promise.all(
       books.map(
@@ -183,12 +176,12 @@ function useBooksOnDevice(
     return () => {
       cancelled = true;
     };
-  }, [books, enabled, finished]);
+  }, [books, finished]);
   return ids;
 }
 
 /**
- * "On this device", with Debug -> Offline downloads. While the grid is on
+ * "On this device". While the grid is on
  * screen it keeps the books it showed when you chose it: a download that
  * finishes does not push a cover in between the others. The filter takes
  * in what changed when you choose it again or come back to the app.
@@ -197,9 +190,8 @@ function useBooksOnDevice(
 export function useOnDeviceFilter(
   books: readonly Book[] | undefined,
   active: boolean,
-): { enabled: boolean; ids: ReadonlySet<string> | null } {
-  const enabled = useDebugSwitch(offlineDownloads);
-  const live = useBooksOnDevice(books, enabled);
+): ReadonlySet<string> | null {
+  const live = useBooksOnDevice(books);
   const [view, setView] = useState<{
     active: boolean;
     held: ReadonlySet<string> | null;
@@ -223,5 +215,5 @@ export function useOnDeviceFilter(
     return () => document.removeEventListener("visibilitychange", onChange);
   }, [active]);
 
-  return { enabled, ids: enabled && active ? current.held : null };
+  return active ? current.held : null;
 }

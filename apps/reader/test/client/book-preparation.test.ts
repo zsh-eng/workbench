@@ -1,5 +1,6 @@
 import {
   BOOK_MATERIALIZATION_RECIPE_VERSION,
+  BookRemovedError,
   prepareBook,
 } from "@/lib/book-preparation";
 import { db, type Book, type BookFile } from "@/lib/db";
@@ -26,6 +27,7 @@ describe("prepareBook integration", () => {
     const source = createTestEpub();
     const id = await files.put(source);
     const book = createBook(id);
+    await db.books.put({ ...book, isDeleted: false });
     await db.files.delete(id);
     await expect(prepareBook(book)).rejects.toThrow("Connect to the internet");
     expect(get).not.toHaveBeenCalled();
@@ -113,6 +115,20 @@ describe("prepareBook integration", () => {
       sourceFileId,
       recipeVersion: BOOK_MATERIALIZATION_RECIPE_VERSION,
     });
+  });
+
+  it("writes nothing for a book removed while its EPUB was read", async () => {
+    const sourceFileId = await files.put(createTestEpub());
+    const book = createBook(sourceFileId);
+    // Removed here or by sync after the caller read the row.
+    await db.books.put({ ...book, isDeleted: true });
+
+    await expect(prepareBook(book)).rejects.toBeInstanceOf(BookRemovedError);
+
+    expect(await db.books.get(book.id)).toMatchObject({ isDeleted: true });
+    expect(await db.bookMaterializations.get(book.id)).toBeUndefined();
+    expect(await db.bookStructures.get(book.id)).toBeUndefined();
+    expect(await db.bookFiles.where("bookId").equals(book.id).count()).toBe(0);
   });
 
   it("does not replace existing artifacts when EPUB parsing fails", async () => {

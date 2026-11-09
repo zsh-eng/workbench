@@ -1,7 +1,6 @@
 import {
   compareBooksByDateAddedDesc,
   compareBooksByLastReadDesc,
-  findMostRecentlyReadBook,
 } from "@/lib/library-sort";
 import type { Book } from "@/lib/db";
 import { parseFileId } from "@/lib/files/file-id";
@@ -89,27 +88,5 @@ describe("compareBooksByLastReadDesc", () => {
 
     const sorted = [a, b].sort(compareBooksByLastReadDesc(lastReadByBook));
     expect(sorted.map((x) => x.id)).toEqual(["b", "a"]);
-  });
-});
-
-describe("findMostRecentlyReadBook", () => {
-  it("uses the latest checkpoint across the complete library", () => {
-    const older = makeBook("older", 300);
-    const newest = makeBook("newest", 100);
-    const neverRead = makeBook("never-read", 500);
-    const lastReadByBook = new Map([
-      ["older", 1000],
-      ["newest", 2000],
-    ]);
-
-    expect(
-      findMostRecentlyReadBook([older, neverRead, newest], lastReadByBook),
-    ).toEqual({ book: newest, lastRead: 2000 });
-  });
-
-  it("hides when no book has a reading checkpoint", () => {
-    expect(
-      findMostRecentlyReadBook([makeBook("never-read", 200)], new Map()),
-    ).toBeNull();
   });
 });

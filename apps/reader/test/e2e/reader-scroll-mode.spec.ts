@@ -48,10 +48,10 @@ async function openReadingSettings(page: Page) {
   return openReaderTool(page, "Appearance", "Appearance");
 }
 
-/** The Reading view row, Pages or Scroll, leads Appearance's Layout tab. */
+/** The Reading view row, Pages or Scroll, leads Appearance's Page tab. */
 async function chooseLayout(page: Page, layout: "Pages" | "Scroll") {
   const settings = await openReadingSettings(page);
-  await settings.getByRole("tab", { name: "Layout", exact: true }).tap();
+  await settings.getByRole("tab", { name: "Page", exact: true }).tap();
   // The sheet grows to fit the tab on its spring; tap once it rests.
   await waitForSheetToRest(settings);
   await settings
@@ -607,7 +607,7 @@ test("Without Debug mode, a visit to the column leaves no Scroll layout behind, 
   });
   await expect(page.locator(SCROLL_STAGE)).toHaveCount(0);
 
-  // Appearance's Layout offers Pages or Scroll, and Scroll reads the
+  // Appearance's Page offers Pages or Scroll, and Scroll reads the
   // chapter as one column.
   await enterScroll(page);
   expect(

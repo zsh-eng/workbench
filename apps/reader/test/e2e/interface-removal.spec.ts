@@ -23,7 +23,7 @@ for (const mobile of [false, true]) {
         await openLocalBook(page, localBook.id);
         await page.touchscreen.tap(195, 350);
         const tools = await openReaderTools(page);
-        await tools.getByRole("button", { name: /Book status/ }).click();
+        await tools.getByRole("button", { name: /Reading status/ }).click();
         await waitForSheet(page, "Reading status");
       }
       const openConfirmation = async () => {
@@ -34,7 +34,7 @@ for (const mobile of [false, true]) {
           await page.getByRole("menuitem", { name: "Remove book…" }).click();
         } else
           await page
-            .getByRole("button", { name: "Remove book", exact: true })
+            .getByRole("button", { name: "Remove book…", exact: true })
             .click();
       };
       await openConfirmation();

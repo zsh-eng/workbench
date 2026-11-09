@@ -20,6 +20,8 @@ import type {
 
 const UPLOAD_RETRY_INITIAL_MS = 1_000;
 const UPLOAD_RETRY_MAX_MS = 30_000;
+/** Answers about the file itself, not the session or the server's health. */
+const REFUSED_UPLOAD_STATUSES = new Set([400, 409, 413, 415, 422]);
 
 const DEFAULT_MEDIA_TYPE = "application/octet-stream";
 
@@ -84,6 +86,8 @@ export class FilesManager implements Files {
   private uploadWakeRequested = false;
   private uploadRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private uploadRetryDelayMs = UPLOAD_RETRY_INITIAL_MS;
+  /** The next pass also tries the files the server refused. */
+  private retryRefused = false;
 
   constructor(remote: FileRemoteApi) {
     this.remote = remote;
@@ -312,6 +316,7 @@ export class FilesManager implements Files {
   /** Explicit retry after user request; reconnect alone cannot loop on 401. */
   retryUploads(): void {
     this.resetUploadRetry();
+    this.retryRefused = true;
     this.resumeUploads();
   }
 
@@ -409,32 +414,46 @@ export class FilesManager implements Files {
     );
   }
 
+  /**
+   * Oldest first. A file the server refused waits for an explicit retry, so
+   * it never holds back the files behind it; any other failure backs off.
+   */
   private async processUploads(): Promise<void> {
+    const includeRefused = this.retryRefused;
+    this.retryRefused = false;
+    const tried = new Set<FileId>();
     while (this.uploadsEnabled) {
       const operation = await db.fileUploadOperations
         .orderBy("createdAt")
+        .filter(
+          (candidate) =>
+            !tried.has(candidate.id) &&
+            (includeRefused || candidate.lastFailure.kind !== "refused"),
+        )
         .first();
       if (!operation) return;
+      tried.add(operation.id);
 
-      const succeeded = await this.processUpload(operation);
-      if (!succeeded) {
+      const outcome = await this.processUpload(operation);
+      if (outcome === "retry") {
         this.scheduleUploadRetry();
         return;
       }
-      this.uploadRetryDelayMs = UPLOAD_RETRY_INITIAL_MS;
+      if (outcome === "uploaded")
+        this.uploadRetryDelayMs = UPLOAD_RETRY_INITIAL_MS;
     }
   }
 
   private async processUpload(
     operation: FileUploadOperation,
-  ): Promise<boolean> {
+  ): Promise<"uploaded" | "refused" | "retry"> {
     const localFile = await db.files.get(operation.id);
     if (!localFile) {
       await db.fileUploadOperations.delete(operation.id);
-      return true;
+      return "uploaded";
     }
 
-    if (!this.uploadsEnabled) return false;
+    if (!this.uploadsEnabled) return "retry";
 
     this.publish({ uploading: operation.id });
     const sessionId = this.sessionId;
@@ -448,7 +467,7 @@ export class FilesManager implements Files {
           await db.fileUploadOperations.delete(operation.id);
         },
       );
-      return true;
+      return "uploaded";
     } catch (error) {
       if (
         sessionId === this.sessionId &&
@@ -458,15 +477,25 @@ export class FilesManager implements Files {
         this.pauseUploads();
         this.publish({ authRequired: true });
       }
+      const message = error instanceof Error ? error.message : String(error);
+      const refusedStatus =
+        error instanceof FileRemoteRequestError &&
+        REFUSED_UPLOAD_STATUSES.has(error.status)
+          ? error.status
+          : null;
       await db.fileUploadOperations.update(operation.id, {
         retryCount: operation.retryCount + 1,
-        lastFailure: {
-          kind: "failed",
-          message: error instanceof Error ? error.message : String(error),
-          failedAt: Date.now(),
-        },
+        lastFailure:
+          refusedStatus === null
+            ? { kind: "failed", message, failedAt: Date.now() }
+            : {
+                kind: "refused",
+                status: refusedStatus,
+                message,
+                failedAt: Date.now(),
+              },
       });
-      return false;
+      return refusedStatus === null ? "retry" : "refused";
     } finally {
       this.publish({ uploading: null });
     }

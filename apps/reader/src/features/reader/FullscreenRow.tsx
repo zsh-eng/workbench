@@ -1,3 +1,4 @@
+import { SettingsRow } from "@/components/appearance/settings-layout";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Maximize } from "lucide-react";
@@ -32,7 +33,7 @@ export function FullscreenButton({ className }: { className: string }) {
 }
 
 /**
- * Appearance → Layout row: Full screen while reading, where Reader can hide
+ * Appearance → Page row: Full screen while reading, where Reader can hide
  * the system bars (an installed app on Android). Hidden elsewhere.
  */
 export function FullscreenRow() {
@@ -40,18 +41,12 @@ export function FullscreenRow() {
   const id = useId();
   if (!readingFullscreenSupported()) return null;
   return (
-    <div className="flex items-center justify-between gap-4">
-      <label
-        htmlFor={id}
-        className="cursor-pointer text-sm font-medium text-foreground"
-      >
-        Full screen while reading
-      </label>
+    <SettingsRow label="Full screen while reading" htmlFor={id}>
       <Switch
         id={id}
         checked={on}
         onCheckedChange={setReadingFullscreenPreference}
       />
-    </div>
+    </SettingsRow>
   );
 }

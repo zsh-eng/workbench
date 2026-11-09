@@ -1,4 +1,3 @@
-import { DuplicateBookDialog } from "./DuplicateBookDialog";
 import {
   countOutcomes,
   importSummary,
@@ -13,15 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { markEpubPreparationReady } from "@/hooks/use-epub-processor";
 import { importBooks } from "@/lib/background-activity";
 import { appArrivals } from "@/lib/book-arrivals";
-import {
-  asBookImportError,
-  BookImportError,
-  describeImportError,
-  importErrorDetails,
-} from "@/lib/book-import-errors";
-import { addBookFromFile, DuplicateBookError } from "@/lib/book-service";
-import { copyText } from "@/lib/clipboard";
-import { arrivingBooks } from "@/lib/debug-switch";
+import { asBookImportError, BookImportError } from "@/lib/book-import-errors";
+import { DuplicateBookError } from "@/lib/book-service";
 import { beginReaderTrace } from "@/lib/reader-performance-trace";
 import type { Book } from "@/lib/db";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,7 +24,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -67,26 +58,25 @@ const EpubImportContext = createContext<EpubImportContextValue | null>(null);
 
 /**
  * Coordinates EPUB imports for both the persistent sidebar and Library drop
- * target. Successful imports return to the Library and refresh its local query.
- * Each import ends in one toast, which says why a file was not added: for
- * one file, in the toast itself; for a batch, behind See why.
+ * target. Each file is a job, and its place in the Library shows at once.
+ * One book arrives in the arrival sheet, which says how it went; several
+ * fill the grid and end in one toast, which says why a file was not added
+ * behind See why.
  */
 export function EpubImportProvider({ children }: { children: ReactNode }) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [duplicateBook, setDuplicateBook] = useState<Book | null>(null);
-  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [problems, setProblems] = useState<readonly ImportOutcome[] | null>(
     null,
   );
   const [showProblems, setShowProblems] = useState(false);
-  // Debug → Arriving books: the book that arrives in the arrival sheet.
+  // The book that arrives in the arrival sheet.
   const [sheetKey, setSheetKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { toast, dismiss } = useToast();
+  const { toast } = useToast();
 
-  // Debug → Arriving books: each book stands in its place on the shelf as
-  // soon as it is ready, also after Try again, not when the batch ends.
+  // Each book stands in its place on the shelf as soon as it is ready,
+  // also after Try again, not when the batch ends.
   useEffect(() => {
     const shelved = new Set<string>();
     return appArrivals.subscribe(() => {
@@ -98,50 +88,8 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
     });
   }, [queryClient]);
 
-  // Try again in a toast runs the import as it is now.
-  const importRef = useRef<
-    (files: readonly File[], retrying: boolean) => Promise<void>
-  >(async () => {});
-
-  /** One file that was not added: why, and what to do, in the toast. */
-  const showFailure = useCallback(
-    (file: File, error: BookImportError) => {
-      const copy = describeImportError(error);
-      const show = (copied: boolean) =>
-        toast({
-          id: IMPORT_TOAST,
-          message: copy.title,
-          description: `${copy.what} ${copy.next}`,
-          variant: "destructive",
-          duration: 10000,
-          action:
-            error.kind === "unexpected"
-              ? {
-                  label: copied ? "Details copied" : "Copy details",
-                  onClick: (event) => {
-                    event.preventDefault();
-                    void copyText(importErrorDetails(error, file.name)).then(
-                      (done) => done && show(true),
-                    );
-                  },
-                }
-              : copy.retry
-                ? {
-                    label: "Try again",
-                    onClick: (event) => {
-                      event.preventDefault();
-                      void importRef.current([file], true);
-                    },
-                  }
-                : undefined,
-        });
-      show(false);
-    },
-    [toast],
-  );
-
   const importFiles = useCallback(
-    async (chosen: FileList | readonly File[], retrying = false) => {
+    async (chosen: FileList | readonly File[]) => {
       if (isProcessing || chosen.length === 0) return;
 
       const allFiles = Array.from(chosen);
@@ -157,28 +105,17 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
       }
 
       setIsProcessing(true);
-      // The toast that offered Try again says it is trying.
-      if (retrying)
-        toast({
-          id: IMPORT_TOAST,
-          message: "Adding the book…",
-          variant: "loading",
-          duration: Infinity,
-        });
-
-      // Debug → Arriving books: each file is a job, and its place shows now.
-      const arrivals = arrivingBooks.get() ? importBooks(epubFiles) : null;
-      // One book on its own arrives in a sheet; several fill the grid.
-      const sheet = arrivals !== null && epubFiles.length === 1;
-      if (arrivals) {
-        preloadArrivals();
-        navigate("/");
-        if (sheet) {
-          // The place waits for the sheet from the first frame, so the grid
-          // does not draw the cover before the sheet takes it.
-          appArrivals.present(arrivals.keys[0]!, true);
-          setSheetKey(arrivals.keys[0]!);
-        }
+      const arrivals = importBooks(epubFiles);
+      // One file on its own arrives in a sheet; several fill the grid, and
+      // a file that is not an EPUB is one of several, so the toast says so.
+      const sheet = allFiles.length === 1;
+      preloadArrivals();
+      navigate("/");
+      if (sheet) {
+        // The place waits for the sheet from the first frame, so the grid
+        // does not draw the cover before the sheet takes it.
+        appArrivals.present(arrivals.keys[0]!, true);
+        setSheetKey(arrivals.keys[0]!);
       }
 
       try {
@@ -196,40 +133,21 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
                     format: "name",
                   }),
                 } as const)
-              : await settle(
-                  file.name,
-                  arrivals ? arrivals.outcomes[index]! : addBookFromFile(file),
-                );
+              : await settle(file.name, arrivals.outcomes[index]!);
           if (outcome.status === "added")
             markEpubPreparationReady(queryClient, outcome.book);
           outcomes.push(outcome);
         }
 
         // The sheet says how it went, and offers Read now.
-        if (sheet) {
-          if (retrying) dismiss(IMPORT_TOAST);
-          return;
-        }
+        if (sheet) return;
 
         const counts = countOutcomes(outcomes);
         if (counts.added > 0) {
           await queryClient.invalidateQueries({ queryKey: ["books"] });
-          // Arrivals went to the Library at the start, and you may have
-          // opened a book since; their confirmation comes with the last cover.
-          if (arrivals) await arrivals.rested();
-          else navigate("/");
-        }
-
-        const [only] = outcomes;
-        if (outcomes.length === 1 && only!.status === "duplicate") {
-          if (retrying) dismiss(IMPORT_TOAST);
-          setDuplicateBook(only!.book);
-          setShowDuplicateDialog(true);
-          return;
-        }
-        if (outcomes.length === 1 && only!.status === "failed") {
-          showFailure(epubFiles[0]!, only!.error);
-          return;
+          // You may have opened a book since the places came; the
+          // confirmation comes with the last cover.
+          await arrivals.rested();
         }
 
         const notAdded = outcomes.filter(
@@ -269,17 +187,16 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
               : {}),
         });
       } finally {
-        arrivals?.end();
+        arrivals.end();
         setIsProcessing(false);
       }
     },
-    [dismiss, isProcessing, navigate, queryClient, showFailure, toast],
+    [isProcessing, navigate, queryClient, toast],
   );
-  importRef.current = importFiles;
 
   const openFilePicker = useCallback(() => {
     if (isProcessing) return;
-    if (arrivingBooks.get()) preloadArrivals();
+    preloadArrivals();
 
     const input = document.createElement("input");
     input.type = "file";
@@ -328,13 +245,6 @@ export function EpubImportProvider({ children }: { children: ReactNode }) {
           // A sheet closing late leaves a newer book's sheet open.
           onDone: () =>
             setSheetKey((current) => (current === sheetKey ? null : current)),
-        })
-      : null,
-    duplicateBook
-      ? createElement(DuplicateBookDialog, {
-          open: showDuplicateDialog,
-          onOpenChange: setShowDuplicateDialog,
-          existingBook: duplicateBook,
         })
       : null,
     problems

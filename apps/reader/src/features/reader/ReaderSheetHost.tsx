@@ -28,7 +28,7 @@ interface ReaderSheetHostProps {
   notesPanel?: ReactNode;
   /** Book search, for the sidebar or a phone sheet page. */
   searchPanel?: ReactNode;
-  /** Pages or Scroll (Debug mode), for Appearance's Layout tab. */
+  /** Pages or Scroll (Debug mode), for Appearance's Page tab. */
   layoutControl?: ReactNode;
   onCopyDebugDump?: () => void;
   /** The desktop header control that opens the tools sidebar. */

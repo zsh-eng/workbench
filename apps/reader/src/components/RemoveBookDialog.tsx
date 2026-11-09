@@ -30,7 +30,7 @@ export function RemoveBookDialog({
       await onConfirm();
       onOpenChange(false);
     } catch {
-      setError("Could not remove this book. Please try again.");
+      setError("Couldn’t remove this book. Try again.");
     } finally {
       setPending(false);
     }

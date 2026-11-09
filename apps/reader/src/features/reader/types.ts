@@ -1,3 +1,5 @@
+import type { DeviceType } from "@/types/session";
+
 export type ReaderSheetId =
   | "tools"
   | "contents"
@@ -20,7 +22,8 @@ export interface ChapterEntry {
 }
 
 export interface ReaderHandoffPrompt {
-  sourceLabel: string;
+  /** The device the newer position came from, as Activity names it. */
+  source: { words: string; type: DeviceType | null };
   targetPage: number;
   onJump: () => void;
   onDismiss: () => void;

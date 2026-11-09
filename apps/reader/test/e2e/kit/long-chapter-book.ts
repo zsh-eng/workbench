@@ -1,6 +1,6 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { epubVariant } from "../helpers/epub-variants";
-import { expect } from "../helpers/fixtures";
+import { expect, landArrival, waitForArrival } from "../helpers/fixtures";
 import { DATABASE_MODULE } from "../helpers/global-setup";
 import signedOut from "./signed-out";
 
@@ -40,6 +40,7 @@ export default async function longChapterBook(kit: {
       .click(),
   ]);
   await chooser.setFiles(file);
+  await landArrival(page, await waitForArrival(page));
   await expect(page.getByRole("heading", { name: "Long Chapter" })).toBeVisible(
     { timeout: 30_000 },
   );

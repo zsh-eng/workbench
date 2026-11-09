@@ -1,4 +1,5 @@
 import { observeAuthSession, useAuth } from "@/hooks/use-auth";
+import { activity, bookJobId } from "@/lib/background-activity";
 import { db, deleteBook as deleteBookFromDb } from "@/lib/db";
 import { syncService } from "@/lib/sync-service";
 import { subscribeToQueryInvalidation } from "@/lib/query-invalidation";
@@ -77,8 +78,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated]);
 
   // The deletion commits locally; sync sends it soon, or after the backoff.
+  // A download of the book stops, since there is nothing left to keep.
   const deleteBook = useCallback(async (bookId: string) => {
     await deleteBookFromDb(bookId);
+    activity.cancel(bookJobId(bookId));
     syncService.controller.requestSync();
   }, []);
 

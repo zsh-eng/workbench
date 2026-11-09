@@ -44,7 +44,9 @@ export type ReaderSessionStatus =
   | "loading"
   | "ready"
   | "not-found"
-  | "file-error";
+  | "file-error"
+  /** The book is here, but reading it or laying it out failed. */
+  | "error";
 
 export interface ReaderSessionChapterAccess {
   getBlocks: (chapterIndex: number) => Block[] | null;
@@ -202,9 +204,11 @@ export function useReaderSession(
         ? "not-found"
         : core.epubProcessError
           ? "file-error"
-          : options.layoutReady === false || !core.pagination.spread
-            ? "loading"
-            : "ready";
+          : core.loadFailed
+            ? "error"
+            : options.layoutReady === false || !core.pagination.spread
+              ? "loading"
+              : "ready";
 
     return {
       status,
@@ -260,6 +264,7 @@ export function useReaderSession(
     core.displayChapterIndex,
     core.epubProcessError,
     core.isBookLoading,
+    core.loadFailed,
     core.pagination.anchorPages,
     core.pagination.spread,
     core.pagination.spreadWindow,

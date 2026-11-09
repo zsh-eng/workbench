@@ -199,7 +199,7 @@ describe("sync, as a tracked job", () => {
       state: "waiting",
       waitingFor: "sign-in",
       attention: true,
-      detail: "1 change only on this device. Sign in to keep them.",
+      detail: "1 change only on this device. Sign in to keep it.",
     });
   });
 

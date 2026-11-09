@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ReviewImagePreloader } from "./preload";
-import { prepareCardContent } from "./card-images";
+import { renderCard } from "@/lib/markdown/cards";
 import { cacheImagesInContainer } from "./cache-container";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 test("preloads deduplicate shared images, limit work, and release changed windows", async () => {
@@ -30,7 +30,7 @@ test("preloads deduplicate shared images, limit work, and release changed window
   expect(released.sort()).toEqual(["a", "b", "c", "d", "e"]);
 });
 test("review HTML checks the cache before assigning any network image source", async () => {
-  const result = prepareCardContent("![diagram](https://example.test/a.png)");
+  const result = await renderCard("![diagram](https://example.test/a.png)");
   const container = document.createElement("div");
   container.innerHTML = result.html;
   document.body.append(container);

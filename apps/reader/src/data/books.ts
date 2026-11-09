@@ -202,6 +202,8 @@ export async function deleteBook(id: string): Promise<void> {
       db.bookStructures,
       db.bookTextCache,
       db.bookChapterSourceCache,
+      db.files,
+      db.fileUploadOperations,
     ],
     async () => {
       await db.books.delete(id);
@@ -216,8 +218,30 @@ export async function deleteBook(id: string): Promise<void> {
       await db.bookStructures.delete(id);
       await db.bookTextCache.delete(id);
       await db.bookChapterSourceCache.delete(id);
+      await deleteUnusedFiles(
+        [book.sourceFileId, book.cover?.fileId].filter(
+          (fileId): fileId is FileId => fileId !== undefined,
+        ),
+      );
     },
   );
+}
+
+/**
+ * A removed book's EPUB and cover stay on the device, and still upload, only
+ * while another book uses the same file: files are named by their content.
+ */
+async function deleteUnusedFiles(fileIds: readonly FileId[]): Promise<void> {
+  if (fileIds.length === 0) return;
+  const used = new Set<FileId>();
+  await db.books.each((other) => {
+    if (!isNotDeleted(other)) return;
+    used.add(other.sourceFileId);
+    if (other.cover) used.add(other.cover.fileId);
+  });
+  const unused = fileIds.filter((fileId) => !used.has(fileId));
+  await db.fileUploadOperations.bulkDelete(unused);
+  await db.files.bulkDelete(unused);
 }
 
 export async function getBookBySourceFileId(

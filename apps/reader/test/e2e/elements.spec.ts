@@ -41,7 +41,7 @@ test("Elements shows a specimen on desktop and phone and changes it in place", a
     .click();
   for (const frame of [desktop, phone])
     await expect(
-      frame.getByRole("button", { name: /^Continue at p\. 86 from iPad/ }),
+      frame.getByRole("button", { name: /^Continue at p\. 86 from your iPad/ }),
     ).toBeVisible();
   expect(
     await desktopWindow.evaluate(

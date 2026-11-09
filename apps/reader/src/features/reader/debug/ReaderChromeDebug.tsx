@@ -65,7 +65,7 @@ export function ReaderChromeDebug() {
   );
   const active = pending[0];
   const normalChrome = hovered || focused || showChrome;
-  const topVisible = Boolean(active) || normalChrome;
+  const topVisible = active === "reading" || normalChrome;
 
   function replay(next = scenario) {
     setScenario(next);
@@ -294,34 +294,20 @@ export function ReaderChromeDebug() {
                   </span>
                 }
                 accessory={
-                  active &&
-                  (active === "handoff" ? (
+                  active === "reading" &&
+                  readingPrompt && (
                     <ReaderChromeAccessory
-                      kind="handoff"
+                      kind="reading"
                       appearance={appearance}
-                      currentPage={page}
                       prompt={{
-                        sourceLabel: deviceName,
-                        targetPage,
-                        onJump: () => decide(true),
+                        ...readingPrompt,
+                        isPending: false,
+                        error: "",
+                        onConfirm: () => decide(true),
                         onDismiss: () => decide(false),
                       }}
                     />
-                  ) : (
-                    readingPrompt && (
-                      <ReaderChromeAccessory
-                        kind="reading"
-                        appearance={appearance}
-                        prompt={{
-                          ...readingPrompt,
-                          isPending: false,
-                          error: "",
-                          onConfirm: () => decide(true),
-                          onDismiss: () => decide(false),
-                        }}
-                      />
-                    )
-                  ))
+                  )
                 }
                 actions={
                   <>
@@ -384,6 +370,25 @@ export function ReaderChromeDebug() {
                 </div>
               </div>
             </section>
+            {active === "handoff" && (
+              // The handoff sits above the footer, as in the Reader.
+              <div
+                className="absolute inset-x-0 z-30 flex justify-center transition-[bottom] duration-150 motion-reduce:transition-none"
+                style={{ bottom: normalChrome ? 64 : 12 }}
+              >
+                <ReaderChromeAccessory
+                  kind="handoff"
+                  placement="foot"
+                  currentPage={page}
+                  prompt={{
+                    source: { words: deviceName, type: "desktop" },
+                    targetPage,
+                    onJump: () => decide(true),
+                    onDismiss: () => decide(false),
+                  }}
+                />
+              </div>
+            )}
             <footer
               data-testid="chrome-preview-footer"
               aria-hidden="true"

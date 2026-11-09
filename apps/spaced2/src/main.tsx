@@ -1,9 +1,8 @@
 import App from "@/App";
-import "katex/dist/katex.min.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "@highlightjs/cdn-assets/styles/base16/ros-pine-moon.css";
 
+// KaTeX's CSS loads with the first card that has maths (lib/markdown/cards.ts).
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

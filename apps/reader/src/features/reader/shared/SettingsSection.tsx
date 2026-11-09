@@ -119,7 +119,7 @@ export function SettingsSection({
                   >
                     Aa
                   </span>
-                  <span className="text-[8px] text-muted-foreground uppercase tracking-wide mt-0.5">
+                  <span className="mt-0.5 text-[10px] text-muted-foreground">
                     {font.label}
                   </span>
                 </button>

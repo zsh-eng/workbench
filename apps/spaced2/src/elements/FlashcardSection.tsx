@@ -14,6 +14,7 @@ const CONTENT_STATES = [
   { id: "markdown", label: "Markdown" },
   { id: "maths", label: "Maths" },
   { id: "code", label: "Code" },
+  { id: "diagram", label: "Diagram" },
   { id: "image", label: "Image" },
   { id: "long", label: "Long answer" },
 ] as const satisfies readonly { id: CardSampleId; label: string }[];
@@ -40,7 +41,7 @@ function Content() {
   return (
     <Specimen
       title="Flashcard content"
-      note="Markdown, KaTeX maths, highlighted code and images, as the review screen shows the front and the back. Each card fades in when it appears; the timeline holds that fade. The long answer scrolls inside the card."
+      note="Markdown, KaTeX maths, highlighted code, Mermaid diagrams and images, as the review screen shows the front and the back. Each card fades in when it appears; the timeline holds that fade. The long answer scrolls inside the card."
       states={CONTENT_STATES}
       selection={{
         state: selection.state,

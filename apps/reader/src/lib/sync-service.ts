@@ -67,17 +67,33 @@ function readerNetwork(): SyncNetworkSource {
   };
 }
 
+/**
+ * One pass at a time in this browser. Tabs share one device id and one
+ * database: a page one tab pulled must not land after another tab has
+ * pushed a newer value of the same key, since this device's own pushes are
+ * never pulled back to correct it.
+ */
+function oneTabAtATime(
+  signal: AbortSignal,
+  pass: () => Promise<void>,
+): Promise<void> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return pass();
+  return locks.request(`reader-sync:${syncV2SyncDb.name}`, { signal }, pass);
+}
+
 /** Owns automatic record sync for one application lifetime. */
 class SyncService {
   readonly controller = createSyncController({
-    run: async ({ signal, markRestoring, pass }) => {
-      if (!readSyncClientState()?.bootstrapped) markRestoring();
-      await new SyncV2Client({
-        syncDb: syncV2SyncDb,
-        onEvent: getLabRuntime()?.onSyncEvent,
-        signal,
-      }).sync({ observer: pass });
-    },
+    run: ({ signal, markRestoring, pass }) =>
+      oneTabAtATime(signal, async () => {
+        if (!readSyncClientState()?.bootstrapped) markRestoring();
+        await new SyncV2Client({
+          syncDb: syncV2SyncDb,
+          onEvent: getLabRuntime()?.onSyncEvent,
+          signal,
+        }).sync({ observer: pass });
+      }),
     journal: syncJournal,
     network: readerNetwork(),
     intervalMs: SYNC_INTERVAL_MS,

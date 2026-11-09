@@ -68,17 +68,22 @@ export async function restoreHighlight(id: string): Promise<void> {
   });
 }
 
+/** Read and write in one transaction: a delete that lands between them,
+ * here or through sync, would otherwise be undone by the edit.
+ */
 export async function updateHighlight(
   id: string,
   changes: Partial<Highlight>,
 ): Promise<void> {
-  const highlight = await db.highlights.get(id);
-  if (!highlight || isNotDeleted(highlight) === false) return;
+  await db.transaction("rw", db.highlights, async () => {
+    const highlight = await db.highlights.get(id);
+    if (!highlight || isNotDeleted(highlight) === false) return;
 
-  await db.highlights.put({
-    ...normalizeHighlightTimestamps(highlight),
-    ...changes,
-    updatedAt: Date.now(),
+    await db.highlights.put({
+      ...normalizeHighlightTimestamps(highlight),
+      ...changes,
+      updatedAt: Date.now(),
+    });
   });
 }
 

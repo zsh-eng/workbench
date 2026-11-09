@@ -116,7 +116,7 @@ export function ReaderHeader({
 
           {/* Zone 2 — Center: Book title, under the prompt while one shows */}
           <p
-            className={`max-w-[min(64vw,36rem)] truncate px-4 text-center text-muted-foreground transition-opacity duration-150 ${split ? "text-[13px]" : "text-[11px] font-medium uppercase tracking-[0.18em]"} ${accessory ? "opacity-0" : ""}`}
+            className={`max-w-[min(64vw,36rem)] truncate px-4 text-center font-serif text-[16px] italic text-muted-foreground transition-opacity duration-150 ${accessory ? "opacity-0" : ""}`}
           >
             {bookTitle}
           </p>

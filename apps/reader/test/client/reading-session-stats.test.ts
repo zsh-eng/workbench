@@ -1,7 +1,6 @@
 import {
   buildReadingSessionsOverview,
   formatReadingDuration,
-  formatReadingSessionRange,
   getTotalRecordedReadingTime,
   getRecordedReadingTimeSummary,
   type ReadingSessionAnalyticsRecord,
@@ -200,16 +199,6 @@ describe("reading session formatting", () => {
     expect(formatReadingDuration(35_000)).toBe("1 min");
     expect(formatReadingDuration(HOUR)).toBe("1 hr");
     expect(formatReadingDuration(HOUR + 25 * 60_000)).toBe("1 hr 25 min");
-  });
-
-  it("keeps calendar month labels compact", () => {
-    expect(
-      formatReadingSessionRange({
-        kind: "calendar-month",
-        year: 2025,
-        month: 6,
-      }),
-    ).toBe("Jul");
   });
 });
 

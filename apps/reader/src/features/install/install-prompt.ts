@@ -52,8 +52,16 @@ export async function promptToInstall(): Promise<
 > {
   const event = state.prompt;
   if (!event) return "unavailable";
-  await event.prompt();
-  const { outcome } = await event.userChoice;
+  let outcome: "accepted" | "dismissed";
+  try {
+    await event.prompt();
+    ({ outcome } = await event.userChoice);
+  } catch (error) {
+    // The browser would not ask: this prompt cannot be used again.
+    console.warn("[install] The browser did not show its prompt", error);
+    publish({ prompt: null, installedHere: state.installedHere });
+    return "unavailable";
+  }
   publish({
     prompt: null,
     installedHere: state.installedHere || outcome === "accepted",

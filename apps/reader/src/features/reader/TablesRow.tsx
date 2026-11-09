@@ -1,3 +1,4 @@
+import { GROUP_LABEL_TYPE } from "@/components/type-voices";
 import {
   SegmentedToggleGroup,
   SegmentedToggleGroupItem,
@@ -10,9 +11,8 @@ import {
 } from "./tables-preference";
 
 const itemClassName =
-  "h-9 flex-1 gap-1.5 rounded-full text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground data-[pressed]:text-foreground";
-const labelClassName =
-  "text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground";
+  "h-9 flex-1 gap-1.5 rounded-full text-[13px] font-medium text-muted-foreground data-[pressed]:text-foreground";
+const labelClassName = GROUP_LABEL_TYPE;
 
 const MODES: { value: ReaderTablesMode; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -21,7 +21,7 @@ const MODES: { value: ReaderTablesMode; label: string }[] = [
 ];
 
 /**
- * Appearance → Layout row (Debug mode only): Auto reads tables as grids in
+ * Appearance → Page row (Debug mode only): Auto reads tables as grids in
  * chapters up to a cell limit, Grid and Paragraph read every chapter's
  * tables one way. The choice changes how chapters parse, so the Reader
  * opens again with it, without a `?tables=` that would override it.
@@ -31,10 +31,10 @@ export function TablesRow() {
   // What the Reader shows, `?tables=` included.
   const mode = getReaderTablesMode();
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 py-3">
       <div className="flex items-center gap-2">
         <h4 className={labelClassName}>Tables</h4>
-        <span className="rounded-full border border-border/70 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="rounded-full border border-border/70 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
           Debug
         </span>
       </div>

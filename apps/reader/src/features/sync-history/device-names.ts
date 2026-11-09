@@ -4,6 +4,7 @@ import { honoClient } from "@/lib/api";
 import { getOrCreateDeviceId } from "@/lib/device";
 import { SHARED_STORAGE_SUFFIX } from "@/lib/shared-api";
 import type { DeviceType } from "@/types/session";
+import { deviceHere, type DevicePillNamer } from "./device-pill";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
@@ -16,7 +17,7 @@ export interface SyncDevice {
   lastActiveAt: string | null;
 }
 
-export interface SyncDeviceNames {
+export interface SyncDeviceNames extends DevicePillNamer {
   devices: readonly SyncDevice[];
   /** "this device", "your iPhone", or "another device". */
   name(deviceId: string | null): string;
@@ -47,9 +48,20 @@ function macOrIPad(device: DeviceAgent): boolean {
   return os.includes("mac") && browser !== "Chrome" && browser !== "Firefox";
 }
 
+/**
+ * The name the server made up from the user agent ("Mobile Safari on iOS",
+ * "Unknown Device"), which says less than the plain names below.
+ */
+function serverGuess(device: DeviceAgent): boolean {
+  return (
+    device.deviceName === `${device.browser} on ${device.os}` ||
+    device.deviceName === "Unknown Device"
+  );
+}
+
 /** A plain name from the user agent's OS and form, as Apple names its devices. */
 function deviceLabel(device: DeviceAgent): string {
-  if (device.deviceName) return device.deviceName;
+  if (device.deviceName && !serverGuess(device)) return device.deviceName;
   const os = (device.os ?? "").toLowerCase();
   const tablet = device.deviceType === "tablet";
   if (os.includes("ios")) return tablet ? "iPad" : "iPhone";
@@ -115,13 +127,18 @@ function writeCache(devices: SyncDevice[]): void {
  * (`GET /api/devices`) is keyed by the `X-Device-ID` that records carry.
  * The names are remembered for offline use.
  */
-export function useSyncDeviceNames(): SyncDeviceNames {
+export function useSyncDeviceNames({
+  enabled = true,
+}: {
+  /** False keeps to the remembered names and asks the server for none. */
+  enabled?: boolean;
+} = {}): SyncDeviceNames {
   const { user, isAuthenticated, isLoading } = useAuth();
   const userId = !isLoading && isAuthenticated ? user?.id : undefined;
   const { data } = useQuery({
     networkMode: "online",
     queryKey: ["sync-devices", userId],
-    enabled: !!userId && !getLabRuntime(),
+    enabled: enabled && !!userId && !getLabRuntime(),
     initialData: readCache,
     initialDataUpdatedAt: 0,
     staleTime: 5 * 60_000,
@@ -153,7 +170,7 @@ export function useSyncDeviceNames(): SyncDeviceNames {
         label: labels.get(device.clientId) ?? "",
         // A Mac or an iPad: neither a computer's nor a tablet's icon.
         deviceType:
-          !device.deviceName && macOrIPad(device)
+          (!device.deviceName || serverGuess(device)) && macOrIPad(device)
             ? null
             : deviceType(device.deviceType),
         lastActiveAt: device.lastActiveAt ?? null,
@@ -164,9 +181,20 @@ export function useSyncDeviceNames(): SyncDeviceNames {
   });
   return useMemo(() => {
     const localId = getOrCreateDeviceId();
+    const here = deviceHere();
     const devices = data ?? [];
     const byId = new Map(devices.map((device) => [device.clientId, device]));
     return {
+      pill(deviceId) {
+        if (deviceId === null || deviceId === localId)
+          return { words: `this ${here.label}`, type: here.type, here: true };
+        const device = byId.get(deviceId);
+        return {
+          words: device?.label ? `your ${device.label}` : "another device",
+          type: device?.deviceType ?? null,
+          here: false,
+        };
+      },
       devices,
       localId,
       name(deviceId) {

@@ -1,4 +1,8 @@
 import { APP_HEADER_BUTTON } from "@/components/app-header-styles";
+import {
+  APPEARANCE_MODES,
+  OpenBookSwatch,
+} from "@/components/appearance/Paper";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -7,10 +11,10 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Menu } from "@base-ui/react/menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   openInstallSheet,
@@ -90,12 +94,6 @@ class ActivityLoadBoundary extends Component<
   }
 }
 
-const APPEARANCE_OPTIONS: { value: AppearanceMode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "Match system" },
-];
-
 function getUserInitials(name: string | null | undefined): string {
   if (!name) return "U";
   return name
@@ -121,7 +119,7 @@ export function AccountMenu() {
     isAuthenticated,
     isLoading: isAuthLoading,
   } = useAuth();
-  const { appearanceMode, setAppearanceMode } = useReaderSettings();
+  const { settings, appearanceMode, setAppearanceMode } = useReaderSettings();
   const { isSyncing, triggerSync } = useSync();
   const syncStatus = useSyncStatus();
   const { toast } = useToast();
@@ -136,7 +134,8 @@ export function AccountMenu() {
 
   const handleSync = async () => {
     try {
-      files.retryUploads();
+      // Signed out, a retry would only meet another 401.
+      if (isAuthenticated) files.retryUploads();
       await triggerSync();
     } catch (error) {
       console.error("Error syncing:", error);
@@ -144,7 +143,7 @@ export function AccountMenu() {
         message:
           error instanceof SyncUnavailableError
             ? error.message
-            : "Could not sync your library.",
+            : "Couldn’t sync your library.",
         variant: "destructive",
       });
     }
@@ -164,7 +163,7 @@ export function AccountMenu() {
     } catch (error) {
       console.error("Error signing in:", error);
       toast({
-        message: "Could not sign in with Google.",
+        message: "Couldn’t sign in with Google.",
         variant: "destructive",
       });
     }
@@ -192,14 +191,14 @@ export function AccountMenu() {
       toast({ message: "Signed out." });
     } catch (error) {
       console.error("Error signing out:", error);
-      toast({ message: "Could not sign out.", variant: "destructive" });
+      toast({ message: "Couldn’t sign out.", variant: "destructive" });
     }
   };
 
   if (isAuthLoading) {
     return (
-      <span className="grid size-10 place-items-center md:size-9">
-        <Skeleton className="size-7 rounded-full md:size-8" />
+      <span className="grid size-10 place-items-center md:size-11">
+        <Skeleton className="size-7 rounded-full md:size-10" />
       </span>
     );
   }
@@ -221,15 +220,15 @@ export function AccountMenu() {
           className={cn(APP_HEADER_BUTTON, "relative")}
         >
           {hasAccount && user ? (
-            <Avatar className="size-7 ring-1 ring-foreground/10 md:size-8">
+            <Avatar className="size-7 ring-1 ring-foreground/10 md:size-10">
               <AvatarImage src={user.image || undefined} alt="" />
-              <AvatarFallback className="text-[11px] md:text-[12px]">
+              <AvatarFallback className="text-[11px] md:text-[14px]">
                 {getUserInitials(user.name)}
               </AvatarFallback>
             </Avatar>
           ) : (
             <CircleUser
-              className="size-[18px] md:size-[22px]"
+              className="size-[18px] md:size-[24px]"
               strokeWidth={1.6}
             />
           )}
@@ -241,7 +240,7 @@ export function AccountMenu() {
           )}
         </DropdownMenuTrigger>
       </div>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-72">
         {hasAccount && user && (
           <DropdownMenuGroup>
             <DropdownMenuLabel className="pb-2">
@@ -313,19 +312,45 @@ export function AccountMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel className="pt-2 pb-1 text-xs font-normal text-muted-foreground">
-            Appearance
+            Paper
           </DropdownMenuLabel>
+          {/* Each mode a small open book in the papers it shows; the menu
+              stays open, so the change is seen behind it. */}
           <DropdownMenuRadioGroup
             value={appearanceMode}
             onValueChange={(value) =>
               setAppearanceMode(value as AppearanceMode)
             }
+            className="grid grid-cols-3 gap-1 px-1 pt-1 pb-1.5"
           >
-            {APPEARANCE_OPTIONS.map((option) => (
-              <DropdownMenuRadioItem key={option.value} value={option.value}>
-                {option.label}
-              </DropdownMenuRadioItem>
-            ))}
+            {APPEARANCE_MODES.map((mode) => {
+              const selected = appearanceMode === mode.value;
+              return (
+                <Menu.RadioItem
+                  key={mode.value}
+                  value={mode.value}
+                  aria-label={mode.label}
+                  className="flex cursor-default flex-col items-center gap-1 rounded-lg px-1.5 pt-1.5 pb-1 outline-hidden select-none data-[highlighted]:bg-accent"
+                >
+                  <OpenBookSwatch
+                    mode={mode.value}
+                    dayPaper={settings.dayTheme}
+                    nightPaper={settings.nightTheme}
+                    selected={selected}
+                  />
+                  <span
+                    className={cn(
+                      "text-xs",
+                      selected
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {mode.short}
+                  </span>
+                </Menu.RadioItem>
+              );
+            })}
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

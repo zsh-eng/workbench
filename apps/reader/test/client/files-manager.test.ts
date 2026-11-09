@@ -466,3 +466,43 @@ it("keeps the 401 block for the same session and clears it for a new session wit
     await db.delete();
   }
 });
+
+it("sets aside a file the server refuses, uploads the ones behind it, and tries it again on Sync", async () => {
+  await db.open();
+  await Promise.all([db.fileUploadOperations.clear(), db.files.clear()]);
+  const remote = new MockFileRemoteApi();
+  const manager = createManager(remote);
+  const refused = await manager.put(new Blob(["far too large"]));
+  const behind = await manager.put(new Blob(["fine"]));
+  await db.fileUploadOperations.update(behind, { createdAt: Date.now() + 1 });
+  const upload = remote.put.bind(remote);
+  let refuse = true;
+  const put = vi.spyOn(remote, "put").mockImplementation((id, ...rest) => {
+    if (id === refused && refuse) {
+      refuse = false;
+      return Promise.reject(new FileRemoteRequestError("Too large", 413));
+    }
+    return upload(id, ...rest);
+  });
+  try {
+    manager.resumeUploads();
+    await manager.drain();
+
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(await db.fileUploadOperations.get(behind)).toBeUndefined();
+    expect(await db.fileUploadOperations.get(refused)).toMatchObject({
+      lastFailure: { kind: "refused", status: 413 },
+    });
+
+    // Waking the queue leaves it set aside; an explicit retry tries it once.
+    manager.resumeUploads();
+    await manager.drain();
+    expect(put).toHaveBeenCalledTimes(2);
+    manager.retryUploads();
+    await manager.drain();
+    expect(put).toHaveBeenCalledTimes(3);
+    expect(await db.fileUploadOperations.get(refused)).toBeUndefined();
+  } finally {
+    await db.delete();
+  }
+});

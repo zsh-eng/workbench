@@ -149,6 +149,8 @@ interface UseReaderScrollModeOptions {
 }
 
 const NAVIGATION_INTENTS = new Set<SpreadIntent["kind"]>(["jump", "history"]);
+/** How long closing waits for the pages to show the snapped page. */
+const CLOSE_SWAP_WAIT_MS = 1_500;
 
 type SpreadPage = NonNullable<ReturnType<typeof getLeadingVisiblePage>>;
 
@@ -192,7 +194,7 @@ function targetPage(
 
 /**
  * Owns one Reader's chapter column: Scroll as a reading layout beside
- * Pages (Appearance → Layout), and the visits to the column that a
+ * Pages (Appearance → Page), and the visits to the column that a
  * selection cut by a page break makes from pages.
  *
  * Content anchors carry the place across modes. Scroll → Pages snaps the
@@ -466,7 +468,9 @@ export function useReaderScrollMode({
     });
   }, [column, phase]);
 
-  // The snap is done and pagination shows the same page: swap stages.
+  // The snap is done and pagination shows the same page: swap stages. If
+  // it never does (no anchor was sent, or the page was unavailable), swap
+  // after a moment anyway, so scrolling and the switch never stay locked.
   useEffect(() => {
     if (phase.kind !== "closing" || !phase.animationDone || phase.swapping) {
       return;
@@ -476,8 +480,20 @@ export function useReaderScrollMode({
         page.chapterIndex === phase.chapterIndex &&
         page.currentPageInChapter - 1 === phase.pageIndex,
     );
-    if (!shown) return;
-    setPhase({ ...phase, swapping: true });
+    if (shown) {
+      setPhase({ ...phase, swapping: true });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setPhase((current) =>
+        current.kind === "closing" &&
+        current.generation === phase.generation &&
+        !current.swapping
+          ? { ...current, swapping: true }
+          : current,
+      );
+    }, CLOSE_SWAP_WAIT_MS);
+    return () => window.clearTimeout(timer);
   }, [phase, spread]);
 
   // Keep the scroll stage over the new spread for two frames, so the spread

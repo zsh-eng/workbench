@@ -1,3 +1,4 @@
+import { SURFACE_TITLE_TYPE } from "@/components/type-voices";
 import { CircularBookCover } from "@/components/CircularBookCover";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { Button } from "@/components/ui/button";
@@ -133,7 +134,7 @@ export function BookStatusSheet({
             <ChevronLeft className="size-4" />
           </Button>
 
-          <p className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          <p className={cn("truncate text-center", SURFACE_TITLE_TYPE)}>
             Reading status
           </p>
 
@@ -195,7 +196,8 @@ export function BookStatusPanel({
 
       <div className="flex flex-col gap-2">
         {READING_STATUS_OPTIONS.map((option) => {
-          const isSelected = status === option.value;
+          // No status yet reads as "Want to read", as the Library has it.
+          const isSelected = (status ?? "want-to-read") === option.value;
 
           return (
             <BookStatusOptionButton
@@ -218,7 +220,7 @@ export function BookStatusPanel({
         {...removePress}
       >
         <Trash2 className="size-5" aria-hidden="true" />
-        Remove book
+        Remove book…
       </motion.button>
     </div>
   );

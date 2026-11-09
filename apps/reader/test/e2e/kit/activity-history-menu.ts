@@ -17,7 +17,7 @@ export default async function activityHistoryMenu({ page }: { page: Page }) {
   await page.waitForTimeout(1_000);
   await item.click();
   const sheet = await waitForSheet(page, "Activity");
-  await sheet.locator("[data-sync-history]").waitFor();
+  await sheet.locator("[data-book-activity]").waitFor();
   await waitForSheetToRest(sheet);
   await page.waitForTimeout(800);
 }

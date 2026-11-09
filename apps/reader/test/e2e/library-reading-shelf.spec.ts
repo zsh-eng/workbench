@@ -2,9 +2,11 @@ import type { Page } from "@playwright/test";
 import {
   currentPages,
   expect,
+  landArrival,
   nextSpread,
   openLocalBook,
   test,
+  waitForArrival,
   waitForReaderReady,
   SAMPLE_EPUB_PATH,
 } from "./helpers/fixtures";
@@ -49,6 +51,8 @@ async function importSecondBook(page: Page) {
     .getByRole("heading", { name: /Alice/ })
     .dispatchEvent("drop", { dataTransfer });
   await dataTransfer.dispose();
+  // One book arrives in the arrival sheet; closing it lands the book.
+  await landArrival(page, await waitForArrival(page));
   await expect(
     page.getByRole("heading", { name: "Second local book", exact: true }),
   ).toBeVisible();

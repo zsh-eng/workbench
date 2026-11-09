@@ -14,7 +14,7 @@ export async function copyEntryText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    toast.error("Could not copy the text.", { id: "copy-failed" });
+    toast.error("Couldn’t copy the text.", { id: "copy-failed" });
   }
 }
 

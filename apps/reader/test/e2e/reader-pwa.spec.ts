@@ -251,11 +251,11 @@ test.describe("on a phone", () => {
     ).toHaveCount(0);
     await menu.getByRole("menuitem", { name: "Activity", exact: true }).click();
     const activity = await waitForSheet(fresh, "Activity");
-    await expect(
-      activity.getByRole("heading", { name: "Recent" }),
-    ).toBeVisible();
+    await expect(activity.locator("[data-activity-status]")).toHaveText(
+      "Offline",
+    );
     await expect(activity).toContainText(
-      "Nothing has synced on this device in the last 30 days.",
+      "Highlights, notes and your place in each book show here.",
     );
     await context.unroute("**/*");
     await context.setOffline(false);

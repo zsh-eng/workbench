@@ -9,10 +9,11 @@ import {
 import { DATABASE_MODULE } from "./helpers/global-setup";
 import { REMOTE_DEVICE_ID, type MockApi } from "./helpers/mock-api";
 
-// Account → Activity shows this device's sync history to every reader;
-// Devices' list of syncing devices stays behind Debug. Two devices: this
-// one, and an iPhone (the mock's other device) that adds highlights and
-// edits one after this device did, so this device's edit is lost to it.
+// Account → Activity shows this device's sync history, by book, to every
+// reader; Devices' list of syncing devices stays behind Debug. Two devices:
+// this one, and an iPhone (the mock's other device) that adds highlights
+// and edits one after this device did. Sync keeps the newest edit, so
+// Activity says only what each device did.
 
 test.use({ signedIn: true });
 
@@ -130,29 +131,34 @@ async function openActivity(page: Page): Promise<Locator> {
   return waitForSheet(page, "Activity");
 }
 
-async function expectHistory(activity: Locator) {
-  const recent = activity.locator("[data-sync-history]");
-  await expect(recent.getByRole("heading", { name: "Recent" })).toBeVisible();
-  const lost = recent.locator('[data-history-kind="lost"]');
-  await expect(lost).toHaveCount(1);
-  await expect(lost).toContainText("Lost to a newer edit");
-  await expect(lost).toContainText(/1 highlight in Alice.*Wonderland/);
-  await expect(lost).toContainText(/kept your iPhone's edit from \d/);
-  const fromPhoneRow = recent.locator('[data-history-kind="received"]');
-  await expect(fromPhoneRow).toHaveCount(1);
-  await expect(fromPhoneRow).toContainText("From your iPhone");
-  await expect(fromPhoneRow).toContainText(
-    /2 new highlights and 1 changed highlight in Alice.*Wonderland/,
+/** The sample book, today: the iPhone's lines first, then this device's. */
+async function expectBooks(activity: Locator) {
+  const books = activity.locator("[data-book-activity] [data-activity-book]");
+  await expect(books).toHaveCount(1);
+  await expect(activity.getByRole("heading", { name: "Today" })).toBeVisible();
+  const alice = books.first();
+  await expect(alice).toContainText(/Alice.*Wonderland/);
+  const devices = alice.locator("[data-activity-device]");
+  await expect(devices).toHaveCount(2);
+  // A line for each kind of change, the device's tag after the first.
+  const phone = devices.first().locator("[data-activity-line]");
+  await expect(phone).toHaveText([/^2 highlights/, "Edited a highlight"]);
+  await expect(phone.first().locator("[data-device-tag]")).toHaveText(
+    "your iPhone",
   );
-  // This device's own changes went out in the same pass.
-  await expect(recent.locator('[data-history-kind="sent"]')).toContainText(
-    "Sent from this device",
+  await expect(phone.first().locator("[data-device-tag]")).toHaveAttribute(
+    "data-device-tag",
+    "other",
   );
-  // Lost edits come first.
-  await expect(recent.locator("[data-history-row]").first()).toHaveAttribute(
-    "data-history-kind",
-    "lost",
+  // This device's own changes went out in the same pass; it wears the ribbon.
+  const here = devices.nth(1).locator("[data-activity-line]");
+  await expect(here.first()).toContainText("Added to your library");
+  await expect(here.first().locator('[data-device-tag="here"]')).toHaveText(
+    /^this /,
   );
+  await expect(devices.locator("[data-device-tag]")).toHaveCount(2);
+  // Sync kept the iPhone's newer edit; nothing asks you about it.
+  await expect(activity).not.toContainText("Lost");
 }
 
 /** Account → Devices, with no sign-in sessions to list. */
@@ -232,7 +238,7 @@ test("with Debug, Devices lists each syncing device with what it last sent", asy
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("without Debug, Activity shows what came from the iPhone and the edit lost to it, and its rows hold while it is open", async ({
+  test("without Debug, Activity shows each book with what each device did, and counts a new change in place", async ({
     page,
     remote,
     localBook,
@@ -242,17 +248,13 @@ test.describe("on a phone", () => {
     await expect(page.locator("[data-activity-glyph]")).toHaveCount(0);
 
     const activity = await openActivity(page);
-    await expect(activity).toContainText(
-      "Nothing in the background right now.",
-    );
-    await expectHistory(activity);
-    const rows = activity.locator("[data-history-row]");
-    const order = await rows.evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-row")),
-    );
+    // Nothing in the background, and online: nothing to say beside the title.
+    await expect(activity.locator("[data-activity-status]")).toHaveCount(0);
+    await expect(activity).not.toContainText("Nothing in the background");
+    await expectBooks(activity);
 
-    // The iPhone adds a third highlight while the sheet is open: its group
-    // says so in place, and no row moves.
+    // The iPhone adds a third highlight while the sheet is open: its line
+    // says so in place.
     const now = Date.now();
     fromPhone(remote, highlight(localBook.id, "phone-3", "green", now), now);
     await page.evaluate(async () => {
@@ -260,22 +262,45 @@ test.describe("on a phone", () => {
       await syncService.syncAll();
     });
     await expect(
-      activity.locator('[data-history-kind="received"]'),
-    ).toContainText(
-      /3 new highlights and 1 changed highlight in Alice.*Wonderland/,
+      activity
+        .locator("[data-activity-device]")
+        .first()
+        .locator("[data-activity-line]"),
+    ).toHaveText([/^3 highlights/, "Edited a highlight"]);
+  });
+
+  test("a change from a device the server doesn't list joins its book's row as another device", async ({
+    page,
+    remote,
+    localBook,
+  }) => {
+    await twoDevices(page, remote, localBook.id);
+    const activity = await openActivity(page);
+    await expectBooks(activity);
+    const now = Date.now();
+    fromPhone(
+      remote,
+      highlight(localBook.id, "third-1", "green", now),
+      now,
+      "third-device",
     );
-    expect(
-      await rows.evaluateAll((elements) =>
-        elements.map((element) => element.getAttribute("data-history-row")),
-      ),
-    ).toEqual(order);
+    await page.evaluate(async () => {
+      const { syncService } = await import("/src/lib/sync-service.ts");
+      await syncService.syncAll();
+    });
+    const devices = activity.locator("[data-activity-device]");
+    await expect(devices).toHaveCount(3);
+    await expect(devices.first()).toHaveText(/^A highlight/);
+    await expect(devices.first().locator("[data-device-tag]")).toHaveText(
+      "another device",
+    );
   });
 });
 
 test.describe("on a desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("Activity opens under the account button with the same history", async ({
+  test("Activity opens under the account button with the same books", async ({
     page,
     remote,
     localBook,
@@ -291,7 +316,10 @@ test.describe("on a desktop", () => {
     expect(
       Math.abs(box.x + box.width - (account!.x + account!.width)),
     ).toBeLessThan(2);
-    await expectHistory(activity);
+    await expect(
+      activity.getByRole("heading", { name: "Activity", exact: true }),
+    ).toBeVisible();
+    await expectBooks(activity);
     await page.keyboard.press("Escape");
     await expect(activity).toBeHidden();
   });
@@ -300,78 +328,52 @@ test.describe("on a desktop", () => {
 test.describe("Design ideas → Sync history", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  const rowsOf = (page: Page) =>
-    page.locator("[data-sync-history] [data-history-row]");
-  const kinds = (page: Page) =>
-    rowsOf(page).evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-kind")),
-    );
-
-  test("is the newest topic, and the iPhone's row changes in place while the sheet is open", async ({
+  test("By book is the choice, and the iPhone's line in Persuasion counts its new highlight in place", async ({
     page,
   }) => {
     await page.goto("/debug/ideas");
+    await expect(page.getByRole("heading", { name: "By book" })).toBeVisible();
+
+    await page.goto("/debug/ideas/sync-history");
+    await waitForSheet(page, "Activity");
+    const books = page.locator("[data-book-activity] [data-activity-book]");
+    // What still waits comes first; Emma has a row today and yesterday.
+    await expect(books.first()).toHaveAttribute("data-activity-book", "emma");
+    await expect(books.first()).toContainText("Waiting");
+    await expect(books.filter({ hasText: "Emma" })).toHaveCount(2);
     await expect(
-      page.getByRole("heading", { name: "Now, then Recent" }),
+      page.getByRole("heading", { name: "Yesterday" }),
     ).toBeVisible();
-
-    await page.goto("/debug/ideas/sync-history?variant=sections");
-    await waitForSheet(page, "Activity");
-    const iPhone = rowsOf(page).filter({ hasText: /in Persuasion/ });
-    // Its three highlights, or four if the page took three seconds to open.
-    await expect(iPhone).toContainText(
-      /^From your iPhone.+[34] new highlights/,
-    );
-    const order = await rowsOf(page).evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-row")),
-    );
-    expect((await kinds(page)).slice(0, 2)).toEqual(["lost", "waiting"]);
-    // Three seconds in, the iPhone sends another.
-    await expect(iPhone).toContainText("4 new highlights");
-    expect(
-      await rowsOf(page).evaluateAll((elements) =>
-        elements.map((element) => element.getAttribute("data-history-row")),
-      ),
-    ).toEqual(order);
-  });
-
-  test("the timeline puts the lost edit among the groups", async ({ page }) => {
-    await page.goto("/debug/ideas/sync-history?variant=timeline");
-    await waitForSheet(page, "Activity");
-    await expect(rowsOf(page).first()).toHaveAttribute(
-      "data-history-kind",
-      "waiting",
-    );
-    const order = await kinds(page);
-    expect(order.indexOf("lost")).toBeGreaterThan(order.indexOf("received"));
-  });
-
-  test("by device, one row per device", async ({ page }) => {
-    await page.goto("/debug/ideas/sync-history?variant=devices");
-    await waitForSheet(page, "Activity");
-    await expect(rowsOf(page)).toHaveCount(6);
-    const ids = await rowsOf(page).evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute("data-history-row")),
-    );
-    expect(ids.slice(2)).toEqual([
-      "device:iphone",
-      "device:this device",
-      "device:mac",
-      "device:ipad",
+    const persuasion = books.filter({ hasText: "Persuasion" });
+    const lines = persuasion.locator("[data-activity-line]");
+    // Its three highlights, or four if the page took three seconds to open,
+    // then its place on a line of its own.
+    await expect(lines).toHaveText([
+      /^[34] highlights and a bookmark/,
+      "Your place,\u00a038%",
     ]);
+    await expect(persuasion.locator("[data-device-tag]")).toHaveText(
+      "your iPhone",
+    );
+    // Three seconds in, the iPhone sends another.
+    await expect(lines.first()).toContainText("4 highlights and a bookmark");
+    await expect(books.nth(1)).toHaveAttribute(
+      "data-activity-book",
+      "persuasion",
+    );
   });
 });
 
 test.describe("an iPad in Safari", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("removes a highlight this device changed: the lost edit says it removed it, and it reads as a Mac or iPad", async ({
+  test("removes a highlight this device changed: Activity says it removed it, and names it a Mac or iPad", async ({
     page,
     remote,
     localBook,
   }) => {
     // iPadOS Safari sends a Mac's user agent, so the server lists Safari
-    // on macOS for it.
+    // on macOS for it, with the name it made up from that.
     await page.route("**/api/devices", (route) => {
       const now = new Date().toISOString();
       return route.fulfill({
@@ -380,7 +382,7 @@ test.describe("an iPad in Safari", () => {
             {
               id: REMOTE_DEVICE_ID,
               clientId: REMOTE_DEVICE_ID,
-              deviceName: null,
+              deviceName: "Safari on macOS",
               browser: "Safari",
               os: "macOS",
               deviceType: "desktop",
@@ -411,20 +413,15 @@ test.describe("an iPad in Safari", () => {
     await syncNow(page);
 
     const activity = await openActivity(page);
-    const lost = activity.locator('[data-history-kind="lost"]');
-    await expect(lost).toHaveCount(1);
-    await expect(lost).toContainText("Lost to a newer edit");
-    await expect(lost).toContainText(
-      /^Lost to a newer edit.+1 highlight in Alice.*Wonderland · your Mac or iPad removed it at \d/,
-    );
-    const received = activity.locator('[data-history-kind="received"]');
-    await expect(received).toContainText(
-      /^From your Mac or iPad.+1 removed highlight in Alice/,
-    );
-    // Neither a computer's icon nor a tablet's.
-    await expect(received.locator("svg.lucide-monitor-smartphone")).toHaveCount(
-      1,
-    );
+    const removed = activity
+      .locator("[data-activity-line]")
+      .filter({ hasText: "Removed a highlight" });
+    await expect(removed).toHaveCount(1);
+    const tag = removed.locator("[data-device-tag]");
+    await expect(tag).toHaveText("your Mac or iPad");
+    // Neither a computer's glyph nor a tablet's.
+    await expect(tag.locator("svg.lucide-monitor-smartphone")).toHaveCount(1);
+    await expect(activity).not.toContainText("Lost");
     // The removal won here too.
     expect(
       await page.evaluate(async (path) => {
@@ -432,64 +429,5 @@ test.describe("an iPad in Safari", () => {
         return (await syncV2Db.highlights.get("doomed"))?.isDeleted;
       }, DATABASE_MODULE),
     ).toBe(true);
-  });
-});
-
-test.describe("with reduced motion", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
-
-  test("a group that joins while Activity is open takes its full height at once", async ({
-    page,
-    remote,
-    localBook,
-  }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await twoDevices(page, remote, localBook.id);
-    const activity = await openActivity(page);
-    await expectHistory(activity);
-    // Each row that joins: its height in each of its first 30 frames.
-    await page.evaluate(() => {
-      const list = document.querySelector("[data-sync-history] [role=list]")!;
-      const heights: number[] = [];
-      Object.assign(window, { joinedHeights: heights });
-      new MutationObserver((records) => {
-        for (const record of records)
-          for (const node of record.addedNodes) {
-            if (!(node instanceof HTMLElement)) continue;
-            if (!node.classList.contains("ba-sheet-row")) continue;
-            let frames = 0;
-            const sample = () => {
-              heights.push(node.getBoundingClientRect().height);
-              if (++frames < 30) requestAnimationFrame(sample);
-            };
-            sample();
-          }
-      }).observe(list, { childList: true });
-    });
-    const now = Date.now();
-    fromPhone(
-      remote,
-      highlight(localBook.id, "third-1", "green", now),
-      now,
-      "third-device",
-    );
-    await page.evaluate(async () => {
-      const { syncService } = await import("/src/lib/sync-service.ts");
-      await syncService.syncAll();
-    });
-    await expect(
-      activity
-        .locator("[data-history-row]")
-        .filter({ hasText: "From another device" }),
-    ).toBeVisible();
-    const joined = () =>
-      page.evaluate(
-        () => (window as unknown as { joinedHeights: number[] }).joinedHeights,
-      );
-    await expect.poll(async () => (await joined()).length).toBe(30);
-    const heights = await joined();
-    // No frame shows the row part-way open.
-    expect(heights.filter((height) => height > 0 && height < 72)).toEqual([]);
-    expect(heights.at(-1)).toBe(72);
   });
 });

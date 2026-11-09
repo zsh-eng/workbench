@@ -27,7 +27,7 @@ export function useSyncStatus() {
     const operations = await db.fileUploadOperations.toArray();
     return {
       waiting: operations.length,
-      failed: operations.filter((item) => item.lastFailure.kind === "failed")
+      failed: operations.filter((item) => item.lastFailure.kind !== "none")
         .length,
     };
   }, []);
@@ -54,7 +54,7 @@ export function useSyncStatus() {
           : uploads?.failed
             ? "Retry file uploads"
             : uploads?.waiting
-              ? `${uploads.waiting} files waiting`
+              ? `${uploads.waiting} ${uploads.waiting === 1 ? "file" : "files"} waiting`
               : summary.label;
   const fileDetail = uploads
     ? `Files: ${uploads.waiting} awaiting upload${transfer.downloading.length ? ` · ${transfer.downloading.length} downloading` : ""}.`

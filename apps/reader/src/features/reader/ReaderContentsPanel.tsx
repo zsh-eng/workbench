@@ -270,7 +270,7 @@ function SectionHeading({
     >
       <h4
         className={cn(
-          "min-w-0 flex-1 truncate text-[0.68rem] font-medium uppercase tracking-[0.22em] text-muted-foreground",
+          "min-w-0 flex-1 truncate text-[13px] font-medium text-muted-foreground",
           isCurrent && "text-foreground",
         )}
       >

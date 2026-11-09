@@ -1,5 +1,7 @@
+import { cn } from "@/lib/utils";
+import { GROUP_LABEL_TYPE } from "@/components/type-voices";
+import { APP_TITLE_TYPE } from "@/components/app-header-styles";
 import { BackToLibrary } from "@/components/ui/back-to-library";
-import { BackgroundActivityTrials } from "@/features/background-activity/BackgroundActivityTrials";
 import { getLabRuntime } from "@/features/sync-lab/runtime";
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -98,7 +100,12 @@ export function DebugTools() {
         <header className="mb-8">
           <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3 md:block">
             <BackToLibrary />
-            <h1 className="text-center text-2xl font-bold tracking-tight text-foreground md:text-left">
+            <h1
+              className={cn(
+                "text-center text-foreground md:text-left",
+                APP_TITLE_TYPE,
+              )}
+            >
               Debug tools
             </h1>
             <div className="size-8 md:hidden" aria-hidden="true" />
@@ -108,12 +115,11 @@ export function DebugTools() {
             hide them.
           </p>
         </header>
-        <BackgroundActivityTrials />
         {GROUPS.map((group) => {
           const tools = group.tools.filter((tool) => !(tool.reload && inLab));
           return (
             <section key={group.title} className="mb-8">
-              <h2 className="mb-2 ml-1 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              <h2 className={cn("mb-2 ml-1", GROUP_LABEL_TYPE)}>
                 {group.title}
               </h2>
               <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border">

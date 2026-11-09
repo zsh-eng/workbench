@@ -1,3 +1,4 @@
+import { SURFACE_TITLE_TYPE } from "@/components/type-voices";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import {
@@ -122,7 +123,7 @@ export function BottomSheet({
               {header ?? (
                 <div className="grid grid-cols-[2rem_1fr_2rem] items-center gap-3">
                   <div className="size-8" aria-hidden="true" />
-                  <p className="truncate text-center text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <p className={cn("truncate text-center", SURFACE_TITLE_TYPE)}>
                     {title}
                   </p>
                   <div className="size-8" aria-hidden="true" />

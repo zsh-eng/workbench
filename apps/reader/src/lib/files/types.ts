@@ -32,7 +32,10 @@ export interface RemoteFile {
 
 export type FileUploadFailure =
   | { kind: "none" }
-  | { kind: "failed"; message: string; failedAt: number };
+  | { kind: "failed"; message: string; failedAt: number }
+  /** The server will never take this file as it is: it waits for an
+   * explicit retry, behind nothing and holding nothing back. */
+  | { kind: "refused"; status: number; message: string; failedAt: number };
 
 export interface FileUploadOperation {
   id: FileId;

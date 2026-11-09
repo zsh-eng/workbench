@@ -63,7 +63,17 @@ export interface ActivityManagerOptions<K extends JobKinds> {
   lanes?: Record<string, number>;
   network?: ActivityNetwork;
   /** Keeps persisted kinds' jobs across reloads. */
-  persist?: { storage: ActivityStorage; key: string };
+  persist?: {
+    storage: ActivityStorage;
+    key: string;
+    /**
+     * Other pages share this storage, as a browser's tabs share
+     * localStorage. The saved jobs are then left alone, neither run nor
+     * overwritten here, until `claimSaved()`; claim them in one page at a
+     * time.
+     */
+    shared?: boolean;
+  };
   /** Start with the queue held; `resume()` lets jobs run. For first paint. */
   paused?: boolean;
   clock?: ActivityClock;
@@ -91,6 +101,11 @@ export interface ActivityManager<K extends JobKinds = JobKinds> {
   dismiss(id: string): void;
   /** Show a job that something else owns. Returns a function that stops. */
   track(id: string, source: TrackedJobSource): () => void;
+  /**
+   * With `persist.shared`: run the saved jobs in this page, and save this
+   * page's jobs from now on. Until then this page saves nothing.
+   */
+  claimSaved(): void;
   /** Hold the queue: running jobs finish, no new one starts. */
   pause(): void;
   resume(): void;
@@ -167,6 +182,8 @@ export function createActivityManager<K extends JobKinds>(
   const stopTracking = new Map<string, () => void>();
   let online = network.isOnline();
   let paused = options.paused ?? false;
+  /** This page reads and writes the saved jobs (see `persist.shared`). */
+  let claimed = !options.persist?.shared;
   let disposed = false;
   let order = 0;
   let snapshot: ActivitySnapshot = { jobs: [], online };
@@ -485,7 +502,7 @@ export function createActivityManager<K extends JobKinds>(
   }
 
   function schedulePersist() {
-    if (!options.persist || persistTimer !== null) return;
+    if (!options.persist || !claimed || persistTimer !== null) return;
     const wait = Math.max(0, lastPersistAt + PERSIST_INTERVAL_MS - clock.now());
     persistTimer = clock.setTimeout(() => {
       persistTimer = null;
@@ -495,7 +512,7 @@ export function createActivityManager<K extends JobKinds>(
 
   /** Write every persisted kind's job that still has work, or failed. */
   function persistNow() {
-    if (!options.persist || disposed) return;
+    if (!options.persist || !claimed || disposed) return;
     if (persistTimer !== null) {
       clock.clearTimeout(persistTimer);
       persistTimer = null;
@@ -550,6 +567,8 @@ export function createActivityManager<K extends JobKinds>(
     for (const item of saved) {
       const kind = kinds[item.kind];
       if (!kind?.persist || typeof item.id !== "string") continue;
+      // Started here before the saved jobs were claimed: this one is newer.
+      if (entries.has(item.id)) continue;
       const offline = (kind.needsNetwork ?? true) && !online;
       const state: JobState =
         item.state === "failed" ? "failed" : offline ? "waiting" : "queued";
@@ -794,7 +813,7 @@ export function createActivityManager<K extends JobKinds>(
     return stop;
   }
 
-  restore();
+  if (claimed) restore();
   const detachNetwork = network.subscribe(onNetwork);
   pump();
   commit();
@@ -816,6 +835,14 @@ export function createActivityManager<K extends JobKinds>(
     retry,
     dismiss,
     track,
+    claimSaved() {
+      if (claimed || disposed) return;
+      claimed = true;
+      restore();
+      persistNow();
+      pump();
+      commit();
+    },
     pause() {
       paused = true;
     },

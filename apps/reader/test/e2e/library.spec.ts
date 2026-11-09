@@ -6,8 +6,10 @@ import {
   SAMPLE_BOOK_TITLE,
   SAMPLE_EPUB_PATH,
   test,
+  waitForArrival,
   waitForReaderReady,
   waitForSheet,
+  waitForSheetToRest,
   nextSpread,
   showNotesCapsule,
 } from "./helpers/fixtures";
@@ -142,7 +144,7 @@ test.describe("Library", () => {
   });
 });
 
-test("mobile import offers Open book after durable preparation without opening automatically", async ({
+test("a book's Read now waits for durable preparation, and the sheet opens nothing by itself", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -152,11 +154,7 @@ test("mobile import offers Open book after durable preparation without opening a
     .getByRole("button", { name: "Choose EPUB files", exact: true })
     .click();
   await (await chooser).setFiles(SAMPLE_EPUB_PATH);
-  const openBook = page.getByRole("button", { name: "Open book", exact: true });
-  await expect(openBook).toBeVisible();
-  await expect(
-    page.locator("[data-sonner-toast]").filter({ has: openBook }),
-  ).toContainText("Added 1 book.");
+  const sheet = await waitForArrival(page);
   await expect(page).toHaveURL(/\/$/);
   const prepared = await page.evaluate(async (modulePath) => {
     const { syncV2Db: db } = await import(modulePath);
@@ -171,7 +169,7 @@ test("mobile import offers Open book after durable preparation without opening a
   }, "/src/lib/sync-v2/db.ts");
   expect(prepared.markerSource).toBe(prepared.source);
   expect(prepared.entries).toBeGreaterThan(0);
-  await openBook.click();
+  await sheet.getByRole("button", { name: "Read now", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/reader/${prepared.id}$`));
   await waitForReaderReady(page);
 });
@@ -210,48 +208,37 @@ test("updates reading status and library placement while offline", async ({
     .toBe("finished");
 });
 
-test("keeps duplicate and failed imports in the Library", async ({
+test("a file dropped on the Library that is no book says why, and leaves nothing behind", async ({
   page,
   localBook,
 }) => {
-  const drop = async (name: string, bytes: Buffer) => {
-    const dataTransfer = await page.evaluateHandle(
-      ({ name, bytes }) => {
-        const transfer = new DataTransfer();
-        transfer.items.add(
-          new File([new Uint8Array(bytes)], name, {
-            type: "application/epub+zip",
-          }),
-        );
-        return transfer;
-      },
-      { name, bytes: [...bytes] },
-    );
-    await page
-      .getByRole("heading", { name: SAMPLE_BOOK_TITLE })
-      .dispatchEvent("drop", { dataTransfer });
-    await dataTransfer.dispose();
-  };
-  await drop("sample.epub", await readFile(SAMPLE_EPUB_PATH));
-  await expect(
-    page.getByRole("heading", { name: "Book already added" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Open book", exact: true }).click();
-  await expect(page).toHaveURL(`/reader/${localBook.id}`);
-  await waitForReaderReady(page);
-  await page.goto("/");
+  void localBook;
   const before = await storedCounts(page);
-  await drop("broken.epub", Buffer.from("invalid EPUB"));
-  // The toast says what the file is and what to do.
-  await expect(
-    page.locator("[data-sonner-toast]").filter({ hasText: "Not an EPUB" }),
-  ).toContainText("another kind of file, such as a PDF, MOBI or AZW");
+  const dataTransfer = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([new TextEncoder().encode("invalid EPUB")], "broken.epub", {
+        type: "application/epub+zip",
+      }),
+    );
+    return transfer;
+  });
+  await page
+    .getByRole("heading", { name: SAMPLE_BOOK_TITLE })
+    .dispatchEvent("drop", { dataTransfer });
+  await dataTransfer.dispose();
+
+  // The arrival sheet says what the file is and what to do.
+  const sheet = page.locator('[data-arrival-sheet="failed"]');
+  await expect(sheet.getByText("Not an EPUB", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(sheet.locator("[data-arrival-detail]")).toContainText(
+    "another kind of file, such as a PDF, MOBI or AZW",
+  );
   await expect(page).toHaveURL("/");
   // The file left nothing: no stored bytes, rows or upload.
   expect(await storedCounts(page)).toEqual(before);
-  await expect(
-    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
-  ).toBeVisible();
 });
 
 test("a full disk says so, leaves nothing behind, and Try again adds the book", async ({
@@ -275,10 +262,13 @@ test("a full disk says so, leaves nothing behind, and Try again adds the book", 
   ]);
   await chooser.setFiles(SAMPLE_EPUB_PATH);
 
-  const toast = page
-    .locator("[data-sonner-toast]")
-    .filter({ hasText: "Not enough storage" });
-  await expect(toast).toContainText("Free up some space, then try again.");
+  const failed = page.locator('[data-arrival-sheet="failed"]');
+  await expect(failed.getByText("Not enough storage")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(failed.locator("[data-arrival-detail]")).toContainText(
+    "Free up some space, then try again.",
+  );
   expect(await storedCounts(page)).toEqual({
     books: 0,
     bookFiles: 0,
@@ -286,15 +276,11 @@ test("a full disk says so, leaves nothing behind, and Try again adds the book", 
     uploads: 0,
   });
 
-  // The same toast tries again and says how it went.
-  await toast.evaluate((element) => element.setAttribute("data-probe", ""));
-  await toast.getByRole("button", { name: "Try again", exact: true }).click();
-  const same = page.locator("[data-sonner-toast][data-probe]");
-  await expect(same).toContainText("Added 1 book.");
-  await expect(page.locator("[data-sonner-toast]")).toHaveCount(1);
-  await expect(
-    page.getByRole("heading", { name: SAMPLE_BOOK_TITLE }),
-  ).toBeVisible();
+  // The same sheet tries again and says how it went.
+  await waitForSheetToRest(page.getByRole("dialog"));
+  await failed.getByRole("button", { name: "Try again", exact: true }).click();
+  await waitForArrival(page);
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
   expect(await storedCounts(page)).toMatchObject({ books: 1 });
 });
 

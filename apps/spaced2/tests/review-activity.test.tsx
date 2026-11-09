@@ -1,6 +1,6 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { act } from "react";
-import { render } from "./dom";
+import { render, untilText } from "./dom";
 import { MemoryRouter } from "react-router";
 import { createEmptyCard } from "ts-fsrs";
 import ReviewRoute from "@/routes/Review";
@@ -114,11 +114,11 @@ function setVisibility(state: DocumentVisibilityState) {
 test("a card's time is the time between actions; a silent card over three minutes counts nothing", async () => {
   at(0);
   const view = await review(["activity-A", -2000], ["activity-B", -1000]);
-  expect(view.container.textContent).toContain("Question activity-A");
+  await untilText(view.container, "Question activity-A");
 
   at(181000);
   await grade(view.container, "activity-A");
-  expect(view.container.textContent).toContain("Question activity-B");
+  await untilText(view.container, "Question activity-B");
   at(183000);
   window.dispatchEvent(new MouseEvent("mousemove"));
   at(186000);
@@ -142,7 +142,7 @@ test("a long pause on a card drops only the pause", async () => {
 test("a hidden tab pauses the card and keeps the time before it", async () => {
   at(0);
   const view = await review(["activity-resume", -1000]);
-  expect(view.container.textContent).toContain("Question activity-resume");
+  await untilText(view.container, "Question activity-resume");
 
   at(10000);
   await act(async () => setVisibility("hidden"));

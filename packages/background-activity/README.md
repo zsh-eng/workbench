@@ -78,8 +78,10 @@ activity.track("sync", syncAsJob(syncController)); // a job owned elsewhere
   only for its own job.
 - **Reloads.** A persisted kind's job is saved when it starts and on each
   change, with its last checkpoint (at most every 0.5 s). The next page
-  brings it back queued, or failed as it was. Two tabs each run a restored
-  job; the app's own deduplication (for example by file id) must cope.
+  brings it back queued, or failed as it was. Tabs share localStorage, so
+  pass `persist.shared` and call `claimSaved()` in one tab at a time (the
+  Reader holds a Web Lock for the page's life); the others neither run the
+  saved jobs nor overwrite them.
 - **Main thread.** The manager is bookkeeping and stays on the main thread.
   A job moves its own heavy work off it where that helps: the Reader's
   fflate already unzips in workers. Spaced's images are network-bound; a

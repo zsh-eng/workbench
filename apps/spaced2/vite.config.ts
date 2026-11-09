@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react-swc";
+import { createRequire } from "node:module";
 import path from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
@@ -145,6 +146,9 @@ export default defineConfig({
       },
     }),
   ],
+  // The Markdown worker (src/lib/markdown) loads KaTeX and the highlighter
+  // as chunks of its own, only for a card that needs them.
+  worker: { format: "es" },
   build: {
     target: "esnext",
     rollupOptions: {
@@ -174,6 +178,14 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Their browser builds use `document`, which the Markdown worker does
+      // not have; the default builds decode with a table instead.
+      "decode-named-character-reference": createRequire(
+        import.meta.url,
+      ).resolve("decode-named-character-reference"),
+      "hast-util-from-html-isomorphic": createRequire(import.meta.url).resolve(
+        "hast-util-from-html-isomorphic",
+      ),
     },
   },
 });

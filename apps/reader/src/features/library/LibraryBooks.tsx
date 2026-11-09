@@ -231,7 +231,9 @@ function BookActions({
   const setStatus = useSetReadingStatus(book.id);
   const [removeOpen, setRemoveOpen] = useState(false);
   // The mutation owns the optimistic value until refreshed queries take over.
-  const displayStatus = setStatus.isPending ? setStatus.variables! : status;
+  // No status yet reads as "Want to read", as the filters and labels have it.
+  const displayStatus =
+    (setStatus.isPending ? setStatus.variables! : status) ?? "want-to-read";
 
   const handleSetStatus = (next: ReadingStatus) => {
     if (next === displayStatus || setStatus.isPending) return;
@@ -247,7 +249,7 @@ function BookActions({
         }),
       onError: () =>
         toast({
-          message: "Could not change reading status.",
+          message: "Couldn’t change reading status.",
           variant: "destructive",
         }),
     });
@@ -284,7 +286,7 @@ function BookActions({
           <DownloadForOfflineItem book={book} />
           <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
-            value={displayStatus ?? ""}
+            value={displayStatus}
             onValueChange={(value) => handleSetStatus(value as ReadingStatus)}
           >
             {READING_STATUS_OPTIONS.map((option) => (
@@ -491,7 +493,7 @@ export function BookTile({
             COVER_SHADOW,
           )}
         />
-        <h3 className="mt-3 line-clamp-2 text-[13px] leading-snug font-normal">
+        <h3 className="mt-3 line-clamp-2 font-serif text-[15.5px] leading-[1.18] font-normal">
           {book.title}
         </h3>
         <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
@@ -545,9 +547,12 @@ export function BookRow({
           compact
           className="h-9 w-6 shrink-0 rounded-[2px] shadow-[0_1px_2px_rgb(0_0_0/0.14)]"
         />
-        <span className="min-w-0 truncate text-[13.5px]">
-          {book.title}
-          <span className="text-muted-foreground"> · {book.author}</span>
+        <span className="min-w-0 truncate">
+          <span className="font-serif text-[16px]">{book.title}</span>
+          <span className="text-[12.5px] text-muted-foreground">
+            {" "}
+            · {book.author}
+          </span>
         </span>
       </BookLink>
       <LibraryCoverActivity

@@ -44,6 +44,12 @@ interface UseReaderChapterContentResult {
   ) => ChapterCanonicalText | null;
   subscribe: (listener: ReaderChapterArtifactSubscriber) => () => void;
   resumeBackgroundLoad: () => void;
+  /**
+   * Something the book needs to open could not be read: its saved place,
+   * its text, its highlights or a chapter. Opening it anyway could save the
+   * wrong place over the real one.
+   */
+  loadFailed: boolean;
 }
 
 /**
@@ -127,5 +133,10 @@ export function useReaderChapterContent({
     getChapterCanonicalText,
     subscribe: artifactsLoader.subscribe,
     resumeBackgroundLoad: artifactsLoader.resumeBackgroundLoad,
+    loadFailed:
+      checkpointQuery.isError ||
+      bodyCacheQuery.isError ||
+      highlightsQuery.isError ||
+      artifactsLoader.failed,
   };
 }

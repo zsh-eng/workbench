@@ -30,7 +30,7 @@ function useArrival(job: Job) {
 }
 
 /** The book's cover, small, from the Library's decoded covers. */
-function LibraryCover({ bookId }: { bookId: string }) {
+export function LibraryCover({ bookId }: { bookId: string }) {
   const { data } = useBooksWithStatuses();
   const book = data?.books.find((item) => item.id === bookId);
   const books = useMemo(() => (book ? [book] : []), [book]);

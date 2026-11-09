@@ -477,6 +477,22 @@ export function FooterScrubberCanvas({
     emitPreviewIfChanged(page);
   }
 
+  // A cancelled touch (the system took the gesture) chooses nothing: the
+  // reader goes back to the page the drag started from.
+  function handlePointerCancel() {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    dragHistoryRef.current = [];
+    const start = Math.round(dragStartPageRef.current);
+    if (lastPreviewPageRef.current !== start) {
+      // Previews moved the reader; the spring follows it back.
+      onScrubCommit(start);
+      return;
+    }
+    displayPageRef.current = start;
+    redraw();
+  }
+
   function handlePointerUp() {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
@@ -517,7 +533,7 @@ export function FooterScrubberCanvas({
       onPointerDown={readOnly ? undefined : handlePointerDown}
       onPointerMove={readOnly ? undefined : handlePointerMove}
       onPointerUp={readOnly ? undefined : handlePointerUp}
-      onPointerCancel={readOnly ? undefined : handlePointerUp}
+      onPointerCancel={readOnly ? undefined : handlePointerCancel}
     />
     {!readOnly && (
       <input

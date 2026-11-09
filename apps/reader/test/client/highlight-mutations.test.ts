@@ -135,3 +135,17 @@ it("does not highlight a passage too long for one synced record, and says why", 
   expect(await database.getBookHighlights("book")).toEqual([]);
   expect(await syncV2Db._sync_outbox.count()).toBe(0);
 });
+
+it("an edit that races a delete never brings the highlight back", async () => {
+  await database.addHighlight(highlight);
+
+  // The delete reads the row first; the edit reads it before the delete lands.
+  await Promise.all([
+    database.deleteHighlight(highlight.id),
+    database.updateHighlight(highlight.id, { color: "blue" }),
+  ]);
+
+  expect(await syncV2Db.highlights.get(highlight.id)).toMatchObject({
+    isDeleted: true,
+  });
+});

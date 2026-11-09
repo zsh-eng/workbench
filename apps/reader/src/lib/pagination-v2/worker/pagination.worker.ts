@@ -41,6 +41,8 @@ let workerActiveMs = 0;
 let currentWorkStepStartedAtMs: number | null = null;
 
 const TASK_YIELD_BUDGET_MS = PAGINATION_TASK_YIELD_BUDGET_MS;
+/** How long one command waits for its fonts before laying out without them. */
+const COMMAND_FONTS_WAIT_MS = 8_000;
 
 function postSessionEvent(event: PaginationEvent): void {
   if (activeSessionGeneration === null) return;
@@ -244,9 +246,23 @@ function waitForCommandFonts(command: PaginationCommand): Promise<void> {
     command.type === "init"
       ? loadCommandFonts()
       : commandFontsReady.then(loadCommandFonts);
-  return fontsReady.catch((error) => {
-    console.warn("[pagination worker] Failed to load fonts", error);
+  // A font that never answers would hold up every later command: after a
+  // while, lay out with the fallback face instead.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(
+        `[pagination worker] Fonts not ready after ${COMMAND_FONTS_WAIT_MS} ms; laying out without them`,
+      );
+      resolve();
+    }, COMMAND_FONTS_WAIT_MS);
   });
+  return Promise.race([
+    fontsReady.catch((error) => {
+      console.warn("[pagination worker] Failed to load fonts", error);
+    }),
+    late,
+  ]).finally(() => clearTimeout(timer));
 }
 
 self.onmessage = (e: MessageEvent<PaginationWorkerMessage>) => {

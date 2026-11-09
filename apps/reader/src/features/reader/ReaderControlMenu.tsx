@@ -1,16 +1,14 @@
-import { SheetUtilityButton } from "@/components/SheetUtilityButton";
+import { SettingsGroup } from "@/components/appearance/settings-layout";
 import { cn } from "@/lib/utils";
-import { useSpringPressAnimation } from "@/components/ui/spring-press";
 import {
   BookMarked,
   ClipboardCopy,
   List,
   NotebookPen,
-  Search,
   Palette,
+  Search,
   type LucideIcon,
 } from "lucide-react";
-import { motion } from "motion/react";
 
 interface ReaderControlMenuProps {
   onOpenContents: () => void;
@@ -21,71 +19,39 @@ interface ReaderControlMenuProps {
   onCopyDebugDump?: () => void;
 }
 
-type MenuItemId = "contents" | "book-actions" | "search" | "debug-dump";
-
-interface MenuItem {
-  id: MenuItemId;
+interface Tool {
   label: string;
   icon: LucideIcon;
-  isAvailable: boolean;
+  onClick: (() => void) | undefined;
 }
 
-const MENU_ITEMS: MenuItem[] = [
-  { id: "contents", label: "Contents", icon: List, isAvailable: true },
-  {
-    id: "book-actions",
-    label: "Book status",
-    icon: BookMarked,
-    isAvailable: true,
-  },
-  { id: "search", label: "Search book", icon: Search, isAvailable: true },
-  {
-    id: "debug-dump",
-    label: "Copy Debug Dump",
-    icon: ClipboardCopy,
-    isAvailable: true,
-  },
-];
-
-function ReaderControlMenuItem({
-  item,
-  index,
-  disabled,
-  onClick,
-}: {
-  item: MenuItem;
-  index: number;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const springPress = useSpringPressAnimation();
-
+function ToolRow({ tool }: { tool: Tool }) {
   return (
-    <div>
-      <motion.button
-        type="button"
-        disabled={disabled}
-        className={cn(
-          "flex w-full items-center justify-between rounded-[1.25rem] border border-border/60 bg-secondary/35 px-4 py-3 text-left transition-colors",
-          disabled ? "cursor-not-allowed opacity-60" : "hover:bg-secondary/55",
-        )}
-        onClick={onClick}
-        {...springPress}
-      >
-        <div className="min-w-0">
-          <span className="block text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {String(index + 1).padStart(2, "0")}
-          </span>
-          <span className="mt-1 block truncate text-sm font-medium text-foreground">
-            {item.label}
-          </span>
-        </div>
-        <item.icon className="size-4 text-muted-foreground" />
-      </motion.button>
-    </div>
+    <button
+      type="button"
+      disabled={!tool.onClick}
+      onClick={tool.onClick}
+      className={cn(
+        "-mx-3.5 flex min-h-12 w-[calc(100%+1.75rem)] items-center justify-between gap-3 px-3.5 text-left text-[15px] text-foreground outline-none transition-colors duration-150 first:rounded-t-[14px] last:rounded-b-[14px] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
+        tool.onClick
+          ? "hover:bg-foreground/[0.04] active:bg-foreground/[0.07]"
+          : "cursor-not-allowed opacity-55",
+      )}
+    >
+      <span className="min-w-0 truncate">{tool.label}</span>
+      <tool.icon
+        className="size-[18px] shrink-0 text-muted-foreground"
+        strokeWidth={1.75}
+        aria-hidden="true"
+      />
+    </button>
   );
 }
 
+/**
+ * The phone's Reader tools: one list of what you can open, in the rows
+ * that Appearance and Settings use, and the Debug dump apart from it.
+ */
 export function ReaderControlMenu({
   onOpenContents,
   onOpenBookActions,
@@ -94,67 +60,34 @@ export function ReaderControlMenu({
   onOpenSearch,
   onCopyDebugDump,
 }: ReaderControlMenuProps) {
-  const handleRowClick = (id: MenuItemId) => {
-    if (id === "contents") {
-      onOpenContents();
-      return;
-    }
-
-    if (id === "book-actions") {
-      onOpenBookActions();
-      return;
-    }
-
-    if (id === "search") {
-      onOpenSearch?.();
-      return;
-    }
-
-    if (id === "debug-dump") {
-      onCopyDebugDump?.();
-    }
-  };
-
+  const tools: Tool[] = [
+    { label: "Contents", icon: List, onClick: onOpenContents },
+    { label: "Search book", icon: Search, onClick: onOpenSearch },
+    { label: "Notebook", icon: NotebookPen, onClick: onOpenNotes },
+    { label: "Appearance", icon: Palette, onClick: onOpenSettings },
+    { label: "Reading status", icon: BookMarked, onClick: onOpenBookActions },
+  ];
   return (
     <div
-      className="px-4 py-3"
-      style={{
-        paddingBottom: `calc(1rem + env(safe-area-inset-bottom))`,
-      }}
+      className="space-y-3 px-4 pt-2"
+      style={{ paddingBottom: `calc(1rem + env(safe-area-inset-bottom))` }}
     >
-      <div className="flex flex-col gap-2">
-        {MENU_ITEMS.filter(
-          (item) => item.id !== "debug-dump" || onCopyDebugDump,
-        ).map((item, index) => {
-          const isDisabled =
-            !item.isAvailable ||
-            (item.id === "debug-dump" && !onCopyDebugDump) ||
-            (item.id === "search" && !onOpenSearch);
-
-          return (
-            <ReaderControlMenuItem
-              key={item.id}
-              item={item}
-              index={index}
-              disabled={isDisabled}
-              onClick={() => handleRowClick(item.id)}
-            />
-          );
-        })}
-      </div>
-      <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-[1.25rem] border border-border/60 bg-secondary/20">
-        <SheetUtilityButton label="Appearance" onClick={onOpenSettings}>
-          <Palette className="size-5" aria-hidden="true" />
-        </SheetUtilityButton>
-        <SheetUtilityButton
-          label="Notebook"
-          onClick={onOpenNotes}
-          disabled={!onOpenNotes}
-          className="border-l border-border/60"
-        >
-          <NotebookPen className="size-5" aria-hidden="true" />
-        </SheetUtilityButton>
-      </div>
+      <SettingsGroup compact>
+        {tools.map((tool) => (
+          <ToolRow key={tool.label} tool={tool} />
+        ))}
+      </SettingsGroup>
+      {onCopyDebugDump && (
+        <SettingsGroup compact>
+          <ToolRow
+            tool={{
+              label: "Copy debug dump",
+              icon: ClipboardCopy,
+              onClick: onCopyDebugDump,
+            }}
+          />
+        </SettingsGroup>
+      )}
     </div>
   );
 }

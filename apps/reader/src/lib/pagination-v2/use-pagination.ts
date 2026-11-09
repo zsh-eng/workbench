@@ -230,6 +230,9 @@ export interface UsePaginationOptions {
 // Hook
 // ---------------------------------------------------------------------------
 
+/** Times a crashed layout worker is started again for one book. */
+const MAX_WORKER_RESTARTS = 2;
+
 export function usePagination(
   options: UsePaginationOptions,
 ): UsePaginationResult {
@@ -261,6 +264,10 @@ export function usePagination(
 
   const workerSessionKeyRef = useRef(sessionKey);
   const workerSessionRef = useRef<PaginationWorkerSession | null>(null);
+  // A crashed worker is started again, a few times per book, before the
+  // status says it failed. Each start is a new session that the feed inits.
+  const [workerStart, setWorkerStart] = useState(0);
+  const workerRestartsRef = useRef({ sessionKey, count: 0 });
   const [sessionGeneration, setSessionGeneration] = useState<number | null>(
     null,
   );
@@ -545,6 +552,16 @@ export function usePagination(
         );
         workerStartupSpanRef.current = null;
         console.error("[pagination worker error]", event);
+        const restarts =
+          workerRestartsRef.current.sessionKey === sessionKey
+            ? workerRestartsRef.current.count
+            : 0;
+        if (restarts < MAX_WORKER_RESTARTS) {
+          workerRestartsRef.current = { sessionKey, count: restarts + 1 };
+          setWorkerStart((start) => start + 1);
+        } else {
+          setStatus("failed");
+        }
       },
     });
     workerSessionKeyRef.current = sessionKey;
@@ -584,7 +601,7 @@ export function usePagination(
         setSessionGeneration(null);
       }
     };
-  }, [sessionKey]);
+  }, [sessionKey, workerStart]);
 
   // -------------------------------------------------------------------------
   // Config updates

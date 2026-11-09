@@ -10,7 +10,7 @@ function isPagesPreference(value: string | null): value is PagesPreference {
 }
 
 /**
- * Appearance → Layout → Pages: Auto shows two pages where they fit (a
+ * Appearance → Page → Pages: Auto shows two pages where they fit (a
  * landscape tablet, a wide desktop window), One and Two choose. One choice
  * for every book on this device, like the reading view.
  */

@@ -57,6 +57,8 @@ interface UseReaderCoreResult {
   book: Book | null;
   isBookLoading: boolean;
   epubProcessError: Error | null;
+  /** The book is here but could not be opened: see `useReaderChapterContent`. */
+  loadFailed: boolean;
   settings: ReaderSettings;
   onUpdateSettings: (patch: Partial<ReaderSettings>) => void;
   chapterEntries: ChapterEntry[];
@@ -289,6 +291,7 @@ export function useReaderCore(
     getChapterCanonicalText,
     subscribe: subscribeToChapterArtifacts,
     resumeBackgroundLoad: resumeBackgroundChapterArtifacts,
+    loadFailed: chapterLoadFailed,
   } = useReaderChapterContent({
     highlightTarget,
     resumeAnchor: jumpHistory.initialAnchor,
@@ -353,6 +356,7 @@ export function useReaderCore(
     book,
     isBookLoading: epubPreparation.isBookLoading,
     epubProcessError: epubPreparation.epubProcessError,
+    loadFailed: chapterLoadFailed || pagination.status === "failed",
     settings,
     onUpdateSettings,
     chapterEntries,

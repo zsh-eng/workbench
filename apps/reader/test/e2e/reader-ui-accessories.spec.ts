@@ -89,7 +89,7 @@ test.describe("mobile Reader accessories", () => {
     ).toBeVisible();
     await page.touchscreen.tap(195, 350);
     const tools = await openReaderTools(page);
-    await tools.getByRole("button", { name: /Book status/ }).click();
+    await tools.getByRole("button", { name: /Reading status/ }).click();
     const status = await waitForSheet(page, "Reading status");
     const cover = status.locator("img");
     await expect(cover).toBeVisible();
@@ -107,6 +107,8 @@ for (const mobile of [false, true]) {
         : { width: 1280, height: 850 },
       hasTouch: mobile,
       isMobile: mobile,
+      // Another device's place arrives by sync, which needs an account.
+      signedIn: true,
     });
     test("continue reading jumps to the other device's position", async ({
       page,
@@ -131,11 +133,10 @@ for (const mobile of [false, true]) {
           lastRead: Date.now() + 1000,
         });
       }, localBook.id);
-      const accessory = page.locator(
-        mobile ? "[data-reader-top-prompt]" : "[data-reader-header-accessory]",
-      );
+      // The prompt sits above the footer on every size.
+      const accessory = page.locator("[data-reader-foot-prompt]");
       const action = accessory.getByRole("button", {
-        name: /Continue at p\. .* from Test tablet/,
+        name: /Continue at p\. .* from your Test tablet/,
       });
       await expect(action).toBeVisible();
       const before = await currentPages(page);
@@ -167,7 +168,9 @@ for (const mobile of [false, true]) {
       await expect.poll(async () => (await currentPages(page))[0]).toBe("1");
       await expect(action).toHaveCount(0);
       await expect(
-        accessory.getByRole("button", { name: "Mark as reading", exact: true }),
+        page
+          .locator("[data-reader-header-accessory]")
+          .getByRole("button", { name: "Mark as reading", exact: true }),
       ).toBeVisible();
     });
   });

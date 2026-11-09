@@ -283,7 +283,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
         id: "arriving-light",
         title: "Several books: raking light",
         description:
-          "The recommendation for a batch, with no sheet. Every book holds its place at once, as paper. A low lamp crosses each cover from the spine as the book is prepared, and the colour returns where it has been. On a printed cover the light finds the board's tooth and a passing sheen; on a living cover, its hand-made relief. In the real Library: Settings → Debug tools → Try on this device → Arriving books.",
+          "The recommendation for a batch, with no sheet. Every book holds its place at once, as paper. A low lamp crosses each cover from the spine as the book is prepared, and the colour returns where it has been. On a printed cover the light finds the board's tooth and a passing sheen; on a living cover, its hand-made relief. This is what the Library does.",
         src: "/debug/ideas/arriving-books?look=light&state=five",
       },
       {
@@ -431,7 +431,7 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
       id: "background-current",
       title: "Covers with a glyph",
       description:
-        "The choice, in the real Library. A glyph opens the activity sheet (before Search, or beside Sort and layout on a phone), for everyone. Covers that fill as their books download are behind Settings → Debug tools → Try on this device → Offline downloads: turn the switch on, then Sort and layout → Download all for offline.",
+        "The choice, in the real Library. A glyph opens the activity sheet (before Search, or beside Sort and layout on a phone), for everyone. Covers fill as their books download: Sort and layout → Download all for offline.",
       src: "/",
     },
     ideas: [
@@ -460,13 +460,20 @@ const TOPICS: Record<IdeaTopic, TopicIdeas> = {
   },
   sync: {
     current: {
-      id: "sync-sections",
-      title: "Now, then Recent",
+      id: "sync-books",
+      title: "By book",
       description:
-        "The choice, shipped as Account → Activity. Now lists the background jobs as the glyph's sheet does; Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day. Three seconds in, the iPhone sends one more highlight: its row says so in place, and nothing moves.",
-      src: "/debug/ideas/sync-history?variant=sections",
+        "The choice, shipped as Account → Activity. Each book you touched, cover first, with a line for what each device did and a small tag for where: \"your iPhone\", and \"this iPhone\" with the ribbon. No device's state, and no lost edits, since sync keeps the newest edit. The title says Offline or Adding three books only when that's so. Three seconds in, the iPhone sends one more highlight and its book's line counts it.",
+      src: "/debug/ideas/sync-history?variant=books",
     },
     ideas: [
+      {
+        id: "sync-sections",
+        title: "Now, then Recent",
+        description:
+          "Shipped before By book. Recent puts lost edits and what still waits first, then what came from each device and what this device sent, newest first, by day.",
+        src: "/debug/ideas/sync-history?variant=sections",
+      },
       {
         id: "sync-timeline",
         title: "One timeline",
