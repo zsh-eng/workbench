@@ -192,13 +192,18 @@ export const cliBatchReadPath = (method: string, path: string) =>
  * record by record before it reaches the sync route. It never writes Reader,
  * Spaced, highlights or reading time, and never removes an Arctic record or
  * changes one except to save a link or fill an empty preview field.
+ * And Spaced card changes: a push to `spaced` of card content, suspension,
+ * deletion, decks, deck membership and new cards, which `cliSpacedPushProblem`
+ * checks before the sync route. It never writes a review log or changes an
+ * existing card's schedule.
  */
 export const cliWritePath = (method: string, path: string) => {
   const decoded = decodeURIComponent(path);
   return (
     (method === "POST" &&
       (decoded === "/api/apps/arctic-content/sync/v3/push" ||
-        decoded === "/api/apps/arctic/sync/v3/push")) ||
+        decoded === "/api/apps/arctic/sync/v3/push" ||
+        decoded === "/api/apps/spaced/sync/v3/push")) ||
     (method === "PUT" &&
       /^\/api\/apps\/arctic-content\/files\/xxh64:[a-f0-9]{16}$/.test(decoded))
   );

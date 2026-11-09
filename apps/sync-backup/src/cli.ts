@@ -13,6 +13,8 @@ import {
   authRequest,
   removeCredential,
 } from "./auth";
+import { buildSpaced } from "./spaced";
+import { spacedApplyCommand } from "./spaced-command";
 import { readFetch, identity, namespaces, pull, syncFiles } from "./sync";
 import {
   completeness,
@@ -48,6 +50,13 @@ Usage: wb <command> [options]
   schedule uninstall            Remove the schedule; retain local data
   db path                       Print the SQLite path
   db schema [--table NAME]       Print physical SQLite schema
+  spaced build                  Fold Spaced records into spaced.sqlite (offline):
+                                cards, decks, card_decks, reviews, plus views
+                                active_cards, card_stats and deck_summary
+  spaced path                   Print the spaced.sqlite path
+  spaced apply FILE             Sync Spaced, then preview a spaced-changes-v1
+                                change set against your cards; --apply pushes
+                                it and writes an undo file beside FILE
   snapshot create               Capture and verify dated records + files
   snapshot list                 List local snapshots
   snapshot verify ID            Verify SQLite and object checksums
@@ -74,16 +83,20 @@ Options:
   --missing         arctic text: every saved link that has no text
   --dry-run         backfill-previews: report what it would fill (default);
                     arctic text --missing: list what it would fetch
-  --apply           backfill-previews: fill them
+  --apply           backfill-previews: fill them; spaced apply: push the changes
   --limit N         backfill-previews, arctic text --missing: at most N links
                     this run (--missing: 25 when not given)
+  --model NAME      spaced apply: the model that wrote the change set, kept
+                    in the local ledger (spaced-ledger.jsonl), never synced
+  --effort LEVEL    spaced apply: that model's reasoning effort, likewise
   -h, --help        Show help
   --version         Print version
 
 Sync is download-only. Table selections have independent cursors. Counts are
 local, including tombstones. No remote restore or automatic pruning. The only
 writes are arctic save, arctic text and arctic backfill-previews --apply: new
-or restored links, their text, and previews where a link has none.
+or restored links, their text, and previews where a link has none; and spaced
+apply --apply: card content, suspension, deletion, decks and new cards.
 `;
 const options = {
   namespace: { type: "string", multiple: true },
@@ -100,6 +113,8 @@ const options = {
   "dry-run": { type: "boolean" },
   apply: { type: "boolean" },
   limit: { type: "string" },
+  model: { type: "string" },
+  effort: { type: "string" },
   help: { type: "boolean", short: "h" },
   version: { type: "boolean" },
 } as const;
@@ -164,8 +179,11 @@ async function main() {
               ? ["create", "list", "verify"].includes(sub)
               : command === "arctic"
                 ? ["save", "text", "backfill-previews"].includes(sub)
-                : ["sync", "status", "tree", "export", "hourly"].includes(command) &&
-                  !sub;
+                : command === "spaced"
+                  ? ["build", "path", "apply"].includes(sub)
+                  : ["sync", "status", "tree", "export", "hourly"].includes(
+                      command,
+                    ) && !sub;
   if (!known) throw Error("Unknown command. Run wb --help.");
   if (v.namespace && !["sync", "table", "tree"].includes(command))
     throw Error("--namespace is only valid for sync, table list, and tree");
@@ -190,8 +208,12 @@ async function main() {
     throw Error("--missing is only valid for arctic text");
   if (missing && p.length > 2)
     throw Error("--missing takes no links: it finds them");
-  if (v.apply && !backfill)
-    throw Error("--apply is only valid for arctic backfill-previews");
+  const spacedApply = command === "spaced" && sub === "apply";
+  if (spacedApply && !id) throw Error("spaced apply needs a change set FILE");
+  if ((v.model !== undefined || v.effort !== undefined) && !spacedApply)
+    throw Error("--model and --effort are only valid for spaced apply");
+  if (v.apply && !backfill && !spacedApply)
+    throw Error("--apply is only valid for arctic backfill-previews and spaced apply");
   if ((v["dry-run"] || v.limit !== undefined) && !backfill && !missing)
     throw Error(
       "--dry-run and --limit are only valid for arctic backfill-previews and arctic text --missing",
@@ -203,7 +225,12 @@ async function main() {
   if (backfill && p.length > 2) throw Error("Unexpected positional argument");
   if (
     command !== "arctic" &&
-    p.length > (command === "snapshot" && sub === "verify" ? 3 : sub ? 2 : 1)
+    p.length >
+      ((command === "snapshot" && sub === "verify") || spacedApply
+        ? 3
+        : sub
+          ? 2
+          : 1)
   )
     throw Error("Unexpected positional argument");
   if (v.table?.length && command === "sync" && v.namespace?.length !== 1)
@@ -257,7 +284,9 @@ async function main() {
       directory,
       apply: !!v.apply,
       limit: v.limit === undefined ? undefined : Number(v.limit),
-      onResult: json ? undefined : (result) => console.log(describePreview(result)),
+      onResult: json
+        ? undefined
+        : (result) => console.log(describePreview(result)),
     });
     if (json) print(run, json);
     else {
@@ -339,6 +368,10 @@ async function main() {
     if (json) print(results, json);
     if (results.some((result) => result.error)) process.exitCode = 1;
     return stop.finish();
+  }
+  if (command === "spaced" && sub === "path") {
+    print(join(directory, "spaced.sqlite"), json);
+    return;
   }
   if (command === "db" && sub === "path") {
     print(join(directory, "mirror.sqlite"), json);
@@ -471,6 +504,22 @@ async function main() {
           ),
         );
       }
+      return;
+    }
+    if (spacedApply) {
+      const token = getCredential(origin, directory);
+      if (!token) throw Error("Not signed in. Run wb auth login.");
+      await spacedApplyCommand({ store, origin, token, directory, file: resolve(id), apply: !!v.apply, json, model: v.model, effort: v.effort });
+      return;
+    }
+    if (command === "spaced") {
+      const result = buildSpaced(store.db, join(directory, "spaced.sqlite"));
+      print(
+        json
+          ? result
+          : `${result.path}\n${result.cards} cards (${result.active} active) in ${result.decks} decks; ${result.reviews} reviews.`,
+        json,
+      );
       return;
     }
     if (command === "db") {
