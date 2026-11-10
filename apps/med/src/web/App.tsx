@@ -73,7 +73,7 @@ import { ThemePicker } from "./components/ThemePicker";
 import { BranchStrip, BranchSwitch, useBranchTabs } from "./components/BranchTabs";
 import {
   InTitleBand,
-  useHasTitleBand,
+  useInTitleBand,
   useDisposeOnClose,
   useWindowDrafts,
   useShell,
@@ -436,8 +436,9 @@ export function App({
   const theme = activeTheme.appearance;
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const shell = useShell();
-  // Without the window's title band, as in a test, the review's row holds its pages.
-  const hasBand = useHasTitleBand();
+  // Where the window's title band does not show this workspace, as on a page
+  // that covers the workspaces or in a test, the review's row holds its pages.
+  const bandShown = useInTitleBand();
   // The workspace's panes: the review, its thread, the file trees, and the
   // preview, tiled as the reader leaves them. Each workspace keeps its own.
   const entry = useWorkspaceEntry();
@@ -5795,7 +5796,7 @@ export function App({
         name={reviewName}
         tools={pageTools}
         more={rowMore}
-        end={!hasBand && reviewTools}
+        end={!bandShown && reviewTools}
         controls={paneEnd(controls)}
       />
       {fileTabs}

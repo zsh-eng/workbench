@@ -366,12 +366,6 @@ export function useInTitleBand() {
   return !!band?.workspace && band.workspace === id;
 }
 
-/** Whether the window has a title band, as the shell has, for any workspace:
- * without one, as in a test, a pane holds what the band would. */
-export function useHasTitleBand() {
-  return !!use(Band);
-}
-
 /** The title band's slots, and whether a workspace's title leads it or a
  * pane's row covers its end. */
 function useTitleBand(workspace: string | null) {

@@ -41,7 +41,7 @@ import { tooltip } from "../ToolButton";
 import { Icon } from "../Icon";
 import { ToolButton } from "../ToolButton";
 import { paneHandle } from "../PaneTree";
-import { InTitleBand, useHasTitleBand } from "../Workspaces";
+import { InTitleBand, useInTitleBand } from "../Workspaces";
 import { SessionComposer, type ComposerAttachment } from "./SessionComposer";
 import { UsageChip, type ShownContext } from "./ThreadUsage";
 import {
@@ -721,7 +721,7 @@ export function SessionPanel({
     return () => observer.disconnect();
   }, []);
   const sideChoice = useViewSetting(viewSettings.sessionPanel);
-  const inBand = useHasTitleBand();
+  const inBand = useInTitleBand();
   const [background, setBackground] = useState<HTMLDivElement | null>(null);
   const [agentsSlot, setAgentsSlot] = useState<HTMLDivElement | null>(null);
   const turnRecap = useMemo(
@@ -851,7 +851,7 @@ export function SessionPanel({
       data-lead={lead || undefined}
       {...stylex.props(styles.panel)}
     >
-      {/* Without the window's title band, as in a test, a row holds them. */}
+      {/* Where the title band does not show this workspace, a row holds them. */}
       {inBand ? (
         <InTitleBand session={sessionTools} />
       ) : (
